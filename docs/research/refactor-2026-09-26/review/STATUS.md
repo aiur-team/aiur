@@ -854,3 +854,7 @@ Final candidates01/04 resolved against frozen ToolExecutor, DecisionAttention, D
 ### Skills/prompts: raw review closure
 
 Closed the skills-prompts raw unit as reviewed_pending_synthesis after revalidating all250manifest paths/hashes and36,169lines, checking every finding citation exists/in range, and reconciling all42candidates. Retained73raw observations (48P2/25P3), grouped by related contracts in review/in-progress/skills-prompts-closure-audit.json; cross-unit semantic dedup is explicitly pending. Inventory now29/32raw units and1,019findings (14P0/168P1/616P2/221P3), with182high-severity skeptic reviews still missing. Three raw duplication sweeps remain. This is unit closure, not completion of the overall research.
+
+### Name duplication: filesystem and control-call contracts
+
+Read all six atomic_write and all six control_api_call definitions. Four filesystem wrappers already use Fs; spill writing adds exclusive creation/containment and a different result shape. Control-call extraction must preserve configured versus caller/fixed timeouts and PauseResume's specific crash reasons. Updated name triage to9families/170literal definitions; no extra raw finding or savings count, because common bodies overlap the body sweep. Callback/name sweep remains incomplete.

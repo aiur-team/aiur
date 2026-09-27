@@ -1980,10 +1980,184 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "atomic_write",
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal definition clauses for this exact name read from the frozen snapshot.",
+      "disposition": "existing_primitive_with_domain_guards",
+      "assessment": "All six literal definitions in six modules read. Four domain wrappers already delegate to Fs.atomic_write; Fs is the shared primitive, not a sixth redundant implementation. ToolResultSpill adds random names, exclusive staging-file creation, permission/sync, destination absence and workspace containment checks with final cleanup. Replacing it directly with Fs would drop preconditions and change the return from {:ok,path} to :ok.",
+      "constraints": [
+        "PackStatus creates directories and logs failures; membership FileOps rejects nonregular/symlink destinations; Checkpoint maps errors to checkpoint_write_failed; RetiredFloor is a thin option wrapper.",
+        "Fs uses a unique-integer temporary suffix and optional fsync/mode. Its generic writer is not the spill policy boundary.",
+        "Read Fs and membership FileOps fully, plus spill write/sync/destination helpers. This is no durability certification or filesystem-race test; no saving measured."
+      ],
+      "sites": [
+        {
+          "arity": 3,
+          "line": 82,
+          "module": "Aiur.AppServer.ToolResultSpill",
+          "name": "atomic_write",
+          "path": "src/lib/aiur/app_server/tool_result_spill.ex",
+          "kind": "defp",
+          "end_line": 97,
+          "body_sha256": "56a4eab522d1d1c152c70c7abaec7bfe9d22f1e47f907071dd4a9a66a111f566",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 505,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "atomic_write",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "kind": "defp",
+          "end_line": 514,
+          "body_sha256": "92e7aa1a3a1d6622bc428e2896c37020d6924367f5ba531f958c326ad961a53d",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 21,
+          "module": "Aiur.CurrentRunMembership.Store.FileOps",
+          "name": "atomic_write",
+          "path": "src/lib/aiur/current_run_membership/store/file_ops.ex",
+          "kind": "def",
+          "end_line": 25,
+          "body_sha256": "2bc4422a2225b7415b7e5237eae7a0e914559dba9e6c0f71801489392fd02189",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 19,
+          "module": "Aiur.Fs",
+          "name": "atomic_write",
+          "path": "src/lib/aiur/fs.ex",
+          "kind": "def",
+          "end_line": 34,
+          "body_sha256": "f0ff633c622d0c1692ae9876379a0a5d27acf1dfd7322902083faf3ecaff20f9",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 158,
+          "module": "Aiur.UsageAggregate.Checkpoint",
+          "name": "atomic_write",
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "kind": "defp",
+          "end_line": 163,
+          "body_sha256": "49a518c9db5ba90d3aeabbce932fe8efcf668514ac9d6f9626ada2c9e3f13b00",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 73,
+          "module": "Aiur.UsageLedger.RetiredFloor",
+          "name": "atomic_write",
+          "path": "src/lib/aiur/usage_ledger/retired_floor.ex",
+          "kind": "defp",
+          "end_line": 73,
+          "body_sha256": "a752672955226348b74c68e98657c981520ca42daf00747296310a29a8e1005f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "control_api_call",
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal definition clauses for this exact name read from the frozen snapshot.",
+      "disposition": "shared_rpc_shape_with_error_policy_drift",
+      "assessment": "All six definitions in six orchestrator modules read. Interrupts, PriorityControl and Slots share the same fixed5000ms wrapper; OperatorMessages and RemoteControlMode accept timeout parameters. PauseResume instead reads a configured timeout and distinguishes timeout, noproc/nodedown and other call failures.",
+      "constraints": [
+        "Extracting a common transport wrapper can preserve explicit timeout and error-mapping policy. Do not replace PauseResume with the generic catch-all unavailable mapping.",
+        "The same availability precheck does not eliminate a process-exit race; existing catches are necessary.",
+        "These families overlap body-census candidates, so do not count the identical wrappers as new savings or independent duplicate opportunities. Caller-wide runtime behavior is not established by this family read."
+      ],
+      "sites": [
+        {
+          "arity": 2,
+          "line": 158,
+          "module": "Aiur.Orchestrator.Interrupts",
+          "name": "control_api_call",
+          "path": "src/lib/aiur/orchestrator/interrupts.ex",
+          "kind": "defp",
+          "end_line": 167,
+          "body_sha256": "a74f71315836993aaf5090030c69b52a1362dd52cfe6b0e071a1c941d9fdedb1",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 1069,
+          "module": "Aiur.Orchestrator.OperatorMessages",
+          "name": "control_api_call",
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "kind": "defp",
+          "end_line": 1078,
+          "body_sha256": "960195e8fc62008ea3d4abf8ca839be220df9da6f378858cdf17874e9323c834",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 2438,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "control_api_call",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "defp",
+          "end_line": 2456,
+          "body_sha256": "c6c180db686e75a66165b3e111dd5e557292cce934586adae13382ba84a44294",
+          "normalized_body_lines": 20,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 151,
+          "module": "Aiur.Orchestrator.PriorityControl",
+          "name": "control_api_call",
+          "path": "src/lib/aiur/orchestrator/priority_control.ex",
+          "kind": "defp",
+          "end_line": 160,
+          "body_sha256": "a74f71315836993aaf5090030c69b52a1362dd52cfe6b0e071a1c941d9fdedb1",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 291,
+          "module": "Aiur.Orchestrator.RemoteControlMode",
+          "name": "control_api_call",
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "kind": "defp",
+          "end_line": 300,
+          "body_sha256": "960195e8fc62008ea3d4abf8ca839be220df9da6f378858cdf17874e9323c834",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 84,
+          "module": "Aiur.Orchestrator.Slots",
+          "name": "control_api_call",
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "kind": "defp",
+          "end_line": 93,
+          "body_sha256": "a74f71315836993aaf5090030c69b52a1362dd52cfe6b0e071a1c941d9fdedb1",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 158,
-  "limits": "Seven selected families reviewed; counts include literal bodyless declarations where present. Top-frequency callbacks and remaining names are not claimed reviewed. Name equality is not duplication; subsets overlap body assessments. Transitive helper correctness and savings are not claimed.",
+  "reviewed_clauses": 170,
+  "limits": "Nine selected families and170literal definitions/declarations reviewed. Top-frequency callbacks and remaining names are not claimed reviewed. Name equality is not duplication; body-sweep overlap is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
