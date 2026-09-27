@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "1ea9d2feec7cc4d953fab055d15fd9b48ce33a4da522ad7cbd27c96f1e873627"
+    "name_triage": "092e60c0c8151eed2fe9a92f62332387ff5c0f9984bccb6b323f97a9f0476f99"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 685,
-    "remaining_cross_module_names": 995,
-    "remaining_literal_entries": 3058
+    "reviewed_cross_module_names": 693,
+    "remaining_cross_module_names": 987,
+    "remaining_literal_entries": 3031
   },
   "families": [
-    {
-      "name": "bootstrap",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "bot_account",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "bound_entries",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "bound_projections",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "bounded_list",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 3
-    },
-    {
-      "name": "bounded_optional",
-      "clauses": 7,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "bounded_required",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "branch_alias",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
     {
       "name": "branch_target_entry",
       "clauses": 2,

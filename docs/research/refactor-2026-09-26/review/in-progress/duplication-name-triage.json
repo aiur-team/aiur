@@ -97259,10 +97259,454 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "bootstrap",
+      "assessment": "Global GitHub setup and aggregate recovery initialize different systems.",
+      "constraints": [
+        "GlobalConfigStartup resolves a configured GitHub target/credential and ensures workflow labels; other config shapes return ok.",
+        "UsageAggregate.Store initializes state, finalizes empty freshness without paths, otherwise attempts ledger subscription then catches up from the effective base.",
+        "Preserve remote setup versus projection recovery and subscription ordering. No credentials were read or remote setup executed; successful subscription/recovery is not certified by this literal read."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 26,
+          "module": "Aiur.GlobalConfigStartup",
+          "name": "bootstrap",
+          "path": "src/lib/aiur/global_config_startup.ex",
+          "kind": "defp",
+          "end_line": 36,
+          "body_sha256": "97dfe3c24316007899a6a15e384ecc028244660e75d57c0950bf69679ccb33f9",
+          "normalized_body_lines": 26,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 38,
+          "module": "Aiur.GlobalConfigStartup",
+          "name": "bootstrap",
+          "path": "src/lib/aiur/global_config_startup.ex",
+          "kind": "defp",
+          "end_line": 38,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 73,
+          "module": "Aiur.UsageAggregate.Store",
+          "name": "bootstrap",
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "kind": "defp",
+          "end_line": 82,
+          "body_sha256": "00565f444ee9d3e021d2a541bd48474187a6fff03477652b16f27e8ca824027a",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bot_account",
+      "assessment": "Configured identity access and authenticated-viewer fallback are separate layers.",
+      "constraints": [
+        "GitHub.Config normalizes the configured bot account.",
+        "BotIdentity uses an optional lazy config fallback, normalizes it and fetches authenticated viewer login when absent.",
+        "Preserve lazy override semantics and network fallback ownership; this read does not certify identity normalization or authenticated response handling."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 18,
+          "module": "Aiur.GitHub.BotIdentity",
+          "name": "bot_account",
+          "path": "src/lib/aiur/github/bot_identity.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "c77758cd67a065cccb6ed0da34e239ad19d5c3111d71c51aecc4eaa5247b5ccf",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 351,
+          "module": "Aiur.GitHub.Config",
+          "name": "bot_account",
+          "path": "src/lib/aiur/github/config.ex",
+          "kind": "def",
+          "end_line": 351,
+          "body_sha256": "75bba91b630eb3da758d445d206e44f7fdbf6cb50fa7a21e500e85d5a316850f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bound_entries",
+      "assessment": "Two cache eviction helpers share a limit and ordering but differ on missing metadata.",
+      "constraints": [
+        "Verified both max_entries constants are 8; each retains entries unchanged within the limit, otherwise keeps the eight largest load_order values.",
+        "ControlCenterCache defaults missing load_order to zero; FinancialData.Cache.Pending uses strict entry.load_order access.",
+        "A shared eviction primitive must expose or standardize that input contract. Tie ordering and cache effectiveness are not established here."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 95,
+          "module": "AiurWeb.ControlCenterCache",
+          "name": "bound_entries",
+          "path": "src/lib/aiur_web/control_center_cache.ex",
+          "kind": "defp",
+          "end_line": 95,
+          "body_sha256": "7d2e6e5ca152a09a4b9b6753b016c0fca42e831a081e3b6b232a77bd36cc36dc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 97,
+          "module": "AiurWeb.ControlCenterCache",
+          "name": "bound_entries",
+          "path": "src/lib/aiur_web/control_center_cache.ex",
+          "kind": "defp",
+          "end_line": 102,
+          "body_sha256": "c57aedab97669eef8cc5b11580f3c17e3a9fc1ac14512647a45b0187e9a2baa0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 192,
+          "module": "AiurWeb.FinancialData.Cache.Pending",
+          "name": "bound_entries",
+          "path": "src/lib/aiur_web/financial_data/cache/pending.ex",
+          "kind": "defp",
+          "end_line": 192,
+          "body_sha256": "7d2e6e5ca152a09a4b9b6753b016c0fca42e831a081e3b6b232a77bd36cc36dc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 194,
+          "module": "AiurWeb.FinancialData.Cache.Pending",
+          "name": "bound_entries",
+          "path": "src/lib/aiur_web/financial_data/cache/pending.ex",
+          "kind": "defp",
+          "end_line": 199,
+          "body_sha256": "a533cdcbd37fd3f306657e7e69bdf66f2119d21c591b78f2db25e3471d6d2f86",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bound_projections",
+      "assessment": "Retention must keep each domain's dependent indexes aligned.",
+      "constraints": [
+        "DecisionMetrics.Writer retains recent samples, trims records and pending records to retained IDs and recomputes pending_count.",
+        "RecentMergeStore retains sorted merges, rebuilds current and trims history to those IDs.",
+        "Preserve domain ordering and dependent projection pruning; helper selection rules and durable compaction conservation remain transitive."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 160,
+          "module": "Aiur.DecisionMetrics.Writer",
+          "name": "bound_projections",
+          "path": "src/lib/aiur/decision_metrics/writer.ex",
+          "kind": "defp",
+          "end_line": 171,
+          "body_sha256": "dac457580b1d245568d5a854af36156363e641d75acc6b2e33a05ad33bf54513",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 147,
+          "module": "Aiur.RecentMergeStore",
+          "name": "bound_projections",
+          "path": "src/lib/aiur/recent_merge_store.ex",
+          "kind": "defp",
+          "end_line": 156,
+          "body_sha256": "a485d36e91a9ee252c669c58afd75e1a570006c4f9c6b8e71363fc3ff1316db4",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bounded_list",
+      "assessment": "Rejecting oversized input differs from truncating fallback evidence.",
+      "constraints": [
+        "Claude telemetry accepts only lists within the supplied limit, otherwise returns attribute_limit.",
+        "CurrentRunProjections.Checkpoint wraps any value as a list and takes max_fallback_entries.",
+        "Do not replace validation with silent truncation or vice versa; truncated fallback evidence is not a complete source population."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 338,
+          "module": "Aiur.Claude.Telemetry.Event",
+          "name": "bounded_list",
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "kind": "defp",
+          "end_line": 338,
+          "body_sha256": "000ebf74706370ea3e2ca40f3e1bae00541d272848230fe87dc5d24326362229",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 339,
+          "module": "Aiur.Claude.Telemetry.Event",
+          "name": "bounded_list",
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "kind": "defp",
+          "end_line": 339,
+          "body_sha256": "68376655d9113450bcee80d3c988d7b66aa9fd985ea9449442735240e3e428ac",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 194,
+          "module": "Aiur.CurrentRunProjections.Checkpoint",
+          "name": "bounded_list",
+          "path": "src/lib/aiur/current_run_projections/checkpoint.ex",
+          "kind": "defp",
+          "end_line": 194,
+          "body_sha256": "1ca00d25c26021c70310ec8333cd92e71873a154a84583452e3fea88dbd3b484",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bounded_optional",
+      "assessment": "Optional strings differ on whitespace-only input despite matching nil/empty cases.",
+      "constraints": [
+        "Both accept nil and exact empty string as nil.",
+        "DecisionAnswer normalizes other binary strings, treating whitespace-only as nil and rejecting nonbinary values as invalid_type.",
+        "DecisionEvent delegates other values to bounded_required, so whitespace-only returns missing. Preserve this observable distinction; caller incidence and intended policy convergence remain open."
+      ],
+      "clauses": 7,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 240,
+          "module": "Aiur.DecisionAnswer",
+          "name": "bounded_optional",
+          "path": "src/lib/aiur/decision_answer.ex",
+          "kind": "defp",
+          "end_line": 240,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 241,
+          "module": "Aiur.DecisionAnswer",
+          "name": "bounded_optional",
+          "path": "src/lib/aiur/decision_answer.ex",
+          "kind": "defp",
+          "end_line": 241,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 243,
+          "module": "Aiur.DecisionAnswer",
+          "name": "bounded_optional",
+          "path": "src/lib/aiur/decision_answer.ex",
+          "kind": "defp",
+          "end_line": 243,
+          "body_sha256": "9168d4a40e63ac3627fa67d5d94c7797219d621c97acdbbe1c401dd9299d6549",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 244,
+          "module": "Aiur.DecisionAnswer",
+          "name": "bounded_optional",
+          "path": "src/lib/aiur/decision_answer.ex",
+          "kind": "defp",
+          "end_line": 244,
+          "body_sha256": "13fcc70d560c80ff7d32719bbe73f3e3ddc5656bd2d592e5d98e50d0f4a18d8f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 984,
+          "module": "Aiur.DecisionEvent",
+          "name": "bounded_optional",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 984,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 985,
+          "module": "Aiur.DecisionEvent",
+          "name": "bounded_optional",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 985,
+          "body_sha256": "ecfb235ba55f325ba46dad75b9d0bfc22eb775c27fd61f899486a8d2daf02d69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 986,
+          "module": "Aiur.DecisionEvent",
+          "name": "bounded_optional",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 986,
+          "body_sha256": "0ef1a47084847ee6b0222d8dbab456d7053022d83e98abd754c92864ad50d37a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "bounded_required",
+      "assessment": "Required-string validators differ on blank and malformed inputs.",
+      "constraints": [
+        "Read DecisionAnswer.normalize_string: blank normalization becomes too_short through bounded_required; that wrapper has no type guard before String.trim.",
+        "DecisionEvent checks binary input, reports missing for blank/nil and invalid_type for other values.",
+        "Both check trimmed length, reject the same control-character set and redact accepted strings; control predicates were read. Preserve error taxonomy/type contract, and do not infer post-redaction length bounds or complete secret coverage."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 233,
+          "module": "Aiur.DecisionAnswer",
+          "name": "bounded_required",
+          "path": "src/lib/aiur/decision_answer.ex",
+          "kind": "defp",
+          "end_line": 238,
+          "body_sha256": "a92489611a47107823f11dbfea830f065d1de9e6bb44861007f0df0d92404add",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 970,
+          "module": "Aiur.DecisionEvent",
+          "name": "bounded_required",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 979,
+          "body_sha256": "0d8861639340a1d5eb88d51092df9b22efbb037707bd38d55c5528c2409aebe5",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 981,
+          "module": "Aiur.DecisionEvent",
+          "name": "bounded_required",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 981,
+          "body_sha256": "74b604506f9397276eb48670d34bd03afb3520bd662cc5b8a9663762aca311e3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 982,
+          "module": "Aiur.DecisionEvent",
+          "name": "bounded_required",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 982,
+          "body_sha256": "13fcc70d560c80ff7d32719bbe73f3e3ddc5656bd2d592e5d98e50d0f4a18d8f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "branch_alias",
+      "assessment": "GraphQL branch query scaffolding matches while requested data differs.",
+      "constraints": [
+        "Both request open pull requests ordered newest-created first, use the same indexed alias shape, include hasNextPage and have a verified per-branch limit of 2.",
+        "CIPollBatch embeds entry-dependent pull_request_fields; CommentPollBatch embeds pull_request_identity_fields.",
+        "A shared query scaffold is possible with explicit field selection. Escaping, downstream pagination handling and production API savings are not certified by this read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 233,
+          "module": "Aiur.GitHub.CIPollBatch",
+          "name": "branch_alias",
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 240,
+          "body_sha256": "5078b80d122ece7107b3633fe327029ab9817e0ed151d43b49565571d77bafbf",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 362,
+          "module": "Aiur.GitHub.CommentPollBatch",
+          "name": "branch_alias",
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 369,
+          "body_sha256": "59e4e42216b211722b801b2ea85888370b06f9aa7c2cea73ebdf6fe23b1bea08",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7210,
-  "limits": "685 selected families and 7210 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7237,
+  "limits": "693 selected families and 7237 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
