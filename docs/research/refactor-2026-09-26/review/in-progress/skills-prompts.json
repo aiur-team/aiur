@@ -88,6 +88,69 @@
       "lines": 259,
       "read": "full",
       "assessment": "All shared prompt lines read. Preserves external-content trust boundary, sole-state tool, provisional readiness exclusion, phase progress with cleanup tail, bounded checkins, no generic temporary files and exact-body reread after comment writes. GITHUB_TOKEN claim conflicts with credential-file skill and scrub source. Stacked PR base conflicts with dev-loop. Operator-decision reflex allows attention/pause question instead of structured Decision, conflicting with newer skill requirement. Manual --test guard is explicit and defeats any interpretation that worker must bypass it; planning auto-transition concerns active implementation tickets, not this research-only task."
+    },
+    {
+      "path": ".claude/skills/aiur-build/SKILL.md",
+      "sha256": "c22de63b385dd3f46ea5ed97cc6a815aaf97f0df531cea255d9f9d3adfd164fd",
+      "lines": 253,
+      "read": "full",
+      "assessment": "Planning-only authority is explicit: Feature Planner researches, Executor promotes only with user authorization, and no implementation/run is implied. Finite acceptance, deferred findings, source precedence, approved SHA, stable logical IDs, evidence reviews, contracts and handoff preserved. Runtime canonical state and discovery mirror differ from docs evidence; source precedence and duplicate IDs specified. Required rendered pack verification may use an existing daemon but does not authorize planner to launch one. Approval reconciliation preserves issue identities and never deletes removed members. Parallel researcher instruction is reviewed as source, not invoked for this task."
+    },
+    {
+      "path": ".claude/skills/aiur-build/references/decomposition-workflow.md",
+      "sha256": "97e3a37a8f24d09b1c4f8133b1a339b97bd9c76d79430434eee9cf62879143a2",
+      "lines": 388,
+      "read": "full",
+      "assessment": "All388 lines read. Ten stages separate grounding, requirements, evidence, review, contracts, graph, validation, promotion and handoff. Requires measured wave/depth analysis, antichain phases, explicit conflicts, data-flow reconnection owners and merged-base capstone. Contract-first alternatives have explicit fixture/temporary seams; this is design advice, not measured savings. Finite backlog and stopping after two relevant passes with no new boundary/high-severity fact are deliberate convergence controls. Mandatory computed-phase semantics conflict with planning-contract's authored-phase statement. Lane/epic icon prose is a different scope from top-level/member icon fields, so no icon contradiction promoted. Private-project historical illustration not reproduced in public research. Bundled validator exists; not executed or credited with semantic validation."
+    },
+    {
+      "path": ".claude/skills/aiur-build/references/example-design-evidence.md",
+      "sha256": "c7223b50e92b4a67dc6c05a15b7e5b949f669ff26bde5fca46081b5a093e5a39",
+      "lines": 4,
+      "read": "full",
+      "assessment": "Four-line design fixture only establishes read-only graph and explicit unknown/stale states; no captured UI artifact or browser proof implied."
+    },
+    {
+      "path": ".claude/skills/aiur-build/references/example-tickets/BO-001-project-graph.md",
+      "sha256": "b61d8ec76d6b9da03a33627244d5e790c8c3c8867e0b1c5e1ad9d07cf59b816e",
+      "lines": 74,
+      "read": "full",
+      "assessment": "Example provider ticket preserves stale/unknown versus empty, exact contract ownership and capstone separation. Placeholder researched SHA and generic implementation notes mark illustrative/validator material, not a verified worker-ready ticket for current code. Do not claim named reuse targets or acceptance harness actually exist based on this example."
+    },
+    {
+      "path": ".claude/skills/aiur-build/references/example-tickets/BO-002-prove-acceptance.md",
+      "sha256": "7ab99fea8ef7b12832d0d9a382ed518f0358e0873d9ee9169de483e3c53bd2ec",
+      "lines": 75,
+      "read": "full",
+      "assessment": "Example capstone owns bounded merged-base acceptance and returns contributing work to rework without broadening scope. Current-main wording is illustrative and must be refreshed against configured integration base before real execution. Generic harness and placeholder researched SHA are not operational proof."
+    },
+    {
+      "path": ".claude/skills/aiur-build/references/example-tickets/BO-003-example-executable.md",
+      "sha256": "0700b746f0f1996d4c7124b0d2e7f5b9b205b6e1d4cd5bb9ceb8ddb723026541",
+      "lines": 71,
+      "read": "full",
+      "assessment": "Explicit worker-validation fixture with generic projection and refresh-at-pickup notes; not a production plan. Demonstrates metadata/sections but lacks the concrete implementation pointers demanded for real ticket contracts."
+    },
+    {
+      "path": ".claude/skills/aiur-build/references/example-tickets/BO-003-example-umbrella.md",
+      "sha256": "7dad6d0356bbb8791caa20079bc8bd6bce24cf9b99aa5141e3e29d38f75661d0",
+      "lines": 6,
+      "read": "full",
+      "assessment": "Explicit non-runnable hierarchy fixture; umbrella is not an executable ticket or runnable program."
+    },
+    {
+      "path": ".claude/skills/aiur-build/references/example-tickets/BO-004-example-umbrella.md",
+      "sha256": "ea153d2eabc1b7e69c6b6a10297ca60661a8c2c3e3eee75c073988cb44a6750c",
+      "lines": 6,
+      "read": "full",
+      "assessment": "Second explicit non-runnable hierarchy/ownership fixture. Repeated example IDs across alternative fixtures are not by themselves a duplicate within a single validated pack."
+    },
+    {
+      "path": ".claude/skills/aiur-build/references/planning-contract.md",
+      "sha256": "cd113d6da73aa8c9a2d12e85c94e6b5a8768bfc30b08ffd289579ba170e65468",
+      "lines": 125,
+      "read": "full",
+      "assessment": "Tracker facts outrank promoted drafts; runtime projection fills only known gaps; unknown progress is not zero and provider failure retains visible last-known-good state. Safe draft path, explicit promotion authority and frozen draft ownership preserved. Runtime member schema includes optional icon, whereas lane icon prose elsewhere is a separate concern. Final statement treats phases as authored metadata, conflicting with computed antichain rule in decomposition workflow. Minimal template does not replace stricter full worker contract checklist."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -166,6 +229,27 @@
       "recommendation": "Replace the obsolete inherited-token description with a reference to the governed credential-file contract; preserve no-login, no-merge and no-operator-keyring fallback rules.",
       "refactor_hint": "Generate or reference security-sensitive environment contracts from one maintained surface.",
       "limits": "Source-level instruction mismatch only, not a reproduced credential exposure or provider failure. Daemon-owned non-agent prewarm has an explicit scrub opt-out and is not the scope of this claim."
+    },
+    {
+      "id": "skills-prompts-cont-04",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Planning references disagree whether phases are authored or computed",
+      "locations": [
+        {
+          "path": ".claude/skills/aiur-build/references/decomposition-workflow.md",
+          "lines": "183-200"
+        },
+        {
+          "path": ".claude/skills/aiur-build/references/planning-contract.md",
+          "lines": "124-125"
+        }
+      ],
+      "description": "The decomposition workflow requires phases computed by longest-path leveling, zero internal hard dependencies, and an agreed depth budget. The planning contract instead says phase is authored metadata and topological layers are derived views. These assign different authority to the same member phase field, permitting incompatible packs or validation expectations.",
+      "evidence": "Both required references were fully read at the frozen commit. Stage7 also explicitly validates antichain membership and phase budget, reinforcing the computed interpretation rather than leaving it optional.",
+      "recommendation": "Choose one canonical meaning for phase and use a separate lane/milestone field for thematic grouping. Align contract, graph generation, validation and dashboard presentation to that choice.",
+      "refactor_hint": "A planning schema should define graph-derived scheduling fields once; prose views should reference that definition.",
+      "limits": "Source consistency finding only. No runtime scheduler defect or measured parallelism loss is alleged; runtime phase consumption and validator behavior require separate reconciliation."
     }
   ],
   "preserve": [
@@ -180,7 +264,16 @@
     "Exchange overview separates manual ticket scope, replay/digest deduplication and mid-turn blocker allowlist. At-least-once delivery is documented contract, not independently re-proven here. Legacy operator-choice attention example and narrow readiness shorthand need reconciliation with newer Decision/merge pathways.",
     "Stub readiness temporary versus final ref/SHA corroboration, local-only placeholders, publish-before-ready and generation-scoped dependency pauses preserved. Explicit stack-on-unmerged-blocker PR base conflicts with mandatory integration-base retarget in dev-loop. A dependency marker is not a reason to abandon independent work; pause versus remaining prep is instruction wording, not proof of scheduler behavior.",
     "State tool owns sole lifecycle state, refuses Executor dispositions; mutable labels not reconstructed from stale reads. One durable workpad, exact-head CI, no empty liveness pushes, actual feedback intent, reply verification and constrained thread resolution preserved. Phase-review example names ce-review while active flow elsewhere names ce-code-review; resolve alias/catalog before promoting. Workpad template includes machine identity/path; public research does not reproduce actual machine data.",
-    "All shared prompt lines read. Preserves external-content trust boundary, sole-state tool, provisional readiness exclusion, phase progress with cleanup tail, bounded checkins, no generic temporary files and exact-body reread after comment writes. GITHUB_TOKEN claim conflicts with credential-file skill and scrub source. Stacked PR base conflicts with dev-loop. Operator-decision reflex allows attention/pause question instead of structured Decision, conflicting with newer skill requirement. Manual --test guard is explicit and defeats any interpretation that worker must bypass it; planning auto-transition concerns active implementation tickets, not this research-only task."
+    "All shared prompt lines read. Preserves external-content trust boundary, sole-state tool, provisional readiness exclusion, phase progress with cleanup tail, bounded checkins, no generic temporary files and exact-body reread after comment writes. GITHUB_TOKEN claim conflicts with credential-file skill and scrub source. Stacked PR base conflicts with dev-loop. Operator-decision reflex allows attention/pause question instead of structured Decision, conflicting with newer skill requirement. Manual --test guard is explicit and defeats any interpretation that worker must bypass it; planning auto-transition concerns active implementation tickets, not this research-only task.",
+    "Planning-only authority is explicit: Feature Planner researches, Executor promotes only with user authorization, and no implementation/run is implied. Finite acceptance, deferred findings, source precedence, approved SHA, stable logical IDs, evidence reviews, contracts and handoff preserved. Runtime canonical state and discovery mirror differ from docs evidence; source precedence and duplicate IDs specified. Required rendered pack verification may use an existing daemon but does not authorize planner to launch one. Approval reconciliation preserves issue identities and never deletes removed members. Parallel researcher instruction is reviewed as source, not invoked for this task.",
+    "All388 lines read. Ten stages separate grounding, requirements, evidence, review, contracts, graph, validation, promotion and handoff. Requires measured wave/depth analysis, antichain phases, explicit conflicts, data-flow reconnection owners and merged-base capstone. Contract-first alternatives have explicit fixture/temporary seams; this is design advice, not measured savings. Finite backlog and stopping after two relevant passes with no new boundary/high-severity fact are deliberate convergence controls. Mandatory computed-phase semantics conflict with planning-contract's authored-phase statement. Lane/epic icon prose is a different scope from top-level/member icon fields, so no icon contradiction promoted. Private-project historical illustration not reproduced in public research. Bundled validator exists; not executed or credited with semantic validation.",
+    "Four-line design fixture only establishes read-only graph and explicit unknown/stale states; no captured UI artifact or browser proof implied.",
+    "Example provider ticket preserves stale/unknown versus empty, exact contract ownership and capstone separation. Placeholder researched SHA and generic implementation notes mark illustrative/validator material, not a verified worker-ready ticket for current code. Do not claim named reuse targets or acceptance harness actually exist based on this example.",
+    "Example capstone owns bounded merged-base acceptance and returns contributing work to rework without broadening scope. Current-main wording is illustrative and must be refreshed against configured integration base before real execution. Generic harness and placeholder researched SHA are not operational proof.",
+    "Explicit worker-validation fixture with generic projection and refresh-at-pickup notes; not a production plan. Demonstrates metadata/sections but lacks the concrete implementation pointers demanded for real ticket contracts.",
+    "Explicit non-runnable hierarchy fixture; umbrella is not an executable ticket or runnable program.",
+    "Second explicit non-runnable hierarchy/ownership fixture. Repeated example IDs across alternative fixtures are not by themselves a duplicate within a single validated pack.",
+    "Tracker facts outrank promoted drafts; runtime projection fills only known gaps; unknown progress is not zero and provider failure retains visible last-known-good state. Safe draft path, explicit promotion authority and frozen draft ownership preserved. Runtime member schema includes optional icon, whereas lane icon prose elsewhere is a separate concern. Final statement treats phases as authored metadata, conflicting with computed antichain rule in decomposition workflow. Minimal template does not replace stricter full worker contract checklist."
   ],
   "follow_up_candidates": [
     {
@@ -200,5 +293,5 @@
       "question": "Reconcile unblocked-only shorthand with merge-readiness delivery and dismissed-decision resolution correlation against runtime."
     }
   ],
-  "next": "Read aiur-build/SKILL.md and its reference pack next;12/250 full files. Three P2 source contradictions provisional until cross-unit deduplication."
+  "next": "Read aiur-debug/SKILL.md and diagnostic references next;21/250 full files. Four P2 source contradictions provisional until cross-unit deduplication. Existing four follow-up questions remain."
 }
