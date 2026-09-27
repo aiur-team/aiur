@@ -1086,3 +1086,7 @@ Read announcement, attach, backend_label and bounded_integer: 47 literal entries
 ### Name duplication: cache authority and claim guarantees
 
 Read cache_key, cancel_timer, check and claim: 28 literal entries across four families. Preserve cache authority discriminators, correlated timeout draining, best-effort checks and deduplication-versus-ownership claim contracts. Name triage now 226 families/4699 entries, leaving 1454 cross-module names. Raw findings and skeptic counts are unchanged; no durable claim, runtime completion or saving is inferred from success-shaped returns.
+
+### Name duplication: bounded collection and accounting inputs
+
+Read collect, dashboard_writable?, deposit and dimensions: 30 literal entries across four families. Preserve pagination lookahead/read caps, process cleanup, configuration sources, body freshness versus processed marks and provider token relationships. Endpoint writable predicates offer a narrow sharing candidate with explicit exception policy. Name triage now 230 families/4729 entries, leaving 1450 cross-module names. Raw findings and skeptic counts are unchanged; authorization completeness, billing correctness and savings are not claimed.
