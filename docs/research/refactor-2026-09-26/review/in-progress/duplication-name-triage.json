@@ -58007,10 +58007,408 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "tick",
+      "assessment": "Two monitor ticks share control flow but retain different refresh and scan implementations.",
+      "constraints": [
+        "PRHealthScanner and ReworkRequeue both refresh configuration then scan only when enabled. Their bodies are identical, but refresh_from_config and scan remain domain-specific; sharing the skeleton is not proof their state machines are equivalent.",
+        "BuildGateHoldMonitor evaluates status and removes markers. LsRemoteTicker folds successful refs, records classified connectivity failures, and leaves state unchanged for unexpected results.",
+        "AnalyticsRuntime refreshes only when stale; AwaitingCommands schedules its next tick before refreshing. Preserve scheduling ownership and failure policy when considering the existing periodic-worker infrastructure."
+      ],
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 107,
+          "module": "Aiur.BuildGateHoldMonitor",
+          "name": "tick",
+          "path": "src/lib/aiur/build_gate_hold_monitor.ex",
+          "kind": "defp",
+          "end_line": 112,
+          "body_sha256": "44620d79e1c7543fab9c04f4f256e2548c19fe0f4b5376e3dc0c71bd79b24916",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 97,
+          "module": "Aiur.Events.LsRemoteTicker",
+          "name": "tick",
+          "path": "src/lib/aiur/events/ls_remote_ticker.ex",
+          "kind": "def",
+          "end_line": 112,
+          "body_sha256": "73b61b610c540924247d9c7ed2579a73c8abbe00058de821f8c23341bcc39df5",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 77,
+          "module": "Aiur.Orchestrator.PRHealthScanner",
+          "name": "tick",
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "kind": "def",
+          "end_line": 85,
+          "body_sha256": "269df324a56fccccb9694a99324cf4c725d30c0ec79246afa9dc5ed58bef26c6",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "Aiur.Orchestrator.ReworkRequeue",
+          "name": "tick",
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "kind": "def",
+          "end_line": 119,
+          "body_sha256": "269df324a56fccccb9694a99324cf4c725d30c0ec79246afa9dc5ed58bef26c6",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 56,
+          "module": "AiurWeb.BuildOrder.AnalyticsRuntime",
+          "name": "tick",
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "kind": "def",
+          "end_line": 58,
+          "body_sha256": "d328c917e821d39cd89fc21c82ba8f367e203d92842234a6cd8af57306162d3f",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 52,
+          "module": "AiurWeb.OperatorControlCenter.AwaitingCommands",
+          "name": "tick",
+          "path": "src/lib/aiur_web/operator_control_center/awaiting_commands.ex",
+          "kind": "def",
+          "end_line": 55,
+          "body_sha256": "943b3231062677392f4361fbbd3a03b07988f7fa8d1aaf2be2ed14858ce1f4c6",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "to_json_safe",
+      "assessment": "JSON-safe encoders are explicit domain schemas rather than universal sanitizers.",
+      "constraints": [
+        "DecisionAnswer, DecisionEvent, DecisionProvenance and DecisionRevision each encode their own identity/version/time/hash fields. Revision takes an answer encoder; Projection already delegates answer and revision serialization.",
+        "DecisionDelegation serializes policy basis and checks; DecisionProjection carries lifecycle, revision, acknowledgement and resolution structures as well as optional legacy attention/provenance.",
+        "Shared atom/time/key conversion mechanics must preserve optional fields and wire compatibility. JSON-safe naming does not prove privacy redaction, semantic validity or safe public disclosure; these serializers expose domain content by design."
+      ],
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 130,
+          "module": "Aiur.DecisionAnswer",
+          "name": "to_json_safe",
+          "path": "src/lib/aiur/decision_answer.ex",
+          "kind": "def",
+          "end_line": 144,
+          "body_sha256": "9bb3706b4278542338971e0ef031c4ce419dfd1538c0a2f821ab0007caa6c6b7",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 116,
+          "module": "Aiur.DecisionDelegation",
+          "name": "to_json_safe",
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "kind": "def",
+          "end_line": 132,
+          "body_sha256": "0fc8678b6a39c8761d73f9142bbab7593a1fc69e65f44dc25c39501faf331855",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 216,
+          "module": "Aiur.DecisionEvent",
+          "name": "to_json_safe",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "def",
+          "end_line": 228,
+          "body_sha256": "e0374c5c73d6c6a59eb59d7c85065fe58709fba71a72828abe4f4c66a98f4fa7",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 844,
+          "module": "Aiur.DecisionProjection",
+          "name": "to_json_safe",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "def",
+          "end_line": 883,
+          "body_sha256": "e1062f2940a52711be4f715f8e3d0eb022b889f286d06bdf772645e8db5baa80",
+          "normalized_body_lines": 55,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 106,
+          "module": "Aiur.DecisionProvenance",
+          "name": "to_json_safe",
+          "path": "src/lib/aiur/decision_provenance.ex",
+          "kind": "def",
+          "end_line": 118,
+          "body_sha256": "327f5a00052d20d8c0afbbe18cb8050d81e24221ee3990eca74d320a6e7e74be",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 77,
+          "module": "Aiur.DecisionRevision",
+          "name": "to_json_safe",
+          "path": "src/lib/aiur/decision_revision.ex",
+          "kind": "def",
+          "end_line": 89,
+          "body_sha256": "c7fb35fb4b7f970d607126984504b2143c3de74f6ea1bb2dc1d4859c54307170",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "unavailable_state",
+      "assessment": "Unavailable constructors share write disabling but preserve different recovery capabilities.",
+      "constraints": [
+        "Membership recovery builds a fresh projection, retains injected persistence/reconciliation functions and marks reconciliation unavailable with writes disabled. DecisionStore initializes empty indexes/history and disables writes.",
+        "RecentMergeStore retains retention/compaction configuration and emits an alert that outcomes are read-only; DeliveryLog retains base state and alerts that deliveries continue without restart-durable deduplication.",
+        "UsageLedger recovery resets positions/counter policy and empty coverage while separately marking unavailable health and disabling writes. TicketDetailCoordinator.Policy uses unknown generation and unavailable health.",
+        "A shared unavailable map would obscure operational fallback: empty data plus unhealthy evidence is not observed emptiness, and disabled persistence is not necessarily disabled processing."
+      ],
+      "clauses": 6,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 114,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.Policy",
+          "name": "unavailable_state",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_policy.ex",
+          "kind": "defp",
+          "end_line": 114,
+          "body_sha256": "94cc8268207fd16082cb8d2fa9d74765a5213e8e5b7eef9434315af083e493ad",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 45,
+          "module": "Aiur.CurrentRunMembership.Store.Recovery",
+          "name": "unavailable_state",
+          "path": "src/lib/aiur/current_run_membership/store/recovery.ex",
+          "kind": "def",
+          "end_line": 71,
+          "body_sha256": "e2905f01134adb121430d6441a1d3e0d9c89079e67f1e54f4f6c97c15a1300b9",
+          "normalized_body_lines": 32,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 716,
+          "module": "Aiur.DecisionStore",
+          "name": "unavailable_state",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "defp",
+          "end_line": 731,
+          "body_sha256": "6820a900033db084c17a400310776bd0f964eb0d69872f8d97ebbc8ce24c9f13",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 172,
+          "module": "Aiur.RecentMergeStore",
+          "name": "unavailable_state",
+          "path": "src/lib/aiur/recent_merge_store.ex",
+          "kind": "defp",
+          "end_line": 197,
+          "body_sha256": "0ffe0410e028e66c4324f999784cf952ba594e6c7a3983ab24e02fa4f6af853e",
+          "normalized_body_lines": 31,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 453,
+          "module": "Aiur.UsageLedger.Recovery",
+          "name": "unavailable_state",
+          "path": "src/lib/aiur/usage_ledger/recovery.ex",
+          "kind": "defp",
+          "end_line": 466,
+          "body_sha256": "61092eff57daa3e95a3c321f8ac2fc919cd08502e78f3a004cff438b53d64b8a",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 283,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "unavailable_state",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 298,
+          "body_sha256": "37ac37b15d92e549dc9f07d58514b158453bd68630060323c7b8223216466854",
+          "normalized_body_lines": 21,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "update_issue_state",
+      "assessment": "State updates already delegate across adapters and preserve conditional-update support.",
+      "constraints": [
+        "GitHub Client/Tracker forward to IssueState, which resolves transport and builds update context. Linear resolves a state ID and checks GraphQL mutation success; Memory emits a state-update event.",
+        "Linear and Memory have identical expected_state option dispatch: absent uses ordinary update, binary invokes conditional update, and other values return invalid_expected_state. This is a narrow parsing candidate; conditional mutation implementations remain separate.",
+        "Tracker and GitHub.Tracker detect three-argument support, fall back to two arguments only for empty options, and otherwise report expected_state_unsupported. Tracker additionally delegates through dispatch_update_issue_state.",
+        "Do not simplify by dropping options or silently issuing unconditional writes. Entry-point checks do not establish atomicity of conditional state changes or downstream lifecycle completion."
+      ],
+      "clauses": 10,
+      "modules": 6,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 375,
+          "module": "Aiur.GitHub.Client",
+          "name": "update_issue_state",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 377,
+          "body_sha256": "d5a2e811a6c250e4f297550602c7bff75997c5c0bf6878f00334ec8d9ff3ff54",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 15,
+          "module": "Aiur.GitHub.IssueState",
+          "name": "update_issue_state",
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "kind": "def",
+          "end_line": 36,
+          "body_sha256": "cbb8aa7143074124e151e17d94530ce06ba306fe55cb5474de2eb174307f0a9c",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 162,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "update_issue_state",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 165,
+          "body_sha256": "127cf816eb0f9637c4aa5ab1b56b9363f7f84762ab20b908677a3d59245bafcc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 168,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "update_issue_state",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 182,
+          "body_sha256": "97573e5377882632d93d0ca039cd5fd40d6914de7ab80f0cca3af859db7269d4",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 104,
+          "module": "Aiur.Linear.Tracker",
+          "name": "update_issue_state",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "kind": "def",
+          "end_line": 116,
+          "body_sha256": "e84ae48da60ea3c0b3592ec49501ad5a7c580a32b2bdb17fa5622d5c695660ee",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 119,
+          "module": "Aiur.Linear.Tracker",
+          "name": "update_issue_state",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "kind": "def",
+          "end_line": 131,
+          "body_sha256": "d35ce9c2830460a6c435057875b18240f9f794c21a927b40a5a824f6ea6d17d1",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 85,
+          "module": "Aiur.Memory.Tracker",
+          "name": "update_issue_state",
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "kind": "def",
+          "end_line": 88,
+          "body_sha256": "20ef662940b6099c443ae2efafb3db2ddf1df68f01f599ac9a14f97030505ef7",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 91,
+          "module": "Aiur.Memory.Tracker",
+          "name": "update_issue_state",
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "kind": "def",
+          "end_line": 103,
+          "body_sha256": "d35ce9c2830460a6c435057875b18240f9f794c21a927b40a5a824f6ea6d17d1",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 79,
+          "module": "Aiur.Tracker",
+          "name": "update_issue_state",
+          "path": "src/lib/aiur/tracker.ex",
+          "kind": "def",
+          "end_line": 81,
+          "body_sha256": "304c0bb5dc284323d0a7aa27983ffa8b7d5d7d075fe0b99957c081176fc7d394",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 84,
+          "module": "Aiur.Tracker",
+          "name": "update_issue_state",
+          "path": "src/lib/aiur/tracker.ex",
+          "kind": "def",
+          "end_line": 99,
+          "body_sha256": "73584474a50b559d978391d09d1ea8ac176d9f7ca6c7391aca890d10816e8dd7",
+          "normalized_body_lines": 20,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 4555,
-  "limits": "210 selected families and 4555 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 4583,
+  "limits": "214 selected families and 4583 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

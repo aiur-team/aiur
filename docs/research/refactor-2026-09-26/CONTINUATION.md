@@ -1779,3 +1779,7 @@ Read row, run_turn, safe_reason and sanitize: 43 literal entries across four fam
 ### Name duplication: session acquisition and cleanup
 
 Read start_session, state_label, stop_session and string_or_nil: 44 literal entries across four families. Preserve backend resource acquisition, Remote Control listener requirements, nested cleanup and proof-of-exit semantics. Three nonempty-binary validators are equivalent; display humanization overlaps prior candidates and is non-additive. Name triage now 210 families/4555 entries, leaving 1470 cross-module names. Raw findings and skeptic counts are unchanged; no runtime cleanup or saving is claimed.
+
+### Name duplication: periodic work and conditional updates
+
+Read tick, to_json_safe, unavailable_state and update_issue_state: 28 literal entries across four families. Shared monitor control flow and expected-state option parsing are narrow candidates. Preserve scheduling ownership, wire schemas, degraded processing versus disabled writes, and conditional-update support. Name triage now 214 families/4583 entries, leaving 1466 cross-module names. Raw findings and skeptic counts are unchanged; atomicity, public redaction and runtime completion are not claimed.
