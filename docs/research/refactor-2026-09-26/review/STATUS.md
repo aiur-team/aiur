@@ -1226,3 +1226,7 @@ Read elapsed_seconds, emit_resolution, encode_datetime, encode_value, endpoint, 
 ### Name duplication: pagination and failure causes
 
 Read event_sort_key, fail, failure_reason, fetch_blocked_by, fetch_candidate_issues_conditional, fetch_issues_by_states_conditional, fetch_pages and fetch_team_members: 36 literal entries across eight families. Preserve ordering authority, cause classification, conditional-read capabilities and pagination bounds/completeness. Read team and telemetry pagination helpers; distinguish Codeowners single-response membership from Teams traversal without claiming production incidence. Name triage now 457 families/6209 entries, leaving 1223 cross-module names. Raw findings and skeptic counts are unchanged; no full membership, cache saving or failure-cause guarantee is claimed.
+
+### Name duplication: identities and presentation contracts
+
+Read fingerprint, fleet_view, format_amount and format_datetime: 20 literal entries across four families. Three date-formatting implementations have equivalent clauses; money formatting and fingerprint serialization preserve different contracts. Fleet view wrappers already delegate and carry stale freshness explicitly. Read the headless scalar and fleet process fallback helpers, and checked the Money alias and scale. Name triage now 461 families/6229 entries, leaving 1219 cross-module names. Raw findings and skeptic counts are unchanged; no runtime correctness or savings claim is added.

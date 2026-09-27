@@ -81717,10 +81717,312 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "fingerprint",
+      "assessment": "Hashing mechanics overlap but canonical encodings define different identities.",
+      "constraints": [
+        "ToolCallIdentity hashes deterministic Erlang serialization of version, turn ID, tool, namespace and normalized arguments.",
+        "Claude UsageAdapter length-prefixes to_string parts before SHA-256. Headless Adapter uses the same framing but its scalar helper preserves binaries, formats integers/atoms, maps nil to empty and inspects other terms.",
+        "Preserve existing canonical bytes and identity domains before sharing hash mechanics. Equal digest algorithms do not establish interchangeable event or invocation IDs; normalization and caller populations remain outside this pass."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 29,
+          "module": "Aiur.AppServer.ToolCallIdentity",
+          "name": "fingerprint",
+          "path": "src/lib/aiur/app_server/tool_call_identity.ex",
+          "kind": "defp",
+          "end_line": 51,
+          "body_sha256": "e74a825f8039eb3d7f4d17d80085252c13740f18541d75cdf30315f2bd5c5b3d",
+          "normalized_body_lines": 28,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 187,
+          "module": "Aiur.Claude.Telemetry.UsageAdapter",
+          "name": "fingerprint",
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "kind": "defp",
+          "end_line": 195,
+          "body_sha256": "fc4f7782f8c7ed3ef271403245f2bde0b680a26242dbb464f71f48af9a4d79bd",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 212,
+          "module": "Aiur.Usage.Headless.Adapter",
+          "name": "fingerprint",
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "kind": "def",
+          "end_line": 220,
+          "body_sha256": "a8459fec9344cfe36fd1a4b649750964f7e8daca58d9e6c071651f85f8ee9d39",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fleet_view",
+      "assessment": "Fleet reads are layered delegation with explicit freshness and fallback semantics.",
+      "constraints": [
+        "AgentControlCLI accepts an injected view or lazily calls Orchestrator; Orchestrator delegates to StatusReport.",
+        "StatusReport preserves both current and stale snapshot freshness in successful results, falls back to the process only for unpublished snapshots and reports unavailable separately.",
+        "The process helper was read: fleet_rows? chooses fleet_view versus snapshot, a map gets just-observed freshness, timeout remains a distinct error.",
+        "Keep stale success distinct from current observation; these layers are not three independent snapshot readers."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 145,
+          "module": "Aiur.AgentControlCLI",
+          "name": "fleet_view",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "defp",
+          "end_line": 147,
+          "body_sha256": "756ceabde2e3bee4f646b438d0827e98a1d4904e473cfb3e30aa3981f346bbc2",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 689,
+          "module": "Aiur.Orchestrator",
+          "name": "fleet_view",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 689,
+          "body_sha256": "b0dd2cf24eff4afc954a90e1484327ed9de917b3a786876c04d77f5c61834687",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 72,
+          "module": "Aiur.Orchestrator.StatusReport",
+          "name": "fleet_view",
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "kind": "def",
+          "end_line": 79,
+          "body_sha256": "1c53ea2c694ad90b9e3d4d8932326dcf52ec59cff94517c8f35f862f4a94aa39",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "format_amount",
+      "assessment": "Shared exact-money formatting already exists; terminal formatting has a different numeric contract.",
+      "constraints": [
+        "UsageSummaryPresenter delegates to OperatorControlCenter.Money; the alias was checked.",
+        "Money rounds Decimal values to scale two, retains a signed less-than-cent indication for nonzero values rounded to zero, parses complete decimal strings, passes unparsed strings through and maps other values to unknown.",
+        "Chrome converts its numeric input to float and formats two decimal places.",
+        "Preserve exact versus float arithmetic, sub-cent visibility and unavailable input handling. Input populations and rendered production differences were not measured."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 145,
+          "module": "Aiur.AgentList.Renderer.Chrome",
+          "name": "format_amount",
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "kind": "defp",
+          "end_line": 145,
+          "body_sha256": "82cdcf4defc8da7aed77e824b9b14259354dcba80434342b2dba1e6b73c7c970",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 20,
+          "module": "AiurWeb.OperatorControlCenter.Money",
+          "name": "format_amount",
+          "path": "src/lib/aiur_web/operator_control_center/money.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "8691066a26859d372299880e8f4cea11fa32319111d068611be57c447ddac41c",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 30,
+          "module": "AiurWeb.OperatorControlCenter.Money",
+          "name": "format_amount",
+          "path": "src/lib/aiur_web/operator_control_center/money.ex",
+          "kind": "def",
+          "end_line": 35,
+          "body_sha256": "f377fab75a1a7daa7befc4e528cab8d5fd65c4a5956deb489a7cf3f05034e2e2",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 37,
+          "module": "AiurWeb.OperatorControlCenter.Money",
+          "name": "format_amount",
+          "path": "src/lib/aiur_web/operator_control_center/money.ex",
+          "kind": "def",
+          "end_line": 37,
+          "body_sha256": "b42c4df1672e649c924d484b5ffbb0db794f4d5cd369bf3b4df6304c8da1fbc8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 717,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "format_amount",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 717,
+          "body_sha256": "409c37cf133d562d9ee8ae1a05599766e15daa14fae953c9006936a66e3c924e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "format_datetime",
+      "assessment": "Three component-local date formatters have equivalent literal clauses.",
+      "constraints": [
+        "CurrentRunOutcomes, DecisionDetail and RecentOutcomes truncate DateTime to seconds and serialize ISO8601, preserve binary inputs verbatim and render other terms as unknown.",
+        "These are candidates for one presentation helper with the same input contract; binary pass-through is not timestamp validation.",
+        "Any extraction must retain the unknown branch and must not imply freshness from a formatted timestamp."
+      ],
+      "clauses": 9,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 116,
+          "module": "AiurWeb.OperatorControlCenter.CurrentRunOutcomes",
+          "name": "format_datetime",
+          "path": "src/lib/aiur_web/components/operator_control_center/current_run_outcomes.ex",
+          "kind": "defp",
+          "end_line": 117,
+          "body_sha256": "3aaeb839720346d895d71a9ed9ca43c5854b364bbcd1fc2f4c1ea8f022a27e68",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 119,
+          "module": "AiurWeb.OperatorControlCenter.CurrentRunOutcomes",
+          "name": "format_datetime",
+          "path": "src/lib/aiur_web/components/operator_control_center/current_run_outcomes.ex",
+          "kind": "defp",
+          "end_line": 119,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 120,
+          "module": "AiurWeb.OperatorControlCenter.CurrentRunOutcomes",
+          "name": "format_datetime",
+          "path": "src/lib/aiur_web/components/operator_control_center/current_run_outcomes.ex",
+          "kind": "defp",
+          "end_line": 120,
+          "body_sha256": "b42c4df1672e649c924d484b5ffbb0db794f4d5cd369bf3b4df6304c8da1fbc8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 161,
+          "module": "AiurWeb.OperatorControlCenter.DecisionDetail",
+          "name": "format_datetime",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_detail.ex",
+          "kind": "defp",
+          "end_line": 161,
+          "body_sha256": "3aaeb839720346d895d71a9ed9ca43c5854b364bbcd1fc2f4c1ea8f022a27e68",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 162,
+          "module": "AiurWeb.OperatorControlCenter.DecisionDetail",
+          "name": "format_datetime",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_detail.ex",
+          "kind": "defp",
+          "end_line": 162,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 163,
+          "module": "AiurWeb.OperatorControlCenter.DecisionDetail",
+          "name": "format_datetime",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_detail.ex",
+          "kind": "defp",
+          "end_line": 163,
+          "body_sha256": "b42c4df1672e649c924d484b5ffbb0db794f4d5cd369bf3b4df6304c8da1fbc8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 83,
+          "module": "AiurWeb.OperatorControlCenter.RecentOutcomes",
+          "name": "format_datetime",
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "kind": "defp",
+          "end_line": 83,
+          "body_sha256": "3aaeb839720346d895d71a9ed9ca43c5854b364bbcd1fc2f4c1ea8f022a27e68",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 84,
+          "module": "AiurWeb.OperatorControlCenter.RecentOutcomes",
+          "name": "format_datetime",
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "kind": "defp",
+          "end_line": 84,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 85,
+          "module": "AiurWeb.OperatorControlCenter.RecentOutcomes",
+          "name": "format_datetime",
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "kind": "defp",
+          "end_line": 85,
+          "body_sha256": "b42c4df1672e649c924d484b5ffbb0db794f4d5cd369bf3b4df6304c8da1fbc8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6209,
-  "limits": "457 selected families and 6209 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6229,
+  "limits": "461 selected families and 6229 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

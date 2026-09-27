@@ -4,41 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "09c91515109c90090fc78f0241016532c831c7430d838aae5aa3110ab77468d7"
+    "name_triage": "c25c5278d409fb79671f874ecceb614eca073aa1810ea01804ac94c7ae10c309"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 457,
-    "remaining_cross_module_names": 1223,
-    "remaining_literal_entries": 4059
+    "reviewed_cross_module_names": 461,
+    "remaining_cross_module_names": 1219,
+    "remaining_literal_entries": 4039
   },
   "families": [
-    {
-      "name": "fingerprint",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 41
-    },
-    {
-      "name": "fleet_view",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "format_amount",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "format_datetime",
-      "clauses": 9,
-      "modules": 3,
-      "summed_source_span_lines": 10
-    },
     {
       "name": "format_reason",
       "clauses": 39,
