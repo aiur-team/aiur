@@ -113015,10 +113015,778 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "holder",
+      "assessment": "Host lock metadata lookup and generation-fenced ownership lookup differ.",
+      "constraints": [
+        "HostLock returns a read holder or none for every other read result.",
+        "Ownership queries the registry using ticket and matches lease generation before returning owner/holder; mismatched or malformed lease reports workspace_ownership_lost.",
+        "Preserve failed read versus ownership loss and generation fencing. Neither wrapper independently establishes live process ownership."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 135,
+          "module": "Aiur.Workspace.HostLock",
+          "name": "holder",
+          "path": "src/lib/aiur/workspace/host_lock.ex",
+          "kind": "def",
+          "end_line": 140,
+          "body_sha256": "fdde0ef13340ac774b20a4a4677bd8f2166c540770aa51745deb450e47e8e2eb",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 180,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "holder",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 180,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 182,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "holder",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 187,
+          "body_sha256": "b2bd2c741808e424cf37b36eae0bbe8b7477f6e6cd47353a09f11168df881af4",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 189,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "holder",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 189,
+          "body_sha256": "fbd6f1181511f6f700273f357a0b98b2d49f3f30f15036c996e86c47136f83ca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "human_review_state?",
+      "assessment": "Orchestrator already delegates human-review state classification.",
+      "constraints": [
+        "HumanReview accepts binary input, normalizes via DispatchPolicy and compares with human-review; other input false.",
+        "Keep state vocabulary normalization with the policy owner.",
+        "Matching a label/state name is not evidence that review requirements were satisfied."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 396,
+          "module": "Aiur.Orchestrator",
+          "name": "human_review_state?",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 396,
+          "body_sha256": "625bd2d0dd16cb620b14e2d178df637364166d8bb53d1ffd72f57787db7e8b75",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 17,
+          "module": "Aiur.Orchestrator.HumanReview",
+          "name": "human_review_state?",
+          "path": "src/lib/aiur/orchestrator/human_review.ex",
+          "kind": "def",
+          "end_line": 19,
+          "body_sha256": "52c69b582412b300a3a540b258ee670b5029d0cf2015ef91342353709a178626",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 21,
+          "module": "Aiur.Orchestrator.HumanReview",
+          "name": "human_review_state?",
+          "path": "src/lib/aiur/orchestrator/human_review.ex",
+          "kind": "def",
+          "end_line": 21,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "humanize_method",
+      "assessment": "Claude and Codex event humanizers consume different provider protocols.",
+      "constraints": [
+        "Read all 35 clauses: Claude handles created/progress items, flat turn fields and permission denials; Codex handles nested thread/turn fields, usage, plans, diffs, approvals, streaming variants and account events.",
+        "Both have provider-specific fallback and completed-status defaults; Claude shortens turn IDs and sanitizes some previews through helpers, while Codex has different field paths and error/command rendering.",
+        "Share only proven presentation primitives; preserve provider parsing and explicit unknown behavior. Full preview redaction, helper correctness and rendered transcripts are not certified by these clauses."
+      ],
+      "clauses": 35,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 19,
+          "module": "Aiur.Claude.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/claude/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 26,
+          "body_sha256": "4f86d571e2b9f958aac58156deeab2d55ad53f6a23838413e4db7368d7260faf",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 28,
+          "module": "Aiur.Claude.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/claude/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "0df5c8ade4d89d2ca01c37190481e978a0cb9be728c06c5d0f5cdc56652a78bc",
+          "normalized_body_lines": 31,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 50,
+          "module": "Aiur.Claude.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/claude/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 56,
+          "body_sha256": "3d88ccb93e5a575120adadd5de4b39c06eea3096088dd692520309e929c02eca",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 58,
+          "module": "Aiur.Claude.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/claude/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "beae95603b94a80664200c835fe315f269cffbaa507e5969f43f29eb890b0f62",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 72,
+          "module": "Aiur.Claude.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/claude/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 78,
+          "body_sha256": "a6120bbe247f1d21584c895ac19b191fb6000367bf3e0ca066870c8248e58c63",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 80,
+          "module": "Aiur.Claude.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/claude/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 101,
+          "body_sha256": "a9435f854a34fda56a7a685f25bf8540d0d9b34ba2d8f0d479d262627aa1836f",
+          "normalized_body_lines": 31,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 103,
+          "module": "Aiur.Claude.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/claude/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 103,
+          "body_sha256": "348903b929526c4340cb42868c99032e93744fe3f1cd8e45638299a946f591a1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 105,
+          "module": "Aiur.Claude.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/claude/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 105,
+          "body_sha256": "f45d6042c81358e0a9ddbaa96da7923036673bffb5e4048f6a24b5a143a04f27",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 11,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 14,
+          "body_sha256": "a56d85e11d47466eb49de1d8001d08b305f584a4ec33afc79216a7bd265079af",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 16,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 19,
+          "body_sha256": "80bfd0b35ed17511bfbe43f53d2d422abb2995e68ac9251387d7fab55d1145ab",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 21,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 41,
+          "body_sha256": "4a4de8bc101e6ddf33f30deba56007ce3d0100d40a3546ac4746fd09098f39a5",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 43,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 49,
+          "body_sha256": "1b943ee07e9fb91c99c44ecdf0870a5634e52fbe4be93b8cdddcad711af7b003",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 51,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 51,
+          "body_sha256": "b6ac85af56b2565cbaafc20852093fd35577f566fd9d430c61133f7ccd5f44bc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 53,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 65,
+          "body_sha256": "730ce63612b31d413569b2e97bec26075c041201fb5a2017daf7c2a90bc2940c",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 67,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 78,
+          "body_sha256": "d37f641eb2ac550bc73541a2368865ba9808a24275a71f8dc55f82afd96e266c",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 80,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 90,
+          "body_sha256": "634c426443ce2b1edf4fb3c2607aba984f77abced644507876260ec56c173be6",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 92,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 92,
+          "body_sha256": "54d2ebcc0c83ccde846678315fa994e550a6444e5163bcd4cecbeeeaadac3561",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 93,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 93,
+          "body_sha256": "6e3da0c1ccfe950409babfb0b9bd881f42852d35c1c86d93396aaaaa7b993226",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 95,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 96,
+          "body_sha256": "0495130ba4fad231853a07e3a6af689750a01c4e3a620fdc427d35d0629838d2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 98,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 99,
+          "body_sha256": "455fa29faf747326b319058b9272c13fd33331e55f3f8c92649de3738bc0eaa2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 101,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 102,
+          "body_sha256": "63cfa579bd5c4414f8cca0c77975d9ed86b05b7bd181976bb1054f0abd368a8c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 104,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 105,
+          "body_sha256": "1d61d1047c2f9efbb326d9e2a5d328952386cd64f308a754cb7869a010d67fe4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 107,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 108,
+          "body_sha256": "4fcdb3653faeb4303479d4a95eb1cb3cacf6ea25205c5db1ee92c5e7b43ce1c7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 110,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 111,
+          "body_sha256": "1b8b29176b1e2b3a30c1a7fadf6e8dd4c5500411e7599f54c38128f120231272",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 113,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 114,
+          "body_sha256": "8fb1529369981e1deb48632a800ae49550a4e57a6ab369aa1c9c38d736f8c4e9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 116,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 119,
+          "body_sha256": "d4f088b3fd0ead625c419b274e19c5079c45001a12a9f1728439e2762514afae",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 121,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 129,
+          "body_sha256": "441b54599a5ec6da1bddd5c2117595d5266e9f85cad7a596b6a64bfa3a08b397",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 131,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 143,
+          "body_sha256": "34036c3bcf2cb6af091a87a0f061508210561040aa0b0438618ba8f967274530",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 145,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 146,
+          "body_sha256": "02b303cbb41286802c5959bf4a36fa339a3fc4a0a1778a0c1c3ede69a311fb69",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 148,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 155,
+          "body_sha256": "1b7a8a8ae79c618fc2d69bb2ea20aec497bfbca31ae3bae5d1740ccf98d23033",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 157,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 163,
+          "body_sha256": "3fe3ead827a8e07e41a95d8356a3446ef0e188310f166a675e5f7583bfa156e4",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 165,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 165,
+          "body_sha256": "1c935317ae797f2020f2e5d1834c9e453b1a7ab5f7e07fd27c35eab28dbf4ed7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 167,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 175,
+          "body_sha256": "86af4f2c13a351c7dbba8de84c5076e994d52198ac5421b2a282be5247e5037f",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 177,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 179,
+          "body_sha256": "2ce9054a8c4962efe447e82e387a667a599d1872935957d5a7150345ea33de47",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 181,
+          "module": "Aiur.Codex.EventHumanizer",
+          "name": "humanize_method",
+          "path": "src/lib/aiur/codex/event_humanizer.ex",
+          "kind": "def",
+          "end_line": 187,
+          "body_sha256": "cd41db9a1b9fbd9fd60399b50ed04f333cbea0dbacba328df6af3fec793c2d32",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "id",
+      "assessment": "Both Phoenix socket ID callbacks return nil.",
+      "constraints": [
+        "StreamdeckSocket and VoiceSocket expose no socket ID through this callback.",
+        "The identical constant is framework policy, not a substantive duplicated algorithm.",
+        "Nil socket ID alone does not establish authentication state, absence of connections or revocation behavior."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 28,
+          "module": "AiurWeb.StreamdeckSocket",
+          "name": "id",
+          "path": "src/lib/aiur_web/streamdeck_socket.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 40,
+          "module": "AiurWeb.VoiceSocket",
+          "name": "id",
+          "path": "src/lib/aiur_web/voice_socket.ex",
+          "kind": "def",
+          "end_line": 40,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "identity_diagnostic",
+      "assessment": "Member and RootSummary missing-identity diagnostics match exactly.",
+      "constraints": [
+        "Nil yields Diagnostic.new invalid_identity; every other value yields nil.",
+        "Verified both Diagnostic aliases resolve to Aiur.BuildOrder.Diagnostic.",
+        "A shared helper is plausible but nonnil is not independently valid or joinable identity; enclosing validation remains necessary."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 172,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "identity_diagnostic",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 172,
+          "body_sha256": "26f07972b41e21521b7f2d2a4f055cc6a7e09f71206f1f8060981cacef91ed7e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 173,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "identity_diagnostic",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 173,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 133,
+          "module": "Aiur.BuildOrder.RootSummary",
+          "name": "identity_diagnostic",
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "kind": "defp",
+          "end_line": 133,
+          "body_sha256": "26f07972b41e21521b7f2d2a4f055cc6a7e09f71206f1f8060981cacef91ed7e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 134,
+          "module": "Aiur.BuildOrder.RootSummary",
+          "name": "identity_diagnostic",
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "kind": "defp",
+          "end_line": 134,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "identity_index",
+      "assessment": "Weight facts and Units sources index different accepted inputs.",
+      "constraints": [
+        "WeightFacts derives github_key from bare TrackerIdentity or map identity/tracker_identity, skips nil keys and overwrites repeated keys.",
+        "Read Units helpers: Issue has dedicated identity extraction, maps use identity/tracker_identity, then a TrackerIdentity must be joinable before insertion.",
+        "Preserve input adaptation, validation and last-value-wins policy. Complete key equivalence and duplicate-source incidence remain unverified."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 113,
+          "module": "Aiur.CurrentRunProjections.WeightFacts",
+          "name": "identity_index",
+          "path": "src/lib/aiur/current_run_projections/weight_facts.ex",
+          "kind": "defp",
+          "end_line": 120,
+          "body_sha256": "d623e08276507a67fa340b3751e45affe9dab790113ee49f751ca763f7f57f83",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 184,
+          "module": "AiurWeb.OperatorControlCenter.UnitsRow.Sources",
+          "name": "identity_index",
+          "path": "src/lib/aiur_web/operator_control_center/units_row/sources.ex",
+          "kind": "defp",
+          "end_line": 186,
+          "body_sha256": "f9ed79d6fd0fd5cdb570d631646ac736088a271f2756053da19f12468e5c7995",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "identity_keys",
+      "assessment": "Graph aliases and membership sets use different identity structures.",
+      "constraints": [
+        "GitHubGraph.Result produces provider-ID plus optional database-ID/issue-number locators scoped by owner/repository; read locator_keys.",
+        "WeightFacts maps member_key, discards nil and builds a MapSet.",
+        "Keep alias-resolution candidates separate from canonical membership identity. Multiple locators are not multiple tickets, and a deduplicated set is not proof of full population."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 123,
+          "module": "Aiur.BuildOrder.GitHubGraph.Result",
+          "name": "identity_keys",
+          "path": "src/lib/aiur/build_order/github_graph/result.ex",
+          "kind": "defp",
+          "end_line": 131,
+          "body_sha256": "2721e6fbab36d188f8f34a945b03243aab7c950b19d359b6d2d1d275f59fded3",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 106,
+          "module": "Aiur.CurrentRunProjections.WeightFacts",
+          "name": "identity_keys",
+          "path": "src/lib/aiur/current_run_projections/weight_facts.ex",
+          "kind": "defp",
+          "end_line": 111,
+          "body_sha256": "efe2faa2e30a3dff69d15e587835341ec087f971fb7e0627a99d91dea41040ca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "identity_meters",
+      "assessment": "Credential meter assembly and LiveView rendering are separate layers.",
+      "constraints": [
+        "BudgetMap safely fetches headroom with empty fallback and projects credential metadata plus separate GraphQL/core meters.",
+        "Read full template: credentials-empty renders no-configured-or-resolvable prose; each credential renders identity/note and distinct resource meters.",
+        "Preserve observed availability versus empty/error fallback. Static template read does not prove per-meter age rendering, account health or secret-free fields; no credential values were accessed."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 141,
+          "module": "Aiur.GitHub.BudgetMap",
+          "name": "identity_meters",
+          "path": "src/lib/aiur/github/budget_map.ex",
+          "kind": "def",
+          "end_line": 161,
+          "body_sha256": "5d9a88ea220e7e39d5b8a75682edf1aba4452fc9838eb147f40c97e157d5d1a2",
+          "normalized_body_lines": 25,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 809,
+          "module": "AiurWeb.GithubCacheLive",
+          "name": "identity_meters",
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "kind": "defp",
+          "end_line": 834,
+          "body_sha256": "7fa7f40dc04f6ee7bc8f0d24e5cc2219956dedaaeac864853d75a9b52c134530",
+          "normalized_body_lines": 28,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 8143,
-  "limits": "989 selected families and 8143 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 8197,
+  "limits": "997 selected families and 8197 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

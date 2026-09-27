@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "ce597462fb58ccee57b30e02535a57f7c3da1bcf42a00afd36cb7524667580a6"
+    "name_triage": "f1d4bf68cf955a52694e4c652d1758837e2c67ee4268c8051adb96e79755df69"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 989,
-    "remaining_cross_module_names": 691,
-    "remaining_literal_entries": 2125
+    "reviewed_cross_module_names": 997,
+    "remaining_cross_module_names": 683,
+    "remaining_literal_entries": 2071
   },
   "families": [
-    {
-      "name": "holder",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "human_review_state?",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "humanize_method",
-      "clauses": 35,
-      "modules": 2,
-      "summed_source_span_lines": 232
-    },
-    {
-      "name": "id",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
-    {
-      "name": "identity_diagnostic",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "identity_index",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "identity_keys",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 15
-    },
-    {
-      "name": "identity_meters",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 47
-    },
     {
       "name": "identity_record",
       "clauses": 2,
