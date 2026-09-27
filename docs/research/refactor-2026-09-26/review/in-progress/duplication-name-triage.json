@@ -72865,10 +72865,678 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "refresh_catalog",
+      "assessment": "Catalogue refresh entry points distinguish asynchronous request, no-op and UI throttling.",
+      "constraints": [
+        "GraphProjection casts refresh_catalog; DataSource calls its configured graph projection through a dependency wrapper. PlanningSource explicitly returns ok without refresh work.",
+        "SourceRuntime gates calls by monotonic time, ignores the safe_source_call result and records catalog_refresh_at_ms after an allowed attempt.",
+        "An ok return or updated throttle timestamp is not evidence of successful catalogue observation. Keep refresh request, attempt suppression and completed observation separate."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 106,
+          "module": "Aiur.BuildOrder.GraphProjection",
+          "name": "refresh_catalog",
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "kind": "def",
+          "end_line": 108,
+          "body_sha256": "fdd8fd5783dcdec6ca772cf12b3f1e47e0997ce488d0eb08c8aa38c95ee357a8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 74,
+          "module": "AiurWeb.BuildOrder.DataSource",
+          "name": "refresh_catalog",
+          "path": "src/lib/aiur_web/build_order/data_source.ex",
+          "kind": "def",
+          "end_line": 75,
+          "body_sha256": "515743a9127fac9f0a3647fb7537dc5cbcd02a70b84d70dd9c04e555079a3138",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 62,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "refresh_catalog",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "def",
+          "end_line": 62,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 140,
+          "module": "AiurWeb.BuildOrder.SourceRuntime",
+          "name": "refresh_catalog",
+          "path": "src/lib/aiur_web/build_order/source_runtime.ex",
+          "kind": "def",
+          "end_line": 149,
+          "body_sha256": "9b70bbdb9c766bf074212f53b0a1ce932c6883e3b2f08085167860b194fcfd31",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "remote_install_script",
+      "assessment": "Remote setup already shares command installation while preserving different payload and path policies.",
+      "constraints": [
+        "AgentCommandInstaller compresses and encodes a payload, quotes command names, checks support and target path types, stages executable files and skips identical targets.",
+        "AgentGitHubGuard delegates command installation to that helper, then adds separate config/quota directory checks and a token-file script.",
+        "AgentScratch creates its scratch directory after a symlink check. AgentSkills assembles skill paths, skill payloads, support files and ignore rules via helpers.",
+        "These literal generators do not prove shell pipeline failure propagation, race-free filesystem safety, helper correctness or credential isolation. No remote script was executed and no compression saving was measured."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 24,
+          "module": "Aiur.AgentCommandInstaller",
+          "name": "remote_install_script",
+          "path": "src/lib/aiur/agent_command_installer.ex",
+          "kind": "def",
+          "end_line": 70,
+          "body_sha256": "061ca1ef298bdc51634ef4cc22cc18dd2005dd578021481daeb6a16b7a3b562e",
+          "normalized_body_lines": 41,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 380,
+          "module": "Aiur.AgentGitHubGuard",
+          "name": "remote_install_script",
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "kind": "def",
+          "end_line": 404,
+          "body_sha256": "d636a802ce5f8c2364a4d6537e4bbec88016bb1d24eeb6f4a10a45b74fda5ac1",
+          "normalized_body_lines": 33,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 54,
+          "module": "Aiur.AgentScratch",
+          "name": "remote_install_script",
+          "path": "src/lib/aiur/agent_scratch.ex",
+          "kind": "def",
+          "end_line": 64,
+          "body_sha256": "7692b520110fe139fbd59206dbb7fc7dfefd55d7a3779d9df9d764875d7cd3d0",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 99,
+          "module": "Aiur.AgentSkills",
+          "name": "remote_install_script",
+          "path": "src/lib/aiur/agent_skills.ex",
+          "kind": "def",
+          "end_line": 111,
+          "body_sha256": "fe50f14a252e8eaa28a429490a726c268444922748d179f2a69db25909e81ad5",
+          "normalized_body_lines": 18,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "repository",
+      "assessment": "Repository extraction selects different source authority and validation contracts.",
+      "constraints": [
+        "CatalogStore accepts a two-binary tuple override, otherwise delegates to configured_repo; the literal override branch does not reject empty strings.",
+        "ReadCache.Identity chooses GraphQL-variable versus URL extraction, with nil for unsupported request shapes. Extractor helpers were not re-audited in this family.",
+        "EventKey prefers a nonempty repository.full_name and otherwise delegates to edge_repository. The fallback belongs to delivery deduplication, not general configuration discovery.",
+        "PlanningSource stringifies its repository field and splits at the first slash with nonempty components. The literal parser does not enforce a character allowlist or reject additional slashes in the second component.",
+        "Preserve explicit configuration, request-derived identity and event locator provenance rather than introducing one permissive repository parser."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 282,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "repository",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 293,
+          "body_sha256": "56b18331cd728cebaa839f4942ca4180136a728f2dd1751329763eee6254355d",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 93,
+          "module": "Aiur.GitHub.ReadCache.Identity",
+          "name": "repository",
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "kind": "def",
+          "end_line": 95,
+          "body_sha256": "a61545aa975c162ae6f24253f1bc4047c7ebb842a51ef7408dda41ae2aa89650",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 97,
+          "module": "Aiur.GitHub.ReadCache.Identity",
+          "name": "repository",
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "kind": "def",
+          "end_line": 97,
+          "body_sha256": "7d58c38386515f474c9ce0ba6bd1fc356d128f7ade388546d110aac3b73b8493",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 98,
+          "module": "Aiur.GitHub.ReadCache.Identity",
+          "name": "repository",
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "kind": "def",
+          "end_line": 98,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 154,
+          "module": "Aiur.Webhooks.EventKey",
+          "name": "repository",
+          "path": "src/lib/aiur/webhooks/event_key.ex",
+          "kind": "defp",
+          "end_line": 165,
+          "body_sha256": "7f8d15dfb66a95b0a9abea407ead1d163b1420167ed5f32d4df0fed64b928951",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 742,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "repository",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 747,
+          "body_sha256": "e8f13e63765febbb0c886aaac7499b066b0c2b06cfaf0d36101c50bf02a9fce1",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "reset_suffix",
+      "assessment": "Reset rendering differs in units, clock injection and expired-value policy.",
+      "constraints": [
+        "AgentList.Chrome uses the current clock and DateTime input, returning nil for expired or invalid values and formatting remaining minutes, hours or days/hours.",
+        "AuthPreflight returns an empty suffix for nil and otherwise interpolates an absolute until value.",
+        "GitHubUsageCLI uses epoch milliseconds and an injected current DateTime, clamps elapsed resets to zero and delegates duration formatting; invalid values become an empty suffix.",
+        "BuildOrderCatalog accepts DateTime values and delegates absolute reset formatting. Share time arithmetic only with explicit display and unknown-value policies."
+      ],
+      "clauses": 9,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 152,
+          "module": "Aiur.AgentList.Renderer.Chrome",
+          "name": "reset_suffix",
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "kind": "defp",
+          "end_line": 161,
+          "body_sha256": "d14eaba21d32864ed611f7d5a0762616171bc6d85f1ef07cdc26dc6db83949fe",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 163,
+          "module": "Aiur.AgentList.Renderer.Chrome",
+          "name": "reset_suffix",
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "kind": "defp",
+          "end_line": 163,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 515,
+          "module": "Aiur.GitHub.AuthPreflight",
+          "name": "reset_suffix",
+          "path": "src/lib/aiur/github/auth_preflight.ex",
+          "kind": "defp",
+          "end_line": 515,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 516,
+          "module": "Aiur.GitHub.AuthPreflight",
+          "name": "reset_suffix",
+          "path": "src/lib/aiur/github/auth_preflight.ex",
+          "kind": "defp",
+          "end_line": 516,
+          "body_sha256": "f8ab58e90fbaab493d7feb228bf93833380c7b0ad24b562883975cc8a99b7575",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 238,
+          "module": "Aiur.GitHubUsageCLI",
+          "name": "reset_suffix",
+          "path": "src/lib/aiur/github_usage_cli.ex",
+          "kind": "defp",
+          "end_line": 238,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 240,
+          "module": "Aiur.GitHubUsageCLI",
+          "name": "reset_suffix",
+          "path": "src/lib/aiur/github_usage_cli.ex",
+          "kind": "defp",
+          "end_line": 243,
+          "body_sha256": "9dd142bd2712278c57d292101fd20bb567e59655547931f42a4515db7bca88c1",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 245,
+          "module": "Aiur.GitHubUsageCLI",
+          "name": "reset_suffix",
+          "path": "src/lib/aiur/github_usage_cli.ex",
+          "kind": "defp",
+          "end_line": 245,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 277,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderCatalog",
+          "name": "reset_suffix",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_catalog.ex",
+          "kind": "defp",
+          "end_line": 277,
+          "body_sha256": "2b0bc6ecf2426e5dcc491619f7457a82a3e7af71d5ebe9627d7e6c07597330a5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 278,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderCatalog",
+          "name": "reset_suffix",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_catalog.ex",
+          "kind": "defp",
+          "end_line": 278,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "resume",
+      "assessment": "Resume names span agent control and configuration setup, not one workflow.",
+      "constraints": [
+        "AgentChat delegates a binary identifier to Orchestrator.resume_agent; AgentControlCLI delegates targets to its control dispatcher. ObservabilityApiController delegates then renders a control response.",
+        "Init rejects legacy configuration locations with migration instructions. Existing canonical configuration is loaded, summarized and used to set up repository state, backfill sections, resume prewarm, set up codeowners and provision.",
+        "Several setup helper return values are not inspected by the literal resume body. Helper effects, failure propagation and control authorization are not established by these entry points.",
+        "Preserve agent-control intent separately from setup resumption and migration policy."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "Aiur.AgentChat",
+          "name": "resume",
+          "path": "src/lib/aiur/agent_chat.ex",
+          "kind": "def",
+          "end_line": 113,
+          "body_sha256": "6a03f6258ed985ba2476c6f5157420f14a2e1af03170524af472f0c01b26757b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1170,
+          "module": "Aiur.AgentControlCLI",
+          "name": "resume",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "kind": "def",
+          "end_line": 1170,
+          "body_sha256": "cea0d5b5e3caa9de8639dd4efa13da824f5dbc67a9dabafeb0bd71134b93134c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 110,
+          "module": "Aiur.Init",
+          "name": "resume",
+          "path": "src/lib/aiur/init.ex",
+          "kind": "defp",
+          "end_line": 117,
+          "body_sha256": "db414c4d4534e9eab7e73dd0d39f947e7e50993f927a4d4ffb28980a60734932",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 119,
+          "module": "Aiur.Init",
+          "name": "resume",
+          "path": "src/lib/aiur/init.ex",
+          "kind": "defp",
+          "end_line": 142,
+          "body_sha256": "f2ce3060691cc8e6bdea9dc9f7ea530202534183d9268b31de7faadbe1466bbc",
+          "normalized_body_lines": 34,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 83,
+          "module": "AiurWeb.ObservabilityApiController",
+          "name": "resume",
+          "path": "src/lib/aiur_web/controllers/observability_api_controller.ex",
+          "kind": "def",
+          "end_line": 87,
+          "body_sha256": "e74e8f1e654f5631e4958c8a685ed1c90a531e991d8030c3987ceeca5ff7b901",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "revise",
+      "assessment": "Decision revision has shared domain entry points with distinct transport and form responsibilities.",
+      "constraints": [
+        "DecisionApi normalizes identity, requires a trusted revision actor, reads the current decision, normalizes delegation and writes a revision carrying basis and authority options.",
+        "It returns encoded decision/action and separate revision/dispatch status; invalid payload type has a tagged revision_invalid error.",
+        "DecisionStore performs the guarded GenServer call; DecisionApiController routes through mutation. RevisionCommands normalizes a form and requires an answered decision, otherwise reloads and reports that the active answer is gone.",
+        "These are layers around revision behavior, not duplicate revision engines. Preserve trusted actor, active-answer and dispatch-result distinctions; concurrency and authorization helpers remain outside this literal family review."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 118,
+          "module": "Aiur.DecisionApi",
+          "name": "revise",
+          "path": "src/lib/aiur/decision_api.ex",
+          "kind": "def",
+          "end_line": 118,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 3,
+          "line": 120,
+          "module": "Aiur.DecisionApi",
+          "name": "revise",
+          "path": "src/lib/aiur/decision_api.ex",
+          "kind": "def",
+          "end_line": 144,
+          "body_sha256": "f17364b63e5bd5b7683668aae113d21ceafe882c9d9a26cde9ab766fc1da3ba3",
+          "normalized_body_lines": 32,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 146,
+          "module": "Aiur.DecisionApi",
+          "name": "revise",
+          "path": "src/lib/aiur/decision_api.ex",
+          "kind": "def",
+          "end_line": 147,
+          "body_sha256": "9c57f8dc97dc63ecd924f3ad8f613071fc8550036d727fe8fc88bfce10463c83",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 295,
+          "module": "Aiur.DecisionStore",
+          "name": "revise",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "def",
+          "end_line": 298,
+          "body_sha256": "13d6398f91c979022da3aca85a9ca6cbec81c0dd357c2a81cfe7d465612338d5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 41,
+          "module": "AiurWeb.DecisionApiController",
+          "name": "revise",
+          "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+          "kind": "def",
+          "end_line": 43,
+          "body_sha256": "fbabb1faa3eb911f5a7af7049323595339b2250dd04aaa926b04f193174c8d4b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 24,
+          "module": "AiurWeb.OperatorControlCenter.RevisionCommands",
+          "name": "revise",
+          "path": "src/lib/aiur_web/operator_control_center/revision_commands.ex",
+          "kind": "def",
+          "end_line": 36,
+          "body_sha256": "9168dcbb368f7268d6d23775c6ed5cab89d2d94a5de2ab67a41ce9d38a0e1cc9",
+          "normalized_body_lines": 22,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "root_summary",
+      "assessment": "Two identical coercion wrappers already target one shared summary type.",
+      "constraints": [
+        "Catalog and SelectedRoot both retain a RootSummary struct or call RootSummary.new with an empty map; their aliases were checked and resolve to the same module.",
+        "CatalogStore preserves labels and member edge count when the issue body is absent. With a body, it adds identity/parent diagnostics and computed metrics before root-label validation.",
+        "PlanningSource constructs the same type from planning pack identity, title, icon, lane/phase counts, progress and completed status.",
+        "Consolidate the small coercion pair if useful, while keeping missing-body evidence and planning versus observed metrics distinct. Shared output shape does not prove shared population or freshness."
+      ],
+      "clauses": 7,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 235,
+          "module": "Aiur.BuildOrder.Catalog",
+          "name": "root_summary",
+          "path": "src/lib/aiur/build_order/catalog.ex",
+          "kind": "defp",
+          "end_line": 235,
+          "body_sha256": "42b02da7f7642623fb8d96285d55320be1d9a7b032015ad033f4a1dcec72938a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 236,
+          "module": "Aiur.BuildOrder.Catalog",
+          "name": "root_summary",
+          "path": "src/lib/aiur/build_order/catalog.ex",
+          "kind": "defp",
+          "end_line": 236,
+          "body_sha256": "47a2f7162cbf580f690662c2461a08216c744d11da20f584f02df86db8ef59c6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 76,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "root_summary",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 85,
+          "body_sha256": "3ed08a6413656b15801a7763b94f57ed9bf4a699095b2c405ccb78d64adb167f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 87,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "root_summary",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 112,
+          "body_sha256": "910666a8b455a073d5571855ae106cb306dd88f67906bb715e571b8eeb0fd9f5",
+          "normalized_body_lines": 31,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 100,
+          "module": "Aiur.BuildOrder.SelectedRoot",
+          "name": "root_summary",
+          "path": "src/lib/aiur/build_order/selected_root.ex",
+          "kind": "defp",
+          "end_line": 100,
+          "body_sha256": "42b02da7f7642623fb8d96285d55320be1d9a7b032015ad033f4a1dcec72938a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 101,
+          "module": "Aiur.BuildOrder.SelectedRoot",
+          "name": "root_summary",
+          "path": "src/lib/aiur/build_order/selected_root.ex",
+          "kind": "defp",
+          "end_line": 101,
+          "body_sha256": "47a2f7162cbf580f690662c2461a08216c744d11da20f584f02df86db8ef59c6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 146,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "root_summary",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "defp",
+          "end_line": 164,
+          "body_sha256": "356ca7c34122fc82f889acad213ccc6a8e77ba94798896a120d5aa33b3c6d172",
+          "normalized_body_lines": 24,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "runtime_options",
+      "assessment": "Three option builders share override precedence; runtime supplier validation is separate.",
+      "constraints": [
+        "GraphProjection.Options, TicketDetailCoordinator.Options and TicketHistoryProvider.Options remove runtime_config?, and when true merge domain configuration with explicit options taking precedence.",
+        "The third Config alias was checked and resolves to Aiur.Config; the three providers deliberately call different domain option functions.",
+        "GraphProjection.Configuration instead invokes an injected zero-arity supplier, accepts list results and maps invalid results, exceptions, throws and exits to configuration error.",
+        "Share option-merging mechanics only with the domain provider explicit. A list check alone does not prove keyword shape; downstream validation and runtime application remain unverified."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 69,
+          "module": "Aiur.BuildOrder.GraphProjection.Configuration",
+          "name": "runtime_options",
+          "path": "src/lib/aiur/build_order/graph_projection_configuration.ex",
+          "kind": "defp",
+          "end_line": 78,
+          "body_sha256": "811e9ea59c7fdd24562c1cbe5d7f262e50493ac3e19419dcbfa92fa90b44052a",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 210,
+          "module": "Aiur.BuildOrder.GraphProjection.Options",
+          "name": "runtime_options",
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "kind": "defp",
+          "end_line": 215,
+          "body_sha256": "a8da4e1d36ce479f1447d6565e8001fa5e39631873fb53e7fcf36762b6ae58e1",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 58,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.Options",
+          "name": "runtime_options",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex",
+          "kind": "defp",
+          "end_line": 63,
+          "body_sha256": "067d18fcd81375c27350e27a9c5ca017740ae2d912a3a4d11c2b38649f7b9f5a",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 46,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider.Options",
+          "name": "runtime_options",
+          "path": "src/lib/aiur/build_order/ticket_history_provider_options.ex",
+          "kind": "defp",
+          "end_line": 51,
+          "body_sha256": "adce9b62f479b34c8b0d862b60bd1d72676924b1265adc3e219eea01519394c2",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5619,
-  "limits": "345 selected families and 5619 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5664,
+  "limits": "353 selected families and 5664 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

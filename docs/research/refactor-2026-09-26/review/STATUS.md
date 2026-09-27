@@ -1170,3 +1170,7 @@ Read os_pid, outcome, pane_interrupt, parse_repo, partial? and poll_interval_ms:
 ### Name duplication: retention, accounting and redaction policies
 
 Read positive_number, project_identity, prune, read_file, reconciliation, record_delivery, record_failure and redact: 43 literal entries across eight families. Identify equivalent positive-number parsers and existing provider/redaction delegation; preserve retention boundaries, accounting populations, delivery evidence and structural privacy policies. Read all three redaction implementation modules to distinguish credential patterns, URL treatment and bounded traversal. Name triage now 345 families/5619 entries, leaving 1335 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect, complete privacy guarantee or saving is claimed.
+
+### Name duplication: setup and revision boundaries
+
+Read refresh_catalog, remote_install_script, repository, reset_suffix, resume, revise, root_summary and runtime_options: 45 literal entries across eight families. Verify identical root-summary coercion and common runtime override precedence; preserve refresh attempt versus observation, remote setup policy, identity provenance, reset display and revision authority. Name triage now 353 families/5664 entries, leaving 1327 cross-module names. Raw findings and skeptic counts are unchanged; no remote safety proof, revision concurrency guarantee or saving is claimed.
