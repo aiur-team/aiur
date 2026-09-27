@@ -91379,10 +91379,485 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "stale_after_ms",
+      "assessment": "Staleness thresholds use different floors, ceilings and zero semantics.",
+      "constraints": [
+        "TicketHistoryProviderOptions bounds a configured value then delegates two planning intervals with that value as floor; the interval-count constant was checked.",
+        "CapacityBinding doubles a positive poll interval with floor/ceiling clamps, otherwise takes a default.",
+        "PollCadence returns zero for an explicit zero floor, otherwise scales effective cadence and applies a positive floor or one.",
+        "Preserve zero override and bounded-versus-derived policy; a computed threshold is not evidence that observations are fresh."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 66,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider.Options",
+          "name": "stale_after_ms",
+          "path": "src/lib/aiur/build_order/ticket_history_provider_options.ex",
+          "kind": "defp",
+          "end_line": 70,
+          "body_sha256": "46aa2ba14aad1f57641f5e2c4ac7b61f54430bcab24b90bcb0c2e8d67d9bd424",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 110,
+          "module": "Aiur.Orchestrator.CapacityBinding",
+          "name": "stale_after_ms",
+          "path": "src/lib/aiur/orchestrator/capacity_binding.ex",
+          "kind": "defp",
+          "end_line": 118,
+          "body_sha256": "f0bbe7bcd1ec3e97c1d3d51faa4f6210a381c39cadef8ff8590d0fab052384da",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 383,
+          "module": "Aiur.PollCadence",
+          "name": "stale_after_ms",
+          "path": "src/lib/aiur/poll_cadence.ex",
+          "kind": "def",
+          "end_line": 392,
+          "body_sha256": "25b2cb5a1a933cb7c221306d735e11d1de5ee39462d6a2013ba3dbad7dee5d51",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "stream",
+      "assessment": "File iteration, persisted replay and live turn streaming have distinct lifecycles.",
+      "constraints": [
+        "Jsonl streams file lines lazily, yielding decoded records and skipping decode_line skip results.",
+        "ChatCompletions.Replay opens SSE, resolves a session/message, streams stored parts or a message-not-found notice and emits stop.",
+        "TurnStream subscribes before ActiveTurns lookup, starts watchdog/heartbeat and a segmented loop for active turns, and unsubscribes/finalizes closed or missing turns.",
+        "Preserve subscription race ordering, persisted versus live evidence, segmentation fallback and missing-turn behavior. Loop cleanup, decoder policy and browser rendering were not verified by these entry points."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 18,
+          "module": "Aiur.Jsonl",
+          "name": "stream",
+          "path": "src/lib/aiur/jsonl.ex",
+          "kind": "def",
+          "end_line": 27,
+          "body_sha256": "a9215dcbb670dcb0d23544055f6220e00c9e3da7a7ace524926d074ce54ab35e",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 21,
+          "module": "Aiur.Opencode.ChatCompletions.Replay",
+          "name": "stream",
+          "path": "src/lib/aiur/opencode/chat_completions/replay.ex",
+          "kind": "def",
+          "end_line": 42,
+          "body_sha256": "a792b1612960278e16d08705204c8690b77d566c961a0fe598bb92c04634e286",
+          "normalized_body_lines": 29,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 28,
+          "module": "Aiur.Opencode.ChatCompletions.TurnStream",
+          "name": "stream",
+          "path": "src/lib/aiur/opencode/chat_completions/turn_stream.ex",
+          "kind": "def",
+          "end_line": 78,
+          "body_sha256": "9bec46e8582240e3f30a4d667b6f48d8a9effaddd281812ceade6b7ff6e8ff0b",
+          "normalized_body_lines": 53,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "string",
+      "assessment": "String helpers differ in coercion, trimming and error contracts.",
+      "constraints": [
+        "DynamicTool.Args selects a truthy string/atom-key value, trims binaries and returns tagged nonempty text or caller-supplied error.",
+        "CacheInspector.Entry accepts nonempty binaries verbatim or converts integers, otherwise nil.",
+        "OpenAICompat.RequestUsage trims binaries and returns nonblank text or nil.",
+        "Preserve whitespace/coercion differences. DynamicTool's String.to_atom key population was not established, so no atom-exhaustion claim is made."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 7,
+          "module": "Aiur.Codex.DynamicTool.Args",
+          "name": "string",
+          "path": "src/lib/aiur/codex/dynamic_tool/args.ex",
+          "kind": "def",
+          "end_line": 18,
+          "body_sha256": "a67ee6bea44e50bbe4c298c90528b400f0d93d6f6e677c98fbd049cd08e4ba4b",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 235,
+          "module": "Aiur.GitHub.CacheInspector.Entry",
+          "name": "string",
+          "path": "src/lib/aiur/github/cache_inspector/entry.ex",
+          "kind": "defp",
+          "end_line": 235,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 236,
+          "module": "Aiur.GitHub.CacheInspector.Entry",
+          "name": "string",
+          "path": "src/lib/aiur/github/cache_inspector/entry.ex",
+          "kind": "defp",
+          "end_line": 236,
+          "body_sha256": "5766a186277adac3a007de2adf2ff7c07d5223666815319bace5da1aaa637fe1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 237,
+          "module": "Aiur.GitHub.CacheInspector.Entry",
+          "name": "string",
+          "path": "src/lib/aiur/github/cache_inspector/entry.ex",
+          "kind": "defp",
+          "end_line": 237,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 138,
+          "module": "Aiur.Usage.Headless.OpenAICompat.RequestUsage",
+          "name": "string",
+          "path": "src/lib/aiur/usage/headless/open_ai_compat/request_usage.ex",
+          "kind": "defp",
+          "end_line": 143,
+          "body_sha256": "52ac605e20a7ccfd64f83eace5f6a6cb8b45c488cbd37a2ea4ae399b23e4c1ee",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 145,
+          "module": "Aiur.Usage.Headless.OpenAICompat.RequestUsage",
+          "name": "string",
+          "path": "src/lib/aiur/usage/headless/open_ai_compat/request_usage.ex",
+          "kind": "defp",
+          "end_line": 145,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "subscribe_catalog",
+      "assessment": "Catalog subscription is a capability boundary with a no-op planning implementation.",
+      "constraints": [
+        "GraphProjection resolves a catalog topic through its server and passes it to subscribe_scope.",
+        "DataSource dispatches to an injected/default graph provider.",
+        "PlanningSource returns ok without performing a subscription in this function.",
+        "Keep no-op capability semantics explicit; ok does not universally prove future catalog changes will be delivered."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "Aiur.BuildOrder.GraphProjection",
+          "name": "subscribe_catalog",
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "kind": "def",
+          "end_line": 113,
+          "body_sha256": "aeb77d44969c5b9f9c5e4bdb346deb958ff94ac4822e32178a26639d7ef1730e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 42,
+          "module": "AiurWeb.BuildOrder.DataSource",
+          "name": "subscribe_catalog",
+          "path": "src/lib/aiur_web/build_order/data_source.ex",
+          "kind": "def",
+          "end_line": 43,
+          "body_sha256": "75460effaa20357838a2262fb1b70af03bcdf735a54bb99f8c56d0113cc15bb6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 123,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "subscribe_catalog",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "def",
+          "end_line": 123,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "subscribe_selected",
+      "assessment": "Selected-root subscription likewise separates provider dispatch from no-op support.",
+      "constraints": [
+        "GraphProjection obtains an identity-specific topic and delegates subscription.",
+        "DataSource forwards the selected identity to its provider dependency.",
+        "PlanningSource ignores identity and returns ok.",
+        "Preserve identity-scoped subscriptions and static/no-op sources as distinct capabilities. Entry points alone do not prove event delivery or unsubscribe lifecycle."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 116,
+          "module": "Aiur.BuildOrder.GraphProjection",
+          "name": "subscribe_selected",
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "kind": "def",
+          "end_line": 118,
+          "body_sha256": "9c0a1f9cb496bc40b5daaf90a42a11a9d77f4ff14f813cd5701488162a7517ec",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 52,
+          "module": "AiurWeb.BuildOrder.DataSource",
+          "name": "subscribe_selected",
+          "path": "src/lib/aiur_web/build_order/data_source.ex",
+          "kind": "def",
+          "end_line": 53,
+          "body_sha256": "dc6447423f385cddce3f48c3003ca3785a1c03e59fa1cc426ad28523b9588290",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 127,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "subscribe_selected",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "kind": "def",
+          "end_line": 127,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "terminal?",
+      "assessment": "Terminal classification depends on source and replacement boundaries.",
+      "constraints": [
+        "Membership.Event considers completed/cancelled terminal; the lifecycle constant was checked.",
+        "UnitsRow.Projection uses a membership terminal flag for membership rows, but completed/cancelled lifecycle for status rows.",
+        "UnitsControlPolicy additionally excludes replacement-boundary rows from an exact-true terminal flag.",
+        "Do not replace source-specific/control-specific terminal semantics with one lifecycle predicate; terminal presentation is not proof all provider work stopped."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 56,
+          "module": "Aiur.CurrentRunMembership.Event",
+          "name": "terminal?",
+          "path": "src/lib/aiur/current_run_membership/event.ex",
+          "kind": "def",
+          "end_line": 56,
+          "body_sha256": "34a172629714415179548c3c968905e02e17611e68fa093ecbdcf5372cae4caa",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 273,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "terminal?",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "defp",
+          "end_line": 273,
+          "body_sha256": "f4dfb2c8e266c427fd3784aaf9210f11900913768c76c258c0c81dee4561c946",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 99,
+          "module": "AiurWeb.OperatorControlCenter.UnitsRow.Projection",
+          "name": "terminal?",
+          "path": "src/lib/aiur_web/operator_control_center/units_row/projection.ex",
+          "kind": "defp",
+          "end_line": 99,
+          "body_sha256": "4b8d7b01f262ae22f5f7273d5789039c283353fbacaacfb1bcb0aaa1138ee59c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 100,
+          "module": "AiurWeb.OperatorControlCenter.UnitsRow.Projection",
+          "name": "terminal?",
+          "path": "src/lib/aiur_web/operator_control_center/units_row/projection.ex",
+          "kind": "defp",
+          "end_line": 100,
+          "body_sha256": "dc84a0f55883c0ade1aacfb7d72bc5f585b9b1f71d999e8a1e2367d078e4547a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "terminate_task",
+      "assessment": "Task termination has different supervisor failure and fallback policies.",
+      "constraints": [
+        "TicketDetailCoordinatorTaskLifecycle invokes the supplied supervisor and maps exit/error catches to ok.",
+        "Orchestrator delegates to AgentTeardown, which uses Aiur.TaskSupervisor and sends kill to the PID if the supervisor reports not_found; non-PIDs are no-ops.",
+        "Preserve supervised task ownership versus direct process-kill fallback and error visibility. No process was terminated in this research, and a returned request result is not monitored proof of exit."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 218,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.TaskLifecycle",
+          "name": "terminate_task",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_task_lifecycle.ex",
+          "kind": "defp",
+          "end_line": 223,
+          "body_sha256": "f310f2d8bfcd630e114bafc8f0a929763eb052e7271e0eb67240354f53f9c993",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 412,
+          "module": "Aiur.Orchestrator",
+          "name": "terminate_task",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 412,
+          "body_sha256": "e29ec8d84970fbd7a027f84ded080ec96f67e75b25946bddeb8fa79374241ba4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 164,
+          "module": "Aiur.Orchestrator.AgentTeardown",
+          "name": "terminate_task",
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "kind": "def",
+          "end_line": 172,
+          "body_sha256": "2020c2a335dc26a466e7a5544373fecbfc0d76e97a603f1ac5f23b424168a313",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 174,
+          "module": "Aiur.Orchestrator.AgentTeardown",
+          "name": "terminate_task",
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "kind": "def",
+          "end_line": 174,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "threshold",
+      "assessment": "Threshold selectors represent time, retry count and load rather than one numeric policy.",
+      "constraints": [
+        "BuildGateHoldMonitor accepts nonnegative integer threshold_seconds or configuration/default.",
+        "BrokerTimeout delegates degraded retry threshold validation to config_integer.",
+        "SaturationSentinel accepts positive numeric per-scheduler load or config/fallback.",
+        "Retain units, zero semantics and fallback provenance before sharing validation. These selectors do not prove correct monitoring, retry behavior or alert incidence."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 188,
+          "module": "Aiur.BuildGateHoldMonitor",
+          "name": "threshold",
+          "path": "src/lib/aiur/build_gate_hold_monitor.ex",
+          "kind": "defp",
+          "end_line": 193,
+          "body_sha256": "ae423a8d41093e6a8b6cbe676b9131c69e6575f07a557a8da22641052ac48e8b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 276,
+          "module": "Aiur.GitHub.BrokerTimeout",
+          "name": "threshold",
+          "path": "src/lib/aiur/github/broker_timeout.ex",
+          "kind": "defp",
+          "end_line": 277,
+          "body_sha256": "cb394104de94413f0c2c98ad66dd5e3a5c5164503cf84975e47a5ded160ec019",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 179,
+          "module": "Aiur.SaturationSentinel",
+          "name": "threshold",
+          "path": "src/lib/aiur/saturation_sentinel.ex",
+          "kind": "defp",
+          "end_line": 184,
+          "body_sha256": "a1007c2d704169394d7a829334ab8ecdfa2684df3dc416a865054cbf6f43a3f0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6852,
-  "limits": "581 selected families and 6852 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6881,
+  "limits": "589 selected families and 6881 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
