@@ -882,3 +882,7 @@ Read33positive_integer clauses in17modules and39parse definitions/declarations i
 ### Name duplication: snapshot ownership and observations
 
 Read all 63 snapshot definitions/declarations in 52 modules. Preserve process identity/timeouts, authority and generation scopes, provider validation, redaction, freshness/provenance/truncation, and distinct unavailable-data envelopes. Multi-source reads do not establish a transaction merely by returning one map. Empty-shaped failure fallbacks need consumer review before defect classification. Name triage now 20 families/650 literal entries; no new runtime defect or savings claim, and the broader sweep remains open.
+
+### Name duplication: persistent loading and recovery policy
+
+Read all 51 load definitions/declarations in 38 modules, six artifact-reading helpers, and JsonStore/GlobalPauseStore. Identified bounded JSON reading as a narrower sharing candidate while preserving zero-byte policy, size/type checks, domain decoders, errors and recovery state machines. Global-pause error handling and cache empty fallbacks are distinct policies, not interchangeable defaults. Name triage now 21 families/701 literal entries; no new defect or savings count. Remaining sweeps and downstream verification remain open.

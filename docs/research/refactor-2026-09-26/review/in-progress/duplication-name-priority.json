@@ -49,7 +49,7 @@
       "modules": 38,
       "clauses": 51,
       "summed_source_span_lines": 522,
-      "reviewed_family": false
+      "reviewed_family": true
     },
     {
       "name": "subscribe",
