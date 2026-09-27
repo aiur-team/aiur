@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "d582a930bf714538997a66b6c7cfda52f176a0b78ca7a8e4f2fdd0aecd10830e"
+    "name_triage": "9859b0bbe05a020768e868bbd4ef19deeafa5e37b180dbcb8e548aaa5c248044"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 701,
-    "remaining_cross_module_names": 979,
-    "remaining_literal_entries": 3015
+    "reviewed_cross_module_names": 709,
+    "remaining_cross_module_names": 971,
+    "remaining_literal_entries": 2999
   },
   "families": [
-    {
-      "name": "build_order_icon",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 26
-    },
-    {
-      "name": "build_snapshot",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 36
-    },
-    {
-      "name": "by_currency",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "cache",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "cached_snapshot",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "caller",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "caller_pid",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
-    {
-      "name": "caller_row",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 23
-    },
     {
       "name": "cancel_ci_wait_rewake",
       "clauses": 3,

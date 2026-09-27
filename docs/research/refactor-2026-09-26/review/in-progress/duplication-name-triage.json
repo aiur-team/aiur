@@ -98015,10 +98015,322 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "build_order_icon",
+      "assessment": "Icon rendering and metadata lane extraction are different layers.",
+      "constraints": [
+        "The web component normalizes an icon and renders key/text/glyph with an aria-label and hidden glyph.",
+        "StreamDeckGrid parses entry labels and fetches the lane field.",
+        "Preserve metadata selection versus accessible rendering; normalization, label validity and actual accessibility behavior are not established by this literal read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 33,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderIcon",
+          "name": "build_order_icon",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_icon.ex",
+          "kind": "def",
+          "end_line": 52,
+          "body_sha256": "71b3ec18bc84ca1a29fb748530b57260ff2aa0295023006bd8c86856825fe890",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 168,
+          "module": "AiurWeb.StreamDeckGrid",
+          "name": "build_order_icon",
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "kind": "defp",
+          "end_line": 173,
+          "body_sha256": "e77ac62aa0c147294a8aa41fa961ae0b059cfd476ccd540dbc1c18592d8c7ff9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "build_snapshot",
+      "assessment": "Graph configuration authority and usage accounting snapshots have distinct schemas.",
+      "constraints": [
+        "GraphProjectionConfiguration records repository, normalized generation, authority fingerprint, limits and policy options.",
+        "GroupedScopes combines totals, contributors, reconciliation and coverage with public scope, currency, authority, health/freshness, retained interval and tier keys.",
+        "Preserve configuration versus accounting ownership; snapshot construction does not independently prove freshness, coverage or conservation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 59,
+          "module": "Aiur.BuildOrder.GraphProjection.Configuration",
+          "name": "build_snapshot",
+          "path": "src/lib/aiur/build_order/graph_projection_configuration.ex",
+          "kind": "defp",
+          "end_line": 67,
+          "body_sha256": "4eb9ba563a877d11975f5b4f518588b645c4c7670bbe60c2f78ee83051e4c6c4",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 7,
+          "line": 194,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "build_snapshot",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "defp",
+          "end_line": 220,
+          "body_sha256": "be6aaa2fda4a55db93fe780e85bf9fb6f360dd37fefb0b3e134e5493cbb05bb6",
+          "normalized_body_lines": 29,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "by_currency",
+      "assessment": "Currency grouping differs in input representation and presentation responsibility.",
+      "constraints": [
+        "UsageAggregate.Query filters money measures and folds them by currency into raw measure maps.",
+        "GroupedScopes accumulates money entries, merges API amounts, finalizes/presents each group and sorts the output.",
+        "Share only arithmetic with explicit basis/currency contracts; raw measure grouping and a presented accounting view are not interchangeable."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 304,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "by_currency",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "defp",
+          "end_line": 312,
+          "body_sha256": "43e79321773b5959d6868c25dfcdf0e7fd9beb1b6aef0a622cb1c0fab9a81b26",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 115,
+          "module": "Aiur.UsageAggregate.Query",
+          "name": "by_currency",
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "kind": "defp",
+          "end_line": 121,
+          "body_sha256": "d88a45eb8806eb7e9c8a33bc4fc18184b60ab93b7270a12a0e5abbd42dd4888f",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "cache",
+      "assessment": "Authorization cache state and read-cache eligibility share only a name.",
+      "constraints": [
+        "DispatchAuthorization reads persistent-term state with empty fingerprints/decisions/alerted defaults.",
+        "ReadCache.Policy obtains a class/transport TTL and returns cache metadata for positive values, otherwise no_cache disabled.",
+        "Keep stored authorization decisions separate from read eligibility. Empty fallback does not prove current authorization and TTL eligibility does not establish saved requests."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 630,
+          "module": "Aiur.GitHub.DispatchAuthorization",
+          "name": "cache",
+          "path": "src/lib/aiur/github/dispatch_authorization.ex",
+          "kind": "defp",
+          "end_line": 632,
+          "body_sha256": "7b2efd1147a49e5705ac5eecbac2eab9b42b5521fd4ed95605d07ff63e90453d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 520,
+          "module": "Aiur.GitHub.ReadCache.Policy",
+          "name": "cache",
+          "path": "src/lib/aiur/github/read_cache/policy.ex",
+          "kind": "defp",
+          "end_line": 525,
+          "body_sha256": "f885e2698973d4e86bf1f86bf09978fa4b32d6e0fdc367fbfb0105b2d593291b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "cached_snapshot",
+      "assessment": "Process snapshot acquisition and persistent-term lookup have different failure contracts.",
+      "constraints": [
+        "AgentCacheMetrics calls the server and maps exits to an unavailable snapshot timestamped at handling time.",
+        "SnapshotStore retrieves the orchestrator-keyed persistent-term value or nil.",
+        "Preserve explicit unavailable evidence versus absence; retrieval does not independently establish observation time or freshness."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 76,
+          "module": "Aiur.GitHub.AgentCacheMetrics",
+          "name": "cached_snapshot",
+          "path": "src/lib/aiur/github/agent_cache_metrics.ex",
+          "kind": "def",
+          "end_line": 80,
+          "body_sha256": "577fb6cee7056a3bf1566ebbb7b98b6a63ea1283da5aa109a2d33b8e8e330bf0",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 351,
+          "module": "Aiur.Orchestrator.SnapshotStore",
+          "name": "cached_snapshot",
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "kind": "defp",
+          "end_line": 351,
+          "body_sha256": "1cd316c134dadbd3f25cdc6cdb78f0d053d78dca5d76ecd4d09a65488cf8c2bf",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "caller",
+      "assessment": "Derived budget attribution and declared cache caller metadata are different identities.",
+      "constraints": [
+        "GitHubGraph.Request maps catalog/selected-root GraphQL operation names to distinct caller atoms, defaulting other operations to build_order_graph.",
+        "ReadCache.Policy accepts a binary caller field and otherwise returns nil.",
+        "Preserve inferred operation attribution versus declared string metadata; these are not authenticated caller identities."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 27,
+          "module": "Aiur.BuildOrder.GitHubGraph.Request",
+          "name": "caller",
+          "path": "src/lib/aiur/build_order/github_graph/request.ex",
+          "kind": "defp",
+          "end_line": 33,
+          "body_sha256": "6423d8d2a505f542aec8c89ac7eea7e1ae51ea59ef32488decaaf892d44ee438",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 539,
+          "module": "Aiur.GitHub.ReadCache.Policy",
+          "name": "caller",
+          "path": "src/lib/aiur/github/read_cache/policy.ex",
+          "kind": "defp",
+          "end_line": 544,
+          "body_sha256": "8da39e31419912535ae3efccc323cd222f8701841fc24fc780f73814220e7a68",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "caller_pid",
+      "assessment": "Two modules share exact GenServer caller PID extraction.",
+      "constraints": [
+        "ProviderAccountGeneration.Owner and FinancialData.Cache.Pending accept a two-tuple whose first element is a PID and return it.",
+        "Neither includes a fallback clause.",
+        "This is a concrete shared primitive, but extraction proves neither liveness nor authorization; the tiny wrapper may be clearer kept local."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 65,
+          "module": "Aiur.ProviderAccountGeneration.Owner",
+          "name": "caller_pid",
+          "path": "src/lib/aiur/provider_account_generation/owner.ex",
+          "kind": "defp",
+          "end_line": 65,
+          "body_sha256": "da91c2475a6e58f2d59221f31dff07160b7a652499c4b138fc252693489a152e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 182,
+          "module": "AiurWeb.FinancialData.Cache.Pending",
+          "name": "caller_pid",
+          "path": "src/lib/aiur_web/financial_data/cache/pending.ex",
+          "kind": "defp",
+          "end_line": 182,
+          "body_sha256": "da91c2475a6e58f2d59221f31dff07160b7a652499c4b138fc252693489a152e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "caller_row",
+      "assessment": "Budget and quota rows expose different units and missing-data policy.",
+      "constraints": [
+        "BudgetMap defaults points/calls to zero, chooses points for graphql volume and calls otherwise, and attaches cache attribution plus reuse hints.",
+        "QuotaUsage defaults missing caller to unattributed, normalizes counts, retains points_per_hour and accepts estimated? only when exactly true.",
+        "Preserve resource-specific volume units, attribution and estimated-rate evidence; display defaults are not measurements and these constructors substantiate no savings claim."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 397,
+          "module": "Aiur.GitHub.BudgetMap",
+          "name": "caller_row",
+          "path": "src/lib/aiur/github/budget_map.ex",
+          "kind": "defp",
+          "end_line": 410,
+          "body_sha256": "d4e8d3a9003205cb9e99d37ad643e8f1e156127477d890a1897f32d1a1ef6279",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 295,
+          "module": "Aiur.GitHub.QuotaUsage",
+          "name": "caller_row",
+          "path": "src/lib/aiur/github/quota_usage.ex",
+          "kind": "defp",
+          "end_line": 303,
+          "body_sha256": "d287f07ed773f8cda40edabd484f1959a698fb5f10e9451f16aae0bf88f9654f",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7253,
-  "limits": "701 selected families and 7253 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7269,
+  "limits": "709 selected families and 7269 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

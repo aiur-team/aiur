@@ -2055,3 +2055,7 @@ Read bootstrap, bot_account, bound_entries, bound_projections, bounded_list, bou
 ### Name duplication: lock ownership and broadcast scope
 
 Read branch_target_entry, break_stale_lock, broadcast_all, broadcast_event, broadcast_reset, broadcast_update, bucket and buffer_operator_delivery: 16 literal entries across eight families. Branch-entry construction and immediate selection helpers match across pollers. Preserve lock-owner/fingerprint checks, domain envelopes, authorized broadcast identities, search-versus-accounting buckets and buffering failure policy. Read branch helpers and stale-lock reclamation clauses without running cleanup. Name triage now 701 families/7253 entries, leaving 979 cross-module names. Raw findings and skeptic counts are unchanged; no complete lock fencing, durable delivery or accounting conservation guarantee is added.
+
+### Name duplication: snapshot and attribution contracts
+
+Read build_order_icon, build_snapshot, by_currency, cache, cached_snapshot, caller, caller_pid and caller_row: 16 literal entries across eight families. Caller PID extraction matches exactly. Preserve metadata-versus-rendering roles, graph authority versus accounting snapshots, currency basis, authorization cache versus read eligibility, unavailable versus absent snapshots and resource-specific attribution units. Name triage now 709 families/7269 entries, leaving 971 cross-module names. Raw findings and skeptic counts are unchanged; no complete snapshot freshness, accounting conservation or API-saving guarantee is added.
