@@ -1607,3 +1607,7 @@ Read all 24 topic, 18 broadcast and 17 generation definitions/declarations. Pres
 ### Name duplication: refresh completion and observation effects
 
 Read all 28 refresh and 33 observe definitions/declarations. Separate cast acceptance from synchronous completion, projection aging from fresh IO, protected reads from presentation updates, and best-effort meters from persisted membership/readiness changes. Preserve credential identity, account continuity, task ownership and persistence ordering. Name triage now 29 families/904 literal entries; remaining sweep and transitive verification stay open, with no new defect or savings count.
+
+### Name duplication: write mechanics and durability policy
+
+Read all 24 write definitions/declarations in 19 modules and complete Fs. Existing atomic replacement is a sharing point, but callers differ in file versus recovery syncing, permissions, bounds, error mapping, cleanup, memo invalidation and append ownership. ModelDiscovery invalidates its memo even when rename returns an error; preserve or explicitly revise that behavior in any consolidation. Name triage now 30 families/928 literal entries. No crash-durability certification, new defect count or savings claim; remaining sweep stays open.
