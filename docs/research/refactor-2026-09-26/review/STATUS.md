@@ -1310,3 +1310,7 @@ Read warning, windows, write_error, absolute, accumulate_key, acknowledge, ackno
 ### Name duplication: activity and adapter selection
 
 Read actionable_review?, active_attention?, active_by_ref, active_issue_state?, activity_status, actor_kind, adapter and add_agent_modal: 26 literal entries across eight families. Attention and task-reference predicates match; preserve review-state normalization, active-state vocabulary source, nil/unknown activity sentinels, actor grouping and adapter fallback. Read normalization helpers/allowlists and the full literal modal template without browser verification. Name triage now 621 families/7002 entries, leaving 1059 cross-module names. Raw findings and skeptic counts are unchanged; no complete admission, liveness or authorization guarantee is added.
+
+### Name duplication: addition and mutation boundaries
+
+Read add_buckets, add_candidate, add_cell, add_change, add_dependency, add_issue_label, add_subscription and add_value: 21 literal entries across eight families. Numeric addition and account-change accumulation match. Preserve offset/cursor scan evidence, sample presence counts, dependency identity types, remote-versus-local labels and subscription provenance policy. Name triage now 629 families/7023 entries, leaving 1051 cross-module names. Raw findings and skeptic counts are unchanged; no complete remote mutation, subscription delivery or compaction-conservation guarantee is added.

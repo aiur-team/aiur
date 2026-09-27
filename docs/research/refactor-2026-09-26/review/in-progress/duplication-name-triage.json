@@ -93804,10 +93804,381 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "add_buckets",
+      "assessment": "Provider quota buckets and decision search buckets are distinct structures.",
+      "constraints": [
+        "Codex.RateLimits folds primary/secondary/hourly/weekly/monthly through a sanitizing bucket helper.",
+        "RetainedIndex adds a key to each bucket's gb_set, initializing absent sets.",
+        "Preserve quota field selection versus index membership; neither is a generic bucket merge."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 49,
+          "module": "Aiur.Codex.RateLimits",
+          "name": "add_buckets",
+          "path": "src/lib/aiur/codex/rate_limits.ex",
+          "kind": "defp",
+          "end_line": 51,
+          "body_sha256": "3646bbe3305d7f5899c0b7a4e2e4fe8003eeb2b7ab4f59a123790ebe2dbc1eb9",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 184,
+          "module": "Aiur.DecisionStore.RetainedIndex",
+          "name": "add_buckets",
+          "path": "src/lib/aiur/decision_store/retained_index.ex",
+          "kind": "defp",
+          "end_line": 188,
+          "body_sha256": "9e0c0101f84176dc8542a7e5d2dfc6aa77142abc23968ea7a55e4910471eb5be",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "add_candidate",
+      "assessment": "Offset and cursor pagination maintain different scan evidence.",
+      "constraints": [
+        "LegacyPage increments reads, then matched count and skip_or_add based on offset/limit.",
+        "Query also records last_scanned_key, requires after_cursor before matching, prepends page entries and advances last_key only within the requested limit.",
+        "Shared scan mechanics must preserve lookahead, cursor advancement and match/read accounting. Pagination completeness and ordering helpers remain unverified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 6,
+          "line": 38,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.LegacyPage",
+          "name": "add_candidate",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/legacy_page.ex",
+          "kind": "defp",
+          "end_line": 48,
+          "body_sha256": "44fc9aef384a26b1c57fdd9cb99e7f3d47cf9584f7337bf3c932f68d3461bcb3",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 51,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.Query",
+          "name": "add_candidate",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query.ex",
+          "kind": "defp",
+          "end_line": 67,
+          "body_sha256": "e7c09eb5e7bb1133100860c22fc4c8d0db37ad044c48294c1cfb8b8aa60a560e",
+          "normalized_body_lines": 27,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "add_cell",
+      "assessment": "Usage aggregation and sampled resource averages use different accumulators.",
+      "constraints": [
+        "UsageAggregate.Projection updates a cell through add_value.",
+        "Analytics.Presenter keeps CPU/RSS sums and presence counters, substituting zero into sums for falsey values while tracking observation presence separately.",
+        "Preserve exact arithmetic versus sum/count statistics; zero contribution is not necessarily an observed zero. Reducer helper and final average correctness require separate evidence."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 94,
+          "module": "Aiur.UsageAggregate.Projection",
+          "name": "add_cell",
+          "path": "src/lib/aiur/usage_aggregate/projection.ex",
+          "kind": "defp",
+          "end_line": 94,
+          "body_sha256": "8438104e28647cdfed810a8a08969bf6b7a0e2aa1fee1d826ced1203068d498b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 453,
+          "module": "AiurWeb.OperatorControlCenter.Analytics.Presenter",
+          "name": "add_cell",
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "kind": "defp",
+          "end_line": 457,
+          "body_sha256": "48134450a2b844bef00690ca6e11279e231af389d23da3adb68819304f7d6fd0",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "add_change",
+      "assessment": "Account-generation change accumulators are identical.",
+      "constraints": [
+        "Lifecycle and State both ignore nil change and otherwise prepend topic/snapshot/change tuples.",
+        "One shared helper can retain ordering and nil suppression; accumulating a tuple does not establish broadcast or durable publication."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 101,
+          "module": "Aiur.ProviderAccountGeneration.Lifecycle",
+          "name": "add_change",
+          "path": "src/lib/aiur/provider_account_generation/lifecycle.ex",
+          "kind": "defp",
+          "end_line": 101,
+          "body_sha256": "912a370d34ea33ab42f82fc73a0ee055d462c45d393085d915abaf49f625bedd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 102,
+          "module": "Aiur.ProviderAccountGeneration.Lifecycle",
+          "name": "add_change",
+          "path": "src/lib/aiur/provider_account_generation/lifecycle.ex",
+          "kind": "defp",
+          "end_line": 102,
+          "body_sha256": "b883137d8ab84035d32247c9d279c901879c949f336beb05ea35d8d8d1954e95",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 99,
+          "module": "Aiur.ProviderAccountGeneration.State",
+          "name": "add_change",
+          "path": "src/lib/aiur/provider_account_generation/state.ex",
+          "kind": "defp",
+          "end_line": 99,
+          "body_sha256": "912a370d34ea33ab42f82fc73a0ee055d462c45d393085d915abaf49f625bedd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 100,
+          "module": "Aiur.ProviderAccountGeneration.State",
+          "name": "add_change",
+          "path": "src/lib/aiur/provider_account_generation/state.ex",
+          "kind": "defp",
+          "end_line": 100,
+          "body_sha256": "b883137d8ab84035d32247c9d279c901879c949f336beb05ea35d8d8d1954e95",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "add_dependency",
+      "assessment": "Dependency creation already delegates to one mutation API.",
+      "constraints": [
+        "Client forwards blocked issue number, blocker issue ID and options to DependenciesApi.",
+        "DependenciesApi requires an integer blocker ID and delegates a post mutation.",
+        "Keep issue number versus resource ID distinct. The guard does not prove positive identity, remote acceptance or write-through completion."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 138,
+          "module": "Aiur.GitHub.Client",
+          "name": "add_dependency",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 139,
+          "body_sha256": "7b5074aacef483f69394f41fa17e05ecd7d63b2d9b3ca2fca7fa0e4c541ddd31",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 47,
+          "module": "Aiur.GitHub.DependenciesApi",
+          "name": "add_dependency",
+          "path": "src/lib/aiur/github/dependencies_api.ex",
+          "kind": "def",
+          "end_line": 50,
+          "body_sha256": "bdaa0bb338d3373962205e52f5d4a84d2e77d1f9f79e4be4ee4c7b498dd7c351",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "add_issue_label",
+      "assessment": "Remote label mutation and local issue projection are separate operations.",
+      "constraints": [
+        "GitHub.IssueState posts one label, writes through returned labels on 200/201 with body, accepts bodyless success and classifies other responses/errors.",
+        "RemoteControlMode lowercases a label and appends it to Issue.labels only when absent.",
+        "Do not equate local projection with remote mutation; preserve write-through and error handling. Existing labels' normalization and actual remote persistence are not proven here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 6,
+          "line": 359,
+          "module": "Aiur.GitHub.IssueState",
+          "name": "add_issue_label",
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "kind": "def",
+          "end_line": 376,
+          "body_sha256": "9b1629bec0bf3eab4762d4eb4a9473ad09215c8708f95fa8215a5ab313afb874",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 274,
+          "module": "Aiur.Orchestrator.RemoteControlMode",
+          "name": "add_issue_label",
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "kind": "def",
+          "end_line": 277,
+          "body_sha256": "1afcb5e7e4db355656d0b32913cc8ab633cda0a7f4952941fbc99ee2ed432834",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "add_subscription",
+      "assessment": "Agent subscription admission and executor subscription bookkeeping have different policies.",
+      "constraints": [
+        "SubscriptionStore validates topic policy only for the manual:agent reason before RPC; other binary reason inputs go directly to RPC.",
+        "ExecutorEvents keeps an existing topic unchanged or appends topic/reason with IdGenerator.peek as creation watermark.",
+        "Preserve provenance-based validation and existing-topic behavior. These entry points do not establish callers can choose arbitrary reasons or that subscriptions are durably recorded/delivered."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 148,
+          "module": "Aiur.Events.SubscriptionStore",
+          "name": "add_subscription",
+          "path": "src/lib/aiur/events/subscription_store.ex",
+          "kind": "def",
+          "end_line": 153,
+          "body_sha256": "2c14a8bcf79a2a19d9a5cd43a994908fc55c3fad03cac67a829c0dbcffe99dad",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 155,
+          "module": "Aiur.Events.SubscriptionStore",
+          "name": "add_subscription",
+          "path": "src/lib/aiur/events/subscription_store.ex",
+          "kind": "def",
+          "end_line": 158,
+          "body_sha256": "6c204a5152e0b74b938d821eeb0b8b1edb8f6feaa08d26056bffa22e9b0b1079",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 474,
+          "module": "Aiur.ExecutorEvents",
+          "name": "add_subscription",
+          "path": "src/lib/aiur/executor_events.ex",
+          "kind": "defp",
+          "end_line": 487,
+          "body_sha256": "dac87aa14d6f330c2b26f60a193dd95b188f3b788e36396f107a33b9a9a45cfe",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "add_value",
+      "assessment": "Two exact numeric addition helpers are identical.",
+      "constraints": [
+        "UsageAggregate.Projection and UsageCompaction.Floor add Decimal pairs with Decimal.add and integer pairs with integer addition.",
+        "No mixed-type or generic fallback clause is present.",
+        "Share this strict primitive while retaining upstream measure types; arithmetic equivalence does not prove compaction conservation or nonoverlapping populations."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 96,
+          "module": "Aiur.UsageAggregate.Projection",
+          "name": "add_value",
+          "path": "src/lib/aiur/usage_aggregate/projection.ex",
+          "kind": "defp",
+          "end_line": 96,
+          "body_sha256": "2db049037dc24d363f3afa4655cb4bfa63ce8b106e7a3cf427b30849e0177a28",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 97,
+          "module": "Aiur.UsageAggregate.Projection",
+          "name": "add_value",
+          "path": "src/lib/aiur/usage_aggregate/projection.ex",
+          "kind": "defp",
+          "end_line": 97,
+          "body_sha256": "29b2052558321d47f419a5b7d1e39b34ea1148c30c39a63c26703ed301ba1fcb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 108,
+          "module": "Aiur.UsageCompaction.Floor",
+          "name": "add_value",
+          "path": "src/lib/aiur/usage_compaction/floor.ex",
+          "kind": "defp",
+          "end_line": 108,
+          "body_sha256": "2db049037dc24d363f3afa4655cb4bfa63ce8b106e7a3cf427b30849e0177a28",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 109,
+          "module": "Aiur.UsageCompaction.Floor",
+          "name": "add_value",
+          "path": "src/lib/aiur/usage_compaction/floor.ex",
+          "kind": "defp",
+          "end_line": 109,
+          "body_sha256": "29b2052558321d47f419a5b7d1e39b34ea1148c30c39a63c26703ed301ba1fcb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7002,
-  "limits": "621 selected families and 7002 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7023,
+  "limits": "629 selected families and 7023 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

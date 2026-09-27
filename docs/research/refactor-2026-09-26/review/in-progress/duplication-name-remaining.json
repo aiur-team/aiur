@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "de147d59eb2c08561228877232d4df383ac926540a0ed8cacfb3f35db890ba32"
+    "name_triage": "3dbbe11516be069380e97772c479648c1ccb74a398c1f9761732788dbce2560b"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 621,
-    "remaining_cross_module_names": 1059,
-    "remaining_literal_entries": 3266
+    "reviewed_cross_module_names": 629,
+    "remaining_cross_module_names": 1051,
+    "remaining_literal_entries": 3245
   },
   "families": [
-    {
-      "name": "add_buckets",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "add_candidate",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 28
-    },
-    {
-      "name": "add_cell",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "add_change",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "add_dependency",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
-    {
-      "name": "add_issue_label",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 22
-    },
-    {
-      "name": "add_subscription",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "add_value",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
     {
       "name": "adjacency",
       "clauses": 2,
