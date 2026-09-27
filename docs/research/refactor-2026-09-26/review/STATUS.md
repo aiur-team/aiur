@@ -1106,3 +1106,7 @@ Read identifier, identity_label, install, label, label_names and labels: 50 lite
 ### Name duplication: loading and member populations
 
 Read load_regular, mark, matches?, member and members: 31 literal entries across five families. A common JSON loading pipeline is a sharing candidate with explicit decoder/error policies. Preserve marker ownership, matching populations, identity precedence, malformed-member evidence and dependency scope. Name triage now 249 families/5020 entries, leaving 1431 cross-module names. Raw findings and skeptic counts are unchanged; concurrency failures, omitted-dependency defects and savings remain unclaimed.
+
+### Name duplication: normalization and polling evidence
+
+Read metadata, normalize_issue_state, opaque, parse_line, poll and provider_health: 44 literal entries across six families. Identify equivalent health coercions and polling wrappers while preserving authority metadata, input normalization, size bounds, parser diagnostics and cursor/accounting semantics. The warmth parser accepts unrestricted phase text before atom conversion; trust-boundary reachability remains unverified. Name triage now 255 families/5064 entries, leaving 1425 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.

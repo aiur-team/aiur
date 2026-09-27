@@ -4,53 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "bfee620f6ef581e1a8d615b146702aafb4efa4b0458a1205655bd9dab7456a56"
+    "name_triage": "4f026272bb887a58a3b1128b63f8b17c87b90617f26982d7ab4c095673300314"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 249,
-    "remaining_cross_module_names": 1431,
-    "remaining_literal_entries": 5248
+    "reviewed_cross_module_names": 255,
+    "remaining_cross_module_names": 1425,
+    "remaining_literal_entries": 5204
   },
   "families": [
-    {
-      "name": "metadata",
-      "clauses": 7,
-      "modules": 5,
-      "summed_source_span_lines": 70
-    },
-    {
-      "name": "normalize_issue_state",
-      "clauses": 7,
-      "modules": 5,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "opaque",
-      "clauses": 10,
-      "modules": 5,
-      "summed_source_span_lines": 28
-    },
-    {
-      "name": "parse_line",
-      "clauses": 5,
-      "modules": 5,
-      "summed_source_span_lines": 51
-    },
-    {
-      "name": "poll",
-      "clauses": 5,
-      "modules": 5,
-      "summed_source_span_lines": 66
-    },
-    {
-      "name": "provider_health",
-      "clauses": 10,
-      "modules": 5,
-      "summed_source_span_lines": 22
-    },
     {
       "name": "provider_label",
       "clauses": 9,

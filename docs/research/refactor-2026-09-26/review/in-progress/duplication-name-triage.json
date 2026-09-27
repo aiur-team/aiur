@@ -64183,10 +64183,632 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "metadata",
+      "assessment": "Metadata builders encode different authority, accounting and presentation contracts.",
+      "constraints": [
+        "SnapshotStore derives nonnegative monotonic age and checks live process, generation, backlog and stalling before reporting current/stale with reason, age and freshness window. This is evidence-bearing metadata rather than a generic map builder.",
+        "Pricing.Components preserves additive, subset-parent and mutually-exclusive-group token relationships. OpenAICompat.Checkpoint carries backend, checkpoint kind and request/turn correlation.",
+        "ConversationDrawer.Presenter emits requested and resolved model fields separately with agent/backend labels. CostReport builds healthy/fresh metadata from a Projection while retaining generation/source positions; this body alone does not establish the scope of that health claim.",
+        "Keep authority and accounting relationships owned by their domains; shared map construction would not replace their semantics."
+      ],
+      "clauses": 7,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 80,
+          "module": "Aiur.OpenAICompat.Checkpoint",
+          "name": "metadata",
+          "path": "src/lib/aiur/open_ai_compat/checkpoint.ex",
+          "kind": "defp",
+          "end_line": 87,
+          "body_sha256": "2516626027d650a4c58e01a5ab1278173563f9381d299b61f17278a7a1f382d1",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 392,
+          "module": "Aiur.Orchestrator.SnapshotStore",
+          "name": "metadata",
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "kind": "defp",
+          "end_line": 416,
+          "body_sha256": "f67202a6ebdae2e575137534572c172a2a6da9e0cea37a191a16a3c6654d9dba",
+          "normalized_body_lines": 44,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 140,
+          "module": "Aiur.Usage.Pricing.Components",
+          "name": "metadata",
+          "path": "src/lib/aiur/usage/pricing/components.ex",
+          "kind": "defp",
+          "end_line": 142,
+          "body_sha256": "b0e151be5f83680d97fd41297799ff79157ef4b96808f99a45bb92ea01d12ae8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 144,
+          "module": "Aiur.Usage.Pricing.Components",
+          "name": "metadata",
+          "path": "src/lib/aiur/usage/pricing/components.ex",
+          "kind": "defp",
+          "end_line": 151,
+          "body_sha256": "20bc47e244a7ddec36b6d612032c053548abd9453b9cc6a3264259ac24dc0ece",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 153,
+          "module": "Aiur.Usage.Pricing.Components",
+          "name": "metadata",
+          "path": "src/lib/aiur/usage/pricing/components.ex",
+          "kind": "defp",
+          "end_line": 160,
+          "body_sha256": "e9b9419d7078e26c3a1c3d5ca60d83696c3e4b342e8442b29e4e71152fb4b57e",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 166,
+          "module": "AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter",
+          "name": "metadata",
+          "path": "src/lib/aiur_web/operator_control_center/conversation_drawer/presenter.ex",
+          "kind": "defp",
+          "end_line": 173,
+          "body_sha256": "51ef7247c7563cbf618fc44ab719a154d205fc53af358afc7a392052427a1a80",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 127,
+          "module": "Mix.Tasks.Aiur.CostReport",
+          "name": "metadata",
+          "path": "src/lib/mix/tasks/aiur.cost_report.ex",
+          "kind": "defp",
+          "end_line": 136,
+          "body_sha256": "48d2f2db996464b8d4ec4c62e54e61eb4834c7817d39d4dec22eb3c7fb328808",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "normalize_issue_state",
+      "assessment": "Issue-state normalization overlaps but trim and input policies differ.",
+      "constraints": [
+        "TurnLoop and Workspace.Context have identical binary trim/downcase bodies; DispatchPolicy performs the equivalent composition and, like Workspace.Context, returns an empty string for nonbinary input.",
+        "AgentValidation only downcases binaries and does not trim. TestReset first calls to_string, then trims and downcases.",
+        "A shared normalizer must explicitly choose whitespace and accepted-input policy rather than silently changing config or runtime behavior. These literal bodies do not prove whether upstream validation makes differences reachable."
+      ],
+      "clauses": 7,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 572,
+          "module": "Aiur.AgentRunner.TurnLoop",
+          "name": "normalize_issue_state",
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "kind": "defp",
+          "end_line": 576,
+          "body_sha256": "e41ca4b6fa40813da890739888d5a3e7239ea9f38cbfdfa3c0db39c9ab5f6f18",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 11,
+          "module": "Aiur.Config.Schema.AgentValidation",
+          "name": "normalize_issue_state",
+          "path": "src/lib/aiur/config/schema/agent_validation.ex",
+          "kind": "def",
+          "end_line": 13,
+          "body_sha256": "b81d8a645dfebc23d6e6ac97c70a2ae82e9e7828515271151ff05ecbe559c4bb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1080,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "normalize_issue_state",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 1082,
+          "body_sha256": "6140dbf875a00d3b64dc5a85b1f5a058867c6662e55ed5c3aeb34826b598f031",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1089,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "normalize_issue_state",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 1089,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 421,
+          "module": "Aiur.TestReset",
+          "name": "normalize_issue_state",
+          "path": "src/lib/aiur/test_reset.ex",
+          "kind": "defp",
+          "end_line": 426,
+          "body_sha256": "fe58e857e58f1de9a452d5797af129881150ac8d4c03176139fdb158c46d2e6d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 78,
+          "module": "Aiur.Workspace.Context",
+          "name": "normalize_issue_state",
+          "path": "src/lib/aiur/workspace/context.ex",
+          "kind": "defp",
+          "end_line": 82,
+          "body_sha256": "db28133124510eddc5d6b2b656d22e3cf87ec03d75f6b79c58730f9c545bdd36",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 84,
+          "module": "Aiur.Workspace.Context",
+          "name": "normalize_issue_state",
+          "path": "src/lib/aiur/workspace/context.ex",
+          "kind": "defp",
+          "end_line": 84,
+          "body_sha256": "2af6eae6ba273634a41492a2a6c04c728e6171c632bd2784de7b8e8686d08881",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "opaque",
+      "assessment": "Opaque helpers mix validation, normalization and deterministic identifier generation.",
+      "constraints": [
+        "UsageAggregate.Key accepts valid nonempty UTF-8 up to 512 bytes, without requiring trimmed input, and returns :error on failure. UsageEnvelope requires trimmed valid UTF-8 of 1..256 bytes and a caller-supplied error; ExactMoney uses the same trimmed shape with 128 bytes and invalid_money.",
+        "TicketObservation accepts nonnegative integers unchanged, delegates binary normalization to OpaqueIdentifier and returns nil otherwise.",
+        "TicketContextSelection hashes a deterministic term encoding, URL-base64 encodes it without padding, prefixes it and delegates to OpaqueIdentifier. That is identifier generation rather than validation.",
+        "Read the three size attributes directly. Common scalar validation can share mechanics only with explicit limits, whitespace rules and error contracts; opaque does not imply encryption or redaction."
+      ],
+      "clauses": 10,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 194,
+          "module": "Aiur.TicketObservation",
+          "name": "opaque",
+          "path": "src/lib/aiur/ticket_observation.ex",
+          "kind": "defp",
+          "end_line": 194,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 196,
+          "module": "Aiur.TicketObservation",
+          "name": "opaque",
+          "path": "src/lib/aiur/ticket_observation.ex",
+          "kind": "defp",
+          "end_line": 196,
+          "body_sha256": "d23d62998d746cffdb72ed72456b6e84a2fa641e0254b028cfbfe2478a9b0016",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 198,
+          "module": "Aiur.TicketObservation",
+          "name": "opaque",
+          "path": "src/lib/aiur/ticket_observation.ex",
+          "kind": "defp",
+          "end_line": 198,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 250,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "opaque",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "kind": "defp",
+          "end_line": 252,
+          "body_sha256": "5175d398e61f957bbaaaa062b31cd5235d1ebccee796cf504c65c1cec42112bc",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 254,
+          "module": "Aiur.UsageAggregate.Key",
+          "name": "opaque",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "kind": "defp",
+          "end_line": 254,
+          "body_sha256": "703fe067863f696dcda9c9e4ca8e19715247f9f3c5f97bfd4931650886c31703",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 391,
+          "module": "Aiur.UsageEnvelope",
+          "name": "opaque",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 395,
+          "body_sha256": "29bb74c8bf20ed4302b625f296ed3de7f0c7e446616c1a285f0b62f8b571e67a",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 397,
+          "module": "Aiur.UsageEnvelope",
+          "name": "opaque",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "kind": "defp",
+          "end_line": 397,
+          "body_sha256": "3985936fb1f81bf986d9602a9c27111307b01051498b0919ae9a3d474efb8446",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 219,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "name": "opaque",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "kind": "defp",
+          "end_line": 223,
+          "body_sha256": "a90b2dd306bfdaea69b388518b78e836491e4c785b1df0d9c351c73413c79b55",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 225,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "name": "opaque",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "kind": "defp",
+          "end_line": 225,
+          "body_sha256": "f942796d4c1cfc656db3582300445ef0c83c59907303d4eba85095d23c9a8a66",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 308,
+          "module": "AiurWeb.BuildOrder.TicketContextSelection",
+          "name": "opaque",
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "kind": "defp",
+          "end_line": 316,
+          "body_sha256": "1ac5df2ba778bd70ee7a991d9670a6c8fb58a556f969721c1f93189fcf280e59",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "parse_line",
+      "assessment": "Line parsers have different grammars, failure evidence and trust assumptions.",
+      "constraints": [
+        "Codeowners skips blanks/comments then tokenizes rules. AgentCacheMetrics accepts five tab-separated fields or six specifically for miss events, otherwise :error.",
+        "IssueLog extracts a timestamp-shaped prefix, tag and body then maps known roles, returning nil otherwise. Dataset decodes JSON maps and returns typed warnings with path/line evidence for nonmaps or malformed JSON.",
+        "WarmthReport extracts phase/time and creates a phase atom; inspected aiur_perf_re accepts any non-whitespace phase rather than a finite alternation. This is an atom-creation review concern, not a demonstrated externally reachable or resource-exhaustion defect.",
+        "Preserve skipped-versus-invalid input and diagnostic location. A generic parser should not erase grammar-specific validation or introduce unrestricted atom creation."
+      ],
+      "clauses": 5,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 347,
+          "module": "Aiur.Codeowners",
+          "name": "parse_line",
+          "path": "src/lib/aiur/codeowners.ex",
+          "kind": "defp",
+          "end_line": 355,
+          "body_sha256": "4668eb7d355d78e4e9d4fc1ec939508727715649e5b03e59febac9cb7ca7c3d4",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 211,
+          "module": "Aiur.GitHub.AgentCacheMetrics",
+          "name": "parse_line",
+          "path": "src/lib/aiur/github/agent_cache_metrics.ex",
+          "kind": "defp",
+          "end_line": 217,
+          "body_sha256": "05c43518560f3227b6fce43e88704a597e3abd3d678a6764d3227e251d35393f",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 274,
+          "module": "Aiur.IssueLog",
+          "name": "parse_line",
+          "path": "src/lib/aiur/issue_log.ex",
+          "kind": "defp",
+          "end_line": 285,
+          "body_sha256": "c6b2d5f85cbeba4fca5652b70629874f968127e83032ba3c15867f3fd4356e2f",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 191,
+          "module": "Aiur.Opencode.WarmthReport",
+          "name": "parse_line",
+          "path": "src/lib/aiur/opencode/warmth_report.ex",
+          "kind": "defp",
+          "end_line": 206,
+          "body_sha256": "ef59f8cfb2426b795eebad7afec929fca9f062e9e4b1b1e8a3cc78235eeee11e",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 472,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "parse_line",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "kind": "defp",
+          "end_line": 478,
+          "body_sha256": "67b817c291bcda833a3a3c8cfb80066204a327d5b796658aee2c3c9094c747f9",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "poll",
+      "assessment": "Polling shares two owner-call wrappers but result and cursor semantics differ.",
+      "constraints": [
+        "Claude.DisplayTailer and TranscriptTailer have identical GenServer.call(server, :poll) wrappers. Their actual polling work remains in distinct owners.",
+        "GithubCIPoller normalizes targets, associates task results/exits with targets and returns both results and collected errors inside an ok envelope.",
+        "GithubCommentsPoller prepares per-target since/etag state and returns an explicit empty result for no targets. GithubFirehose retains last_event_id on not-modified, counts one fetched page and marks the window complete with persistence not attempted; event processing delegates separately.",
+        "Sharing task/transport mechanics must retain partial failures, cursors, ETags and accounting semantics. This body read does not verify target-task ordering or transitive reconciliation."
+      ],
+      "clauses": 5,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 82,
+          "module": "Aiur.Claude.DisplayTailer",
+          "name": "poll",
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "kind": "def",
+          "end_line": 82,
+          "body_sha256": "eebf26b4bfb573864da03ccee60c556d4e14b63433af2fd3f7652643757fa885",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 60,
+          "module": "Aiur.Claude.TranscriptTailer",
+          "name": "poll",
+          "path": "src/lib/aiur/claude/transcript_tailer.ex",
+          "kind": "def",
+          "end_line": 60,
+          "body_sha256": "eebf26b4bfb573864da03ccee60c556d4e14b63433af2fd3f7652643757fa885",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 27,
+          "module": "Aiur.Events.GithubCIPoller",
+          "name": "poll",
+          "path": "src/lib/aiur/events/github_ci_poller.ex",
+          "kind": "def",
+          "end_line": 47,
+          "body_sha256": "4cea9aa3a6135a3f0425093a359a71c2412df45c6ee4c13a92297e266ac6c367",
+          "normalized_body_lines": 26,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 31,
+          "module": "Aiur.Events.GithubCommentsPoller",
+          "name": "poll",
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "kind": "def",
+          "end_line": 41,
+          "body_sha256": "c00eb43bbc87f3b6fada14e5598ccf58774247afdbdcec8c256c906307bc08c8",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 91,
+          "module": "Aiur.Events.GithubFirehose",
+          "name": "poll",
+          "path": "src/lib/aiur/events/github_firehose.ex",
+          "kind": "def",
+          "end_line": 122,
+          "body_sha256": "0a6e237fe4dadd3309f0bb90d28be44b954db27a794656f12cb88af2533e5f76",
+          "normalized_body_lines": 33,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "provider_health",
+      "assessment": "Three provider-health coercions are equivalent while rendering and status mapping remain separate.",
+      "constraints": [
+        "Catalog, SelectedRoot and BuildOrderPresenter return ProviderHealth structs unchanged and otherwise construct a default. Read the struct definition: the default is unknown generation, unavailable, incomplete and without observation timestamps.",
+        "BuildOrderStatus is a component that obtains snapshot health and renders status, refreshing state and an age when health_age returns a value. It is not another coercion helper.",
+        "ControlCenterPresenter maps available/ok to ok, degraded to degraded and everything else to unavailable. A shared typed coercion is a candidate, but keep this distinct status vocabulary and age rendering intact."
+      ],
+      "clauses": 10,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 233,
+          "module": "Aiur.BuildOrder.Catalog",
+          "name": "provider_health",
+          "path": "src/lib/aiur/build_order/catalog.ex",
+          "kind": "defp",
+          "end_line": 233,
+          "body_sha256": "96ff158826ee318988c349e4363c6ed6b9ac6db237e87c3fc684c6c5e18aca3c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 234,
+          "module": "Aiur.BuildOrder.Catalog",
+          "name": "provider_health",
+          "path": "src/lib/aiur/build_order/catalog.ex",
+          "kind": "defp",
+          "end_line": 234,
+          "body_sha256": "aeefa9619e7b6ac3f77fea8770338b48a2657d4c9a96a21482535d4039b81472",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 102,
+          "module": "Aiur.BuildOrder.SelectedRoot",
+          "name": "provider_health",
+          "path": "src/lib/aiur/build_order/selected_root.ex",
+          "kind": "defp",
+          "end_line": 102,
+          "body_sha256": "96ff158826ee318988c349e4363c6ed6b9ac6db237e87c3fc684c6c5e18aca3c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 103,
+          "module": "Aiur.BuildOrder.SelectedRoot",
+          "name": "provider_health",
+          "path": "src/lib/aiur/build_order/selected_root.ex",
+          "kind": "defp",
+          "end_line": 103,
+          "body_sha256": "aeefa9619e7b6ac3f77fea8770338b48a2657d4c9a96a21482535d4039b81472",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 197,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "provider_health",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "kind": "defp",
+          "end_line": 197,
+          "body_sha256": "e0537f6063263c9b4a256f391a7906fc66882fe380c89db275ff6e7a0466099d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 198,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "provider_health",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "kind": "defp",
+          "end_line": 198,
+          "body_sha256": "aeefa9619e7b6ac3f77fea8770338b48a2657d4c9a96a21482535d4039b81472",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 12,
+          "module": "AiurWeb.OperatorControlCenter.BuildOrderStatus",
+          "name": "provider_health",
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_status.ex",
+          "kind": "def",
+          "end_line": 24,
+          "body_sha256": "f29bdc72edc4c747dd5622b20ff1c3b8ba135a948fd3da29d66778a43fb380ff",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 201,
+          "module": "AiurWeb.ControlCenterPresenter",
+          "name": "provider_health",
+          "path": "src/lib/aiur_web/control_center_presenter.ex",
+          "kind": "defp",
+          "end_line": 201,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 202,
+          "module": "AiurWeb.ControlCenterPresenter",
+          "name": "provider_health",
+          "path": "src/lib/aiur_web/control_center_presenter.ex",
+          "kind": "defp",
+          "end_line": 202,
+          "body_sha256": "3a415230bcd218631d7d62eb2433b72a29468988dbee486b2b4f3e1e3ca2c2fd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 203,
+          "module": "AiurWeb.ControlCenterPresenter",
+          "name": "provider_health",
+          "path": "src/lib/aiur_web/control_center_presenter.ex",
+          "kind": "defp",
+          "end_line": 203,
+          "body_sha256": "586b98f048e679a7158398a2db393f35d783902b99a8dc19edd4229efba40f14",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5020,
-  "limits": "249 selected families and 5020 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5064,
+  "limits": "255 selected families and 5064 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
