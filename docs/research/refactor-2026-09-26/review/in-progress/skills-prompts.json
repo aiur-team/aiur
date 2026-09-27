@@ -767,6 +767,83 @@
       "lines": 124,
       "read": "full",
       "assessment": "All124 lines read. User-facing finding handles and escaped table pipes preserve readability; actionable, FYI, residual, deferred and applied outputs are distinguished. Final coverage must equal route buckets with one attribution per merged finding; illustrative table includes feasibility count3 while route buckets sum2, so example is not a valid census. Residual output below gate needs reconciliation with synthesis suppression candidate19. Chain rendering counts each dependent once. No generated report assessed."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/subagent-template.md",
+      "sha256": "6dbcf989bde2a976a7ca9bb599ce72d87a57bedbf9d968d0d187aeb482006280",
+      "lines": 186,
+      "read": "full",
+      "assessment": "All186 lines read through bounded rereads after truncation. Leaf reviewers are read-only; shared schema, quote evidence and current downstream consequences constrain persona heuristics. False-positive exclusions outrank advisory routing; classify actual suggested edit scope rather than smaller hypothetical fix. Unified readiness and provenance slots override legacy persona vocabulary. Prior decisions suppress repeats at synthesis, so physical R29/R30 placement alone does not prove post-apply execution. Residual channel semantics remain candidate19. No reviewer dispatched."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/personas/adversarial-document-reviewer.md",
+      "sha256": "567617fbbf6ee23a6459e79529c0a8b33a9090844d939398d6594db618b49579",
+      "lines": 109,
+      "read": "full",
+      "assessment": "All109 lines read. Falsification, reversal cost and load-bearing decisions focus on supported failure scenarios. Upstream provenance limits product re-litigation while technical assumptions remain challengeable; shared unified-slot rules extend legacy path wording. One-consumer abstraction heuristic does not establish unnecessary isolation or measured complexity cost. Findings challenge proposed premises rather than represent component-acceptance votes, supporting cascade finding12."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/personas/product-lens-reviewer.md",
+      "sha256": "f838d6c84570c36ad8c54db21c90fbf195f0721d6a154726e458d2967495ee73",
+      "lines": 86,
+      "read": "full",
+      "assessment": "All86 lines read. Distinguish external adoption and internal maintenance/workaround risks without assuming one operating mode. Concrete competing priorities and cheaper alternatives ground opportunity-cost challenges. Upstream-settled product choices are not automatically reopened by plan review. Illustrative80/20 tradeoff is a question, not measurement. No user-research or adoption result claimed."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/personas/scope-guardian-reviewer.md",
+      "sha256": "1d97e4827eba49bd188c58ed304d3faed797962d22326e763cc63080d7909ae2",
+      "lines": 72,
+      "read": "full",
+      "assessment": "All72 lines read. Trace units to goals and deferred scope; priority dependencies and existing solutions matter more than raw file count. Multiple-consumer and file-count heuristics are not standalone refactor justification. Claimed10-100x AI cost-gap reduction has no evidence here and is not adopted as this research baseline. Requirements and origin-constrained plan completeness differ explicitly. No cost saving measured."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/personas/coherence-reviewer.md",
+      "sha256": "e84c8fa209e0b3f6126cb10c21c7e12fffb39952697e38fa14071303e2e14355",
+      "lines": 66,
+      "read": "full",
+      "assessment": "All66 lines read. Count/reference consistency and concrete ambiguous meaning ground findings. More-specific text is treated as authoritative, but shared actual-fix-scope and plausible-alternative guards still constrain silent edits. Grouping preferences are an explicit persona exception, not evidence that every flat list is incorrect. Preserve diagram/provenance constraints from parent. No document edited."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/personas/design-lens-reviewer.md",
+      "sha256": "f3ae3cd744dab956f519d48a7a87e43f9ec04b97a8071d4ee4ed5b411e44a801",
+      "lines": 49,
+      "read": "full",
+      "assessment": "All49 lines read, including complete reread after aggregate truncation. Requirements may defer interaction mechanics while implementation plans must specify committed UX states. Rating thresholds and aesthetic patterns are heuristics; concrete reader/implementer consequence and shared false-positive gate remain necessary. No UI inspected or subjective pattern declared defective."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/personas/feasibility-reviewer.md",
+      "sha256": "1e186dabf2b6cac325dbfe8466744f8f1b63cda0c15f69fa160e92c97810de36",
+      "lines": 58,
+      "read": "full",
+      "assessment": "All58 lines read, including complete reread after aggregate truncation. Requirements review targets fundamental incompatibility, not missing plan mechanics; plans trace relevant nil/empty/error paths, sequencing and migration constraints. Existing capability claims require source inspection. Back-of-envelope feasibility estimates cannot substantiate measured saving claims. No runtime capability or performance test executed."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/personas/security-lens-reviewer.md",
+      "sha256": "8ee54ce6ad97d87c7c959d6e0341701d462fffad7efb75c887df2fc7c337cd8a",
+      "lines": 41,
+      "read": "full",
+      "assessment": "All41 lines read. Review named trust boundaries, actors and realistic exploit paths at artifact-appropriate granularity. Missing plan detail is actionable only within committed surface; existing mitigation and scope prevent speculative attacks becoming findings. No production threat path reproduced."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/personas/whole-doc-reviewer.md",
+      "sha256": "2cffed97759ec62f01b6e7bd14f78f9516d8680b64deaac734bf228397da2e79",
+      "lines": 25,
+      "read": "full",
+      "assessment": "All25 lines read. Broad cross-section traceability complements slices without rerunning every lens. Shared evidence/provenance constraints remain and peer never grants silent-apply authority. Its asserted independence is subject to parent actual receipt gate, not merely separate process identity."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/cross-model-review.md",
+      "sha256": "a6da497f7de7b9f1776496c0b529632d92b497fc71db7945d31db227bf8864e2",
+      "lines": 111,
+      "read": "full",
+      "assessment": "All111 lines read through bounded rereads after truncation. Fixed target/route/recipient sanctions precede content egress; actual identity receipts gate independence. Unified twins get same slices, one whole-document pass supplies broader coverage. Bounded detached lifecycle distinguishes exit from usable artifact and preserves terminal failure attribution before cleanup; repeated quota failures stop auto-retry. Intentional missing decision primer relies on synthesis suppression. Read-only residual permits outside-scratch reads; document permission does not by itself establish authorization for all host-readable context. Exact adapter enforcement is not verified by this prose read."
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/references/cross-model-eval.md",
+      "sha256": "e0faae3e0e1f6914b06f7a8aaad2f59bf7f9fd080ab7f7dd23c8cad192ab7bfa",
+      "lines": 142,
+      "read": "full",
+      "assessment": "All142 lines read. Fifteen specified cases cover activation, host/route identity, receipt-gated promotion, slice parity/whole-doc pass, bounded launch/wait/reap and same-family adaptation. Stubbed deterministic script coverage is distinguished from agent behavior and fresh instruction injection. This file specifies tests; no eval or fake CLI harness was run and no test result inferred."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -1041,6 +1118,31 @@
       "recommendation": "Distinguish in-place replacement from successor migration. Delete the old path only when it differs from the validated successor, and verify the successor and inbound links after the transition.",
       "refactor_hint": "Represent document replacement as an explicit old-path/new-path transition with a preserved-successor invariant, shared by prose and validation.",
       "limits": "Instruction-level failure path only; no production document deleted, agent workflow executed or historical loss established. Git recovery would remain available for tracked content. Cross-unit dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-12",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Premise cascade confuses skipping a criticism with rejecting its component",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-doc-review/references/synthesis-and-presentation.md",
+          "lines": "150-156"
+        },
+        {
+          "path": ".claude/skills/ce-doc-review/references/walkthrough.md",
+          "lines": "53-64"
+        },
+        {
+          "path": ".claude/skills/ce-doc-review/references/walkthrough.md",
+          "lines": "171-175"
+        }
+      ],
+      "description": "A root finding challenges whether a planned component should exist. Skipping that criticism makes no edit and leaves the component in the plan. The dependency rule nevertheless treats Skip/Defer as making the component unsettled and offers to resolve related findings together; Apply is conversely described as the premise holding even when the proposed fix removes the component. This reverses the distinction between rejecting a review finding and rejecting proposed product scope.",
+      "evidence": "Complete synthesis, walkthrough, shared template and relevant persona reads. Walkthrough explicitly defines Skip as no side effects; synthesis defines rejection as dissolving the component premise. Reviewer prompts formulate criticisms and concrete suggested fixes, not component-acceptance ballots.",
+      "recommendation": "Separate finding disposition from the resulting scope decision. Re-evaluate dependents against the actual accepted edit or explicit scope decision; Skip alone must not imply component removal or resolve its outstanding concerns.",
+      "refactor_hint": "Use explicit decision outcomes and dependency predicates over resulting plan state rather than over generic Apply/Skip/Defer labels.",
+      "limits": "Instruction-level contradiction only. Cascading requires separate user confirmation and independence safeguards may prevent some incorrect links; no actual suppressed finding or agent execution reproduced. Cross-unit dedup pending."
     }
   ],
   "preserve": [
@@ -1152,7 +1254,18 @@
     "All134 lines read. Explicit preview precedes choice; Apply/Defer/Skip scope excludes already-decided items, Cancel leaves that batch unchanged, and read-only append availability remaps otherwise impossible Defer recommendations visibly. Best judgment executes stored recommendations rather than inventing new actions mid-batch. No disk state changed by reading; no approval inferred from silence. Illustrative low-confidence skipped rows are not proof those items pass actual gate.",
     "All285 lines read in two bounded segments. Apply accumulates before batch write, Defer appends inline and Skip is no-op; missing-fix Apply routes to explicit alternatives rather than invented edit. Cascade is confirmed, but Skip/Defer on root is treated as dissolving component premise while Apply is called premise-held: candidate18. In-memory state loss on interruption is explicitly a limitation; pending Apply is not applied evidence. Post-choice confirmation example says Applied before actual batch execution, so status must be interpreted carefully; no observed misleading user report. User authorization remains governed by outer context, not illustrative menu rigidity.",
     "All155 lines read. Append to existing section wherever located, use date subsections and visible section/title/rationale compound key for retry dedup. Re-read before write reduces but does not eliminate concurrent-edit window; no lock or compare-and-swap guarantee claimed. Explicit failure outcome distinguishes on-disk deferral from report-only decision and retry/skip. Availability is session-cached but transient failure remains per finding. Concern summary intentionally omits full fix/evidence; durable decision packet is not guaranteed by this append alone.",
-    "All124 lines read. User-facing finding handles and escaped table pipes preserve readability; actionable, FYI, residual, deferred and applied outputs are distinguished. Final coverage must equal route buckets with one attribution per merged finding; illustrative table includes feasibility count3 while route buckets sum2, so example is not a valid census. Residual output below gate needs reconciliation with synthesis suppression candidate19. Chain rendering counts each dependent once. No generated report assessed."
+    "All124 lines read. User-facing finding handles and escaped table pipes preserve readability; actionable, FYI, residual, deferred and applied outputs are distinguished. Final coverage must equal route buckets with one attribution per merged finding; illustrative table includes feasibility count3 while route buckets sum2, so example is not a valid census. Residual output below gate needs reconciliation with synthesis suppression candidate19. Chain rendering counts each dependent once. No generated report assessed.",
+    "All186 lines read through bounded rereads after truncation. Leaf reviewers are read-only; shared schema, quote evidence and current downstream consequences constrain persona heuristics. False-positive exclusions outrank advisory routing; classify actual suggested edit scope rather than smaller hypothetical fix. Unified readiness and provenance slots override legacy persona vocabulary. Prior decisions suppress repeats at synthesis, so physical R29/R30 placement alone does not prove post-apply execution. Residual channel semantics remain candidate19. No reviewer dispatched.",
+    "All109 lines read. Falsification, reversal cost and load-bearing decisions focus on supported failure scenarios. Upstream provenance limits product re-litigation while technical assumptions remain challengeable; shared unified-slot rules extend legacy path wording. One-consumer abstraction heuristic does not establish unnecessary isolation or measured complexity cost. Findings challenge proposed premises rather than represent component-acceptance votes, supporting cascade finding12.",
+    "All86 lines read. Distinguish external adoption and internal maintenance/workaround risks without assuming one operating mode. Concrete competing priorities and cheaper alternatives ground opportunity-cost challenges. Upstream-settled product choices are not automatically reopened by plan review. Illustrative80/20 tradeoff is a question, not measurement. No user-research or adoption result claimed.",
+    "All72 lines read. Trace units to goals and deferred scope; priority dependencies and existing solutions matter more than raw file count. Multiple-consumer and file-count heuristics are not standalone refactor justification. Claimed10-100x AI cost-gap reduction has no evidence here and is not adopted as this research baseline. Requirements and origin-constrained plan completeness differ explicitly. No cost saving measured.",
+    "All66 lines read. Count/reference consistency and concrete ambiguous meaning ground findings. More-specific text is treated as authoritative, but shared actual-fix-scope and plausible-alternative guards still constrain silent edits. Grouping preferences are an explicit persona exception, not evidence that every flat list is incorrect. Preserve diagram/provenance constraints from parent. No document edited.",
+    "All49 lines read, including complete reread after aggregate truncation. Requirements may defer interaction mechanics while implementation plans must specify committed UX states. Rating thresholds and aesthetic patterns are heuristics; concrete reader/implementer consequence and shared false-positive gate remain necessary. No UI inspected or subjective pattern declared defective.",
+    "All58 lines read, including complete reread after aggregate truncation. Requirements review targets fundamental incompatibility, not missing plan mechanics; plans trace relevant nil/empty/error paths, sequencing and migration constraints. Existing capability claims require source inspection. Back-of-envelope feasibility estimates cannot substantiate measured saving claims. No runtime capability or performance test executed.",
+    "All41 lines read. Review named trust boundaries, actors and realistic exploit paths at artifact-appropriate granularity. Missing plan detail is actionable only within committed surface; existing mitigation and scope prevent speculative attacks becoming findings. No production threat path reproduced.",
+    "All25 lines read. Broad cross-section traceability complements slices without rerunning every lens. Shared evidence/provenance constraints remain and peer never grants silent-apply authority. Its asserted independence is subject to parent actual receipt gate, not merely separate process identity.",
+    "All111 lines read through bounded rereads after truncation. Fixed target/route/recipient sanctions precede content egress; actual identity receipts gate independence. Unified twins get same slices, one whole-document pass supplies broader coverage. Bounded detached lifecycle distinguishes exit from usable artifact and preserves terminal failure attribution before cleanup; repeated quota failures stop auto-retry. Intentional missing decision primer relies on synthesis suppression. Read-only residual permits outside-scratch reads; document permission does not by itself establish authorization for all host-readable context. Exact adapter enforcement is not verified by this prose read.",
+    "All142 lines read. Fifteen specified cases cover activation, host/route identity, receipt-gated promotion, slice parity/whole-doc pass, bounded launch/wait/reap and same-family adaptation. Stubbed deterministic script coverage is distinguished from agent behavior and fresh instruction injection. This file specifies tests; no eval or fake CLI harness was run and no test result inferred."
   ],
   "follow_up_candidates": [
     {
@@ -1216,15 +1329,15 @@
       "question": "Assess whether retaining unverifiable merge-state claims with an as-of qualifier preserves durable uncertainty when degraded status appears only in the run report; distinguish previously verified historical assertions from newly unsupported landed claims."
     },
     {
-      "id": "skills-prompts-candidate-18",
-      "question": "Resolve document-review premise cascade polarity: Skip rejects a finding without editing plan, yet synthesis and walkthrough treat skipping a premise criticism as rejecting its component. Read persona contracts to distinguish explicit scope rejection from declining criticism before promoting."
+      "id": "skills-prompts-candidate-19",
+      "question": "Resolve residual channel admission: shared template suppresses unverifiable concerns entirely, output template permits below-gate residuals, and verified-resolution observations also use residual_risks. Physical R29/R30 placement is not promoted: both explicitly execute at synthesis, before apply."
     },
     {
-      "id": "skills-prompts-candidate-19",
-      "question": "Reconcile document-review dropped0/25 findings with residual-concern output and R29/R30 placement after apply instructions. Determine whether shared template/phase order prevents low-confidence re-entry or repeated safe edits before alleging a defect."
+      "id": "skills-prompts-candidate-20",
+      "question": "Inspect peer adapter read/egress scope and existing security findings before accepting cross-model reference claim that outside-scratch reads add no material exposure merely because host could read them; distinguish accepted operational risk from authorization and verified containment."
     }
   ],
-  "next": "Continue ce-doc-review subagent template, personas and cross-model references. Coverage 109/250 full files, 18047/36169 lines. Eight provisional P2 and three P3 findings; seventeen follow-up candidates. Raw unit remains open.",
+  "next": "All manifest ce-doc-review markdown covered. Continue ce-dogfood entrypoint and references. Coverage 120/250 full files, 18992/36169 lines. Nine provisional P2 and three P3 findings; seventeen follow-up candidates. Scripts/schema remain separate coverage.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -1255,6 +1368,12 @@
       "status": "not_promoted",
       "reason": "Headless substantive-citation stale marking is a specific restriction on the general sufficient-evidence Replace rule; stricter auto-delete criteria can route active-domain redundancy through Consolidate. Per-action flows defer to classification and repeat late-citation reclassification. These scope differences alone do not prove contradictory applicable actions.",
       "validation": "Full parent and supporting per-action reads; separate same-path deletion defect recorded as finding11. No maintenance action executed."
+    },
+    {
+      "id": "skills-prompts-candidate-18",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-12",
+      "reason": "Reviewer contracts confirm roots are criticisms; Skip explicitly leaves plan unchanged, contradicting component-rejection assumption."
     }
   ]
 }
