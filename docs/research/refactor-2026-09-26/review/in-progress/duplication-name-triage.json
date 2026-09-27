@@ -113783,10 +113783,353 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "identity_record",
+      "assessment": "Identity serialization preserves different null and reason contracts.",
+      "constraints": [
+        "Membership codec converts kind with Atom.to_string and passes reason through; progress retention uses encode_atom for both kind and reason.",
+        "Read encode_atom: nil stays nil and other atoms become strings. Membership kind nil therefore becomes the string nil; progress kind remains null. Preserve wire compatibility before sharing serializers."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 85,
+          "module": "Aiur.CurrentRunMembership.Event.Codec",
+          "name": "identity_record",
+          "path": "src/lib/aiur/current_run_membership/event/codec.ex",
+          "kind": "def",
+          "end_line": 97,
+          "body_sha256": "64ecbc744314442114d8d2d6f505844d77393dcbbbb129fc6a19b7722c97bbfe",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 274,
+          "module": "Aiur.ProgressRetention",
+          "name": "identity_record",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 286,
+          "body_sha256": "1a59c609e51e20d29b6f70133eb78334a31e9be79a08a2489780995bcf851391",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "idle_widen_factor",
+      "assessment": "Shared interval normalization follows different configuration access.",
+      "constraints": [
+        "Both use a lazy keyword override and IntervalPolicy.widen_factor.",
+        "Tracker health accesses settings.polling.idle_widen_factor directly; cadence configured_factor uses map defaults and nil/false fallback to 1.0. Read configured_factor; preserve missing-key behavior rather than infer unconditional equivalence."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 317,
+          "module": "Aiur.Orchestrator.TrackerHealth",
+          "name": "idle_widen_factor",
+          "path": "src/lib/aiur/orchestrator/tracker_health.ex",
+          "kind": "defp",
+          "end_line": 327,
+          "body_sha256": "c40263b2a75d6cff7f5c67abac25c5442ed57f6211424bed7cb9164d804787e1",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 468,
+          "module": "Aiur.PollCadence",
+          "name": "idle_widen_factor",
+          "path": "src/lib/aiur/poll_cadence.ex",
+          "kind": "defp",
+          "end_line": 472,
+          "body_sha256": "71414c6763d83552cc26b2292bd5059a5d945e53f2c4cc120b02f51be2b7c0a6",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ids",
+      "assessment": "Process-local sensitive-response IDs and ordered decision IDs are unrelated containers.",
+      "constraints": [
+        "SensitiveResponses returns a process dictionary MapSet with empty default.",
+        "Window converts its order queue to a list. Preserve process ownership, set versus ordered sequence and return types."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 106,
+          "module": "Aiur.AppServer.Rpc.SensitiveResponses",
+          "name": "ids",
+          "path": "src/lib/aiur/app_server/rpc/sensitive_responses.ex",
+          "kind": "defp",
+          "end_line": 106,
+          "body_sha256": "c8f5438acf4ae88fd53e67835614142b6d2f1e348370b09dacfb603a063294cc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 34,
+          "module": "Aiur.DecisionMetrics.Window",
+          "name": "ids",
+          "path": "src/lib/aiur/decision_metrics/window.ex",
+          "kind": "def",
+          "end_line": 34,
+          "body_sha256": "46e5a5e9052f4109c5d650ac913573948e319d6069e1a583bdf13a2fa1f671f0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "index_attention",
+      "assessment": "Attention indexing shares last-write map insertion with distinct adapters.",
+      "constraints": [
+        "Canonical validates binary legacy topic and decision_id fields and returns an index.",
+        "Collector asks Event.attention_correlation and updates state.attention_index; read that helper, which stringifies fields and validates binary topic/decision ID through its decision accessor.",
+        "Preserve source normalization and result envelopes; neither insertion establishes uniqueness or durable correlation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 145,
+          "module": "Aiur.DecisionMetrics.Canonical",
+          "name": "index_attention",
+          "path": "src/lib/aiur/decision_metrics/canonical.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "4dd8dc572d1a3941e84df5341896260dc218bdbaa9db89b6398e69834952ff85",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 55,
+          "module": "Aiur.DecisionMetrics.Collector",
+          "name": "index_attention",
+          "path": "src/lib/aiur/decision_metrics/collector.ex",
+          "kind": "defp",
+          "end_line": 63,
+          "body_sha256": "13611f2354f75a33ee8976eb28d24137e870aa26a3e9fb53ff4523a87ccfe505",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "ingested_at",
+      "assessment": "Ingestion fallback and presentation of unavailable timestamps have different meanings.",
+      "constraints": [
+        "Emitter prefers a truthy option over message timestamp, accepts only DateTime and otherwise uses utc_now; an invalid truthy option masks a valid message timestamp.",
+        "Presenter accepts DateTime through datetime and returns nil for invalid or absent snapshots. Preserve observation provenance and unavailable display instead of manufacturing fresh evidence."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 103,
+          "module": "Aiur.Usage.Headless.Emitter",
+          "name": "ingested_at",
+          "path": "src/lib/aiur/usage/headless/emitter.ex",
+          "kind": "defp",
+          "end_line": 108,
+          "body_sha256": "010b92c82fb9f6999e84bb1e95a77faa07ecd22e4b02e9be4a57aeb6a6878d6d",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 236,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "ingested_at",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 236,
+          "body_sha256": "0eef0ca45a536273d162f32707851673c53943204127344c2897d748be29afca",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 237,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "ingested_at",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 237,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "inherit_redispatch_safety",
+      "assessment": "Redispatch inheritance depends on entry origin and required safety evidence.",
+      "constraints": [
+        "Dispatcher copies only a prior map safety value, preserves replacement only when exactly true and takes workspace_path from safety; otherwise returns entry unchanged.",
+        "Rate-limit fallback requires staged redispatch_safety with Map.fetch!, forces replacement true and takes workspace_path from the staged entry itself.",
+        "Both pass lifecycle_fence through their own helpers. Preserve required versus optional safety and workspace provenance; helper correctness is not newly certified."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 2621,
+          "module": "Aiur.Orchestrator.Dispatcher",
+          "name": "inherit_redispatch_safety",
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "kind": "defp",
+          "end_line": 2627,
+          "body_sha256": "2b68bfa1d31dcf8a5f90d47c1bac5ecaa7de8db7b773a34e7ab27c47c0b8ff55",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 2629,
+          "module": "Aiur.Orchestrator.Dispatcher",
+          "name": "inherit_redispatch_safety",
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "kind": "defp",
+          "end_line": 2629,
+          "body_sha256": "ab0a113becd199023e3d26813358135bfa60bfc955c1a2d06960f54e516b1c95",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 487,
+          "module": "Aiur.Orchestrator.RateLimitFallback",
+          "name": "inherit_redispatch_safety",
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "kind": "defp",
+          "end_line": 493,
+          "body_sha256": "b295223ba9d6a565b3780796ec499a2aaf0161d2bd801bb7362efd458c2c2f16",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "insert_message",
+      "assessment": "Conversation projection and SQL insertion are different ownership boundaries.",
+      "constraints": [
+        "Compactor appends and sorts by order, refreshes live snapshot with observed_at, reindexes seen and preserves sticky truncation.",
+        "Database wrapper opens a connection; insert overload timestamps with OS milliseconds, encodes a map and runs parameterized INSERT through retry helper.",
+        "Preserve ordering, projection metadata and database error handling. Reading these sites establishes no durable delivery or idempotency guarantee."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 135,
+          "module": "Aiur.LiveConversation.Compactor",
+          "name": "insert_message",
+          "path": "src/lib/aiur/live_conversation/compactor.ex",
+          "kind": "defp",
+          "end_line": 144,
+          "body_sha256": "36e5f51de3936dd3ff26af2dae3df602a04433daf07b7e3fface763be08ffb40",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 92,
+          "module": "Aiur.Opencode.Db",
+          "name": "insert_message",
+          "path": "src/lib/aiur/opencode/db.ex",
+          "kind": "def",
+          "end_line": 95,
+          "body_sha256": "883cdebac57dc7bb5eae7e63af35f0ad49d950c224dc675bc3d9c228f88a6965",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 103,
+          "module": "Aiur.Opencode.Db",
+          "name": "insert_message",
+          "path": "src/lib/aiur/opencode/db.ex",
+          "kind": "def",
+          "end_line": 115,
+          "body_sha256": "f7ea08ada353ce68e586f4e95a80d14664724f3d4f97b1cba68257b4a4ac9a3b",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "integer_field",
+      "assessment": "Textual nonnegative parsing and typed integer lookup are different validators.",
+      "constraints": [
+        "Procfs indexes a sequence then parse_non_negative; read helper: requires full binary parse and value >= 0, returning tagged success or unavailable.",
+        "Host lock accepts any integer map value, including negatives, and otherwise nil. Preserve numeric domain and error envelope."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 288,
+          "module": "Aiur.RunTelemetry.Procfs",
+          "name": "integer_field",
+          "path": "src/lib/aiur/run_telemetry/procfs.ex",
+          "kind": "defp",
+          "end_line": 292,
+          "body_sha256": "5786ff720d22da95300894da342f32413376e975990cec5f57790eeb3e96a383",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 283,
+          "module": "Aiur.Workspace.HostLock",
+          "name": "integer_field",
+          "path": "src/lib/aiur/workspace/host_lock.ex",
+          "kind": "defp",
+          "end_line": 288,
+          "body_sha256": "9fde33f894071a832df62eb221a28a341946293d005b99aa2ba70403c58f3d40",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 8197,
-  "limits": "997 selected families and 8197 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 8216,
+  "limits": "1005 selected families and 8216 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

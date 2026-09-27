@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "f1d4bf68cf955a52694e4c652d1758837e2c67ee4268c8051adb96e79755df69"
+    "name_triage": "5bc224cef9021c6808fb6520cbc3e71b906443671150951f8ab2865213e3b827"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 997,
-    "remaining_cross_module_names": 683,
-    "remaining_literal_entries": 2071
+    "reviewed_cross_module_names": 1005,
+    "remaining_cross_module_names": 675,
+    "remaining_literal_entries": 2052
   },
   "families": [
-    {
-      "name": "identity_record",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 26
-    },
-    {
-      "name": "idle_widen_factor",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "ids",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 2
-    },
-    {
-      "name": "index_attention",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 17
-    },
-    {
-      "name": "ingested_at",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "inherit_redispatch_safety",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 15
-    },
-    {
-      "name": "insert_message",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 27
-    },
-    {
-      "name": "integer_field",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 11
-    },
     {
       "name": "integer_like",
       "clauses": 6,
