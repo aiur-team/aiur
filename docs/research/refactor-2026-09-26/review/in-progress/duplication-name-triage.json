@@ -109859,10 +109859,322 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "fetch_open_pull_requests",
+      "assessment": "GitHub client already delegates open-PR enumeration.",
+      "constraints": [
+        "PullRequests resolves repo/token and requests open PRs at 100 per page.",
+        "Read fetch_all_open_pull_requests: follows parsed next links recursively, concatenates bodies and propagates failures; nil next completes.",
+        "Preserve all-page intent and errors. This loop itself has no page/cycle guard, and next-link safety or runtime completeness is not certified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 245,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_open_pull_requests",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 246,
+          "body_sha256": "dbbb1d850ad180654e378922f2722f4362268f5c585ab3a7c05d1917bebc2a60",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 472,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_open_pull_requests",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 480,
+          "body_sha256": "78bffe31accd260a60d0e1477f84aba4e4a0ce218cb7790b86a103fffb908c0a",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_open_pull_requests_by_label",
+      "assessment": "Label-filtered open-PR enumeration shares transport traversal but owns selection policy.",
+      "constraints": [
+        "Client delegates to PullRequests, which uses the open-PR endpoint and the supplied binary label.",
+        "Read labeled traversal: filters each page with pull_request_has_label?, follows next links and concatenates matches; errors remain errors.",
+        "Sharing traversal with unfiltered enumeration is plausible while preserving predicate and pagination contracts. Label matching and real matching population remain outside this read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 240,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_open_pull_requests_by_label",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 241,
+          "body_sha256": "639e391c091ef5472bdff86bafbb3dff6770752d326c5c1c078da4c89728e8f1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 450,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_open_pull_requests_by_label",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 458,
+          "body_sha256": "1fab66aaf6a3fcfe1f7413b12971ab05bf9ca179fad4e4fc9b5248442c8da264",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_pull_request_changed_paths",
+      "assessment": "Changed-path facade already delegates a single-response list read.",
+      "constraints": [
+        "PullRequests accepts request_fun from opts but calls require_token without opts, then requests files at 100 per page.",
+        "Read Transport.fetch_json_list: returns one list body and does not follow next links. Caller extracts filename and drops nil.",
+        "Do not claim complete changed-path coverage from this result alone. Preserve credential-option difference and validate downstream completeness needs; production pagination incidence and finding overlap remain unverified."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 157,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_pull_request_changed_paths",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 158,
+          "body_sha256": "b541198ad6ac2af54659b5ec2d170eb62a96a77fb0d3da8527aaa21df1e9b092",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 15,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_pull_request_changed_paths",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 29,
+          "body_sha256": "0ac4a3f4f64c68b1d50d979bdb6f6acfc8ffbfab40580c175ff52218768cb076",
+          "normalized_body_lines": 22,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_pull_request_head_ref",
+      "assessment": "Client delegates strict nested-field extraction to PullRequests.",
+      "constraints": [
+        "200 requires a binary head.ref and otherwise yields head_ref_missing; other statuses and transport failures are classified.",
+        "The helper accepts empty binary ref and does not verify PR open state or repository ownership beyond request routing.",
+        "Preserve field extraction versus PR lifecycle validation; a returned branch name is not an independent guarantee of current open-PR identity."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 278,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_pull_request_head_ref",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 279,
+          "body_sha256": "deb9f196f114d854c9504b77e0f32fd3341389a9be4ca9356259039c51ff120b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 505,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_pull_request_head_ref",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 525,
+          "body_sha256": "7999a8ffdd6529a95b6125973a0996fd2eeed002d1f3e361deb97dbb7e48f928",
+          "normalized_body_lines": 24,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_pull_request_head_ref_conditional",
+      "assessment": "Conditional head-ref facade already delegates transport and response adaptation.",
+      "constraints": [
+        "Read adapter: 200 requires binary ref and retains ETag; missing ref is an error; 304 returns not_modified with validator.",
+        "Other statuses and transport failures preserve classified errors.",
+        "Keep not-modified distinct from missing ref and maintain validator ownership; transport unchanged evidence is not a fresh branch observation."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 283,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_pull_request_head_ref_conditional",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 284,
+          "body_sha256": "f5433a80b29b6c30bbdb83aaef669919a7b804bfb84a73f3bbef084903729905",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 578,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_pull_request_head_ref_conditional",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 588,
+          "body_sha256": "0fd8f6a14b30d4e4fde41f5ea8fbf68d28c43620e6de3967ecdfed1b1dd78efe",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_pull_request_review_comments",
+      "assessment": "Review-comment facade delegates query construction and one-response list retrieval.",
+      "constraints": [
+        "PullRequests uses Comments.comment_query options and Transport.fetch_json_list with explicit caller attribution.",
+        "Read list transport: no pagination traversal is performed in that helper.",
+        "Preserve review comments versus review decisions and query cursor semantics. The returned page does not independently establish complete discussion history."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 162,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_pull_request_review_comments",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 163,
+          "body_sha256": "8e571d121528df33e597eec2166f8e866f06739381b4e5a580b2c1dc67dd375d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 75,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_pull_request_review_comments",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 84,
+          "body_sha256": "c664b10301c5ba3fc758e2a6d3a6e5b857bd544c855418b8ff24f249e35f3e2d",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_pull_request_reviews_conditional",
+      "assessment": "Review decisions use a conditional single-page contract.",
+      "constraints": [
+        "Client delegates to PullRequests, which requests 100 reviews and passes ETag to Transport.fetch_json_list_conditional.",
+        "Read transport and single_page_list: a next link yields pagination_unexpected rather than silently accepting the page; 304 preserves not_modified.",
+        "Keep explicit incomplete-response failure and unchanged evidence. No caller should infer absent reviews from not_modified without retained data; downstream handling is separately audited."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 167,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_pull_request_reviews_conditional",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 168,
+          "body_sha256": "74c4810412909937a186767247b926ec53b20550578dce9f23ccab96f74b928c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 105,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_pull_request_reviews_conditional",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 113,
+          "body_sha256": "cf5f5f50cec24f7d7d3ac3ad52f2f9a03f9a45390813f3eb0c57cd2ddc50dd64",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_pull_request_was_draft",
+      "assessment": "Draft-history lookup is deliberately conservative under a full event page.",
+      "constraints": [
+        "Client delegates to PullRequests; verified issue event page size 100 and ready_for_review event predicate.",
+        "A list response returns true for a matching event or at least 100 entries, even without that event; malformed 200 and other failures become errors.",
+        "Preserve inferred possible draft history versus directly observed transition. A true result is not always proof that a ready-for-review event was observed."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 273,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_pull_request_was_draft",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 274,
+          "body_sha256": "28318e0da62d2e8f52fd41a2396fb22243a0a6c5e807a87459a280c4b2b82804",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 543,
+          "module": "Aiur.GitHub.PullRequests",
+          "name": "fetch_pull_request_was_draft",
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "kind": "def",
+          "end_line": 563,
+          "body_sha256": "a85b20c10006c92c8121f7326a66d492dbdb9109b4e20ec99f53294fe3912fbe",
+          "normalized_body_lines": 27,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7950,
-  "limits": "933 selected families and 7950 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7966,
+  "limits": "941 selected families and 7966 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

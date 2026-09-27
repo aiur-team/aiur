@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "3f09acd8c427f6f988fdac29a16c68f6331f4201ec2c17fdb5c9d8ec4fb81afc"
+    "name_triage": "089efe9025947d0fc9fee6d34b28a8398a1d806c6b42c81b6e537f2a1b00ef00"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 933,
-    "remaining_cross_module_names": 747,
-    "remaining_literal_entries": 2318
+    "reviewed_cross_module_names": 941,
+    "remaining_cross_module_names": 739,
+    "remaining_literal_entries": 2302
   },
   "families": [
-    {
-      "name": "fetch_open_pull_requests",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "fetch_open_pull_requests_by_label",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "fetch_pull_request_changed_paths",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 17
-    },
-    {
-      "name": "fetch_pull_request_head_ref",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 23
-    },
-    {
-      "name": "fetch_pull_request_head_ref_conditional",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "fetch_pull_request_review_comments",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "fetch_pull_request_reviews_conditional",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "fetch_pull_request_was_draft",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 23
-    },
     {
       "name": "fetch_recent_repo_issue_comments",
       "clauses": 2,
