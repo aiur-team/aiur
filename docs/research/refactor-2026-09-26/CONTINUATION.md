@@ -1225,3 +1225,8 @@ All 75 manifest files are now fully read: 35,287 lines. Checked every file hash 
 ### tests-1a decision lifecycle checkpoint
 
 56 full reads, 10,482 lines; 19 manifest files remain. Added delivery/API integration, revision, history and withdrawal tests. Confirmed P3 fixture cleanup defect: the extracted unlinked worker survives its actual normal-exit cleanup expression and answers a post-cleanup barrier; a kill control yields DOWN. The isolated probe cleans up its worker and makes no production or suite-wide performance claim. Preserve action-versus-attempt identity, surviving-queue adoption, durable handoff/withdrawal fencing, trusted provenance, idempotence and audit ordering. In-process Plug, injected dispatch and no-op filesystem sync are explicit evidence limits. No full suite or production edit. Overall raw-unit completion remains 26/32.
+
+
+### tests-1a retained decisions checkpoint
+
+60 full reads, 13,665 lines; 15 manifest files remain. Added attention, retained query, projection and revision-store tests. Preserve bounded scan continuation, partial-versus-unavailable and indeterminate lookup states, captured-versus-unknown provenance, unknown-event forward compatibility, original-action history and parent-owned follow-up recovery. Record limits of state-injected indexes, modeled rollback readers, controlled schedulers and no-op sync. Two ordering assertions remain hypotheses pending focused validation and deduplication; no new severity-bearing finding or test execution. Overall raw review coverage remains 26/32; no production changes.

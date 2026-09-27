@@ -338,9 +338,33 @@
       "sha256": "1c9d9ef5636dcf6cd906eeaf6bc184af5d3c4f82447eeb9a45023fa0f2a9ede7",
       "lines": 594,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_attention_test.exs",
+      "sha256": "f75c35655a010771f4192cf0147d361528222a063609f0071d485a9143f733ba",
+      "lines": 572,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_query_test.exs",
+      "sha256": "c493bb8d6b6698cc5e0e1a2b7392166eb2a3b525ddf73b0e598e0052b8fdd6f4",
+      "lines": 809,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_projection_test.exs",
+      "sha256": "cf9b80f0f307aa62a7ae3ba7d29ac7f2993fdcc53f31d7c6d37eb87c8ba0d994",
+      "lines": 1036,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_revision_store_test.exs",
+      "sha256": "41431d4c49b5058a0f120105d4589fb11cdb820e2bf50a8d9b3a8d0fcdb32d51",
+      "lines": 766,
+      "read": "full"
     }
   ],
-  "scope_note": "56 complete file reads, 10482 lines. Decision lifecycle tests reviewed as source. An isolated extracted-worker cleanup probe confirmed normal-exit cleanup leaves the worker alive; a kill control terminates it. Earlier reset-cleanup and transcript-boolean probes remain applicable. No full suite, live application, GitHub operation or TUI execution. 19 manifest files remain.",
+  "scope_note": "60 complete file reads, 13665 lines. Attention, retained query, replay projection and revision-store tests reviewed as source; no new test execution. Three earlier findings retain their isolated-probe limits. No full suite, live application, GitHub operation or TUI execution. 15 manifest files remain.",
   "findings": [
     {
       "id": "tests-1a-cont-01",
@@ -436,7 +460,14 @@
     "DecisionApiIntegration drives Endpoint.call with authenticated Plug requests, a private real store and injected dispatcher. It checks persisted-before-dispatch audit visibility, trusted supervisor basis, redaction and duplicate answer/revision suppression. The endpoint runs with server:false; this is in-process HTTP-layer coverage, not a bound listener or browser interaction.",
     "DecisionRevision rejects stale action/sequence before invoking the answer normalizer, rejects forged identity and unchanged action IDs, retains time-independent retry hashes, and detects persisted sequence/reason tampering. Its normalized-answer seam and codec are test doubles; preserve separate composition coverage through the store/API.",
     "DecisionHistory preserves unknown provenance rather than guessing from agent names, distinguishes Executor/operator/supervisor attribution, keeps unavailable lifecycle facts nil, rejects unsafe links, preserves zero confidence and represents parent follow-up facts without fabricating child decisions. These are projection assertions rather than rendering assertions.",
-    "DecisionWithdrawal distinguishes queued withdrawal from durable in-flight handoff and confirmed delivery, refuses stale/moot/superseded actions, preserves authority checks and correlated retry attempts across store restarts, and raises attention for unknown outcomes or withdrawn-answer delivery. Restart assertions wait for the store-specific reconciliation report; worker presence and transport success are injected, and filesystem sync is a no-op."
+    "DecisionWithdrawal distinguishes queued withdrawal from durable in-flight handoff and confirmed delivery, refuses stale/moot/superseded actions, preserves authority checks and correlated retry attempts across store restarts, and raises attention for unknown outcomes or withdrawn-answer delivery. Restart assertions wait for the store-specific reconciliation report; worker presence and transport success are injected, and filesystem sync is a no-op.",
+    "DecisionAttention preserves canonical dismissal during legacy import, bounded restored attentions, live-open precedence over a blocked stale loader, resolution tombstones during startup and nonblocking legacy visibility signals. Race tests monitor loader completion and wait for importing? to clear; persistence failure checks no alert and no subscription, but its title's timer claim is not independently asserted.",
+    "DecisionQuery preserves exact lookup outside the priority overview, first-accepted ordering across enrichment/replay, deterministic equal-time ID ordering, strict invalid-input rejection and atomic health-plus-data reads. State-injected lifecycle/index fixtures test query semantics, not that every real mutation updates all indexes.",
+    "Retained query tests cover capped scans with continuation to rare later matches, unknown totals on incomplete scans, partial corrupt prefixes versus unavailable stores and indeterminate missing IDs. Generated cases compare against independently sorted/filter-derived expected IDs. Sparse current-map fixtures constrain indexed candidate access, but these are not measured production latency or memory savings.",
+    "DecisionProjection keeps decision lifecycle distinct from delivery and action attempts, preserves original answers and historical acknowledgements through revisions, and rejects wrong-action transitions. Typed provenance tests distinguish captured from unknown, detect stripping/binding changes and forbid enrichment rewriting trusted provenance.",
+    "Projection compatibility tests preserve opaque unknown event records while validating their envelope and rejecting duplicate event IDs; known types still fail on unsupported schemas. The rollback-reader helper reconstructs a historical hash algorithm but invokes the current request decoder, so it is compatibility-model evidence rather than an independently executed old release.",
+    "DecisionRevisionStore preserves exact retry identity after restart, conflicting-token refusal, at-most-one correction for competing callers, audit visibility from inside dispatch, active-revision retry and barrier-controlled corrective dispatch ordering. Handoff-before-settlement and action-scoped append-failure fixtures cover distinct recovery seams.",
+    "Revision follow-ups remain parent-owned audit facts: missing targets avoid queue attempts, restart reprojects a stable slug, newer revisions supersede old follow-ups and stale reconciliation repairs a deliberately removed handled event. The test controls scheduler delivery and rewrites its private audit; this is targeted replay recovery rather than a real host crash or filesystem-sync test."
   ],
   "cross_references": [
     {
@@ -517,10 +548,28 @@
       ],
       "status": "unverified hypothesis",
       "question": "Unlinked watcher cleanup occurs only after two assertions; an early assertion failure may leave its infinite sleeper alive. Check suite lifecycle and demonstrate the failure path before promoting a leak finding; successful-path cleanup exists."
+    },
+    {
+      "path": "src/test/aiur/decision_attention_test.exs",
+      "lines": [
+        108,
+        139
+      ],
+      "status": "unverified hypothesis",
+      "question": "The persistence-before-alert test uses selective receives for projected then alerted messages and checks subscription only after completion. Compare with the existing selective-receive ordering finding; test a reordered implementation or extracted assertion sequence before adding another finding. The separate persistence-failure test does constrain failed projection side effects."
+    },
+    {
+      "path": "src/test/aiur/decision_revision_store_test.exs",
+      "lines": [
+        530,
+        585
+      ],
+      "status": "unverified hypothesis",
+      "question": "The durable supersession ordering assertion compares two Enum.find_index results without asserting integer presence. Determine whether omission of follow_up_handled can pass this test while the resolver still emits; distinguish this local audit-order oracle from the separate restart-repair test's explicit count."
     }
   ],
   "next": [
-    "Continue the remaining 19 tests-1a manifest files, including decision projection/query/revision store and controller lifecycle/deactivation coverage.",
-    "Keep source, isolated helper probe, provider delivery and rendered-UX evidence distinct; verify remaining hypotheses before promoting findings."
+    "Continue the remaining 15 tests-1a manifest files, including alerts, provider probes and controller lifecycle/deactivation coverage.",
+    "Verify ordering hypotheses before promotion and deduplicate them against existing test-oracle findings."
   ]
 }
