@@ -104459,10 +104459,394 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "deprioritize_agent",
+      "assessment": "Orchestrator facade already delegates priority changes to PriorityControl.",
+      "constraints": [
+        "Default-server and explicit-server entry points converge on a binary-identifier control request.",
+        "Read PriorityControl: tracker label removal precedes in-memory replacement and notification; timeout/unavailable are explicit errors.",
+        "Preserve durable tracker authority and error shape. Sequential removal of multiple labels is not a demonstrated atomic transaction."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 512,
+          "module": "Aiur.Orchestrator",
+          "name": "deprioritize_agent",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 512,
+          "body_sha256": "755b56892e8677b74d2556f44f87ca7f065afcbffc984a0880dd14edb01d3bc5",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 514,
+          "module": "Aiur.Orchestrator",
+          "name": "deprioritize_agent",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 514,
+          "body_sha256": "7270a3a1136c2bbe1c8b844ae5b056d639d17d846552bab7b52ef460a2362a05",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 23,
+          "module": "Aiur.Orchestrator.PriorityControl",
+          "name": "deprioritize_agent",
+          "path": "src/lib/aiur/orchestrator/priority_control.ex",
+          "kind": "def",
+          "end_line": 23,
+          "body_sha256": "62993d15bbf35de99aafd99069862a9b24c4b3db3dc102a2da0e37fbf402a86f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 26,
+          "module": "Aiur.Orchestrator.PriorityControl",
+          "name": "deprioritize_agent",
+          "path": "src/lib/aiur/orchestrator/priority_control.ex",
+          "kind": "def",
+          "end_line": 26,
+          "body_sha256": "76fa03b615421d2eb79da695ea8012d172bf3c8c98a8d17d9abb3a6d9eacb64f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "deselect",
+      "assessment": "Slot command transport and pure state transition have distinct ownership.",
+      "constraints": [
+        "Slot calls the server with a five-second timeout and converts any exit to :ok; State resets active/visible identifiers and sessions, poll reference and ready status.",
+        "Read handler: active slots cancel the poll, apply State.deselect and publish session/visibility/readiness events; other states return :ok unchanged.",
+        "An API :ok does not establish completed cleanup. Keep effect orchestration outside the pure state helper."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 82,
+          "module": "Aiur.Opencode.Slot",
+          "name": "deselect",
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "kind": "def",
+          "end_line": 86,
+          "body_sha256": "16743a912337fac5d62eb092565d115cb8e71416452c2e05da4767add48ff8de",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 182,
+          "module": "Aiur.Opencode.Slot.State",
+          "name": "deselect",
+          "path": "src/lib/aiur/opencode/slot/state.ex",
+          "kind": "def",
+          "end_line": 192,
+          "body_sha256": "5b56dbe708a71dc033d6671bc2a1149e398babd16e335c2ae361cf48534e9495",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "dir",
+      "assessment": "Workspace scratch and durable Executor state directories are different lifetimes.",
+      "constraints": [
+        "AgentScratch joins the binary workspace with .aiur-runtime/tmp.",
+        "StatePaths honors a nonempty binary application override, otherwise resolves repository state with an unresolved-project fallback; successful repository slug lookup is cached.",
+        "Directory resolution is not directory creation or proof of path safety; preserve workspace versus durable repository ownership."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 25,
+          "module": "Aiur.AgentScratch",
+          "name": "dir",
+          "path": "src/lib/aiur/agent_scratch.ex",
+          "kind": "def",
+          "end_line": 25,
+          "body_sha256": "17c571df29e3fc2328771b9c3b1fe5719f479342bcdc1d9f3451dfa9ce3f915d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 41,
+          "module": "Aiur.Executor.StatePaths",
+          "name": "dir",
+          "path": "src/lib/aiur/executor/state_paths.ex",
+          "kind": "def",
+          "end_line": 46,
+          "body_sha256": "64e8f302e51051e55ec7c052f637f32cd889315afd4f06f1c8b10b2ac95cf26f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "direction",
+      "assessment": "Accounting discrepancy classification and log badge normalization are unrelated policies.",
+      "constraints": [
+        "Quota requires integer inputs, uses reconciliation before shortfall/excess and returns nil for other inputs.",
+        "Read reconciliation helper: positive spend allows a five-percent margin; zero spend agrees only with zero attribution. Negative-spend semantics are not independently validated by this classifier.",
+        "StreamdeckLogs preserves badge membership from its shared face contract and otherwise emits INFO. Do not conflate accounting evidence with display fallback."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 888,
+          "module": "Aiur.GitHub.Quota",
+          "name": "direction",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 894,
+          "body_sha256": "c78a9639407e3e439f6304a49e5daa594eacedaad23abc7d5f199031f48ddaf0",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 896,
+          "module": "Aiur.GitHub.Quota",
+          "name": "direction",
+          "path": "src/lib/aiur/github/quota.ex",
+          "kind": "defp",
+          "end_line": 896,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 534,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "direction",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "defp",
+          "end_line": 536,
+          "body_sha256": "96993ffbcd0751a49dc293ee7a6c991f616d9bb11ef02d250874bec60c789af4",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "disclosure",
+      "assessment": "Pricing metadata and aggregate presentation express different disclosure responsibilities.",
+      "constraints": [
+        "Pricing.Result emits marker/copy-key metadata only for :chatgpt; other auth modes yield nil.",
+        "UsageSummaryPresenter emits disclosure prose and a required? flag based on a nonempty subscription-currency MapSet.",
+        "Preserve API-equivalent estimate versus billed-spend distinction; metadata existence does not establish rendered disclosure or source population completeness."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 102,
+          "module": "Aiur.Usage.Pricing.Result",
+          "name": "disclosure",
+          "path": "src/lib/aiur/usage/pricing/result.ex",
+          "kind": "defp",
+          "end_line": 102,
+          "body_sha256": "cf0edb927aeda60ac74565957efafc87b6b4953d9d277d754d6fcc1cdcd57ddf",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 103,
+          "module": "Aiur.Usage.Pricing.Result",
+          "name": "disclosure",
+          "path": "src/lib/aiur/usage/pricing/result.ex",
+          "kind": "defp",
+          "end_line": 103,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 427,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "disclosure",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 437,
+          "body_sha256": "62ada1af689555494e823258507768d3239cb0423c090a35787640b265f3c778",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "discover",
+      "assessment": "Backend model probing and test-file enumeration do not share discovery contracts.",
+      "constraints": [
+        "ModelCatalog checks backend registration and an arity-one extractor, permits a different source backend and injected probe, propagates probe errors and distinguishes unsupported from unknown backends.",
+        "TestShard expands configured/default paths and patterns, deduplicates, filters and sorts files.",
+        "Keep effectful backend probing separate from filesystem enumeration; transitive extractor/filter behavior remains unverified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 40,
+          "module": "Aiur.ModelCatalog",
+          "name": "discover",
+          "path": "src/lib/aiur/model_catalog.ex",
+          "kind": "def",
+          "end_line": 57,
+          "body_sha256": "4c086f409088461e6a24e176e68e08abf8f432a5f73028c9f3eb259ad5c9363c",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 57,
+          "module": "Aiur.TestShard",
+          "name": "discover",
+          "path": "src/lib/aiur/test_shard.ex",
+          "kind": "def",
+          "end_line": 67,
+          "body_sha256": "1ec2b49349f27369574605cd0006571937cd7c2b7287931c445ef7f940f6d360",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "dismiss",
+      "assessment": "Dashboard dismissal is an adapter around canonical DecisionStore state.",
+      "constraints": [
+        "DecisionStore issues a synchronous request with binary ID/list options and caller-selected server/timeout.",
+        "Read dashboard selection and dismissal helpers: selected detail permits open/deferred; nonselected page rows additionally permit dismissed, while unavailable selected detail fails closed.",
+        "Dashboard supplies actor context, maps store exits to unavailable, reloads, then invokes attention resolution and agent notification after acceptance. Store acceptance does not prove downstream notification delivery."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 215,
+          "module": "Aiur.DecisionStore",
+          "name": "dismiss",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "def",
+          "end_line": 218,
+          "body_sha256": "fc5e29b3483d85e763a173bb08e8abc20d06f4e4f5ec987d772e480d443b2b39",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 45,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCommands",
+          "name": "dismiss",
+          "path": "src/lib/aiur_web/operator_control_center/decision_commands.ex",
+          "kind": "def",
+          "end_line": 53,
+          "body_sha256": "f7c8c195a18ce938801ff34ec27c686506ebf87010eea2ce9563fd7cbc9a69c0",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "dispatch_attempt",
+      "assessment": "Public lifecycle serialization already consumes the shared sanitizer.",
+      "constraints": [
+        "Sanitizer allowlists twelve lifecycle/identity fields, prefers atom keys when present and copies string-key values otherwise; it does not validate or redact the retained field values.",
+        "Public projection sanitizes first, emits string keys, converts status and timestamps and includes absent fields through value lookup. Both return an empty map for nonmap input.",
+        "Preserve sanitizer versus wire-format responsibilities; an allowlisted field name alone does not prove its value is safe public content. Full field-producer and timestamp validation remain outside this read."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 72,
+          "module": "Aiur.DecisionApi.PublicLifecycleProjection",
+          "name": "dispatch_attempt",
+          "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+          "kind": "def",
+          "end_line": 89,
+          "body_sha256": "1d1b813416b24d20af0e0548a821985f531f0472068ff403b8702a3a9535e517",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 91,
+          "module": "Aiur.DecisionApi.PublicLifecycleProjection",
+          "name": "dispatch_attempt",
+          "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+          "kind": "def",
+          "end_line": 91,
+          "body_sha256": "50ab143a3470d3cc763005869bf95865e005acfc9f4a0c98df4008c0a9f38335",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 27,
+          "module": "Aiur.DecisionSanitizer",
+          "name": "dispatch_attempt",
+          "path": "src/lib/aiur/decision_sanitizer.ex",
+          "kind": "def",
+          "end_line": 27,
+          "body_sha256": "6ea2f3e05f0c6bd4e961cd88d9a630caa1b19d731e53f0785a668e495d9150bc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 28,
+          "module": "Aiur.DecisionSanitizer",
+          "name": "dispatch_attempt",
+          "path": "src/lib/aiur/decision_sanitizer.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "50ab143a3470d3cc763005869bf95865e005acfc9f4a0c98df4008c0a9f38335",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7630,
-  "limits": "829 selected families and 7630 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7652,
+  "limits": "837 selected families and 7652 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

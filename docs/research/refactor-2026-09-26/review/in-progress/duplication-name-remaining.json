@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "1a581d3a92e1d485bc0c43c451524d6cef383ee9227dedd920ef9a4e0d8d7e61"
+    "name_triage": "260b07677f7be03fe30f8a5800ae0e5274df5e2ad91adb1fdbf93006b4349ddc"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 829,
-    "remaining_cross_module_names": 851,
-    "remaining_literal_entries": 2638
+    "reviewed_cross_module_names": 837,
+    "remaining_cross_module_names": 843,
+    "remaining_literal_entries": 2616
   },
   "families": [
-    {
-      "name": "deprioritize_agent",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "deselect",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "dir",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 7
-    },
-    {
-      "name": "direction",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "disclosure",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "discover",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 29
-    },
-    {
-      "name": "dismiss",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "dispatch_attempt",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 21
-    },
     {
       "name": "dispatch_attempt_identity",
       "clauses": 2,
