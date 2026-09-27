@@ -70,6 +70,16 @@ share proving human bottleneck ownership. Gaps-01 and the remaining causal
 claims still require their full source checks. No category was silently
 reassigned or prior numeric field overwritten.
 
+## Wake-consumption checkpoint
+
+Claim gaps-09 is checked, bringing both-lens coverage to 46/60. The cursors and
+backlog counts reproduce, but a successful later tool result returned wake 419
+while the observed cursor remains 352. Above-cursor records are not necessarily
+unseen. The frozen implementation already has owner acknowledgements, observer
+reads, bounded retention/overflow reporting and stalled-consumer status.
+Metadata-only evidence and a reproduction tool are published. Action completion
+and escalation must be evaluated separately; no consumer state was changed.
+
 ## Completion contract — all still required unless explicitly checked
 
 - [ ] Complete privacy/provenance review of inherited and new public artifacts.

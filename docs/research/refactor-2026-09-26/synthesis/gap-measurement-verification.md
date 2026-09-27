@@ -98,3 +98,38 @@ Still required: complete the run/progress-source audit, distinguish positive
 causal evidence from labels and silence, verify the August defect/deployment
 history, validate the host-down timeline, and check session-boundary and wake
 consumption interpretations. These findings do not complete those claims.
+
+## Wake-consumption interpretation checked
+
+Claim gaps-09 is checked in `verdicts/claims-gaps-wake-consumption.json`.
+`wake-consumption-audit.json` reproduces the reported cursors and backlog counts:
+352 / 1,529 for architecture-docs, 546 / 264 for archon, and 4,683 / 66 for aiur.
+These are observations of retained streams and current cursor files, not
+independently timestamped historical cursor snapshots.
+
+The architecture-docs transcript contains 63 assistant limit responses between
+19:05:58Z and 22:07:45Z on September 3, with a user reset message at 23:52:34Z.
+There are 65 notification-like user records; they are not all proven independent
+wake triggers. Continued errors until the reset are not established.
+A successful wake-file tool result returned wake 419 at September 4 00:04:08Z,
+above the still-observed cursor of 352. This proves the metadata was viewed,
+not that someone completed the underlying action. It contradicts treating all
+above-cursor records as unseen.
+
+The frozen code acknowledges owner reads, leaves observer reads uncursored,
+caps retained wakes with overflow reporting, and exposes stalled-consumer
+status. Owner/observer acknowledgement handling already exists in the September
+2 revision `84263f653`. Preserve these contracts and investigate escalation
+against them. Cursor movement can also result from eviction, so per-consumer
+acknowledgement and completed work need separate evidence.
+
+Reproduction (local paths are inputs; no raw transcript text is emitted):
+
+```sh
+python3 tooling/wake_consumption_audit.py "$LOCAL_REPO_STATE" "$LOCAL_CLAUDE_PROJECTS"
+```
+
+Validation compared string and block-list transcript content against an
+independent probe and correlated the later wake-file call with its successful
+result. No cursor, ownership, acknowledgement or retention state was changed.
+Whether out-of-band escalation succeeded during this incident remains open.

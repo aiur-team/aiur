@@ -371,7 +371,18 @@ min after one (the base rate).
 Compaction and handoffs do not predict gaps. Executor silence and session-limit hits do.
 
 **Rate and usage limits.**
-* *Executor (Claude Code) session limits*: 11 windows, 25.5 h in total (09-03/04 architecture-docs ×4, 09-10 aiur, 09-15 archon ×2, 09-16, 09-18 aiur+khala, 09-26 khala ×2). 13.6 h of them overlap gaps. On 09-03 the architecture-docs Executor hit the limit at 19:05Z and was re-woken about 60 times into the same error until the reset (*"I hit my usage limit while you were working, but it has reset now. Please continue from where you left off."*, 23:52Z). That Executor's wake cursor stopped at wake 352 (09-03T22:49Z); **1,529 later wakes were never consumed**, 906 of them `system.fleet.capacity.starved`. The archon cursor stopped at 546 (09-10T15:53Z, 264 unread). The aiur cursor stopped at 4683 (09-17T02:53Z, 66 unread, 26 of them `ticket.pr.merged`).
+* *Executor session limits*: the retained model reports 25.5 h across 11 windows,
+  with 13.6 h overlapping gaps (full correlation verification remains open).
+  Architecture-docs has 63 assistant limit responses on September 3 from
+  19:05:58Z to 22:07:45Z, and a user reset message at 23:52:34Z. Repeated errors
+  until that reset are not established. Its observed cursor is 352, with
+  **1,529 retained records above the shared cursor**, including 906
+  `system.fleet.capacity.starved` records. Above-cursor does not mean unseen:
+  a successful wake-file result returned wake 419 at September 4 00:04:08Z.
+  Archon's cursor is 546 (264 records above it); aiur's is 4683 (66, including
+  26 `ticket.pr.merged`). The frozen code already has owner acknowledgements,
+  observer reads, bounded retention with overflow reporting and stalled-consumer
+  status. See the [wake-consumption verdict](../synthesis/verdicts/claims-gaps-wake-consumption.json).
 * *Provider (agent) usage limits*: `codex-usage-limit` / `usage_limit_exhausted` windows total 17.1 h (khala 11.1 h, aiur 6.0 h), and 11.0 h overlap gaps. This cause is small by itself. It matters when it also raises a blocking operator decision (gap 10).
 * *GitHub budget or broker*: 1.5 h. *GitHub connectivity lost*: under 0.2 h. Neither is a material cause.
 * *CI*: no gap minute was classified as "CI only". Every open CI-wait coincided with a stronger cause.
@@ -401,9 +412,11 @@ attended idle time is mostly (c) and (e): the human is there, working on another
 2. **Daemon liveness has no owner.** A host crash stopped three daemons for 51 h, and nothing restarted
    them or told anyone. Two of them are still down.
 3. **Executor presence is intermittent, and gaps follow its silences** (2.3× lift) and its session-limit
-   hits (7×). Executor Claude Code limits also make the Executor stop consuming wakes. On 09-03 this left
-   1,529 wakes unread.
-4. **Signal hygiene.** 906 unread `capacity.starved` wakes, 42 % human-review label churn, and a
+   hits (7×), pending the full correlation check. The 1,529 architecture-docs
+   records above its shared cursor are unacknowledged through that path, not
+   necessarily unseen. Evaluate viewing, acknowledgement and action completion
+   separately.
+4. **Signal hygiene.** 906 unacknowledged `capacity.starved` wakes, 42 % human-review label churn, and a
    starvation alert with known false alarms (#2447) all make real stalls harder to see.
 5. **The August dispatch defect (#2237) is fixed.** Run-log-era infrastructure time is 1.6 %, so the
    refactor should not optimize for it.
