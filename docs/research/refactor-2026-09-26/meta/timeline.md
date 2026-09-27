@@ -145,7 +145,7 @@ One private repo run is left out of this timeline by rule. It adds one abandoned
 | 09-17 02:27 | #2677 merges and invalidates 5 green PRs. No aiur merge for 12.75 h (to 15:12). | R3, R8 | aiur evidence; git log |
 | 09-17 02:19 / 02:56 | Last aiur hourly retro (02:19) and last aiur wake ack (02:56). 66 later wakes are never consumed; the owner lease keeps renewing to 09-22. | R10, R4 | resume retro; `aiur.executor.claims.json` |
 | 09-17 03:00 → 21:23 | No aiur fleet worker runs while the Executor implements #2680–#2687 itself; the user then says "many independent defects may use native Aiur agents". | R19 | `aiur/executor/handoff.md` |
-| 09-17 05:35 → 12:52 | khala handoff silent 7 h 17 m while hourly retros continue. #2677 deployed to khala 10 h 23 m after merge. 0 of 44 implementation tickets closed after ~17.5 h. | R12, R7 | khala handoff previous, retro |
+| 09-17 05:35 → 12:52 | khala handoff silent 7 h 17 m while hourly retros continue. #2677 deployment reported complete at 12:52:41Z: about 10 h 25 m after the merge commit timestamp, or 10 h 23 m after the first read merged/undeployed observation; exact activation time unverified. 0 of 44 implementation tickets closed after ~17.5 h. | R12, R7 | khala handoff previous, retro |
 | 09-17 15:18 | khala switches to the Executor's own agents under a global pause; the wake relay is stopped as "periodic no-action spam". | R19, R9 | `khala/executor/handoffs/20260917T151838Z-handoff.md` |
 | 09-17 22:07 | Host-lock fix #2666 merges after 26 h (preventive only; worker 17 hit the same fault at 16:53). | R13 | aiur evidence; `aiur/executor/handoff.md` |
 

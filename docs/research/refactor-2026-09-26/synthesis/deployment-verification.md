@@ -93,3 +93,18 @@ appended updates; filenames are not observation end-times. Their duration and
 restart-side-effect claims still need episode-level verification. Nothing from
 machine-specific paths, private workload context or host identity was copied.
 Meta-08 remains open; both-lens coverage stays 50/60.
+
+## Historical episode checks
+
+The companion deployment-episodes.json records nine source hashes and six
+episode assessments. PR2677's commit-to-completion-report interval is
+37,520.466230 seconds (10h25m20s); observation-to-report is 37,397.513230 seconds
+(10h23m17s). These are record-to-record intervals, not a precisely measured
+activation delay. The report's phrase “10h23 after merge” used the wrong anchor.
+
+The August 10 authority records change between refusing restart and reporting
+standing authorization. The September 10 early record still treats PR2604 as
+pending merge, and early-hours records alone do not establish all-day delay.
+The September 18 WIP-loss account is copied through six handoffs; preserve one
+reported incident and an explicit unverified size/mechanism, not six events.
+The twelve-restart count and retry-reset mechanism remain open.

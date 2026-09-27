@@ -1,0 +1,128 @@
+{
+  "claim": "meta-08",
+  "status": "historical_episode_audit_in_progress",
+  "sources": [
+    {
+      "path": "aiur/meta/2026-08-10T1700Z-hourly.md",
+      "lines": "21-32",
+      "sha256": "761380a15e9e8853f8a46032be67b96624c1ea9b68a2e235e2af06a24cf2685b"
+    },
+    {
+      "path": "aiur/meta/2026-08-10T1830Z-hourly.md",
+      "lines": "51-57",
+      "sha256": "d027b5044c0e161f7b51343fc0464549ec0d4163b20864c3bc48698d5a1c6827"
+    },
+    {
+      "path": "aiur/meta/20260823T023500Z-a-day-of-merged-work-had-never-run.md",
+      "lines": "21-32",
+      "sha256": "4829ee6a0cf187eda0b360d1bb2ac652f3f3329b876134b03aa1bc142c02f830"
+    },
+    {
+      "path": "aiur/meta/20260823T092500Z-red-stopped-meaning-anything.md",
+      "lines": "71-78",
+      "sha256": "e59b074dd8c225e4134eeb5a79de64da1efcdd95d886a5cfb83a3d0900e09705"
+    },
+    {
+      "path": "aiur/executor/handoffs/20260903T053500Z-handoff.md",
+      "lines": "24-25,39-43,109",
+      "sha256": "affc640eacdc658c0191ad252740f7972d995bdaf9abc44ff87dcafcf2235731"
+    },
+    {
+      "path": "archon/meta/20260910T032946Z-wave-2-running-claude-quota-is-the-clock.md",
+      "lines": "44",
+      "sha256": "0263e5452727b9220e60a281cceabd44c91b1dbdc205f702bbfa51747fd49d4f"
+    },
+    {
+      "path": "archon/meta/20260910T042954Z-claude-quota-83pct-and-the-dependency-hold-survives-restart.md",
+      "lines": "45",
+      "sha256": "168b293a8538296df1b03949f952084d78358ea0aaf2db14fa160662d33565da"
+    },
+    {
+      "path": "khala/executor/handoffs/20260917T151838Z-previous.md",
+      "lines": "207-213,345,473-477",
+      "sha256": "6c7726adbb75d4a4e4d41efed8981c50f32d6b016b409a99ac63bd7a0802b5da"
+    },
+    {
+      "path": "khala/executor/handoffs/20260918T105029Z-handoff.md",
+      "lines": "271",
+      "sha256": "dd77fdf4f46d1f10dc03b665fe3cce8960479a1ddf1b1c14bfc50de151ea4e09"
+    }
+  ],
+  "episodes": [
+    {
+      "episode": "August 10 deployment delay",
+      "evidence": "17:00 record says #1758 inert since approximately 11:20 and explicitly declines restart under its interpretation of authority; 18:30 record reports restart on standing authorization and deployment.",
+      "conclusion": "A delay of several hours is supported as contemporaneous self-report. Six-to-seven hours is approximate; the exact restart timestamp is not established by these two report filenames. Conflicting authority interpretations are part of the episode, not proof that approval was objectively absent."
+    },
+    {
+      "episode": "August 23 day-of-work account",
+      "evidence": "02:35 report states deployed tree was 18 commits behind, budget database lacked resource column, and the column appeared after pull/build/restart. 09:25 report separately says fourth occurrence that night and intentional deferral during review fanout.",
+      "conclusion": "Two reports support repeated activation gaps with a concrete reported schema observation. No raw before/after database snapshot inspected here; a day and fourth are report assertions, not an independently counted duration/population."
+    },
+    {
+      "episode": "September 3 rebuild owed",
+      "evidence": "Handoff lists #2481/#2395 in reviewed PR table, then says nothing in that section was verified on the running system and a rebuild remained owed.",
+      "conclusion": "Report supports merged-but-not-running concern. Lack of verification is weaker than independent proof each fix was absent; exact activation times remain unverified."
+    },
+    {
+      "episode": "September 10 shared release",
+      "evidence": "03:29 record calls for #2553/#2566/#2570 and #2604 once merged; 04:29 record calls all four inert after unanswered 04:22 request.",
+      "conclusion": "Do not call #2604 already merged at every earlier observation. These records establish an early-hours reported activation gap, not by themselves all-day duration."
+    },
+    {
+      "episode": "September 17 PR2677",
+      "commit": "33fa9920b036de3be38292317ed1b8293ba77eef",
+      "commit_time_utc": "2026-09-17T02:27:21Z",
+      "first_read_merged_undeployed_observation": "2026-09-17T02:29:23.953000Z",
+      "deployment_completed_report": "2026-09-17T12:52:41.466230Z",
+      "commit_to_completion_report_seconds": 37520.46623,
+      "undeployed_observation_to_completion_report_seconds": 37397.51323,
+      "conclusion": "10h23 is elapsed from the observed merged/undeployed audit to the completion report; commit-to-report is about 10h25. Completion report is not an exact process activation timestamp, and Git committer time is not independently queried GitHub merged_at. The report explicitly preserves global pause and blocked work and does not claim rendered progress-bar verification."
+    },
+    {
+      "episode": "September 18 workspace preservation",
+      "evidence": "A handoff reports one restart wiping roughly 21 KB of uncommitted work, restored from backups; the same account occurs in six successor handoff files.",
+      "conclusion": "One reported loss-and-restoration episode plus repeated runbook text, not six incidents. Raw patch size, destructive code path and twelve-restarter population remain unverified."
+    }
+  ],
+  "unresolved": [
+    "Exact restart/deployment timestamps for earlier episodes",
+    "Independent census of twelve Khala restarts and per-restart backups",
+    "Decision retry ladder reset mechanism and causality",
+    "Four re-reported fixed bugs and their deployed versions",
+    "Complete runtime status/dashboard build identity audit"
+  ],
+  "limits": "Local public-project records only, paraphrased; no machine paths, private workload details or host identity published. Historical self-reports are not independent runtime measurements. No live system was changed.",
+  "repeated_wip_account": [
+    {
+      "path": "khala/executor/handoffs/20260918T105029Z-handoff.md",
+      "line": 271,
+      "line_sha256": "5ec244d7a78eab27b11703a7cfec5df2be05806dc597c58056043f6d3bf098ea"
+    },
+    {
+      "path": "khala/executor/handoffs/20260918T105635Z-handoff.md",
+      "line": 271,
+      "line_sha256": "5ec244d7a78eab27b11703a7cfec5df2be05806dc597c58056043f6d3bf098ea"
+    },
+    {
+      "path": "khala/executor/handoffs/20260918T105714Z-handoff.md",
+      "line": 271,
+      "line_sha256": "5ec244d7a78eab27b11703a7cfec5df2be05806dc597c58056043f6d3bf098ea"
+    },
+    {
+      "path": "khala/executor/handoffs/20260918T105743Z-handoff.md",
+      "line": 271,
+      "line_sha256": "5ec244d7a78eab27b11703a7cfec5df2be05806dc597c58056043f6d3bf098ea"
+    },
+    {
+      "path": "khala/executor/handoffs/20260918T105952Z-handoff.md",
+      "line": 271,
+      "line_sha256": "5ec244d7a78eab27b11703a7cfec5df2be05806dc597c58056043f6d3bf098ea"
+    },
+    {
+      "path": "khala/executor/handoffs/20260920T073235Z-previous-live-handoff-with-session-log.md",
+      "line": 271,
+      "line_sha256": "5ec244d7a78eab27b11703a7cfec5df2be05806dc597c58056043f6d3bf098ea"
+    }
+  ]
+}

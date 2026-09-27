@@ -911,3 +911,16 @@ Historical handoffs located and selectively read; appended updates mean filename
 timestamps cannot bound episodes. Remaining: complete status/dashboard identity
 surface audit and historical duration/restart-side-effect verification. Claim
 coverage stays 50/60. No live launcher, upgrade, release or daemon action.
+
+## Deployment historical-episode checkpoint
+
+Added deployment-episodes.json with nine public-source hashes and six bounded
+episode assessments. Corrected the PR2677 timeline anchor: commit-to-completion
+report is about 10h25, while first read merged/undeployed observation-to-report
+is about 10h23; neither proves the exact activation timestamp. One reported
+21 KB loss/restoration is repeated through six handoffs, not six incidents.
+
+Earlier records support reported activation gaps but not all asserted duration
+or authority interpretations. Twelve restarts/backups, retry-reset mechanism,
+four repeated bugs and remaining build-identity surfaces are still unresolved.
+Meta-08 stays open and claim count stays 50/60. No operational state changed.

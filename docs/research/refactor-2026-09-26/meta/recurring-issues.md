@@ -45,7 +45,7 @@ Ranked by stated cost (hours stalled, tickets stranded) first, then by recurrenc
 | 4 | The Executor's discovery path is not running (durable wake inbox not consumed; monitors lapse) | ~60 | 08-18 → 09-25 | aiur, archon, khala, arch-docs + private | cursor stuck 5 days, then frozen 11 days, then idle 13.5 days; 1,529 wakes never consumed; 13.6 h stall when monitors expired | **No.** Skill rule (#2412) and code fix (#2481) both followed by recurrences |
 | 5 | Rework is not re-dispatched after a request-changes review | ~48 | 08-05 → 09-26 | aiur, archon, khala | 12 of 12 green PRs in a rework loop; 19+ manual relabels in khala, 5 after the latest fix | **No.** ≥10 fix attempts, #1427 → #2817 |
 | 6 | The Executor and the fleet stop together (provider quota, session death, host continuity) | ~58 | 08-10 → 09-26 | aiur, archon, khala, arch-docs | 2 h 33 m, 3.6 h, ~4 h 06 m, ~8.5 h, part of 13.6 h; 16 of 20 slots held after a limit | Partly: Codex limit auto-paused in 7 min on 09-25; Claude limits still needed hand-resumes 09-26 |
-| 7 | Merged fixes do not run until someone rebuilds and restarts | ~100 (with restart friction) | 08-09 → 09-26 | aiur, archon, khala, arch-docs | "a day of merged work had never run"; fixes inert 6–7 h, 10 h 23 m, all day; peer re-reported 4 fixed bugs | **No.** No "running build is older than main" surface was built |
+| 7 | Merged fixes do not run until someone rebuilds and restarts | ~100 (with restart friction) | 08-09 → 09-26 | aiur, archon, khala, arch-docs | "a day of merged work had never run"; reported multi-hour activation gaps; exact endpoints and repeated-bug count under audit | **No.** No "running build is older than main" surface was built |
 | 8 | CI instability, red main and a serial merge train | ~110 | 08-05 → 09-26 | aiur, archon, khala | red main froze the merge train (08-23); ~40 re-integrations of 12 PRs in 27 h; 17 red CI runs, 12 of them old flakes | **No.** Flake fixes chain from #1591 to #2740 |
 | 9 | Status surfaces lie and alerts are mostly noise | ~115 | 08-02 → 09-26 | all 5 | 68–73 % of two wake inboxes was capacity noise; 275 wakes / 3 actions in one run; stalls hidden behind "healthy" | Partly: #2592/#2622 removed one noise source |
 | 10 | The Executor's own loop omits required steps (hourly check as loop, self-poll prompt, retros lapse) | ~48 | 08-09 → 09-26 | all 5 | 9 days with no hourly retro; hourly check was the real loop for days; a CI waiter that never fired | **No.** Rule written 07-13, restated 08-23 and 09-26 |
@@ -335,10 +335,9 @@ separately. See the [deployment checkpoint](../synthesis/deployment-verification
 - **Stated cost:** #1758 inert 6–7 h under the operator's "report rather than restart" rule
   (08-10); 4 PRs inert 1–3 h (08-22); "a day of merged work had never run", the "fourth time
   tonight" (08-23); #2481 and #2395 merged but a rebuild "owed and unscheduled" (09-03);
-  #2553/#2604 inert on archon all of 09-10 while every wave needed a cache-drop by hand;
-  #2677 inert on khala 10 h 23 m (09-17); the khala peer re-reported four already-fixed bugs
-  from an old build (09-16/17); a restart wiped a 21 KB WIP (09-18); 12 khala restarts in 9 days
-  each needed a manual workspace backup, and a restart resets the decision retry ladder (09-17).
+  #2553/#2604 reported inert during early 09-10; all-day duration and per-wave interventions not independently established;
+  #2677 deployment reported complete about 10 h 25 m after its commit timestamp (09-17; exact activation time unverified); the khala peer re-reported four already-fixed bugs
+  from an old build (09-16/17, not independently counted in this audit); one restart reportedly wiped and then restored a roughly 21 KB WIP (09-18). The same loss account is copied into six handoffs, not six incidents. The claimed twelve restarts/backups and decision retry-ladder reset remain unverified; see the [episode audit](../synthesis/deployment-episodes.json).
 - **Fixes claimed and recurrence:** standing restart authority (08-10); memory rules "merged
   code is inert until rebuilt". No "running build older than main" alert was filed or built
   (flagged as "worth a ticket if it recurs" on 08-22; it recurred the same day). #2656
