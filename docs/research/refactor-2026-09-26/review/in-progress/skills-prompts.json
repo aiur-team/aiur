@@ -2967,6 +2967,39 @@
       "recommendation": "Bound admission by remaining iterations and recheck time/spend before each new dispatch or judge batch; distinguish unavoidable in-flight overshoot from additional work admitted after the limit.",
       "refactor_hint": "Use explicit durable experiment transitions and admission accounting around irreversible work.",
       "limits": "Frozen-source ordering and arithmetic only; no optimizer, paid judge, worker or crash probe executed. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-51",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Pulse interview accepts preferences that its config contract discards",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-product-pulse/references/interview.md",
+          "lines": "173-188"
+        },
+        {
+          "path": ".claude/skills/ce-product-pulse/references/interview.md",
+          "lines": "215-258"
+        },
+        {
+          "path": ".claude/skills/ce-product-pulse/SKILL.md",
+          "lines": "57-71"
+        },
+        {
+          "path": ".claude/skills/ce-product-pulse/SKILL.md",
+          "lines": "146-146"
+        },
+        {
+          "path": ".claude/skills/ce-product-pulse/SKILL.md",
+          "lines": "159-164"
+        }
+      ],
+      "description": "The interview says to accept and record top-error count and latency customizations, while its final config contract expressly says they are not configurable and always uses top5 plus all percentiles. It also says to persist manual/ask-again scheduling choices, then excludes cadence from config and reads no corresponding pulse preference. Declining or customizing setup can therefore produce an apparent agreement that later runs cannot honor through the documented configuration.",
+      "evidence": "Compared complete config key list and persistence notes with interview capture rules and report defaults. No config written or report generated. External scheduler ownership can legitimately hold an actual recurring schedule; it does not reconcile manual/ask-again preferences promised in pulse config.",
+      "recommendation": "Offer only supported preferences or add an explicit durable representation and consumer for them; distinguish external schedule state from local reminder/opt-out preference.",
+      "refactor_hint": "Derive interview choices, saved settings and report behavior from one configuration contract.",
+      "limits": "Frozen-source inconsistency only; no observed lost setting, repeated prompt or user-facing report failure. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -3392,7 +3425,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; optimization candidates25/27 reconciled.15 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; candidate33 reconciled.14 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3635,6 +3668,13 @@
       "finding": "skills-prompts-cont-50",
       "reason": "Deterministic rule counterexample: completed3, max_iterations4, runnable backlog4 and max_concurrent4 selects4 experiments, yielding7 before the stopping check. This is arithmetic from the stated algorithm, not a measured run or cost-saving claim. Schema explicitly says stop judge evaluation when cumulative spend reaches the cap.",
       "subconcerns": "Judge wording exceed minimum_improvement can refer to improvement magnitude rather than raw score; generic metric direction still exists, so no wrong-minimize winner proven. Full combined measurement may include gate evaluation; absent repetition of gate/noise rules alone not promoted."
+    },
+    {
+      "id": "skills-prompts-candidate-33",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-51",
+      "reason": "Explicit accept-and-record rules conflict with explicit non-configurable/persistence exclusions.",
+      "subconcerns": "Scoring notes and needs-review flags could be encoded alongside free-text values, so absent dedicated keys alone not promoted. Minute-resolution report path can collide, but no append-only history or overwrite behavior was demonstrated; preserve unique-run identity/retention as a rewrite question rather than an observed loss finding. Existing revenue-default finding15 remains separate."
     }
   ],
   "coverage_validation": {
@@ -3647,8 +3687,8 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 27,
-    "unresolved_candidates": 15,
+    "terminal_dispositions": 28,
+    "unresolved_candidates": 14,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
@@ -3656,7 +3696,6 @@
       "skills-prompts-candidate-20",
       "skills-prompts-candidate-21",
       "skills-prompts-candidate-31",
-      "skills-prompts-candidate-33",
       "skills-prompts-candidate-36",
       "skills-prompts-candidate-38",
       "skills-prompts-candidate-39",

@@ -802,3 +802,7 @@ Candidate26 promoted: workers leave edits uncommitted, parent commits winner onl
 ### Skills/prompts: optimization recovery and admission
 
 Candidates25/27 resolved: integration/cleanup precedes final outcome logging without resume reconciliation; batch admission ignores remaining iteration allowance and stop checks follow the batch. Counterexample3 completed/limit4/batch4 yields7; this is algorithm arithmetic, not measured execution. Append/update wording, regenerable digest and ambiguous judge-direction wording not independently promoted. Findings50 (31P2/19P3);15 listed candidates unresolved. No optimization execution, paid judge or production change.
+
+### Skills/prompts: pulse preference persistence
+
+Candidate33 resolved: interview accepts error/latency preferences expressly unsupported by final config/report rules, and promises scheduling preferences without their persistence contract. Scoring-note encoding and same-minute report retention remain design questions, not independently proven incidents. Findings51 (31P2/20P3);14 listed candidates unresolved. No config, report, schedule or production changes.
