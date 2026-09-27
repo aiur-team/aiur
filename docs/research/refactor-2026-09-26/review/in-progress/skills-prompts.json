@@ -2872,6 +2872,35 @@
       "recommendation": "Report triggered/pending immediately, then report published only after the matching tag/commit workflow and all required registry checks succeed.",
       "refactor_hint": "Use a release contract carrying repository, immutable revision, version and separate publication receipts.",
       "limits": "Frozen source and installed CLI help only; no build, release, tag mutation, workflow dispatch or registry request. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-48",
+      "severity": "P2",
+      "category": "correctness",
+      "title": "Runner-up optimization integration lacks the required experiment commit",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-optimize/references/experiment-prompt-template.md",
+          "lines": "11-11"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/references/experiment-prompt-template.md",
+          "lines": "58-58"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/SKILL.md",
+          "lines": "526-539"
+        },
+        {
+          "path": ".claude/skills/ce-optimize/scripts/experiment-worktree.sh",
+          "lines": "89-164"
+        }
+      ],
+      "description": "Workers must not commit. The orchestrator explicitly commits the best experiment before merging it, but the runner-up path goes directly from disjointness to cherry-pick. A runner-up branch still points at its base while the measured changes remain in its working tree, so no commit representing that experiment is defined for integration.",
+      "evidence": "Read complete worker template, parent winner/runner-up sequence and helper creation/cleanup paths. Helper has no commit operation. Git branch integration cannot carry uncommitted working-tree changes; no actual optimization experiment or loss was reproduced.",
+      "recommendation": "Materialize and verify a mutable-scope commit for every experiment selected for integration, including runners-up, before cherry-pick; retain the measured revision identity through combined evaluation.",
+      "refactor_hint": "Use a shared measured-artifact-to-integration contract for optimization and parallel implementation workflows.",
+      "limits": "Source-level missing prerequisite only. Related worker-transfer finding19 has a different workflow site; final semantic dedup must decide whether to group them. No worker, measurement, worktree or production mutation executed."
     }
   ],
   "preserve": [
@@ -3297,7 +3326,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files read; release candidate45 fully reconciled.18 listed candidates remain unresolved. Continue remaining reconciliation, semantic dedup and raw-unit closure.",
+  "next": "All250 files read; candidate26 reconciled.17 listed candidates remain unresolved; optimization persistence/budget candidates25/27 need further reconciliation.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -3519,6 +3548,13 @@
         "skills-prompts-cont-47"
       ],
       "reason": "Completed previously partial candidate: version/build findings20-21 retain their evidence; repository split and publication receipt gap now separately verified. No real release attempted."
+    },
+    {
+      "id": "skills-prompts-candidate-26",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-48",
+      "reason": "Runner-up path omits commit prerequisite that winner path explicitly supplies.",
+      "subconcerns": "Codex command lacks an inline directory flag, but its caller can select shell working directory; absence of that flag alone does not prove wrong checkout. Worker mutable/immutable scope is explicit cooperative instruction; absence of a hard sandbox alone is not a separate demonstrated defect. Preserve explicit execution-root and measured-scope verification as rewrite requirements."
     }
   ],
   "coverage_validation": {
@@ -3531,8 +3567,8 @@
   },
   "candidate_progress": {
     "listed_candidates": 42,
-    "terminal_dispositions": 24,
-    "unresolved_candidates": 18,
+    "terminal_dispositions": 25,
+    "unresolved_candidates": 17,
     "unresolved_ids": [
       "skills-prompts-candidate-01",
       "skills-prompts-candidate-04",
@@ -3540,7 +3576,6 @@
       "skills-prompts-candidate-20",
       "skills-prompts-candidate-21",
       "skills-prompts-candidate-25",
-      "skills-prompts-candidate-26",
       "skills-prompts-candidate-27",
       "skills-prompts-candidate-31",
       "skills-prompts-candidate-33",

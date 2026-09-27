@@ -1503,3 +1503,7 @@ Candidates23/35 promoted: issue-state/theme overlap does not prove recurrence or
 ### Skills/prompts: release target and completion receipts
 
 Completed partial candidate45 with repository-split and premature npm-success findings. Tag push uses origin while release creation uses canonical repo; installed gh2.96.0 help confirms absent-tag auto-creation unless verify-tag is used. Frozen workflow has build/smoke prerequisites and explicit per-package registry verification not awaited by the recipe. Findings47 (28P2/19P3);18 listed candidates unresolved. No release, tag mutation, build or registry request.
+
+### Skills/prompts: optimization runner-up integration
+
+Candidate26 promoted: workers leave edits uncommitted, parent commits winner only, then cherry-picks runner-up without an experiment commit. Helper creation/cleanup does not fill the gap. Codex directory selection and cooperative scope enforcement alone do not prove independent defects. Findings48 (29P2/19P3);17 listed candidates unresolved. No worker, measurement or production mutation. Related parallel-work transfer finding19 retained pending semantic grouping.
