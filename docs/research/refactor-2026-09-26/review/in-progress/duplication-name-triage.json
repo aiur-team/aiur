@@ -71766,10 +71766,465 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "os_pid",
+      "assessment": "Process identifiers differ in representation, ownership and failure policy.",
+      "constraints": [
+        "Claims returns the current VM operating-system PID as a string; RequestLog converts the current PID to an integer. HostLock also converts to integer but rescues failures to nil.",
+        "Opencode.Server reads a child port PID and returns nil when Port.info has no matching result; its literal body does not rescue exceptions.",
+        "Keep current-process and child-process identity separate, and preserve wire types and failure handling before sharing conversion mechanics. These readers alone establish neither process liveness nor ownership."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 475,
+          "module": "Aiur.Executor.Claims",
+          "name": "os_pid",
+          "path": "src/lib/aiur/executor/claims.ex",
+          "kind": "defp",
+          "end_line": 475,
+          "body_sha256": "c7db5e7eeb21feb74e315701edbedf9dd16ad8ca9a0201852148b1233c73b107",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 256,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "os_pid",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "defp",
+          "end_line": 256,
+          "body_sha256": "077dfc214c16d5e22bcb83a5a0e6536cddc2ff8092fbdab8e09f1bd186c503ec",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 304,
+          "module": "Aiur.Opencode.Server",
+          "name": "os_pid",
+          "path": "src/lib/aiur/opencode/server.ex",
+          "kind": "defp",
+          "end_line": 309,
+          "body_sha256": "ac783ebff44364a8b8e53efb2a5b375e6c9fbaa46e538d6ac9336a6909b916a3",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 172,
+          "module": "Aiur.Workspace.HostLock",
+          "name": "os_pid",
+          "path": "src/lib/aiur/workspace/host_lock.ex",
+          "kind": "defp",
+          "end_line": 176,
+          "body_sha256": "83471011e208298d3465f8d309bf55e19208e3e9f1c882d0dc4a115b6b9b4495",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "outcome",
+      "assessment": "Two provider probes share an exact result constructor; other outcomes carry different evidence.",
+      "constraints": [
+        "OpenAICompat.ProviderMeterProbe and ProviderMeterProbe construct the same provider/observed?/reason map. This small constructor is a sharing candidate, not proof that observation paths are equivalent.",
+        "CurrentRunOutcomeSnapshot.Outcomes includes merge identity, association basis, membership generation and separate first/last observation and backfill fields.",
+        "ResumeReason prefers condition-level control status and pause reason while retaining current_pause_reason separately. Preserve historical condition versus current state in any result schema."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 78,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.Outcomes",
+          "name": "outcome",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/outcomes.ex",
+          "kind": "defp",
+          "end_line": 110,
+          "body_sha256": "87afc6052f9da9b854ec5f601b66c9aba833c7fb7816f5bb2f88256c56ac44c9",
+          "normalized_body_lines": 35,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 218,
+          "module": "Aiur.OpenAICompat.ProviderMeterProbe",
+          "name": "outcome",
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 219,
+          "body_sha256": "cf9734d9390421c3a4b94097f7d0463e359209817ae82df10f64494b621570a2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 342,
+          "module": "Aiur.ProviderMeterProbe",
+          "name": "outcome",
+          "path": "src/lib/aiur/provider_meter_probe.ex",
+          "kind": "defp",
+          "end_line": 342,
+          "body_sha256": "cf9734d9390421c3a4b94097f7d0463e359209817ae82df10f64494b621570a2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 23,
+          "module": "AiurWeb.OperatorControlCenter.UnitsRow.ResumeReason",
+          "name": "outcome",
+          "path": "src/lib/aiur_web/operator_control_center/units_row/resume_reason.ex",
+          "kind": "defp",
+          "end_line": 33,
+          "body_sha256": "6839c9b82433237d28524e9ebce50f7b256367c4ce13b60bf699526ce59a30c3",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "pane_interrupt",
+      "assessment": "Interrupt entry points already delegate through shared orchestration mechanics.",
+      "constraints": [
+        "AgentChat resolves a registered pane to a slot issue identifier, otherwise uses the pane-ID route; it logs and returns the chosen route result.",
+        "Orchestrator forwards to Interrupts; Interrupts supplies the default server and calls control_api_call. These are API layers, not separate interruption algorithms.",
+        "ObservabilityApiController maps any returned error to close_pane and emits a JSON action; missing or empty pane_id returns 422. Preserve transport fallback policy separately from the underlying interruption result.",
+        "These literal definitions do not verify authorization, pane ownership, delivery or process termination."
+      ],
+      "clauses": 7,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 88,
+          "module": "Aiur.AgentChat",
+          "name": "pane_interrupt",
+          "path": "src/lib/aiur/agent_chat.ex",
+          "kind": "def",
+          "end_line": 101,
+          "body_sha256": "684a6a7baa9bd83da3bbe88de7efdc6d10fcd34c4be916f566c0e626822278c9",
+          "normalized_body_lines": 21,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 476,
+          "module": "Aiur.Orchestrator",
+          "name": "pane_interrupt",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 476,
+          "body_sha256": "2d79158d17b1de6c487a77be9be3406c866d9bbc288404e9c8985654dbe90f85",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 480,
+          "module": "Aiur.Orchestrator",
+          "name": "pane_interrupt",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 480,
+          "body_sha256": "044459b8b6b4c2b133fdd8a722213305f0299826fbf8190b47bb6a650928d05b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 21,
+          "module": "Aiur.Orchestrator.Interrupts",
+          "name": "pane_interrupt",
+          "path": "src/lib/aiur/orchestrator/interrupts.ex",
+          "kind": "def",
+          "end_line": 22,
+          "body_sha256": "cf50c45c03475c5933407daa16ef383862df97b94bb04d62c8fdf37718841dbc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 26,
+          "module": "Aiur.Orchestrator.Interrupts",
+          "name": "pane_interrupt",
+          "path": "src/lib/aiur/orchestrator/interrupts.ex",
+          "kind": "def",
+          "end_line": 27,
+          "body_sha256": "afd1538b7e2613ec6e9d03ff37e5cda7f6cd219d5afe7b3248570354225e00b6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 95,
+          "module": "AiurWeb.ObservabilityApiController",
+          "name": "pane_interrupt",
+          "path": "src/lib/aiur_web/controllers/observability_api_controller.ex",
+          "kind": "def",
+          "end_line": 103,
+          "body_sha256": "9b3c541ec720298b8eb57f1506960eb185e06d0df38afb86a27dc8c8da3f770c",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 105,
+          "module": "AiurWeb.ObservabilityApiController",
+          "name": "pane_interrupt",
+          "path": "src/lib/aiur_web/controllers/observability_api_controller.ex",
+          "kind": "def",
+          "end_line": 107,
+          "body_sha256": "40dfe219f15b1e8341ecbd85bf5c2797b68210a932094c5785cc691e4513e68a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "parse_repo",
+      "assessment": "Configuration parsing shares a shape, but URL discovery and validated identities need separate contracts.",
+      "constraints": [
+        "Codeowners and GitHub.Transport have the same nil/error and two slash-separated component parsing after obtaining their input; Codeowners additionally accepts a lazy repo option override.",
+        "The two-component pattern alone accepts empty components and does not trim or validate characters. This is a literal parser property; upstream reachability and impact are not established.",
+        "Init.GitHub strips a trailing .git and takes the final two nonempty slash/colon segments, returning a string or nil. It is remote-locator extraction, not the configuration parser.",
+        "GitHubEnricher trims outer whitespace, splits into two parts and requires nonempty safe segments. Its safe_repo_segment? helper was also read: anchored ASCII letters, digits, underscore, dot and hyphen only.",
+        "Do not consolidate by silently broadening validation or changing tuple/string/error return shapes."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 501,
+          "module": "Aiur.Codeowners",
+          "name": "parse_repo",
+          "path": "src/lib/aiur/codeowners.ex",
+          "kind": "defp",
+          "end_line": 514,
+          "body_sha256": "f0ef85629fa14f2f02c47759814afb53de2c9f490da5cc2915c80949010d6351",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 58,
+          "module": "Aiur.GitHub.Transport",
+          "name": "parse_repo",
+          "path": "src/lib/aiur/github/transport.ex",
+          "kind": "def",
+          "end_line": 69,
+          "body_sha256": "b7560cf637f06c4499584559ccbad8402f83a76f0990778cac15a68322f47851",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 297,
+          "module": "Aiur.Init.GitHub",
+          "name": "parse_repo",
+          "path": "src/lib/aiur/init/github.ex",
+          "kind": "def",
+          "end_line": 306,
+          "body_sha256": "09fe9a34307d105ead8079ef2c921a6f3737a9e2ee2cd8aefddf8dca77fc41b8",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 72,
+          "module": "Aiur.RunTelemetry.GitHubEnricher",
+          "name": "parse_repo",
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "kind": "defp",
+          "end_line": 85,
+          "body_sha256": "3b710500c8316f6816463ca5faebb5ad537439695ad2e34ed0506ba6c8f5e478",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 87,
+          "module": "Aiur.RunTelemetry.GitHubEnricher",
+          "name": "parse_repo",
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "kind": "defp",
+          "end_line": 87,
+          "body_sha256": "452e51eb5fd9ec25db46b3cce66cc38153b41d70559cc5d5a97aa44181981d40",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "partial?",
+      "assessment": "Partialness refers to different populations and cannot be inferred from one universal predicate.",
+      "constraints": [
+        "Outcome SourceState combines membership/merge degradation, membership truncation, incomplete reconciliation and non-fresh membership.",
+        "RequestUsage checks whether input or output dimensions are nil; zero remains a present value.",
+        "Aggregate Projection checks partial update kind, nonempty coverage reasons and partial_cost?. The helper was read: ExactMoney partial or unknown coverage returns true, other cost shapes return false.",
+        "RecentOutcomes requires an explicit partial?: true and otherwise returns false. That fallback is not evidence that an unknown reconciliation is complete; caller/rendering implications remain unverified."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 119,
+          "module": "Aiur.CurrentRunOutcomeSnapshot.SourceState",
+          "name": "partial?",
+          "path": "src/lib/aiur/current_run_outcome_snapshot/source_state.ex",
+          "kind": "defp",
+          "end_line": 123,
+          "body_sha256": "937935f4376b3743721b1db1d555ebd0f83299777238d3fd59637ebf60d57b37",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 122,
+          "module": "Aiur.Usage.Headless.OpenAICompat.RequestUsage",
+          "name": "partial?",
+          "path": "src/lib/aiur/usage/headless/open_ai_compat/request_usage.ex",
+          "kind": "defp",
+          "end_line": 122,
+          "body_sha256": "7ac467ada688dba7795949a8a3eebbfe931a46002b7733c12ccee6d6a41424b8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 109,
+          "module": "Aiur.UsageAggregate.Projection",
+          "name": "partial?",
+          "path": "src/lib/aiur/usage_aggregate/projection.ex",
+          "kind": "defp",
+          "end_line": 112,
+          "body_sha256": "94b54e44497dc81ffe9d3eadd7bb3a764d56f668587092314248ec78086cace1",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 59,
+          "module": "AiurWeb.OperatorControlCenter.RecentOutcomes",
+          "name": "partial?",
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "kind": "defp",
+          "end_line": 59,
+          "body_sha256": "4b3ba2e62c683c8230ca9defce6dd6405e70c72746f1bf736b3c03bf511bd64e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 60,
+          "module": "AiurWeb.OperatorControlCenter.RecentOutcomes",
+          "name": "partial?",
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "kind": "defp",
+          "end_line": 60,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "poll_interval_ms",
+      "assessment": "Polling names combine configuration lookup, observation extraction and webhook policy.",
+      "constraints": [
+        "Opencode.Slot reads an application override with a module default; CapacityBinding extracts effective interval before base interval, checking atom then string keys and returning nil for nonmaps.",
+        "RepoBase converts a nonnegative configured prewarm poll_seconds to milliseconds, using zero when settings cannot be loaded.",
+        "Webhooks.IntervalPolicy widens a positive base only for webhook transport. Its widen_factor and widen helpers were also read: invalid or non-widening factors become 1.0, multiplication is rounded and bounded below by the base.",
+        "Keep observed effective cadence separate from configured input and unavailable settings. No production cadence, quota saving or configuration activation was measured."
+      ],
+      "clauses": 5,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 616,
+          "module": "Aiur.Opencode.Slot",
+          "name": "poll_interval_ms",
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "kind": "defp",
+          "end_line": 616,
+          "body_sha256": "1f8748d759caec4274b2b3e699bd58a192a4a8d997f620c607a212b96a4e3883",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 120,
+          "module": "Aiur.Orchestrator.CapacityBinding",
+          "name": "poll_interval_ms",
+          "path": "src/lib/aiur/orchestrator/capacity_binding.ex",
+          "kind": "defp",
+          "end_line": 123,
+          "body_sha256": "3de7adc82ae7ff2a042dc609b0b5089713a2645275a4a2c72f5e06107f9b127c",
+          "normalized_body_lines": 7,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 125,
+          "module": "Aiur.Orchestrator.CapacityBinding",
+          "name": "poll_interval_ms",
+          "path": "src/lib/aiur/orchestrator/capacity_binding.ex",
+          "kind": "defp",
+          "end_line": 125,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 1491,
+          "module": "Aiur.RepoBase",
+          "name": "poll_interval_ms",
+          "path": "src/lib/aiur/repo_base.ex",
+          "kind": "defp",
+          "end_line": 1496,
+          "body_sha256": "54e5f56f8386afbb3a9a2ef9ede10519e2b6ab074a1e298ddbdab73cf1066afc",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 31,
+          "module": "Aiur.Webhooks.IntervalPolicy",
+          "name": "poll_interval_ms",
+          "path": "src/lib/aiur/webhooks/interval_policy.ex",
+          "kind": "def",
+          "end_line": 36,
+          "body_sha256": "4f00c1be417a270145c3e456363db7fb2eb8c6e17250e0e887e01235d0ab6f68",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5546,
-  "limits": "331 selected families and 5546 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5576,
+  "limits": "337 selected families and 5576 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

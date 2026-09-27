@@ -4,53 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "6977d02c2c20e5326ac6c602a4a11f39197af5974ff34292ef2ba1fb1c12f1e1"
+    "name_triage": "8c50b0f39561fb92c808d00d4c7e4f561d74ef2ed9fe6622239d96fa553d0ad9"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 331,
-    "remaining_cross_module_names": 1349,
-    "remaining_literal_entries": 4722
+    "reviewed_cross_module_names": 337,
+    "remaining_cross_module_names": 1343,
+    "remaining_literal_entries": 4692
   },
   "families": [
-    {
-      "name": "os_pid",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "outcome",
-      "clauses": 4,
-      "modules": 4,
-      "summed_source_span_lines": 47
-    },
-    {
-      "name": "pane_interrupt",
-      "clauses": 7,
-      "modules": 4,
-      "summed_source_span_lines": 32
-    },
-    {
-      "name": "parse_repo",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 51
-    },
-    {
-      "name": "partial?",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "poll_interval_ms",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 18
-    },
     {
       "name": "positive_number",
       "clauses": 10,
