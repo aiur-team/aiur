@@ -7653,10 +7653,905 @@
       "disposition": "shared_usage_interval_and_report_default_subsets",
       "assessment": "AgentEnvironment, ProviderMeterProjection and StreamdeckProjection fallback to 300-second polling. Schema.Polling also has inline usage_interval_seconds default 300, outside the attribute census. NotificationPolicy reset fallback matches a separate inline Schema.Codex reset_min_delay_seconds default 300. Dataset review-resume grace and dashboard task default form another reporting contract. Meter freshness, decision expiry grace, issue-title text, JWT refresh margin, model backoff, fleet stale floor and Streamdeck token age remain distinct.",
       "coverage": "All listed declarations and attribute uses inspected; selected field validators and inline schema defaults checked. Source contract assessment, not production incidence or whole-pipeline verification."
+    },
+    {
+      "numeric_value": 60000,
+      "modules": 26,
+      "site_count": 28,
+      "sites": [
+        {
+          "line": 29,
+          "module": "Aiur.AgentRunner.TurnLoop",
+          "name": "noop_backoff_ceiling_ms",
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 28,
+          "module": "Aiur.AlertLedger",
+          "name": "backfill_lock_timeout",
+          "path": "src/lib/aiur/alert_ledger.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 10,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider.Options",
+          "name": "default_stale_after_ms",
+          "path": "src/lib/aiur/build_order/ticket_history_provider_options.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 20,
+          "module": "Aiur.Claude.Telemetry",
+          "name": "default_rate_window_ms",
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 21,
+          "module": "Aiur.DecisionExpiry",
+          "name": "interval_ms",
+          "path": "src/lib/aiur/decision_expiry.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 68,
+          "module": "Aiur.DecisionStore",
+          "name": "request_timeout",
+          "path": "src/lib/aiur/decision_store.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 77,
+          "module": "Aiur.DecisionStore",
+          "name": "handoff_unknown_after_ms",
+          "path": "src/lib/aiur/decision_store.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 17,
+          "module": "Aiur.ElevenLabs.TTS",
+          "name": "max_duration_ms",
+          "path": "src/lib/aiur/eleven_labs/tts.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 24,
+          "module": "Aiur.Events.GithubCIPoller",
+          "name": "default_target_timeout",
+          "path": "src/lib/aiur/events/github_ci_poller.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 19,
+          "module": "Aiur.Events.GithubCommentsPoller",
+          "name": "default_target_timeout",
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 56,
+          "module": "Aiur.Events.Publisher",
+          "name": "sweep_interval_ms",
+          "path": "src/lib/aiur/events/publisher.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 35,
+          "module": "Aiur.GitHub.AppTokenRefresher",
+          "name": "retry_backoff_ms",
+          "path": "src/lib/aiur/github/app_token_refresher.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 36,
+          "module": "Aiur.GitHub.Connectivity",
+          "name": "max_backoff_ms",
+          "path": "src/lib/aiur/github/connectivity.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 67,
+          "module": "Aiur.GitHub.LocalHold",
+          "name": "max_wait_ms",
+          "path": "src/lib/aiur/github/local_hold.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 59,
+          "module": "Aiur.GitHub.Quota",
+          "name": "refresh_interval_ms",
+          "path": "src/lib/aiur/github/quota.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 103,
+          "module": "Aiur.GitHub.ReadCache",
+          "name": "sweep_interval_ms",
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 46,
+          "module": "Aiur.GitHub.Transport",
+          "name": "default_request_deadline_ms",
+          "path": "src/lib/aiur/github/transport.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 33,
+          "module": "Aiur.Opencode.ActiveTurns",
+          "name": "cleanup_after_ms",
+          "path": "src/lib/aiur/opencode/active_turns.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 43,
+          "module": "Aiur.Opencode.SessionWriter",
+          "name": "turn_sweep_interval_ms",
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 106,
+          "module": "Aiur.Orchestrator.CapacityBinding",
+          "name": "stale_sample_floor_ms",
+          "path": "src/lib/aiur/orchestrator/capacity_binding.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 51,
+          "module": "Aiur.Orchestrator.Dispatcher",
+          "name": "ci_readiness_retry_ms",
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 16,
+          "module": "Aiur.Orchestrator.IssueSync",
+          "name": "capacity_starvation_alert_after_ms",
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 20,
+          "module": "Aiur.Orchestrator.IssueSync",
+          "name": "contradictory_label_alert_after_ms",
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 41,
+          "module": "Aiur.Orchestrator.SnapshotStore",
+          "name": "stale_window_ceiling_floor_ms",
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 11,
+          "module": "Aiur.PaneManager.OpenQueue",
+          "name": "open_queue_timeout_ms",
+          "path": "src/lib/aiur/pane_manager/open_queue.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 7,
+          "module": "Aiur.TicketActivity.Projection",
+          "name": "default_stale_after_ms",
+          "path": "src/lib/aiur/ticket_activity/projection.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 28,
+          "module": "AiurWeb.GithubWebhook.Auth",
+          "name": "secret_missing_alert_window_ms",
+          "path": "src/lib/aiur_web/github_webhook/auth.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        },
+        {
+          "line": 77,
+          "module": "AiurWeb.DashboardLive",
+          "name": "elevenlabs_quota_tick_ms",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "expression": "60000",
+          "numeric_value": 60000,
+          "expression_sha256": "d55d01d0341ed0ba2cd99b322e8c5b609254f47d10c7cd12b99b4922effeba44"
+        }
+      ],
+      "disposition": "independent_minute_policies_with_existing_owners",
+      "assessment": "One minute governs noop backoff, backfill lock wait, ticket-history input default, telemetry rate window, decision expiry sweep, DecisionStore calls and unknown-outcome age, TTS operation deadline, poller task timeout, event/cache sweeps, token retry, connectivity/local holds, quota refresh, HTTP overall deadline, closed-turn linger, turn sweep, freshness floors, readiness retry, alert thresholds, pane queue and UI refresh. CI/comments task timeouts are related but retain different option validation and batching. DecisionStore already owns its shared call timeout; unknown-outcome age is separate. Transport computes max(default deadline, request timeout plus margin). Snapshot/history freshness already delegates to PollCadence. No global minute constant should erase these relationships.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; TicketHistory options read in full. Source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "numeric_value": 300000,
+      "modules": 22,
+      "site_count": 24,
+      "sites": [
+        {
+          "line": 109,
+          "module": "Aiur.BuildOrder.Cadence",
+          "name": "max_detail_freshness_ms",
+          "path": "src/lib/aiur/build_order/cadence.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 9,
+          "module": "Aiur.BuildOrder.GraphProjection.Policy",
+          "name": "maximum_provider_retry_ms",
+          "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 9,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.Options",
+          "name": "max_freshness_ms",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 11,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider.Options",
+          "name": "max_stale_after_ms",
+          "path": "src/lib/aiur/build_order/ticket_history_provider_options.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 28,
+          "module": "Aiur.Claude.UsageApi",
+          "name": "default_ttl_ms",
+          "path": "src/lib/aiur/claude/usage_api.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 30,
+          "module": "Aiur.Claude.UsageApi",
+          "name": "rate_limited_backoff_ms",
+          "path": "src/lib/aiur/claude/usage_api.ex",
+          "expression": "5 * 60000",
+          "numeric_value": 300000,
+          "expression_sha256": "7352031f5dd103857cc56d1adcc30d817fb4d0543c73e1a7d89db5c37a49ff58"
+        },
+        {
+          "line": 45,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "refresh_interval_ms",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 39,
+          "module": "Aiur.Executor.Roster",
+          "name": "default_stall_after_ms",
+          "path": "src/lib/aiur/executor/roster.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 36,
+          "module": "Aiur.GitHub.AppTokenRefresher",
+          "name": "max_retry_backoff_ms",
+          "path": "src/lib/aiur/github/app_token_refresher.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 59,
+          "module": "Aiur.GitHub.CacheInspector",
+          "name": "default_stale_after_ms",
+          "path": "src/lib/aiur/github/cache_inspector.ex",
+          "expression": "5 * 60 * 1000",
+          "numeric_value": 300000,
+          "expression_sha256": "e43d77616884b84d556dfa149e969ee6aa7570f4f93df2d8a45e264e0120d954"
+        },
+        {
+          "line": 265,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "sweep_interval_ms",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "expression": "5 * 60 * 1000",
+          "numeric_value": 300000,
+          "expression_sha256": "e43d77616884b84d556dfa149e969ee6aa7570f4f93df2d8a45e264e0120d954"
+        },
+        {
+          "line": 25,
+          "module": "Aiur.Logs.Retention",
+          "name": "default_interval_ms",
+          "path": "src/lib/aiur/logs/retention.ex",
+          "expression": "5 * 60 * 1000",
+          "numeric_value": 300000,
+          "expression_sha256": "e43d77616884b84d556dfa149e969ee6aa7570f4f93df2d8a45e264e0120d954"
+        },
+        {
+          "line": 7,
+          "module": "Aiur.OpenAICompat.CommandRunner",
+          "name": "timeout_ms",
+          "path": "src/lib/aiur/open_ai_compat/command_runner.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 107,
+          "module": "Aiur.Orchestrator.CapacityBinding",
+          "name": "stale_sample_ceiling_ms",
+          "path": "src/lib/aiur/orchestrator/capacity_binding.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 31,
+          "module": "Aiur.Orchestrator.CommentPolling",
+          "name": "comment_poll_setup_timeout_ms",
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 18,
+          "module": "Aiur.Orchestrator.GithubBudgetPause",
+          "name": "max_elapsed_hold_ms",
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 32,
+          "module": "Aiur.ProgressCheckin.Worker",
+          "name": "default_interval_ms",
+          "path": "src/lib/aiur/progress_checkin/worker.ex",
+          "expression": "5 * 60 * 1000",
+          "numeric_value": 300000,
+          "expression_sha256": "e43d77616884b84d556dfa149e969ee6aa7570f4f93df2d8a45e264e0120d954"
+        },
+        {
+          "line": 30,
+          "module": "Aiur.ProgressTracker",
+          "name": "stale_after_ms",
+          "path": "src/lib/aiur/progress_tracker.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 33,
+          "module": "Aiur.ProviderMeterRefresh",
+          "name": "default_interval_ms",
+          "path": "src/lib/aiur/provider_meter_refresh.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 38,
+          "module": "Aiur.ProviderMeterRefresh",
+          "name": "default_grace_ms",
+          "path": "src/lib/aiur/provider_meter_refresh.ex",
+          "expression": "5 * 60000",
+          "numeric_value": 300000,
+          "expression_sha256": "7352031f5dd103857cc56d1adcc30d817fb4d0543c73e1a7d89db5c37a49ff58"
+        },
+        {
+          "line": 41,
+          "module": "Aiur.RepoBase",
+          "name": "migration_lock_timeout_ms",
+          "path": "src/lib/aiur/repo_base.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.TicketActivity.Projection",
+          "name": "default_retention_ms",
+          "path": "src/lib/aiur/ticket_activity/projection.ex",
+          "expression": "300_000",
+          "numeric_value": 300000,
+          "expression_sha256": "073da9b0123ba0f196ee514d527cd2ccc717e89a02c06fcab139967937d86f7c"
+        },
+        {
+          "line": 32,
+          "module": "Aiur.UsageCompaction.Coordinator",
+          "name": "default_interval_ms",
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "expression": "5 * 60 * 1000",
+          "numeric_value": 300000,
+          "expression_sha256": "e43d77616884b84d556dfa149e969ee6aa7570f4f93df2d8a45e264e0120d954"
+        },
+        {
+          "line": 69,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "sweep_interval_ms",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "expression": "5 * 60 * 1000",
+          "numeric_value": 300000,
+          "expression_sha256": "e43d77616884b84d556dfa149e969ee6aa7570f4f93df2d8a45e264e0120d954"
+        }
+      ],
+      "disposition": "shared_freshness_and_usage_default_subsets",
+      "assessment": "BuildOrder.Cadence detail freshness ceiling and detail coordinator admission ceiling should agree. TicketHistoryProvider's five-minute cap bounds configured input only: effective freshness derives through PollCadence and can exceed it. Claude UsageApi TTL fallback and ProviderMeterRefresh interval fallback belong to the existing usage_interval_seconds default family, converting seconds to milliseconds; their rate-limit backoff and watcher grace are separate. Provider retry, account retry, quota refresh, Executor stall, cache display staleness, sweep/retention, command timeout, capacity ceiling, comment setup, elapsed hold tolerance, progress cadence/ETA staleness, migration lock and compaction cadence remain purpose-specific.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; TicketHistory options read in full. Source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "numeric_value": 50,
+      "modules": 21,
+      "site_count": 22,
+      "sites": [
+        {
+          "line": 982,
+          "module": "Aiur.AgentControlCLI",
+          "name": "max_cleanup_batch",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 41,
+          "module": "Aiur.AgentEventFeed",
+          "name": "max_limit",
+          "path": "src/lib/aiur/agent_event_feed.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 50,
+          "module": "Aiur.BuildOrder.PackStatus",
+          "name": "chunk_size",
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 8,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider.Options",
+          "name": "default_history_limit",
+          "path": "src/lib/aiur/build_order/ticket_history_provider_options.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 6,
+          "module": "Aiur.DecisionApi.LegacyPagination",
+          "name": "default_limit",
+          "path": "src/lib/aiur/decision_api/legacy_pagination.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 15,
+          "module": "Aiur.DecisionHistory",
+          "name": "default_limit",
+          "path": "src/lib/aiur/decision_history.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 92,
+          "module": "Aiur.DecisionStore",
+          "name": "recent_audit_limit",
+          "path": "src/lib/aiur/decision_store.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 93,
+          "module": "Aiur.DecisionStore",
+          "name": "recent_decision_limit",
+          "path": "src/lib/aiur/decision_store.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 20,
+          "module": "Aiur.Events.BranchRefStore",
+          "name": "persist_retry_initial_ms",
+          "path": "src/lib/aiur/events/branch_ref_store.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 68,
+          "module": "Aiur.Events.IdGenerator",
+          "name": "default_batch_size",
+          "path": "src/lib/aiur/events/id_generator.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 56,
+          "module": "Aiur.GitHub.CIPollBatch",
+          "name": "targets_per_query",
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 40,
+          "module": "Aiur.IssueLog",
+          "name": "max_tail_page_events",
+          "path": "src/lib/aiur/issue_log.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 9,
+          "module": "Aiur.Linear.Client",
+          "name": "issue_page_size",
+          "path": "src/lib/aiur/linear/client.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 14,
+          "module": "Aiur.Opencode.Slot.AttachPane",
+          "name": "hidden_split_percent",
+          "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 19,
+          "module": "Aiur.Orchestrator.SnapshotStore",
+          "name": "projection_delay_ms",
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 19,
+          "module": "Aiur.SupervisionHealth",
+          "name": "restart_grace_ms",
+          "path": "src/lib/aiur/supervision_health.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 56,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "default_page_limit",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 35,
+          "module": "Aiur.WorkflowStore",
+          "name": "reload_retry_delay_ms",
+          "path": "src/lib/aiur/workflow_store.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 11,
+          "module": "AiurWeb.ControlCenterPresenter",
+          "name": "decision_history_limit",
+          "path": "src/lib/aiur_web/control_center_presenter.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 47,
+          "module": "AiurWeb.StreamdeckLive",
+          "name": "durable_feed_retry_ms",
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 10,
+          "module": "AiurWeb.OperatorControlCenter.PayloadLoader",
+          "name": "reload_debounce_ms",
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        },
+        {
+          "line": 8,
+          "module": "AiurWeb.Presenter",
+          "name": "recent_merge_limit",
+          "path": "src/lib/aiur_web/presenter.ex",
+          "expression": "50",
+          "numeric_value": 50,
+          "expression_sha256": "1a6562590ef19d1045d06c4055742d38288e9e6dcd71ccde5cee80f1d5a774eb"
+        }
+      ],
+      "disposition": "shared_tail_page_budget_subset",
+      "assessment": "AgentEventFeed admits at most fifty tail events while IssueLog derives its maximum byte window from fifty capped records. Keep the API/reader contract aligned. DecisionHistory default and ControlCenterPresenter explicit history count are related UI policy, but recent audit/decision retention and legacy pagination are separate. PackStatus and CI query batches target different requests; Linear paging and ID reservation use different populations. Cleanup cap, merge display, usage page default, percentage pane split and millisecond retry/debounce/projection timing do not share a limit. TicketHistory options already derive their hard maximum from Normalizer.hard_limit/0.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; TicketHistory options read in full. Source-level contract assessment, not transitive runtime verification."
+    },
+    {
+      "numeric_value": 3,
+      "modules": 20,
+      "site_count": 21,
+      "sites": [
+        {
+          "line": 983,
+          "module": "Aiur.AgentControlCLI",
+          "name": "max_consecutive_rate_limit_failures",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 12,
+          "module": "Aiur.AgentList.Renderer.Layout",
+          "name": "state_cell_width",
+          "path": "src/lib/aiur/agent_list/renderer/layout.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 25,
+          "module": "Aiur.AgentList.Renderer.Layout",
+          "name": "rc_cell_width",
+          "path": "src/lib/aiur/agent_list/renderer/layout.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 25,
+          "module": "Aiur.AgentRunner.QueueDrain",
+          "name": "max_delivery_correlation_attempts",
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 23,
+          "module": "Aiur.Claude.CodingAgent",
+          "name": "turn_start_id",
+          "path": "src/lib/aiur/claude/coding_agent.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 18,
+          "module": "Aiur.Claude.Telemetry",
+          "name": "default_max_inflight",
+          "path": "src/lib/aiur/claude/telemetry.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 9,
+          "module": "Aiur.Codex.Frames",
+          "name": "turn_start_id",
+          "path": "src/lib/aiur/codex/frames.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 7,
+          "module": "Aiur.DecisionStore.RetainedIndex",
+          "name": "search_bucket_width",
+          "path": "src/lib/aiur/decision_store/retained_index.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 70,
+          "module": "Aiur.Events.SubscriptionStore",
+          "name": "max_stall_attempts",
+          "path": "src/lib/aiur/events/subscription_store.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 33,
+          "module": "Aiur.GitHub.Connectivity",
+          "name": "escalation_threshold",
+          "path": "src/lib/aiur/github/connectivity.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 68,
+          "module": "Aiur.GitHub.LocalHold",
+          "name": "max_waits",
+          "path": "src/lib/aiur/github/local_hold.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 7,
+          "module": "Aiur.Opencode.Slot.State",
+          "name": "poll_death_threshold",
+          "path": "src/lib/aiur/opencode/slot/state.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 31,
+          "module": "Aiur.Orchestrator.AutoResume",
+          "name": "max_attempts",
+          "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 22,
+          "module": "Aiur.Orchestrator.CommentPolling",
+          "name": "recent_merge_persistence_retry_limit",
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 12,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "cpu_headroom_ramp_max",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 34,
+          "module": "Aiur.Orchestrator.RetryEngine",
+          "name": "max_retry_poll_failures",
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 25,
+          "module": "Aiur.Orchestrator.StartupClaimReconciler",
+          "name": "max_release_attempts",
+          "path": "src/lib/aiur/orchestrator/startup_claim_reconciler.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 976,
+          "module": "Aiur.Orchestrator.State",
+          "name": "rework_attempt_limit",
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 51,
+          "module": "Aiur.RunTelemetry.Writer",
+          "name": "overflow_logged_index",
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 719,
+          "module": "Aiur.TestReset",
+          "name": "label_reset_attempts",
+          "path": "src/lib/aiur/test_reset.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        },
+        {
+          "line": 34,
+          "module": "Aiur.WorkflowStore",
+          "name": "reload_attempts",
+          "path": "src/lib/aiur/workflow_store.ex",
+          "expression": "3",
+          "numeric_value": 3,
+          "expression_sha256": "4e07408562bedb8b60ce05c1decfe3ad16b72230967de01f640b7e4729b49fce"
+        }
+      ],
+      "disposition": "protocol_identity_and_retry_semantics_separate",
+      "assessment": "Claude CodingAgent and Codex.Frames both use turn/start request ID three within distinct provider sessions; this is protocol correlation, not a retry limit. Other sites count terminal columns, inflight telemetry, search-prefix graphemes, delivery/dead-letter attempts, connectivity escalation, local waits, pane death evidence, auto-resume, persistence retry, CPU ramp increment, retry-poll failure, startup claim release, rework attempts, reset retries and workflow read attempts. Conditions differ: escalation on equality, exhaustion at greater-than or greater-or-equal, plus terminal-membership exceptions. Writer's three is an atomics slot index. Share retry machinery only with explicit per-operation policy, never one blanket three-attempt rule.",
+      "coverage": "All listed declarations and attribute-use contexts inspected; TicketHistory options read in full. Source-level contract assessment, not transitive runtime verification."
     }
   ],
-  "assessed_group_count": 152,
-  "remaining_candidate_groups": 10,
+  "assessed_group_count": 156,
+  "remaining_candidate_groups": 6,
   "sources": [
     {
       "path": "src/lib/aiur/coding_agent.ex",
@@ -9141,6 +10036,126 @@
     {
       "path": "src/lib/aiur_web/voice_session_limiter.ex",
       "sha256": "621e9add66a29b9cc9e9c2d69d714ae2a7d65582cf22ab474e6781f0ecbca130"
+    },
+    {
+      "path": "src/lib/aiur/build_order/ticket_history_provider_options.ex",
+      "sha256": "4d5bd3b0069b4920b9c3691599db5e8960089f2d620ffead0b98e298c83c5092"
+    },
+    {
+      "path": "src/lib/aiur/github/app_token_refresher.ex",
+      "sha256": "02bb8db232002e7bc79351e77ce8cab4f8a36198386525684a06476ce4983438"
+    },
+    {
+      "path": "src/lib/aiur/pane_manager/open_queue.ex",
+      "sha256": "00a7f37f789d96404be6f3d4d9b159e60a5efc4af596102c8a1dfe904e00bf61"
+    },
+    {
+      "path": "src/lib/aiur/ticket_activity/projection.ex",
+      "sha256": "bf2b977a3bf7dc3a2d0c8304efa53c63c9e2ba099a6dbc6278fea8f45e74e4fd"
+    },
+    {
+      "path": "src/lib/aiur_web/github_webhook/auth.ex",
+      "sha256": "b739ea65f8be2c3a673548f68e44180016e6d3bbcd12e29994367ab5a912b99f"
+    },
+    {
+      "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+      "sha256": "e79c593e9c05b008cb33d8abab51585b173e0872a0ba67a9fa71afaf4772c3a9"
+    },
+    {
+      "path": "src/lib/aiur/executor/roster.ex",
+      "sha256": "14f4450c433ae4b70cbaa055c7b8d257131944ef7b58b93f24afc697b45fd1e7"
+    },
+    {
+      "path": "src/lib/aiur/open_ai_compat/command_runner.ex",
+      "sha256": "d2b27fcde3657ecbd7ceffc0c59e4b191ce5b791b00a60cbe6236120dfd816cb"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+      "sha256": "fe73ebc08fd979c601a9400f6f4ec01cae829f68aadb25940748e1abb08ab1d6"
+    },
+    {
+      "path": "src/lib/aiur/progress_checkin/worker.ex",
+      "sha256": "ef9d0dc07f756218143106729e386c75e703f680adf4134386f48eb29b521b69"
+    },
+    {
+      "path": "src/lib/aiur/provider_meter_refresh.ex",
+      "sha256": "96f0d6aa5e0ce62cbcb2de5de016218003d7d5d2fa7fc1df48f281ed939cee34"
+    },
+    {
+      "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+      "sha256": "e4f2b49e59014cd1090e0e06d0d0f39d15793372c54eb960d6508daa6777c204"
+    },
+    {
+      "path": "src/lib/aiur/build_order/pack_status.ex",
+      "sha256": "5107e870d4fe2a454bb06a48edec20ca033597188eca6204c30560c7296f82a2"
+    },
+    {
+      "path": "src/lib/aiur/decision_history.ex",
+      "sha256": "5bb6c2d9fa6b3ed823f5e3926a8b15ea9e3b8cf5a8fbc38dbc1aeaad01283185"
+    },
+    {
+      "path": "src/lib/aiur/events/branch_ref_store.ex",
+      "sha256": "86b636efdb281cd48c73c16989c62882d64db171a3bf69ce026f3e0e62faebce"
+    },
+    {
+      "path": "src/lib/aiur/github/ci_poll_batch.ex",
+      "sha256": "0ff3974461f5585d97cf92c9353a0c20244252632aa949528b62e5f424a8a1f3"
+    },
+    {
+      "path": "src/lib/aiur/linear/client.ex",
+      "sha256": "43bbbb6acca390de0d3459d0d7f6e117def1eaf00dd2b978ae7d5660c46e1e8c"
+    },
+    {
+      "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+      "sha256": "d9d3ba7add64e085ba629be6d1f3f0fb605b35630a7bb6286a07ba16570b129b"
+    },
+    {
+      "path": "src/lib/aiur/workflow_store.ex",
+      "sha256": "f561300c5a258010db32f3c5c747c32a8c2665fe2d0cb88f4f3958ea5018edec"
+    },
+    {
+      "path": "src/lib/aiur_web/control_center_presenter.ex",
+      "sha256": "428207d80355832e0b2d83b440b8fbf7837fb6407b675fe698799ef7d7931200"
+    },
+    {
+      "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+      "sha256": "0c8701909f1f79d7560016cc0fcb49a2c3e568625e452972b674acab19ddeb22"
+    },
+    {
+      "path": "src/lib/aiur_web/presenter.ex",
+      "sha256": "c8be4c9263882424f134423cc58ab43671c25b663d112a737039104aa074d054"
+    },
+    {
+      "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+      "sha256": "0331a16b5100176742e0c8f9d85185b34cfed8f9a478f242ac7c60bbfa5d2e5a"
+    },
+    {
+      "path": "src/lib/aiur/claude/coding_agent.ex",
+      "sha256": "3b851917b1906e9c1e3b5346c99568ea502ee98e8bdadeb025a98d294196809e"
+    },
+    {
+      "path": "src/lib/aiur/decision_store/retained_index.ex",
+      "sha256": "c3e4f94631d46b43eb86d9c5921460876b3455ea68fbd6528dd3b4d85d068b2e"
+    },
+    {
+      "path": "src/lib/aiur/events/subscription_store.ex",
+      "sha256": "8624c77b42920798c7f63fbedea9329714d4754b302ef771bfad3b08ce0cb945"
+    },
+    {
+      "path": "src/lib/aiur/opencode/slot/state.ex",
+      "sha256": "fc2145a522da12e3e4d59a603996e1cd12d0e818cd22e4b78f6ce5caa41bf97c"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+      "sha256": "c60f5a26261bdf11a21a89be322f239f9b6a41a24f05a13543137784c5de9697"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/startup_claim_reconciler.ex",
+      "sha256": "d81f69b2ae4f335a79cb25d159a66f306b42b16409378828e450b869af9801bb"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/state.ex",
+      "sha256": "090b0516ce6a6a87345cb5da1aaef6f695d272d333f61d924ce446eb535f0663"
     }
   ],
   "additional_sites": [

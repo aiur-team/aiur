@@ -839,3 +839,16 @@ protocol request IDs, distinct retry/exhaustion semantics, financial pending-wai
 bounds and chart overflow bars. Counts, time units and schema defaults should not
 be combined solely because they share a number. Source hashes and targeted privacy
 checks passed; no production edits or runtime correctness claims.
+
+## Numeric retries and effective freshness checkpoint
+
+156 of 162 attribute groups assessed; six numeric groups remain (indices 0–5).
+Four further groups cover minute/five-minute policies, fifty-item bounds and
+three-valued protocol/retry/count sites. TicketHistory uses PollCadence: its
+five-minute input cap is not a cap on effective freshness. Tail API admission
+and IssueLog byte budgeting share the fifty-record page contract.
+
+Keep retry exhaustion, one-time escalation and correlation IDs separate. Existing
+DecisionStore timeout ownership, Normalizer history-limit accessors and cadence
+derivation narrow extraction proposals. Hashes and targeted publication checks
+passed; no production changes or runtime incident claims.
