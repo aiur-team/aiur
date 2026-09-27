@@ -144,8 +144,8 @@
     {
       "finding_id": "agent-runtime-23",
       "status": "partial-semantic-reconciliation",
-      "disposition": "corroborated_contract_drift_producer_reachability_pending",
-      "assessment": "Source confirms bare-state normalization overlap, TurnPrompt trim/prefix differences, hardcoded terminal tags and atom/string UI sort inconsistency. TurnLoop and DispatchPolicy take different active-state collection forms. Custom-prefix tag and string work_state producer reachability remains unverified; do not promote source differences into production incident claims. Keep tracker lifecycle and live UI work states distinct.",
+      "disposition": "producer_prefix_assumption_confirmed_incidence_pending",
+      "assessment": "Exact-helper probe and source tracing establish that State.issue_tag chooses the first literal agent: label, including markers; custom-prefix-only inputs lose tag through AgentEvents nil filtering. Fixing only Summaries terminal tags is insufficient. Canonical issue state should be distinct from label presentation. String work-state predicate/sort drift is reproduced but no runtime string producer is established; terminal candidate retention and production incidence remain unverified. Bare-state normalization, TurnPrompt trim differences and separate active-state collection contracts remain as previously assessed.",
       "evidence": "label-state-contracts.json"
     }
   ],

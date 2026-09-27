@@ -596,3 +596,20 @@ normalizers alone do not prove an ingestion bug. CILifecycle nil-state comments
 are stale relative to the current contradiction resolver. Remaining concept and
 constant sweeps, final reconciliation and all other completion gates stay open.
 No production changes or runtime verification were performed.
+
+## Summary producer trace and helper probe
+
+Traced StatusReport -> State.issue_tag -> AgentEvents -> AgentPubSub ->
+AgentList.App -> Roster -> Summaries. State.issue_tag selects the first literal
+agent: label, including markers; custom-prefix-only input yields nil, which
+AgentEvents removes. Fixing only the UI filter cannot repair that projection.
+Prefer canonical issue state separate from display labels and override markers.
+
+The isolated tooling/label_state_probe.py compiles exact frozen pure helper
+slices and Summaries without Mix or a daemon. Two runs produced identical
+review/in-progress/label-state-probe.json: default done hidden, custom done
+visible with absent tag, watch-before-done visible, reversed order hidden; string
+paused predicates true but sorts after atom paused despite lower identifier.
+These synthetic inputs demonstrate helper behavior, not production incidence
+or manual TUI verification. Candidate retention and a string-producing runtime
+path remain open; idle producer states are atoms and running status is forwarded.
