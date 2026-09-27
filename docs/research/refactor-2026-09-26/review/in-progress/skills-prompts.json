@@ -2334,6 +2334,85 @@
       "recommendation": "Apply a stable anchored rubric to each session independently; preserve legitimate homogeneous results and disclose sampling method/size without forcing score spread.",
       "refactor_hint": "Use explicit scope and evidence contracts shared by generation, arbitration and reporting.",
       "limits": "Frozen instruction-level defect only; no generated verdict, score report, scope expansion or blocked run observed. Cross-unit semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-26",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Brainstorm supports pipeline routing while synthesis rejects noninteractive use",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-brainstorm/SKILL.md",
+          "lines": "62-88"
+        },
+        {
+          "path": ".claude/skills/ce-brainstorm/references/blindspot-pass.md",
+          "lines": "22"
+        },
+        {
+          "path": ".claude/skills/ce-brainstorm/references/synthesis-summary.md",
+          "lines": "11"
+        }
+      ],
+      "description": "Entry point defines hard pipeline format overrides including resumed artifacts, and blindspot handling defines headless degradation. Required synthesis says there is no noninteractive mode and automated callers should not invoke the skill. A caller lacks one consistent mode contract.",
+      "evidence": "Re-read pipeline overrides, headless degradation and synthesis all-tier rule. No inference that LFG currently invokes brainstorm or that an actual automated run stalled.",
+      "recommendation": "Choose an explicit interactive-only contract with an early caller guard, or define a complete headless route that records assumptions consistently.",
+      "refactor_hint": "Define caller mode and artifact ownership once, then derive specialized prompts and validation from that contract.",
+      "limits": "Frozen-source instruction contradiction only; no child workflow, generated plan, artifact loss or blocked run observed. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-27",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Session historian cannot satisfy the caller artifact contract",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-compound/SKILL.md",
+          "lines": "276-284"
+        },
+        {
+          "path": ".claude/skills/ce-compound/references/agents/session-historian.md",
+          "lines": "37"
+        }
+      ],
+      "description": "Parent dispatch includes the historian prompt verbatim and requires confirmed writing of session-history.md with path-only return. Historian guardrails prohibit all file writes and require text-only output. The optional output_schema changes response structure, not the write prohibition.",
+      "evidence": "Full historian reread and parent dispatch ranges establish conflicting file ownership. Parent inline fallback limits the consequence but does not reconcile the normal required artifact path.",
+      "recommendation": "Assign persistence to the parent for text-only workers, or narrowly authorize the historian to write the designated scratch artifact and align its output schema.",
+      "refactor_hint": "Define caller mode and artifact ownership once, then derive specialized prompts and validation from that contract.",
+      "limits": "Frozen-source instruction contradiction only; no child workflow, generated plan, artifact loss or blocked run observed. Semantic dedup pending."
+    },
+    {
+      "id": "skills-prompts-cont-28",
+      "severity": "P3",
+      "category": "documentation",
+      "title": "Plan diagram framing conflicts with plan validation guidance",
+      "locations": [
+        {
+          "path": ".claude/skills/ce-plan/SKILL.md",
+          "lines": "506"
+        },
+        {
+          "path": ".claude/skills/ce-plan/SKILL.md",
+          "lines": "535"
+        },
+        {
+          "path": ".claude/skills/ce-plan/SKILL.md",
+          "lines": "649-650"
+        },
+        {
+          "path": ".claude/skills/ce-plan/references/html-rendering.md",
+          "lines": "459-468"
+        },
+        {
+          "path": ".claude/skills/ce-plan/references/deepening-workflow.md",
+          "lines": "52-56"
+        }
+      ],
+      "description": "Diagram rules forbid directional/non-prescriptive captions, including unit-card technical-design subsections. Unit design instructions explicitly require directional framing, and final/deepening checks require non-prescriptive framing for High-Level Technical Design. The same diagram-based section can be required to include and omit that framing.",
+      "evidence": "Targeted rereads distinguish wireframes (explicit exception) from architecture diagrams. The contradiction remains for unit diagram fields and HTD validation; diagram presence/count concerns remain secondary, not an additional finding.",
+      "recommendation": "Distinguish settled architecture constraints from illustrative pseudo-code/wireframes, and make authoring and review checks apply the same framing rule to each kind.",
+      "refactor_hint": "Define caller mode and artifact ownership once, then derive specialized prompts and validation from that contract.",
+      "limits": "Frozen-source instruction contradiction only; no child workflow, generated plan, artifact loss or blocked run observed. Semantic dedup pending."
     }
   ],
   "preserve": [
@@ -2759,7 +2838,7 @@
       "question": "LFG completion contracts: new-file-change gate versus idempotent already-complete implementation; advertised CI-green objective versus DONE with CI residuals; local-only git add -A versus selective staging; stale tracker-reference attribution and prior dirty-file ownership. Separate explicit policy exceptions from contradictions before findings."
     }
   ],
-  "next": "All250 files covered. Five candidates reconciled this checkpoint (24/32/34/37 promoted to22-25;42 not promoted on historical evidence limits). Findings25 total (16P2/9P3); continue remaining candidate reconciliation, cross-unit dedup and raw-unit closure.",
+  "next": "All250 files covered. Reconciled candidates09/16/29 into findings26-28 and15 not promoted as unauthorized mutation. Findings28 total (16P2/12P3). Continue remaining candidates and semantic dedup before closing raw unit.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
@@ -2848,6 +2927,30 @@
       "status": "not_promoted",
       "reason": "Current session proves shared filesystem and explicit-request goal authority, but does not establish the historical frozen harness had the same capabilities. Governing host instructions override the skill and its engine reference already requires capability probing. Preserve runtime capability discovery as a rewrite requirement; do not label historical worker isolation false solely from current tooling. Concrete worker commit/transfer contradiction is separately finding19.",
       "validation": "Compared frozen ce-work/execution-engines with explicit active tool contracts. No worker or goal created."
+    },
+    {
+      "id": "skills-prompts-candidate-09",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-26",
+      "reason": "Re-read pipeline overrides, headless degradation and synthesis all-tier rule. No inference that LFG currently invokes brainstorm or that an actual automated run stalled."
+    },
+    {
+      "id": "skills-prompts-candidate-16",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-27",
+      "reason": "Full historian reread and parent dispatch ranges establish conflicting file ownership. Parent inline fallback limits the consequence but does not reconcile the normal required artifact path."
+    },
+    {
+      "id": "skills-prompts-candidate-29",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-28",
+      "reason": "Targeted rereads distinguish wireframes (explicit exception) from architecture diagrams. The contradiction remains for unit diagram fields and HTD validation; diagram presence/count concerns remain secondary, not an additional finding."
+    },
+    {
+      "id": "skills-prompts-candidate-15",
+      "status": "not_promoted",
+      "reason": "Selective refresh is explicitly prohibited in headless compound. Interactive invocation delegates to refresh's Phase3 confirmation before Phase4 chosen actions; invoking it is not itself proof of unauthorized cross-doc edits. The only-prompt/end-summary wording is stale relative to selective interactive routing, but no additional independent mutation defect is established.",
+      "validation": "Re-read compound Phase2.5/end-summary and refresh Phase3 confirmation plus Phase4 dependency. No refresh executed."
     }
   ],
   "coverage_validation": {

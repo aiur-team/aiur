@@ -1463,3 +1463,7 @@ Candidate45 partly promoted: release procedure omits npm manifest synchronizatio
 ### Skills/prompts: scope and evidence candidate reconciliation
 
 Reconciled five candidates after targeted governing-source rereads: ideation scope override, bounded-search absence claim, feedback blocking contradiction and distribution-driven quality calibration promoted as four P3 instruction findings. Current-harness capability mismatch not promoted as historical defect; retained as capability-discovery requirement, with worker commit inconsistency already finding19. No population-quality or actual stalled-run claim. Findings25 (16P2/9P3); raw unit remains open. No tools invoked for ideation, publishing, reviews, scoring or worker execution.
+
+### Skills/prompts: planning and artifact ownership reconciliation
+
+Reconciled four candidates using caller/child contracts: brainstorm pipeline-mode inconsistency, historian write prohibition versus artifact requirement, and diagram framing versus validation promoted as P3. Selective-refresh candidate not promoted as unauthorized mutation: headless invocation forbidden and interactive action-confirmation stage applies. Preserved limits: no actual automated stall, lost artifact or generated-plan failure claimed. Findings28 (16P2/12P3); raw unit remains open. No child workflow or production changes.
