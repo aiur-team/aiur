@@ -96755,10 +96755,514 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "base_branch",
+      "assessment": "Repository facade already delegates branch resolution to Config.",
+      "constraints": [
+        "Config handles settings result tuples, keyword overrides and atom/string-keyed maps; missing/invalid/error inputs raise with context.",
+        "Read require_base_branch: nonempty binaries are trimmed, whitespace-only and invalid values raise. RepoBase delegates to Config.base_branch().",
+        "Preserve explicit failure instead of introducing an implicit default branch; full branch-name validity is not established by nonblank validation."
+      ],
+      "clauses": 11,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 217,
+          "module": "Aiur.Config",
+          "name": "base_branch",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 217,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 219,
+          "module": "Aiur.Config",
+          "name": "base_branch",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 219,
+          "body_sha256": "ea778fc61486b9414c26dfae756d89503c1d2ad2efb7dda1d1cbbc74dda14c2f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 221,
+          "module": "Aiur.Config",
+          "name": "base_branch",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 223,
+          "body_sha256": "cc3ce016e41d787281e0107988474fc3806fdf0286bacb4d86069ed4a83a0fbb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 225,
+          "module": "Aiur.Config",
+          "name": "base_branch",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 230,
+          "body_sha256": "3f83bcd27f6ed856528b51a399c0d88ce77e759a46912eaec353897dda84b5e2",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 232,
+          "module": "Aiur.Config",
+          "name": "base_branch",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 232,
+          "body_sha256": "ea778fc61486b9414c26dfae756d89503c1d2ad2efb7dda1d1cbbc74dda14c2f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 233,
+          "module": "Aiur.Config",
+          "name": "base_branch",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 233,
+          "body_sha256": "ea778fc61486b9414c26dfae756d89503c1d2ad2efb7dda1d1cbbc74dda14c2f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 234,
+          "module": "Aiur.Config",
+          "name": "base_branch",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 234,
+          "body_sha256": "b46aca48c7dc975fa0207b0b50721810a1dd0f53c9454040d0493346a162c4eb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 235,
+          "module": "Aiur.Config",
+          "name": "base_branch",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 235,
+          "body_sha256": "b46aca48c7dc975fa0207b0b50721810a1dd0f53c9454040d0493346a162c4eb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 236,
+          "module": "Aiur.Config",
+          "name": "base_branch",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 236,
+          "body_sha256": "ec6f24388a77aa4da4b8f350a1e052676bf16720bc5dc9276c0aef7532906122",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 237,
+          "module": "Aiur.Config",
+          "name": "base_branch",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 237,
+          "body_sha256": "b6ea80b1a8dfc491398f3945603e26732b0a12106b020af42d70b86594ac80a1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 226,
+          "module": "Aiur.RepoBase",
+          "name": "base_branch",
+          "path": "src/lib/aiur/repo_base.ex",
+          "kind": "def",
+          "end_line": 226,
+          "body_sha256": "94f6bcb9292a7c32e01754a51c11ed4865947e151a20f92cb0f8f741fdc66e98",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "base_env",
+      "assessment": "Repository cache environment extends the agent trust-path primitive.",
+      "constraints": [
+        "AgentEnvironment returns MISE_TRUSTED_CONFIG_PATHS for binary paths and an empty list otherwise.",
+        "RepoBase appends HEX_HOME, MIX_HOME and npm_config_cache derived from repository-node executor cache paths.",
+        "Keep trust-path setup versus cache isolation ownership; this read does not certify environment scrubbing or cache directory isolation."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 517,
+          "module": "Aiur.AgentEnvironment",
+          "name": "base_env",
+          "path": "src/lib/aiur/agent_environment.ex",
+          "kind": "def",
+          "end_line": 519,
+          "body_sha256": "278b35106f3784868c332e1a6bb447a3d4c0bbb6b4fdbfa1465d1c48e342a1c6",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 521,
+          "module": "Aiur.AgentEnvironment",
+          "name": "base_env",
+          "path": "src/lib/aiur/agent_environment.ex",
+          "kind": "def",
+          "end_line": 521,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1455,
+          "module": "Aiur.RepoBase",
+          "name": "base_env",
+          "path": "src/lib/aiur/repo_base.ex",
+          "kind": "defp",
+          "end_line": 1465,
+          "body_sha256": "a56d7a021c45cf661fc11c6c90c97d2d6e96a80f9a179da39bb7c6f1f6f82408",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "base_state",
+      "assessment": "Store initialization shares superficial fields but different persistence and recovery schemas.",
+      "constraints": [
+        "RecentMergeStore explicitly selects persistence callbacks/limits and initializes current/history plus unknown reconciliation state.",
+        "DeliveryLog removes sync_fun from settings then overlays entries/count/writable health and overflow state.",
+        "Preserve store-specific callback retention and reconciliation/overflow fields. Initial writable values do not certify a successful replay or usable storage."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 122,
+          "module": "Aiur.RecentMergeStore",
+          "name": "base_state",
+          "path": "src/lib/aiur/recent_merge_store.ex",
+          "kind": "defp",
+          "end_line": 137,
+          "body_sha256": "3a6f02ba140281419e12675c6a04a60d41ed4fa70228c75d438d63ac29146aca",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 238,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "base_state",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 249,
+          "body_sha256": "3a141a0f03dbe2debe97098bd68bc678de0137667104297c4b60701a697978e5",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "best_effort_queue_bookkeeping",
+      "assessment": "AgentRunner already delegates the best-effort queue policy.",
+      "constraints": [
+        "TurnLoop returns ok for success; for tagged errors it logs operation/issue/reason and returns ok.",
+        "AgentRunner forwards all three arguments to that helper.",
+        "Retain this explicit error-suppression boundary; returning ok does not establish durable queue bookkeeping or successful delivery."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 544,
+          "module": "Aiur.AgentRunner",
+          "name": "best_effort_queue_bookkeeping",
+          "path": "src/lib/aiur/agent_runner.ex",
+          "kind": "def",
+          "end_line": 544,
+          "body_sha256": "7e8d95265d5e81889e1f6049cf75a18f369d8cd4202a202372e055350ca5b859",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 252,
+          "module": "Aiur.AgentRunner.TurnLoop",
+          "name": "best_effort_queue_bookkeeping",
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "kind": "def",
+          "end_line": 252,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 255,
+          "module": "Aiur.AgentRunner.TurnLoop",
+          "name": "best_effort_queue_bookkeeping",
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "kind": "def",
+          "end_line": 259,
+          "body_sha256": "0d826abe4be4ca3587b611b238c008c595cdf0ee74b2665ab43e68b20cded351",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "blocker_identifier",
+      "assessment": "Blocker identity precedence differs across routing and presentation.",
+      "constraints": [
+        "PushRouting reads atom identifier then string identifier through truthy fallback.",
+        "StreamDeckGrid prefers any nonnil atom id, then atom identifier, accepts binary/integer scalar identifiers and otherwise returns nil.",
+        "Do not substitute one extractor for the other without choosing the identity schema; internal ID precedence and string-key compatibility differ."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 331,
+          "module": "Aiur.Orchestrator.PushRouting",
+          "name": "blocker_identifier",
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "kind": "defp",
+          "end_line": 332,
+          "body_sha256": "36d6a097e8e4b4903224d8535be87eb2486907480b696afeef93a51cb5d44a3a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 249,
+          "module": "AiurWeb.StreamDeckGrid",
+          "name": "blocker_identifier",
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "kind": "defp",
+          "end_line": 249,
+          "body_sha256": "e5d2fc7fca97afdadc841b5fab399e97cb26cbe5306f7099687f5867a4aac977",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 250,
+          "module": "AiurWeb.StreamDeckGrid",
+          "name": "blocker_identifier",
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "kind": "defp",
+          "end_line": 250,
+          "body_sha256": "dd5d12fb52f7d9f44f6c6643e811eb70a12629f3b4c7f06203e8bd93a70325c4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 251,
+          "module": "AiurWeb.StreamDeckGrid",
+          "name": "blocker_identifier",
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "kind": "defp",
+          "end_line": 251,
+          "body_sha256": "dd5d12fb52f7d9f44f6c6643e811eb70a12629f3b4c7f06203e8bd93a70325c4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 252,
+          "module": "AiurWeb.StreamDeckGrid",
+          "name": "blocker_identifier",
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "kind": "defp",
+          "end_line": 252,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "blocker_terminal?",
+      "assessment": "Two orchestrator predicates are identical and use the same policy owner.",
+      "constraints": [
+        "IssueSync and PushRouting accept a binary state field and call terminal_issue_state? with terminal_state_set; other inputs return false.",
+        "Verified both DispatchPolicy aliases resolve to Aiur.Orchestrator.DispatchPolicy.",
+        "A shared predicate can remove this duplication while preserving configured terminal-state policy; caller populations and freshness are not certified."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1330,
+          "module": "Aiur.Orchestrator.IssueSync",
+          "name": "blocker_terminal?",
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "kind": "defp",
+          "end_line": 1332,
+          "body_sha256": "978686a48d1d22a386b66bca54664bdd66e87f3e2d2e470319fb89e2c0b1137c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1334,
+          "module": "Aiur.Orchestrator.IssueSync",
+          "name": "blocker_terminal?",
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "kind": "defp",
+          "end_line": 1334,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 931,
+          "module": "Aiur.Orchestrator.PushRouting",
+          "name": "blocker_terminal?",
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "kind": "defp",
+          "end_line": 933,
+          "body_sha256": "978686a48d1d22a386b66bca54664bdd66e87f3e2d2e470319fb89e2c0b1137c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 935,
+          "module": "Aiur.Orchestrator.PushRouting",
+          "name": "blocker_terminal?",
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "kind": "defp",
+          "end_line": 935,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "blocking_reason",
+      "assessment": "Control restrictions and row waiting reasons are different cause domains.",
+      "constraints": [
+        "UnitsControlPolicy checks terminal, replacement, remote control, retrying and merging in that precedence order, otherwise nil.",
+        "UnitsRow.Fields uses explicit blocking_reason or a waiting value in its human/supervisor/dependency/CI/review allowlist, which was read.",
+        "Preserve cause vocabulary and precedence; a display waiting reason is not equivalent to command eligibility."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 81,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "blocking_reason",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "defp",
+          "end_line": 90,
+          "body_sha256": "98114b2cd74c1ad3e8d096d372fd6525846824d91097ba977404230515b9b6d4",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 181,
+          "module": "AiurWeb.OperatorControlCenter.UnitsRow.Fields",
+          "name": "blocking_reason",
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "kind": "defp",
+          "end_line": 183,
+          "body_sha256": "e06c1d89e39a13f4de9885bd7be378aa4260e073406649b5ba196829c5161501",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "body",
+      "assessment": "Offline dashboard markup and single-line log text share only a generic name.",
+      "constraints": [
+        "RunTelemetry.Dashboard returns the full HTML body skeleton for provenance, wakeup findings, actor/fleet/lifecycle views, profiles and notes; all literal markup was read.",
+        "StreamdeckLogs reads body with an empty default, converts to string, replaces Unicode line breaks with spaces and trims.",
+        "No shared domain primitive is indicated. Markup promises about missing-data gaps, accessibility and offline behavior require JavaScript/rendered verification; they are not proved by this template read."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 149,
+          "module": "Aiur.RunTelemetry.Dashboard",
+          "name": "body",
+          "path": "src/lib/aiur/run_telemetry/dashboard.ex",
+          "kind": "defp",
+          "end_line": 272,
+          "body_sha256": "b8791f83094c462c46ea66e4c2bca1a1f054b18a3da57597306922b4956f1515",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 564,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "body",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "defp",
+          "end_line": 564,
+          "body_sha256": "7b0eeeac1b77d27d6f9f31cbc0e30ffc0134d26aa18ecb5c636bef88a4d0e270",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7178,
-  "limits": "677 selected families and 7178 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7210,
+  "limits": "685 selected families and 7210 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
