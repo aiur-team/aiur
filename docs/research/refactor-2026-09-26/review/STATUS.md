@@ -1034,3 +1034,11 @@ Read invalidate, normalize_event, normalize_key, only_keys, parse_integer, pause
 ### Name duplication: recovery and scan policy
 
 Read replay, restore, scan and scope: 42 literal entries across four families. Existing DecisionLog sharing leaves domain corruption, torn-tail repair, checkpoint readiness and replay selection policy explicit. Monitor scanning also preserves retry eligibility after failed writes. Name triage now 160 families/4097 entries, leaving 1520 cross-module names. Raw findings and skeptic counts are unchanged; no runtime defect or saving is claimed.
+
+### Name duplication: storage, sanitization and configuration contracts
+
+Read store, ticket, title, tools, validate! and version: 61 literal entries across six families. Preserve ticket URL policy differences, configuration readiness thresholds and independent revision contracts. Transitive ResourceStore checks contradict ResourceFetch's same-clock comment and distinguish fetch success from a confirmed stored body; runtime impact is not established. Name triage now 166 families/4158 entries, leaving 1514 cross-module names. Raw findings and skeptic counts are unchanged; no measured saving is claimed.
+
+### Name duplication: activation and provider authority
+
+Read activate, auth_mode, authorize, connect, count and create_comment: 51 literal entries across six families. Preserve generation checks, provider auth vocabularies, socket authorization and comment provenance/write-through effects. ProgressRenderer and RootSummary share an equivalent nonnegative-count validator with nil fallback; zero-defaulting helpers have a different contract. Name triage now 172 families/4209 entries, leaving 1508 cross-module names. Raw findings and skeptic counts are unchanged; no runtime completion or saving is claimed.
