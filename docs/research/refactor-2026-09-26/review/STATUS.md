@@ -1198,3 +1198,7 @@ Read alive?, append_diagnostics, append_line, apply_corruption, attention_key, a
 ### Name duplication: bounds and checkpoint contracts
 
 Read base_url, bin_dir, boolean, bound, build_request, cache_write_duration, changed? and checkpoint: 36 literal entries across eight families. Preserve endpoint provenance, typed versus textual booleans, byte/text/population bounds, cache-duration uncertainty and checkpoint operation roles. Name triage now 401 families/5932 entries, leaving 1279 cross-module names. Raw findings and skeptic counts are unchanged; no atom-exhaustion finding, production bound violation, pricing impact or crash-safety guarantee is claimed.
+
+### Name duplication: queue claims and recovery guidance
+
+Read claim_blocker_critical_events_digest, claim_next_checkpoint_queue_item, claim_next_queue_item, classify_stream_failure, clear_visible, clock, command_error and comment_author: 71 literal entries across eight families. Identify shared queue delegation/error adaptation and common web error messages; preserve selection policy, projection fencing, recovery guidance and author precedence. Name triage now 409 families/6003 entries, leaving 1271 cross-module names. Raw findings and skeptic counts are unchanged; no durable queue claim, timer cleanup, classification accuracy or caller refresh guarantee is claimed.
