@@ -74,10 +74,11 @@ September**. The rate is rising, not falling. The files they touch most are
 
 ## 2. Recurrence analysis
 
-**Verdict: every problem area recurred except a few with a structural fix, listed at the end.** A
-fix that recurs almost always added a clause for one case: one entry shape, one call site, one pause
-reason, one endpoint or one cap. The next incident arrives through a sibling case. The chains below
-are in order of operational cost.
+**Interpretation correction:** this is a selected case history, not a controlled
+comparison of fix strategies. Recurring clauses and caps motivate checking the
+underlying invariant and workload, but the examples do not establish that only
+structural changes hold or that removing a limit is generally better. See the
+[interpretation verdict](../synthesis/verdicts/claims-interpretation-tail.json).
 
 ### 2.1 Lifecycle fence latches on an entry with no live agent — RECURRED (5 fixes, still open)
 
@@ -286,8 +287,10 @@ projected separately by `status_report.ex`, `waiting_reason.ex`, the `agents` CL
 
 ### 2.17 Workspace and processes — mixed
 
-- **Git metadata writes: HELD after 4 attempts.** #542 → #565 (#561 "still lack") → #626 (#616
-  "Regression") → #762 (07-07, #754 "still block"). No recurrence after 07-07.
+- **Git metadata writes: capability guard on the fifth attempt.** The earlier
+  reports are #493, #526, #561 and #616; #762 (07-07, for #754) validates writes
+  before the turn. The mid-turn failure was not found again in the checked
+  window; #1317 (07-24) records the probe failing closed at provisioning.
 - **Process reaping: RECURRED.** #426 / #458 / #501 (06-23/24) → #2080 (08-17, orphan shells halt
   dispatch) → #2179 (08-22, `aiurdev stop` orphans agents again) → #2391 (08-23, pause killed the
   operator's keyring) → **#2406 open** (PID reuse).
@@ -333,19 +336,21 @@ projected separately by `status_report.ex`, `waiting_reason.ex`, the `agents` CL
 - **WorkflowStore reload:** #994 → #1219 → #1816 → #1918 → #2509 (09-03). This recurred mostly as
   test-isolation flakes (2.19).
 
-### What held, and why
+### Fixes without a later matching report in the checked window
 
-| Fix | Why it held |
+| Fix | Observed change; causal limits apply |
 |---|---|
-| #1714 base-branch consolidation + #1972 retire `develop` | Removed nine duplicate authorities and the second branch. The merge-gate drift chain (#1466, #1544, #1658, #1672, #1925, #1954) also went quiet once `develop` was gone. |
-| #762 workspace git-write validation (4th attempt) | It validates the capability rather than configuring one path |
+| #1714 base-branch consolidation + #1972 retire `develop` | Consolidated nine fallback sites and retired the second branch. The merge-gate drift chain (#1466, #1544, #1658, #1672, #1925, #1954) also went quiet once `develop` was gone. |
+| #762 workspace git-write validation (fifth attempt) | Validates the capability before the turn; a later probe failure (#1317) was caught at provisioning |
 | #966 / #964 FD and memory admission gates | Nothing later in the history recurred |
-| #2379 retire the install tripwire (after #2371 raised it from 64 to 96 KiB) | The limit was removed, not raised |
+| #2379 correct the install-tripwire premise | Retains the 98,304-byte growth budget and tests stdin transport; it did not remove the limit |
 | #714 / #1241 Codex transport EPIPE and queued-turn recovery | No recurrence after 07-18 |
 | #2808 `aiur_set_ticket_state` (too new to judge) | The first fix that removes a writer instead of healing its output |
 
-**Pattern:** the fixes that held **removed a duplicate authority, a second writer or a limit**. The
-fixes that recurred **added a clause**.
+**Supported direction:** consolidate competing authorities where the evidence
+identifies them, validate required capabilities, and test the actual transport
+or state invariant. This selected set has no comparative denominator or equal
+observation windows, so it does not prove a universal held-versus-recurred rule.
 
 ---
 
@@ -403,7 +408,8 @@ on.
    without the change pins **one path**, and the recurrences arrive on a **second path**.
 2. **A special case added to a growing list or `cond`.**
    - `@non_reserving_pause_reasons` grew to 4 entries in 4 incidents (2.3).
-   - `LifecycleFence` gained a clause per entry shape: #1414, #2793, #2801, #2815 (2.1).
+   - `LifecycleFence` gained entry-shape clauses in #1414, #2793 and #2801;
+     #2815 changed `CommentWake`, not `LifecycleFence` (2.1).
    - `DeliveryPolicy.deliver_now?/3` gained an exception for `:agent_pause_request` (#2804).
    - `@state_precedence` plus a `ci-wait` special case (#2438), then a "prefer the fresh handoff"
      rule that deliberately leaves the precedence list untouched (#2808).
@@ -417,13 +423,15 @@ on.
    - OpenAI-compatible tool rounds 32 → 256 (#1537).
    - Stall timeout 5 → 60 min (#787).
    - Codex startup reply 5 s → a 30 s floor (#703).
-   - Install tripwire 64 → 96 KiB (#2371), then retired (#2379).
+   - Install growth budget 64 → 96 KiB (#2371); false argv-ceiling premise corrected (#2379), budget retained.
    - Test waits widened: #750, #1206, #1983, #2757.
    - ReadCache TTLs raised (#2321).
 
-   Only the tripwire was later removed. The timeline cap is the case that demonstrably recurred.
-4. **Fixes reverted or undone.** Formal reverts are rare: three commits in the whole history, none
-   operational. The changes that were undone in effect are:
+   The install budget was retained. The timeline cap demonstrably recurred;
+   that does not justify removing every resource bound.
+4. **Fixes reverted or undone.** Three commits have subjects starting with `Revert`, none undoing an
+   operational fix; a body-matching grep finds eight, and #2176 is another UI
+   revert PR. This subject count does not measure substantive rollback frequency. The changes that were undone in effect are:
    - #2710's unconditional re-read was reversed the same day by #2720.
    - #1772 "widen polling on silence" was reversed by #2211 "degrade on evidence, not silence".
    - Prewarm was disabled (#2242) after five prewarm-hold fixes.

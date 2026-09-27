@@ -34,10 +34,11 @@ with the key replaced by `<REDACTED>`.
   384 tickets**, from 2026-08-11 through today (2026-09-26). 408 of those sessions then
   spent tool calls searching for it. Separately, at least 1,052 guard invocations pipe it
   through `tail` or `head`, which hides its exit status.
-- **Restarts and interrupts churn context.** There were about 256 Aiur restart waves.
-  They produced 2,621 Codex "session resumed after an aiur restart" turns across 576
-  threads (one thread resumed 41 times). 1,145 Codex turns were aborted mid-flight; together
-  they had been running for 513 hours.
+- **Restart and interruption frequency is substantial; wasted work is unmeasured.**
+  The deduplicated reproduction found about 257 gap-chained resume waves,
+  2,622 resume turns across 577 main threads, and 1,149 interrupted turns with
+  122.4 h of recorded duration. The earlier 513 h also included post-abort idle
+  time. Recorded turn duration is not a measurement of discarded work.
 - **Most modes that need the Executor are waits the agent cannot resolve itself:** an
   unanswered decision, a stale `CHANGES_REQUESTED`, a paused worker (duration cap,
   `before_run` hook failure, usage limit), a workspace collision, or state divergence.
@@ -139,7 +140,7 @@ Executor must act.
 |---|---|---|---|---|---|
 | 1 | **No-op continuation loop:** the agent is waiting, but the daemon keeps issuing continuation turns | 12,768 turns (56.5% of all); 1,364 streaks ≥3 turns, 712 ≥10, 31 ≥20; 207 sessions / 157 tickets | 186 h of turn time; about 2.5 B Codex tokens; khala#230: $33.71 in 41 min, then an account-wide session limit | all public; heaviest aiur (Codex), khala (Claude) | Indirect. The agent is waiting *for* the Executor (review, decision) or CI. The burned quota then causes mode 2, which does force action |
 | 2 | **Provider usage/session limits and dispatch retry storms** | Claude: 189 dead-on-arrival sessions, 220 sessions ending on a limit, 50 tickets. Codex: 380 turns ended by `usage limit` (155 threads, 101 tickets; 260 turns on 08-10). Daemon: 186 `claude exited with code 1` turn failures (429 session limit), 42 workspaces. Codex `401 Incorrect API key`: 70 turns, 19 khala threads on 09-25 | Fleet-wide stop until reset; relaunch churn (architecture-docs#41: 27 launches in 92 min) | all | **Yes.** 55 `paused-usage_limit_exhausted` attentions (17 workspaces); resume or reroute the model |
-| 3 | **Restart / interrupt / process-death churn** | about 256 restart waves; 2,621 Codex resume turns in 576 threads (p90 11, max 41 per thread); 1,145 aborted turns; daemon: `port_exit` 109 (80 ws), `startup_failed: port_closed` 68 (47 ws), `turn_interrupt_failed` 116 (77 ws), SIGTERM exit 143 ×19, `spawn … EAGAIN` ×3 | 513 h of in-flight turn time interrupted; 1,116 resume turns re-read the operating manual although told not to; 299 threads end on an aborted turn | all | The Executor *causes* most of it (restarts to load merged fixes). Some failures still need a manual resume (see 8) |
+| 3 | **Restart / interrupt / process-death churn** | Reproduced: about 257 gap-chained waves; 2,622 resume turns in 577 threads (p90 11, max 41 per thread); 1,149 interrupted main-thread turns. Retained daemon counts, not rechecked here: `port_exit` 109 (80 ws), `startup_failed: port_closed` 68 (47 ws), `turn_interrupt_failed` 116 (77 ws), SIGTERM exit 143 ×19, `spawn … EAGAIN` ×3 | 122.4 h recorded interrupted-turn duration, not measured loss; approximately 1,110 skill reads in the first 12 calls; 301 threads end aborted | all | Initiator and discarded-work attribution are not established; preserve recovery contracts |
 | 4 | **Blocked on an Executor answer:** unanswered decision, stale `CHANGES_REQUESTED`, re-review | `decision.requested` in 99 sessions (81 tickets); 670 `operator-decision` attentions (45 ws); 715 no-op turns name the pending decision; 66 rework sessions concluded "nothing to rework" (stale review); alerts `stale-review-verdict` 38, `stale-changes-requested` 22, `rework-loop` 14, `blocked-human-reapproval` 15 | Tickets idle until answered, and they loop (mode 1) meanwhile | all | **Yes, by definition** |
 | 5 | **CLI version skew:** `aiur guard-pr-deletions` missing; guard exit status masked | 579 sessions (24% of primary), 384 tickets, 08-11 → 09-26; 408 sessions searched for it; fallbacks: repo script 331, manual `git diff --diff-filter=D` 141, libexec path 48; ≥1,052 invocations piped to `tail`/`head` and ≥157 followed by a push in the same command | 1–8 extra tool calls per affected session; the deletion guard is effectively advisory | all | No — agents work around it silently. It is tracked in aiur#1778 and still open |
 | 6 | **GitHub API friction through the `gh` guard** | quota backoff waits 227 sessions (180 tickets); secondary-rate-limit backoff 681 events in 165 sessions, **≥399 of them right after an ordinary 4xx** (329 × HTTP 404, 45 × 400, 14 × 422, 10 × 401); writes to a read-only `github-quota/*.tmp` 94 sessions, arithmetic errors 20; `GraphQL: API rate limit already exceeded` 140 sessions (aiur); budget broker unavailable 102 sessions | ≥6.6 h of forced 60 s sleeps after client errors; PR creation blocked | all (the read-only hold file shows up in Codex sandboxes) | Sometimes: 42 `github-rate-limit` and 28 `github-budget-unwritable` attentions; 89 `system.github.connectivity_lost` |
@@ -234,15 +235,24 @@ Evidence:
 
 ### 5.3 Restart, interrupt and process-death churn (rank 3)
 
-- **Resume prompt** (aiur#1483 file above, L91): `Continuation guidance (session resumed
-  after an aiur restart): … Do not restart from scratch and do not re-read the issue,
-  labels, or workpad…` Yet 1,116 of 2,621 resume turns re-read the aiur-agent / using-aiur
-  skill in their first 12 commands. The median resume turn uses 2 tools and 36 s, and 1,183
-  (45%) are ≤1-tool no-ops. There are 256 restart waves (10-minute clustering; median 3
-  agents per wave, max 216) on 26 distinct days.
-- **Aborted turns.** 1,145 Codex turns end `turn_aborted: interrupted`. The next prompt is
-  END (299), a restart resume (155), an `issue.commented` event (234), or an Executor message
-  (185).
+- **Resume prompt.** It says not to rebuild context by re-reading the issue,
+  labels or workpad. It does not prohibit skill reads; aiur-agent explicitly
+  says to load it at each ticket turn. The reproduced 1,104–1,126 skill reads
+  are therefore not established instruction violations.
+- **Resume waves.** The reproduction finds 257 groups separated by more than
+  ten minutes, on 26 UTC days; median two distinct agents, maximum 28. The
+  216-turn group is a 4.6-hour chain from 16 agents, not 216 agents in one
+  restart. These groups are not independently verified daemon boot counts.
+- **Low-tool turns.** 1,183 resume turns use zero or one tool; that does not
+  establish a useless turn. Status/completion responses can legitimately use
+  no tools. Useful-work and duplicate-effect measurements are still needed.
+- **Aborted turns.** The reproduced 1,149 interrupted main-thread turns sum
+  to 122.4 h by recorded `duration_ms`; 301 threads end on an aborted turn.
+  The earlier 513 h included idle time after abort. Surviving edits and tool
+  effects mean even the corrected elapsed duration is not discarded work.
+- **Cause.** Merge proximity is associated with some waves but does not show
+  that the Executor caused most restarts or interrupts. See the recovered
+  reproduction and [interpretation verdict](../synthesis/verdicts/claims-interpretation-tail.json).
 - **Process death** (`agent.ndjson` structured events):
   - `turn_ended_with_error ["port_exit",0]` — `~/.aiur/workspaces/1571/logs/agent.ndjson` L1729
   - `startup_failed "port_closed"` — `~/.aiur/workspaces/aiur-team/khala/132/logs/agent.ndjson` L3276
@@ -363,7 +373,7 @@ Root cause was a second aiur daemon … that had lost its repo pin"`.
 
 | Needs the Executor to act | Executor causes it | Agent absorbs it silently (hidden cost) |
 |---|---|---|
-| 2 provider limits (resume, reroute, fix API key) | 3 restarts (resume churn, aborted turns) | 1 no-op loops (quota and tokens) |
+| 2 provider limits (resume, reroute, fix API key) | 3 restart initiator unverified; resume churn observed | 1 no-op loops (quota and tokens) |
 | 4 decisions, stale `CHANGES_REQUESTED`, re-review | 7 progress check-ins | 5 missing guard and masked exit codes |
 | 8 stalls, duration caps, `before_run` failures, pause reaping | | 6 false 60 s backoffs and read-only hold files |
 | 10 duplicate daemon / workspace collision | | 9 test thrash |

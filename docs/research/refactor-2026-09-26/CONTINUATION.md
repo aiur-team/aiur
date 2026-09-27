@@ -89,6 +89,17 @@ six pooled session-limit matches are same-repository matches. The study remains
 observational with shared-input and cross-repository confounding. The independent
 boundary audit reproduces limit durations and emits aggregates only.
 
+## Interpretation checks completed
+
+The missing interpretation checks for agents-10 and fixes-09 are recorded in
+`synthesis/verdicts/claims-interpretation-tail.json`, bringing both-lens coverage
+to 49/60. Earlier reproduction checks remain intact and are not presented as
+new extractions. The agent report now distinguishes interrupted-turn exposure
+from discarded work, resume waves from boots, and skill reads from instruction
+violations. The fixes report withdraws the universal held-versus-clause rule,
+corrects the retained install growth budget and capability-probe exception, and
+separates selected case evidence from comparative effectiveness.
+
 ## Completion contract — all still required unless explicitly checked
 
 - [ ] Complete privacy/provenance review of inherited and new public artifacts.

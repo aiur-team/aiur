@@ -2,26 +2,14 @@
   "note": "Artifact coverage only. Verdict presence does not prove correctness or research completion.",
   "claims": {
     "expected": 60,
-    "verdict_records": 68,
-    "both_lenses_present": 47,
+    "verdict_records": 70,
+    "both_lenses_present": 49,
     "remaining": [
-      {
-        "id": "agents-10",
-        "missing_lenses": [
-          "interpret"
-        ]
-      },
       {
         "id": "codebase-07",
         "missing_lenses": [
           "interpret",
           "reproduce"
-        ]
-      },
-      {
-        "id": "fixes-09",
-        "missing_lenses": [
-          "interpret"
         ]
       },
       {
