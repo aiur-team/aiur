@@ -214,6 +214,20 @@
       "lines": 60,
       "read": "full",
       "assessment": "Optional local-workspace alert stream does not cover remote/workspace-less alerts immediately and does not replace periodic central-feed observation. In-memory cursor and startup replay distinguished from durable decision ledger; adapter trust and stdin JSON avoid credential strings. Ledger escalation classification is separate from actual durable DecisionStore authority. Latest-unresolved replay and resolution semantics are source claims to compare with watcher implementation, not freshly validated behavior."
+    },
+    {
+      "path": ".claude/skills/aiur-run/SKILL.md",
+      "sha256": "cb4f8656ba216c1aeb2a3c4fb9bc22a0ff4849145b5366609a28aec96616a8f6",
+      "lines": 1245,
+      "read": "full",
+      "assessment": "All1245 lines read as frozen research data, not invoked as authorization to launch, dispatch, review, merge, notify or delegate. Preserves explicit run authority, current-origin/global config handling, exact-base review gate, bounded takeover, clean independent worktrees, test collection/mutation evidence and production-population measurement for savings. Distinguishes listener recording from Executor authority, roster renewal from acknowledgement, tail notification from durable consumption, and timeout/claim contention/acknowledge failure envelopes. Exact covered prefix required for fast-forward; no backlog-size shortcut. Quiet, capacity and hourly audits have different purposes; one monitoring record per wake avoids denominator duplication, though later unconditional observe wording needs reconciliation with plan-wait. Repeated24-binding and historical incident figures are not current censuses. Wake backlog is not proof of a missing tail when the durable consumer could be stalled. Hourly every-finding filing/unfiled completion requirement conflicts with finite-run deferral and creation freeze. Merge mechanics still says supplying GITHUB_TOKEN despite referenced credential-file recipe; added as another location under existing credential finding. Unconditional resume-first quiet-fleet advice needs pause-intent reconciliation. Config cap precedence and core/scheduler arithmetic retained as verification candidates, not newly proven runtime defects. Required screenshot/CLI observations distinguish skipped/error from healthy; no actual runtime acceptance performed."
+    },
+    {
+      "path": ".claude/skills/aiur-run/references/executor.md",
+      "sha256": "3b4ed4fe2964f119c7915b2f157d302141991d86e438f3a8ba387f796336045e",
+      "lines": 662,
+      "read": "full",
+      "assessment": "All662 lines read. Canonical authority envelope separates issue publication, review/merge, takeover and debug; recording does not authorize mutation. Protect-convergence section expressly forbids individual P2/P3 feature-run tickets and freezes creation when it outpaces completions, yet retrospective unfiled gate later requires ticket completion: source inconsistency confirmed. Preserves typed Command actor, expected version/idempotency, reversible authority floor, pending/in-flight/superseded delivery distinctions and explicit escalation. Capacity is useful independent work rather than raw counts; resource observations, review lanes and takeover boundaries retained. Reversible recovery remains within mandate; resume-first ladder must not erase intentional global pause. Exact PR head/base/fresh-CI and author/pusher/opener distinctions preserved. Required-check ruleset safety, independently reviewed proof, marker close-out and stopped-versus-accepted terminal state remain separate. Historical resource estimates are not portable capacity measurements; issue-link/privacy constraints remain binding. No operational commands, issue creation or worker takeover performed."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -285,10 +299,14 @@
         {
           "path": "src/lib/aiur/agent_environment.ex",
           "lines": "308-312"
+        },
+        {
+          "path": ".claude/skills/aiur-run/SKILL.md",
+          "lines": "1136-1141"
         }
       ],
       "description": "Shared instructions say the worker's GitHub credential comes from GITHUB_TOKEN. The dev loop explicitly says agents do not inherit GITHUB_TOKEN/GH_TOKEN, and AgentEnvironment lists those names for scrubbing while supplying AIUR_GITHUB_CREDENTIAL_FILE for governed calls.",
-      "evidence": "Full prompt and dev-loop source plus supporting environment excerpts confirm the mismatch. No credential values read or copied.",
+      "evidence": "Full prompt and dev-loop source plus supporting environment excerpts confirm the mismatch. No credential values read or copied. Full Executor skill also describes the linked fail-closed helper as supplying GITHUB_TOKEN; its actual referenced recipe reads the credential file.",
       "recommendation": "Replace the obsolete inherited-token description with a reference to the governed credential-file contract; preserve no-login, no-merge and no-operator-keyring fallback rules.",
       "refactor_hint": "Generate or reference security-sensitive environment contracts from one maintained surface.",
       "limits": "Source-level instruction mismatch only, not a reproduced credential exposure or provider failure. Daemon-owned non-agent prewarm has an explicit scrub opt-out and is not the scope of this claim."
@@ -313,6 +331,35 @@
       "recommendation": "Choose one canonical meaning for phase and use a separate lane/milestone field for thematic grouping. Align contract, graph generation, validation and dashboard presentation to that choice.",
       "refactor_hint": "A planning schema should define graph-derived scheduling fields once; prose views should reference that definition.",
       "limits": "Source consistency finding only. No runtime scheduler defect or measured parallelism loss is alleged; runtime phase consumption and validator behavior require separate reconciliation."
+    },
+    {
+      "id": "skills-prompts-cont-05",
+      "severity": "P2",
+      "category": "documentation",
+      "title": "Retrospective completion requires tickets that convergence policy forbids creating",
+      "locations": [
+        {
+          "path": ".claude/skills/aiur-run/references/executor.md",
+          "lines": "71-110"
+        },
+        {
+          "path": ".claude/skills/aiur-run/references/executor.md",
+          "lines": "548-577"
+        },
+        {
+          "path": ".claude/skills/aiur-run/SKILL.md",
+          "lines": "924-939"
+        },
+        {
+          "path": ".claude/skills/aiur-meta/SKILL.md",
+          "lines": "257-268"
+        }
+      ],
+      "description": "The governing convergence policy requires P2/P3 non-blockers to remain in a deferred ledger without individual feature-run tickets and freezes new creation when it outpaces completion. The meta-check says every finding becomes a ticket; the retrospective treats ticket:null as incomplete. Thus recording an intentionally deferred finding or respecting the creation freeze can make the required audit impossible to complete under its own filing rule.",
+      "evidence": "Read the complete aiur-run skill, Executor reference and meta-check. The contradiction persists inside the governing reference itself, so following its precedence does not resolve the completion criterion.",
+      "recommendation": "Give intentional deferral an explicit accepted disposition and separate audit completeness from issue promotion. Make the unfiled gate target findings authorized and due for promotion, respecting the creation freeze and external publication authority.",
+      "refactor_hint": "Use one discovery-disposition contract across planning, runtime audit and findings ledger; preserved evidence does not imply authorized ticket creation.",
+      "limits": "Source consistency finding only. No ticket was created, and no historical backlog growth is attributed to this instruction. Ledger schema/CLI acceptance of deferral still needs runtime-source reconciliation and cross-unit deduplication."
     }
   ],
   "preserve": [
@@ -345,7 +392,9 @@
     "Two operating modes first, worker versus Executor separation, global/local config precedence, origin-derived repository and launch/worker credential verification distinct. Dispatch trust, configured base and required labels handled before claiming worker activity. Workspace isolation explicitly not a security boundary. Node version/install/provider claims are frozen documentation, not independently current recommendations. No installation, initialization, issue labeling or launch performed.",
     "All309 lines read. Meta-check separates wake-driven operation from hourly backstop; system-of-record capability checks outrank guessed transport config. Requires actual screenshots plus CLI latency, host scope and PR review state, forbids routine fleet mutations without mandate. Historical counts, listener24-binding statement and fixed hydration delay are authored claims, not reverified current census or readiness proof. Every-finding-to-ticket rule needs reconciliation with finite-run deferral/creation-freeze policy in governing Executor reference. Surface em-dash/unavailable flagging should trigger investigation, not erase legitimate unknown states. No meta-check/browser run performed.",
     "Monitor is observation-only absent Executor authority and refuses treating daemon-down/warm-up as healthy terminal state. Server board plus central feed, bounded cadence, same-message-ID retry on unknown outcome, current-base review readiness and capacity limits preserved. Distinguishes deferred findings from finite feature counts and freezes creation when it outpaces completion. Host-local findings record API and digest authority explicit. Ticket:null means unfinished promotion claim needs reconciliation with allowed deferred findings; not yet promoted. No message/record API or monitor loop invoked.",
-    "Optional local-workspace alert stream does not cover remote/workspace-less alerts immediately and does not replace periodic central-feed observation. In-memory cursor and startup replay distinguished from durable decision ledger; adapter trust and stdin JSON avoid credential strings. Ledger escalation classification is separate from actual durable DecisionStore authority. Latest-unresolved replay and resolution semantics are source claims to compare with watcher implementation, not freshly validated behavior."
+    "Optional local-workspace alert stream does not cover remote/workspace-less alerts immediately and does not replace periodic central-feed observation. In-memory cursor and startup replay distinguished from durable decision ledger; adapter trust and stdin JSON avoid credential strings. Ledger escalation classification is separate from actual durable DecisionStore authority. Latest-unresolved replay and resolution semantics are source claims to compare with watcher implementation, not freshly validated behavior.",
+    "All1245 lines read as frozen research data, not invoked as authorization to launch, dispatch, review, merge, notify or delegate. Preserves explicit run authority, current-origin/global config handling, exact-base review gate, bounded takeover, clean independent worktrees, test collection/mutation evidence and production-population measurement for savings. Distinguishes listener recording from Executor authority, roster renewal from acknowledgement, tail notification from durable consumption, and timeout/claim contention/acknowledge failure envelopes. Exact covered prefix required for fast-forward; no backlog-size shortcut. Quiet, capacity and hourly audits have different purposes; one monitoring record per wake avoids denominator duplication, though later unconditional observe wording needs reconciliation with plan-wait. Repeated24-binding and historical incident figures are not current censuses. Wake backlog is not proof of a missing tail when the durable consumer could be stalled. Hourly every-finding filing/unfiled completion requirement conflicts with finite-run deferral and creation freeze. Merge mechanics still says supplying GITHUB_TOKEN despite referenced credential-file recipe; added as another location under existing credential finding. Unconditional resume-first quiet-fleet advice needs pause-intent reconciliation. Config cap precedence and core/scheduler arithmetic retained as verification candidates, not newly proven runtime defects. Required screenshot/CLI observations distinguish skipped/error from healthy; no actual runtime acceptance performed.",
+    "All662 lines read. Canonical authority envelope separates issue publication, review/merge, takeover and debug; recording does not authorize mutation. Protect-convergence section expressly forbids individual P2/P3 feature-run tickets and freezes creation when it outpaces completions, yet retrospective unfiled gate later requires ticket completion: source inconsistency confirmed. Preserves typed Command actor, expected version/idempotency, reversible authority floor, pending/in-flight/superseded delivery distinctions and explicit escalation. Capacity is useful independent work rather than raw counts; resource observations, review lanes and takeover boundaries retained. Reversible recovery remains within mandate; resume-first ladder must not erase intentional global pause. Exact PR head/base/fresh-CI and author/pusher/opener distinctions preserved. Required-check ruleset safety, independently reviewed proof, marker close-out and stopped-versus-accepted terminal state remain separate. Historical resource estimates are not portable capacity measurements; issue-link/privacy constraints remain binding. No operational commands, issue creation or worker takeover performed."
   ],
   "follow_up_candidates": [
     {
@@ -365,17 +414,31 @@
       "question": "Reconcile unblocked-only shorthand with merge-readiness delivery and dismissed-decision resolution correlation against runtime."
     },
     {
-      "id": "skills-prompts-candidate-05",
-      "question": "Reconcile meta-check every-finding ticket requirement and monitor ticket:null unfinished-promotion statement with finite-run deferred ledger and mandatory creation freeze; read aiur-run Executor authority next before promoting."
+      "id": "skills-prompts-candidate-06",
+      "question": "Reconcile unconditional resume-first quiet-fleet instructions with explicit pause preservation and read-only-first diagnosis; inspect actual global pause/resume semantics before promoting."
+    },
+    {
+      "id": "skills-prompts-candidate-07",
+      "question": "Verify claimed config max-agent precedence, scheduler/load arithmetic, and24 listener binding count against frozen source and existing claim reconciliation; avoid duplicate findings."
+    },
+    {
+      "id": "skills-prompts-candidate-08",
+      "question": "Reconcile exactly-one plan-wait-or-observe monitoring record with later every-audit observe instruction; determine whether both wording paths cause an ambiguous denominator requirement."
     }
   ],
-  "next": "Read aiur-run/SKILL.md and references/executor.md next;30/250 full files. Four P2 source contradictions provisional; five follow-up questions remain. Relative-link suspicion rejected by frozen-path check.",
+  "next": "Read ce-babysit-pr/SKILL.md and watch-loop reference next;32/250 full files,6344/36169 lines. Five provisional P2 findings; seven follow-up candidates. Research-only boundary remains.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
       "status": "not_promoted",
       "reason": "All relative links from aiur-debug and aiur-intro resolve to existing frozen files; three parent traversals correctly reach repository root.",
       "validation": "Path existence check only; linked target content not re-read or credited as coverage."
+    },
+    {
+      "id": "skills-prompts-candidate-05",
+      "status": "promoted",
+      "finding": "skills-prompts-cont-05",
+      "reason": "Full governing Executor reference contains both defer-without-ticket policy and ticket-required retrospective completion; precedence alone cannot reconcile them."
     }
   ]
 }
