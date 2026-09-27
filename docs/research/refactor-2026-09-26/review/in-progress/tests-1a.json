@@ -434,9 +434,21 @@
       "sha256": "fca03ff702ec746fb3cbcc687db4e29ff67a8bf995dc7220f62de8d49fe55fb6",
       "lines": 1733,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/github_client_test.exs",
+      "sha256": "0d7b31d4531175be67841df37f9054fc19a5e13a9f9699d8bee31aed7a21710e",
+      "lines": 2252,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/core_test.exs",
+      "sha256": "40e67a56ca7ba45b29be7e2e0bd579b0aa272afda1d1f2bff69237011ba2ed3a",
+      "lines": 4023,
+      "read": "full"
     }
   ],
-  "scope_note": "72 complete file reads, 21362 lines. Alerts and CI lifecycle source reviewed, including helper wiring and evidence limits. Isolated extracted-assertion probes demonstrate selective-receive ordering and missing-audit-event gaps with rejecting controls; no application boot, full suite, live GitHub or TUI execution. Three manifest files remain.",
+  "scope_note": "74 complete file reads, 27637 lines. Added full GitHub client and core test review with explicit transport, assertion and fixture-lifecycle limits. Four findings retain their earlier isolated probe evidence; no new probe, full suite, live application, GitHub or TUI execution in this checkpoint. Only orchestrator_deactivate remains.",
   "findings": [
     {
       "id": "tests-1a-cont-01",
@@ -579,7 +591,19 @@
     "CiLifecycle tests preserve displaced-result rejection, local budget holds without REST fallback, genuine upstream rate-limit fallback, shared cache retention, tracker-write-before-resume, failure-side-effect suppression, approved-head identity and explicit operator/usage pause causes. Timers are token-correlated, rearmed on failed writes or live fences and ignored when stale; missing active workers remain a separate activation question.",
     "The CI recorder receives generic messages and stamps their arrival positions before forwarding them; numbered assertions therefore constrain observed tracker/event/queue/resume ordering instead of merely using selective receives. Its sync marker bounds messages from that sender, not every possible future asynchronous emitter. poll_ci also explicitly invokes terminal routing through a helper after polling, so these tests do not independently prove the live orchestrator wires that transition.",
     "Parked-ready and approved-green-draft attentions have distinct disappearance policies: parked readiness resolves on departure or an open-PR miss, while draft stall remains latched across transient misses, missing approval and temporary poll-set departure, resolving on a known disappearance or ready transition. Restart deduplication is supplied by an injected loader, not an actual durable-ledger restart.",
-    "CI fixtures use private state and injected GitHub/alert callbacks; they are not live GitHub, provider, deployment, dashboard or TUI verification. Existing two-element negative resume/pause patterns deserve the same generation-aware assertion correction identified in tests-1b-cont-06; no actual forbidden resume was demonstrated here."
+    "CI fixtures use private state and injected GitHub/alert callbacks; they are not live GitHub, provider, deployment, dashboard or TUI verification. Existing two-element negative resume/pause patterns deserve the same generation-aware assertion correction identified in tests-1b-cont-06; no actual forbidden resume was demonstrated here.",
+    "GitHub Client tests preserve one all-open candidate snapshot, visible-but-undispatchable contradictory labels, paused override separate from state, closed issues overriding stale active labels, and missing-token/auth/DNS/rate-limit/endpoint-permission distinctions. Request callbacks and fabricated API payloads establish local behavior, not current remote API compatibility or credential validity.",
+    "Conditional PR and branch lookups assert the outgoing request validator as well as reuse of the held 304 body; branch lookup covers pagination, readable and legacy branch names, caller attribution and one request for a single-page fixture. These counts are fixture measurements, not production quota savings or population evidence.",
+    "Review-comment fixtures preserve CODEOWNERS trust, fail-closed missing rules and quota-held abstention. Unresolved threads retain the latest trusted comment, including an agent reply that still requires resolution. Reply verification retries reads without posting duplicate mutations; resolution checks authority and latest reply before acting and unresolves after an injected reviewer-follow-up race. Distinct permission errors retain actionable classification without collapsing unrelated GraphQL failures.",
+    "GitHub state-swap tests preserve add-before-remove behavior, paused/watch markers, readiness refusal before label writes, closed-state rechecks, honest no_state_label_written results and propagation of cleanup failures. Some callbacks constrain order through a request counter, but assertions inside callbacks only run if that callback is reached; tests returning only :ok without a final complete call count do not independently prove every intended write occurred.",
+    "The client test named deduplicates issues across labels supplies a single issue in its current all-open snapshot, so it does not exercise duplicate removal. A CI-fetch error fixture returns the same error for every request and does not independently count absence of a legacy-status request. These are source-established coverage limits, not demonstrated production defects. CODEOWNERS temporary directories are removed on successful paths rather than universally owned by teardown.",
+    "Core configuration tests retain defaults, type/blank distinctions, explicit uncapped turns, portable example parsing and effective planning settings. Operator-config tests deliberately load the checked-in dogfood config. Privacy regex checks cover listed patterns only; schema parsing and prompt rendering are not proof of every operational setting or an exhaustive privacy audit.",
+    "Core lifecycle tests distinguish fresh versus expired terminal fences, configurable grace, non-active/missing versus terminal workspace cleanup, reassignment, unexplained error-state retention, PID/global/via server addressing and unavailable servers. Normal continuation, progressive failures, true provider-start exhaustion, slot starvation and tracker-precondition failure have different retry/claim outcomes; stale retry/tick tokens and repeated refresh coalescing remain explicit contracts.",
+    "Core prompt tests assert complete external-content wrappers, nil-description placeholders, strict variable/render errors, date serialization and shared-instruction placement. The nested-value fixture renders only the identifier, so its successful tail assertion does not constrain the rendered nested values. The raw max_turns >= 12 example check does not establish numeric type; uncapped configuration is a separate supported case.",
+    "Core runner integration fixtures use real adapters, local shell/git/files and private controllers with fake provider protocols. They retain workspace logs, same-session continuation, no silent SSH host hopping, before-run pause/retry, queued operator input, acknowledged interrupt and no-active-turn response variants. They do not establish real provider behavior, actual SSH transport or rendered TUI delivery.",
+    "Replacement-worker coverage explicitly suspends the shared default controller, starts the named controller without polling, rejects a stale old-worker DOWN and checks two delivery attempts followed by consumed state after a file-controlled replay release. Completion-race coverage requeues an unacknowledged follow-up without fabricating success or an agent retry. Preserve action/attempt and accepted-versus-consumed distinctions through package extraction.",
+    "Pause/resume fixtures cover idle-first, response-first and response-only interruption, retain a single turn while paused and replay restored input before newly queued input. The restored-input fixture polls for a trace count but does not assert the polling loop succeeded before issuing pause; later exact turn texts constrain the final result. Max-turn completion is held behind an after-run file barrier and only announced after that hook finishes.",
+    "Startup frame tests assert canonical workspace, approval policy and sandbox payloads plus cache/build-gate writable roots, and preserve custom command arguments. Several tests use Enum.any? to find a compliant startup frame; despite an every-frame title, they do not reject an additional noncompliant frame. Core also mixes explicit monitored cleanup with normal-exit callbacks and a retained unlinked fake worker; do not generalize the earlier extracted worker-leak proof to every GenServer without checking links and termination semantics."
   ],
   "cross_references": [
     {
@@ -672,7 +696,7 @@
     }
   ],
   "next": [
-    "Read the remaining three files: core, github_client and orchestrator_deactivate.",
-    "Resolve the remaining isolation/cleanup hypotheses; consolidate shared assertion families before unit closure."
+    "Read the remaining orchestrator_deactivate_test.exs (7653 lines).",
+    "Resolve or explicitly bound the remaining isolation/cleanup hypotheses; consolidate shared assertion families before unit closure."
   ]
 }
