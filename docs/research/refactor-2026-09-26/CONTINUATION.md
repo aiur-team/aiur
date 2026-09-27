@@ -1855,3 +1855,7 @@ Read demand, derive, detail, diagnostics, digest and dump: 40 literal entries ac
 ### Name duplication: event and capability boundaries
 
 Read ensure_directory, envelope, event_id, events, failed and fetch_issue_states_by_ids_conditional: 31 literal entries across six families. Identify identical support-directory guards and existing conditional-fetch delegation while preserving path policy, measurement envelopes, event validation, recovery reads and failure evidence. Name triage now 307 families/5391 entries, leaving 1373 cross-module names. Raw findings and skeptic counts are unchanged; no path-safety proof, cache hit rate or saving is claimed.
+
+### Name duplication: replay and population contracts
+
+Read filter, finalize, forget, freshness_status, from_json_safe and groups: 43 literal entries across six families. Preserve coordinated population filtering, compaction phase checks, related-state cleanup, unknown freshness and persisted decision integrity. The atom-valued freshness extractor also accepts nil; downstream handling remains unverified. Name triage now 313 families/5434 entries, leaving 1367 cross-module names. Raw findings and skeptic counts are unchanged; no replay correctness, runtime defect or saving is claimed.

@@ -4,53 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "8a846669ec3f455ee36f08989ea5d1da10072b5a9bd9b131c9688b55ff3d105c"
+    "name_triage": "aa01fbf6d3a81bcd01624ef9272b9ca5a5837b943691ff1af8221798aa2c0161"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 307,
-    "remaining_cross_module_names": 1373,
-    "remaining_literal_entries": 4877
+    "reviewed_cross_module_names": 313,
+    "remaining_cross_module_names": 1367,
+    "remaining_literal_entries": 4834
   },
   "families": [
-    {
-      "name": "filter",
-      "clauses": 8,
-      "modules": 4,
-      "summed_source_span_lines": 57
-    },
-    {
-      "name": "finalize",
-      "clauses": 7,
-      "modules": 4,
-      "summed_source_span_lines": 33
-    },
-    {
-      "name": "forget",
-      "clauses": 6,
-      "modules": 4,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "freshness_status",
-      "clauses": 9,
-      "modules": 4,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "from_json_safe",
-      "clauses": 8,
-      "modules": 4,
-      "summed_source_span_lines": 80
-    },
-    {
-      "name": "groups",
-      "clauses": 5,
-      "modules": 4,
-      "summed_source_span_lines": 56
-    },
     {
       "name": "handle_notification",
       "clauses": 10,
