@@ -374,6 +374,62 @@
       "lines": 71,
       "read": "full",
       "assessment": "Real cat ports plus metadata helper: string/atom map usage retained, invalid/absent usage omitted. Non-map payload only asserts map; claims unchanged port metadata are not compared against baseline. Broader port metadata tests constrain individual fields."
+    },
+    {
+      "path": "src/test/aiur/codex/notification_policy_test.exs",
+      "sha256": "0408f66ddfdf4b522e50817224bae4de3ab2176eb37e9b891d9263f8f4b7a9c3",
+      "lines": 254,
+      "read": "full",
+      "assessment": "Pure classification fixtures distinguish input-required turn methods, retryable and terminal errors, quota refusals, no-active-turn responses and reset hints. JSON-prefix detection is only a candidate classifier. Exact error strings supplement weaker binary-only pause reason assertion; not provider acceptance, scheduling or control confirmation."
+    },
+    {
+      "path": "src/test/aiur/codex/rate_limit_adapter_test.exs",
+      "sha256": "566ccc42b6d0d0c05dd6314d52a1c2ad6edf00db25f9e8a41e917bc8a0088fdd",
+      "lines": 321,
+      "read": "full",
+      "assessment": "Pinned/compatible fixture normalization plus Input and selected Reconciler calls preserve arbitrary bounded bucket IDs, sparse patch versus full snapshot intent, API-key unknown monetary balance, reset freshness and typed drift failures. Twenty-five generated supported-ID cases compare exact key sets; hostile 33-bucket input is rejected while nine buckets produce 36 windows. Privacy sentinels cover account/capability fields and unsafe IDs. The test named full snapshot removes omitted windows only compares adapter window lists, without applying replacement through Reconciler; record that local scope rather than alleging reconciliation broken. Freshness checked reset plus one second, not equality boundary."
+    },
+    {
+      "path": "src/test/aiur/codex/reset_time_test.exs",
+      "sha256": "49298110ecb2b14691420230d76cab0bdafda97594b6397d43107e9b8f514e28",
+      "lines": 164,
+      "read": "full",
+      "assessment": "Exact timezone, minute-end rounding, recent-past clock/date handling, year rollover and DST fixtures constrain Codex text-reset policy. Numeric future exhausted-window reset wins over text; real cat-port metadata tracks independent exhausted windows, retains absent patch facts, clears recovered windows and expires at deadline. Invalid/expired explicit hints remain nil. Provider-specific policy differs from Claude and must survive shared extraction; parsing alone does not establish scheduler resume. Schema validates configured IANA zone."
+    },
+    {
+      "path": "src/test/aiur/codex/transcript_test.exs",
+      "sha256": "b26b755e42e225c3547493e56b7b835b4cf6acae478f8e812c8a899c5697f2fe",
+      "lines": 253,
+      "read": "full",
+      "assessment": "Pure notification extraction fixes roles, provider/fallback turn identity, delta markers, command action/output/workdir, nonzero exit title, parsed tool input/output and string-keyed false success. File edit output and skip rules are exact; no renderer or real-provider behavior is exercised. Non-interactive and display formatting remain separate boundaries."
+    },
+    {
+      "path": "src/test/aiur/codex/turn_loop_test.exs",
+      "sha256": "5ef498119e8c87c348778c81567d240fef352b9ac965cbce302bb2209dd5548a",
+      "lines": 987,
+      "read": "full",
+      "assessment": "Direct handlers with real cat ports and private ProviderTurnLedger stores constrain exact/idempotent terminal retirement, accepted-ID retirement before resume, pending control generation, hard error versus quota pause and paired idle/interrupted completion. Closed tool-response port returns terminal error after tool execution and suppresses completion event; oversized output round-trips through private workspace spill. Real account owner plus injected private availability observer tests reduced account/rate events, unknown lifecycle invalidation and sentinel exclusion from outcomes/logs, including paused RPC routing. Explicit unlimited clears availability without rotating account identity. Live turn defers notification checkpoint; idle pending interrupt preserves other state. First emits-before-completing test asserts callback event presence only after synchronous return, not an independently observed ordering boundary. Script-free direct tests do not establish provider/TUI behavior."
+    },
+    {
+      "path": "src/test/aiur/codex/usage_limit_backoff_test.exs",
+      "sha256": "7f01db5b5cb4a34f8d057534f55842f876aceab90f6b8c5d3174d9ec920effe3",
+      "lines": 147,
+      "read": "full",
+      "assessment": "Fixed-clock pure policy plus private ModelAvailability persistence verifies expired text receives 300-second minimum, configurable 60-second minimum, repeated refusal holds of 300/600/1200/2400/3600/3600 seconds, streak reset after long absence and unchanged future numeric reset. Exact just-before/at decisions guard timing; fresh unknown refusal does not inherit expired deadline. Real cat-port exhausted-window metadata checks bare patch clears snapshot bucket. Helper invokes policy and ledger explicitly as runner would; does not prove automatic scheduler wiring or wall-clock resume."
+    },
+    {
+      "path": "src/test/aiur/codex/usage_limit_test.exs",
+      "sha256": "2701e4c1e2b5e8e42eb575232f1c489bba7d9cd03056f1aadbf8b27c2338a9a8",
+      "lines": 256,
+      "read": "full",
+      "assessment": "Scripted app-server integration drives real CodingAgent sessions through numeric quota pause, stale completion on resumed turn, text-reset fallback after below-100 update, quoted assistant/tool refusal and bounded silent timeout. TurnAlerts persistence, direct orchestrator control handlers and fallback reconcile constrain provider-limited versus human-waiting state, unchanged retry budget and resume-message boundary at reset. Operator/global/label pauses survive both working and paused starting status and are never converted into automatic quota recovery. This is a fake provider and manually invoked reconciliation with a resume message to the test process, not proof of real provider recovery or rendered UI."
+    },
+    {
+      "path": "src/test/aiur/codex/user_input_answers_test.exs",
+      "sha256": "a816cb843178f9d665da73c537425c5ed4b759b67631faba0673c9e91b164284",
+      "lines": 129,
+      "read": "full",
+      "assessment": "Exact answer choices cover session approval preference, once fallback, allow-label fallback, multiple questions and rejection/missing shape. Returned descriptive third tuple remains session-approval text even for once/allow answers; tests intentionally expect that current contract, not actual granted authority. Unavailable answers compare helper value per question; helper separately requires non-interactive wording. No provider approval execution or transport confirmation."
     }
   ],
   "scope_note": "Source review with an isolated extracted-assertion order probe; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
@@ -449,7 +505,15 @@
     "Real cat-port frame uses positive request ID and exact session policies/thread/cwd/text; closed and invalid sessions return errors. One positive ID does not establish uniqueness across calls. Frame write success is not provider acceptance or queue settlement.",
     "Scripted port ignores unrelated JSON while awaiting matching result; startup floor values and real JSON line round-trip. Low-level send explicitly raises on closed port, unlike higher adapter error-tuple boundaries; preserve distinction or migrate callers deliberately.",
     "Pure classifier supports wrapped transport losses and exact unequal active-turn mismatch; same ID, trailing punctuation, no-active-turn, provider rejection, timeout and unwrapped error remain nonrecoverable. Classification only, not restart/recovery execution.",
-    "Real cat ports plus metadata helper: string/atom map usage retained, invalid/absent usage omitted. Non-map payload only asserts map; claims unchanged port metadata are not compared against baseline. Broader port metadata tests constrain individual fields."
+    "Real cat ports plus metadata helper: string/atom map usage retained, invalid/absent usage omitted. Non-map payload only asserts map; claims unchanged port metadata are not compared against baseline. Broader port metadata tests constrain individual fields.",
+    "Pure classification fixtures distinguish input-required turn methods, retryable and terminal errors, quota refusals, no-active-turn responses and reset hints. JSON-prefix detection is only a candidate classifier. Exact error strings supplement weaker binary-only pause reason assertion; not provider acceptance, scheduling or control confirmation.",
+    "Pinned/compatible fixture normalization plus Input and selected Reconciler calls preserve arbitrary bounded bucket IDs, sparse patch versus full snapshot intent, API-key unknown monetary balance, reset freshness and typed drift failures. Twenty-five generated supported-ID cases compare exact key sets; hostile 33-bucket input is rejected while nine buckets produce 36 windows. Privacy sentinels cover account/capability fields and unsafe IDs. The test named full snapshot removes omitted windows only compares adapter window lists, without applying replacement through Reconciler; record that local scope rather than alleging reconciliation broken. Freshness checked reset plus one second, not equality boundary.",
+    "Exact timezone, minute-end rounding, recent-past clock/date handling, year rollover and DST fixtures constrain Codex text-reset policy. Numeric future exhausted-window reset wins over text; real cat-port metadata tracks independent exhausted windows, retains absent patch facts, clears recovered windows and expires at deadline. Invalid/expired explicit hints remain nil. Provider-specific policy differs from Claude and must survive shared extraction; parsing alone does not establish scheduler resume. Schema validates configured IANA zone.",
+    "Pure notification extraction fixes roles, provider/fallback turn identity, delta markers, command action/output/workdir, nonzero exit title, parsed tool input/output and string-keyed false success. File edit output and skip rules are exact; no renderer or real-provider behavior is exercised. Non-interactive and display formatting remain separate boundaries.",
+    "Direct handlers with real cat ports and private ProviderTurnLedger stores constrain exact/idempotent terminal retirement, accepted-ID retirement before resume, pending control generation, hard error versus quota pause and paired idle/interrupted completion. Closed tool-response port returns terminal error after tool execution and suppresses completion event; oversized output round-trips through private workspace spill. Real account owner plus injected private availability observer tests reduced account/rate events, unknown lifecycle invalidation and sentinel exclusion from outcomes/logs, including paused RPC routing. Explicit unlimited clears availability without rotating account identity. Live turn defers notification checkpoint; idle pending interrupt preserves other state. First emits-before-completing test asserts callback event presence only after synchronous return, not an independently observed ordering boundary. Script-free direct tests do not establish provider/TUI behavior.",
+    "Fixed-clock pure policy plus private ModelAvailability persistence verifies expired text receives 300-second minimum, configurable 60-second minimum, repeated refusal holds of 300/600/1200/2400/3600/3600 seconds, streak reset after long absence and unchanged future numeric reset. Exact just-before/at decisions guard timing; fresh unknown refusal does not inherit expired deadline. Real cat-port exhausted-window metadata checks bare patch clears snapshot bucket. Helper invokes policy and ledger explicitly as runner would; does not prove automatic scheduler wiring or wall-clock resume.",
+    "Scripted app-server integration drives real CodingAgent sessions through numeric quota pause, stale completion on resumed turn, text-reset fallback after below-100 update, quoted assistant/tool refusal and bounded silent timeout. TurnAlerts persistence, direct orchestrator control handlers and fallback reconcile constrain provider-limited versus human-waiting state, unchanged retry budget and resume-message boundary at reset. Operator/global/label pauses survive both working and paused starting status and are never converted into automatic quota recovery. This is a fake provider and manually invoked reconciliation with a resume message to the test process, not proof of real provider recovery or rendered UI.",
+    "Exact answer choices cover session approval preference, once fallback, allow-label fallback, multiple questions and rejection/missing shape. Returned descriptive third tuple remains session-approval text even for once/allow answers; tests intentionally expect that current contract, not actual granted authority. Unavailable answers compare helper value per question; helper separately requires non-interactive wording. No provider approval execution or transport confirmation."
   ],
   "cross_references": [
     {
@@ -473,5 +537,5 @@
       "next": "Check intended schema policy and other default guards before deciding whether to promote, correct comment, or deduplicate."
     }
   ],
-  "next": "53/100 full files, 12276/40603 lines. Continue Codex notification_policy, rate_limit_adapter, reset_time, transcript, turn_loop, usage_limit_backoff, usage_limit and user_input_answers; then remaining executor/usage/web/launcher manifest. One confirmed P2 and two unverified candidates; raw unit incomplete."
+  "next": "61/100 full files, 14787/40603 lines. Codex manifest complete. Continue remaining executor, usage, web and launcher files. One confirmed P2 and two unverified candidates; raw unit incomplete."
 }
