@@ -1074,3 +1074,7 @@ Read start_session, state_label, stop_session and string_or_nil: 44 literal entr
 ### Name duplication: periodic work and conditional updates
 
 Read tick, to_json_safe, unavailable_state and update_issue_state: 28 literal entries across four families. Shared monitor control flow and expected-state option parsing are narrow candidates. Preserve scheduling ownership, wire schemas, degraded processing versus disabled writes, and conditional-update support. Name triage now 214 families/4583 entries, leaving 1466 cross-module names. Raw findings and skeptic counts are unchanged; atomicity, public redaction and runtime completion are not claimed.
+
+### Name duplication: acceptance and attribution semantics
+
+Read window, accept, active? and actor_label: 41 literal entries across four families. Two consumer-label helpers are identical; preserve namespace/default semantics elsewhere. Window and active predicates span different populations, while acceptance preserves generation, version, deduplication and durable-ID prerequisites. Name triage now 218 families/4624 entries, leaving 1462 cross-module names. Raw findings and skeptic counts are unchanged; no runtime completion or saving is claimed.
