@@ -878,3 +878,7 @@ Read44health clauses in27modules and28freshness clauses in19modules. Separate so
 ### Name duplication: parsing and positive integers
 
 Read33positive_integer clauses in17modules and39parse definitions/declarations in21modules. Preserve complete-string versus prefix parsing, bounded versions, defaults, error envelopes and streaming state. Matching model-list bodies call different provider converters; reviewed those helper differences before considering shared envelope iteration. Name triage now19families/587literal entries. No new runtime bug or savings count; remaining sweep stays open.
+
+### Name duplication: snapshot ownership and observations
+
+Read all 63 snapshot definitions/declarations in 52 modules. Preserve process identity/timeouts, authority and generation scopes, provider validation, redaction, freshness/provenance/truncation, and distinct unavailable-data envelopes. Multi-source reads do not establish a transaction merely by returning one map. Empty-shaped failure fallbacks need consumer review before defect classification. Name triage now 20 families/650 literal entries; no new runtime defect or savings claim, and the broader sweep remains open.
