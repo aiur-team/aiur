@@ -268,3 +268,33 @@ Tooling validation used Elixir 1.19.5 / OTP 28.5. Ensure both `elixir` and
 selection. A rerun without that setup failed before parsing; with both installed
 binaries on PATH, all fixture assertions passed. The full production-source
 parse was deterministic and all 1,032 hashes matched the frozen Git commit.
+
+## Duplication context checkpoint: 51 of 126 clusters
+
+Thirty more exact-body clusters have source-span assessments, bringing the
+triage to 53 total clusters, 51 in the final population and two below its size
+threshold. Seventy-five final candidates remain. The name, near-duplicate,
+concept and constant sweeps and inherited-finding reconciliation remain open;
+review-unit and claim completion counts are unchanged.
+
+Concrete constraints for the package plan:
+
+- Git origin discovery and ordered ticket-branch candidates already have
+  plausible existing owners; do not create a generic utility package for them.
+- Filesystem preconditions that allow missing files differ from post-write
+  checks requiring a visible regular file, even when names match. Preserve
+  symlink/type error distinctions; lstat prechecks are not atomic guarantees.
+- Decision request validation, persisted codec shape checks and collision-aware
+  key normalization are cohesive candidates with distinct contracts. Retain
+  field-tagged errors, redaction order and duplicate-key rejection.
+- Usage coverage decoders have matching success shapes but different error
+  tags. Keep checkpoint/block failure attribution at their format boundaries.
+- Daemon streams have different filenames; history servers have different
+  topics and messages. Matching bodies that reference attributes do not imply
+  equivalent destinations or permission to merge processes.
+- Financial-data access currently requires both authorized capability and a
+  verified context. Any shared gate must preserve both conditions.
+
+All sites recorded in the triage were checked against the census source
+hashes. These are source-grounded ownership candidates, not measured savings,
+production fixes, or completed raw review units. No production code changed.

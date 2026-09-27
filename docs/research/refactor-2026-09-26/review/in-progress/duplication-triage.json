@@ -1306,9 +1306,1065 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "body_sha256": "09fe9a34307d105ead8079ef2c921a6f3737a9e2ee2cd8aefddf8dca77fc41b8",
+      "in_final_candidate_population": true,
+      "disposition": "git_origin_detection_candidate",
+      "assessment": "Both parse functions and their complete origin-detection callers match: git remote get-url origin, trim output, parse final two path segments, nil on command failure/exception. Reuse the existing Git origin boundary from init rather than maintain a second parser. Preserve current permissive SSH/HTTPS/path handling during extraction; this syntax does not validate the host or prove the remote is GitHub.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 158,
+          "module": "Aiur.Git",
+          "name": "parse_origin_url",
+          "path": "src/lib/aiur/git.ex",
+          "kind": "def",
+          "end_line": 167,
+          "body_sha256": "09fe9a34307d105ead8079ef2c921a6f3737a9e2ee2cd8aefddf8dca77fc41b8",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 297,
+          "module": "Aiur.Init.GitHub",
+          "name": "parse_repo",
+          "path": "src/lib/aiur/init/github.ex",
+          "kind": "def",
+          "end_line": 306,
+          "body_sha256": "09fe9a34307d105ead8079ef2c921a6f3737a9e2ee2cd8aefddf8dca77fc41b8",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "0d8861639340a1d5eb88d51092df9b22efbb037707bd38d55c5528c2409aebe5",
+      "in_final_candidate_population": true,
+      "disposition": "decision_text_validation_candidate",
+      "assessment": "Both full clause groups agree on missing/type/length/control-character errors and invoke the same Aiur.SecretRedactor after validation. Shared decision-owned bounded text validation is cohesive; preserve trim-before-length, grapheme length, error field attribution, and redaction order. Relates to the previously assessed unsafe_control_chars cluster, not a second package proposal.",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 278,
+          "module": "Aiur.DecisionDelegation",
+          "name": "required_text",
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "kind": "defp",
+          "end_line": 287,
+          "body_sha256": "0d8861639340a1d5eb88d51092df9b22efbb037707bd38d55c5528c2409aebe5",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 970,
+          "module": "Aiur.DecisionEvent",
+          "name": "bounded_required",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 979,
+          "body_sha256": "0d8861639340a1d5eb88d51092df9b22efbb037707bd38d55c5528c2409aebe5",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "a721343f208651fe24ba41ac504f481499e8b1b398d8d1cdd8bca96d0623e130",
+      "in_final_candidate_population": true,
+      "disposition": "build_order_metrics_candidate",
+      "assessment": "Both count distinct projected values only when all metadata records are successful, otherwise nil. Empty input yields zero; placeholder unassigned/unphased values count as groups. Source comments explicitly require catalog/graph parity. Consolidate with lifecycle digest in a provider-neutral BuildOrder metrics boundary, preserving unavailable versus zero and placeholder semantics.",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 170,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "metric_count",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 179,
+          "body_sha256": "a721343f208651fe24ba41ac504f481499e8b1b398d8d1cdd8bca96d0623e130",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 250,
+          "module": "Aiur.BuildOrder.GitHubGraph.Normalizer",
+          "name": "metric_count",
+          "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+          "kind": "defp",
+          "end_line": 259,
+          "body_sha256": "a721343f208651fe24ba41ac504f481499e8b1b398d8d1cdd8bca96d0623e130",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "af0409e37bea820d822b15bdcbc552aa224c8db32e08bbc31a227113039ade4b",
+      "in_final_candidate_population": true,
+      "disposition": "shared_sampling_pattern_not_process_merge",
+      "assessment": "Synchronous sample callbacks repeat the async history policy already assessed, but do not schedule the next timer. Both return :ok even when unavailable. Keep manual sample and periodic scheduling distinct in any ring-helper extraction; do not infer current source availability from the receipt. Related to cluster 244eea1e, not another process boundary.",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 135,
+          "module": "Aiur.GitHub.CacheHistory",
+          "name": "handle_call",
+          "path": "src/lib/aiur/github/cache_history.ex",
+          "kind": "def",
+          "end_line": 144,
+          "body_sha256": "af0409e37bea820d822b15bdcbc552aa224c8db32e08bbc31a227113039ade4b",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 114,
+          "module": "Aiur.GitHub.QuotaHistory",
+          "name": "handle_call",
+          "path": "src/lib/aiur/github/quota_history.ex",
+          "kind": "def",
+          "end_line": 123,
+          "body_sha256": "af0409e37bea820d822b15bdcbc552aa224c8db32e08bbc31a227113039ade4b",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "b9e38693fad0c00eaadcbeca375b92585482f57a4cc7899e124b7858f55acff3",
+      "in_final_candidate_population": true,
+      "disposition": "retain_test_path_suppression",
+      "assessment": "Identical test-environment gates suppress default durable logging while production calls module-local resolve_default_path functions. Retain this safety behavior; matching wrappers do not mean process logs and GitHub request logs share destinations or retention. A shared persistence boundary must continue requiring explicit test paths and must not discover real user state in tests.",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 552,
+          "module": "Aiur.AgentProcessLog",
+          "name": "default_path",
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "kind": "def",
+          "end_line": 560,
+          "body_sha256": "b9e38693fad0c00eaadcbeca375b92585482f57a4cc7899e124b7858f55acff3",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 98,
+          "module": "Aiur.GitHub.RequestLog",
+          "name": "default_path",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "kind": "def",
+          "end_line": 107,
+          "body_sha256": "b9e38693fad0c00eaadcbeca375b92585482f57a4cc7899e124b7858f55acff3",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "022351fa1ff0863539a429707ad1f5810efde0644c9be05eeb20b771e1b3c31f",
+      "in_final_candidate_population": true,
+      "disposition": "filesystem_precondition_candidate",
+      "assessment": "FileOps.regular_or_missing? and ProgressRetention.ensure_regular_file perform identical lstat preconditions. FileOps also has a DIFFERENT ensure_regular_file that requires an existing regular file and reports atomic_write_not_visible. This is a concrete naming trap: share regular-or-missing policy only, preserving post-write visibility checks separately. A precheck is not an atomic no-symlink guarantee; do not strengthen that claim without inspecting the actual write operation.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 28,
+          "module": "Aiur.CurrentRunMembership.Store.FileOps",
+          "name": "regular_or_missing?",
+          "path": "src/lib/aiur/current_run_membership/store/file_ops.ex",
+          "kind": "def",
+          "end_line": 36,
+          "body_sha256": "022351fa1ff0863539a429707ad1f5810efde0644c9be05eeb20b771e1b3c31f",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 497,
+          "module": "Aiur.ProgressRetention",
+          "name": "ensure_regular_file",
+          "path": "src/lib/aiur/progress_retention.ex",
+          "kind": "defp",
+          "end_line": 505,
+          "body_sha256": "022351fa1ff0863539a429707ad1f5810efde0644c9be05eeb20b771e1b3c31f",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "1b6eb2abbb887c2893b882e0ddb85b65e9c070da12ded79a37d78c910ffe0ffa",
+      "in_final_candidate_population": true,
+      "disposition": "decision_persisted_codec_candidate",
+      "assessment": "Three persisted-map readers return the same field-tagged missing_or_invalid error for absent/non-map values. Group with timestamp readers in a decision persistence codec, retaining per-record schema validation outside this shallow shape check. Accepting any map does not establish a valid nested record.",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 1033,
+          "module": "Aiur.DecisionEvent",
+          "name": "fetch_map",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 1038,
+          "body_sha256": "1b6eb2abbb887c2893b882e0ddb85b65e9c070da12ded79a37d78c910ffe0ffa",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 1006,
+          "module": "Aiur.DecisionProjection",
+          "name": "fetch_map",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 1011,
+          "body_sha256": "1b6eb2abbb887c2893b882e0ddb85b65e9c070da12ded79a37d78c910ffe0ffa",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 343,
+          "module": "Aiur.DecisionRevision",
+          "name": "persisted_map",
+          "path": "src/lib/aiur/decision_revision.ex",
+          "kind": "defp",
+          "end_line": 348,
+          "body_sha256": "1b6eb2abbb887c2893b882e0ddb85b65e9c070da12ded79a37d78c910ffe0ffa",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "20eb9a0a3fa9fba25149c61ae19ab195b878fdaaecc7c3a6eebc95d7f77634df",
+      "in_final_candidate_population": true,
+      "disposition": "identity_parser_clause_candidate",
+      "assessment": "Reconciliation and webhook deposit accept positive integers plus positive fully parsed strings; CatalogStore has an unguarded string helper with binary dispatch at its issue_number caller. Matching string bodies support a narrow positive-number parser, not arbitrary identity equivalence. Preserve typed caller boundaries and repository-qualified identity outside the parser.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 306,
+          "module": "Aiur.BuildOrder.CatalogStore",
+          "name": "positive_number",
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "kind": "defp",
+          "end_line": 311,
+          "body_sha256": "20eb9a0a3fa9fba25149c61ae19ab195b878fdaaecc7c3a6eebc95d7f77634df",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 188,
+          "module": "Aiur.BuildOrder.GitHubGraph.Reconciliation",
+          "name": "positive_number",
+          "path": "src/lib/aiur/build_order/github_graph/reconciliation.ex",
+          "kind": "defp",
+          "end_line": 193,
+          "body_sha256": "20eb9a0a3fa9fba25149c61ae19ab195b878fdaaecc7c3a6eebc95d7f77634df",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 718,
+          "module": "Aiur.Events.GithubWebhook.Deposit",
+          "name": "positive_number",
+          "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+          "kind": "defp",
+          "end_line": 723,
+          "body_sha256": "20eb9a0a3fa9fba25149c61ae19ab195b878fdaaecc7c3a6eebc95d7f77634df",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "269df324a56fccccb9694a99324cf4c725d30c0ec79246afa9dc5ed58bef26c6",
+      "in_final_candidate_population": true,
+      "disposition": "retain_periodic_worker_callback",
+      "assessment": "Both workers implement the same refresh-config then enabled? then scan skeleton under the existing PeriodicWorker behavior. Their refresh and scan implementations are module-local policies. Retain the explicit callback unless richer shared lifecycle evidence warrants abstraction; adding a second generic worker layer for this nine-line body is not justified.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 77,
+          "module": "Aiur.Orchestrator.PRHealthScanner",
+          "name": "tick",
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "kind": "def",
+          "end_line": 85,
+          "body_sha256": "269df324a56fccccb9694a99324cf4c725d30c0ec79246afa9dc5ed58bef26c6",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "Aiur.Orchestrator.ReworkRequeue",
+          "name": "tick",
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "kind": "def",
+          "end_line": 119,
+          "body_sha256": "269df324a56fccccb9694a99324cf4c725d30c0ec79246afa9dc5ed58bef26c6",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "44bf396b285ae6fcb2b9cb326b4ec405e7c1cbb5e97da9b5598eab7761377911",
+      "in_final_candidate_population": true,
+      "disposition": "filesystem_remove_policy_candidate",
+      "assessment": "Both remove only a path observed as regular, accept missing as success, reject symlinks/nonregular types and propagate filesystem errors. Candidate for a narrowly named filesystem operation shared by membership markers and ledger pending files. Preserve the error taxonomy and idempotent missing behavior; lstat followed by rm is not an atomic race-proof guarantee.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 87,
+          "module": "Aiur.CurrentRunMembership.Store.TerminalVerification",
+          "name": "remove_marker",
+          "path": "src/lib/aiur/current_run_membership/store/terminal_verification.ex",
+          "kind": "defp",
+          "end_line": 95,
+          "body_sha256": "44bf396b285ae6fcb2b9cb326b4ec405e7c1cbb5e97da9b5598eab7761377911",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 107,
+          "module": "Aiur.UsageLedger.Paths",
+          "name": "discard_pending",
+          "path": "src/lib/aiur/usage_ledger/paths.ex",
+          "kind": "defp",
+          "end_line": 115,
+          "body_sha256": "44bf396b285ae6fcb2b9cb326b4ec405e7c1cbb5e97da9b5598eab7761377911",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "52ac605e20a7ccfd64f83eace5f6a6cb8b45c488cbd37a2ea4ae399b23e4c1ee",
+      "in_final_candidate_population": true,
+      "disposition": "retain_small_text_normalization",
+      "assessment": "Full trim-to-nil clause groups match across Executor attention/CLI and provider request usage. Same implementation is real but these are separate semantic inputs. Executor-local reuse may be cohesive; avoid pulling provider accounting into a generic command utility. Related to earlier blank-string normalization cluster; not independent complexity savings.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 154,
+          "module": "Aiur.ExecutorCommandAttention",
+          "name": "present",
+          "path": "src/lib/aiur/executor_command_attention.ex",
+          "kind": "defp",
+          "end_line": 159,
+          "body_sha256": "52ac605e20a7ccfd64f83eace5f6a6cb8b45c488cbd37a2ea4ae399b23e4c1ee",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 231,
+          "module": "Aiur.ExecutorCommandCLI",
+          "name": "trimmed",
+          "path": "src/lib/aiur/executor_command_cli.ex",
+          "kind": "defp",
+          "end_line": 236,
+          "body_sha256": "52ac605e20a7ccfd64f83eace5f6a6cb8b45c488cbd37a2ea4ae399b23e4c1ee",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 138,
+          "module": "Aiur.Usage.Headless.OpenAICompat.RequestUsage",
+          "name": "string",
+          "path": "src/lib/aiur/usage/headless/open_ai_compat/request_usage.ex",
+          "kind": "defp",
+          "end_line": 143,
+          "body_sha256": "52ac605e20a7ccfd64f83eace5f6a6cb8b45c488cbd37a2ea4ae399b23e4c1ee",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "66f330d8e9de7161947502c219005db7abaab35555a9e7ac87a91c6ab5dff4ff",
+      "in_final_candidate_population": true,
+      "disposition": "web_link_policy_candidate",
+      "assessment": "All three full clause groups permit http/https URI with binary host, else nil. Call sites are rendered hrefs or presenter URL shaping. Centralize web outbound-link policy if consistency is required, without calling it host trust or SSRF protection: it performs neither a host allowlist nor a server fetch. Preserve renderer escaping and rel protections outside this parser.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 181,
+          "module": "AiurWeb.OperatorControlCenter.FleetTable",
+          "name": "trusted_url",
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "kind": "defp",
+          "end_line": 186,
+          "body_sha256": "66f330d8e9de7161947502c219005db7abaab35555a9e7ac87a91c6ab5dff4ff",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 75,
+          "module": "AiurWeb.OperatorControlCenter.RecentOutcomes",
+          "name": "trusted_url",
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "kind": "defp",
+          "end_line": 80,
+          "body_sha256": "66f330d8e9de7161947502c219005db7abaab35555a9e7ac87a91c6ab5dff4ff",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 315,
+          "module": "AiurWeb.OperatorControlCenter.CurrentRunOutcomesPresenter",
+          "name": "trusted_url",
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "kind": "defp",
+          "end_line": 320,
+          "body_sha256": "66f330d8e9de7161947502c219005db7abaab35555a9e7ac87a91c6ab5dff4ff",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "7cfdedecbb588a7a8b3b13b07634b7b42000ab9802ed9a958b45817b27b69b07",
+      "in_final_candidate_population": true,
+      "disposition": "bridge_address_resolution_candidate",
+      "assessment": "Read BridgePort and BridgeSupervisor callers. Availability probing and actual Bandit binding parse the same host independently and both fall back to loopback on parse failure. Resolve address once in the bridge boundary so port probing and binding cannot drift. Preserve default-port scanning versus explicitly pinned port failure; changing malformed-host fallback would be a separate behavior decision.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 113,
+          "module": "Aiur.Opencode.BridgePort",
+          "name": "parse_ip",
+          "path": "src/lib/aiur/opencode/bridge_port.ex",
+          "kind": "defp",
+          "end_line": 121,
+          "body_sha256": "7cfdedecbb588a7a8b3b13b07634b7b42000ab9802ed9a958b45817b27b69b07",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 57,
+          "module": "Aiur.Opencode.BridgeSupervisor",
+          "name": "parse_ip",
+          "path": "src/lib/aiur/opencode/bridge_supervisor.ex",
+          "kind": "defp",
+          "end_line": 65,
+          "body_sha256": "7cfdedecbb588a7a8b3b13b07634b7b42000ab9802ed9a958b45817b27b69b07",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "9e1fd475cf63e9240377769da4488ae64dd33f0b310c3ca8a420c1181c185836",
+      "in_final_candidate_population": true,
+      "disposition": "build_order_options_candidate",
+      "assessment": "Three BuildOrder option modules implement identical bounded-positive selection with caller-supplied key/default/maximum. A BuildOrder-owned options helper could share this pure policy while each service retains its limits, runtime-config cadence and defaults. Do not generalize all positive-option helpers: the previously assessed unbounded policy lacks this upper-bound contract.",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 219,
+          "module": "Aiur.BuildOrder.GraphProjection.Options",
+          "name": "positive",
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "kind": "defp",
+          "end_line": 224,
+          "body_sha256": "9e1fd475cf63e9240377769da4488ae64dd33f0b310c3ca8a420c1181c185836",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 51,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.Options",
+          "name": "bounded_positive_option",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex",
+          "kind": "defp",
+          "end_line": 56,
+          "body_sha256": "9e1fd475cf63e9240377769da4488ae64dd33f0b310c3ca8a420c1181c185836",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 72,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider.Options",
+          "name": "bounded_positive",
+          "path": "src/lib/aiur/build_order/ticket_history_provider_options.ex",
+          "kind": "defp",
+          "end_line": 77,
+          "body_sha256": "9e1fd475cf63e9240377769da4488ae64dd33f0b310c3ca8a420c1181c185836",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "ab29f67398b3a453908ed92cbe5653fdeac8a25aff07618d1e228cef0f31dcd4",
+      "in_final_candidate_population": true,
+      "disposition": "github_repository_resolution_candidate",
+      "assessment": "Three source/sweep helpers accept repo_fun {:ok,{owner,repo}} binaries and lowercase both; other returned shapes become nil. They do not rescue callback exceptions, validate nonempty values, or resolve tracker-neutral identity. Share only within the GitHub repository boundary if extracted; preserve degraded listing and source-specific behavior in callers.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 406,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "resolve_repo",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 411,
+          "body_sha256": "ab29f67398b3a453908ed92cbe5653fdeac8a25aff07618d1e228cef0f31dcd4",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 164,
+          "module": "Aiur.GitHub.ViewStateSweep",
+          "name": "resolve_repo",
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "kind": "defp",
+          "end_line": 169,
+          "body_sha256": "ab29f67398b3a453908ed92cbe5653fdeac8a25aff07618d1e228cef0f31dcd4",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 484,
+          "module": "Aiur.OpenTicketSource",
+          "name": "resolve_repo",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 489,
+          "body_sha256": "ab29f67398b3a453908ed92cbe5653fdeac8a25aff07618d1e228cef0f31dcd4",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "adfa967d1332e53aeb27ae55f7425c1861636445dfaa9d190d20008d3864f74f",
+      "in_final_candidate_population": true,
+      "disposition": "decision_persisted_codec_candidate",
+      "assessment": "Three persisted string readers agree on nonempty binary and field-tagged missing_or_invalid; whitespace-only binaries remain accepted. Group with map/timestamp readers in the decision codec, preserving this shallow persisted shape contract separately from request-time trimming/redaction.",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 1011,
+          "module": "Aiur.DecisionEvent",
+          "name": "fetch_string",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 1016,
+          "body_sha256": "adfa967d1332e53aeb27ae55f7425c1861636445dfaa9d190d20008d3864f74f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 1020,
+          "module": "Aiur.DecisionProjection",
+          "name": "fetch_string",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 1025,
+          "body_sha256": "adfa967d1332e53aeb27ae55f7425c1861636445dfaa9d190d20008d3864f74f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 329,
+          "module": "Aiur.DecisionRevision",
+          "name": "persisted_string",
+          "path": "src/lib/aiur/decision_revision.ex",
+          "kind": "defp",
+          "end_line": 334,
+          "body_sha256": "adfa967d1332e53aeb27ae55f7425c1861636445dfaa9d190d20008d3864f74f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "c7475642840f983f44f44ab0d3281cfc7ce5d90a6998c53c79bf13405e418870",
+      "in_final_candidate_population": true,
+      "disposition": "ticket_branch_candidates_candidate",
+      "assessment": "Both poll batches alias Aiur.TicketBranch and generate title-derived branch first, legacy second, deduplicating when equal. Put ordered branch candidates in the existing ticket-branch boundary so CI and comment lookup evolve together. Preserve known-branch precedence outside this helper; no API saving measured from consolidation.",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 167,
+          "module": "Aiur.GitHub.CIPollBatch",
+          "name": "guessed_branches",
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 175,
+          "body_sha256": "c7475642840f983f44f44ab0d3281cfc7ce5d90a6998c53c79bf13405e418870",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 204,
+          "module": "Aiur.GitHub.CommentPollBatch",
+          "name": "guessed_branches",
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "kind": "defp",
+          "end_line": 212,
+          "body_sha256": "c7475642840f983f44f44ab0d3281cfc7ce5d90a6998c53c79bf13405e418870",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "ea8c513143c021ecd1f9ae2b05ef1a8db46f4310b7212f28b04a03b161446ea3",
+      "in_final_candidate_population": true,
+      "disposition": "decision_persisted_codec_candidate",
+      "assessment": "Version/positive-integer persisted readers share the same positive-integer shape check and field-tagged error. Group with decision codec helpers, but retain record-specific supported-version validation; accepting a positive version number is not proving that version is supported.",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 1018,
+          "module": "Aiur.DecisionEvent",
+          "name": "fetch_version",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 1023,
+          "body_sha256": "ea8c513143c021ecd1f9ae2b05ef1a8db46f4310b7212f28b04a03b161446ea3",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 1013,
+          "module": "Aiur.DecisionProjection",
+          "name": "fetch_pos_integer",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 1018,
+          "body_sha256": "ea8c513143c021ecd1f9ae2b05ef1a8db46f4310b7212f28b04a03b161446ea3",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 336,
+          "module": "Aiur.DecisionRevision",
+          "name": "persisted_positive_integer",
+          "path": "src/lib/aiur/decision_revision.ex",
+          "kind": "defp",
+          "end_line": 341,
+          "body_sha256": "ea8c513143c021ecd1f9ae2b05ef1a8db46f4310b7212f28b04a03b161446ea3",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "fda049e3be6dfada981165bacc2bc6536eb85c322279a641fca7d4fa76dcdc44",
+      "in_final_candidate_population": true,
+      "disposition": "daemon_log_path_policy_candidate",
+      "assessment": "Both resolve configured daemon log or the same LogFile default, then join a DIFFERENT @filename: telemetry.ndjson versus saturation.log. Share parent-directory resolution if owned by daemon logging; never coalesce the streams based on this body hash. Attribute values are part of behavior despite identical AST bodies.",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 61,
+          "module": "Aiur.RunTelemetry",
+          "name": "telemetry_file",
+          "path": "src/lib/aiur/run_telemetry.ex",
+          "kind": "def",
+          "end_line": 69,
+          "body_sha256": "fda049e3be6dfada981165bacc2bc6536eb85c322279a641fca7d4fa76dcdc44",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 63,
+          "module": "Aiur.SaturationSentinel",
+          "name": "file_path",
+          "path": "src/lib/aiur/saturation_sentinel.ex",
+          "kind": "def",
+          "end_line": 71,
+          "body_sha256": "fda049e3be6dfada981165bacc2bc6536eb85c322279a641fca7d4fa76dcdc44",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a",
+      "in_final_candidate_population": true,
+      "disposition": "financial_access_gate_candidate",
+      "assessment": "Verified both aliases reference AiurWeb.FinancialDataAccess. Both require authorized capability state AND a typed verified context, else locked. Candidate for a single access-module gate used by both web runtimes; preserve the conjunction rather than accepting context alone or capability alone. This body review does not establish revocation coverage at every protected call site.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 406,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "authorized_context",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 413,
+          "body_sha256": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1420,
+          "module": "AiurWeb.DashboardLive",
+          "name": "authorized_context",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 1427,
+          "body_sha256": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "21e1352d2a6a4f0dfc7e68413b19e23c719e044e5f56ba030af039d45d33382b",
+      "in_final_candidate_population": true,
+      "disposition": "decision_key_normalization_candidate",
+      "assessment": "Read both normalize_key and accumulate_key implementations: atom/string keys normalize to strings; non-atom/string keys fail; collisions are rejected rather than silently overwritten. A decision-owned normalization helper can preserve this full contract. Do not replace with Map.new stringification, which would erase duplicate-field rejection.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 298,
+          "module": "Aiur.DecisionDelegation",
+          "name": "normalize_keys",
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "kind": "defp",
+          "end_line": 305,
+          "body_sha256": "21e1352d2a6a4f0dfc7e68413b19e23c719e044e5f56ba030af039d45d33382b",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 178,
+          "module": "Aiur.DecisionEnrichment",
+          "name": "normalize_keys",
+          "path": "src/lib/aiur/decision_enrichment.ex",
+          "kind": "defp",
+          "end_line": 185,
+          "body_sha256": "21e1352d2a6a4f0dfc7e68413b19e23c719e044e5f56ba030af039d45d33382b",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "3344eed0457b6275071fecbb4f661094a317f0515a52dcf88e0725fd52bfa06d",
+      "in_final_candidate_population": true,
+      "disposition": "retain_local_failure_policy",
+      "assessment": "Both AgentList safe_call wrappers collapse exceptions, exits and throws to nil. Candidate for local TUI reuse only after reviewing each caller purpose; do not promote broad failure swallowing into a repository utility. A nil result cannot distinguish unavailable from a legitimate nil return, and identical bodies do not justify extending that policy.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 137,
+          "module": "Aiur.AgentList.Activation",
+          "name": "safe_call",
+          "path": "src/lib/aiur/agent_list/activation.ex",
+          "kind": "defp",
+          "end_line": 144,
+          "body_sha256": "3344eed0457b6275071fecbb4f661094a317f0515a52dcf88e0725fd52bfa06d",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 334,
+          "module": "Aiur.AgentList.App",
+          "name": "safe_call",
+          "path": "src/lib/aiur/agent_list/app.ex",
+          "kind": "defp",
+          "end_line": 341,
+          "body_sha256": "3344eed0457b6275071fecbb4f661094a317f0515a52dcf88e0725fd52bfa06d",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "5168c0e1fb5485d23ec71cc9ba8388cdc5b542b71f4007d9c28f1ba574d0b188",
+      "in_final_candidate_population": true,
+      "disposition": "history_topic_specific_wrapper",
+      "assessment": "Both broadcast count best-effort but @topic and @message differ: github:cache:history/cache_history_sampled versus github:quota:history/quota_history_sampled. Related to the history-ring pattern already assessed. Preserve stream identity and failure policy; a shared helper needs explicit topic/message inputs, and this is not a duplicate notification stream.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 183,
+          "module": "Aiur.GitHub.CacheHistory",
+          "name": "broadcast",
+          "path": "src/lib/aiur/github/cache_history.ex",
+          "kind": "defp",
+          "end_line": 190,
+          "body_sha256": "5168c0e1fb5485d23ec71cc9ba8388cdc5b542b71f4007d9c28f1ba574d0b188",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 178,
+          "module": "Aiur.GitHub.QuotaHistory",
+          "name": "broadcast",
+          "path": "src/lib/aiur/github/quota_history.ex",
+          "kind": "defp",
+          "end_line": 185,
+          "body_sha256": "5168c0e1fb5485d23ec71cc9ba8388cdc5b542b71f4007d9c28f1ba574d0b188",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "8009e1b839cb7c7377ffd906e88ce080acd6ad5fdd19c9105687a20abd6e03db",
+      "in_final_candidate_population": true,
+      "disposition": "usage_coverage_codec_with_error_adapter",
+      "assessment": "Read bounded and reason decoders in both modules. Successful shape and uint64 maximum agree; reasons become a set using existing atoms. Failures differ intentionally: invalid_checkpoint versus invalid_block. Share coverage validation only with explicit error adaptation at each persisted-record boundary; equal top-level bodies currently call different error-producing helpers.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 130,
+          "module": "Aiur.UsageAggregate.Checkpoint",
+          "name": "decode_coverage",
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "kind": "defp",
+          "end_line": 137,
+          "body_sha256": "8009e1b839cb7c7377ffd906e88ce080acd6ad5fdd19c9105687a20abd6e03db",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 255,
+          "module": "Aiur.UsageCompaction.Block",
+          "name": "decode_coverage",
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "kind": "defp",
+          "end_line": 262,
+          "body_sha256": "8009e1b839cb7c7377ffd906e88ce080acd6ad5fdd19c9105687a20abd6e03db",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "87d6ecc60de2e6e32f1f6d49418d6ffca94ec82d414459082822bcf1bd726b44",
+      "in_final_candidate_population": true,
+      "disposition": "github_source_subscription_set_candidate",
+      "assessment": "Verified ResourceStore, ModeRegistry and ViewStateSweep aliases resolve identically. Both issue sources subscribe to issue/labels/mode/recovery/divergence events in the same order. This is a coherent subscription-set candidate within GitHub source support; source snapshots, notifications and lifecycle remain distinct. Do not infer successful subscription from unconditional final :ok without inspecting returned errors.",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 387,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "subscribe_to_events",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 394,
+          "body_sha256": "87d6ecc60de2e6e32f1f6d49418d6ffca94ec82d414459082822bcf1bd726b44",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 465,
+          "module": "Aiur.OpenTicketSource",
+          "name": "subscribe_to_events",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 472,
+          "body_sha256": "87d6ecc60de2e6e32f1f6d49418d6ffca94ec82d414459082822bcf1bd726b44",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "a0149ed4dfb614467bdeecabc67b9fddd8135d31541058fcee53480941579315",
+      "in_final_candidate_population": true,
+      "disposition": "usage_ticket_normalization_candidate",
+      "assessment": "Read both ticket_key helpers: both call TrackerIdentity.github_key, deduplicate valid keys and count rejected entries. Query has non-list fallback to empty while Scope helper lacks it. Share the list normalization primitive in usage identity/scoping, preserving each public entry point input policy; avoid counting duplicates as rejected tickets.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 113,
+          "module": "Aiur.Usage.GroupedScopes.Scope",
+          "name": "normalize_tickets",
+          "path": "src/lib/aiur/usage/grouped_scopes/scope.ex",
+          "kind": "defp",
+          "end_line": 120,
+          "body_sha256": "a0149ed4dfb614467bdeecabc67b9fddd8135d31541058fcee53480941579315",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 58,
+          "module": "Aiur.UsageAggregate.Query",
+          "name": "normalize_tickets",
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "kind": "defp",
+          "end_line": 65,
+          "body_sha256": "a0149ed4dfb614467bdeecabc67b9fddd8135d31541058fcee53480941579315",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "a9d73fb3e742030c31ba5f0edfd54f10931604c59d1e0dbe61b31323fdb2183b",
+      "in_final_candidate_population": true,
+      "disposition": "agent_support_installation_candidate",
+      "assessment": "Both ensure a directory with the same agent-support error tuples, create a missing path with mkdir, and reject other lstat types including symlinks. Cohesive candidate for existing agent support installation ownership. Retain explicit unsafe/unavailable distinction and nonrecursive mkdir semantics; atomic script installation and credential handling remain separate review concerns.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 98,
+          "module": "Aiur.AgentCommandInstaller",
+          "name": "ensure_directory",
+          "path": "src/lib/aiur/agent_command_installer.ex",
+          "kind": "defp",
+          "end_line": 105,
+          "body_sha256": "a9d73fb3e742030c31ba5f0edfd54f10931604c59d1e0dbe61b31323fdb2183b",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 485,
+          "module": "Aiur.AgentGitHubGuard",
+          "name": "ensure_directory",
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "kind": "defp",
+          "end_line": 492,
+          "body_sha256": "a9d73fb3e742030c31ba5f0edfd54f10931604c59d1e0dbe61b31323fdb2183b",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "e0c1035c8184dfdd63436724e01ac40c641631ae796f4b889c595316d68c9116",
+      "in_final_candidate_population": true,
+      "disposition": "history_topic_specific_wrapper",
+      "assessment": "Both best-effort unsubscribe bodies use different history @topic values. Related to the same history notification support pattern, not independently removable behavior. Preserve which process subscribes/unsubscribes and topic isolation in any extraction.",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 105,
+          "module": "Aiur.GitHub.CacheHistory",
+          "name": "unsubscribe",
+          "path": "src/lib/aiur/github/cache_history.ex",
+          "kind": "def",
+          "end_line": 112,
+          "body_sha256": "e0c1035c8184dfdd63436724e01ac40c641631ae796f4b889c595316d68c9116",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 82,
+          "module": "Aiur.GitHub.QuotaHistory",
+          "name": "unsubscribe",
+          "path": "src/lib/aiur/github/quota_history.ex",
+          "kind": "def",
+          "end_line": 89,
+          "body_sha256": "e0c1035c8184dfdd63436724e01ac40c641631ae796f4b889c595316d68c9116",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "e23f51a796950f29a351db28b99440a214bea12d052351c39da7fd2d4dd4ae9a",
+      "in_final_candidate_population": true,
+      "disposition": "escape_primitive_boundary_question",
+      "assessment": "Both escape ampersand first, then angle brackets, double quote and apostrophe into identical HTML entities. Events sanitizer and web Markdown have different surrounding responsibilities; avoid making core events depend on a web module merely to reuse five replacements. Consider an existing low-level escape primitive only after checking exact entity output and double-escaping contracts; this does not make the entire sanitizers equivalent.",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 385,
+          "module": "Aiur.Events.Sanitizer",
+          "name": "html_escape",
+          "path": "src/lib/aiur/events/sanitizer.ex",
+          "kind": "defp",
+          "end_line": 392,
+          "body_sha256": "e23f51a796950f29a351db28b99440a214bea12d052351c39da7fd2d4dd4ae9a",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 168,
+          "module": "AiurWeb.Markdown",
+          "name": "escape",
+          "path": "src/lib/aiur_web/markdown.ex",
+          "kind": "defp",
+          "end_line": 175,
+          "body_sha256": "e23f51a796950f29a351db28b99440a214bea12d052351c39da7fd2d4dd4ae9a",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "body_sha256": "f01e92e4aa26b642da9b243519903e369f04bc0169d5611568cdb78e1f6cf1d1",
+      "in_final_candidate_population": true,
+      "disposition": "history_topic_specific_wrapper",
+      "assessment": "Best-effort subscribe bodies match but subscribe to separate cache/quota history topics. Group with broadcast/unsubscribe and sampling findings as one potential history-support abstraction, not five independent saving opportunities. Keep typed event ownership and unavailable behavior explicit.",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 94,
+          "module": "Aiur.GitHub.CacheHistory",
+          "name": "subscribe",
+          "path": "src/lib/aiur/github/cache_history.ex",
+          "kind": "def",
+          "end_line": 101,
+          "body_sha256": "f01e92e4aa26b642da9b243519903e369f04bc0169d5611568cdb78e1f6cf1d1",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 71,
+          "module": "Aiur.GitHub.QuotaHistory",
+          "name": "subscribe",
+          "path": "src/lib/aiur/github/quota_history.ex",
+          "kind": "def",
+          "end_line": 78,
+          "body_sha256": "f01e92e4aa26b642da9b243519903e369f04bc0169d5611568cdb78e1f6cf1d1",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "remaining_exact_clusters": 105,
+  "remaining_exact_clusters": 75,
   "next": [
     "Inspect remaining candidate clusters and matching lexical context.",
     "Inspect top repeated-name families; callback/name frequency is not duplication evidence.",
@@ -1317,6 +2373,6 @@
     "Only then publish dup-by-name and dup-by-body raw unit findings."
   ],
   "limits": "No removal, latency or cost saving measured. Function span totals are candidate volume, not removable LOC. No production functions compiled or executed; parser fixture tests exercise research tooling only.",
-  "reviewed_final_candidate_clusters": 21,
-  "remaining_final_candidate_clusters": 105
+  "reviewed_final_candidate_clusters": 51,
+  "remaining_final_candidate_clusters": 75
 }
