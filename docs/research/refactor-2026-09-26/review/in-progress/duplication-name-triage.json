@@ -59582,10 +59582,407 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "cache_key",
+      "assessment": "Cache keys encode different authority, provider and freshness boundaries.",
+      "constraints": [
+        "TicketDetailCoordinator.Policy uses kind, case-folded repository identity and provider ID. GroupedScopes uses scope plus authority. UsageRuntime extends public scope and authority epoch with aggregate generation.",
+        "FinancialData.Cache includes configuration/connection generations, source and key. PayloadLoader uses identities for four providers plus snapshot timeout.",
+        "These tuples prevent different classes of accidental reuse. A common cache-key abstraction must preserve all discriminators; similar tuple construction is not duplicate domain policy."
+      ],
+      "clauses": 5,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 24,
+          "module": "Aiur.BuildOrder.TicketDetailCoordinator.Policy",
+          "name": "cache_key",
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_policy.ex",
+          "kind": "def",
+          "end_line": 25,
+          "body_sha256": "090ced889acf8ef16ed2d384de1676d05bdce92ef1bbe666eeecaf776637fda3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 510,
+          "module": "Aiur.Usage.GroupedScopes",
+          "name": "cache_key",
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "kind": "def",
+          "end_line": 510,
+          "body_sha256": "4ea86a0e4ba444c47d860fb231c1b0d903e3171f8a87fede8a70041958a4c935",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 302,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "cache_key",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 304,
+          "body_sha256": "834858891af5d5bfee27f2086daa332d9480ace6a9af497beafb59990d45b5bc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 132,
+          "module": "AiurWeb.FinancialData.Cache",
+          "name": "cache_key",
+          "path": "src/lib/aiur_web/financial_data/cache.ex",
+          "kind": "defp",
+          "end_line": 133,
+          "body_sha256": "8bf11968e24cf533cf7820ff4c5b4ed5f45266090dc20d096c2158b04ea1a74b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 166,
+          "module": "AiurWeb.OperatorControlCenter.PayloadLoader",
+          "name": "cache_key",
+          "path": "src/lib/aiur_web/operator_control_center/payload_loader.ex",
+          "kind": "defp",
+          "end_line": 174,
+          "body_sha256": "424ab52e93fff76ef2978163fae460c59e363d37c6d04e4a1067823a5cf270d0",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "cancel_timer",
+      "assessment": "Timer cancellation differs in mailbox draining and return-value contracts.",
+      "constraints": [
+        "CoordinationTasks cancels and, if cancellation reports false, drains the matching coordination_timeout ref with a zero-time receive. Other family members do not perform this message-specific drain.",
+        "DecisionAttention and GithubBudgetPause validate reference fields and return :ok. AppTokenRefresher handles nil then cancels its refresh timer; PauseContainment returns the raw Process.cancel_timer result for references.",
+        "Shared reference-checking mechanics are possible, but a generic helper must not drop timeout correlation, assume cancellation removes queued messages, or silently change the raw-result contract. Handler-level stale-message protection is not verified here."
+      ],
+      "clauses": 9,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 193,
+          "module": "Aiur.CoordinationTasks",
+          "name": "cancel_timer",
+          "path": "src/lib/aiur/coordination_tasks.ex",
+          "kind": "defp",
+          "end_line": 193,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 195,
+          "module": "Aiur.CoordinationTasks",
+          "name": "cancel_timer",
+          "path": "src/lib/aiur/coordination_tasks.ex",
+          "kind": "defp",
+          "end_line": 207,
+          "body_sha256": "9274a4022a7a68eb1cb3ce200e480a083aadaced2e34c570ada4746476bcd9c7",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 471,
+          "module": "Aiur.DecisionAttention",
+          "name": "cancel_timer",
+          "path": "src/lib/aiur/decision_attention.ex",
+          "kind": "defp",
+          "end_line": 474,
+          "body_sha256": "d1e5398ca858f0ced81002394f4a153c13d2ac4dec36097465f250196257e4c6",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 476,
+          "module": "Aiur.DecisionAttention",
+          "name": "cancel_timer",
+          "path": "src/lib/aiur/decision_attention.ex",
+          "kind": "defp",
+          "end_line": 476,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 330,
+          "module": "Aiur.GitHub.AppTokenRefresher",
+          "name": "cancel_timer",
+          "path": "src/lib/aiur/github/app_token_refresher.ex",
+          "kind": "defp",
+          "end_line": 330,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 332,
+          "module": "Aiur.GitHub.AppTokenRefresher",
+          "name": "cancel_timer",
+          "path": "src/lib/aiur/github/app_token_refresher.ex",
+          "kind": "defp",
+          "end_line": 335,
+          "body_sha256": "c0477d82906d03c6a6e0671696106b0b97e24ad46e541f081762dd48fd270414",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 83,
+          "module": "Aiur.Orchestrator.GithubBudgetPause",
+          "name": "cancel_timer",
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "kind": "def",
+          "end_line": 90,
+          "body_sha256": "8a7cf48f213d87a5d9410854113b81660857eda7568b20c2e9c3aab364a05f97",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 399,
+          "module": "Aiur.PauseContainment",
+          "name": "cancel_timer",
+          "path": "src/lib/aiur/pause_containment.ex",
+          "kind": "defp",
+          "end_line": 399,
+          "body_sha256": "98740361244b5c4b02f669693918ff313d578278f6b52db41ad5530a4f751eab",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 400,
+          "module": "Aiur.PauseContainment",
+          "name": "cancel_timer",
+          "path": "src/lib/aiur/pause_containment.ex",
+          "kind": "defp",
+          "end_line": 400,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "check",
+      "assessment": "Check functions provide different evidence and failure policy.",
+      "constraints": [
+        "BrokerTimeout sends a monotonic-time check to its owner and returns :ok even on argument errors or owner exits. That result is not evidence that the owner completed a check.",
+        "CiReadiness resolves repository/auth and wraps request execution with a deadline. GraphQLCost rejects only priceable estimates exceeding its ceiling and permits unpriceable queries at this entry point.",
+        "SupervisionHealth already delegates tree traversal to Tree.check and derives healthy count from expected/missing children. These are distinct timeout, readiness, quota and supervision domains, not interchangeable validators."
+      ],
+      "clauses": 6,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 90,
+          "module": "Aiur.GitHub.BrokerTimeout",
+          "name": "check",
+          "path": "src/lib/aiur/github/broker_timeout.ex",
+          "kind": "def",
+          "end_line": 90,
+          "body_sha256": "4bed2594f15353e0221c9397accfba445021f535f075ad27db9bb3ef65760fde",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 94,
+          "module": "Aiur.GitHub.BrokerTimeout",
+          "name": "check",
+          "path": "src/lib/aiur/github/broker_timeout.ex",
+          "kind": "def",
+          "end_line": 102,
+          "body_sha256": "5a98c444a38a35bae91439b6b21cc0672f132e83a1a9f29c30af697ba1792e6c",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 44,
+          "module": "Aiur.GitHub.CiReadiness",
+          "name": "check",
+          "path": "src/lib/aiur/github/ci_readiness.ex",
+          "kind": "def",
+          "end_line": 56,
+          "body_sha256": "7359e42dbb848cb99276ac2b2ac2af93a6b6845e348c8f8c13d86089ab912339",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 277,
+          "module": "Aiur.GitHub.GraphQLCost",
+          "name": "check",
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "kind": "def",
+          "end_line": 294,
+          "body_sha256": "f4aff01d9f6e28c015f9f0d53f8fd487e3f1d1405b95051cb4874112a7c4cb13",
+          "normalized_body_lines": 23,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 40,
+          "module": "Aiur.SupervisionHealth",
+          "name": "check",
+          "path": "src/lib/aiur/supervision_health.ex",
+          "kind": "def",
+          "end_line": 44,
+          "body_sha256": "ce51635e5ae18adfe6b7fa3a1c8bef6720a59a55da716bbb223314162ab7dad3",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 12,
+          "module": "Aiur.SupervisionHealth.Tree",
+          "name": "check",
+          "path": "src/lib/aiur/supervision_health/tree.ex",
+          "kind": "def",
+          "end_line": 18,
+          "body_sha256": "0b27b20427d9829d2d3c3425c23e4c869dde1243becade1953d5e0d35be8a2c9",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "claim",
+      "assessment": "Claims range from best-effort deduplication markers to workspace ownership.",
+      "constraints": [
+        "Executor.Claims delegates an ID/options request to its owner. StartupClaimReconciler.BootMarker writes a boot marker to persistent_term; it is not a durable lease.",
+        "ResourceStore normalizes a version and updates through update_reply, returning already_processed or marked; nil keys return marked without storing. This entry-point read does not certify update_reply contention or persistence guarantees.",
+        "DeliveryLog returns new for an invalid key and supplies new as owner-call fallback. Workspace.Ownership rejects an existing lease before proceeding to receipt checks for an unowned ticket.",
+        "Preserve missing-key, unavailable-owner, version and ownership policies. A generic successful claim must not imply durable deduplication or exclusive ownership across these interfaces."
+      ],
+      "clauses": 8,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 81,
+          "module": "Aiur.Executor.Claims",
+          "name": "claim",
+          "path": "src/lib/aiur/executor/claims.ex",
+          "kind": "def",
+          "end_line": 81,
+          "body_sha256": "e6e4f7bb9e220243e2c7d7d48e8ada29842a16bb6dc2abba8cfb0a4ad45f7cc1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 654,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "claim",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "def",
+          "end_line": 654,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 3,
+          "line": 656,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "claim",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "def",
+          "end_line": 656,
+          "body_sha256": "51812e7b02ef482c539b66e44d36b71d0137d5d8a4d2f418b7fdd59fea68838e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 658,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "claim",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "def",
+          "end_line": 671,
+          "body_sha256": "6b46cc017f1714dd1e6162c747b6329a1dfa01be70631eef79d7bd994a0a9f41",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 27,
+          "module": "Aiur.Orchestrator.StartupClaimReconciler.BootMarker",
+          "name": "claim",
+          "path": "src/lib/aiur/orchestrator/startup_claim_reconciler/boot_marker.ex",
+          "kind": "def",
+          "end_line": 30,
+          "body_sha256": "8e38b36ba9aa71654d7ab1f618d919d3f93715a6e00ba51b69015214f391af4d",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 91,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "claim",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "def",
+          "end_line": 96,
+          "body_sha256": "c1deee9c6d52dea96bbd63f568e6ec7bc5fba8df071ae3ca483dfe4a993b0244",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 28,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "claim",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "9d89367d1c3f5a6793d1ec4610eb37c2aa9f675badfa71cfeb279fbe97d10be9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 35,
+          "module": "Aiur.Workspace.Ownership",
+          "name": "claim",
+          "path": "src/lib/aiur/workspace/ownership.ex",
+          "kind": "def",
+          "end_line": 45,
+          "body_sha256": "0f10b9a99b6bbae638e3101f31c53a11d3e1999e04ac3daeb624cbeabd35a0ca",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 4671,
-  "limits": "222 selected families and 4671 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 4699,
+  "limits": "226 selected families and 4699 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

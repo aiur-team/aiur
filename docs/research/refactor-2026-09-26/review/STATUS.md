@@ -1082,3 +1082,7 @@ Read window, accept, active? and actor_label: 41 literal entries across four fam
 ### Name duplication: attachment and presentation contracts
 
 Read announcement, attach, backend_label and bounded_integer: 47 literal entries across four families. Preserve unavailable/empty/locked announcements, caller ownership, best-effort attachment, routing versus protocol labels and numeric error envelopes. Pagination bounds share mechanics but expose different errors. Name triage now 222 families/4671 entries, leaving 1458 cross-module names. Raw findings and skeptic counts are unchanged; subscription completion and runtime accessibility are not claimed.
+
+### Name duplication: cache authority and claim guarantees
+
+Read cache_key, cancel_timer, check and claim: 28 literal entries across four families. Preserve cache authority discriminators, correlated timeout draining, best-effort checks and deduplication-versus-ownership claim contracts. Name triage now 226 families/4699 entries, leaving 1454 cross-module names. Raw findings and skeptic counts are unchanged; no durable claim, runtime completion or saving is inferred from success-shaped returns.
