@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "80ba9d87036a8ccbbafd18863db4e78445f39e5fa82a03691671320d164e50c3"
+    "name_triage": "09c91515109c90090fc78f0241016532c831c7430d838aae5aa3110ab77468d7"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 449,
-    "remaining_cross_module_names": 1231,
-    "remaining_literal_entries": 4095
+    "reviewed_cross_module_names": 457,
+    "remaining_cross_module_names": 1223,
+    "remaining_literal_entries": 4059
   },
   "families": [
-    {
-      "name": "event_sort_key",
-      "clauses": 6,
-      "modules": 3,
-      "summed_source_span_lines": 19
-    },
-    {
-      "name": "fail",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 28
-    },
-    {
-      "name": "failure_reason",
-      "clauses": 10,
-      "modules": 3,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "fetch_blocked_by",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "fetch_candidate_issues_conditional",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 18
-    },
-    {
-      "name": "fetch_issues_by_states_conditional",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "fetch_pages",
-      "clauses": 5,
-      "modules": 3,
-      "summed_source_span_lines": 62
-    },
-    {
-      "name": "fetch_team_members",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 33
-    },
     {
       "name": "fingerprint",
       "clauses": 3,

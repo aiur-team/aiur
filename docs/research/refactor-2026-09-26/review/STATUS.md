@@ -1222,3 +1222,7 @@ Read default_request_fun, defer, delta, detach, diff_lines, dig, dim and do_broa
 ### Name duplication: encoding and filesystem phases
 
 Read elapsed_seconds, emit_resolution, encode_datetime, encode_value, endpoint, endpoint_config, ensure_regular_file and escape: 38 literal entries across eight families. Verify shared nullable timestamp encoders and endpoint configuration expressions; preserve numeric input contracts, resolution causes, filesystem check phases and shell versus HTML escaping. Name triage now 449 families/6173 entries, leaving 1231 cross-module names. Raw findings and skeptic counts are unchanged; no configuration precedence proof, race-free path safety or blanket escaping guarantee is claimed.
+
+### Name duplication: pagination and failure causes
+
+Read event_sort_key, fail, failure_reason, fetch_blocked_by, fetch_candidate_issues_conditional, fetch_issues_by_states_conditional, fetch_pages and fetch_team_members: 36 literal entries across eight families. Preserve ordering authority, cause classification, conditional-read capabilities and pagination bounds/completeness. Read team and telemetry pagination helpers; distinguish Codeowners single-response membership from Teams traversal without claiming production incidence. Name triage now 457 families/6209 entries, leaving 1223 cross-module names. Raw findings and skeptic counts are unchanged; no full membership, cache saving or failure-cause guarantee is claimed.

@@ -81158,10 +81158,569 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "event_sort_key",
+      "assessment": "Event ordering uses different clocks and tie-breakers.",
+      "constraints": [
+        "DispatchAuthorization parses created_at into microseconds and requires an integer event-ID sort key, returning tagged failure otherwise.",
+        "DigestCoalescer accepts atom/string integer IDs and defaults unsupported events to zero.",
+        "GitHubEnricher chooses comment update/create or PR merge/create timestamp text, then topic and stringified ID.",
+        "Preserve chronological authorization order versus local digest sequence and display ordering. These keys do not establish one globally ordered event stream."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 519,
+          "module": "Aiur.GitHub.DispatchAuthorization",
+          "name": "event_sort_key",
+          "path": "src/lib/aiur/github/dispatch_authorization.ex",
+          "kind": "defp",
+          "end_line": 526,
+          "body_sha256": "c9ff69bc78761e73a35c8762672f8f470337cb0a460d5356a3a1bb8ef1ebd790",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 528,
+          "module": "Aiur.GitHub.DispatchAuthorization",
+          "name": "event_sort_key",
+          "path": "src/lib/aiur/github/dispatch_authorization.ex",
+          "kind": "defp",
+          "end_line": 528,
+          "body_sha256": "703fe067863f696dcda9c9e4ca8e19715247f9f3c5f97bfd4931650886c31703",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 72,
+          "module": "Aiur.Orchestrator.DigestCoalescer",
+          "name": "event_sort_key",
+          "path": "src/lib/aiur/orchestrator/digest_coalescer.ex",
+          "kind": "defp",
+          "end_line": 72,
+          "body_sha256": "e5d2fc7fca97afdadc841b5fab399e97cb26cbe5306f7099687f5867a4aac977",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 73,
+          "module": "Aiur.Orchestrator.DigestCoalescer",
+          "name": "event_sort_key",
+          "path": "src/lib/aiur/orchestrator/digest_coalescer.ex",
+          "kind": "defp",
+          "end_line": 73,
+          "body_sha256": "e5d2fc7fca97afdadc841b5fab399e97cb26cbe5306f7099687f5867a4aac977",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 74,
+          "module": "Aiur.Orchestrator.DigestCoalescer",
+          "name": "event_sort_key",
+          "path": "src/lib/aiur/orchestrator/digest_coalescer.ex",
+          "kind": "defp",
+          "end_line": 74,
+          "body_sha256": "07e37eaf0627b55ca9cf1b72e05de6590b3899ac34af6765529abbc2c5841d44",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 320,
+          "module": "Aiur.RunTelemetry.GitHubEnricher",
+          "name": "event_sort_key",
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "kind": "defp",
+          "end_line": 326,
+          "body_sha256": "57229a88f3dc759d2e9fe832c64332c85d2b0d851eee1da8a76233a8546c29be",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fail",
+      "assessment": "Failure operations preserve different evidence and shutdown effects.",
+      "constraints": [
+        "Claude.AccountMeters records meter failure first, distinguishes unknown account generation and reports failure_unrecorded when the recorder rejects it.",
+        "CurrentRunProjections.Checkpoint marks checkpoint health unavailable/write_failed and delegates summary/outcome fallback marking with last-known-good snapshots.",
+        "ElevenLabs.Realtime closes transport, emits error and closed notifications, then stops normally.",
+        "Do not share failure handling by name alone; durable evidence, degraded projections and process termination are separate contracts."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 47,
+          "module": "Aiur.Claude.AccountMeters",
+          "name": "fail",
+          "path": "src/lib/aiur/claude/account_meters.ex",
+          "kind": "defp",
+          "end_line": 60,
+          "body_sha256": "2b58a8437a9192424aadace962928d2f691eeeac21a09f971cee8fb82441c664",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 84,
+          "module": "Aiur.CurrentRunProjections.Checkpoint",
+          "name": "fail",
+          "path": "src/lib/aiur/current_run_projections/checkpoint.ex",
+          "kind": "def",
+          "end_line": 91,
+          "body_sha256": "54ffdd96fec32b09191030c6f77bfdff3138287e17b5a79c97bdb36816b8b0e2",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 373,
+          "module": "Aiur.ElevenLabs.Realtime",
+          "name": "fail",
+          "path": "src/lib/aiur/eleven_labs/realtime.ex",
+          "kind": "defp",
+          "end_line": 378,
+          "body_sha256": "17762aad2751988f772c8f5360045e6b030460386a38a3d483d487b4483fdf52",
+          "normalized_body_lines": 11,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "failure_reason",
+      "assessment": "Provider adapters map causes differently and collapse remaining reasons to transport.",
+      "constraints": [
+        "Claude preserves malformed, timeout and authentication reasons. Codex maps account_read_failed to authentication, response_timeout to timeout and invalid payload to malformed.",
+        "Both adapter catch-alls return transport, a specific cause for every otherwise unmatched reason. Caller reason populations were not established in this pass, so correctness of that collapse remains unresolved.",
+        "DecisionPresenter instead extracts the last active dispatch attempt reason only when that attempt failed.",
+        "Preserve provider source classifications and stored attempt evidence separately; a shared unknown fallback must be deliberately defined rather than assumed equivalent."
+      ],
+      "clauses": 10,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 179,
+          "module": "Aiur.Claude.RateLimitAdapter",
+          "name": "failure_reason",
+          "path": "src/lib/aiur/claude/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 179,
+          "body_sha256": "6722671dac1fe95e227d14d0a15e7f1ed3f39e960da75f15494d6853d6bd6ce9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 180,
+          "module": "Aiur.Claude.RateLimitAdapter",
+          "name": "failure_reason",
+          "path": "src/lib/aiur/claude/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 180,
+          "body_sha256": "ad44540cfaa850cfde85f2e5e3be318e59695cbecb60f97ed606743f23fbf739",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 181,
+          "module": "Aiur.Claude.RateLimitAdapter",
+          "name": "failure_reason",
+          "path": "src/lib/aiur/claude/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 181,
+          "body_sha256": "9a8722134b0f2ef6c456de0ca58c2fb999b84d4bba684da918145746a75f4da4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 182,
+          "module": "Aiur.Claude.RateLimitAdapter",
+          "name": "failure_reason",
+          "path": "src/lib/aiur/claude/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 182,
+          "body_sha256": "9a0c1d92d72e6b4c4e415491153fbfc6f22a2ff6b798044603e99be231b3c67e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 467,
+          "module": "Aiur.Codex.RateLimitAdapter",
+          "name": "failure_reason",
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 467,
+          "body_sha256": "9a8722134b0f2ef6c456de0ca58c2fb999b84d4bba684da918145746a75f4da4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 468,
+          "module": "Aiur.Codex.RateLimitAdapter",
+          "name": "failure_reason",
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 468,
+          "body_sha256": "ad44540cfaa850cfde85f2e5e3be318e59695cbecb60f97ed606743f23fbf739",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 469,
+          "module": "Aiur.Codex.RateLimitAdapter",
+          "name": "failure_reason",
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 469,
+          "body_sha256": "6722671dac1fe95e227d14d0a15e7f1ed3f39e960da75f15494d6853d6bd6ce9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 470,
+          "module": "Aiur.Codex.RateLimitAdapter",
+          "name": "failure_reason",
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 470,
+          "body_sha256": "6722671dac1fe95e227d14d0a15e7f1ed3f39e960da75f15494d6853d6bd6ce9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 471,
+          "module": "Aiur.Codex.RateLimitAdapter",
+          "name": "failure_reason",
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "kind": "defp",
+          "end_line": 471,
+          "body_sha256": "9a0c1d92d72e6b4c4e415491153fbfc6f22a2ff6b798044603e99be231b3c67e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 147,
+          "module": "AiurWeb.OperatorControlCenter.DecisionPresenter",
+          "name": "failure_reason",
+          "path": "src/lib/aiur_web/operator_control_center/decision_presenter.ex",
+          "kind": "defp",
+          "end_line": 155,
+          "body_sha256": "5da356748ef4204e142529b098503ef2adc7dc174bd7f2531b16ba98d09cc12b",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_blocked_by",
+      "assessment": "Dependency reads already share an API but select a separate bounded revalidation path.",
+      "constraints": [
+        "Client delegates to DependenciesApi, which performs a blocked_by dependency_get.",
+        "Issues chooses BoundedBlockedBy when revalidate is bounded and removes that option before delegation; other requests use DependenciesApi.",
+        "Keep revalidation policy distinct from transport reuse. The entry points do not establish freshness, complete edges or actual cache savings."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 111,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_blocked_by",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 111,
+          "body_sha256": "a300cc7ebf32ebdec8bba2c51ec831ecfd453bf99bab909d179cc5b549b5d82b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 24,
+          "module": "Aiur.GitHub.DependenciesApi",
+          "name": "fetch_blocked_by",
+          "path": "src/lib/aiur/github/dependencies_api.ex",
+          "kind": "def",
+          "end_line": 26,
+          "body_sha256": "24fc25252fe2c9e78c07a7b423de0fc863e4bf8e9fdfa2a6cd3b31d74e0cbe31",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1061,
+          "module": "Aiur.GitHub.Issues",
+          "name": "fetch_blocked_by",
+          "path": "src/lib/aiur/github/issues.ex",
+          "kind": "defp",
+          "end_line": 1066,
+          "body_sha256": "91fd17f01720782eff4140c24958832e4bb7b732ac1e5378f4a04e520096d031",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_candidate_issues_conditional",
+      "assessment": "Conditional candidate reads use capability dispatch with an unconditional fallback.",
+      "constraints": [
+        "Client delegates to Issues. Issues returns empty issues and unchanged cache when configured active states are empty, otherwise uses its conditional helper.",
+        "Tracker ensures the client module is loaded, checks the conditional callback and invokes it when available; otherwise it fetches unconditionally and carries the input cache through.",
+        "These are API layers and capability compatibility, not independent caching implementations. Unchanged cache does not itself prove a cache hit or validated freshness."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 67,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_candidate_issues_conditional",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 68,
+          "body_sha256": "4b00fbe4bb7fde9abfe276df783c8a7432773e9b49ae8a8620ee47a2e768958f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 51,
+          "module": "Aiur.GitHub.Issues",
+          "name": "fetch_candidate_issues_conditional",
+          "path": "src/lib/aiur/github/issues.ex",
+          "kind": "def",
+          "end_line": 57,
+          "body_sha256": "08abc0b280873946402e3cf79b2d4d839215664c11df53b669ee11f9b29f3a38",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 37,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "fetch_candidate_issues_conditional",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 45,
+          "body_sha256": "4e6fac4230f18a3e76d1946857a47b060645a2ab1b5797f8925faf4e448f17fa",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_issues_by_states_conditional",
+      "assessment": "Conditional state-list reads mirror candidate capability plumbing while preserving query scope.",
+      "constraints": [
+        "Client delegates to Issues; an empty requested state list returns empty issues and unchanged cache.",
+        "Tracker checks the loaded client's conditional callback, otherwise fetches by states unconditionally and retains the input cache.",
+        "Common capability/result mechanics could be shared with candidate reads, while callback arity and explicit versus configured state populations remain distinct.",
+        "No production ETag saving, cache validity or complete query result was measured by reading these wrappers."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 75,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_issues_by_states_conditional",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 77,
+          "body_sha256": "0a5046dfc54bfa595ba99de664709af4bff31bd1517edf170c3c3fe572772719",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 71,
+          "module": "Aiur.GitHub.Issues",
+          "name": "fetch_issues_by_states_conditional",
+          "path": "src/lib/aiur/github/issues.ex",
+          "kind": "def",
+          "end_line": 78,
+          "body_sha256": "cef6ec7956669f1533a8ec021e0c4ac07e451585e992e68463f2cf735f947288",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 86,
+          "module": "Aiur.GitHub.Tracker",
+          "name": "fetch_issues_by_states_conditional",
+          "path": "src/lib/aiur/github/tracker.ex",
+          "kind": "def",
+          "end_line": 98,
+          "body_sha256": "e7dd257ddf4a7a04a0ab48cbaed521c17ba765a90cefe6e9e0ade090b478e131",
+          "normalized_body_lines": 17,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_pages",
+      "assessment": "Pagination implementations have materially different bounds and failure contracts.",
+      "constraints": [
+        "AdHocSource recursively follows parsed next links and normalizes issue bodies, with no page counter or seen set in the literal function.",
+        "OpenTicketSource limits pages, caps requested response bytes, excludes PRs and returns a truncation flag when the page budget reaches zero.",
+        "GitHubEnricher rejects exhausted budget, cycles and unsafe URLs before fetch_page; that helper was read and carries seen URLs and remaining budget into continuation.",
+        "AdHocSource appends flat results; OpenTicketSource accumulates pages before flattening. Budget exhaustion is partial success in one path and an error in another.",
+        "Preserve boundedness, URL policy and partial-result signaling before sharing traversal. Complete transport safety and production pagination incidence remain unverified."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 7,
+          "line": 274,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "fetch_pages",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 292,
+          "body_sha256": "55458763a2e7628962d8401b95091d499df2085195f476802c215e61794bb01d",
+          "normalized_body_lines": 25,
+          "has_body": true
+        },
+        {
+          "arity": 7,
+          "line": 307,
+          "module": "Aiur.OpenTicketSource",
+          "name": "fetch_pages",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 307,
+          "body_sha256": "d26c5d0ed5583bfde33ae833d4db6a60c8ea46818941367230f0572338c6914c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 7,
+          "line": 309,
+          "module": "Aiur.OpenTicketSource",
+          "name": "fetch_pages",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 332,
+          "body_sha256": "8c251891f81708fb60c59aaaa4d4f8a275f48a06bbbcfcf706b3b9e17c1badbc",
+          "normalized_body_lines": 32,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 107,
+          "module": "Aiur.RunTelemetry.GitHubEnricher",
+          "name": "fetch_pages",
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "kind": "defp",
+          "end_line": 108,
+          "body_sha256": "f81c1c36b3eb4d57a15cde149ffb301648ba338d4942c56c432143ceed7d9192",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 6,
+          "line": 110,
+          "module": "Aiur.RunTelemetry.GitHubEnricher",
+          "name": "fetch_pages",
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "kind": "defp",
+          "end_line": 125,
+          "body_sha256": "5aad9ea75891748b48fc5d74f615b5cf2519b817c8e820f1c73cf42f2b38d197",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_team_members",
+      "assessment": "Codeowners reads one response while the shared Teams implementation follows pagination.",
+      "constraints": [
+        "Codeowners requests per_page=100, extracts/normalizes logins from one response and maps ownership-specific failures; its literal body does not inspect pagination headers.",
+        "Client delegates to Teams, which requires a token and invokes fetch_member_logins. That helper was read: it follows next links recursively and classifies response/request failures.",
+        "The Teams helper has no explicit cycle/page bound in its literal clauses. Codeowners and Teams also differ in credential options, caller attribution and error shapes.",
+        "Consider one team-membership reader with explicit normalization, completeness and error contracts. Actual team sizes, upstream truncation and review-policy impact remain unverified; no new raw defect count was added."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 433,
+          "module": "Aiur.Codeowners",
+          "name": "fetch_team_members",
+          "path": "src/lib/aiur/codeowners.ex",
+          "kind": "defp",
+          "end_line": 457,
+          "body_sha256": "90aa4401f0c73a5b672234ba8b08f06745ea31ab2a53404aa2d5a9711ee9e208",
+          "normalized_body_lines": 35,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 153,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_team_members",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 153,
+          "body_sha256": "a8c66fb777e79c4337668843271a7eb9cadf2ceee98b591d0d9825139f10fb5b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 17,
+          "module": "Aiur.GitHub.Teams",
+          "name": "fetch_team_members",
+          "path": "src/lib/aiur/github/teams.ex",
+          "kind": "def",
+          "end_line": 23,
+          "body_sha256": "d3cf495f24130197ece3a5c4502ddc6a1ebb0db9d80ade4bb57cf83e0c586199",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6173,
-  "limits": "449 selected families and 6173 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6209,
+  "limits": "457 selected families and 6209 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
