@@ -10,6 +10,17 @@ Data is read-only. The machine-readable companion is [`gaps.csv`](gaps.csv), wit
 
 ---
 
+## Verification checkpoint (2026-09-26)
+
+The [gap measurement audit](../synthesis/gap-measurement-verification.md) corrects
+attendance quantization and separates model buckets from established causes.
+The exact retained >=30-minute gaps total **727.7334 h**; the historical
+minute-bin category sum is **727.8 h**. Do not combine them as identical measures.
+`gaps.csv` retains the original `attended_frac` for provenance (67 of 202 values
+exceed one) and adds the valid `duration_weighted_attended_frac`. Use the latter.
+Historical causal claims below remain under verification unless a verdict says
+otherwise; in particular, a missing progress event does not prove no useful work.
+
 ## 0. Headline
 
 | Measure | Value |
@@ -17,7 +28,7 @@ Data is read-only. The machine-readable companion is [`gaps.csv`](gaps.csv), wit
 | Active-run time (sum over repo daemons) | **963.1 h** (638.6 h wall-clock) |
 | &nbsp;&nbsp;run-log era, 09-15 to 09-26 (telemetry-verified) | 490.7 h: aiur 143.9, khala 185.3, private-multisig (private) 161.6 |
 | &nbsp;&nbsp;pre-log era, 08-18 to 09-11 (inferred from the wake stream) | 472.4 h: aiur 395.2, archon (formerly architecture-docs) 77.2 |
-| Gap time, gaps ≥ 30 min | **727.8 h = 75.6 % of active-run time** (108 gaps) |
+| Gap time, gaps ≥ 30 min | **727.7334 h = 75.6 % of retained active-run time** (108 gaps); category bins sum to 727.8 h |
 | Gap time, gaps ≥ 15 min | 760.3 h (202 gaps) |
 | Daemon-down time between runs (reported separately, not in the totals above) | 51.1 h khala after a host crash, plus deliberate idle periods (§6) |
 
@@ -33,14 +44,17 @@ Data is read-only. The machine-readable companion is [`gaps.csv`](gaps.csv), wit
 | (f) agents working, no output yet (not idle; long turns) | 33.2 h | 4.6 | 16.9 h | 4.1 | 12.1 h | 4.6 |
 | **Total** | **727.8 h** | | **411.8 h** | | **261.7 h** | |
 
-Read the two eras separately. In August (pre-log era), a daemon dispatch defect caused most idle time
-(86 % of that era's gap hours). In the current system (run-log era), **the Executor is the bottleneck:
-in aiur and khala, 78 % of gap time is work that waited on a human**. This is (b) plus the part of (c)
-where items waited: 66 % with the human absent, 12 % with the human present but busy elsewhere.
-A further 15 % is stranded work (a dispatchable todo or rework ticket with no agent). The Executor was
-present for two-thirds of that stranded time.
+Read the two eras separately, and distinguish model attribution from verified
+cause. In run-log aiur/khala, **78.18% of gap bins are classified as waiting on
+an Executor**: 172.57 h in b and 32.00 h in the waiting subset of c. That
+classification does not establish that a human, rather than the daemon or a
+coding-agent Executor, caused the delay. The stranded bucket is 38.52 h
+(14.72%), but the existing gaps-10 check found both misclassified permission
+waits and a real parked-entry/lifecycle-fence dispatch problem. Neither the
+78% nor the 2.5% infrastructure bucket is a causal share. August starvation
+causation and current-era source completeness remain under review.
 
-**The three biggest causes, by hours:**
+**The three largest historical attribution buckets (causal checks incomplete):**
 
 1. **Daemon dispatch starvation (d), 257 h, all in the pre-log aiur era.** The daemon raised
    `system.fleet.capacity.starved` and never resolved it inside the same daemon boot. At the same time
@@ -213,7 +227,8 @@ It shows that the fleet can run without gaps when dispatch works and the Executo
 ## 3. Top 20 longest gaps (≥ 30 min)
 
 The cause for each gap comes from the log lines quoted. "labels" means the effective queue state
-at the start of the gap. "att" is the attended fraction.
+at the start of the gap. "att" is the historical minute-bin attendance estimate;
+use the CSV duration-weighted column for a bounded fraction.
 
 | # | Repo | Start → end (UTC) | h | Attr. | Cause and evidence |
 |---|---|---|---:|---|---|
@@ -375,8 +390,10 @@ attended idle time is mostly (c) and (e): the human is there, working on another
 
 ## 8. What this means for the refactor (evidence-based, short)
 
-1. **Human-blocked work is the dominant cost in the current system**: 78 % of aiur/khala gap time
-   (plus 15 % stranded work).
+1. **Make blocking causes and their owners explicit.** The retained model assigns
+   78% of aiur/khala gap bins to waiting on an Executor, but that is not a
+   measured causal share. The stranded bucket contains both permission waits
+   and a demonstrated dispatch defect (see the gaps-10 verdict).
    Dependency graphs multiply it. One paused ticket held khala for 4.6 days, and 8 review PRs held 59
    todo tickets. A state like "fleet blocked behind N human items, oldest X h" should be first-class and
    should notify the operator. It must not be a 15-min repeat of the same attention wake (40 repeats on

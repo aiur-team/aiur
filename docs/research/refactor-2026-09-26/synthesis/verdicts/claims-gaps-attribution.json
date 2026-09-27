@@ -1,0 +1,15 @@
+{
+  "verdicts": [
+    {
+      "id": "gaps-02",
+      "reproduce_holds": true,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high for model arithmetic and classifier limitations; historical source completeness remains under gaps-01",
+      "corrected_claim": "The retained model assigns 172.5667 h of 261.6667 h of current-era aiur/khala gap bins to b and 32.0 h to c with waiting items: 78.18% combined. It assigns 6.4833 h to d (2.48%). These are outputs of a precedence classifier, not measured causal shares proving the human operator is the bottleneck. The model counts paused/error/review/decision labels or open attention as human-waiting proxies, uses transcript presence, and calls todo/rework dispatchable when certain refusal/attention evidence is absent. It does not check occupancy at that decision. The stranded-reason total is 38.5167 h (14.72%), not a separately validated population of dispatchable work. Preserve evidence of delayed review and decisions while independently establishing each blocking cause; include human and coding-agent Executor modes.",
+      "method": "Independently parsed all 202 retained gap_rows15.jsonl records and exec_events.tsv using tooling/gap_measurement_audit.py, without executing the original analysis scripts. Summed category and reason minutes for >=30-minute aiur/khala runlog gaps. Read original scratch/gaps/analyze.py load_exec, load_dep_declines, classify_minute and report_data.py attendance/attribution loops. Cross-checked the existing gaps-10 verdict: its source investigation already distinguishes false stranded classification from a real parked-entry/lifecycle-fence problem. That prior source investigation is cited, not claimed as newly repeated.",
+      "note": "The 78% arithmetic reproduces conditional on the retained inputs and model. A paused/error label need not establish the required actor or root cause; a missing refusal record does not prove dispatchability. A later decline is applied backwards across its entire label-state episode. Infrastructure windows compete by precedence rather than causal isolation. Transcript silence is missing observed activity, not a verified absent human. The report uses +/-5-minute local/global presence plus 30-minute human-message presence for category assignment, but +/-60-minute activity for its separate attendance metric. The full gap denominator and source-coverage audit are still open; no historical cause has been reallocated merely from this arithmetic check.",
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher"
+    }
+  ]
+}

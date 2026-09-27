@@ -55,10 +55,20 @@ Privacy corrections preserve every numerical CSV measurement and public row;
 redacted after provenance recovery, with explicit metadata. The title/body
 comparison supplements rather than completes the contextual privacy audit.
 
-An unresolved measurement issue for the gaps verification: some `attended_frac`
-values exceed one. Check minute-bin quantization and interval overlap against
-raw evidence before interpreting or changing these values; do not silently
-clamp them. The original numeric data is preserved.
+## Gap measurement checkpoint
+
+The independent arithmetic audit reproduced all 202 historical attendance
+fractions and found 67 above one, caused by whole-minute numerators divided by
+exact durations. `gaps.csv` retains every previous cell and adds a bounded
+`duration_weighted_attended_frac`; the corrected aggregate barely changes and
+the 86/108 majority-attended count is unchanged. See
+`synthesis/gap-measurement-verification.md` for methods and limits.
+
+Claim gaps-02 now has reproduction and interpretation checks, bringing artifact
+coverage to 45/60. Its 78% bucket arithmetic reproduces, but it is not a causal
+share proving human bottleneck ownership. Gaps-01 and the remaining causal
+claims still require their full source checks. No category was silently
+reassigned or prior numeric field overwritten.
 
 ## Completion contract — all still required unless explicitly checked
 
