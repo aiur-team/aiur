@@ -500,6 +500,83 @@
       "lines": 247,
       "read": "full",
       "assessment": "Pure projection tests assert exact rational weighted numerator/progress/coverage and counts excluding non-work terminals, plus ETA requiring sufficient completed-weight evidence. Stale/missing member progress, invalid run despite cached fields, unknown membership freshness, unhealthy complexity and malformed containers suppress exact progress/ETA with distinct reasons. Denominator signature is order-invariant and changes with weight or terminal eligibility. ETA formula correctness is not empirical predictive accuracy, and no rendered freshness/age surface is tested."
+    },
+    {
+      "path": "src/test/aiur/usage/grouped_scopes/scope_test.exs",
+      "sha256": "b63bacb2c5017b8add6d7baaa7c272003821aa798a83133f3da1279f5dc5756a",
+      "lines": 74,
+      "read": "full",
+      "assessment": "Typed run scope requires opaque nonempty identity; explicit ticket sets accept only joinable qualified identities and count rejects. Intersection requires run AND ticket; explicit tickets include pre-membership usage across runs. Empty ticket set has explicit empty/unselectable public state. No bare numeric ticket inference."
+    },
+    {
+      "path": "src/test/aiur/usage/grouped_scopes/price_adapter_test.exs",
+      "sha256": "3ae8cc04500cd478068b675859f60d37cf176bf0d9b3159b97f2d8a453773a33",
+      "lines": 22,
+      "read": "full",
+      "assessment": "Registry-backed fake provider lacking historic aggregate relationship produces exact unknown missing_historic_relationship_revision instead of crashing or zero money. Single direct adapter fixture, not broad provider-price validation."
+    },
+    {
+      "path": "src/test/aiur/usage/grouped_scopes/grouped_scopes_property_test.exs",
+      "sha256": "aeba106b4b0c416708a777ae763147c852f785322dcfd7943185956ff727730e",
+      "lines": 92,
+      "read": "full",
+      "assessment": "Sixty generated mixed-provider/run/dimension cases reconcile rollup against contributor sums; unknown pricing checks coverage and nonnegative rollup, not an independent monetary oracle. Forty cases independently sum generated token counts by run and demand exact scope selection. Preserve unknown money coverage separately from valid zero; tests do not prove current real provider pricing."
+    },
+    {
+      "path": "src/test/aiur/usage/headless/adapters_test.exs",
+      "sha256": "c60899c08efff65d54314b37531d90ea48a315e78099d1881922bd8feee97485",
+      "lines": 381,
+      "read": "full",
+      "assessment": "Pinned fixture adapters preserve Codex absolute-thread versus delta-turn identities, context partitions, Claude additive cache dimensions and exact Decimal from raw JSON. Missing tokens/time/account identity stay nil with reasons; mixed cache TTL or source revision drift yields coverage instead of fabricated facts. Retry identity stable, new attempt/run rotates; legacy zero-filled compatibility is explicitly separated from canonical envelope. Injected prompt/path sentinels excluded. Overlapping streams test proves distinct envelopes/epochs, not downstream avoidance of double counting."
+    },
+    {
+      "path": "src/test/aiur/usage/headless/open_ai_compat_request_usage_test.exs",
+      "sha256": "f6b09bb17aebc2341c41b104347666b8a80dbffc153d714bd0d3af8eaadead0b",
+      "lines": 143,
+      "read": "full",
+      "assessment": "Pure adapters preserve disjoint DeepSeek cache-hit/miss input, OpenRouter upstream separate from query source and case-sensitive synthesized identity, invalid upstream dropped while usage retained, direct-provider upstream absent, Kimi missing cache nil, and atom-key usage. Key round-trip fixes dimensional persistence; no real HTTP provider or current price verification."
+    },
+    {
+      "path": "src/test/aiur/usage/headless/emitter_test.exs",
+      "sha256": "1f3c2692249eaaac7a3ae600a71ae9c2243ba042f2937dbb489a915b90f3d10c",
+      "lines": 95,
+      "read": "full",
+      "assessment": "Injected publication callback receives exact normalized envelope; unsupported backend and malformed payload publish nothing; callback exception does not propagate into worker turn. Known account generation is supplied trusted context. Direct observe call has no real normal-run launcher, dashboard/debug toggle or durable sink, so title independence is narrower than end-to-end execution."
+    },
+    {
+      "path": "src/test/aiur/usage/headless/fake_registry_adapter_test.exs",
+      "sha256": "ca45fbda2d28765fa3f972a77bf68eae051962dbfa0b0d8a2a0a3a2b1a9155c3",
+      "lines": 31,
+      "read": "full",
+      "assessment": "Test-only backend discovered via registry normalizes exact input7 and relationship revision. Establishes an extension seam without provider-specific dispatch in caller; no remote provider or dynamic plugin loading."
+    },
+    {
+      "path": "src/test/aiur/usage_compaction/block_test.exs",
+      "sha256": "3b8e84319e799b1039b4f82deb43bc04130b9ce258859b28df6891d13419517e",
+      "lines": 136,
+      "read": "full",
+      "assessment": "Private files and pure blocks compare all cells to existing projection, preserve distinct relationship revisions/upstream dimensions, round-trip covered metadata and recompute checksum for legitimate legacy dimension omission. Tampered checksum rejected, missing/empty distinct, gaps/empty ranges rejected. Atomic byte-identical title only reloads cell equality; no byte comparison or interrupted-write proof. Pricing-date span fixture only asserts Date/nondecreasing endpoints, not varied endpoint exactness."
+    },
+    {
+      "path": "src/test/aiur/usage_compaction/manifest_test.exs",
+      "sha256": "c6a206136f1efa4f022cb468857b269b2bf4c8ae0a541454bd411d844b4b8b3a",
+      "lines": 133,
+      "read": "full",
+      "assessment": "Pure state-machine tests constrain contiguous prepare, phase ordering, rollback watermark and finalized cover; private file reload checks retired watermark. Round-trip loop omits source_retired despite every-phase title. Gap/path-escape fixtures lack checksum, so strict key gate rejects before decode_blocks; isolated mutation probe confirms both pass with structural validation bypassed, while correctly signed controls detect bypass. Recorded tests-4-cont-02, no production acceptance bug alleged."
+    },
+    {
+      "path": "src/test/aiur/usage_compaction/policy_test.exs",
+      "sha256": "99d55da66c827f750c55fe8bdf596c60c4aaf55da2ec9be010743ca35369eff0",
+      "lines": 70,
+      "read": "full",
+      "assessment": "Exact fixtures constrain min recovery window, max-count pressure, raw-byte pressure, batch bounds and monotonic retired watermark; finite grid validates safety for retire outcomes, but accepts any noop and is not a complete liveness oracle. Explicit examples demand retirement. Invalid configuration clamps specified defaults; pressure arithmetic not measured disk savings."
+    },
+    {
+      "path": "src/test/aiur/usage_compaction/coordinator_test.exs",
+      "sha256": "f1a947b802a282a0d1becc6ecd148b23287bb82174043cb4e2ce1b9ae0e7e367",
+      "lines": 216,
+      "read": "full",
+      "assessment": "Real private ledger/coordinator/block/manifest integrate raw-prefix retirement with floor-plus-tail exact projection reconstruction. Constructed prepared state rolls back preserving raw; source_retired rolls forward; in-flight floor and broken-floor aggregate fail closed; corrupt manifest quarantines and halts retirement. Sync callbacks stubbed and crash states authored directly, so no actual killed-process or power-loss durability proof. Content-free artifact assertion uses ordinary fixtures without injected secret-bearing inputs; preserves observed output shape, not adversarial whole-pipeline privacy."
     }
   ],
   "scope_note": "Source review with an isolated extracted-assertion order probe; no production edits, full suite, live provider or manual UI verification. Supporting claude_meter_test_support.exs read separately and not counted in this unit.",
@@ -520,6 +597,27 @@
       "recommendation": "Assert the ordered role/body sequence forwarded by DisplayTailer, then verify reversing the forwarding order makes the guard fail. Keep partial/backfill/live tests separate.",
       "refactor_hint": "An ordered stream boundary needs ordered output assertions rather than set membership or selective receives.",
       "limits": "Oracle-only probe with supplied events; no application, provider or production mutation. Transcript.extract_disk_record already has a two-role ordering assertion, but that lower boundary does not prove display forwarding order. No current production reordering defect is alleged. Cross-unit deduplication remains pending."
+    },
+    {
+      "id": "tests-4-cont-02",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Manifest gap and escaping-path fixtures cannot reach block validation",
+      "locations": [
+        {
+          "path": "src/test/aiur/usage_compaction/manifest_test.exs",
+          "lines": "86-117"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "lines": "195-208"
+        }
+      ],
+      "description": "Both malformed fixtures omit checksum. The exact-key guard rejects them before checksum and structural block validation, so their expected invalid_manifest result cannot guard gap or path rules.",
+      "evidence": "tooling/manifest_validation_oracle_probe.exs extracts the actual gapped and escaping assignments, compiles renamed original and a one-call mutant bypassing decode_blocks, and shows both original fixtures reject under both implementations. Adding valid deterministic checksums preserves original rejection but mutant accepts both, proving controls reach the relevant boundary. Probe exits zero with two explicit results.",
+      "recommendation": "Start from an encoded valid manifest, change gap/ref, recompute checksum, and require the intended structural rejection. Mutation-check each structural rule independently.",
+      "refactor_hint": "Validators behind envelope/checksum gates need fixtures valid through earlier gates; generic invalid errors cannot identify which boundary protected the record.",
+      "limits": "Pure from_record probe only; no Aiur application, filesystem write function or production file mutation. Compilation warns about unavailable Jason/Fs functions that are never called and unused mutant helpers. Original correctly rejects signed malformed controls. No production traversal or data-loss defect claimed; cross-unit deduplication pending."
     }
   ],
   "preserve": [
@@ -593,7 +691,18 @@
     "Real named store with private state directory preserves initial anchor through repeated observations, counts false-to-true owner episodes, records alert and PR-check timestamps including checked nil, lists identities, and reports active-alert status when forgetting. Stop/start store reloads anchor, last alert, dispatch count and PR number; this is component restart within one VM, not whole-daemon restart. Fresh store absence stays nil.",
     "Pure policy fixtures cover inclusive first threshold, repeat cadence, independently disabled first/repeats, invalid negative thresholds and earlier PR age floor. Advisory message assertions include numeric age, push age, owner absence, dispatch count, missing CI/PR wording, and per-ticket resolution topic. No terminal UI or automatic takeover; age_hours title says whole hours while fixture deliberately preserves fractional0.5.",
     "Real private store/monitor with injected clock, snapshots and emitters checks first/repeat advisory cadence, component restart persistence, terminal/disabled resolution, out-of-scope grace, non-authoritative retention, failed PR-refresh cached floor, brief absence and independent tickets. Positive effects await matching callback messages. Some negative checks wait on already-true stored values; empty-mailbox helper only proves tick dequeue, not completion. Initial Store.observe also precedes PR refresh/emission in production, so record existence is not whole-tick completion. Production captures now once near tick start, limiting the alleged clock race; retain synchronization concern as hypothesis until demonstrated. No actual alert-feed routing, automatic timer cadence or daemon reboot is proved.",
-    "Pure projection tests assert exact rational weighted numerator/progress/coverage and counts excluding non-work terminals, plus ETA requiring sufficient completed-weight evidence. Stale/missing member progress, invalid run despite cached fields, unknown membership freshness, unhealthy complexity and malformed containers suppress exact progress/ETA with distinct reasons. Denominator signature is order-invariant and changes with weight or terminal eligibility. ETA formula correctness is not empirical predictive accuracy, and no rendered freshness/age surface is tested."
+    "Pure projection tests assert exact rational weighted numerator/progress/coverage and counts excluding non-work terminals, plus ETA requiring sufficient completed-weight evidence. Stale/missing member progress, invalid run despite cached fields, unknown membership freshness, unhealthy complexity and malformed containers suppress exact progress/ETA with distinct reasons. Denominator signature is order-invariant and changes with weight or terminal eligibility. ETA formula correctness is not empirical predictive accuracy, and no rendered freshness/age surface is tested.",
+    "Typed run scope requires opaque nonempty identity; explicit ticket sets accept only joinable qualified identities and count rejects. Intersection requires run AND ticket; explicit tickets include pre-membership usage across runs. Empty ticket set has explicit empty/unselectable public state. No bare numeric ticket inference.",
+    "Registry-backed fake provider lacking historic aggregate relationship produces exact unknown missing_historic_relationship_revision instead of crashing or zero money. Single direct adapter fixture, not broad provider-price validation.",
+    "Sixty generated mixed-provider/run/dimension cases reconcile rollup against contributor sums; unknown pricing checks coverage and nonnegative rollup, not an independent monetary oracle. Forty cases independently sum generated token counts by run and demand exact scope selection. Preserve unknown money coverage separately from valid zero; tests do not prove current real provider pricing.",
+    "Pinned fixture adapters preserve Codex absolute-thread versus delta-turn identities, context partitions, Claude additive cache dimensions and exact Decimal from raw JSON. Missing tokens/time/account identity stay nil with reasons; mixed cache TTL or source revision drift yields coverage instead of fabricated facts. Retry identity stable, new attempt/run rotates; legacy zero-filled compatibility is explicitly separated from canonical envelope. Injected prompt/path sentinels excluded. Overlapping streams test proves distinct envelopes/epochs, not downstream avoidance of double counting.",
+    "Pure adapters preserve disjoint DeepSeek cache-hit/miss input, OpenRouter upstream separate from query source and case-sensitive synthesized identity, invalid upstream dropped while usage retained, direct-provider upstream absent, Kimi missing cache nil, and atom-key usage. Key round-trip fixes dimensional persistence; no real HTTP provider or current price verification.",
+    "Injected publication callback receives exact normalized envelope; unsupported backend and malformed payload publish nothing; callback exception does not propagate into worker turn. Known account generation is supplied trusted context. Direct observe call has no real normal-run launcher, dashboard/debug toggle or durable sink, so title independence is narrower than end-to-end execution.",
+    "Test-only backend discovered via registry normalizes exact input7 and relationship revision. Establishes an extension seam without provider-specific dispatch in caller; no remote provider or dynamic plugin loading.",
+    "Private files and pure blocks compare all cells to existing projection, preserve distinct relationship revisions/upstream dimensions, round-trip covered metadata and recompute checksum for legitimate legacy dimension omission. Tampered checksum rejected, missing/empty distinct, gaps/empty ranges rejected. Atomic byte-identical title only reloads cell equality; no byte comparison or interrupted-write proof. Pricing-date span fixture only asserts Date/nondecreasing endpoints, not varied endpoint exactness.",
+    "Pure state-machine tests constrain contiguous prepare, phase ordering, rollback watermark and finalized cover; private file reload checks retired watermark. Round-trip loop omits source_retired despite every-phase title. Gap/path-escape fixtures lack checksum, so strict key gate rejects before decode_blocks; isolated mutation probe confirms both pass with structural validation bypassed, while correctly signed controls detect bypass. Recorded tests-4-cont-02, no production acceptance bug alleged.",
+    "Exact fixtures constrain min recovery window, max-count pressure, raw-byte pressure, batch bounds and monotonic retired watermark; finite grid validates safety for retire outcomes, but accepts any noop and is not a complete liveness oracle. Explicit examples demand retirement. Invalid configuration clamps specified defaults; pressure arithmetic not measured disk savings.",
+    "Real private ledger/coordinator/block/manifest integrate raw-prefix retirement with floor-plus-tail exact projection reconstruction. Constructed prepared state rolls back preserving raw; source_retired rolls forward; in-flight floor and broken-floor aggregate fail closed; corrupt manifest quarantines and halts retirement. Sync callbacks stubbed and crash states authored directly, so no actual killed-process or power-loss durability proof. Content-free artifact assertion uses ordinary fixtures without injected secret-bearing inputs; preserves observed output shape, not adversarial whole-pipeline privacy."
   ],
   "cross_references": [
     {
@@ -624,5 +733,5 @@
       "next": "Use deterministic held callbacks with the actual helper before promoting. Monitor captures now once before snapshot processing, so demonstrate the claimed behavioral gap rather than assuming every clock advance races. Cross-reference existing barrier findings to avoid duplication."
     }
   ],
-  "next": "71/100 full files, 16599/40603 lines. Executor and current-run projection manifest complete. Continue usage, compaction, web, engine, launcher and browser fixture files. One confirmed P2 and three unverified candidates; raw unit incomplete."
+  "next": "82/100 full files, 17992/40603 lines. Headless adapters and compaction complete. Continue grouped_scopes_test, price_table/window, price_table, pricing fixtures/property/tests, then web/engine/launcher/browser fixture. Two confirmed P2 findings and three unverified candidates; raw unit incomplete."
 }
