@@ -1068,3 +1068,19 @@ is hashed/paraphrased without raw publication. Verdicts and report corrected.
 
 Coverage 55/60; remaining codebase-07, gaps-04/06/07, meta-07. Review 25/32,
 remaining feature challenges/skeptic checks/synthesis/CE planning unchanged.
+
+## Gaps-04 bounded verdict checkpoint
+
+Largest retained gap 151.3621 h; three August 25 gaps sum 173.2840 h, enclosing
+span 173.7544 h includes 0.4704 h outside them. Raw attendance 0.004 rounded 0.00,
+so no zero-activity/operator-absence inference. Independent cached label replay
+finds 12 human-review issues, 5 rework, 1 paused, 3 ci-wait, 1 todo (#2394); the
+todo already had open PR #2396. Labels do not establish scheduler eligibility.
+
+The d label follows inferred eligibility plus an unresolved infrastructure
+window ahead of human-waiting state. Missing refusal evidence is not admission,
+and future declines are back-projected across label episodes. Both confident
+infrastructure allocation and automatic reassignment to b are rejected.
+See largest-gap-attribution.json and claims-gaps-largest.json.
+
+Coverage 56/60; remaining codebase-07, gaps-06/07, meta-07. No production changes.

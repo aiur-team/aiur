@@ -21,6 +21,16 @@ exceed one) and adds the valid `duration_weighted_attended_frac`. Use the latter
 Historical causal claims below remain under verification unless a verdict says
 otherwise; in particular, a missing progress event does not prove no useful work.
 
+The [largest-gap audit](../synthesis/largest-gap-attribution.json) reproduces
+151.3621 h but rejects a proven infrastructure cause or an automatic reassignment
+to human waiting. The three neighboring gaps total 173.2840 h, with 0.4704 h of
+their enclosing span outside them. Historical attendance 0.004 rounds to 0.00;
+it does not prove no activity or operator absence. Twelve human-review issues
+and five rework issues are label states, while todo #2394 already had an open PR.
+The classifier infers eligibility from missing refusal evidence and gives an
+unresolved alert precedence over waiting work.
+
+
 **Uptime caveat:** the historical event-ID generator preserves reservations
 across restarts, so the analyzer's event-ID quotient is not a guaranteed daemon
 boot identity. The pre-log spans and gap percentages are retained-model results,
@@ -71,8 +81,8 @@ causation and current-era source completeness remain under review.
    A successful transcript tool result records this point diagnosis on 08-21T18:42Z: *"Ready tickets=31, live agents=0, effective cap=1,
    dispatch constraints=prewarm build (prewarm=checking)"*. It filed #2237, *"Prewarm :checking is an
    absorbing state: a lost ls-remote probe gates fleet dispatch forever"*. The largest single item is a
-   151-hour stretch (08-25 to 09-01). In that stretch the operator was also away for 6 days, and 12 PRs
-   waited in `agent:human-review`. The 257.2 h equals 90.91% of pre-log aiur gap bins;
+   151-hour stretch (08-25 to 09-01). In that stretch twelve issues carried `agent:human-review`;
+   the claimed six-day operator absence remains unverified. The 257.2 h equals 90.91% of pre-log aiur gap bins;
    the 86.40% figure instead uses all-pre-log d (273.0667 of 316.0333 h). Neither
    percentage establishes one defect's causal share.
 2. **Agents waiting on an absent Executor (b), 181 h; 66 % of current-era aiur/khala idle time.** Dependency
@@ -251,7 +261,7 @@ use the CSV duration-weighted column for a bounded fraction.
 
 | # | Repo | Start → end (UTC) | h | Attr. | Cause and evidence |
 |---|---|---|---:|---|---|
-| 1 | aiur | 08-25 23:04 → 09-01 06:26 | 151.4 | d (unattended, att 0.00) | Operator away 6 days. The Executor session was silent from 08-25T22:24Z to 09-02T01:54Z. The daemon stayed up (same boot `1787603341`, last wake `system.tracker.auth_preflight_failed.resolved` at 09-01T06:26Z). Wake `system.fleet.capacity.starved` at 08-24T22:26Z was never resolved in that boot. Labels: human-review 12, rework 5 (3 of them `:blocked_on_decision`), todo 1. The 12 PRs waited; the first Executor action was 09-02T01:55Z. The daemon reported capacity starvation, but #2447 (*"Capacity-starvation alerts fire on the normal dispatch ramp and self-resolve: five false alarms"*) shows that this signal was unreliable in this era. |
+| 1 | aiur | 08-25 23:04 → 09-01 06:26 | 151.3621 | model d; historical attendance 0.004 | The classifier extends an unresolved starvation record across an event-ID group and gives it precedence over waiting work. Continuous daemon uptime and operator absence are unproved. Label replay: 12 human-review issues, 5 rework, 1 paused, 3 ci-wait, 1 todo (#2394, already linked to open PR #2396). Positive dispatch eligibility and historical decision holds are not independently established. See the largest-gap attribution audit; neither d nor a replacement b allocation is a measured cause. |
 | 2 | private-multisig (private) | withheld | 144.4 | e | private — omitted (daemon up, nothing queued; ended by the host crash) |
 | 3 | aiur | 09-20 02:04 → 09-22 15:42 | 61.6 | b (50.9 h) + c (10.5 h) | Labels: human-review 9 (#2751 and #2749 fresh, #2668 at 71 h, others up to 17 days), paused 10, error 4. The rework tickets #1767, #2245 and #2413 were `Dispatch declined for 1767: :blocked_on_decision.` on decisions pending since 08-21/22 (`ticket.agent.attention.operator-decision` 08-22T02:17Z). Alert 09-21T02:01Z: *"PR #2752 … has been open 24 hours with no review — it is unseen, not blocked."* On 09-20 from 07:26Z to 22:27Z, the aiur Executor session was steering background agents on an unrelated side project (a browser game), so the result is c. After 22:27Z nobody was present. The host crashed at 09-22T15:41:37Z (§6). |
 | 4 | khala | 09-20 03:34 → 09-22 15:42 | 60.1 | b (50.6 h) + c (9.3 h) | The whole queue was blocked behind one human item. On 09-19T19:18Z the Executor commented on #41: *"Executor note on dec_553565e8bca39788 (live two-human proof credentials): this is an operator provis[ioning]…"*. At 19:33Z it labeled #41 `agent:paused`. The 6 remaining todo tickets were `Dispatch declined for 43: :dependency.` (also 44, 45, 47, 48, 49) at 09-20T01:08Z. `live-proof-credentials` attention wakes repeated every 15 min from 09-19T19:17Z to 09-20T00:47Z. At the moment of the crash, the Stream Deck journal line read `channel.grid agents=10 total=10 buckets={"paused":1,"queued":9}`. Together with §6 this is the reported "4.6 days". |
