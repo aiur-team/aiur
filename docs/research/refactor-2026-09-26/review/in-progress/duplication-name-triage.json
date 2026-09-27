@@ -75743,10 +75743,604 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "acquire_lock",
+      "assessment": "Lock acquisition uses different ownership and retry protocols.",
+      "constraints": [
+        "AlertLedger converts a timeout to a monotonic deadline and delegates to do_acquire_lock.",
+        "Claims creates an exclusive lock file, delegates holding/retry and reports a domain-specific unavailable error for other file failures.",
+        "ControlLifecycleStore creates an owner-bearing lock, releases it in an after block and invokes stale-lock handling before retrying an existing lock.",
+        "Do not consolidate these entry points without examining their ownership, stale-break and deadline helpers. Literal wrappers do not prove mutual exclusion or safe stale-lock removal."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 354,
+          "module": "Aiur.AlertLedger",
+          "name": "acquire_lock",
+          "path": "src/lib/aiur/alert_ledger.ex",
+          "kind": "defp",
+          "end_line": 357,
+          "body_sha256": "3f267c9831160fd90d91aaa89b3c38c7cdbb8f398b5272be6ea7ad74ef7ed49b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 370,
+          "module": "Aiur.Executor.Claims",
+          "name": "acquire_lock",
+          "path": "src/lib/aiur/executor/claims.ex",
+          "kind": "defp",
+          "end_line": 385,
+          "body_sha256": "b2238a93de69799d4fcf4913c2fe61d1f83c468bca72fd9eae2f9139f8be6b4a",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 91,
+          "module": "Aiur.Orchestrator.ControlLifecycleStore",
+          "name": "acquire_lock",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle_store.ex",
+          "kind": "defp",
+          "end_line": 109,
+          "body_sha256": "60e095ff421520b88c779b7005039417564184b5097cf06cef6e27ca0098fdb2",
+          "normalized_body_lines": 24,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "activity",
+      "assessment": "Activity functions construct, retrieve or present different facts.",
+      "constraints": [
+        "BuildOrder.Member preserves a typed Activity or constructs one from execution state, agent stage and progress.",
+        "TicketHistoryProvider invokes an injected supplier safely, accepts tagged or bare map results through safe_activity_result and distinguishes not_found as missing_source from other unavailable failures.",
+        "StreamDeckGrid prioritizes a mapped waiting reason over stage-derived activity.",
+        "Keep missing source, unavailable source and waiting presentation separate; common naming does not make these one activity retrieval policy."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 180,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "activity",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 180,
+          "body_sha256": "588c9ebe8d7428ef9686d8f58557429809ab782321a4f87f522d59207b31243c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 182,
+          "module": "Aiur.BuildOrder.Member",
+          "name": "activity",
+          "path": "src/lib/aiur/build_order/member.ex",
+          "kind": "defp",
+          "end_line": 188,
+          "body_sha256": "2a172e2c15d2e6c33ad78ec01110b8ba1654ec17cb0e894410233a1ad9fdbc13",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 306,
+          "module": "Aiur.BuildOrder.TicketHistoryProvider",
+          "name": "activity",
+          "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+          "kind": "defp",
+          "end_line": 314,
+          "body_sha256": "094449bebe1778f150c59511b0bb388b0b6bfc4a3ad06d46dafcb5b46194cab4",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 122,
+          "module": "AiurWeb.StreamDeckGrid",
+          "name": "activity",
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "kind": "defp",
+          "end_line": 127,
+          "body_sha256": "73605322c8d292bb869f4cf6bbe6c557d9339df44dbe09ede56d9517d400fb89",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "advance",
+      "assessment": "Advancement spans pagination, compaction phases and delivery cursors.",
+      "constraints": [
+        "GitHubGraph.Pager remembers the total before continuing and reports pagination_mismatch on disagreement.",
+        "Compaction.Manifest permits prepared to aggregate_committed and then source_retired, rejecting other transitions.",
+        "DeliveryLog derives an entry key and calls its server for integer positions, returning ok for a missing key and using ok as call fallback.",
+        "A delivery advance return does not prove persistence; manifest phase order does not itself prove external commit/retirement effects. Keep these authorities separate."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 5,
+          "line": 53,
+          "module": "Aiur.BuildOrder.GitHubGraph.Pager",
+          "name": "advance",
+          "path": "src/lib/aiur/build_order/github_graph/pager.ex",
+          "kind": "defp",
+          "end_line": 58,
+          "body_sha256": "025aa85cd3d5f84da7f4f63ccf38eb973c129e6583c6195c6d0c7c1c432b2197",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 93,
+          "module": "Aiur.UsageCompaction.Manifest",
+          "name": "advance",
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "kind": "def",
+          "end_line": 95,
+          "body_sha256": "b132a2e285a328974c1549adfd5d1dbe438a2031e039a6b0649ac2c4dca3c1e9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 97,
+          "module": "Aiur.UsageCompaction.Manifest",
+          "name": "advance",
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "kind": "def",
+          "end_line": 99,
+          "body_sha256": "59b105884c4513a8136c4a07fc6787c0c27150072e250bcf93872f70b96e9ef4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 101,
+          "module": "Aiur.UsageCompaction.Manifest",
+          "name": "advance",
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "kind": "def",
+          "end_line": 101,
+          "body_sha256": "aa7c641bac1c858081f98d7b7d8c884605a5bc8e468ae42b2c2680b55dc176ad",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 106,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "advance",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "def",
+          "end_line": 111,
+          "body_sha256": "7a8207ea0f01467a31448c8f438aeff7d069ced7e2914a4e7a9d48752ccbe744",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "age",
+      "assessment": "Age helpers share clamping arithmetic but differ in input, units and presentation.",
+      "constraints": [
+        "CommandsCLI parses two ISO timestamps and returns nonnegative seconds with an s suffix, otherwise unknown.",
+        "CacheInspector.Entry returns milliseconds for a DateTime fetched timestamp and nil for unsupported fetched values; its now argument has no local DateTime guard.",
+        "DecisionCard uses two DateTime values and renders just-now/minute/hour/day strings with unknown-age fallback.",
+        "Share duration arithmetic only with explicit unit and missing-value contracts. These helpers do not prove that computed ages are rendered at every consumer."
+      ],
+      "clauses": 6,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 223,
+          "module": "Aiur.CommandsCLI",
+          "name": "age",
+          "path": "src/lib/aiur/commands_cli.ex",
+          "kind": "defp",
+          "end_line": 230,
+          "body_sha256": "de2ac90f040c04eee16a7beab13f4a510d269be75448f8a341659ead07c8ba4c",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 232,
+          "module": "Aiur.CommandsCLI",
+          "name": "age",
+          "path": "src/lib/aiur/commands_cli.ex",
+          "kind": "defp",
+          "end_line": 232,
+          "body_sha256": "b42c4df1672e649c924d484b5ffbb0db794f4d5cd369bf3b4df6304c8da1fbc8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 212,
+          "module": "Aiur.GitHub.CacheInspector.Entry",
+          "name": "age",
+          "path": "src/lib/aiur/github/cache_inspector/entry.ex",
+          "kind": "defp",
+          "end_line": 212,
+          "body_sha256": "802b81169401713d986223ae1185b027ea7f7991a52a0eee9ae0e13ad808ba75",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 213,
+          "module": "Aiur.GitHub.CacheInspector.Entry",
+          "name": "age",
+          "path": "src/lib/aiur/github/cache_inspector/entry.ex",
+          "kind": "defp",
+          "end_line": 213,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 231,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCard",
+          "name": "age",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_card.ex",
+          "kind": "defp",
+          "end_line": 240,
+          "body_sha256": "c4a444584d4e25df7d7d9b6f253c6a8592969fd7a10e609a71ca8a25e9a96b3a",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 242,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCard",
+          "name": "age",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_card.ex",
+          "kind": "defp",
+          "end_line": 242,
+          "body_sha256": "b4d1a117798579c664c9f99c811590f4cb556e65b733f3603470ee2d2b6ac92f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "age_seconds",
+      "assessment": "Two age calculators are equivalent on their accepted inputs, with a stricter third guard.",
+      "constraints": [
+        "ProviderMeterProjection and StreamdeckProjection return nil for nil observation time, otherwise compute nonnegative DateTime.diff seconds.",
+        "StreamdeckProjection also supplies a one-argument current-clock wrapper. BudgetMap requires both arguments to be DateTime structs and returns nil for anything else.",
+        "Use a shared elapsed-seconds primitive only after deciding whether invalid inputs should return nil or fail. Clamping future observations to zero does not establish source freshness."
+      ],
+      "clauses": 8,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 394,
+          "module": "Aiur.GitHub.BudgetMap",
+          "name": "age_seconds",
+          "path": "src/lib/aiur/github/budget_map.ex",
+          "kind": "defp",
+          "end_line": 394,
+          "body_sha256": "5fe48216b7c9de6cbb54727e98d731faf87aeb5b19c7ee9c577ef54fdd44e13b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 395,
+          "module": "Aiur.GitHub.BudgetMap",
+          "name": "age_seconds",
+          "path": "src/lib/aiur/github/budget_map.ex",
+          "kind": "defp",
+          "end_line": 395,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 385,
+          "module": "Aiur.ProviderMeterProjection",
+          "name": "age_seconds",
+          "path": "src/lib/aiur/provider_meter_projection.ex",
+          "kind": "defp",
+          "end_line": 385,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 386,
+          "module": "Aiur.ProviderMeterProjection",
+          "name": "age_seconds",
+          "path": "src/lib/aiur/provider_meter_projection.ex",
+          "kind": "defp",
+          "end_line": 386,
+          "body_sha256": "3443f4e8d378d4c32aac94c5e33bf20a6f36dfee7921e4bff28ca113c4c6ec93",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 485,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "age_seconds",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "defp",
+          "end_line": 485,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 486,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "age_seconds",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "defp",
+          "end_line": 486,
+          "body_sha256": "224a956b0a79a57f36e14504b5be42aa5e2edead849e3ffca5486764ab0cdda0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 487,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "age_seconds",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "defp",
+          "end_line": 487,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 488,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "age_seconds",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "defp",
+          "end_line": 488,
+          "body_sha256": "20dac468f811429718aea84327ec0a6316b387fb19f5abb9188827d285df8714",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "agent_family",
+      "assessment": "Provider-family presentation already delegates through shared registry mechanics.",
+      "constraints": [
+        "UnitsTable delegates to UnitsPresentation, which tries agent_family before backend and otherwise returns nil.",
+        "UnitsPresentation.provider_or_nil helpers were also read: atoms resolve through provider_descriptor; strings try that descriptor then family_for before retrying provider resolution.",
+        "DecisionCard instead takes provenance agent_family or backend directly through map_value. Its raw fallback is not equivalent to registry resolution.",
+        "Preserve normalized provider identity separately from historical provenance; no registry completeness is claimed."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 167,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCard",
+          "name": "agent_family",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_card.ex",
+          "kind": "defp",
+          "end_line": 170,
+          "body_sha256": "df5b8bdcf917b65d8079a331365bb24336bcef1495ec4e1d8a4cd164e9e54f82",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 342,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "agent_family",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 342,
+          "body_sha256": "6d94a259cf4eaaadcdfe8f8a9f01928063f1af5bdda7bdca7cb32a0d6f22bcff",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 96,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "agent_family",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "def",
+          "end_line": 102,
+          "body_sha256": "b36418e7686c6521a25a5f0b8241094cde77058d509b34f207dc51cd7971a489",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 104,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "agent_family",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "def",
+          "end_line": 104,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "agent_label",
+      "assessment": "Unit labels already have a shared presenter, while decision labels use raw provenance formatting.",
+      "constraints": [
+        "UnitsTable delegates to UnitsPresentation. Its map path tries a provider label, then model label, then backend label.",
+        "UnitsPresentation resolves a family through CodingAgent.provider_descriptor; DecisionCard formats a nonempty binary family by replacing underscores and capitalizing.",
+        "Unifying these could change known brand labels, raw historical values or fallback order. Share registry-backed presentation only with those choices explicit."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 138,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCard",
+          "name": "agent_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_card.ex",
+          "kind": "defp",
+          "end_line": 146,
+          "body_sha256": "324454cbcbed613f48b0822e1d9ac5aa6d4ebd60053cb5acbb12deeb1900e005",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 336,
+          "module": "AiurWeb.OperatorControlCenter.UnitsTable",
+          "name": "agent_label",
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "kind": "defp",
+          "end_line": 336,
+          "body_sha256": "49130a2f73fe469f74b42eb979d052ff75b7932396c00000a8611b5cce4dcb4d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 111,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "agent_label",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "def",
+          "end_line": 113,
+          "body_sha256": "341d64d0c889f9c5a7a58127e298b72493b61ffdaa121e7ffdb78164749d2c1a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 115,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPresentation",
+          "name": "agent_label",
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "kind": "def",
+          "end_line": 120,
+          "body_sha256": "280eaebb2580128fe0e6f61216e423e53ee81c6b365578cf3f9f77e053c34d10",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "agent_login?",
+      "assessment": "Login classification differs in both identity population and normalization.",
+      "constraints": [
+        "Codeowners delegates to normalized_member?; that helper and normalize_login were read. It lowercases both sides and removes a leading at-sign, without trimming whitespace.",
+        "BotIdentity augments supplied logins with configured bot and daemon identities, flattens, trims nonblank binaries and deduplicates, then uses exact membership against the unmodified login. Its classification and normalization helpers were read.",
+        "ResolutionPolicy only wraps the supplied agent_logins option and compares exact membership; nonbinary candidate values return false.",
+        "These are not equivalent predicates. Preserve inclusion of daemon identity and define case/at-sign/whitespace handling before sharing classification. Caller normalization and any review-policy impact remain unverified."
+      ],
+      "clauses": 5,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 594,
+          "module": "Aiur.Codeowners",
+          "name": "agent_login?",
+          "path": "src/lib/aiur/codeowners.ex",
+          "kind": "defp",
+          "end_line": 596,
+          "body_sha256": "1fe61e25deb7e8819dc4bd5f59c143df2ebcbf6f6533e7ced3be17d63ea10a60",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 108,
+          "module": "Aiur.GitHub.BotIdentity",
+          "name": "agent_login?",
+          "path": "src/lib/aiur/github/bot_identity.ex",
+          "kind": "def",
+          "end_line": 113,
+          "body_sha256": "7aeed1524381aa53b84b3bda34d3411b93eaeb73575f6278c7472be18ea0e9f1",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 115,
+          "module": "Aiur.GitHub.BotIdentity",
+          "name": "agent_login?",
+          "path": "src/lib/aiur/github/bot_identity.ex",
+          "kind": "def",
+          "end_line": 115,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 247,
+          "module": "Aiur.GitHub.ReviewThreads.ResolutionPolicy",
+          "name": "agent_login?",
+          "path": "src/lib/aiur/github/review_threads/resolution_policy.ex",
+          "kind": "def",
+          "end_line": 252,
+          "body_sha256": "d911be43eef1f25da6af3859f3c689b6de1f4a5199adaa0ffea4cb6fab112690",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 254,
+          "module": "Aiur.GitHub.ReviewThreads.ResolutionPolicy",
+          "name": "agent_login?",
+          "path": "src/lib/aiur/github/review_threads/resolution_policy.ex",
+          "kind": "def",
+          "end_line": 254,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5816,
-  "limits": "377 selected families and 5816 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5855,
+  "limits": "385 selected families and 5855 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

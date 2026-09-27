@@ -1895,3 +1895,7 @@ Read source_event_id, source_health, start_port, start_task, start_turn, text, t
 ### Name duplication: transitions and delivery evidence
 
 Read transition, trusted_url, unavailable_snapshot, with_lock, write_checkpoint, writer, account_generation and acknowledge_provider_delivery: 66 literal entries across eight families. Identify three identical URL-shape filters; preserve state-machine guards, identity-bound links, unavailable accounting, lock/recovery effects and delivery acknowledgement layers. Read the hook delivery callback wrapper to establish its exception and ignored-result behavior. Name triage now 377 families/5816 entries, leaving 1303 cross-module names. Raw findings and skeptic counts are unchanged; no complete replay, URL trust, crash durability or end-to-end delivery guarantee is claimed.
+
+### Name duplication: age and login classification
+
+Read acquire_lock, activity, advance, age, age_seconds, agent_family, agent_label and agent_login?: 39 literal entries across eight families. Preserve lock ownership, phase/cursor authority, elapsed-time units, provider presentation and distinct login populations. Read classification and normalization helpers to distinguish case/at-sign handling from whitespace trimming and bot/daemon expansion. Name triage now 385 families/5855 entries, leaving 1295 cross-module names. Raw findings and skeptic counts are unchanged; no lock safety, rendered-age coverage or review-policy defect is claimed.
