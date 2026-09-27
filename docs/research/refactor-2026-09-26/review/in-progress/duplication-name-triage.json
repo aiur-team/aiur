@@ -92899,10 +92899,481 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "warning",
+      "assessment": "Warning constructors preserve different provenance schemas.",
+      "constraints": [
+        "RunTelemetry.Dataset merges caller extras with authoritative type/path/line fields.",
+        "GitHubEnricher labels enrichment failure and reduces reason through Lifecycle.reason_class.",
+        "Procfs keeps PID, field and raw reason.",
+        "Preserve source location versus endpoint/PID evidence and classified versus original reason; common naming alone does not establish one diagnostic schema."
+      ],
+      "clauses": 3,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 1258,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "warning",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "kind": "defp",
+          "end_line": 1260,
+          "body_sha256": "0411c79ae91d5a8b3611c945ab7f4ce5f3bdfe11cf6aec8d33454c57f53cc581",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 328,
+          "module": "Aiur.RunTelemetry.GitHubEnricher",
+          "name": "warning",
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "kind": "defp",
+          "end_line": 334,
+          "body_sha256": "0f247017926c655b143dfaef1dd3a8ef1cff4611ba021491e91259b7eefd0a2e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 311,
+          "module": "Aiur.RunTelemetry.Procfs",
+          "name": "warning",
+          "path": "src/lib/aiur/run_telemetry/procfs.ex",
+          "kind": "defp",
+          "end_line": 311,
+          "body_sha256": "40058619f1abe461a780774b1e1f61b438a856e81b87aa921064b9ecda53166e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "windows",
+      "assessment": "Meter windows are adapted, validated and presented in separate layers.",
+      "constraints": [
+        "OpenAICompat.MeterAdapter derives Kimi headers or nonnegative DeepSeek in-flight concurrency, otherwise an empty list.",
+        "ProviderMeters.Input accepts at most 128 list entries, validates each and rejects duplicate limit IDs before storing values by ID.",
+        "ProviderMetersPresenter renders nonempty known window maps and sorts by kind/priority/name/ID, otherwise empty.",
+        "Keep absent provider measurements distinct from invalid input and hidden/unknown presentation. A rendered empty list does not establish no quota limits."
+      ],
+      "clauses": 7,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 42,
+          "module": "Aiur.OpenAICompat.MeterAdapter",
+          "name": "windows",
+          "path": "src/lib/aiur/open_ai_compat/meter_adapter.ex",
+          "kind": "defp",
+          "end_line": 42,
+          "body_sha256": "7511822ffa368db49f768c4977a6fbb9c67323327d208d78919ba8a98ba22d2e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 44,
+          "module": "Aiur.OpenAICompat.MeterAdapter",
+          "name": "windows",
+          "path": "src/lib/aiur/open_ai_compat/meter_adapter.ex",
+          "kind": "defp",
+          "end_line": 47,
+          "body_sha256": "3f7f9df456fcc3eae17d09f634ff34eabdfcf4ea8cc689f303723831eca87d7f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 49,
+          "module": "Aiur.OpenAICompat.MeterAdapter",
+          "name": "windows",
+          "path": "src/lib/aiur/open_ai_compat/meter_adapter.ex",
+          "kind": "defp",
+          "end_line": 49,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 153,
+          "module": "Aiur.ProviderMeters.Input",
+          "name": "windows",
+          "path": "src/lib/aiur/provider_meters/input.ex",
+          "kind": "defp",
+          "end_line": 163,
+          "body_sha256": "786eb0ba83c34ca892745f60eae1b4b92b7ca5cbf9314f7b5b53cca3eb606533",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 165,
+          "module": "Aiur.ProviderMeters.Input",
+          "name": "windows",
+          "path": "src/lib/aiur/provider_meters/input.ex",
+          "kind": "defp",
+          "end_line": 165,
+          "body_sha256": "296ea93d2ac10eb206c13a4621ead249c1fdd35e2ebe4f059fa81dabe65bb53d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 241,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "windows",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 245,
+          "body_sha256": "2aa3d78a7788deb5ac299ac2b522a835998d6fa1397a24f2018b802874f131fa",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 247,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "windows",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "kind": "defp",
+          "end_line": 247,
+          "body_sha256": "f221dceb1417120662005c8ac094884fbe1cc98e2f6039678a1cc2fb53124c9c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "write_error",
+      "assessment": "CLI error helpers differ in formatting, injection and exit-status ownership.",
+      "constraints": [
+        "AsksCLI and FindingsCLI format command-prefixed output through a supplied puts callback and return exit code two.",
+        "ExecutorCommandCLI selects an injected/default error function from keyword dependencies, falling back for nonlists and returning that callback result.",
+        "Shared output mechanics must retain command context and who owns the exit code. These wrappers do not establish that every caller writes to stderr."
+      ],
+      "clauses": 4,
+      "modules": 3,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 82,
+          "module": "Aiur.AsksCLI",
+          "name": "write_error",
+          "path": "src/lib/aiur/asks_cli.ex",
+          "kind": "defp",
+          "end_line": 85,
+          "body_sha256": "51cd78f9728f1797e2aaeb4a21de1a4074caaec913c0e14323a6772269983a20",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 373,
+          "module": "Aiur.ExecutorCommandCLI",
+          "name": "write_error",
+          "path": "src/lib/aiur/executor_command_cli.ex",
+          "kind": "defp",
+          "end_line": 376,
+          "body_sha256": "563e5143273cf5faa6dd209ec91b2fca5f1d54d563a4d40528085b6338234d9c",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 378,
+          "module": "Aiur.ExecutorCommandCLI",
+          "name": "write_error",
+          "path": "src/lib/aiur/executor_command_cli.ex",
+          "kind": "defp",
+          "end_line": 378,
+          "body_sha256": "a5b76a4c37a829acb7eb0566e1f62c05c51ec6178a4fa288a8272147b0ddf094",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 105,
+          "module": "Aiur.FindingsCLI",
+          "name": "write_error",
+          "path": "src/lib/aiur/findings_cli.ex",
+          "kind": "defp",
+          "end_line": 108,
+          "body_sha256": "72e8621da87c9fc6f4fbef927a2d2f2f979e31a1e900e3a49fff55f6e8f64c86",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "absolute",
+      "assessment": "Absolute path resolution and counter checkpoint decoding are unrelated.",
+      "constraints": [
+        "PackPaths retains absolute paths or resolves relative paths beneath the Aiur application directory.",
+        "CounterPolicy validates checkpoint keys and absolute counter values into a map, halting on invalid ledger checkpoint; nonmaps fail.",
+        "Keep filesystem location separate from absolute measurement semantics. Neither helper name implies path safety or counter monotonicity."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 155,
+          "module": "Aiur.BuildOrder.PackPaths",
+          "name": "absolute",
+          "path": "src/lib/aiur/build_order/pack_paths.ex",
+          "kind": "defp",
+          "end_line": 157,
+          "body_sha256": "5636667f507ddb06e415d00400bb81b8311867519d7b752927fa2753eef3a278",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 308,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "absolute",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 317,
+          "body_sha256": "13903e8150cd64ad184e6c82cf549d04c8a805cf472c1f4b0ca891dc41d79c48",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 319,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "absolute",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 319,
+          "body_sha256": "6716f5c758bc2de8ca677344c54e3a832ae2f6d6d2ba08a2ddf57bf43494d2ee",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "accumulate_key",
+      "assessment": "Two normalized-key accumulators are identical.",
+      "constraints": [
+        "DecisionDelegation and DecisionEnrichment halt with duplicate_fields for an already present key, otherwise continue with the key/value inserted.",
+        "One normalization primitive can preserve the reducer protocol and collision error.",
+        "This overlaps the earlier normalize_keys analysis and is non-additive duplication evidence; caller key normalization and field allowlists remain separate policy."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 307,
+          "module": "Aiur.DecisionDelegation",
+          "name": "accumulate_key",
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "kind": "defp",
+          "end_line": 313,
+          "body_sha256": "394ed68f43ab338c1f6b851338d1e679bf09ba36809ca7e1e6ba3829700a7322",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 187,
+          "module": "Aiur.DecisionEnrichment",
+          "name": "accumulate_key",
+          "path": "src/lib/aiur/decision_enrichment.ex",
+          "kind": "defp",
+          "end_line": 193,
+          "body_sha256": "394ed68f43ab338c1f6b851338d1e679bf09ba36809ca7e1e6ba3829700a7322",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "acknowledge",
+      "assessment": "Interrupt acknowledgement and executor wake acknowledgement have different completion boundaries.",
+      "constraints": [
+        "InterruptHandshake clears the pending interrupt request, records acknowledgement/payload and invokes reconcile.",
+        "ExecutorWakeInbox sends a list of records to its server through a synchronous acknowledgement call.",
+        "Preserve provider handshake state versus wake-consumer receipt. Neither entry point alone proves turn termination or durable wake consumption."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 12,
+          "module": "Aiur.AppServer.InterruptHandshake",
+          "name": "acknowledge",
+          "path": "src/lib/aiur/app_server/interrupt_handshake.ex",
+          "kind": "def",
+          "end_line": 18,
+          "body_sha256": "7e5b0ea9e734ba7fd1df038e2e925281e18fd6bc441f1a481d32d46c44bc548e",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 40,
+          "module": "Aiur.ExecutorWakeInbox",
+          "name": "acknowledge",
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "kind": "def",
+          "end_line": 40,
+          "body_sha256": "d238d1143c84352d8fbc1f155b1ec0a676906d93c70cdd46aabed6bf42785f93",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "acknowledge_queue_item_delivery",
+      "assessment": "Delivery acknowledgement already delegates to one queue API boundary.",
+      "constraints": [
+        "Orchestrator forwards server/item/provider metadata to OperatorMessages.",
+        "OperatorMessages requires integer item ID and map metadata, then invokes queue_api_call with the acknowledgement tuple.",
+        "Do not count this facade as an independent acknowledgement implementation. Validation here is structural and does not establish actual delivery or persistence."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 628,
+          "module": "Aiur.Orchestrator",
+          "name": "acknowledge_queue_item_delivery",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "def",
+          "end_line": 629,
+          "body_sha256": "c25aae588c914dcaf7a52316646f0db658e80eec34c8c8e66517517d664f284e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 174,
+          "module": "Aiur.Orchestrator.OperatorMessages",
+          "name": "acknowledge_queue_item_delivery",
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "kind": "def",
+          "end_line": 180,
+          "body_sha256": "9634a9f5fba8d96034feaf63e991734eebdf658209cb441eaad3aecbee58e3b2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "action_matches_status?",
+      "assessment": "Identically named predicates compare opposite sides of a control transition.",
+      "constraints": [
+        "PauseResume matches pause with paused and resume with working.",
+        "UnitsControlPolicy matches pause with working and resume with paused.",
+        "Both reject other pairs, but one uses target-state agreement while the other uses actionable source state.",
+        "Keep these predicates separate or rename by transition role; sharing their mapping would reverse one contract. Caller transition correctness was not independently verified here."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 1158,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "action_matches_status?",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "defp",
+          "end_line": 1158,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1159,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "action_matches_status?",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "defp",
+          "end_line": 1159,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 1160,
+          "module": "Aiur.Orchestrator.PauseResume",
+          "name": "action_matches_status?",
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "kind": "defp",
+          "end_line": 1160,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 121,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "action_matches_status?",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "defp",
+          "end_line": 121,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 122,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "action_matches_status?",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "defp",
+          "end_line": 122,
+          "body_sha256": "fd084b8d9279a79c2f741505df0c73b16ea4d59c5e920906a0e1dbac9b3866c9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 123,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "action_matches_status?",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "defp",
+          "end_line": 123,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 6947,
-  "limits": "605 selected families and 6947 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 6976,
+  "limits": "613 selected families and 6976 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

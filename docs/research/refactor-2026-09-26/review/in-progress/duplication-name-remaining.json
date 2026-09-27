@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "62369218e510cc193c8b0b136268bb409a2b83e567b9f024cbce24acb4cc882f"
+    "name_triage": "b12543e30416856e4c7ff9fef8d2bde106a689b2c2fee7c78b73f16ca1c67382"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 605,
-    "remaining_cross_module_names": 1075,
-    "remaining_literal_entries": 3321
+    "reviewed_cross_module_names": 613,
+    "remaining_cross_module_names": 1067,
+    "remaining_literal_entries": 3292
   },
   "families": [
-    {
-      "name": "warning",
-      "clauses": 3,
-      "modules": 3,
-      "summed_source_span_lines": 11
-    },
-    {
-      "name": "windows",
-      "clauses": 7,
-      "modules": 3,
-      "summed_source_span_lines": 24
-    },
-    {
-      "name": "write_error",
-      "clauses": 4,
-      "modules": 3,
-      "summed_source_span_lines": 13
-    },
-    {
-      "name": "absolute",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "accumulate_key",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 14
-    },
-    {
-      "name": "acknowledge",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "acknowledge_queue_item_delivery",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "action_matches_status?",
-      "clauses": 6,
-      "modules": 2,
-      "summed_source_span_lines": 6
-    },
     {
       "name": "actionable_review?",
       "clauses": 5,

@@ -2011,3 +2011,7 @@ Read timestamp_for, to_map, token, token_dimensions, token_key, totals, touch an
 ### Name duplication: unavailable evidence and traversal
 
 Read unavailable_health, unavailable_source, unknown, url, usage_aggregate_generation, usage_limit_pause, verify_human_review_ready and walk: 35 literal entries across eight families. Preserve unavailable reasons/partial evidence, identity-bound URLs, provider reset metadata, review-verifier fallback and traversal domains. Read CommandsCLI source normalization and issue-URL identity helper, and checked aggregate alias. Name triage now 605 families/6947 entries, leaving 1075 cross-module names. Raw findings and skeptic counts are unchanged; no complete readiness, privacy or source-freshness guarantee is added.
+
+### Name duplication: acknowledgement and transition roles
+
+Read warning, windows, write_error, absolute, accumulate_key, acknowledge, acknowledge_queue_item_delivery and action_matches_status?: 29 literal entries across eight families. The sweep now reaches two-module names. Key accumulators match; action/status predicates use opposite transition sides and must not share a mapping. Preserve warning provenance, meter validation, exit-code ownership and acknowledgement boundaries. Name triage now 613 families/6976 entries, leaving 1067 cross-module names. Raw findings and skeptic counts are unchanged; no complete delivery, durable acknowledgement or transition-correctness guarantee is added.
