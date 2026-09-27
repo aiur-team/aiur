@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "5886b466ef0b77e9c33b6b342ae25da449f044ad5cf1e5bfad42c42590ae5afd"
+    "name_triage": "dd48c8e62c6bd424d78399032e9283b8471e9a162f5b2bdb1769252335bec539"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 909,
-    "remaining_cross_module_names": 771,
-    "remaining_literal_entries": 2387
+    "reviewed_cross_module_names": 917,
+    "remaining_cross_module_names": 763,
+    "remaining_literal_entries": 2357
   },
   "families": [
-    {
-      "name": "fallback",
-      "clauses": 8,
-      "modules": 2,
-      "summed_source_span_lines": 35
-    },
-    {
-      "name": "fallback_backend",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "fallback_provider_label",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "family",
-      "clauses": 4,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "fd_gate",
-      "clauses": 5,
-      "modules": 2,
-      "summed_source_span_lines": 8
-    },
-    {
-      "name": "fd_headroom_threshold",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 5
-    },
-    {
-      "name": "fetch_active_identifiers",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "fetch_all",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
     {
       "name": "fetch_api_key",
       "clauses": 2,

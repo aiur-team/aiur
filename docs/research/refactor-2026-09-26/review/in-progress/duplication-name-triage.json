@@ -108671,10 +108671,490 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "fallback",
+      "assessment": "Retained source degradation and credential selection are different policies.",
+      "constraints": [
+        "Read complete SourceFallback: errors produce availability false separately from retained source values; run invalidates, membership/status/activity mark unavailable/stale, status facts retain prior values, merges mark read failure and repository identity fails explicitly.",
+        "Activity progress is marked stale or unknown; retained data must stay coupled with availability evidence.",
+        "CredentialSelector chooses primary eligible entry or first eligible entry. Selection fallback is not source freshness recovery or independent credential eligibility proof."
+      ],
+      "clauses": 8,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 16,
+          "module": "Aiur.CurrentRunProjections.SourceFallback",
+          "name": "fallback",
+          "path": "src/lib/aiur/current_run_projections/source_fallback.ex",
+          "kind": "defp",
+          "end_line": 16,
+          "body_sha256": "b6e0b5a37167591a6c6bec6b9d49808c47c24c5b449e2044364e38fef26999a0",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 18,
+          "module": "Aiur.CurrentRunProjections.SourceFallback",
+          "name": "fallback",
+          "path": "src/lib/aiur/current_run_projections/source_fallback.ex",
+          "kind": "defp",
+          "end_line": 24,
+          "body_sha256": "35c85cb3269c53c25e074e7c1941a34fec22d9ce56c2444dddaebd11b94eea24",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 26,
+          "module": "Aiur.CurrentRunProjections.SourceFallback",
+          "name": "fallback",
+          "path": "src/lib/aiur/current_run_projections/source_fallback.ex",
+          "kind": "defp",
+          "end_line": 34,
+          "body_sha256": "5078fcfd797a12a346f09fb9be0c6292d00af46ffc9eabd351dae6f49256ff40",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 36,
+          "module": "Aiur.CurrentRunProjections.SourceFallback",
+          "name": "fallback",
+          "path": "src/lib/aiur/current_run_projections/source_fallback.ex",
+          "kind": "defp",
+          "end_line": 36,
+          "body_sha256": "044f29a16cc91d51bc4c40b38e2d4d9af1ea4e58c3befbc56d5935530e760ba8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 38,
+          "module": "Aiur.CurrentRunProjections.SourceFallback",
+          "name": "fallback",
+          "path": "src/lib/aiur/current_run_projections/source_fallback.ex",
+          "kind": "defp",
+          "end_line": 46,
+          "body_sha256": "c6b7126cff355128d72cb739823bef7707a997fdad31575c109df7c06f0b6c1e",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 48,
+          "module": "Aiur.CurrentRunProjections.SourceFallback",
+          "name": "fallback",
+          "path": "src/lib/aiur/current_run_projections/source_fallback.ex",
+          "kind": "defp",
+          "end_line": 52,
+          "body_sha256": "c754d4bcd8ce7666f925937b1efbed476db50b73a41bee0cf9314aafeee04ad4",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 54,
+          "module": "Aiur.CurrentRunProjections.SourceFallback",
+          "name": "fallback",
+          "path": "src/lib/aiur/current_run_projections/source_fallback.ex",
+          "kind": "defp",
+          "end_line": 55,
+          "body_sha256": "a0dcf34c9fea667243dd13db42c167e09f05bd54220f2b5f63e755abc60db64f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 132,
+          "module": "Aiur.GitHub.CredentialSelector",
+          "name": "fallback",
+          "path": "src/lib/aiur/github/credential_selector.ex",
+          "kind": "defp",
+          "end_line": 132,
+          "body_sha256": "a93d22964267ce4d6195176582ae741c9ed3f4879e657c62679c59f2aaa6f571",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fallback_backend",
+      "assessment": "Registry alternate backend and configured rate-limit fallback have different authority.",
+      "constraints": [
+        "CodingAgent retrieves fallback_backend from a known registry entry and returns nil for unknown/missing values.",
+        "RateLimitFallback takes an option via Keyword.get_lazy, consulting configured backend only when the option is absent.",
+        "Preserve registry defaults versus operational override, including explicit nil override; selected fallback alone is not current model/backend availability."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1264,
+          "module": "Aiur.CodingAgent",
+          "name": "fallback_backend",
+          "path": "src/lib/aiur/coding_agent.ex",
+          "kind": "def",
+          "end_line": 1269,
+          "body_sha256": "128ce27a27fd007b00c9637588427db7d08e5a83c43f8dd9809284aab0a96837",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 610,
+          "module": "Aiur.Orchestrator.RateLimitFallback",
+          "name": "fallback_backend",
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "kind": "defp",
+          "end_line": 611,
+          "body_sha256": "f1e4fe06a566e1c53bcba4b2f99329855a0ddec1b27f8e42151d52f9f0c9d94d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fallback_provider_label",
+      "assessment": "Provider fallback display differs for underscore-separated atoms.",
+      "constraints": [
+        "UsageSummaryPresenter splits atom text on underscores and capitalizes each word; cost-report task capitalizes the whole atom string.",
+        "Both preserve binary provider labels unchanged.",
+        "Do not claim existing rendered-label equivalence; sharing would require an explicit formatting decision and caller coverage."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 367,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "fallback_provider_label",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 372,
+          "body_sha256": "72c375a4aed728ee2a33598c4f8747d072ee8fb82fdbe8301774104227ad0154",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 374,
+          "module": "AiurWeb.OperatorControlCenter.UsageSummaryPresenter",
+          "name": "fallback_provider_label",
+          "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+          "kind": "defp",
+          "end_line": 374,
+          "body_sha256": "96ff158826ee318988c349e4363c6ed6b9ac6db237e87c3fc684c6c5e18aca3c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 344,
+          "module": "Mix.Tasks.Aiur.CostReport",
+          "name": "fallback_provider_label",
+          "path": "src/lib/mix/tasks/aiur.cost_report.ex",
+          "kind": "defp",
+          "end_line": 344,
+          "body_sha256": "a52ea3422c7bbf30a1f1e49ce3f9a9b31db6bd98ca5398c7e1445b532d6a3e8b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 345,
+          "module": "Mix.Tasks.Aiur.CostReport",
+          "name": "fallback_provider_label",
+          "path": "src/lib/mix/tasks/aiur.cost_report.ex",
+          "kind": "defp",
+          "end_line": 345,
+          "body_sha256": "96ff158826ee318988c349e4363c6ed6b9ac6db237e87c3fc684c6c5e18aca3c",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "family",
+      "assessment": "Model family inference and routing-label categorization classify different objects.",
+      "constraints": [
+        "CodingAgent.Models prefers parsed binary tier, then parsed prefix, otherwise Claude-family or slug-family fallback.",
+        "RoutingPreview classifies complexity prefix, model prefix with effort-label membership, or other.",
+        "Preserve model taxonomy versus override-label category. Full model parsing and effort registry readiness are not certified by these functions."
+      ],
+      "clauses": 4,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 83,
+          "module": "Aiur.CodingAgent.Models",
+          "name": "family",
+          "path": "src/lib/aiur/coding_agent/models.ex",
+          "kind": "def",
+          "end_line": 89,
+          "body_sha256": "abcea1ec8f0bd58740c3181447a0fba6457daeb97598daccc4be1d54f3a28326",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 191,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "family",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "defp",
+          "end_line": 191,
+          "body_sha256": "f675519ebd6070c13cfd0d3c32e0885b859002f7d82981e09e4f50e4220565b8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 192,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "family",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "defp",
+          "end_line": 192,
+          "body_sha256": "3263b1ce9742555e239148957ff99dcb9f32eeb2cc2ef2d23272769f95efb4d4",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 193,
+          "module": "AiurWeb.OperatorControlCenter.AgentRoutingPreview",
+          "name": "family",
+          "path": "src/lib/aiur_web/operator_control_center/agent_routing_preview.ex",
+          "kind": "defp",
+          "end_line": 193,
+          "body_sha256": "6ceee92bf3b9a01d04d6cdda8b9ca3885707347ac7acb02f2fc32d2f10d4e92f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fd_gate",
+      "assessment": "Orchestrator already delegates descriptor-pressure admission to DispatchPolicy.",
+      "constraints": [
+        "Exhausted holds; unavailable and malformed samples dispatch. Valid nonnegative availability and positive limit compare against headroom threshold.",
+        "Equality with threshold dispatches; strictly lower availability holds.",
+        "Keep this explicit fail-open admission policy distinct from evidence that descriptor health is known or sufficient for the next process spawn."
+      ],
+      "clauses": 5,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 330,
+          "module": "Aiur.Orchestrator",
+          "name": "fd_gate",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "defdelegate",
+          "end_line": 330,
+          "body_sha256": "0c41efeba20ae8fd0070f2b1bd707e6ce4088a4bf2ad7d9c148f1f79245a36f4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 179,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "fd_gate",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 179,
+          "body_sha256": "bb05859bfbe5606b514c31809b93b9c508b49ec372037a1e0fce711beda9b101",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 180,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "fd_gate",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 180,
+          "body_sha256": "745039dec3928eb3fe1d9086289a13ba2a0bfed46b394196921f24983643e199",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 182,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "fd_gate",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 185,
+          "body_sha256": "7a9049d126c9de726b34c2dad4998c0eb98c2846477ccc2b7b7ea65cde14a0a4",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 187,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "fd_gate",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 187,
+          "body_sha256": "745039dec3928eb3fe1d9086289a13ba2a0bfed46b394196921f24983643e199",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fd_headroom_threshold",
+      "assessment": "Descriptor threshold calculation already has one policy owner.",
+      "constraints": [
+        "Orchestrator delegates to DispatchPolicy; valid positive integer limits use ceiling(limit times 10 percent), otherwise unavailable.",
+        "Verified headroom percentage is 10.",
+        "Keep rounding and unknown value semantics with dispatch policy. Threshold arithmetic does not demonstrate measured resource savings or process-level descriptor capacity."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 333,
+          "module": "Aiur.Orchestrator",
+          "name": "fd_headroom_threshold",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "kind": "defdelegate",
+          "end_line": 333,
+          "body_sha256": "0c41efeba20ae8fd0070f2b1bd707e6ce4088a4bf2ad7d9c148f1f79245a36f4",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 191,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "fd_headroom_threshold",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 193,
+          "body_sha256": "87016125268b1f080dd8886c8661740277573f00ca08ec8dc69231e8b73bafe9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 195,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "fd_headroom_threshold",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "kind": "def",
+          "end_line": 195,
+          "body_sha256": "586b98f048e679a7158398a2db393f35d783902b99a8dc19edd4229efba40f14",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_active_identifiers",
+      "assessment": "Decision expiry and slot startup need different unavailable-state contracts.",
+      "constraints": [
+        "DecisionExpiry wraps the direct Orchestrator call in ok, using a 1000 ms timeout and preserves exits as orchestrator_unavailable errors.",
+        "ServeLifecycle invokes the public list API with 500 ms timeout and rescues/catches all failures to an empty list.",
+        "Preserve safety decisions versus best-effort startup behavior; an empty fallback must not be reused as authoritative evidence that no agents are active."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 93,
+          "module": "Aiur.DecisionExpiry",
+          "name": "fetch_active_identifiers",
+          "path": "src/lib/aiur/decision_expiry.ex",
+          "kind": "defp",
+          "end_line": 97,
+          "body_sha256": "5c07c2336b85694bd501304bf650a907b1c3ebd205d012bda89fa2de97823f71",
+          "normalized_body_lines": 6,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 213,
+          "module": "Aiur.Opencode.Slot.ServeLifecycle",
+          "name": "fetch_active_identifiers",
+          "path": "src/lib/aiur/opencode/slot/serve_lifecycle.ex",
+          "kind": "defp",
+          "end_line": 219,
+          "body_sha256": "ef2eb470b1c23f65bcf820bff8145aacec746c42c4dd48fe71679c2d881fcfa0",
+          "normalized_body_lines": 7,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_all",
+      "assessment": "Paginated GitHub enrichment and provider-snapshot collection have different completeness/error shapes.",
+      "constraints": [
+        "GitHubEnricher initializes bounded page traversal; verified default 20 pages and read fetch_pages checks for exhausted budget, cycle, unsafe URL and request exceptions/exits.",
+        "ProviderMeterSource enumerates registered provider families and fetches each binding; read fetch_one accepts ProviderMeterSnapshot only and maps denied/invalid/exception outcomes to nil.",
+        "Keep partial/unavailable provider entries distinct from complete pagination results. Neither all-named function independently proves full remote population or fresh provider observations."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 102,
+          "module": "Aiur.RunTelemetry.GitHubEnricher",
+          "name": "fetch_all",
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "kind": "defp",
+          "end_line": 105,
+          "body_sha256": "878e77a584478f82dbf98a9fb20f03fe488e95300ecbb4064249f7a944b0d13b",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 63,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMeterSource",
+          "name": "fetch_all",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meter_source.ex",
+          "kind": "defp",
+          "end_line": 67,
+          "body_sha256": "3792911197c89fb43600cdd90efa2962673baa6aa20d6682d01c675e9e4f54b8",
+          "normalized_body_lines": 8,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7881,
-  "limits": "909 selected families and 7881 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7911,
+  "limits": "917 selected families and 7911 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
