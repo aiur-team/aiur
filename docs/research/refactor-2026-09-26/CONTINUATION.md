@@ -719,3 +719,19 @@ Meter subscription and retained usage chatgpt vocabularies are separate, with
 explicit rate-limit conversion. Historical pricing relationship revisions must
 not silently follow a mutable latest source version. Source hashes matched; no
 production changes, current pricing audit or runtime verification claimed.
+
+## Lifecycle and presentation constant checkpoint
+
+39 of 162 attribute groups assessed (123 remain). Seventeen groups cover
+control request state, membership lifecycle, decision authority/open status,
+workflow stages, UI reason sets, marker labels, alert suffixes and command topics.
+
+Keep one-state fleet classification separate from overlapping UnitsPolicy
+conditions. Membership vocabularies match while evidence precedence differs.
+Shared route status sets support the existing Build Order extraction proposal
+without merging analytics/usage member identities. AlertTopic trims repeated
+resolution suffixes while AlertFeed removes one and rejects empty remainder;
+matching suffix text does not make their functions interchangeable. Executor
+command topic classification is shared between sanitization and optional alerting
+and needs coordinated ownership. Source references/hashes checked; no production
+changes or runtime incident claims. Remaining constant/concept work stays open.

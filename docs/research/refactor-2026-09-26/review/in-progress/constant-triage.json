@@ -1124,10 +1124,486 @@
       "disposition": "counter_scope_shared_vocabulary_separate_values",
       "assessment": "Envelope and ExactMoney admit request/turn/thread/session with separate validation/error names. A shared scope vocabulary is appropriate; source-specific observations and money scopes remain independent fields, not inferred from one another.",
       "coverage": "Attribute definitions and every attribute use inspected; registry/contract owners and full ThreadUsage/TurnUsage modules read where needed. No live provider or historical-price validation."
+    },
+    {
+      "expression_sha256": "040443030ddfc0703dddeb4f5266d8c84bebb76b9a05d4504544490d8f8a7d7d",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 25,
+          "module": "Aiur.Orchestrator.ControlLifecycle",
+          "name": "pending_statuses",
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "expression": "[:requested, :accepted]",
+          "numeric_value": null,
+          "expression_sha256": "040443030ddfc0703dddeb4f5266d8c84bebb76b9a05d4504544490d8f8a7d7d"
+        },
+        {
+          "line": 48,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "in_flight",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "expression": "[:requested, :accepted]",
+          "numeric_value": null,
+          "expression_sha256": "040443030ddfc0703dddeb4f5266d8c84bebb76b9a05d4504544490d8f8a7d7d"
+        }
+      ],
+      "disposition": "control_pending_shared_contract",
+      "assessment": "ControlLifecycle pending requests and UnitsControlPolicy in-flight UI requests both use requested/accepted. This is a shared control-request lifecycle predicate, with the domain owner preferred. Keep UI action projection and domain correlation/generation checks separate; settled? fallback behavior is not the same as domain request validation.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "0b48e27ce3364790526cd9526606e349d5b7689d22edd01842f64f70714cef33",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 7,
+          "module": "AiurWeb.OperatorControlCenter.FleetFilters",
+          "name": "stuck_reasons",
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_filters.ex",
+          "expression": "[:tracker_unavailable, :backing_off, :unresponsive]",
+          "numeric_value": null,
+          "expression_sha256": "0b48e27ce3364790526cd9526606e349d5b7689d22edd01842f64f70714cef33"
+        },
+        {
+          "line": 12,
+          "module": "AiurWeb.OperatorControlCenter.UnitsPolicy",
+          "name": "stuck_reasons",
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "expression": "[:tracker_unavailable, :backing_off, :unresponsive]",
+          "numeric_value": null,
+          "expression_sha256": "0b48e27ce3364790526cd9526606e349d5b7689d22edd01842f64f70714cef33"
+        }
+      ],
+      "disposition": "shared_reason_set_different_classification",
+      "assessment": "FleetFilters uses one precedence-ordered state: finished, paused, stuck, blocked, running. UnitsPolicy exposes independent condition predicates over normalized nested reasons/runtime state, allowing overlap. Share stuck-reason vocabulary at the OCC boundary if useful, not a whole classifier.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "183ed018d0de89fb86c432b9734fe873eaf8147715d171443acba23d2df90755",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 20,
+          "module": "Aiur.Orchestrator.LifecycleFence",
+          "name": "pr_anchored_state",
+          "path": "src/lib/aiur/orchestrator/lifecycle_fence.ex",
+          "expression": "\"pr-watch\"",
+          "numeric_value": null,
+          "expression_sha256": "183ed018d0de89fb86c432b9734fe873eaf8147715d171443acba23d2df90755"
+        },
+        {
+          "line": 14,
+          "module": "Aiur.Orchestrator.PrAnchored",
+          "name": "pr_anchored_state",
+          "path": "src/lib/aiur/orchestrator/pr_anchored.ex",
+          "expression": "\"pr-watch\"",
+          "numeric_value": null,
+          "expression_sha256": "183ed018d0de89fb86c432b9734fe873eaf8147715d171443acba23d2df90755"
+        }
+      ],
+      "disposition": "pr_anchored_internal_sentinel",
+      "assessment": "PrAnchored stamps pr-watch on synthetic Issues and selects exact matching entries; LifecycleFence normalizes a state before recognizing it. This is an internal PR-unit sentinel, not a normal tracker state label. One PR-anchored domain predicate/constructor can own it while preserving normalization differences deliberately.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "250534530bf2431b0757d12465f62787755a3d76a1cff1adf82d9ca65143460a",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 34,
+          "module": "Aiur.GitHub.Labels",
+          "name": "rate_limit_fallback_suffix",
+          "path": "src/lib/aiur/github/labels.ex",
+          "expression": "\"rate-limit-fallback\"",
+          "numeric_value": null,
+          "expression_sha256": "250534530bf2431b0757d12465f62787755a3d76a1cff1adf82d9ca65143460a"
+        },
+        {
+          "line": 34,
+          "module": "Aiur.Orchestrator.RateLimitFallback",
+          "name": "marker_label_suffix",
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "expression": "\"rate-limit-fallback\"",
+          "numeric_value": null,
+          "expression_sha256": "250534530bf2431b0757d12465f62787755a3d76a1cff1adf82d9ca65143460a"
+        }
+      ],
+      "disposition": "marker_label_existing_owner",
+      "assessment": "Labels already exposes rate_limit_fallback_marker_labels(prefix); RateLimitFallback reconstructs one marker using configured GitHub prefix. Prefer the existing label owner or a provider adapter boundary, preserving singular versus list returns. This marker records fallback ownership and must remain outside dispatch-state vocabulary.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "3abed4063c57f5ef53f982dcf54a5d3a45c04be26a024163ae2b0de514ffb01b",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 11,
+          "module": "Aiur.BuildOrder.TicketHistory.Normalizer",
+          "name": "severities",
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "expression": "[\"info\", \"warning\", \"critical\"]",
+          "numeric_value": null,
+          "expression_sha256": "3abed4063c57f5ef53f982dcf54a5d3a45c04be26a024163ae2b0de514ffb01b"
+        },
+        {
+          "line": 18,
+          "module": "Aiur.TicketObservation",
+          "name": "severities",
+          "path": "src/lib/aiur/ticket_observation.ex",
+          "expression": "[\"info\", \"warning\", \"critical\"]",
+          "numeric_value": null,
+          "expression_sha256": "3abed4063c57f5ef53f982dcf54a5d3a45c04be26a024163ae2b0de514ffb01b"
+        }
+      ],
+      "disposition": "observation_severity_shared_vocabulary",
+      "assessment": "TicketObservation and TicketHistory.Normalizer both retain only info/warning/critical severity in attention attributes. Shared observation vocabulary fits the event contract; do not make all fields mandatory or convert malformed severity into a confident default.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "403393e9c08056d37fa35c47d62fea780f3412ab0b54b061c625a3a8acd5f145",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 28,
+          "module": "Aiur.Orchestrator.CiLifecycle",
+          "name": "ci_wait_state",
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "expression": "\"ci-wait\"",
+          "numeric_value": null,
+          "expression_sha256": "403393e9c08056d37fa35c47d62fea780f3412ab0b54b061c625a3a8acd5f145"
+        },
+        {
+          "line": 1115,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "name": "ci_wait_state",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "expression": "\"ci-wait\"",
+          "numeric_value": null,
+          "expression_sha256": "403393e9c08056d37fa35c47d62fea780f3412ab0b54b061c625a3a8acd5f145"
+        }
+      ],
+      "disposition": "ci_wait_shared_state_distinct_policy",
+      "assessment": "CiLifecycle uses ci-wait to transition/check/remove labels; DispatchPolicy ranks it after other contradictory states. Shared lifecycle vocabulary may own the spelling, but transition authority and precedence remain separate policies as label-state-contracts.json explains.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "44efdebc594782dd9b20d91a250d9722e9179a6a7120ec057089020afd91139e",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 7,
+          "module": "Aiur.CurrentRunSummary.Facts",
+          "name": "nonterminal_lifecycles",
+          "path": "src/lib/aiur/current_run_summary/facts.ex",
+          "expression": "[:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced]",
+          "numeric_value": null,
+          "expression_sha256": "44efdebc594782dd9b20d91a250d9722e9179a6a7120ec057089020afd91139e"
+        },
+        {
+          "line": 38,
+          "module": "AiurWeb.BuildOrder.PlanningSource",
+          "name": "active_membership_lifecycles",
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "expression": "[:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced]",
+          "numeric_value": null,
+          "expression_sha256": "44efdebc594782dd9b20d91a250d9722e9179a6a7120ec057089020afd91139e"
+        }
+      ],
+      "disposition": "nonterminal_vocabulary_different_evidence_precedence",
+      "assessment": "CurrentRunSummary.Facts checks terminal evidence before treating membership lifecycle as nonterminal; PlanningSource prefers pack status, then membership, then pack completion. Same seven lifecycle atoms do not make their evidence precedence identical. Share lifecycle classification vocabulary while preserving source availability/unknown outcomes.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "52e28bd12d550933f1b330ec16cee452b4f6d3e3d5c6580d6be93df6f1e3001e",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 11,
+          "module": "Aiur.DecisionAuthority",
+          "name": "delegable_authorities",
+          "path": "src/lib/aiur/decision_authority.ex",
+          "expression": "[:supervisor_allowed, :supervisor_preferred]",
+          "numeric_value": null,
+          "expression_sha256": "52e28bd12d550933f1b330ec16cee452b4f6d3e3d5c6580d6be93df6f1e3001e"
+        },
+        {
+          "line": 26,
+          "module": "Aiur.DecisionDelegation",
+          "name": "delegable_authorities",
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "expression": "[:supervisor_allowed, :supervisor_preferred]",
+          "numeric_value": null,
+          "expression_sha256": "52e28bd12d550933f1b330ec16cee452b4f6d3e3d5c6580d6be93df6f1e3001e"
+        }
+      ],
+      "disposition": "delegable_authority_shared_positive_policy",
+      "assessment": "DecisionAuthority admits supervisor_allowed/preferred in authority checks; DecisionDelegation validates a serialized policy basis against the same positive list. Keep a decision-domain authority vocabulary/validator and preserve reversibility/kind checks. Adding an authority is an authorization change, not automatic enum expansion.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "57cbdabe81c74b637210bb611402f806219e1c9dc2fc57e4196c6a0ca7b52c00",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 24,
+          "module": "Aiur.ProviderMeters.Input",
+          "name": "failure_reasons",
+          "path": "src/lib/aiur/provider_meters/input.ex",
+          "expression": "[:authentication, :malformed, :timeout, :transport]",
+          "numeric_value": null,
+          "expression_sha256": "57cbdabe81c74b637210bb611402f806219e1c9dc2fc57e4196c6a0ca7b52c00"
+        },
+        {
+          "line": 27,
+          "module": "AiurWeb.OperatorControlCenter.ProviderMetersPresenter",
+          "name": "real_failures",
+          "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+          "expression": "[:authentication, :malformed, :timeout, :transport]",
+          "numeric_value": null,
+          "expression_sha256": "57cbdabe81c74b637210bb611402f806219e1c9dc2fc57e4196c6a0ca7b52c00"
+        }
+      ],
+      "disposition": "meter_failure_vocabulary_and_ui_subset",
+      "assessment": "Input accepts four typed failure reasons; Presenter maps stale snapshots with those failures and zero windows to error, but distinguishes credential-not-ready causes. Preserve health/window guards and cause distinctions. Shared failure taxonomy is useful; do not treat every admitted future failure as the same UI error.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "5b2222f5c3705038bec661de16b12ff0d48395cbcfe9182e1bf725587e5f4a4d",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 7,
+          "module": "Aiur.CurrentRunMembership.Event.Codec",
+          "name": "lifecycles",
+          "path": "src/lib/aiur/current_run_membership/event/codec.ex",
+          "expression": "[:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced, :completed, :cancelled]",
+          "numeric_value": null,
+          "expression_sha256": "5b2222f5c3705038bec661de16b12ff0d48395cbcfe9182e1bf725587e5f4a4d"
+        },
+        {
+          "line": 21,
+          "module": "Aiur.CurrentRunMembership.Reconciler.Snapshot",
+          "name": "lifecycle_values",
+          "path": "src/lib/aiur/current_run_membership/reconciler/snapshot.ex",
+          "expression": "[:queued, :retrying, :allocated, :running, :paused, :waiting, :replaced, :completed, :cancelled]",
+          "numeric_value": null,
+          "expression_sha256": "5b2222f5c3705038bec661de16b12ff0d48395cbcfe9182e1bf725587e5f4a4d"
+        }
+      ],
+      "disposition": "membership_lifecycle_codec_contract",
+      "assessment": "Membership Event.Codec validates/decodes nine lifecycle values; reconciler snapshot accepts matching atom-valued rows. Same membership contract should own vocabulary while codec string parsing/errors and snapshot fallback remain distinct.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "76bb77d3113f900266c296f64bc77d514a35a2eb6576c1e16a53940c4a615fff",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 9,
+          "module": "Aiur.BuildOrder.TicketHistory.Normalizer",
+          "name": "stages",
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "expression": "[:brainstorm, :plan, :work, :review]",
+          "numeric_value": null,
+          "expression_sha256": "76bb77d3113f900266c296f64bc77d514a35a2eb6576c1e16a53940c4a615fff"
+        },
+        {
+          "line": 29,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "safe_stages",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "expression": "[:brainstorm, :plan, :work, :review]",
+          "numeric_value": null,
+          "expression_sha256": "76bb77d3113f900266c296f64bc77d514a35a2eb6576c1e16a53940c4a615fff"
+        }
+      ],
+      "disposition": "workflow_stage_shared_contract",
+      "assessment": "History normalizer validates stage/transition event pairs and presenter admits four safe stages. Share workflow stage vocabulary, retaining exact transition/payload matching and presenter unknown versus normalizer nil fallbacks.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "78b22aad5d397834755f4c4fe616fa8c87735d6e95b12a1b8e1a0d034c9d0473",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 13,
+          "module": "Aiur.AlertFeed",
+          "name": "resolution_suffix",
+          "path": "src/lib/aiur/alert_feed.ex",
+          "expression": "\".resolved\"",
+          "numeric_value": null,
+          "expression_sha256": "78b22aad5d397834755f4c4fe616fa8c87735d6e95b12a1b8e1a0d034c9d0473"
+        },
+        {
+          "line": 4,
+          "module": "Aiur.AlertTopic",
+          "name": "resolution_suffix",
+          "path": "src/lib/aiur/alert_topic.ex",
+          "expression": "\".resolved\"",
+          "numeric_value": null,
+          "expression_sha256": "78b22aad5d397834755f4c4fe616fa8c87735d6e95b12a1b8e1a0d034c9d0473"
+        }
+      ],
+      "disposition": "resolution_suffix_shared_spelling_different_removal",
+      "assessment": "AlertFeed removes one suffix with replace_suffix and rejects empty remainder; AlertTopic trims trailing occurrences with trim_trailing, is gated by needs_attention:false, and returns typed attention keys. Preserve these distinct boundary semantics during extraction; a shared suffix alone does not make both resolvers interchangeable. Repeated-suffix runtime incidence was not investigated.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "8e1750f666963231885f5f4d975dbac13cca6da1cf31b65598d5f3c43205989d",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 45,
+          "module": "AiurWeb.BuildOrder.AnalyticsScope",
+          "name": "unavailable_statuses",
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "expression": "[:catalog_unavailable, :selected_unavailable]",
+          "numeric_value": null,
+          "expression_sha256": "8e1750f666963231885f5f4d975dbac13cca6da1cf31b65598d5f3c43205989d"
+        },
+        {
+          "line": 57,
+          "module": "AiurWeb.BuildOrder.UsageScope",
+          "name": "unavailable_statuses",
+          "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+          "expression": "[:catalog_unavailable, :selected_unavailable]",
+          "numeric_value": null,
+          "expression_sha256": "8e1750f666963231885f5f4d975dbac13cca6da1cf31b65598d5f3c43205989d"
+        }
+      ],
+      "disposition": "route_unavailable_shared_mapping",
+      "assessment": "AnalyticsScope and UsageScope map the same unavailable route statuses to unavailable results. Consolidate with the shared route-decision structure, not an isolated global enum. Keep analytics ticket-number scope and usage repository-qualified Scope distinct; overlaps inherited build-order-20.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "a3476a49bd9178ec00c2801d65dbc0e4f70be2ac8a1d16a92b1db15c807353e0",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 43,
+          "module": "AiurWeb.BuildOrder.AnalyticsScope",
+          "name": "invalid_statuses",
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "expression": "[:invalid_parameter, :not_found, :invalid_catalog, :selected_invalid]",
+          "numeric_value": null,
+          "expression_sha256": "a3476a49bd9178ec00c2801d65dbc0e4f70be2ac8a1d16a92b1db15c807353e0"
+        },
+        {
+          "line": 55,
+          "module": "AiurWeb.BuildOrder.UsageScope",
+          "name": "invalid_statuses",
+          "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+          "expression": "[:invalid_parameter, :not_found, :invalid_catalog, :selected_invalid]",
+          "numeric_value": null,
+          "expression_sha256": "a3476a49bd9178ec00c2801d65dbc0e4f70be2ac8a1d16a92b1db15c807353e0"
+        }
+      ],
+      "disposition": "route_invalid_shared_mapping",
+      "assessment": "Same four invalid route statuses and tagged invalid result in AnalyticsScope and UsageScope. Part of the same shared route dispatcher as groups 54/74; not a separate independent saving.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "f0e52f5f0f11192a5f40f57ac25f7067c2c979a9aaf9bac551d7941fe0d5667e",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 44,
+          "module": "AiurWeb.BuildOrder.AnalyticsScope",
+          "name": "pending_statuses",
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "expression": "[:awaiting_catalog, :selected_loading]",
+          "numeric_value": null,
+          "expression_sha256": "f0e52f5f0f11192a5f40f57ac25f7067c2c979a9aaf9bac551d7941fe0d5667e"
+        },
+        {
+          "line": 56,
+          "module": "AiurWeb.BuildOrder.UsageScope",
+          "name": "pending_statuses",
+          "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+          "expression": "[:awaiting_catalog, :selected_loading]",
+          "numeric_value": null,
+          "expression_sha256": "f0e52f5f0f11192a5f40f57ac25f7067c2c979a9aaf9bac551d7941fe0d5667e"
+        }
+      ],
+      "disposition": "route_pending_shared_mapping",
+      "assessment": "Both route scopes map awaiting_catalog/selected_loading to pending. Preserve stale-catalog selected-root behavior and separate member identity conversion. One route-dispatch opportunity with groups 54/58.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "f4f4b257f733a2d40a5a9da159138aac11dfbf942880c715c73d4f04aa80e9b6",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 6,
+          "module": "Aiur.DecisionAttentionSignals",
+          "name": "open_statuses",
+          "path": "src/lib/aiur/decision_attention_signals.ex",
+          "expression": "[:open, :deferred]",
+          "numeric_value": null,
+          "expression_sha256": "f4f4b257f733a2d40a5a9da159138aac11dfbf942880c715c73d4f04aa80e9b6"
+        },
+        {
+          "line": 8,
+          "module": "Aiur.DecisionStore.RetainedSnapshot.QueryPlan",
+          "name": "open_statuses",
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+          "expression": "[:open, :deferred]",
+          "numeric_value": null,
+          "expression_sha256": "f4f4b257f733a2d40a5a9da159138aac11dfbf942880c715c73d4f04aa80e9b6"
+        }
+      ],
+      "disposition": "open_decision_shared_semantics_with_distinct_predicates",
+      "assessment": "DecisionAttentionSignals treats open/deferred as unresolved when raising/resolving attention; QueryPlan uses the same list for open lifecycle filtering but awaiting is open only. A decision lifecycle predicate can own the shared classification. Do not collapse open and awaiting or bypass blocking/suspicious-classification guards.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
+    },
+    {
+      "expression_sha256": "fb72dde01b0585bfdbc54fec09c37f30d0376f1bf6bbff15dcbc53c14bd95151",
+      "modules": 2,
+      "site_count": 2,
+      "sites": [
+        {
+          "line": 200,
+          "module": "Aiur.ExecutorEvents",
+          "name": "command_topics",
+          "path": "src/lib/aiur/executor_events.ex",
+          "expression": "~w\"executor.decision.requested executor.decision.deferred\"",
+          "numeric_value": null,
+          "expression_sha256": "fb72dde01b0585bfdbc54fec09c37f30d0376f1bf6bbff15dcbc53c14bd95151"
+        },
+        {
+          "line": 19,
+          "module": "Aiur.ExecutorListener",
+          "name": "command_topics",
+          "path": "src/lib/aiur/executor_listener.ex",
+          "expression": "~w\"executor.decision.requested executor.decision.deferred\"",
+          "numeric_value": null,
+          "expression_sha256": "fb72dde01b0585bfdbc54fec09c37f30d0376f1bf6bbff15dcbc53c14bd95151"
+        }
+      ],
+      "disposition": "executor_command_topics_shared_security_boundary",
+      "assessment": "ExecutorEvents scrubs untrusted fields only for the two command topics; ExecutorListener calls that scrubber before optional command alerting and uses the same topic set. Centralize command-topic classification in the event contract so additions cannot update alerting without sanitization. Preserve alerting opt-in, typed payload handling and non-command routing.",
+      "coverage": "All listed declarations and attribute-use sites read; selected surrounding classifier/route/delivery functions read. This is contract-level source assessment, not complete transitive behavior verification."
     }
   ],
-  "assessed_group_count": 22,
-  "remaining_candidate_groups": 140,
+  "assessed_group_count": 39,
+  "remaining_candidate_groups": 123,
   "sources": [
     {
       "path": "src/lib/aiur/coding_agent.ex",
@@ -1436,6 +1912,118 @@
     {
       "path": "src/lib/aiur/usage/headless/context.ex",
       "sha256": "5a6f149dfb08b83f09b124dde814cbb112a2b4e15ac179f735a71c91149bae14"
+    },
+    {
+      "path": "src/lib/aiur/alert_feed.ex",
+      "sha256": "d8730f11e492e8da0950f26e49f597e9e4f8afca6027fc2168259fc2b339744b"
+    },
+    {
+      "path": "src/lib/aiur/alert_topic.ex",
+      "sha256": "dc2c98e0e50af41cf8d1ea7a0dce1d30f547ea2940a800f7bf1e2f8564d36a90"
+    },
+    {
+      "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+      "sha256": "8bc25077042f5184030cc8984885622401b96cd21560c541852028738d7a43a4"
+    },
+    {
+      "path": "src/lib/aiur/current_run_membership/event/codec.ex",
+      "sha256": "292db8db9df97a5737aceef4560bc1b60dd3ed8560ab7193a3fdf1806202bad4"
+    },
+    {
+      "path": "src/lib/aiur/current_run_membership/reconciler/snapshot.ex",
+      "sha256": "e2766a25ad89cb5fe79f1120f318506a667692a840cceb7de6db0f8a184cfdd2"
+    },
+    {
+      "path": "src/lib/aiur/current_run_summary/facts.ex",
+      "sha256": "93ae54a8312d17c58264da18dab61f47b1c72a8da36fa37d03e45029923bf3c1"
+    },
+    {
+      "path": "src/lib/aiur/decision_attention_signals.ex",
+      "sha256": "424da482621bbebdf835c46e0388f165ba644d6344755ea09cad14a859eda47f"
+    },
+    {
+      "path": "src/lib/aiur/decision_authority.ex",
+      "sha256": "581113a4cf802eca137694ccc5d39d01c7726b92e84b7692c793a5930436eb2f"
+    },
+    {
+      "path": "src/lib/aiur/decision_delegation.ex",
+      "sha256": "11ec4db406e1ed58cb2d16c5ea639ee4266265a42639c389242993baf32f0cab"
+    },
+    {
+      "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+      "sha256": "1ab774f25dccdd6388858186ff386833f96d955b1c91075dbe65762c9c71daea"
+    },
+    {
+      "path": "src/lib/aiur/executor_events.ex",
+      "sha256": "540c8930955dfc7218a45123d3234181e3ed74c0a609a04e2ca8d57932f1ab5f"
+    },
+    {
+      "path": "src/lib/aiur/executor_listener.ex",
+      "sha256": "db0b17ba7d1eb4870728f2e813a13bc1d19f62752812a9525828f38501f07205"
+    },
+    {
+      "path": "src/lib/aiur/github/labels.ex",
+      "sha256": "20798e8407de4512b024634014b087b4baf6156a8daa43ec9e0e288baa362205"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+      "sha256": "6517cb8813d31ac8139d6a35d36528b01f2b7ae3c3c6bab6c1a0c7caffa9195f"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+      "sha256": "494ae78d675aa39c7b78d1c9ca4672dd0b138a7ba8506a481719902016c3be03"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+      "sha256": "766ee6c194f71b7176f5ebaa1a0005ff113fa5139cfedefffc60a333eba00185"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/lifecycle_fence.ex",
+      "sha256": "114c04a2632062378441949eaa5944a33ed2682b0b382d0b52dfdd5bc51673ba"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/pr_anchored.ex",
+      "sha256": "58375275dbeacfd6634bbfa2296910303d9baecefcab925a13ff4af7afd53293"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+      "sha256": "f85a249709b5fccf8e4ad7938dd5ca9c2d6fe29381ce69d04d9928a6c652feea"
+    },
+    {
+      "path": "src/lib/aiur/ticket_observation.ex",
+      "sha256": "5c02c4ee611eefddec122430aa01348e0006203f626f416ef94aea6e1a08b940"
+    },
+    {
+      "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+      "sha256": "d5c9c86c9125cf657a0f069675d15c764447c34d5998cf901c53479a5af77616"
+    },
+    {
+      "path": "src/lib/aiur_web/build_order/planning_source.ex",
+      "sha256": "b1e32f940ccea95384d008108a0e14ecc50c6331f7548c349de4c07d1c5fed8e"
+    },
+    {
+      "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+      "sha256": "30c6ed3d82455e01ab458cfc3bd852154eb319dd590a314bd8f3f2f2a8460f12"
+    },
+    {
+      "path": "src/lib/aiur_web/build_order_presenter.ex",
+      "sha256": "1b6cee4913963279517d3ce677e67584ecd85e677331ef7ac1f31ff8a798be79"
+    },
+    {
+      "path": "src/lib/aiur_web/components/operator_control_center/fleet_filters.ex",
+      "sha256": "07feb380e67958b614467613cb09ed08093d639c92f750376e54ef68ac672e54"
+    },
+    {
+      "path": "src/lib/aiur_web/operator_control_center/provider_meters_presenter.ex",
+      "sha256": "92676cbda04c901768cd04ff230ce4a337b09092f33b3507c4e61da55814bf48"
+    },
+    {
+      "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+      "sha256": "63467469d61b98d23823f117ce06b1e8bb7d053eed58aa4b4776eb0ea97de802"
+    },
+    {
+      "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+      "sha256": "f7bcc756ca7f531ee8fd9f705bbc748b4015fa13c919aeffa12447bc26237450"
     }
   ],
   "additional_sites": [
@@ -1497,7 +2085,7 @@
       "coverage": "full module; provider/component restriction"
     }
   ],
-  "limits": "22 of 162 attribute groups assessed. All 28 regex candidate groups assessed separately in regex-triage.json. Relevant declarations/consumers read, not all files in full. Aliased and fully-qualified registry calls overlap semantically; matching expressions may reference distinct attributes. No runtime correctness, current pricing, savings or whole-package completion claimed.",
+  "limits": "39 of 162 attribute groups assessed. All 28 regex candidate groups assessed separately. Relevant declarations and consumers read, not all files in full. Groups can share an extraction opportunity; counts are not independent savings. No runtime correctness, incident frequency or full duplication-unit completion claimed.",
   "regex_assessments": [
     {
       "modules": 3,
