@@ -886,3 +886,7 @@ Read all 63 snapshot definitions/declarations in 52 modules. Preserve process id
 ### Name duplication: persistent loading and recovery policy
 
 Read all 51 load definitions/declarations in 38 modules, six artifact-reading helpers, and JsonStore/GlobalPauseStore. Identified bounded JSON reading as a narrower sharing candidate while preserving zero-byte policy, size/type checks, domain decoders, errors and recovery state machines. Global-pause error handling and cache empty fallbacks are distinct policies, not interchangeable defaults. Name triage now 21 families/701 literal entries; no new defect or savings count. Remaining sweeps and downstream verification remain open.
+
+### Name duplication: retrieval, identity and field presence
+
+Read all 30 fetch, 27 get and 26 lookup definitions/declarations. Preserve financial access identity, cache clocks/provenance, repository and generation scope, ambiguous versus absent identity, retained-store health and pricing intervals. MapAccess truthiness fallback differs from Decision/projection presence-preserving helpers for false and nil; no consolidation is safe without choosing that contract explicitly. Name triage now 24 families/784 literal entries. No new runtime defect or savings claim; remaining sweep and caller verification remain open.

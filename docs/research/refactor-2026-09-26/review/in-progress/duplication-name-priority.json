@@ -105,7 +105,7 @@
       "modules": 25,
       "clauses": 30,
       "summed_source_span_lines": 264,
-      "reviewed_family": false
+      "reviewed_family": true
     },
     {
       "name": "observe",
@@ -182,14 +182,14 @@
       "modules": 19,
       "clauses": 27,
       "summed_source_span_lines": 70,
-      "reviewed_family": false
+      "reviewed_family": true
     },
     {
       "name": "lookup",
       "modules": 19,
       "clauses": 26,
       "summed_source_span_lines": 133,
-      "reviewed_family": false
+      "reviewed_family": true
     },
     {
       "name": "record",
