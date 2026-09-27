@@ -1235,3 +1235,8 @@ All 75 manifest files are now fully read: 35,287 lines. Checked every file hash 
 ### tests-1a alert and admission checkpoint
 
 67 full reads, 16,140 lines; eight manifest files remain. Added alert feed, provider checkpoint, digest coalescing, interrupts, admission, merge retention and usage envelope. Preserve bounded alert retention and backfill, single-writer checkpoint semantics, generation-confirmed control, distinct resource-admission states and exact measurement identity. Record limits of immediate lock noncompletion checks, claimed-versus-consumed queue fixtures, fake-provider traces, assumed tmux failure and parser fixtures versus GitHub semantics. No new promoted finding or test execution. Overall raw review completion remains 26/32; no production changes.
+
+
+### tests-1a timeout and tool checkpoint
+
+70 full reads, 18,241 lines; five manifest files remain. Added operator-send timeout, provider-meter probe and dynamic-tool tests. Extended the existing P3 worker cleanup finding to the timeout fixture; the parameterized extracted-helper probe succeeds for both files, each with a post-cleanup echo and kill/DOWN control. Preserve late-item adoption, unknown outcomes, explicit message identity, independent meter failure causes, baseline reseeding and tool error contracts. Record timing/global-name, injected-transport, numeric-type and reserved-scope fixture limits. No new distinct finding, full suite or production change; overall raw review completion remains 26/32.

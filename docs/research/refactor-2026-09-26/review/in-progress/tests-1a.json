@@ -404,9 +404,27 @@
       "sha256": "c27bd0269c6e36e23d5ee3099c0268dd9be1a339a555772e0216d7db7f759eb4",
       "lines": 430,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/operator_send_timeout_test.exs",
+      "sha256": "4498d22d978a006ec7a037ae9695f840fcc99ece9453e18e7800569278a76fb4",
+      "lines": 399,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/provider_meter_probe_test.exs",
+      "sha256": "387b20e139de85ffbe726ff356b59363484b7246d8136cbb585a2c010c74b7be",
+      "lines": 698,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/dynamic_tool_test.exs",
+      "sha256": "5e47823b6ec91a78d283cc69be5a5516e487356a012689621eb29aa875667716",
+      "lines": 1004,
+      "read": "full"
     }
   ],
-  "scope_note": "67 complete file reads, 16140 lines. Alert-feed, provider-checkpoint, coalescing, interrupt, admission, merge-retention and usage-envelope tests reviewed as source; no new test execution. Three earlier findings retain their isolated-probe limits. No full suite, live application, GitHub operation or TUI execution. Eight manifest files remain.",
+  "scope_note": "70 complete file reads, 18241 lines. Operator timeout, provider probe and dynamic tool tests reviewed as source. Extended the existing worker-cleanup probe to a second fixture; both extracted workers survive their actual normal-exit cleanup and terminate under the kill control. No full suite, live application, GitHub operation or TUI execution. Five manifest files remain.",
   "findings": [
     {
       "id": "tests-1a-cont-01",
@@ -450,15 +468,19 @@
       "id": "tests-1a-cont-03",
       "severity": "P3",
       "category": "testing",
-      "title": "Decision delivery fixture uses a non-terminating cleanup signal",
+      "title": "Decision delivery and timeout fixtures use a non-terminating cleanup signal",
       "locations": [
         {
           "path": "src/test/aiur/decision_delivery_integration_test.exs",
           "lines": "244, 321-337, 355-361"
+        },
+        {
+          "path": "src/test/aiur/operator_send_timeout_test.exs",
+          "lines": "317-363"
         }
       ],
-      "description": "start_orchestrator! spawns an unlinked recursive worker probe. Its on_exit callback calls Process.exit(worker_pid, :normal), which does not terminate this non-trapping target when sent by another process. The full-restart test uses the same ineffective signal before creating its replacement worker. The probe has no stop message or parent monitor, so intended cleanup leaves a live receive loop.",
-      "evidence": "tooling/decision_worker_cleanup_probe.exs extracts the actual worker function and on_exit Process.exit expression from the frozen source. After evaluating that cleanup, the worker echoes a unique post-cleanup barrier and is still alive. A kill control yields a monitored DOWN event. The probe cleans up its owned process.",
+      "description": "start_orchestrator! spawns an unlinked recursive worker probe. Its on_exit callback calls Process.exit(worker_pid, :normal), which does not terminate this non-trapping target when sent by another process. The full-restart test uses the same ineffective signal before creating its replacement worker. The probe has no stop message or parent monitor, so intended cleanup leaves a live receive loop. OperatorSendTimeoutTest repeats this unlinked recursive worker and normal-exit teardown pattern.",
+      "evidence": "tooling/decision_worker_cleanup_probe.exs extracts the actual worker function and on_exit Process.exit expression from either named frozen test file. Separate runs for decision_delivery_integration_test.exs and operator_send_timeout_test.exs both echo a unique post-cleanup barrier and remain alive; each kill control yields a monitored DOWN event. Both owned probe processes are cleaned up.",
       "recommendation": "Own worker probes under the test supervisor or implement a stop protocol and monitor their exit; verify teardown and restart fixtures observe DOWN before proceeding.",
       "refactor_hint": "Package integration fixtures need explicit process ownership and completion barriers, including fake workers; stopping the orchestrator does not establish ownership of an independently spawned worker.",
       "limits": "This isolates the actual helper and cleanup expression, not a full ExUnit run or production controller. No suite-wide process count, performance degradation or production delivery defect is claimed."
@@ -517,7 +539,12 @@
     "OrchestratorInterrupt distinguishes working native interrupt, pause requested, matching-generation pause confirmation and second-press pane close. It retains queued messages when hardware interruption fails. These fixtures mutate the application-owned controller and inspect return values/state; they do not press keys or verify rendered chat panes, and failure injection relies on the assumed absence of a tmux server for the fixture pane.",
     "Admission tests preserve strict load and memory boundaries, disabled-source short circuits, unavailable-versus-exhausted FD behavior, rounded integer reserves, static capacity caps, cooldown and demand/headroom-dependent recovery. Pure envelope outputs and injected source strings do not measure real host saturation or demonstrate the entire dispatch loop leaves running workers untouched.",
     "RecentMergeStore distinguishes live observation from backfill attribution, keeps same-repository closing references beyond summary truncation, bounds/redacts content and rejects malformed URLs/timestamps. It tests append-before-state behavior, torn-tail repair versus corrupt-prefix read-only state, retention across restart and sticky partial reconciliation. Closing-keyword cases are local parser expectations, not new verification of GitHub behavior; filesystem sync is injected.",
-    "UsageEnvelope keeps account generation separate from counter epoch, requires deterministic identity for counter evidence, preserves unknown occurrence/pricing context and rejects unsafe attribution and invalid UTF8. ExactMoney rejects floating-point input and validates declared minor scales; provider-specific context/cache partitions round-trip without mixing providers. These are codec/measurement contracts, not a billing reconciliation or price-catalog validation."
+    "UsageEnvelope keeps account generation separate from counter epoch, requires deterministic identity for counter evidence, preserves unknown occurrence/pricing context and rejects unsafe attribution and invalid UTF8. ExactMoney rejects floating-point input and validates declared minor scales; provider-specific context/cache partitions round-trip without mixing providers. These are codec/measurement contracts, not a billing reconciliation or price-catalog validation.",
+    "OperatorSendTimeout suspends a real private controller to force caller timeout, then tests late queue adoption at delivery gate or retry, preserved attempt identity, unknown-versus-failed outcome and recovery of a previously refused item. Explicit message IDs deduplicate only the same target/text; repeated text without an ID remains a new message, including through AgentChat. These are API/store fixtures, not TUI input or actual provider delivery.",
+    "The timeout fixture's delayed resume helpers use a 225 ms sleep around a 150 ms caller timeout, so those two timing windows are scheduler-dependent. The AgentChat case temporarily unregisters and restores the application-owned controller name; serial case execution does not stop unrelated application processes. These limits are not independently reproduced flakes.",
+    "ProviderMeterProbe tests preserve session-close attempts, crash-versus-timeout/transport causes, per-window publication, meter observation for credentialed disabled providers and no-request behavior for keyless disabled providers. Session agents, usage APIs and balance transports are injected; assertions establish adapter/projection contracts rather than current external service behavior.",
+    "Balance probe fixtures use private baseline files and distinguish first-seed dollar-only data, configured initial deposits, persisted baseline reseeding after top-up, resumed spend measurement, failed baseline writes and malformed/missing balances without fabricated zero credits. The exhausted-balance assertion uses == 100.0, which compares numeric value without independently enforcing float type; no new precision or billing claim is made.",
+    "DynamicTool covers schema advertising, legacy/raw/string and atom-key argument forms, GraphQL body-preserving errors, injected verified-review outcomes, event allowlist validation and dependency errors. Reserved alert scopes are rejected by an injected emitter in that fixture; it verifies error mapping rather than the real emitter's scope enforcement. Subscription/publisher closures do not establish actual broker routing or delivery."
   ],
   "cross_references": [
     {
@@ -619,7 +646,7 @@
     }
   ],
   "next": [
-    "Read the remaining eight files: alerts, core, dynamic_tool, github_client, operator_send_timeout, orchestrator_ci_lifecycle, orchestrator_deactivate and provider_meter_probe.",
-    "Verify ordering and cleanup hypotheses before promotion; retain explicit limits for fake-provider and global-controller fixtures."
+    "Read the remaining five files: alerts, core, github_client, orchestrator_ci_lifecycle and orchestrator_deactivate.",
+    "Verify ordering and cleanup hypotheses before unit closure; deduplicate fixture defects and keep external-transport claims bounded."
   ]
 }

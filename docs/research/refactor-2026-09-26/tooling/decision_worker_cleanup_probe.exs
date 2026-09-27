@@ -1,7 +1,11 @@
 # Standalone research probe: no application boot or production mutation.
-# Usage: elixir decision_worker_cleanup_probe.exs FROZEN_SNAPSHOT
-[snapshot] = System.argv()
-source = Path.join(snapshot, "src/test/aiur/decision_delivery_integration_test.exs")
+# Usage: elixir decision_worker_cleanup_probe.exs FROZEN_SNAPSHOT [TEST_BASENAME]
+{snapshot, basename} = case System.argv() do
+  [snapshot] -> {snapshot, "decision_delivery_integration_test.exs"}
+  [snapshot, basename] -> {snapshot, basename}
+end
+true = basename in ["decision_delivery_integration_test.exs", "operator_send_timeout_test.exs"]
+source = Path.join([snapshot, "src/test/aiur", basename])
 ast = source |> File.read!() |> Code.string_to_quoted!()
 {_, defs} = Macro.prewalk(ast, [], fn
   {:defp, meta, [{:worker_probe, args_meta, args}, body]} = node, acc ->
