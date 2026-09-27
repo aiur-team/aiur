@@ -110171,10 +110171,322 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "fetch_recent_repo_issue_comments",
+      "assessment": "Client already delegates repository-wide issue-comment retrieval.",
+      "constraints": [
+        "Comments resolves repo/token and queries issues/comments through shared stream traversal.",
+        "Read query/traversal: updated descending, 100 per page, optional since; follows next links and accumulates bodies, accepting a list response without headers as terminal.",
+        "Preserve repository-wide scope and cursor semantics. No independent cycle limit or proof of complete remote history is added by this family."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 258,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_recent_repo_issue_comments",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 258,
+          "body_sha256": "8137aa490c27f164c928ea801c672ff088401f97146d94f02f93b8229ebbd096",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 65,
+          "module": "Aiur.GitHub.Comments",
+          "name": "fetch_recent_repo_issue_comments",
+          "path": "src/lib/aiur/github/comments.ex",
+          "kind": "def",
+          "end_line": 73,
+          "body_sha256": "166854dfd336d522ae951943bd6a8c45f69c9e276a3fc2c0304b39fb9013aae8",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_recent_repo_issue_comments_conditional",
+      "assessment": "Issue-comment conditional facade already uses the shared repository stream reader.",
+      "constraints": [
+        "Comments passes issues/comments into fetch_recent_repo_comment_stream_conditional.",
+        "Read shared helper: same updated-descending query, optional ETag, explicit not_modified on 304 and conditional_stream_pages with trust_paginated_etag true.",
+        "Keep this validator policy tied to repository stream ordering and since-window assumptions; do not copy it to oldest-first issue-specific lists."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 262,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_recent_repo_issue_comments_conditional",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 262,
+          "body_sha256": "78f1b6a838fc5aaf3af7b1abb580a8062174c3259c5a860aa7972d4a3e403be1",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 77,
+          "module": "Aiur.GitHub.Comments",
+          "name": "fetch_recent_repo_issue_comments_conditional",
+          "path": "src/lib/aiur/github/comments.ex",
+          "kind": "def",
+          "end_line": 79,
+          "body_sha256": "90bbea5f31d27744192c1b4b3cac0d6bdfeb64fa08246e132993cb55c0e1c1e2",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_recent_repo_review_comments",
+      "assessment": "Review-comment stream delegates to the same pagination owner with a different endpoint.",
+      "constraints": [
+        "Client calls Comments; Comments uses pulls/comments with the same repository query and fetch_repo_comment_stream.",
+        "Shared mechanics preserve review-comment source separate from issue comments and review decision records.",
+        "Accumulated pages depend on response next links; the function name alone does not establish a complete or stable historical snapshot."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 250,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_recent_repo_review_comments",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 250,
+          "body_sha256": "d63a692f00d05507a642e170e9b38c1883e5e5922220713b89a1aa80e122496e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 48,
+          "module": "Aiur.GitHub.Comments",
+          "name": "fetch_recent_repo_review_comments",
+          "path": "src/lib/aiur/github/comments.ex",
+          "kind": "def",
+          "end_line": 56,
+          "body_sha256": "8089a312f00c27065589ba96c8425630a4174161b987dd0550f6d51813c6b26e",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_recent_repo_review_comments_conditional",
+      "assessment": "Review-comment conditional retrieval is an endpoint adapter around shared policy.",
+      "constraints": [
+        "Client delegates; Comments selects pulls/comments in the common conditional stream helper.",
+        "Shared helper preserves not_modified and retains page-one validator under its updated-descending policy.",
+        "Keep endpoint identity and retained evidence with callers. Actual data-ordering guarantees and runtime validator incidence remain unverified here."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 254,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_recent_repo_review_comments_conditional",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 254,
+          "body_sha256": "6bb048ab1e8b6c5b719ca116ba1bcb28de62ff5a989715a3a28677890dc11230",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 60,
+          "module": "Aiur.GitHub.Comments",
+          "name": "fetch_recent_repo_review_comments_conditional",
+          "path": "src/lib/aiur/github/comments.ex",
+          "kind": "def",
+          "end_line": 62,
+          "body_sha256": "5fcbf9e8d9cf02db01127d4e6faa56682ae2bba593c0177b9d395274c3cffe0d",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_repo_events",
+      "assessment": "Client delegates page-scoped repository events with validator and polling metadata.",
+      "constraints": [
+        "RepoEvents defaults page 1 and per_page 30, sends ETag and caller attribution, and returns either events or not_modified wrapped in ok.",
+        "Both successful forms preserve prior ETag if response omits it and carry Transport.poll_interval headers.",
+        "Preserve page scope and recommended cadence metadata. This entry point does not enumerate all event pages or establish measured quota savings."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 107,
+          "module": "Aiur.GitHub.Client",
+          "name": "fetch_repo_events",
+          "path": "src/lib/aiur/github/client.ex",
+          "kind": "def",
+          "end_line": 107,
+          "body_sha256": "b1488d2b75cd1f883426c0199c5387091f4db38a04f2919a267eecb69c317a40",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 39,
+          "module": "Aiur.GitHub.RepoEvents",
+          "name": "fetch_repo_events",
+          "path": "src/lib/aiur/github/repo_events.ex",
+          "kind": "def",
+          "end_line": 78,
+          "body_sha256": "f68b5d1c177b1bcef7a0535141cc41e2c0b33bca0baed1b666c1fc92d3484e75",
+          "normalized_body_lines": 38,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_source",
+      "assessment": "Model discovery source-module lookup and persisted pause provenance decode different concepts.",
+      "constraints": [
+        "ModelDiscovery maps a backend source module to ok or model_discovery_unsupported.",
+        "GlobalPauseStore gives the string key precedence by Map.get default semantics, then normalizes nil or nonempty binary to ok and other values to invalid_source.",
+        "Read normalization: present string nil wins over an atom value. Preserve module capability lookup versus durable provenance and presence-based precedence."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 515,
+          "module": "Aiur.ModelDiscovery",
+          "name": "fetch_source",
+          "path": "src/lib/aiur/model_discovery.ex",
+          "kind": "defp",
+          "end_line": 520,
+          "body_sha256": "2727c6e3bc3175eb0f7a3b49859c4ff2450bbd43604e8433b0747804bdec9c5e",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 132,
+          "module": "Aiur.Orchestrator.GlobalPauseStore",
+          "name": "fetch_source",
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "kind": "defp",
+          "end_line": 134,
+          "body_sha256": "52c68c544ea1339a196b3d76b9712d6348afc09589357f2b38c91ff3e5e3ac3f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_string",
+      "assessment": "Decision event and projection nonempty-string decoders match exactly.",
+      "constraints": [
+        "Both require a nonempty binary at the supplied key and otherwise return field-specific missing_or_invalid.",
+        "Whitespace-only strings are accepted; outer raw-map validity is assumed.",
+        "A shared decoder is concrete, while domain length, grammar and privacy constraints remain with enclosing schemas."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 1011,
+          "module": "Aiur.DecisionEvent",
+          "name": "fetch_string",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 1016,
+          "body_sha256": "adfa967d1332e53aeb27ae55f7425c1861636445dfaa9d190d20008d3864f74f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 1020,
+          "module": "Aiur.DecisionProjection",
+          "name": "fetch_string",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 1025,
+          "body_sha256": "adfa967d1332e53aeb27ae55f7425c1861636445dfaa9d190d20008d3864f74f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "fetch_timestamp",
+      "assessment": "Decision event and projection timestamp decoders match exactly.",
+      "constraints": [
+        "Both accept binary ISO8601 input, return parsed DateTime and distinguish invalid_timestamp from missing_or_invalid nonbinary input.",
+        "No DateTime struct pass-through exists in these wire decoders.",
+        "Share wire-format validation without replacing it with permissive internal timestamp normalization; complete surrounding schema validation is separate."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 1040,
+          "module": "Aiur.DecisionEvent",
+          "name": "fetch_timestamp",
+          "path": "src/lib/aiur/decision_event.ex",
+          "kind": "defp",
+          "end_line": 1051,
+          "body_sha256": "c91274f549d818e96aa790dff47521e0c1d9bd05f72d932c68e2e7785a682a01",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 1027,
+          "module": "Aiur.DecisionProjection",
+          "name": "fetch_timestamp",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 1038,
+          "body_sha256": "c91274f549d818e96aa790dff47521e0c1d9bd05f72d932c68e2e7785a682a01",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7966,
-  "limits": "941 selected families and 7966 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7982,
+  "limits": "949 selected families and 7982 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

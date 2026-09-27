@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "089efe9025947d0fc9fee6d34b28a8398a1d806c6b42c81b6e537f2a1b00ef00"
+    "name_triage": "2e389c78ce482cdaa869483384fa859e945030fbf8111c222cfeb50ecf456439"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 941,
-    "remaining_cross_module_names": 739,
-    "remaining_literal_entries": 2302
+    "reviewed_cross_module_names": 949,
+    "remaining_cross_module_names": 731,
+    "remaining_literal_entries": 2286
   },
   "families": [
-    {
-      "name": "fetch_recent_repo_issue_comments",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "fetch_recent_repo_issue_comments_conditional",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "fetch_recent_repo_review_comments",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 10
-    },
-    {
-      "name": "fetch_recent_repo_review_comments_conditional",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 4
-    },
-    {
-      "name": "fetch_repo_events",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 41
-    },
-    {
-      "name": "fetch_source",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 9
-    },
-    {
-      "name": "fetch_string",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 12
-    },
-    {
-      "name": "fetch_timestamp",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 24
-    },
     {
       "name": "fetchable_identity",
       "clauses": 3,
