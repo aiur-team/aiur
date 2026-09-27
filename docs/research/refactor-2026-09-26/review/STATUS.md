@@ -906,3 +906,7 @@ Read all 24 write definitions/declarations in 19 modules and complete Fs. Existi
 ### Name duplication: requests and source attribution
 
 Read all 24 request and 28 source definitions/declarations. Preserve control-intent idempotency, origin and credential identity, transport/concurrency policy, provider headers and domain error envelopes. Source helpers describe distinct health, disclosure, pricing and accounting contracts; common names do not justify one representation. Name triage now 32 families/980 literal entries, not 32 completed raw review units. Remaining sweep and transitive verification stay open; no new defect or savings count.
+
+### Name duplication: record construction versus persistence
+
+Read all 31 record definitions/declarations in 19 modules. Distinguish map construction, bounded in-memory updates, enqueue acceptance and persisted state. Preserve deduplication, identity, retention and failure policies. SaturationSentinel does not match its append result; writer acceptance and this static candidate require caller/failure review before defect classification. Name triage now 33 families/1011 literal entries; remaining sweep and transitive verification stay open.
