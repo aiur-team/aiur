@@ -2,459 +2,462 @@
   "unit_id": "tests-1a",
   "status": "reviewed_pending_synthesis",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
-  "files": [
+  "planned_files": 75,
+  "files_reviewed": 75,
+  "lines_reviewed_estimate": 35290,
+  "coverage_notes": "All 75 manifest files read in full, 35290 lines, against the frozen snapshot; hashes, line counts and exact manifest membership verified. Four findings retain individually bounded isolated-probe evidence. Deactivate reviewed as source; no full suite, live application, GitHub operation or manual TUI validation. Supporting Reconciler and TestSupport reads are excerpts.",
+  "coverage": [
     {
       "path": "src/test/aiur/current_run_membership_checkpoint_test.exs",
+      "status": "read_in_full",
       "sha256": "34ef696857f48ef46ac3b90cbdfaa64da8bc501dae5c60c4f29314d32e469f42",
-      "lines": 50,
-      "read": "full"
+      "lines": 50
     },
     {
       "path": "src/test/aiur/current_run_membership_marker_test.exs",
+      "status": "read_in_full",
       "sha256": "181df5263a331549341883f67ab81b4e3b5f568251d45d0218e894e64eecaa64",
-      "lines": 46,
-      "read": "full"
+      "lines": 46
     },
     {
       "path": "src/test/aiur/event_publication_log_test.exs",
+      "status": "read_in_full",
       "sha256": "a219e2d04d1e75dd85d872cffce3849488849c52dd423e4418352b27453af97f",
-      "lines": 56,
-      "read": "full"
+      "lines": 56
     },
     {
       "path": "src/test/aiur/json_safe_test.exs",
+      "status": "read_in_full",
       "sha256": "84e2fbece7814e903c7acbaf3e6cc988769bca086395e8a0b6109eea37a3947c",
-      "lines": 29,
-      "read": "full"
+      "lines": 29
     },
     {
       "path": "src/test/aiur/opaque_identifier_test.exs",
+      "status": "read_in_full",
       "sha256": "a16399bd5caef731c1dc083895db1e00ef4d729b3fb84c2ed9dc3d7bc8ba74a1",
-      "lines": 17,
-      "read": "full"
+      "lines": 17
     },
     {
       "path": "src/test/aiur/supervisor_token_test.exs",
+      "status": "read_in_full",
       "sha256": "9949fa76140106a6902a52e46ff2ca1ba3ed4f94cc0637330b11b3d46ece03b1",
-      "lines": 29,
-      "read": "full"
+      "lines": 29
     },
     {
       "path": "src/test/aiur/secret_redactor_test.exs",
+      "status": "read_in_full",
       "sha256": "2e25107a35c1d55a51dcd5d3c751225c8f01a6a37a64cbb12594dc4f35fde6d8",
-      "lines": 60,
-      "read": "full"
+      "lines": 60
     },
     {
       "path": "src/test/aiur/shell_test.exs",
+      "status": "read_in_full",
       "sha256": "5f3a5fd86f58deeddffba91eaa2c6d5f5c1a6b153490853a30dd86ab4d5d3a95",
-      "lines": 57,
-      "read": "full"
+      "lines": 57
     },
     {
       "path": "src/test/aiur/fs_test.exs",
+      "status": "read_in_full",
       "sha256": "351ad57542bf711583b58d23acb206b8f725543d2143fa4396f1d054e2c95217",
-      "lines": 91,
-      "read": "full"
+      "lines": 91
     },
     {
       "path": "src/test/aiur/system_cpu_test.exs",
+      "status": "read_in_full",
       "sha256": "17a6842078e748bd5dc24ac63c27f6f1cec2dc4268799a6d77b3a81c967a19a3",
-      "lines": 67,
-      "read": "full"
+      "lines": 67
     },
     {
       "path": "src/test/aiur/system_load_test.exs",
+      "status": "read_in_full",
       "sha256": "dec714ebb81060ed1f45c833d423d53e9ad7a71449d4b45c6ed85453a9ac7938",
-      "lines": 44,
-      "read": "full"
+      "lines": 44
     },
     {
       "path": "src/test/aiur/system_file_descriptors_test.exs",
+      "status": "read_in_full",
       "sha256": "712a47d12a48a26358d476bb8d640d0df4aff33c80381ab1a14d8b5609f722a8",
-      "lines": 107,
-      "read": "full"
+      "lines": 107
     },
     {
       "path": "src/test/aiur/coding_agent_claude_test.exs",
+      "status": "read_in_full",
       "sha256": "258098befa7e43d4cdb11025e448102dff6feeea762854bf3c13e7e9f3d023a5",
-      "lines": 60,
-      "read": "full"
+      "lines": 60
     },
     {
       "path": "src/test/aiur/issue_context_test.exs",
+      "status": "read_in_full",
       "sha256": "35b1635d999a83698784f31d7138e928dd9b850008133637f6e18d67cf14144f",
-      "lines": 66,
-      "read": "full"
+      "lines": 66
     },
     {
       "path": "src/test/aiur/launcher_watchdog_test.exs",
+      "status": "read_in_full",
       "sha256": "0e9daf9d69a5093f82a3f9b2c16397914d93c7e0ce4bf95cbfc03638150d9a45",
-      "lines": 49,
-      "read": "full"
+      "lines": 49
     },
     {
       "path": "src/test/aiur/orchestrator_broadcast_test.exs",
+      "status": "read_in_full",
       "sha256": "692fb28651817245af59ae19366809272d40195c527e1ca7666a50bda40cfd19",
-      "lines": 24,
-      "read": "full"
+      "lines": 24
     },
     {
       "path": "src/test/aiur/boot_test.exs",
+      "status": "read_in_full",
       "sha256": "e974ddb64ca58b342c4c07fc455eceef8cf37ddb059f47bb0be04096e5c0caa4",
-      "lines": 85,
-      "read": "full"
+      "lines": 85
     },
     {
       "path": "src/test/aiur/decision_dispatch_test.exs",
+      "status": "read_in_full",
       "sha256": "dc06e510c76a54703456d83484db110823ece2163b5fa94c577af501c34a69f6",
-      "lines": 97,
-      "read": "full"
+      "lines": 97
     },
     {
       "path": "src/test/aiur/decision_provenance_test.exs",
+      "status": "read_in_full",
       "sha256": "de04e24d6d36fabdc636596aac719bb64819a52183306844bb50b0fc70081e92",
-      "lines": 102,
-      "read": "full"
+      "lines": 102
     },
     {
       "path": "src/test/aiur/decision_artifact_test.exs",
+      "status": "read_in_full",
       "sha256": "0a6146668695ea35eaf2d0ece8676aac378dbac7e883556932ff74fe68209351",
-      "lines": 132,
-      "read": "full"
+      "lines": 132
     },
     {
       "path": "src/test/aiur/poll_cadence_test.exs",
+      "status": "read_in_full",
       "sha256": "56d9e5a638cbf9148f8e8b271ada0d7a56c41181450465e6dc914c74cba97ea9",
-      "lines": 114,
-      "read": "full"
+      "lines": 114
     },
     {
       "path": "src/test/aiur/provider_meter_watch_test.exs",
+      "status": "read_in_full",
       "sha256": "ed7be377c3f5f3f686e2898e8783f405836c4d162cdea211ebb3fea428fdac76",
-      "lines": 80,
-      "read": "full"
+      "lines": 80
     },
     {
       "path": "src/test/aiur/provider_meters_events_test.exs",
+      "status": "read_in_full",
       "sha256": "a34386c6038febd81ad4254a9f39d7acd7d2200bbfbbd156bd49afcbe3e1682c",
-      "lines": 106,
-      "read": "full"
+      "lines": 106
     },
     {
       "path": "src/test/aiur/affected_tests_test.exs",
+      "status": "read_in_full",
       "sha256": "e366b0ad612db68d6ab2a65ea23d2e4844283ec2a5a070ddfcd7b5a3b495c894",
-      "lines": 177,
-      "read": "full"
+      "lines": 177
     },
     {
       "path": "src/test/aiur/agent_control_cli_usage_test.exs",
+      "status": "read_in_full",
       "sha256": "3ad9a054b70aead5e5e7bd22eda1f830eb632ced307b028e2261a6454161d0aa",
-      "lines": 190,
-      "read": "full"
+      "lines": 190
     },
     {
       "path": "src/test/aiur/agent_event_log_test.exs",
+      "status": "read_in_full",
       "sha256": "5fa82916b7b29c005d361e3fb72e8dd9078aa3cc7839c8cc6a513f80d069182e",
-      "lines": 176,
-      "read": "full"
+      "lines": 176
     },
     {
       "path": "src/test/aiur/model_catalog_test.exs",
+      "status": "read_in_full",
       "sha256": "80c81b7df8e372f9ee627df63cfd852d1fe8c9bed51b5596f96fa3cfa85394f0",
-      "lines": 90,
-      "read": "full"
+      "lines": 90
     },
     {
       "path": "src/test/aiur/github_usage_cli_test.exs",
+      "status": "read_in_full",
       "sha256": "4a3d1ea8a2a3130e81f3891c5b4235cf9e620f13c2ba3f8cfa1f85aad41240c2",
-      "lines": 117,
-      "read": "full"
+      "lines": 117
     },
     {
       "path": "src/test/aiur/saturation_sentinel_test.exs",
+      "status": "read_in_full",
       "sha256": "b1192ad4e027abd8f6901aad71a2d6302bf2ade72a8e06ac4b7f2e6eb758f159",
-      "lines": 97,
-      "read": "full"
+      "lines": 97
     },
     {
       "path": "src/test/aiur/orchestrator_tracked_set_test.exs",
+      "status": "read_in_full",
       "sha256": "4f091fc64edb7cf478b07a035889f2f764275d139f96e6e8857cf46b5f45d5b5",
-      "lines": 123,
-      "read": "full"
+      "lines": 123
     },
     {
       "path": "src/test/aiur/provider_meter_projection_integration_test.exs",
+      "status": "read_in_full",
       "sha256": "8163f51dbfba30782ef8db953d9a55d87237f71696cc51d2fb1bbe251cffd2e1",
-      "lines": 132,
-      "read": "full"
+      "lines": 132
     },
     {
       "path": "src/test/aiur/decision_answer_test.exs",
+      "status": "read_in_full",
       "sha256": "10d389d866da334bdb7ab8ae6c62ea84e1c09df2b09e20d933028446d80806a0",
-      "lines": 199,
-      "read": "full"
+      "lines": 199
     },
     {
       "path": "src/test/aiur/decision_log_test.exs",
+      "status": "read_in_full",
       "sha256": "825c29a5c2157acec56b76889370627292b8881c9ba61820540725e5df8bde1f",
-      "lines": 210,
-      "read": "full"
+      "lines": 210
     },
     {
       "path": "src/test/aiur/test_shard_test.exs",
+      "status": "read_in_full",
       "sha256": "f564fbc9ff38b1cf99e1e60603e7f04b363531b963795e168dcc2d47ed2e610f",
-      "lines": 147,
-      "read": "full"
+      "lines": 147
     },
     {
       "path": "src/test/aiur/test_support_test.exs",
+      "status": "read_in_full",
       "sha256": "4b28f526e3ff3301b6b36579a79321bb549f6adcc299a67c5744f5186e763b46",
-      "lines": 158,
-      "read": "full"
+      "lines": 158
     },
     {
       "path": "src/test/aiur/test_environment_test.exs",
+      "status": "read_in_full",
       "sha256": "f94fc588cd6d36f933472a4e6b644342a8201b4dd63fecf5f655fbb149ab362e",
-      "lines": 453,
-      "read": "full"
+      "lines": 453
     },
     {
       "path": "src/test/aiur/test_reset_test.exs",
+      "status": "read_in_full",
       "sha256": "6223ddd75371a79009f18fe2cb69207256d562445a60f2d97cbf3713d68cc7d6",
-      "lines": 537,
-      "read": "full"
+      "lines": 537
     },
     {
       "path": "src/test/aiur/http_server_credential_gate_test.exs",
+      "status": "read_in_full",
       "sha256": "7fd24510959e29be3c0b254916be3750876cddbb65da5f714701e233ad1261da",
-      "lines": 154,
-      "read": "full"
+      "lines": 154
     },
     {
       "path": "src/test/aiur/issue_log_transcript_test.exs",
+      "status": "read_in_full",
       "sha256": "51e997d8cc70cef36a2bbe67dc123631b9b9312a6ec0e9e9b843ccbcc324391d",
-      "lines": 151,
-      "read": "full"
+      "lines": 151
     },
     {
       "path": "src/test/aiur/rtk_test.exs",
+      "status": "read_in_full",
       "sha256": "dbb00ec8f2112d8ab15a473866bd134ba6df857cc24a6189c28b12d13d547097",
-      "lines": 155,
-      "read": "full"
+      "lines": 155
     },
     {
       "path": "src/test/aiur/issue_log_event_history_test.exs",
+      "status": "read_in_full",
       "sha256": "fbf346f59ea1a3bf568cfa8e9d89d37bf339c01f26d716cd55d4c27d6f4fc981",
-      "lines": 327,
-      "read": "full"
+      "lines": 327
     },
     {
       "path": "src/test/aiur/provider_meter_projection_test.exs",
+      "status": "read_in_full",
       "sha256": "13d44c7d2ea7b8f7ae10b47f4ebba41c98ec470f1b9309827a4e0012863b75fb",
-      "lines": 262,
-      "read": "full"
+      "lines": 262
     },
     {
       "path": "src/test/aiur/log_file_test.exs",
+      "status": "read_in_full",
       "sha256": "dbcf647294a0355d43fde3ac7823182857d5a20273c4673f685e8893e8ed2051",
-      "lines": 285,
-      "read": "full"
+      "lines": 285
     },
     {
       "path": "src/test/aiur/ticket_activity_test.exs",
+      "status": "read_in_full",
       "sha256": "50dee8ee312fab1f0e119564d7248b2721ef76dd0a5fa157e0b5b2c718530dfb",
-      "lines": 216,
-      "read": "full"
+      "lines": 216
     },
     {
       "path": "src/test/aiur/agent_skills_test.exs",
+      "status": "read_in_full",
       "sha256": "3855b19c947cc485790223d5a4160caf519e45c8e632e964e8c77bbbb1ff1ef4",
-      "lines": 322,
-      "read": "full"
+      "lines": 322
     },
     {
       "path": "src/test/aiur/aiur_debug_skill_test.exs",
+      "status": "read_in_full",
       "sha256": "6823f173c92f0b908421d5a45de60f75248e6c4d5b4631db27f53e0c28ab35bd",
-      "lines": 169,
-      "read": "full"
+      "lines": 169
     },
     {
       "path": "src/test/aiur/aiur_alert_watch_skill_test.exs",
+      "status": "read_in_full",
       "sha256": "b2d1dc2dcca2c37df1dce75e14b93af26917627f3568cd537348b89ae1a8407c",
-      "lines": 464,
-      "read": "full"
+      "lines": 464
     },
     {
       "path": "src/test/aiur/prompt_builder_test.exs",
+      "status": "read_in_full",
       "sha256": "8f06d44d63cf44cfa9f06fc7ed321bc31c88dd6350399970bdbe2db7bf70b0c5",
-      "lines": 294,
-      "read": "full"
+      "lines": 294
     },
     {
       "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
+      "status": "read_in_full",
       "sha256": "5644983b4221781a576ca6f882d33fef529ec5fe566054d36dffa92e956539e5",
-      "lines": 228,
-      "read": "full"
+      "lines": 228
     },
     {
       "path": "src/test/aiur/aiur_agent_skill_test.exs",
+      "status": "read_in_full",
       "sha256": "fc0603f5dcfe6347eda6eee7492a5b0ccbb592a393bfd5c90d873c9714b9cdda",
-      "lines": 842,
-      "read": "full"
+      "lines": 842
     },
     {
       "path": "src/test/aiur/cadence_freshness_test.exs",
+      "status": "read_in_full",
       "sha256": "23f03cc0a3d1a7cd70588e3b9f0c962b04b0ca91613f074a23cdd7b318a50069",
-      "lines": 351,
-      "read": "full"
+      "lines": 351
     },
     {
       "path": "src/test/aiur/decision_delivery_integration_test.exs",
+      "status": "read_in_full",
       "sha256": "91ebda276228e5f1375a3aed1b596200778e8cc8024dd56fce39256ca68c3b27",
-      "lines": 415,
-      "read": "full"
+      "lines": 415
     },
     {
       "path": "src/test/aiur/decision_api_integration_test.exs",
+      "status": "read_in_full",
       "sha256": "a3d5d30769e3ab2cf1b9ce107e14520845873972460c9c7050c385b67a3c87df",
-      "lines": 277,
-      "read": "full"
+      "lines": 277
     },
     {
       "path": "src/test/aiur/decision_revision_test.exs",
+      "status": "read_in_full",
       "sha256": "f6b9b6d18c2d76acf5fdd7462dfe952425f357b3ae018820391bcda58f972198",
-      "lines": 250,
-      "read": "full"
+      "lines": 250
     },
     {
       "path": "src/test/aiur/decision_history_test.exs",
+      "status": "read_in_full",
       "sha256": "6d4aa08473e4ab53a2b83e716f90f1c2abb9a9355bed96ecf80c5c9ed245cba7",
-      "lines": 352,
-      "read": "full"
+      "lines": 352
     },
     {
       "path": "src/test/aiur/decision_withdrawal_test.exs",
+      "status": "read_in_full",
       "sha256": "1c9d9ef5636dcf6cd906eeaf6bc184af5d3c4f82447eeb9a45023fa0f2a9ede7",
-      "lines": 594,
-      "read": "full"
+      "lines": 594
     },
     {
       "path": "src/test/aiur/decision_attention_test.exs",
+      "status": "read_in_full",
       "sha256": "f75c35655a010771f4192cf0147d361528222a063609f0071d485a9143f733ba",
-      "lines": 572,
-      "read": "full"
+      "lines": 572
     },
     {
       "path": "src/test/aiur/decision_query_test.exs",
+      "status": "read_in_full",
       "sha256": "c493bb8d6b6698cc5e0e1a2b7392166eb2a3b525ddf73b0e598e0052b8fdd6f4",
-      "lines": 809,
-      "read": "full"
+      "lines": 809
     },
     {
       "path": "src/test/aiur/decision_projection_test.exs",
+      "status": "read_in_full",
       "sha256": "cf9b80f0f307aa62a7ae3ba7d29ac7f2993fdcc53f31d7c6d37eb87c8ba0d994",
-      "lines": 1036,
-      "read": "full"
+      "lines": 1036
     },
     {
       "path": "src/test/aiur/decision_revision_store_test.exs",
+      "status": "read_in_full",
       "sha256": "41431d4c49b5058a0f120105d4589fb11cdb820e2bf50a8d9b3a8d0fcdb32d51",
-      "lines": 766,
-      "read": "full"
+      "lines": 766
     },
     {
       "path": "src/test/aiur/alert_feed_test.exs",
+      "status": "read_in_full",
       "sha256": "83c2caafab161d50b7915b2e524ae35f7c56ce10d83f2f09e42577f0d856d38b",
-      "lines": 433,
-      "read": "full"
+      "lines": 433
     },
     {
       "path": "src/test/aiur/coding_agent_checkpoint_test.exs",
+      "status": "read_in_full",
       "sha256": "2ee6081ad28266ec89f2fb1958fbe9c4a6d900222e7d681f37357d418bde0b50",
-      "lines": 497,
-      "read": "full"
+      "lines": 497
     },
     {
       "path": "src/test/aiur/orchestrator_events_digest_coalesce_test.exs",
+      "status": "read_in_full",
       "sha256": "e9b80e0084ed57f46eef2befa867b74025e51d774edae8b9703b835427893114",
-      "lines": 148,
-      "read": "full"
+      "lines": 148
     },
     {
       "path": "src/test/aiur/orchestrator_interrupt_test.exs",
+      "status": "read_in_full",
       "sha256": "acb9c9bca34f543852bbc2dd44bf78dfca7c4f330d442d1defff131c3c181a5f",
-      "lines": 255,
-      "read": "full"
+      "lines": 255
     },
     {
       "path": "src/test/aiur/orchestrator_load_gate_test.exs",
+      "status": "read_in_full",
       "sha256": "88d025002ac40e48ddf1ee7b9586e7031f6ce19670e6c1d94034570953f37a1f",
-      "lines": 268,
-      "read": "full"
+      "lines": 268
     },
     {
       "path": "src/test/aiur/recent_merge_store_test.exs",
+      "status": "read_in_full",
       "sha256": "009f955cf1fa2e942aadf63338021ef0697d71d448465a1d585bd6c77f0ff93e",
-      "lines": 444,
-      "read": "full"
+      "lines": 444
     },
     {
       "path": "src/test/aiur/usage_envelope_test.exs",
+      "status": "read_in_full",
       "sha256": "c27bd0269c6e36e23d5ee3099c0268dd9be1a339a555772e0216d7db7f759eb4",
-      "lines": 430,
-      "read": "full"
+      "lines": 430
     },
     {
       "path": "src/test/aiur/operator_send_timeout_test.exs",
+      "status": "read_in_full",
       "sha256": "4498d22d978a006ec7a037ae9695f840fcc99ece9453e18e7800569278a76fb4",
-      "lines": 399,
-      "read": "full"
+      "lines": 399
     },
     {
       "path": "src/test/aiur/provider_meter_probe_test.exs",
+      "status": "read_in_full",
       "sha256": "387b20e139de85ffbe726ff356b59363484b7246d8136cbb585a2c010c74b7be",
-      "lines": 698,
-      "read": "full"
+      "lines": 698
     },
     {
       "path": "src/test/aiur/dynamic_tool_test.exs",
+      "status": "read_in_full",
       "sha256": "5e47823b6ec91a78d283cc69be5a5516e487356a012689621eb29aa875667716",
-      "lines": 1004,
-      "read": "full"
+      "lines": 1004
     },
     {
       "path": "src/test/aiur/alerts_test.exs",
+      "status": "read_in_full",
       "sha256": "44bc2d51966542f0e2c60b668834dc871a16f7338798ac8ba0e35b0444dcf9aa",
-      "lines": 1388,
-      "read": "full"
+      "lines": 1388
     },
     {
       "path": "src/test/aiur/orchestrator_ci_lifecycle_test.exs",
+      "status": "read_in_full",
       "sha256": "fca03ff702ec746fb3cbcc687db4e29ff67a8bf995dc7220f62de8d49fe55fb6",
-      "lines": 1733,
-      "read": "full"
+      "lines": 1733
     },
     {
       "path": "src/test/aiur/github_client_test.exs",
+      "status": "read_in_full",
       "sha256": "0d7b31d4531175be67841df37f9054fc19a5e13a9f9699d8bee31aed7a21710e",
-      "lines": 2252,
-      "read": "full"
+      "lines": 2252
     },
     {
       "path": "src/test/aiur/core_test.exs",
+      "status": "read_in_full",
       "sha256": "40e67a56ca7ba45b29be7e2e0bd579b0aa272afda1d1f2bff69237011ba2ed3a",
-      "lines": 4023,
-      "read": "full"
+      "lines": 4023
     },
     {
       "path": "src/test/aiur/orchestrator_deactivate_test.exs",
+      "status": "read_in_full",
       "sha256": "c56f12b095bbc10068ee98c6c9cbb54de34239fb21de1028a31c160a603e2a8e",
-      "lines": 7653,
-      "read": "full"
+      "lines": 7653
     }
   ],
-  "scope_note": "All 75 manifest files read in full, 35290 lines, against the frozen snapshot; hashes, line counts and exact manifest membership verified. Four findings retain individually bounded isolated-probe evidence. Deactivate reviewed as source; no full suite, live application, GitHub operation or manual TUI validation. Supporting Reconciler and TestSupport reads are excerpts.",
   "findings": [
     {
       "id": "tests-1a-cont-01",

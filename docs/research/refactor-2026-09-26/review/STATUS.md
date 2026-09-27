@@ -1,9 +1,9 @@
 # Status: partial, not synthesized
 
-The code review stopped early on 2026-09-26: first the account session limit was hit, then Claude credits ran out.
+The inherited code review stopped early on 2026-09-26: first the account session limit was hit, then Claude credits ran out.
 
-- `raw/` holds 25 of 32 review units, one JSON file per unit. Each file lists its findings with severity, locations, evidence and recommendation.
-- Units still incomplete: tests-1a, tests-1b, tests-4, skills-prompts, and three cross-cutting duplication sweeps (by name, by concept, by constant).
+- `raw/` holds 27 of 32 review units, one JSON file per unit. Each file lists its findings with severity, locations, evidence and recommendation.
+- Units still incomplete: tests-4, skills-prompts, and three cross-cutting duplication sweeps (by name, by concept, by constant).
 - Not verified: no P0/P1 finding has had its skeptic check yet. Treat every severity as the reviewer's own claim.
 - Not written yet: `code-review.md`, `findings.json`, `by-boundary.md`.
 
@@ -539,3 +539,10 @@ P1 cleanup finding and one P2 transcript assertion finding. The latter is
 verified with extracted assertions and a source check that the fixture field
 is dropped before serialization; production boolean encoding is not alleged
 broken. Overall raw-unit coverage remains 26/32.
+
+
+## tests-1a unit completed
+
+All 75 manifest files were read in full (35,290 lines); exact membership, hashes and line counts match the frozen snapshot. Four bounded findings: one P1 shared cleanup scope, two P2 assertion gaps and one P3 worker-fixture cleanup defect. Earlier isolated probes support their stated scope, not a full-suite or production-behavior verdict. Remaining hypotheses are explicitly unverified.
+
+Preserve distinct review/terminal teardown, confirmed pause generations, CI and dependency readiness, retained feedback, private decision recovery and unknown meter facts. Topic publication, fake-provider execution and direct handler calls do not prove real provider or rendered UI behavior. Raw units: **27/32**; remaining tests-4, skills-prompts and three duplication sweeps. Cross-unit deduplication, high-priority skepticism and final synthesis remain open.
