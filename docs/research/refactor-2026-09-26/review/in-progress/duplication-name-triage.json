@@ -95243,10 +95243,574 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "apply_entry",
+      "assessment": "Activity snapshot intake and usage counter advancement have different identity and ordering contracts.",
+      "constraints": [
+        "ActivityIntake keys the payload identity, accepts only a matching snapshot identity, removes the entry when snapshot is absent and then updates generation/reconciles.",
+        "CounterPolicy leaves absolute state unchanged for deltas, initializes unseen absolute counters and delegates subsequent values to advance_absolute with sequence metadata.",
+        "Preserve snapshot deletion semantics and counter sequence policy; this read does not establish generation validation or absolute-counter correctness."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 56,
+          "module": "Aiur.AgentList.ActivityIntake",
+          "name": "apply_entry",
+          "path": "src/lib/aiur/agent_list/activity_intake.ex",
+          "kind": "defp",
+          "end_line": 79,
+          "body_sha256": "3234bc6a549ff25aff97ad2444a3bda7d28ccc15792c865ed87cc2c31e7f9d9a",
+          "normalized_body_lines": 31,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 202,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "apply_entry",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 202,
+          "body_sha256": "2afddfc08ec8a0de379cc1b9cfac62fc0c983d533b2aa01460e12913d62f5ec8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 204,
+          "module": "Aiur.UsageLedger.CounterPolicy",
+          "name": "apply_entry",
+          "path": "src/lib/aiur/usage_ledger/counter_policy.ex",
+          "kind": "defp",
+          "end_line": 209,
+          "body_sha256": "25f6e0ed1dbaa2695afbb3f806617fbbe5a76880f1ca55ab8b30d4470ddd1c81",
+          "normalized_body_lines": 12,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "apply_event",
+      "assessment": "Membership lifecycle folding and pane warmth reconstruction are distinct projections.",
+      "constraints": [
+        "CurrentRunMembership creates new members, ignores matching checksum or lifecycle before checking terminal status, rejects changes after terminal state and accepts other changes only with a later observation time.",
+        "WarmthReport tracks attached slot sets and ensures a slot is visible for at most one identifier; nil identifier clears that slot visibility and unrecognized events leave state unchanged.",
+        "Preserve lifecycle/time ordering versus slot visibility ownership; these functions do not prove that observation streams are complete or live."
+      ],
+      "clauses": 6,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 118,
+          "module": "Aiur.CurrentRunMembership.Projection",
+          "name": "apply_event",
+          "path": "src/lib/aiur/current_run_membership/projection.ex",
+          "kind": "defp",
+          "end_line": 159,
+          "body_sha256": "49d1ba3aa39dcdfd7f6c4b164ca3c95b028be6784e4f65b142fa4e9a2f34148c",
+          "normalized_body_lines": 55,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 123,
+          "module": "Aiur.Opencode.WarmthReport",
+          "name": "apply_event",
+          "path": "src/lib/aiur/opencode/warmth_report.ex",
+          "kind": "defp",
+          "end_line": 128,
+          "body_sha256": "a0c8fe3f8dd179a49b7909742adbf07d9a7f2eadabc1507a2631743b030a159b",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 130,
+          "module": "Aiur.Opencode.WarmthReport",
+          "name": "apply_event",
+          "path": "src/lib/aiur/opencode/warmth_report.ex",
+          "kind": "defp",
+          "end_line": 140,
+          "body_sha256": "ef64de451d575f0c871eb9c34881a294cf38dd9e90824deae592e5824115141f",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 142,
+          "module": "Aiur.Opencode.WarmthReport",
+          "name": "apply_event",
+          "path": "src/lib/aiur/opencode/warmth_report.ex",
+          "kind": "defp",
+          "end_line": 155,
+          "body_sha256": "21228471db1da28a67c7da2787a34881fd2a92f6019972d8007376dc49046760",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 157,
+          "module": "Aiur.Opencode.WarmthReport",
+          "name": "apply_event",
+          "path": "src/lib/aiur/opencode/warmth_report.ex",
+          "kind": "defp",
+          "end_line": 166,
+          "body_sha256": "53ebc97b6b72cfcf60b77c9a8228ac00caefc2b8e337480ab1a1b1ebecfb9cf9",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 168,
+          "module": "Aiur.Opencode.WarmthReport",
+          "name": "apply_event",
+          "path": "src/lib/aiur/opencode/warmth_report.ex",
+          "kind": "defp",
+          "end_line": 168,
+          "body_sha256": "7bfdd75f6bccedf259af22312ac8adabaa94dfecc2404a995078e502e843e1ef",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "apply_issue_change",
+      "assessment": "Resource changes feed different membership populations.",
+      "constraints": [
+        "Both fetch an issue resource and remove their local member when data is nil.",
+        "AdHocSource normalizes and checks a label-based predicate that rejects nil tracker identity; OpenTicketSource rejects pull requests and non-open raw issues before normalization.",
+        "Read the ad-hoc predicate. Preserve label-defined membership versus open-ticket/PR filtering; absent resource data is not independently proof of upstream deletion."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 189,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "apply_issue_change",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 203,
+          "body_sha256": "f3a792b824c96d36812ff075ef9d3b58a9bdb8621c8b66939892a78b30ce8718",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 214,
+          "module": "Aiur.OpenTicketSource",
+          "name": "apply_issue_change",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 229,
+          "body_sha256": "7609fe2122bc6cddbde6567bfed60a548f6b711434282ef3c4e781879c66e15f",
+          "normalized_body_lines": 24,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "apply_lifecycle",
+      "assessment": "Decision event transition and UI command correlation belong to separate state owners.",
+      "constraints": [
+        "DecisionProjection fetches the current decision, transitions it and appends the event to audit history on success.",
+        "UnitsControlPolicy leaves nil tracking nil; correlated payloads replace action/status/rejection/request ID while preserving tracked identifier, otherwise retain tracked state.",
+        "Read correlated?: a present tracked request ID requires equality; without it, action equality suffices. This literal predicate does not itself compare identifier. Upstream routing and full transition validity remain unverified."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 256,
+          "module": "Aiur.DecisionProjection",
+          "name": "apply_lifecycle",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 266,
+          "body_sha256": "c26d4fc47e47f815fac1e4c566011ad4f07ff29c9a2556d3b0576adb2592ef56",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 152,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "apply_lifecycle",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "def",
+          "end_line": 152,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 154,
+          "module": "AiurWeb.OperatorControlCenter.UnitsControlPolicy",
+          "name": "apply_lifecycle",
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "kind": "def",
+          "end_line": 166,
+          "body_sha256": "628e1cf9b9af7ad246f89d4a251154f7f0f7fc2b650411756ce4027e8f12d081",
+          "normalized_body_lines": 16,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "apply_observation",
+      "assessment": "Ready-for-review deduplication and activity evidence folds use different monotonicity rules.",
+      "constraints": [
+        "ReadyForReviewTransitions keys by ticket/PR; a draft observation at the already-announced head preserves the ledger, a different head re-arms draft, ready after draft announces, and absent/history-failed state consults history.",
+        "TicketActivity folds progress, stage and evidence separately, counts unsupported observations, and advances generation/last observation only when a fold reports change.",
+        "Preserve announcement-head state versus per-dimension ordering; neither function proves notification delivery or completeness of activity evidence."
+      ],
+      "clauses": 3,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 132,
+          "module": "Aiur.Orchestrator.ReadyForReviewTransitions",
+          "name": "apply_observation",
+          "path": "src/lib/aiur/orchestrator/ready_for_review_transitions.ex",
+          "kind": "defp",
+          "end_line": 159,
+          "body_sha256": "96f777d825e439a22a80372e5446b4b7b7a3c8a50a12ee1c3a2d76f6fb715588",
+          "normalized_body_lines": 32,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 161,
+          "module": "Aiur.Orchestrator.ReadyForReviewTransitions",
+          "name": "apply_observation",
+          "path": "src/lib/aiur/orchestrator/ready_for_review_transitions.ex",
+          "kind": "defp",
+          "end_line": 161,
+          "body_sha256": "013bd4a977b0d47182f1024c62da1d80f7d332866c6f21fc45b7b258729726dc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 230,
+          "module": "Aiur.TicketActivity.Projection",
+          "name": "apply_observation",
+          "path": "src/lib/aiur/ticket_activity/projection.ex",
+          "kind": "defp",
+          "end_line": 257,
+          "body_sha256": "e110ff477a5429697495ef8ac131d786fa07679658c41fac3b30d808eb52a11d",
+          "normalized_body_lines": 38,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "apply_record",
+      "assessment": "Decision record dispatch and usage replay watermarking are not a shared replay policy.",
+      "constraints": [
+        "DecisionProjection dispatches requests, enrichments and lifecycle events; explicitly unrecognized records are successful no-ops while other unknown inputs return an error.",
+        "UsageAggregate ignores invalid/nonpositive positions and records at or below its source position; later positions delegate to fold.",
+        "Keep error versus skip behavior and record-domain ordering explicit; later-position acceptance alone does not prove gap handling or durable replay correctness."
+      ],
+      "clauses": 8,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 142,
+          "module": "Aiur.DecisionProjection",
+          "name": "apply_record",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 142,
+          "body_sha256": "6b00a913a07369c328c3211244ca70392916207bd72b0adb4049bf17ceedaafd",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 144,
+          "module": "Aiur.DecisionProjection",
+          "name": "apply_record",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 146,
+          "body_sha256": "6acb1ea2d9930679546ebcad911a94d693a3e23083ba20ed469dac980be65c3b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 148,
+          "module": "Aiur.DecisionProjection",
+          "name": "apply_record",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 150,
+          "body_sha256": "e6c72f8aaabc480ba6bc581054a81cdcc42ca88c4c806f7bd13a36d215ebcb4b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 152,
+          "module": "Aiur.DecisionProjection",
+          "name": "apply_record",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 152,
+          "body_sha256": "a1761f2712e55e9006015728261404b211d6388e4bbd41ff918e0d89ad4f136b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 158,
+          "module": "Aiur.DecisionProjection",
+          "name": "apply_record",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 158,
+          "body_sha256": "a82b9977ee87f546c4c8632f43319cdbd01ee654ca274add7722cc0d33c8f659",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 160,
+          "module": "Aiur.DecisionProjection",
+          "name": "apply_record",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 160,
+          "body_sha256": "9ecc700d3db036bbbc172d9da70bec59454f5c1bc0179f01be5cb0e2c051cd3f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 56,
+          "module": "Aiur.UsageAggregate.Projection",
+          "name": "apply_record",
+          "path": "src/lib/aiur/usage_aggregate/projection.ex",
+          "kind": "def",
+          "end_line": 63,
+          "body_sha256": "accb9c7ba1297f9a68fa24c9aac6384fba4f1b2b9be96b84002ccd60b7d1bf92",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 67,
+          "module": "Aiur.UsageAggregate.Projection",
+          "name": "apply_record",
+          "path": "src/lib/aiur/usage_aggregate/projection.ex",
+          "kind": "def",
+          "end_line": 67,
+          "body_sha256": "4473e760cf81fb913a1aa74e651509280062b471767b99229b0b1bf33f890ed3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "apply_stage",
+      "assessment": "Decision timing metrics and ordered ticket stage projection have different update semantics.",
+      "constraints": [
+        "DecisionMetrics records earliest stage times, preserves an existing actor, counts reminders/attention and marks revisions.",
+        "TicketActivity applies set/clear/keep results from Reducer.transition_stage; all three return changed=true.",
+        "Read fold_stage and fold_ordered_stage: newer ordering updates stage_order before apply_stage, so keep can preserve a visible stage while advancing its watermark. Do not classify keep/true as a no-op defect from this clause alone. Reducer transition validity is not certified."
+      ],
+      "clauses": 10,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 118,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "apply_stage",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 120,
+          "body_sha256": "1928c8f23aebb1e286536977291cdc1460b0a37737b83edd76f100903f35f1f1",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 122,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "apply_stage",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 124,
+          "body_sha256": "97f5c809f12147ca4c447e4200a4c6c2bb72bc71d3e42dc8418686e8f6909a0f",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 126,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "apply_stage",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 126,
+          "body_sha256": "e08b8030153a5d4f65cf865558ce069c643efa27f53f91980945c43f6ead11ae",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 127,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "apply_stage",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 127,
+          "body_sha256": "81460358e41b2182543ad9d144c3bb732ee8e93beb3071554699ffa79568cf91",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 128,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "apply_stage",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 128,
+          "body_sha256": "a6cf3b80e27ddcf851facdf01b0acf372840425effcb57ca1958e2d65f1e9f5b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 129,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "apply_stage",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 129,
+          "body_sha256": "213cc73c8845beed5e33a3db362bec6b60bcc3f4b39718c9b1745a62eb1a3197",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 130,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "apply_stage",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 130,
+          "body_sha256": "a2fdd304c084d7ba5cf7d515d827b72b689fd80a16e6cb6594290806870c9263",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 131,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "apply_stage",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 131,
+          "body_sha256": "48a2000590fbc75cef4a68f8f47e585d2ea62fa38e06556663892ca27978bddf",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 133,
+          "module": "Aiur.DecisionMetrics.Sample",
+          "name": "apply_stage",
+          "path": "src/lib/aiur/decision_metrics/sample.ex",
+          "kind": "defp",
+          "end_line": 136,
+          "body_sha256": "9521eb1b394b65967db1fce5f5cad0804757177b1f88b81835e4dfeae8ee0c84",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 344,
+          "module": "Aiur.TicketActivity.Projection",
+          "name": "apply_stage",
+          "path": "src/lib/aiur/ticket_activity/projection.ex",
+          "kind": "defp",
+          "end_line": 357,
+          "body_sha256": "10a3986dbfda0e6106925d8701af1920e93b6c535a56620de7c9324db087852c",
+          "normalized_body_lines": 14,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "approval_only_context",
+      "assessment": "Polling and webhook approval context filters are identical.",
+      "constraints": [
+        "Both remove the string-keyed head_committed_at field using Map.delete.",
+        "This is a concrete shared normalization primitive candidate across ingress paths.",
+        "Equivalent deletion does not prove complete review context or correct approval classification; preserve the caller-owned context schema."
+      ],
+      "clauses": 2,
+      "modules": 2,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified except where explicitly noted.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 525,
+          "module": "Aiur.Events.GithubCommentsPoller",
+          "name": "approval_only_context",
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "kind": "defp",
+          "end_line": 526,
+          "body_sha256": "1722e55bfcfdd5fc8989a5ca77531f911d8145d0869a1d79192e0935a5eacdcb",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 620,
+          "module": "Aiur.Events.GithubWebhook.Normalizer",
+          "name": "approval_only_context",
+          "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+          "kind": "defp",
+          "end_line": 620,
+          "body_sha256": "8dfcdeee620b1b486c5f802123f4fd554a014792e354a97313ba62b443946591",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 7087,
-  "limits": "649 selected families and 7087 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 7124,
+  "limits": "657 selected families and 7124 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",

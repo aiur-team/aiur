@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "f617c43162ed95155b29dc6a1cb43702aa1a41ab947439a5e7e53b5a96dd0fc5"
+    "name_triage": "7f86be9fd4294e351ce23138beab0ed481c2a7472770ac59298c1f068dce703f"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 649,
-    "remaining_cross_module_names": 1031,
-    "remaining_literal_entries": 3181
+    "reviewed_cross_module_names": 657,
+    "remaining_cross_module_names": 1023,
+    "remaining_literal_entries": 3144
   },
   "families": [
-    {
-      "name": "apply_entry",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 31
-    },
-    {
-      "name": "apply_event",
-      "clauses": 6,
-      "modules": 2,
-      "summed_source_span_lines": 84
-    },
-    {
-      "name": "apply_issue_change",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 31
-    },
-    {
-      "name": "apply_lifecycle",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 25
-    },
-    {
-      "name": "apply_observation",
-      "clauses": 3,
-      "modules": 2,
-      "summed_source_span_lines": 57
-    },
-    {
-      "name": "apply_record",
-      "clauses": 8,
-      "modules": 2,
-      "summed_source_span_lines": 19
-    },
-    {
-      "name": "apply_stage",
-      "clauses": 10,
-      "modules": 2,
-      "summed_source_span_lines": 30
-    },
-    {
-      "name": "approval_only_context",
-      "clauses": 2,
-      "modules": 2,
-      "summed_source_span_lines": 3
-    },
     {
       "name": "approved?",
       "clauses": 2,
