@@ -4,47 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "13407964101430bf8a5df1a8005eb43a6b053a997d21e8a553124d269c001985"
+    "name_triage": "e936b0630f3e5bd228ca946291ae859f4addd3221748062acc8c04d9e89880ea"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 266,
-    "remaining_cross_module_names": 1414,
-    "remaining_literal_entries": 5125
+    "reviewed_cross_module_names": 271,
+    "remaining_cross_module_names": 1409,
+    "remaining_literal_entries": 5087
   },
   "families": [
-    {
-      "name": "settings",
-      "clauses": 5,
-      "modules": 5,
-      "summed_source_span_lines": 88
-    },
-    {
-      "name": "stale?",
-      "clauses": 8,
-      "modules": 5,
-      "summed_source_span_lines": 23
-    },
-    {
-      "name": "stop",
-      "clauses": 6,
-      "modules": 5,
-      "summed_source_span_lines": 29
-    },
-    {
-      "name": "stringify_keys",
-      "clauses": 12,
-      "modules": 5,
-      "summed_source_span_lines": 16
-    },
-    {
-      "name": "summary",
-      "clauses": 7,
-      "modules": 5,
-      "summed_source_span_lines": 55
-    },
     {
       "name": "toggle",
       "clauses": 6,

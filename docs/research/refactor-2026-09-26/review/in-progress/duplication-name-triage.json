@@ -65921,10 +65921,545 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "settings",
+      "assessment": "Settings methods cover construction, publication-aware cache access and operational policy.",
+      "constraints": [
+        "Config.settings uses a cache identity only when workflow generation is an integer and publication is a reference, falls back to uncached settings conversion for unknown identity and propagates workflow errors.",
+        "HookSettings constructs command-hook entries for its events; TakeoverAlert.Monitor exposes two configured alert intervals.",
+        "GitHub.Budget combines options with configured/default values, validates positive/nonnegative limits and derives lease TTL from timeout plus grace. DeliveryLog supplies injected persistence/sync/alert/clock functions and bounded operational options.",
+        "Preserve configuration precedence, publication identity and injected dependencies rather than introducing a universal settings map builder."
+      ],
+      "clauses": 5,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 19,
+          "module": "Aiur.Claude.HookSettings",
+          "name": "settings",
+          "path": "src/lib/aiur/claude/hook_settings.ex",
+          "kind": "def",
+          "end_line": 24,
+          "body_sha256": "a668c6e9115092c3456a8f7c511bb1bca697469f0a2c374e6932ce9297bffc54",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 63,
+          "module": "Aiur.Config",
+          "name": "settings",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 74,
+          "body_sha256": "abd7f5d9702070c9888b3645898d322170dc806440d76afe5c54106929107525",
+          "normalized_body_lines": 16,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 89,
+          "module": "Aiur.Executor.TakeoverAlert.Monitor",
+          "name": "settings",
+          "path": "src/lib/aiur/executor/takeover_alert/monitor.ex",
+          "kind": "def",
+          "end_line": 94,
+          "body_sha256": "5b2e90d382e1548d2983a977796f8c7b207985a0b0a5400d1f7aa92c5b25b3ba",
+          "normalized_body_lines": 8,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 644,
+          "module": "Aiur.GitHub.Budget",
+          "name": "settings",
+          "path": "src/lib/aiur/github/budget.ex",
+          "kind": "defp",
+          "end_line": 694,
+          "body_sha256": "6e8fbbe1382c7a952e8c921e53d2fd642f05446137a12edbca0c3acb27da2ba8",
+          "normalized_body_lines": 116,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 185,
+          "module": "Aiur.Webhooks.DeliveryLog",
+          "name": "settings",
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "kind": "defp",
+          "end_line": 197,
+          "body_sha256": "d92e95164cc8b4c0a8212762e45b00b3b252e67c3573bf27682d56cb10219dcb",
+          "normalized_body_lines": 15,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "stale?",
+      "assessment": "Staleness predicates concern different evidence and missing-data policies.",
+      "constraints": [
+        "ModelDiscovery treats a missing parsed fetch time as stale and compares elapsed wall-clock seconds with an inclusive TTL. BalanceBaseline instead detects a balance increase beyond its reseed epsilon.",
+        "ReviewFreshness compares comment submission with head commit time and returns false when either timestamp cannot be obtained. False here does not prove the review is fresh.",
+        "AnalyticsRuntime returns false while loading or without a load timestamp, otherwise compares monotonic age inclusively. StreamdeckProjection returns false for nil observation and uses a strict age threshold based on usage intervals.",
+        "A shared age helper cannot replace missing-data, loading, monetary or review-authority semantics. These bodies do not establish how callers present unknown states."
+      ],
+      "clauses": 8,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 218,
+          "module": "Aiur.ModelDiscovery",
+          "name": "stale?",
+          "path": "src/lib/aiur/model_discovery.ex",
+          "kind": "def",
+          "end_line": 225,
+          "body_sha256": "b8c490b91809d8b80e05afb1245a2b3829064f3b3830db21ce9f483b0b09503d",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 171,
+          "module": "Aiur.OpenAICompat.BalanceBaseline",
+          "name": "stale?",
+          "path": "src/lib/aiur/open_ai_compat/balance_baseline.ex",
+          "kind": "defp",
+          "end_line": 171,
+          "body_sha256": "9d14e617e1771366d1965fa4248ff4260605c8fb326f9ebdedb90a47db289fd3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 57,
+          "module": "Aiur.Orchestrator.ReviewFreshness",
+          "name": "stale?",
+          "path": "src/lib/aiur/orchestrator/review_freshness.ex",
+          "kind": "defp",
+          "end_line": 64,
+          "body_sha256": "d9cd26d433615dd3fbba0719d55735da3219ba5c95dcbf1830251e837770e426",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 180,
+          "module": "AiurWeb.BuildOrder.AnalyticsRuntime",
+          "name": "stale?",
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "kind": "defp",
+          "end_line": 180,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 181,
+          "module": "AiurWeb.BuildOrder.AnalyticsRuntime",
+          "name": "stale?",
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "kind": "defp",
+          "end_line": 181,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 183,
+          "module": "AiurWeb.BuildOrder.AnalyticsRuntime",
+          "name": "stale?",
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "kind": "defp",
+          "end_line": 184,
+          "body_sha256": "fe6901eb3b11ccb21797213bed78dcea16eff59662fc76d76184fc66a185319f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 462,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "stale?",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "defp",
+          "end_line": 462,
+          "body_sha256": "cf796b8fa6cdd64c4558c35860c0d0ef8fb97f7176249af5a7fb164359eb998b",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 463,
+          "module": "AiurWeb.StreamdeckProjection",
+          "name": "stale?",
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "kind": "defp",
+          "end_line": 463,
+          "body_sha256": "bfe8d11daed75e21c01bd0c26f6a7a42c4e0053be1ab54b425ed587f933b062a",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "stop",
+      "assessment": "Stop methods range from asynchronous requests to synchronous owner and task cleanup.",
+      "constraints": [
+        "Application.stop invokes Shutdown.cleanup then returns :ok; the comment describes post-teardown re-entry, but transitive idempotence is outside this read.",
+        "CheckpointPersistence cancels a timer and delegates task stopping, with a no-op fallback. ElevenLabs.Realtime casts stop and catches exits; this does not acknowledge completed shutdown.",
+        "SubscriptionStore looks up a registered owner and synchronously stops it, returning :ok when absent without a local exit catch. OpenAICompat.Session checks liveness, stops the Agent with a timeout and catches exits.",
+        "Preserve owner lifetime, timer cleanup, acknowledgment and race/error policy when sharing mechanics; these signatures alone do not prove processes have terminated."
+      ],
+      "clauses": 6,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 521,
+          "module": "Aiur.Application",
+          "name": "stop",
+          "path": "src/lib/aiur.ex",
+          "kind": "def",
+          "end_line": 527,
+          "body_sha256": "ac89eb4f0c36c94cc9d4301c558192ff2de2578643489f3c3501ab4eef08d3d0",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 87,
+          "module": "Aiur.CurrentRunProjections.CheckpointPersistence",
+          "name": "stop",
+          "path": "src/lib/aiur/current_run_projections/checkpoint_persistence.ex",
+          "kind": "def",
+          "end_line": 90,
+          "body_sha256": "9543dcf05bd2fc0ab178e6f26d4c4140a6f462090fa7be197f1e00dba699bf41",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 92,
+          "module": "Aiur.CurrentRunProjections.CheckpointPersistence",
+          "name": "stop",
+          "path": "src/lib/aiur/current_run_projections/checkpoint_persistence.ex",
+          "kind": "def",
+          "end_line": 92,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 116,
+          "module": "Aiur.ElevenLabs.Realtime",
+          "name": "stop",
+          "path": "src/lib/aiur/eleven_labs/realtime.ex",
+          "kind": "def",
+          "end_line": 120,
+          "body_sha256": "d823aab53df273ed906bf29357cac234a7bb950c2adfaddd59ae173c319a7eff",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 125,
+          "module": "Aiur.Events.SubscriptionStore",
+          "name": "stop",
+          "path": "src/lib/aiur/events/subscription_store.ex",
+          "kind": "def",
+          "end_line": 130,
+          "body_sha256": "4399aa201651553ff9a2a1cc3c469af32d3968a3d5c5c373cda512c8b8c36191",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 16,
+          "module": "Aiur.OpenAICompat.Session",
+          "name": "stop",
+          "path": "src/lib/aiur/open_ai_compat/session.ex",
+          "kind": "def",
+          "end_line": 21,
+          "body_sha256": "adf17fc6b5095549baf80eaea3642ae8518db653041817426739093100c880bf",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "stringify_keys",
+      "assessment": "Key conversion differs in recursion and atom-value handling.",
+      "constraints": [
+        "DecisionProjection and UsageLedger.Record convert only top-level keys; DecisionProjection also explicitly preserves nil. ModelAvailability descends into nested maps but does not traverse list values.",
+        "OpenAICompat.Transport recursively traverses maps and lists, leaving scalar values unchanged. Dataset traverses both but additionally converts nonboolean, nonnil atom values to strings.",
+        "A shared converter needs explicit recursion and scalar policy. Map key conversion can also collapse distinct keys with equal string forms; these bodies provide no collision-detection contract and this read does not establish whether colliding inputs occur."
+      ],
+      "clauses": 12,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 1003,
+          "module": "Aiur.DecisionProjection",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 1003,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1004,
+          "module": "Aiur.DecisionProjection",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/decision_projection.ex",
+          "kind": "defp",
+          "end_line": 1004,
+          "body_sha256": "c02a34f538dc4d8fb6bfdc11dfe699b5040fc43b988e220c7622ba3aee6ab747",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 363,
+          "module": "Aiur.ModelAvailability",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/model_availability.ex",
+          "kind": "defp",
+          "end_line": 365,
+          "body_sha256": "9523eb43789587d96680e0a370ab814cb1970aa1b5a23f6d20879c30b5ae587d",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 63,
+          "module": "Aiur.OpenAICompat.Transport",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/open_ai_compat/transport.ex",
+          "kind": "defp",
+          "end_line": 63,
+          "body_sha256": "9a8e93df4ea11ac0bf437b38f46461c4ee360ad5169988979e100ce59915fe65",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 64,
+          "module": "Aiur.OpenAICompat.Transport",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/open_ai_compat/transport.ex",
+          "kind": "defp",
+          "end_line": 64,
+          "body_sha256": "e724de0a29321774a414026bedfa7e5c8e6577878fbe1adc76385ad999f82920",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 65,
+          "module": "Aiur.OpenAICompat.Transport",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/open_ai_compat/transport.ex",
+          "kind": "defp",
+          "end_line": 65,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1249,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "kind": "defp",
+          "end_line": 1251,
+          "body_sha256": "176394e2b745a11896ff1a2a7559349f03f65131f7b31d256f098e6bc67fc71f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1253,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "kind": "defp",
+          "end_line": 1253,
+          "body_sha256": "e724de0a29321774a414026bedfa7e5c8e6577878fbe1adc76385ad999f82920",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1254,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "kind": "defp",
+          "end_line": 1254,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1255,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "kind": "defp",
+          "end_line": 1255,
+          "body_sha256": "f9418266f3faac9ec37bdb40b475414e776fd80c62fe32e972df46de691f6015",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 1256,
+          "module": "Aiur.RunTelemetry.Dataset",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "kind": "defp",
+          "end_line": 1256,
+          "body_sha256": "552f7831f4054e35907a4729fc7df65b54595cf5e203f54c172b2621d077d1f9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 167,
+          "module": "Aiur.UsageLedger.Record",
+          "name": "stringify_keys",
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "kind": "defp",
+          "end_line": 167,
+          "body_sha256": "237633ad8249d267bcf69fc5fab6e68933ee1feb9fbcdf848ab894f260bfc5fc",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "summary",
+      "assessment": "Summary methods own different population, generation and display contracts.",
+      "constraints": [
+        "CurrentRunProjections.Finalizer compares semantic summary state, advances generation accordingly and attaches last-known-good data keyed by run and denominator signature.",
+        "UsageAggregate.Query selects a normalized scope and carries aggregate/source identities, health, freshness, coverage, totals, currency grouping and reconciliation.",
+        "BuildOrderPresenter summarizes graph counts, readiness/lifecycle/execution frequencies, lanes/phases and chain metrics. CapacityPresenter explicitly renders unknown counts and session override/draining state.",
+        "StreamdeckLogs selects a label or body with a case-insensitive duplicate-label rule. Keep aggregation authority, denominator identity and unknown display separate from generic summary formatting."
+      ],
+      "clauses": 7,
+      "modules": 5,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 4,
+          "line": 5,
+          "module": "Aiur.CurrentRunProjections.Finalizer",
+          "name": "summary",
+          "path": "src/lib/aiur/current_run_projections/finalizer.ex",
+          "kind": "def",
+          "end_line": 14,
+          "body_sha256": "8935b4565b6b6410a6930a84bf8ba32eccf847194fed25d170b77871735d9410",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 30,
+          "module": "Aiur.UsageAggregate.Query",
+          "name": "summary",
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "kind": "def",
+          "end_line": 48,
+          "body_sha256": "9ac8709285d8e0295180cb2106be1520fd93a848c60f3e1e4f1a1dc8cf137fc1",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 809,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "name": "summary",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "kind": "defp",
+          "end_line": 823,
+          "body_sha256": "fd303b475f5614737ea6a65d6e433178d58d986a21efb3fa137a937932584b3f",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 90,
+          "module": "AiurWeb.OperatorControlCenter.CapacityPresenter",
+          "name": "summary",
+          "path": "src/lib/aiur_web/operator_control_center/capacity_presenter.ex",
+          "kind": "defp",
+          "end_line": 97,
+          "body_sha256": "b21efedb1ad05bb99e6b8d536b56f3891b83391ce242e12057335de1b7ffb505",
+          "normalized_body_lines": 36,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 415,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "summary",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "defp",
+          "end_line": 415,
+          "body_sha256": "0694dcc95349a3a4748c1bf4d906795bab50fe4071948537b19cd8c04b6d3c64",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 416,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "summary",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "defp",
+          "end_line": 416,
+          "body_sha256": "089d7f982ead5353bc3833749e797e8efcdb5321c77165d966fa44fd95f4e8d6",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 417,
+          "module": "AiurWeb.StreamdeckLogs",
+          "name": "summary",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "kind": "defp",
+          "end_line": 417,
+          "body_sha256": "0694dcc95349a3a4748c1bf4d906795bab50fe4071948537b19cd8c04b6d3c64",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5143,
-  "limits": "266 selected families and 5143 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5181,
+  "limits": "271 selected families and 5181 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
