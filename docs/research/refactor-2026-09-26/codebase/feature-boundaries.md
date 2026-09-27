@@ -5,19 +5,15 @@ scripts: `~/.aiur/research/refactor-2026-09-26/scratch/`.
 
 ## Verification corrections (2026-09-26)
 
-This survey measured `0972f0297` (a September 19 commit). The later full code review
-uses `3339b8871` (September 26). Do not combine their counts as one snapshot.
-The continuing verification is recorded in `../synthesis/verdicts/`; this
-report is not yet fully verified. Two checked corrections apply to both revisions:
+This survey measured `0972f0297` (a September 19 commit). The later full code
+review uses `3339b8871` (September 26). The original tables below retain their
+survey methods and revision; do not combine their counts with the later review.
 
-- `status`, `agents`, and `watch` already use the snapshot read model, not the
-  Orchestrator mailbox. Blocking control mutations remain a separate concern.
-- The ten-minute idle-poll ceiling claimed earlier is absent from the actual
-  interval calculation and timer scheduling. Global pause updates the snapshot
-  and dashboard; its lack of a dedicated wake is narrower than "publishes nothing".
-
-See [the control-path verdicts](../synthesis/verdicts/claims-codebase-control.json)
-for exact paths, methods, and limitations.
+The [architecture verification checkpoint](../synthesis/architecture-verification.md)
+is authoritative for the checked corrections to claims codebase-02 through -06
+and -08 through -10. The original graph's reference totals are method-dependent,
+not a proven lower bound on runtime coupling. Attention-routing claim -07 remains
+under review. Full methods and corrected wording are in `../synthesis/verdicts/`.
 
 ## Summary
 
@@ -27,10 +23,10 @@ for exact paths, methods, and limitations.
   three months. Tests are larger than the code: 846 `*_test.exs` files and
   310,187 lines in `src/test`.
 - **One knot.** 35 of the 36 candidate boundaries form one strongly connected
-  component. Only the dev/test harness is outside it. 99 boundary pairs depend
-  on each other in both directions. Nothing can move to a separate repository
-  today without first inverting some edges.
-- **The knot is mostly mechanical.** 320 of the 2,123 cross-boundary module
+  component. Only the dev/test harness is outside it. The independent AST parser finds 98 mutually dependent boundary pairs (the
+  original broader parser counted 99). This motivates contract-by-contract
+  extraction analysis; it does not prove no package can move today.
+- **A relocation hypothesis reduces modeled upward references.** 320 of the 2,123 cross-boundary module
   edges point "upward" against a natural layering. Six edge classes cause most
   of them: every feature calls `Aiur.Alerts` directly; every feature calls
   `RunTelemetry.Lifecycle` or `Perf` directly; lower layers call back into the
@@ -39,19 +35,22 @@ for exact paths, methods, and limitations.
   adapters; and generic primitives (crash-safe journal, tmux transport, process
   reaper, agent environment) live inside features that others must import. A
   simulation that moves 57 modules and inverts 71 edges in these classes removes
-  61% of the upward edges (320 → 125). The residue is small and listed in §3.4.
+  61% of its modeled upward edges (320 → 125). The independent AST graph gives
+  311 → 119 at the same revision. Neither simulation models replacement
+  contracts or measures an actual saving; §3.4 is a design hypothesis.
 - **The orchestrator is one process.** 26 modules under
   `Aiur.Orchestrator.*` state "All functions execute inside the orchestrator
-  GenServer process". They share one `Orchestrator.State` struct with about 96
-  fields. That struct holds dispatch, retry, pause, CI lifecycle, 21 alert-latch
+  GenServer process". They share one `Orchestrator.State` struct with 100
+  top-level fields. That struct holds dispatch, retry, pause, CI lifecycle, 21 alert-latch
   fields, and about 17 GitHub poll cursor and ETag fields. `Aiur.Orchestrator`
-  exposes 100 public functions and 104 `handle_*` clauses. The July refactor
-  split files. It did not split this process or this state.
-- **The operator's two examples are real boundaries, but only one is cuttable
-  today.** The GitHub caching layer (resource store and read cache, 22 files,
+  has 100 distinct direct-def names (110 including delegates) and 104 `handle_*` clauses. The July refactor
+  split files while retaining the central reducer/state seam. Some components
+  already run separately, including SnapshotStore and PRHealthScanner.
+- **The operator's two examples are plausible extraction boundaries.** The GitHub caching layer (resource store and read cache, 22 files,
   7,220 lines) is already a set of its own processes and ETS tables, with a
-  narrow surface. It can be a package now. The GitHub listeners (event
-  ingestion, 40 files, 11,464 lines) are not cuttable yet: the orchestrator
+  narrow surface. Extraction must preserve webhook-mode and Build Order contracts, plus
+  WriteThrough/PollSnapshots invalidation. The GitHub listeners (event
+  ingestion, 40 files, 11,464 lines) retain orchestration-owned cursors: the orchestrator
   process drives the comment poll, the firehose and the CI poller (the comment
   poll runs in a task, but the orchestrator starts it and folds the result in),
   and their cursors live in `Orchestrator.State`.
@@ -84,7 +83,9 @@ for exact paths, methods, and limitations.
 - **Limits.** The graph is static. It does not see calls through
   `Application.get_env` module injection, `apply/3`, registry names such as
   `Aiur.PubSub` (104 references) or `Aiur.TaskSupervisor` (22), or string
-  topics. It undercounts runtime coupling, so treat every number as a floor.
+  topics. The original parser also counts some alias prefixes and quoted references,
+  while the independent AST walk omits macro-generated references. Neither
+  is a proven lower bound on runtime coupling; retain the measurement method.
 
 ## 1. Inventory
 

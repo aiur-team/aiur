@@ -1,0 +1,282 @@
+{
+  "rules": [
+    [
+      "ING",
+      "^Aiur\\.Events\\.(Github\\w*|LsRemoteTicker|PrCommandScanner|GithubKeys|GithubReviewThreadIdentity|CommentFilter)"
+    ],
+    [
+      "ING",
+      "^Aiur\\.GitHub\\.(CommentPollBatch|CIPollBatch|RepoEvents|PollSnapshots|DeliveredPullRequest)$"
+    ],
+    [
+      "ING",
+      "^Aiur\\.Webhooks"
+    ],
+    [
+      "ING",
+      "^AiurWeb\\.(GithubWebhook|GithubWebhookController)"
+    ],
+    [
+      "ING",
+      "^Aiur\\.Orchestrator\\.(CommentPolling|CommandScan|ReadyForReviewTransitions)"
+    ],
+    [
+      "BUS",
+      "^Aiur\\.Events(\\.|$)"
+    ],
+    [
+      "BUS",
+      "^Aiur\\.(EventPublicationLog|TicketObservation|AgentEvents|AgentPubSub|AgentEventFeed|DecisionPubSub|PubSub)"
+    ],
+    [
+      "BUS",
+      "^Aiur\\.Orchestrator\\.(EventTopics|AutoSubscriptions)$"
+    ],
+    [
+      "GHB",
+      "^Aiur\\.GitHub\\.(Quota|QuotaUsage|QuotaHistory|Budget|BudgetMap|BudgetLedger|CredentialHeadroom|CredentialSelector|CredentialUsage|LocalHold|BrokerTimeout|GraphQLCost|RequestLog|HostCommand|RequestOrigin|EndpointPolicy)"
+    ],
+    [
+      "GHB",
+      "^Aiur\\.(GitHubCostCLI|GitHubUsageCLI|AgentGitHubGuard)$"
+    ],
+    [
+      "GHB",
+      "^Aiur\\.Orchestrator\\.GithubBudgetPause"
+    ],
+    [
+      "GHR",
+      "^Aiur\\.GitHub\\.(ResourceStore|ReadCache|ResourceFetch|ResourceEvents|WriteThrough|CacheInspector|CacheHistory|AgentCache|AgentCacheBridge|AgentCacheMetrics|ViewStateSweep|ViewStateDemand|CycleFetchCache|OpenIssueSnapshot)"
+    ],
+    [
+      "GHC",
+      "^Aiur\\.GitHub\\.(Client|Transport|Errors|GraphQLErrors|Credential|CredentialRegistry|AppToken|AppTokenRefresher|AppCredentials|AuthPreflight|Connectivity|BotIdentity|Teams|Config)$"
+    ],
+    [
+      "GHD",
+      "^Aiur\\.GitHub(\\.|$)"
+    ],
+    [
+      "GHD",
+      "^Aiur\\.(Codeowners|CIApprovalStore|PrReadyLedgerStore)"
+    ],
+    [
+      "LIN",
+      "^Aiur\\.Linear"
+    ],
+    [
+      "TRK",
+      "^Aiur\\.(Tracker|TrackerConfig|TrackerIdentity|Issue|TicketBranch|Memory)(\\.|$)"
+    ],
+    [
+      "BO",
+      "^Aiur\\.BuildOrder"
+    ],
+    [
+      "BO",
+      "^Aiur\\.BuildOrdersCLI"
+    ],
+    [
+      "BO",
+      "^AiurWeb\\.(BuildOrder|Components\\.OperatorControlCenter\\.BuildOrder|OperatorControlCenter\\.BuildOrder)"
+    ],
+    [
+      "SD",
+      "^AiurWeb\\.(Streamdeck|StreamDeck)"
+    ],
+    [
+      "VOX",
+      "^Aiur\\.ElevenLabs"
+    ],
+    [
+      "VOX",
+      "^AiurWeb\\.(Voice)"
+    ],
+    [
+      "PRL",
+      "^Aiur\\.Orchestrator\\.(CiLifecycle|CommentWake|HumanReview|ReworkGate|ReworkRequeue|MergedTicketReconciler|PRHealthScanner|ReviewFreshness|PrAnchored)$"
+    ],
+    [
+      "PRL",
+      "^Aiur\\.(RecentMerge|RecentMergeStore)$"
+    ],
+    [
+      "DSP",
+      "^Aiur\\.Orchestrator\\.(Dispatcher|DispatchPolicy|RetryEngine|AutoResume|PriorityControl|Slots|CapacityBinding|StartupClaimReconciler|OrphanedWorkers)"
+    ],
+    [
+      "DSP",
+      "^Aiur\\.(DispatchBudgetStore|SystemLoad|SystemCpu|SystemMemory|SystemFileDescriptors)$"
+    ],
+    [
+      "CTL",
+      "^Aiur\\.Orchestrator\\.(PauseResume|GlobalPause|GlobalPauseStore|ControlLifecycle|ControlLifecycleStore|LifecycleFence|PushRouting|RemoteControlMode|Interrupts|AgentTeardown|RateLimitFallback)"
+    ],
+    [
+      "CTL",
+      "^Aiur\\.PauseContainment$"
+    ],
+    [
+      "MSG",
+      "^Aiur\\.Orchestrator\\.(OperatorMessages|DigestCoalescer)"
+    ],
+    [
+      "MSG",
+      "^Aiur\\.(AgentChat|OperatorWaitLog|AgentQueue|AgentQueueItem|AgentQueueStore|Conversations|CoordinationTasks)$"
+    ],
+    [
+      "ORC",
+      "^Aiur\\.Orchestrator(\\.|$)"
+    ],
+    [
+      "ORC",
+      "^Aiur$"
+    ],
+    [
+      "DEC",
+      "^Aiur\\.Decision"
+    ],
+    [
+      "DEC",
+      "^Aiur\\.SupervisorToken$"
+    ],
+    [
+      "DEC",
+      "^AiurWeb\\.(DecisionApiController|SupervisorAuth)"
+    ],
+    [
+      "EXE",
+      "^Aiur\\.(Executor|ExecutorWakeInbox|ExecutorWakeProjection|ExecutorListener|ExecutorBindings|ExecutorEvents|ExecutorCommandAttention|Alerts|AlertFeed|AlertLedger|AlertTopic|Asks|Findings|LaunchStateAdoption|ProgressCheckin)(\\.|$)"
+    ],
+    [
+      "CLI",
+      "^Aiur\\.(AgentControlCLI|CLI|CommandsCLI|ExecutorCommandCLI|AsksCLI|FindingsCLI|AnalyticsCLI|UnitsCLI|DaemonLifecycle|LauncherWatchdog|Shutdown|Distribution|HttpServer|Application)$"
+    ],
+    [
+      "RUN",
+      "^Aiur\\.AgentRunner"
+    ],
+    [
+      "RUN",
+      "^Aiur\\.(PromptBuilder|IssueContext|SessionHandle|AgentEnvironment|AgentScratch|AgentSkills|AgentCommandInstaller|AgentBuildGuard|AgentResourceGuard|AgentProcessLog|AgentEventLog|AgentLog|IssueLog|ProcessReaper|BuildGate|BuildGateHoldMonitor|Rtk|AgentDirectory|ExternalContent)$"
+    ],
+    [
+      "CA",
+      "^Aiur\\.(CodingAgent|AppServer|Protocol|ModelAvailability|ModelCatalog|ModelDiscovery|TokenUsage|EventHumanizer|EventHumanizerHelpers|AgentConfig)(\\.|$)"
+    ],
+    [
+      "CA",
+      "^Aiur\\.Orchestrator\\.TokenAccounting"
+    ],
+    [
+      "CDX",
+      "^Aiur\\.Codex"
+    ],
+    [
+      "CLD",
+      "^Aiur\\.Claude"
+    ],
+    [
+      "OAI",
+      "^Aiur\\.OpenAICompat"
+    ],
+    [
+      "OC",
+      "^Aiur\\.(Opencode|OpencodeTheme)(\\.|$)"
+    ],
+    [
+      "WS",
+      "^Aiur\\.Prewarm(\\.|$)"
+    ],
+    [
+      "PM",
+      "^Aiur\\.(ProviderMeter|ProviderMeters|ProviderAccountGeneration)"
+    ],
+    [
+      "USG",
+      "^Aiur\\.(Usage|UsageLedger|UsageEnvelope|UsageAggregate|UsageCompaction)(\\.|$)"
+    ],
+    [
+      "WS",
+      "^Aiur\\.(Workspace|RepoBase)(\\.|$)"
+    ],
+    [
+      "WS",
+      "^Aiur\\.Orchestrator\\.WorkspaceCleanup"
+    ],
+    [
+      "TUI",
+      "^Aiur\\.(Tmux|AgentList|PaneManager)(\\.|$)"
+    ],
+    [
+      "TEL",
+      "^Aiur\\.(RunTelemetry|SaturationSentinel|SupervisionHealth|Perf|Logs|LogFile)(\\.|$)"
+    ],
+    [
+      "PRJ",
+      "^Aiur\\.(CurrentRun\\w*|TicketActivity|OpenTicketSource|LiveConversation|ProgressTracker|ProgressRetention)(\\.|$)"
+    ],
+    [
+      "CFG",
+      "^Aiur\\.(Config|Workflow|WorkflowStore|Env|GlobalConfigStartup|PollCadence)(\\.|$)"
+    ],
+    [
+      "INI",
+      "^Aiur\\.(Init|Upgrade)(\\.|$)"
+    ],
+    [
+      "DEV",
+      "^Aiur\\.(TestReset|TestShard|SpecsCheck|AffectedTests|Sandbox)(\\.|$)"
+    ],
+    [
+      "DEV",
+      "^Mix\\."
+    ],
+    [
+      "WEB",
+      "^AiurWeb"
+    ],
+    [
+      "K",
+      "^Aiur\\.(Fs|JsonStore|Jsonl|JSONSafe|Yaml|Shell|PathSafety|OpaqueIdentifier|SecretRedactor|PeriodicWorker|Boot|Os|Metrics|ProcessIdentity|Git|SSH|PubSub\\.Boot)(\\.|$)"
+    ]
+  ],
+  "names": {
+    "K": "Kernel primitives",
+    "CFG": "Config & workflow",
+    "TRK": "Tracker contract (+memory)",
+    "LIN": "Linear adapter",
+    "GHC": "GitHub client/auth",
+    "GHB": "GitHub budget governor",
+    "GHR": "GitHub resource store & read cache",
+    "GHD": "GitHub tracker domain",
+    "ING": "GitHub event ingestion",
+    "BUS": "Event exchange & subscriptions",
+    "ORC": "Orchestrator core",
+    "DSP": "Dispatch & admission",
+    "CTL": "Pause/resume & control lifecycle",
+    "PRL": "PR/CI/review lifecycle",
+    "MSG": "Operator messaging to agents",
+    "RUN": "Agent runner runtime",
+    "CA": "Coding-agent contract & routing",
+    "CDX": "Codex backend",
+    "CLD": "Claude backend",
+    "OAI": "OpenAI-compat backend",
+    "OC": "opencode integration",
+    "PM": "Provider meters & accounts",
+    "USG": "Usage & pricing ledger",
+    "WS": "Workspace & repo base",
+    "EXE": "Executor attention (wake/alerts)",
+    "DEC": "Decisions",
+    "CLI": "Control plane / CLI / daemon lifecycle",
+    "TUI": "Terminal UI (tmux)",
+    "WEB": "Dashboard (Phoenix)",
+    "SD": "Stream Deck server side",
+    "VOX": "Voice (ElevenLabs)",
+    "BO": "Build Order",
+    "TEL": "Run telemetry & host health",
+    "PRJ": "Current-run read models",
+    "INI": "Init wizard & upgrade",
+    "DEV": "Dev/test harness & mix tasks"
+  }
+}

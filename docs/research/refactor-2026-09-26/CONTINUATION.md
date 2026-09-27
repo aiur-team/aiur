@@ -39,6 +39,25 @@ Two checks were performed sequentially by the continuing researcher; they are
 not represented as independent agents. `synthesis/privacy-review.md` records the
 privacy audit's completed corrections and still-open scope.
 
+## Further architecture and privacy checkpoint
+
+Six additional combined checks cover `codebase-02` through `codebase-06` and
+`codebase-10`, bringing artifact coverage to 44 of 60 claims with both lenses.
+See `synthesis/architecture-verification.md` for corrected conclusions,
+revision-specific graph counts, reproduction commands and parser limitations.
+The graph tool parses source without compiling or booting Aiur. Both saved
+summaries reproduce exactly. Attention routing (`codebase-07`) remains open.
+
+Privacy corrections preserve every numerical CSV measurement and public row;
+76 private identifier/chronology cells were blanked. Three verdict fields were
+redacted after provenance recovery, with explicit metadata. The title/body
+comparison supplements rather than completes the contextual privacy audit.
+
+An unresolved measurement issue for the gaps verification: some `attended_frac`
+values exceed one. Check minute-bin quantization and interval overlap against
+raw evidence before interpreting or changing these values; do not silently
+clamp them. The original numeric data is preserved.
+
 ## Completion contract — all still required unless explicitly checked
 
 - [ ] Complete privacy/provenance review of inherited and new public artifacts.
