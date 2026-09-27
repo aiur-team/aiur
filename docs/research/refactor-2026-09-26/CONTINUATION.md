@@ -1205,3 +1205,8 @@ All 75 manifest files are now fully read: 35,287 lines. Checked every file hash 
 ### tests-1a initial review checkpoint
 
 31 full reads, 2670 lines, with frozen hashes recorded; 44 manifest files remain. Preserve membership/log privacy, shell quoting, unavailable/exhausted resource semantics, decision provenance/artifact policies, meter identity/freshness and test-selection contracts. PubSub-child termination and controller restart are linked to inherited shared-supervisor research without treating explicit terminate_child as proof of a rest_for_one crash cascade. Async saturation log configuration and early-failure watcher cleanup remain hypotheses. No new promoted finding or suite execution. Overall raw review completion remains 26/32; no production changes.
+
+
+### tests-1a reset cleanup scope checkpoint
+
+37 full reads, 4,374 lines. Added decision answer/log and shard/support/environment/reset tests. Confirmed P1 cleanup scope: the reset test removes the shared aiur-workspaces parent, deleting an unrelated sibling in an isolated sentinel probe; fixture-only control preserves it. Probe extracts the frozen cleanup expression and refuses shared TMPDIR roots. Initial probe attempts failed before evaluation (sigil delimiter syntax, then formatting non-expression AST nodes); corrected matching evaluates only File.rm_rf! calls and the successful run removed its private fixtures. No shared temp tree, actual reset, production mutation or full suite was exercised. Config/helper cross-references distinguish per-VM state isolation from unchanged TMPDIR. The unit remains partial, 38 files remaining; raw-unit completion stays 26/32.

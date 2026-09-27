@@ -188,10 +188,64 @@
       "sha256": "8163f51dbfba30782ef8db953d9a55d87237f71696cc51d2fb1bbe251cffd2e1",
       "lines": 132,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_answer_test.exs",
+      "sha256": "10d389d866da334bdb7ab8ae6c62ea84e1c09df2b09e20d933028446d80806a0",
+      "lines": 199,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_log_test.exs",
+      "sha256": "825c29a5c2157acec56b76889370627292b8881c9ba61820540725e5df8bde1f",
+      "lines": 210,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/test_shard_test.exs",
+      "sha256": "f564fbc9ff38b1cf99e1e60603e7f04b363531b963795e168dcc2d47ed2e610f",
+      "lines": 147,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/test_support_test.exs",
+      "sha256": "4b28f526e3ff3301b6b36579a79321bb549f6adcc299a67c5744f5186e763b46",
+      "lines": 158,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/test_environment_test.exs",
+      "sha256": "f94fc588cd6d36f933472a4e6b644342a8201b4dd63fecf5f655fbb149ab362e",
+      "lines": 453,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/test_reset_test.exs",
+      "sha256": "6223ddd75371a79009f18fe2cb69207256d562445a60f2d97cbf3713d68cc7d6",
+      "lines": 537,
+      "read": "full"
     }
   ],
-  "scope_note": "31 complete file reads, 2670 lines. Source review only in this continuation; no suite, live application or manual TUI execution. Remaining 44 manifest files are unreviewed in this unit.",
-  "findings": [],
+  "scope_note": "37 complete file reads, 4374 lines. The reset cleanup expression was extracted and executed only inside a private caller-owned TMPDIR, with a sibling sentinel and a narrow-cleanup control. No full suite, actual reset workflow, live application or TUI execution. 38 manifest files remain.",
+  "findings": [
+    {
+      "id": "tests-1a-cont-01",
+      "severity": "P1",
+      "category": "testing",
+      "title": "Reset test cleanup recursively removes a shared workspace parent",
+      "locations": [
+        {
+          "path": "src/test/aiur/test_reset_test.exs",
+          "lines": "153-179"
+        }
+      ],
+      "description": "The direct-workspace-path refusal test creates one fixture below System.tmp_dir!/aiur-workspaces/repo, but its after block removes System.tmp_dir!/aiur-workspaces in full. Any sibling test or workspace directory under that same parent is inside the deletion scope. The serial ExUnit setting only serializes this VM's cases; it does not establish ownership over sibling VM or operator directories.",
+      "evidence": "tooling/reset_cleanup_scope_probe.exs extracts the exact File.rm_rf! expression from the frozen source and evaluates it with System.tmp_dir! pinned to a fresh private probe root. A sibling sentinel is deleted; a control removing only the fixture preserves it. Frozen config/config.exs lines83-130 isolates HOME/XDG/application roots, not TMPDIR; test_helper.exs uses the system temp root without replacing it.",
+      "recommendation": "Allocate a unique parent beneath the system temp root that contains the required aiur-workspaces path segment, then remove only that owned parent. Alternatively remove only the fixture path and assert a sibling sentinel survives teardown.",
+      "refactor_hint": "Test fixtures should carry an explicit owned cleanup root distinct from product workspace roots; package extraction must not preserve broad parent deletion as a reusable helper.",
+      "limits": "This verifies cleanup scope, not observed loss of real workspace data. An externally supplied private TMPDIR narrows exposure to that directory. No shared temporary directory or real reset operation was touched; no full-suite run or production mutation was performed."
+    }
+  ],
   "preserve": [
     "Membership checkpoint tests recompute the checksum after adding a forbidden content field, so rejection cannot pass merely on checksum mismatch. Marker tests enforce content-free reasons, extra-field rejection, private file mode and corrupt-content rejection.",
     "Publication log tests separate daemon-owned outcome location from workspace symlinks and preserve the target of a rejected configured symlink. Fs tests exercise fresh BEAM quarantine names with both archived byte sequences; fsync:true content equality alone does not prove crash durability.",
@@ -204,7 +258,13 @@
     "PollCadence preserves explicit zero freshness tolerance, last valid cadence and bounded widening. Meter events distinguish generation-scoped and fan-out topics; private store/projection integration checks actual observed values and removal of generation identity, not rendered dashboard UX.",
     "Usage CLI tests inject a private projection, synchronize observation via a server round-trip, assert ages and unknown states, and distinguish credits/local concurrency from provider percentages. Webhook mode fixtures require observed activity to classify silence as degraded.",
     "AffectedTests covers fail-closed executable/build changes and missing mappings, deleted-reference boundaries and dependency mappings; configured .aiur paths are deliberately excluded. ModelCatalog fixtures retain provider order, hidden-model exclusion and unknown-shape errors rather than empty success.",
-    "TrackedSet tests freeze poll mutation before restarting the application-owned controller and assert ETS ownership survives. SaturationSentinel covers pure escalation/cooldown decisions and diagnostic append behavior; its mutable global configuration remains a test-isolation follow-up."
+    "TrackedSet tests freeze poll mutation before restarting the application-owned controller and assert ETS ownership survives. SaturationSentinel covers pure escalation/cooldown decisions and diagnostic append behavior; its mutable global configuration remains a test-isolation follow-up.",
+    "DecisionAnswer distinguishes stable action identity from content hash, scopes idempotency by decision, validates addressed versions/options, and requires supervisor-only policy evidence with integer confidence endpoints. Persisted round trips retain actor distinctions and redact content.",
+    "DecisionLog tests retain ordered accepted prefixes, distinguish torn-tail repair from interior corruption, allow non-mutating validation before caller recovery markers and reject symlink paths. On-disk byte equality demonstrates repaired bytes, not independent power-loss durability.",
+    "TestShard preserves golden cross-language assignments and insertion/deletion stability; its self-comparison test adds no independent constraint, while separate golden and population assertions do. Discovery tests cover actual nonempty project file selection without changing cwd.",
+    "TestSupport tests explicitly exercise application recovery, process-down barriers and synchronous workflow reload completion. This is deliberate recovery infrastructure coverage, distinct from incidental application-child mutation in unrelated unit tests.",
+    "TestEnvironment includes an AST cwd guard covering lexical aliases/imports, direct/Erlang calls, inert quote bodies versus executable unquotes and async module scope. It is a syntactic guard, not proof of transitive helper or runtime-generated call coverage.",
+    "TestReset tests distinguish missing/invalid ticket input, explicit confirmation, agent-workspace refusal, closed-ticket cleanup and separate remove/add label calls. Command construction and injected runners are not live GitHub validation; dry-run success alone does not prove absence of every side effect."
   ],
   "cross_references": [
     {
@@ -224,6 +284,30 @@
       ],
       "finding": "Controller restart uses the application supervisor after freezing polls; this is another package-boundary integration seam, not an independent demonstrated flake.",
       "related_finding": "tests-2-01"
+    },
+    {
+      "path": "src/config/config.exs",
+      "lines": [
+        83,
+        130
+      ],
+      "finding": "Suite isolation creates per-VM application/HOME/XDG roots but does not replace TMPDIR in this inspected block; broad workspace-parent cleanup still depends on the caller's system temp root."
+    },
+    {
+      "path": "src/test/support/test_support.exs",
+      "lines": [
+        148,
+        171
+      ],
+      "finding": "tmp_root! uses system temp directory plus PID and VM counter. Unique fixture naming does not justify deleting the common parent."
+    },
+    {
+      "path": "src/test/test_helper.exs",
+      "lines": [
+        1,
+        77
+      ],
+      "finding": "Read the complete 77-line helper: global log cleanup is bounded to configured log parent; the helper does not replace TMPDIR. Supporting read not counted in the 75-file manifest."
     }
   ],
   "follow_up_candidates": [
@@ -247,7 +331,7 @@
     }
   ],
   "next": [
-    "Continue the remaining 44 tests-1a manifest files, including skill tests, decision lifecycle tests and controller lifecycle/deactivation coverage.",
+    "Continue the remaining 38 tests-1a manifest files, including skill tests, decision lifecycle tests and controller lifecycle/deactivation coverage.",
     "Keep shared-supervisor observations linked to existing findings and verify hypotheses before adding severity-bearing findings."
   ]
 }

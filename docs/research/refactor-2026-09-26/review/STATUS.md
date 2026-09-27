@@ -526,3 +526,9 @@ uniform review depth or overall research completion.
 ledger. Privacy, identity, recovery and meter contracts are recorded; shared
 supervisor observations link to existing findings. No new finding is promoted
 from the two test-isolation hypotheses. Raw review coverage remains 26/32.
+
+
+tests-1a advances to 37/75 files (4,374 lines). One P1 finding is recorded
+in its partial ledger: reset-test cleanup deletes a common workspace parent.
+An isolated exact-expression probe deletes a sibling sentinel; a fixture-only
+control preserves it. No production data loss or full-suite execution is claimed.
