@@ -862,3 +862,7 @@ Read all six atomic_write and all six control_api_call definitions. Four filesys
 ### Name duplication: age, freshness and count contracts
 
 Read21age_label,25freshness_label and18count_label clauses across six modules per family. Preserve units, missingness, partial/truncated counts and vocabulary differences. Four stale-to-Healthy mappings corroborate part of web-occ-09; linked without adding a new defect or validating the full inherited claim. Name triage now12families/234literal definitions; callback and remaining-name review still open.
+
+### Name duplication: startup wrappers
+
+Read all122start_link definitions across122modules (438summed source-span lines). Registration defaults, option forwarding, facade ownership, state construction, validation, release waiting and supervisor type remain distinct; do not infer a generic startup abstraction from common OTP syntax. Name triage now13families/356literal definitions. Saved a35name priority queue from the full census to guide remaining work without treating the queue as a reduced sweep scope.
