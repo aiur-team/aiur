@@ -1050,3 +1050,7 @@ Read decide, decode_record, default_path, describe, empty and enqueue: 47 litera
 ### Name duplication: enrichment and tracker fetch boundaries
 
 Read enrich and five tracker fetch families: 40 literal entries across six families. Preserve field-specific merge policy, issue-versus-PR ownership classification, singular first-match versus plural all-page lookup, and snapshot/resource-cache boundaries. Empty Linear/Memory defaults are capability policy, not observed external emptiness. Name triage now 184 families/4296 entries, leaving 1496 cross-module names. Raw findings and skeptic counts are unchanged; wrapper counts establish no network saving.
+
+### Name duplication: graph traversal and presentation helpers
+
+Read finish, fold, humanize, issue, message and model: 69 literal entries across six families. Equivalent DFS finishing-order traversal and three identical UI humanizers are narrow sharing candidates. Preserve completion generation fences, event ordering, ownership issuance and unknown/admission messaging. Name triage now 190 families/4365 entries, leaving 1490 cross-module names. Raw findings and skeptic counts are unchanged; no runtime correctness or savings are claimed.
