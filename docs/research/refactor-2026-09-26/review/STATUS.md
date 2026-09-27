@@ -1282,3 +1282,7 @@ Read request_resource, reset_at, reset_delay_ms, reset_topic, resolve_review_thr
 ### Name duplication: runtime and fallback contracts
 
 Read root, rotate, route, routing_backend, runtime, runtime_deps, safe_atom and safe_snapshot: 32 literal entries across eight families. File-rotation implementations match with best-effort failures. Preserve routing parser differences, runtime shape/negative guards/unavailable text, injectable startup boundaries and snapshot fallback evidence. Read the full literal document shell, routing split helper and shared runtime-label helper without browser verification. Name triage now 565 families/6784 entries, leaving 1115 cross-module names. Raw findings and skeptic counts are unchanged; no complete retention, rendering or fallback-safety guarantee is added.
+
+### Name duplication: subscription and selection evidence
+
+Read safe_subscribe, safe_url, schedule_poll, scope_label, scrub, selected_decision, selected_snapshot and selection: 37 literal entries across eight families. Preserve subscription failure visibility, URL policy, timer cancellation boundaries, run/build scope and distinct sanitization stages. Two UI selected-decision guards and two graph URL wrappers match; checked graph aliases/URL entry point and timer cancellation helper. Name triage now 573 families/6821 entries, leaving 1107 cross-module names. Raw findings and skeptic counts are unchanged; no complete subscription, privacy or current-selection guarantee is added.
