@@ -942,3 +942,7 @@ Read all 44 run definitions/declarations in 40 modules. Preserve provider-specif
 ### Name duplication: asynchronous callback policies
 
 Read all 49 handle_cast clauses in 21 modules. OTP callback shape is shared protocol, while bodies retain writable/generation fences, refresh authorization, provenance, persistence/admission ordering and audio readiness/flush state. Name triage now 41 families/1339 literal entries. Cast acceptance does not establish durable success; remaining callbacks, rendering and broader sweeps stay open.
+
+### Name duplication: rendering media and trust boundaries
+
+Read all 54 render definitions/clauses in 21 modules, including complete LiveView render bodies. Preserve terminal output ownership, agent-input trust filtering, Decision correlation instructions, machine tokens, HTML/JSON encoding boundaries and distinct unavailable/physical-only UI states. Existing shell/components already share framing. Name triage now 42 families/1393 literal entries. This source review is not manual UI verification; remaining callbacks, helpers and broader sweeps stay open.
