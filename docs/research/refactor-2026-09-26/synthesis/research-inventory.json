@@ -84,6 +84,7 @@
       "agent-backends-oc",
       "agent-runtime",
       "build-order",
+      "dup-by-body",
       "events-webhooks-executor",
       "github-a",
       "github-b",
@@ -106,7 +107,6 @@
       "web-rest"
     ],
     "missing_units": [
-      "dup-by-body",
       "dup-by-concept",
       "dup-by-constant",
       "dup-by-name",
@@ -115,11 +115,11 @@
       "tests-1b",
       "tests-4"
     ],
-    "findings": 869,
+    "findings": 929,
     "original_severity_counts": {
       "P0": 14,
       "P1": 167,
-      "P2": 496,
+      "P2": 556,
       "P3": 192
     },
     "high_priority_verdicts_missing": [

@@ -883,3 +883,17 @@ byte-prefix logging and character truncation must not be conflated. Root/member/
 connection bounds and cache-age/operation-timeout policies remain distinct.
 Hashes and targeted publication scans passed. No production edits, live-system
 claims or savings estimates were introduced.
+
+## Body duplication raw-unit checkpoint
+
+Published review/raw/dup-by-body.json: 60 P2 refactor opportunities, 242 unique
+files inspected at candidate spans, all 169 reviewed exact/renamed/extra groups
+accounted for in a disposition index. The scope is the detector's >=5 physical
+and normalized-line population, not arbitrary semantic clone detection.
+Each promoted family carries all its candidate sites, source-group hashes and
+contract caveats; retained candidates keep their assessment.
+
+All 1,032 source hashes rechecked. Location bounds, finding IDs and evidence
+references validated. Raw review units advance to 25/32 and raw findings to
+929; inherited high-severity skepticism and cross-unit deduplication remain
+open. No production changes or independent savings claim.

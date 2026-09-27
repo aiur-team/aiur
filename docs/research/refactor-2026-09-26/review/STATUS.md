@@ -2,8 +2,8 @@
 
 The code review stopped early on 2026-09-26: first the account session limit was hit, then Claude credits ran out.
 
-- `raw/` holds 24 of 32 review units, one JSON file per unit. Each file lists its findings with severity, locations, evidence and recommendation.
-- Units still incomplete: tests-1a, tests-1b, tests-4, skills-prompts, and the four cross-cutting duplication sweeps (by name, by body, by concept, by constant).
+- `raw/` holds 25 of 32 review units, one JSON file per unit. Each file lists its findings with severity, locations, evidence and recommendation.
+- Units still incomplete: tests-1a, tests-1b, tests-4, skills-prompts, and three cross-cutting duplication sweeps (by name, by concept, by constant).
 - Not verified: no P0/P1 finding has had its skeptic check yet. Treat every severity as the reviewer's own claim.
 - Not written yet: `code-review.md`, `findings.json`, `by-boundary.md`.
 
@@ -473,3 +473,20 @@ opaque identifiers, cache observability and UI fallbacks remain separate domain
 contracts. Shared low-level checks may be candidates; the normalize name alone
 does not justify combining responsibilities. Remaining name, concept, constant
 and final reconciliation work stays open. No production code changed.
+
+## Body-duplication unit completed
+
+The raw body unit now consolidates the assessed exact/renamed clusters into
+60 bounded P2 refactor findings with complete candidate-site locations and
+hash references. All 169 reviewed groups (126 exact candidates, 41 renamed
+candidates and two below-threshold startup groups) have an explicit disposition.
+Candidates not promoted retain their rationale; identical callback syntax,
+domain-local attributes and lossy failure adapters do not prove interchangeable
+behavior. The 242 files counted were inspected at candidate spans, not all read
+in full. The scanner parsed all 1,032 source files; their hashes were rechecked.
+
+These findings overlap inherited units and each other at shared primitive
+boundaries. Sixty is not an independent defect, package or savings count.
+Cross-unit reconciliation, P0/P1 skepticism and final synthesis remain open.
+The top-level raw-unit count is now 25/32; historical checkpoints above retain
+their original counts. The other three duplication units remain incomplete.
