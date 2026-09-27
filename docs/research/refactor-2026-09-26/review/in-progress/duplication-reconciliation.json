@@ -133,7 +133,21 @@
           "candidate_hash": "a721343f208651fe24ba41ac504f481499e8b1b398d8d1cdd8bca96d0623e130"
         }
       ]
+    },
+    {
+      "finding_id": "agent-backends-cc-38",
+      "status": "semantic-reconciliation-recommendation-corrected",
+      "disposition": "reject_negative_authorization_derivation",
+      "assessment": "These are four different policy sets: seeded vocabulary, agent write authorization, contradiction precedence, and provenance promotion. Adding a state does not necessarily require adding it to all four. The proposed vocabulary-minus-todo/merging/cancelled derivation includes canceled, which the current positive allowlist rejects. It would also authorize future vocabulary additions by default. Retain an explicit positive agent authorization policy. A shared provider-neutral lifecycle owner may expose separately named policies or explicit role metadata; do not derive write authority by subtracting a few disallowed states or make provider-neutral tools depend on a GitHub seeding adapter.",
+      "evidence": "label-state-contracts.json"
+    },
+    {
+      "finding_id": "agent-runtime-23",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_contract_drift_producer_reachability_pending",
+      "assessment": "Source confirms bare-state normalization overlap, TurnPrompt trim/prefix differences, hardcoded terminal tags and atom/string UI sort inconsistency. TurnLoop and DispatchPolicy take different active-state collection forms. Custom-prefix tag and string work_state producer reachability remains unverified; do not promote source differences into production incident claims. Keep tracker lifecycle and live UI work states distinct.",
+      "evidence": "label-state-contracts.json"
     }
   ],
-  "limits": "Six selected inherited findings read in full and compared with current candidate assessments. This is partial claim-level corroboration, not final finding deduplication or high-severity skeptic review. Original IDs preserved; no raw findings deleted, reseveritized or promoted."
+  "limits": "Eight selected inherited findings compared with source contracts. Partial claim-level corroboration and recommendation correction, not final deduplication or high-severity skeptic review. Original IDs/raw findings preserved."
 }

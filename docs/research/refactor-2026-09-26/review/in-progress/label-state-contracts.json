@@ -1,0 +1,102 @@
+{
+  "status": "in-progress",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "concept": "label-state normalization and lifecycle policy",
+  "method": "Read the cited frozen source spans and inherited findings. Static contract review only; no runtime incident or production input population established.",
+  "sources": [
+    {
+      "path": "src/lib/aiur/github/labels.ex",
+      "sha256": "20798e8407de4512b024634014b087b4baf6156a8daa43ec9e0e288baa362205"
+    },
+    {
+      "path": "src/lib/aiur/github/issues.ex",
+      "sha256": "589f6c1f6604ec135060a45ea68a6ce5804a3cf35dcb0d71866ca3af20dd569c"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+      "sha256": "766ee6c194f71b7176f5ebaa1a0005ff113fa5139cfedefffc60a333eba00185"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+      "sha256": "7a7ea223e33b76a72c02713c3d0dd5655823ccc0bcf3f024fde9ce53c7f75904"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+      "sha256": "6517cb8813d31ac8139d6a35d36528b01f2b7ae3c3c6bab6c1a0c7caffa9195f"
+    },
+    {
+      "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+      "sha256": "6e7d70208a927517a6499d4aa51180e30c7fee4a8f3e6c190977177602bb8d67"
+    },
+    {
+      "path": "src/lib/aiur/agent_runner/turn_prompt.ex",
+      "sha256": "3fc171b2789b1a93d68d51b5676792ab50a558e95d3c71860be65f0cbe98285b"
+    },
+    {
+      "path": "src/lib/aiur/agent_list/summaries.ex",
+      "sha256": "511b683448c3a153ffb7836a2b4fe6430dd50974b02fbbe576125a6dfb41c8e3"
+    },
+    {
+      "path": "src/lib/aiur/agent_list/renderer/markers.ex",
+      "sha256": "c09393a62bd7065c0d30d39b21099277d27b929854fd4d3a99d2ff8139adf062"
+    },
+    {
+      "path": "src/lib/aiur/codex/dynamic_tool/ticket_state.ex",
+      "sha256": "e7cdc2ef5ccc544b75b4c2e9fa48371d06851753fde5b9596cfb1608322fb684"
+    }
+  ],
+  "assessments": [
+    {
+      "contract": "Vocabulary versus authority",
+      "locations": [
+        "github/labels.ex:25-35",
+        "codex/dynamic_tool/ticket_state.ex:32,99-130",
+        "orchestrator/dispatch_policy.ex:1114-1200",
+        "orchestrator/issue_sync.ex:25,318-330"
+      ],
+      "finding_id": "agent-backends-cc-38",
+      "assessment": "These are four different policy sets: seeded vocabulary, agent write authorization, contradiction precedence, and provenance promotion. Adding a state does not necessarily require adding it to all four. The proposed vocabulary-minus-todo/merging/cancelled derivation includes canceled, which the current positive allowlist rejects. It would also authorize future vocabulary additions by default.",
+      "recommendation": "Retain an explicit positive agent authorization policy. A shared provider-neutral lifecycle owner may expose separately named policies or explicit role metadata; do not derive write authority by subtracting a few disallowed states or make provider-neutral tools depend on a GitHub seeding adapter."
+    },
+    {
+      "contract": "Ingestion and resolution",
+      "locations": [
+        "github/issues.ex:1095-1129,1161-1194",
+        "orchestrator/dispatch_policy.ex:1144-1200",
+        "orchestrator/issue_sync.ex:293-374"
+      ],
+      "assessment": "GitHub ingestion trims/lowercases configured prefixes and label names, removes marker suffixes, deduplicates and sorts state labels. Closed issues return Closed; nonempty contradictory labels resolve deterministically. The resolver favors todo, then ranked dispositions, then unknown labels, then ci-wait; equal ranks preserve incoming order, which ingestion has already sorted. IssueSync already shares the resolver normalizer, but can promote one fresh nonterminal disposition beside a prior daemon claim. Removing this provenance path changes repair behavior.",
+      "recommendation": "Preserve source label evidence and provenance separately from the resolved state; make prefix decoding an adapter responsibility and lifecycle precedence a domain responsibility."
+    },
+    {
+      "contract": "Normalizer differences",
+      "locations": [
+        "orchestrator/dispatch_policy.ex:1189-1200",
+        "codex/dynamic_tool/ticket_state.ex:99-130",
+        "agent_runner/turn_prompt.ex:151-157",
+        "agent_runner/turn_loop.ex:563-576"
+      ],
+      "assessment": "DispatchPolicy strips lowercase agent: before lowercasing, whereas TicketState lowercases first and trims again after stripping. Thus uppercase AGENT:REWORK differs at these helper boundaries. TurnPrompt lowercases without trimming. TurnLoop uses trim/lowercase on bare issue state and configured active states; DispatchPolicy accepts a prebuilt MapSet and handles nonbinary normalization with an empty string. Canonical GitHub ingestion already removes configured prefixes, so helper differences alone do not demonstrate an ingestion failure.",
+      "recommendation": "Define bare-state versus external-label inputs explicitly before extraction; preserve validation/error envelopes and active-state collection handling."
+    },
+    {
+      "contract": "UI work state versus tracker state",
+      "locations": [
+        "agent_list/summaries.ex:6-38,103-128",
+        "agent_list/renderer/markers.ex:14-31"
+      ],
+      "finding_id": "agent-runtime-23",
+      "assessment": "Summaries filters three hardcoded agent: terminal tags; predicates and marker sets accept atom/string work states, but sort buckets accept atoms only. These source differences are real. Whether a custom-prefix terminal tag or string work_state reaches these consumers has not been traced in this pass. Tracker dispositions and live agent work states are distinct concepts.",
+      "recommendation": "Keep a typed UI summary boundary separate from tracker label decoding. Trace summary producers before claiming a production prefix/sort incident; normalize only a bounded known vocabulary, never arbitrary string-to-atom conversion."
+    },
+    {
+      "contract": "Stale explanatory comments",
+      "locations": [
+        "orchestrator/ci_lifecycle.ex:99-134",
+        "github/issues.ex:1107-1119"
+      ],
+      "assessment": "CILifecycle comments still describe contradictory-label ingestion as state:nil, while Issues now resolves nonempty label sets. CILifecycle prioritizes a binary state and falls back to resolving state_labels. This is stale source documentation, not evidence that current contradictory-label ingestion yields nil or that the guard is omitted in that path."
+    }
+  ],
+  "limits": "One concept family assessed. Not the completed concept or constant sweep. No runtime tests, prevalence, savings, complete producer tracing, or full finding verification claimed."
+}

@@ -579,3 +579,20 @@ opaque identifiers, cache observability and UI fallbacks remain separate domain
 contracts. Shared low-level checks may be candidates; the normalize name alone
 does not justify combining responsibilities. Remaining name, concept, constant
 and final reconciliation work stays open. No production code changed.
+
+## Label/state contract checkpoint
+
+Read ten source files at the relevant lifecycle spans and recorded contracts in
+review/in-progress/label-state-contracts.json. Reconciliation now covers eight
+selected inherited findings. The agent-backends-cc-38 recommendation to derive
+agent permissions by subtraction is rejected: it leaves the canceled alias
+authorized and grants future vocabulary additions by default. Preserve a positive
+authorization policy separate from vocabulary, precedence and provenance repair.
+
+agent-runtime-23 source differences are corroborated, but summary producer
+reachability for custom-prefix terminal tags/string work states remains open.
+Canonical GitHub ingestion already strips configured prefixes; differing helper
+normalizers alone do not prove an ingestion bug. CILifecycle nil-state comments
+are stale relative to the current contradiction resolver. Remaining concept and
+constant sweeps, final reconciliation and all other completion gates stay open.
+No production changes or runtime verification were performed.
