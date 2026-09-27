@@ -1623,3 +1623,7 @@ Read all 31 record definitions/declarations in 19 modules. Distinguish map const
 ### Name duplication: resolution policy and side effects
 
 Read all 40 resolve definitions/declarations in 23 modules. Preserve pure lookup versus stateful resolution, identity and containment checks, explicit/default port policy, retained-data availability, historic pricing revisions and unavailable-versus-session analytics scope. Name triage now 34 families/1051 literal entries; remaining sweep and transitive verification stay open. No new defect or savings count.
+
+### Name duplication: reconciliation and retention predicates
+
+Read all 40 reconcile definitions/declarations in 22 modules and the availability/scope helpers for three presenters. Matching presenter bodies retain distinct validity and identity policies, overlapping inherited web-occ-17. Preserve handshake completion, boot-scoped claim retries, configuration uncertainty, compaction recovery and bounded transitions. Name triage now 35 families/1091 literal entries; the priority queue is not exhausted and is not a scope limit. Remaining sweep and transitive verification stay open.
