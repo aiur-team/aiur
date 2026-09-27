@@ -1,0 +1,41 @@
+{
+  "node": "v24.18.0",
+  "source_sha256": {
+    "src/audio/session.ts": "906222367837987de6a9114731b946cc09e3862a5c9f47115b8bf0656225e3c4",
+    "src/audio/pcm.ts": "56632d69bf7704d9824596e2e93d418d06ff0287a5cddd6ae3f22e61044b821d",
+    "src/audio/aggregate.ts": "7fd93a2f04d044c7b6d281750a41472780f39c291f0c37a0394f6302ceb7f2d3",
+    "src/audio/buffer.ts": "5c88b803c5b5fcd3c8dd207b2eac010e5cd3dfc1083ff6e4244615abe0e12bc9",
+    "src/audio/waveform.ts": "03460c6afb1de131a46c8dd4686c37c1d951cabcc794d17e22872214f2ca4f29",
+    "src/audio/capture.ts": "0b15a39506eb3d112fbd80aa1861130057ad240e280e2db8cf559380c8549edf",
+    "src/audio/node-system.ts": "cd5374dbc12eb95d2530e5e0ea3a21b491ebf30b076c8960c167c944b088bf0b",
+    "src/audio/node-playback.ts": "0e2daf46e19156cfb91a376a0da7a0b5b03fbb8cf4fc3313c3b3dd6ad83c4b0d",
+    "src/audio/node-fetch.ts": "f8d5a91c3daa28b85c7bec472d002e608a6e4ad16d62b3aa28d257e18a842d2f",
+    "src/audio/playback.ts": "b46a99102b838811d039ac1b77b2df602eed62cefecff459cdf3dbbbdf31431c"
+  },
+  "recorder_tail": {
+    "raw_stdout": [
+      1,
+      0,
+      2,
+      0
+    ],
+    "forwarded_pcm": [
+      1,
+      0
+    ],
+    "errors": [],
+    "child_exit": 0
+  },
+  "playback": {
+    "settled_after_error_and_exit": false,
+    "close_calls_after_exit": 0,
+    "settled_after_synthetic_drain": true,
+    "nonzero_exit_close_resolves": true
+  },
+  "fetch_break": {
+    "cancel_calls_before_cleanup": 0,
+    "body_unlocked": true,
+    "additional_bytes_readable": true
+  },
+  "limits": "Capture uses the actual Node system adapter and a bounded synthetic child that flushes bytes on SIGINT, not parec or a microphone. Playback uses injected process events; fetch uses a local ReadableStream, not HTTP. Playback/TTS have no production callers in the frozen source search; these defects do not establish live device or quota impact."
+}

@@ -3,9 +3,9 @@
   "status": "in-progress",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "planned_files": 178,
-  "files_reviewed": 71,
-  "lines_reviewed_estimate": 11483,
-  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed.",
+  "files_reviewed": 92,
+  "lines_reviewed_estimate": 14196,
+  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint. Stream Deck continuation: 29 additional complete reads covering entry-point wiring, lifecycle, device backends, input/report contracts, monitor sources, lock, configuration and corresponding listed tests. Channel/controller/render/audio dependencies remain open; reading main.ts does not finish their contracts. No hardware or browser was exercised. Channel/command pass: nine more complete reads, including controller source, channel and command-model tests, and voice session source. Controller tests were read only at lines 1-110, 914-1030 and 1170-1369, with targeted searches elsewhere; they remain incomplete. Source loaded transitively by the probe is not counted as reviewed without a full read. Targeted supporting reads: server channel join/control/say/history/answer handlers and StreamdeckCommands history/page projection, plus the surface agentLess predicate and QUEUED key descriptor. Audio continuation: 15 complete source reads and complete voiceHost/relay tests. Session source reread; session tests only targeted transcript/release cases, not complete coverage. Server voice start/stop/transcript handlers and realtime commit/final paths read selectively. Probe-loaded pcm and waveform are not counted as reviewed. Audio resource continuation completes all remaining 21 audio source/test paths. The audio subtree is now fully read; full package/render/controller review is not complete. Repository-wide symbol search found playback/TTS factories only in their definitions, adapter dependencies and tests, with no production caller or barrel export. No package test suite was executed; targeted research probes were executed.",
   "coverage": [
     {
       "path": "website/src/dashboard.ts",
@@ -361,6 +361,111 @@
       "path": "packages/streamdeck/test/audio/relay.test.ts",
       "status": "read_in_full",
       "sha256": "38cf802cc771d2142a9292baf6259e775d4b09394ddf2a394fd832798f9911a6"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/devices.ts",
+      "status": "read_in_full",
+      "sha256": "4349ecf3cee1134f3e531c2b9b841509683d85f2a5c04248f93af003bbc4ed4b"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/index.ts",
+      "status": "read_in_full",
+      "sha256": "72e49b41b4b2f5db6dd995fb96929c05ad56dfc12d29ce6ff488390f5c54384a"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/pcm.ts",
+      "status": "read_in_full",
+      "sha256": "56632d69bf7704d9824596e2e93d418d06ff0287a5cddd6ae3f22e61044b821d"
+    },
+    {
+      "path": "packages/streamdeck/src/audio/waveform.ts",
+      "status": "read_in_full",
+      "sha256": "03460c6afb1de131a46c8dd4686c37c1d951cabcc794d17e22872214f2ca4f29"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/aggregate.test.ts",
+      "status": "read_in_full",
+      "sha256": "709ccece3e95ee441a755950f52e2f19f398c078fea7fc9b1bba794c85929372"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/buffer.test.ts",
+      "status": "read_in_full",
+      "sha256": "97fa44841466701459226e4434fd98023b5cf8783861d3cb72b52e80bd8ff0f3"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/capture.test.ts",
+      "status": "read_in_full",
+      "sha256": "ddce85b025b8ee99e29068ee28340444fd313ed41463a093a15d89b3ab47959c"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/devices.test.ts",
+      "status": "read_in_full",
+      "sha256": "9b3f9f9008f525fc1967afff327b2ef663d2f834eed6846e3db2ffcce7a6195c"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/elevenlabs-tts.test.ts",
+      "status": "read_in_full",
+      "sha256": "da8b87f3af4430a880bf6d827f79479fb94561c5a3b9b0abde24cad1b80e3f47"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/index.test.ts",
+      "status": "read_in_full",
+      "sha256": "4dfcf932ec1ed441b5369c476ac8fba3665c44bac6d179da3434e93b19935cec"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/node-fetch.test.ts",
+      "status": "read_in_full",
+      "sha256": "f30f034f875a76b0565522b5dde699f2274f71605389608fec1c0e9ca18c514d"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/node-playback.test.ts",
+      "status": "read_in_full",
+      "sha256": "cf79e99c92d2fad6cc918f7051585991232354decc2da967acde3c07bf56fae1"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/node-preferences.test.ts",
+      "status": "read_in_full",
+      "sha256": "10032827d5f079cdb9f2220618ba9a48f2079c36733aaa6a883e72c672e9f3b2"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/node-system.test.ts",
+      "status": "read_in_full",
+      "sha256": "9d344b151d95c0bfdd47e1c2fa808f0ce47f2fc50ea906c3df7c774cf3e81c7d"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/pcm.test.ts",
+      "status": "read_in_full",
+      "sha256": "51ca4e9e669e47c3b03e575cb1cdc2efb4747bc8c68ecc89265991d8a5d93fef"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/playback.test.ts",
+      "status": "read_in_full",
+      "sha256": "7bf5b147c4c566c3b4ae68b2c888f64f4ff2b62490ef90a54ed82274f38a8c44"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/preferences.test.ts",
+      "status": "read_in_full",
+      "sha256": "2fa19e5a185fa84a13303736dfc309185e63045015a763557aedcc6fe06cb1cd"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/session.test.ts",
+      "status": "read_in_full",
+      "sha256": "e87a7fa9813d0be74578e2e31f809d8d80837b4d30a5422861a606e4feac0c3d"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/stt.test.ts",
+      "status": "read_in_full",
+      "sha256": "11181aed567fddc4196fca50c46737258bd758dd6ac347c9be735d5ebea171df"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/tts.test.ts",
+      "status": "read_in_full",
+      "sha256": "ba7e6aead5936fd6ab33ad455858c11515179e1099824367a1872ed8c74ff20e"
+    },
+    {
+      "path": "packages/streamdeck/test/audio/waveform.test.ts",
+      "status": "read_in_full",
+      "sha256": "5e6bb7f84140a341b491a25145a67d47b50c9384597806689db27d57141445df"
     }
   ],
   "remaining_files": [
@@ -376,10 +481,6 @@
     "packages/streamdeck/src/art/icons.ts",
     "packages/streamdeck/src/art/segments.ts",
     "packages/streamdeck/src/art/vendorMark.ts",
-    "packages/streamdeck/src/audio/devices.ts",
-    "packages/streamdeck/src/audio/index.ts",
-    "packages/streamdeck/src/audio/pcm.ts",
-    "packages/streamdeck/src/audio/waveform.ts",
     "packages/streamdeck/src/debug.ts",
     "packages/streamdeck/src/demo.ts",
     "packages/streamdeck/src/dial.ts",
@@ -418,23 +519,6 @@
     "packages/streamdeck/test/art/icons.test.ts",
     "packages/streamdeck/test/art/segments.test.ts",
     "packages/streamdeck/test/art/vendorMark.test.ts",
-    "packages/streamdeck/test/audio/aggregate.test.ts",
-    "packages/streamdeck/test/audio/buffer.test.ts",
-    "packages/streamdeck/test/audio/capture.test.ts",
-    "packages/streamdeck/test/audio/devices.test.ts",
-    "packages/streamdeck/test/audio/elevenlabs-tts.test.ts",
-    "packages/streamdeck/test/audio/index.test.ts",
-    "packages/streamdeck/test/audio/node-fetch.test.ts",
-    "packages/streamdeck/test/audio/node-playback.test.ts",
-    "packages/streamdeck/test/audio/node-preferences.test.ts",
-    "packages/streamdeck/test/audio/node-system.test.ts",
-    "packages/streamdeck/test/audio/pcm.test.ts",
-    "packages/streamdeck/test/audio/playback.test.ts",
-    "packages/streamdeck/test/audio/preferences.test.ts",
-    "packages/streamdeck/test/audio/session.test.ts",
-    "packages/streamdeck/test/audio/stt.test.ts",
-    "packages/streamdeck/test/audio/tts.test.ts",
-    "packages/streamdeck/test/audio/waveform.test.ts",
     "packages/streamdeck/test/controller.test.ts",
     "packages/streamdeck/test/debug.test.ts",
     "packages/streamdeck/test/demo.test.ts",
@@ -764,6 +848,100 @@
         "evidence_file": "streamdeck-audio-probe.json",
         "limits": "Actual client link/relay/session, injected capture/channel and ordered synthetic replies. No provider, physical microphone or live daemon; no independent skeptic review."
       }
+    },
+    {
+      "id": "nonelixir-web-11",
+      "category": "resource-lifecycle",
+      "severity": "P2",
+      "title": "Capture discards recorder bytes flushed by its requested stop",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/audio/capture.ts",
+          "lines": "99-104,121-127"
+        },
+        {
+          "path": "packages/streamdeck/src/audio/node-system.ts",
+          "lines": "82-86"
+        },
+        {
+          "path": "packages/streamdeck/src/audio/session.ts",
+          "lines": "107-114"
+        },
+        {
+          "path": "packages/streamdeck/test/audio/capture.test.ts",
+          "lines": "165-180"
+        }
+      ],
+      "description": "The Node adapter sends SIGINT specifically to flush buffered recorder audio, but capture sets stopped before signalling and drops every later stdout chunk. Session release immediately flushes only already-delivered bytes and closes transcription. Bytes buffered before key release are therefore discarded if they arrive during recorder shutdown. This is distinct from rejecting a final transcript after successful upload (finding 09).",
+      "evidence": "A bounded real Node child emits [1,0], then flushes [2,0] on SIGINT. The actual Node system adapter sees all four bytes, while the composed capture/session forwards only [1,0] without an error. Existing capture test requires discarding post-stop chunks; node-system test proves SIGINT but does not compose capture. This establishes the consumer defect conditional on a recorder tail, not the number of bytes parec buffers on real hardware.",
+      "recommendation": "Represent stop-requested and drained as separate capture states. Deliver buffered bytes through recorder exit, then flush the aggregator and commit transcription, with bounded forced cleanup and hold identity. Replace contradictory isolated expectations with a composed drain-before-commit test.",
+      "refactor_hint": "An audio lifecycle boundary must own both process termination and drain completion; changing only the signal or package name preserves loss.",
+      "effort": "M",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-audio-resource-probe.json",
+        "limits": "Actual frozen source. Capture has a real bounded Node child, not microphone/parec; playback events and fetch response are injected. No hardware/provider/daemon, incident prevalence or independent skeptic review."
+      }
+    },
+    {
+      "id": "nonelixir-web-12",
+      "category": "resource-lifecycle",
+      "severity": "P3",
+      "title": "Unused playback adapter can hang on sink failure and conceal exit errors",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/audio/node-playback.ts",
+          "lines": "84-116"
+        },
+        {
+          "path": "packages/streamdeck/src/audio/playback.ts",
+          "lines": "30-39"
+        },
+        {
+          "path": "packages/streamdeck/test/audio/node-playback.test.ts",
+          "lines": "144-182"
+        }
+      ],
+      "description": "A write that returns false waits only for drain. A subsequent stdin error or process exit marks the sink dead but never settles the pending write, so playEncodedAudio cannot reach its finally/close. Separately close resolves even for nonzero exit. No production caller was found for these helpers in the frozen repository, so this is a latent library defect rather than an observed device outage.",
+      "evidence": "Injected sink returns false, then emits error and exit(1). After the event loop drains, playback remains pending and close has not run; only a synthetic drain unblocks it. A separate exit(9) closes successfully. Tests cover drain, exit and stdin failure individually, but not failure during backpressure; the real-child test does not await its write.",
+      "recommendation": "Before wiring this code into a product, reject pending writes on terminal failure and report failed exits. Decide whether the unused playback/TTS code belongs in the package at all before investing in its API.",
+      "refactor_hint": "Do not infer adoption or extract a new package merely because unused adapters have tests.",
+      "effort": "M",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-audio-resource-probe.json",
+        "limits": "Actual frozen source. Capture has a real bounded Node child, not microphone/parec; playback events and fetch response are injected. No hardware/provider/daemon, incident prevalence or independent skeptic review."
+      }
+    },
+    {
+      "id": "nonelixir-web-13",
+      "category": "resource-lifecycle",
+      "severity": "P3",
+      "title": "Unused fetch adapter does not cancel a body when streaming stops",
+      "locations": [
+        {
+          "path": "packages/streamdeck/src/audio/node-fetch.ts",
+          "lines": "19-35"
+        },
+        {
+          "path": "packages/streamdeck/src/audio/tts.ts",
+          "lines": "30-31"
+        },
+        {
+          "path": "packages/streamdeck/src/audio/playback.ts",
+          "lines": "23-27"
+        }
+      ],
+      "description": "Breaking the fetch adapter async iterator releases its reader lock without cancelling the body. The TTS contract promises cancellation when the iterator is abandoned, and playback documentation claims that ceasing to await its Promise guarantees release; neither is an implemented cancellation protocol. These helpers have no production callers in the frozen source, so no live provider or cost impact is claimed.",
+      "evidence": "Using an actual local ReadableStream and synthetic fetch, the probe breaks after one chunk: cancel is never called, the body is unlocked, and more bytes remain enqueueable/readable. It explicitly cancels the body during probe cleanup. This proves missing body cancellation, not whether a remote provider stops billing on HTTP cancellation.",
+      "recommendation": "Use explicit abort/cancel ownership, cancel the response body when iteration ends early, and document the difference between breaking iteration and abandoning an awaited Promise. Test cancellation while reading and while writing if these helpers are retained.",
+      "refactor_hint": "A stream return value is not by itself a resource ownership contract.",
+      "effort": "M",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "streamdeck-audio-resource-probe.json",
+        "limits": "Actual frozen source. Capture has a real bounded Node child, not microphone/parec; playback events and fetch response are injected. No hardware/provider/daemon, incident prevalence or independent skeptic review."
+      }
     }
   ],
   "unpromoted_observations": [
@@ -805,11 +983,19 @@
     },
     {
       "topic": "Recorder tail on requested stop",
-      "disposition": "capture.stop marks stopped before node-system sends SIGINT; later stdout is ignored although the adapter comment says SIGINT flushes the recorder tail. Needs composed process-drain reproduction before promotion."
+      "disposition": "Promoted to finding 11 after composed real-child drain reproduction; hardware prevalence remains unmeasured."
     },
     {
       "topic": "Playback backpressure and fetch cancellation",
-      "disposition": "node-playback waits only for drain after write returns false; exit/error may not settle that wait. node-fetch releases reader lock without cancelling stream. Review full tests and production callers before claiming user-facing hangs or cancellation leaks."
+      "disposition": "Promoted as latent P3 findings 12 and 13. Full tests read; no production caller or public-barrel export found, so no live device or quota impact claimed."
+    },
+    {
+      "topic": "Audio extraction scope",
+      "disposition": "audio/index.ts describes the whole directory as provider-free and self-contained, but the unused elevenlabs-tts.ts accepts a credential and imports ../aiur-speech.js. The actual barrel omits TTS/playback. Carry this distinction into package planning: the active barrel is narrower than the directory. This is not evidence of a runtime credential leak."
+    },
+    {
+      "topic": "PCM chunk alignment",
+      "disposition": "decodePcm16 drops an odd trailing byte without carrying it to the next chunk; raw bytes still reach the transcriber through the aggregator, so potential misalignment affects meters/waveform, not necessarily transcription. Need split-stream composed evidence and production chunk census before broader impact claims."
     }
   ]
 }

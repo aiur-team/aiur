@@ -96,3 +96,27 @@ The capture and channel are injected ports; no hardware, provider or daemon was
 run. No production files changed. Continue with audio tests, playback/cancellation
 candidates, rendering and the remaining controller tests. Raw review coverage
 remains 23/32, and claim coverage remains 50/60; this is still a partial unit.
+
+## Audio resource checkpoint
+
+All audio source and test paths in the partial unit have now been read: 21
+additional complete reads bring coverage to 92/178, leaving 86 paths. The unit
+has thirteen provisional findings (eleven P2 and two P3), still outside raw
+review totals. A real bounded child flushes bytes on SIGINT through the actual
+Node adapter, but capture/session discard the tail before transcription. This
+is separate from finding 09's discarded final transcript after upload.
+
+`node tooling/streamdeck_audio_resource_probe.mjs /path/to/frozen-snapshot`
+reproduces that drain failure, playback's unresolved write after sink failure,
+and the fetch iterator's missing body cancellation. Results are retained in
+`review/in-progress/streamdeck-audio-resource-probe.json`. Playback/TTS symbols
+have no production callers in the frozen repository search and are absent from
+the audio barrel: their two findings are latent P3 defects, with no claimed
+live device or quota impact. The whole directory also includes provider-shaped
+TTS code with an outward import, despite its narrower barrel's extraction claim.
+Resolve that scope before treating the directory as an independent package.
+
+No hardware, provider, daemon or package suite was run; this was source review
+and targeted probe execution. Next review work is rendering, voice-panel host
+wiring, controller tests and remaining scripts/configuration. Overall claim
+coverage stays 50/60 and completed raw review units stay 23/32.
