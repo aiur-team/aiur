@@ -92,6 +92,7 @@
       "loose-3",
       "loose-4",
       "nonelixir-shell",
+      "nonelixir-web",
       "orch-a",
       "orch-b",
       "platform-misc",
@@ -109,18 +110,17 @@
       "dup-by-concept",
       "dup-by-constant",
       "dup-by-name",
-      "nonelixir-web",
       "skills-prompts",
       "tests-1a",
       "tests-1b",
       "tests-4"
     ],
-    "findings": 853,
+    "findings": 869,
     "original_severity_counts": {
       "P0": 14,
       "P1": 167,
-      "P2": 482,
-      "P3": 190
+      "P2": 496,
+      "P3": 192
     },
     "high_priority_verdicts_missing": [
       "agent-backends-cc-01",

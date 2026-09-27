@@ -2,8 +2,8 @@
 
 The code review stopped early on 2026-09-26: first the account session limit was hit, then Claude credits ran out.
 
-- `raw/` holds 23 of 32 review units, one JSON file per unit. Each file lists its findings with severity, locations, evidence and recommendation.
-- Units still incomplete: tests-1a, tests-1b, tests-4, nonelixir-web, skills-prompts, and the four cross-cutting duplication sweeps (by name, by body, by concept, by constant).
+- `raw/` holds 24 of 32 review units, one JSON file per unit. Each file lists its findings with severity, locations, evidence and recommendation.
+- Units still incomplete: tests-1a, tests-1b, tests-4, skills-prompts, and the four cross-cutting duplication sweeps (by name, by body, by concept, by constant).
 - Not verified: no P0/P1 finding has had its skeptic check yet. Treat every severity as the reviewer's own claim.
 - Not written yet: `code-review.md`, `findings.json`, `by-boundary.md`.
 
@@ -208,3 +208,26 @@ dependency to address before extracting a presentation package.
 This was source/test review, not execution of canvas, packaging, diagnostics or
 manual UX tests. All 18 hashes match frozen Git blobs. Overall completion stays
 23/32 review units and 50/60 claims; no production implementation changed.
+
+## Web and Stream Deck unit complete
+
+All 178 manifest files have now been read in full. The authoritative unit is
+`review/raw/nonelixir-web.json`; the former partial JSON points there. Sixteen
+findings (fourteen P2, two P3) bring raw totals to 24/32 units and 869 findings.
+The 181 inherited P0/P1 findings still need skeptic checks; claim coverage is
+unchanged at 50/60. This is unit completion, not research completion.
+
+Finding 16 reproduces a reading-position shift: setLogs captures previousStarts
+after replacing eventStarts, so its attempted rebase retains the old absolute
+index. After an older row disappears, the probe reads next row instead of
+reading target without input. Unchanged-refresh is a positive control. Run
+`node tooling/streamdeck_log_refresh_probe.mjs /path/to/frozen-snapshot`; output
+is in `review/in-progress/streamdeck-log-refresh-probe.json`. Server bounded-tail
+and identity-based refresh code was traced, not executed; no live prevalence
+is claimed.
+
+The demo's duration-bearing provider fixtures explain why it cannot catch the
+real normalized-wire mismatch. Older two-row logs helpers have no repository
+callers beyond their tests, but are publicly re-exported: investigate consumers
+before removal. Unpromoted identity, lifecycle and packaging observations remain
+explicit synthesis questions. No production changes or manual UX claims.
