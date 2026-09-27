@@ -119,6 +119,18 @@ merged source, checkout HEAD, assembled release and running process identity;
 remaining work is the historical episode and build-age surface audit. No live
 launcher or shared release was executed or modified.
 
+## Website review checkpoint
+
+The nonelixir-web continuation has read all 16 website paths in its 178-file
+manifest. Exact coverage, 162 remaining paths, three provisional P2 findings,
+and rejected/unconfirmed candidates are in `review/in-progress/nonelixir-web.json`.
+`tooling/website_review_probe.mjs` reproduces the reduced-motion false pass,
+unbounded readiness request, and clipboard failure handling with isolated
+source probes. Results carry source hashes and explicit limitations. No browser,
+daemon, shared release or production file was changed. Raw unit coverage remains
+23/32 and claim coverage remains 50/60; do not count this partial artifact as a
+finished review unit. Next unit work is the remaining Stream Deck corpus.
+
 ## Completion contract — all still required unless explicitly checked
 
 - [ ] Complete privacy/provenance review of inherited and new public artifacts.

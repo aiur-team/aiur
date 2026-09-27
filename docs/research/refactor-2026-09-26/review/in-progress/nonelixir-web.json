@@ -1,0 +1,345 @@
+{
+  "unit_id": "nonelixir-web",
+  "status": "in-progress",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "planned_files": 178,
+  "files_reviewed": 16,
+  "lines_reviewed_estimate": 2966,
+  "coverage_notes": "All 16 website paths in the inherited unit read in full across the continuation review. No Stream Deck files counted. Supporting targeted reads: website/package.json, index.html copy button, styles.css copy feedback and terminal sizing, and src/test/manual/executor_control_center_docs_fixture.exs initialization and endpoint/quota seams. The fixture was not reviewed in full. Full CE diff-review pipeline was not run; this is a frozen whole-repository unit checkpoint.",
+  "coverage": [
+    {
+      "path": "website/src/dashboard.ts",
+      "status": "read_in_full",
+      "sha256": "7faa14929487ecfe944d930fda251ea3af8820110f5ebb7983f5bbcf70157dc9"
+    },
+    {
+      "path": "website/src/flowField.ts",
+      "status": "read_in_full",
+      "sha256": "c2414db20be1bc4e80e82efd001fd71ed948c7b88d79d05f288c5ccf3e3045d5"
+    },
+    {
+      "path": "website/src/main.ts",
+      "status": "read_in_full",
+      "sha256": "950ebc7101053a27861eb1116c1b0962e8349fc512294b0f4a81d4f916a07148"
+    },
+    {
+      "path": "website/src/simData.ts",
+      "status": "read_in_full",
+      "sha256": "5cb2250e64007ae96adafa89fa5909cff86e7c2edbb37b2627a84d219c79b781"
+    },
+    {
+      "path": "website/src/terminal.ts",
+      "status": "read_in_full",
+      "sha256": "a46a06a7ab669e667f0caf78c39678e8009fcf12f5b38b5cd1c1eda0eb191f88"
+    },
+    {
+      "path": "website/scripts/assert-sim.ts",
+      "status": "read_in_full",
+      "sha256": "c4c3d87eaf9d91c7dbedcff51084df4e8704d3736db17cb1d26f06a7dcd1a6ac"
+    },
+    {
+      "path": "website/scripts/capture-dashboard.mjs",
+      "status": "read_in_full",
+      "sha256": "411df891468bf4491c5de8842f8764cd3953c0ea73b9910350c8e627dfbc05aa"
+    },
+    {
+      "path": "website/scripts/dashboard-capture-safety.mjs",
+      "status": "read_in_full",
+      "sha256": "890930014caaa56bd962b8261f8e6cfc7f0334796a8b2ddc77e677d7cbb79132"
+    },
+    {
+      "path": "website/scripts/gen-golden.ts",
+      "status": "read_in_full",
+      "sha256": "176ef9216560ee95e2652e62360292381baf47e1f698f6c8cb82dd7bed930723"
+    },
+    {
+      "path": "website/scripts/shot.ts",
+      "status": "read_in_full",
+      "sha256": "63c49fe88939a75269dd8f59d8ea005ae26f005d90df47467171dcc055a7beeb"
+    },
+    {
+      "path": "website/tests/brand.spec.ts",
+      "status": "read_in_full",
+      "sha256": "cc182bcc00185e7cb1fb7698e91d90df39d912c0a8b12c71b4f8c78d2315b68b"
+    },
+    {
+      "path": "website/tests/gui-docs.spec.ts",
+      "status": "read_in_full",
+      "sha256": "248689226b10f5cb428bf5554a7fbdd1ba0042834a5f32952eda9f544a0d84ff"
+    },
+    {
+      "path": "website/docs-app/.vitepress/config.ts",
+      "status": "read_in_full",
+      "sha256": "20f96e15e8ed80151540379146a66d0bbb6810982012c136d80ab0f8c185483c"
+    },
+    {
+      "path": "website/docs-app/.vitepress/products.ts",
+      "status": "read_in_full",
+      "sha256": "86809c019ba9e6e14ae7dcf392b16b700586ca407a555e8d6e9b1c95010b108b"
+    },
+    {
+      "path": "website/docs-app/.vitepress/theme/components/ProductSwitcher.vue",
+      "status": "read_in_full",
+      "sha256": "988c6d7978c90e5ced90b6dfbe4de59426872ba79e4db92e61b9c5b60bb38d39"
+    },
+    {
+      "path": "website/docs-app/.vitepress/theme/index.ts",
+      "status": "read_in_full",
+      "sha256": "f686375985143ed2ee1c06913618b2f7c8d22a7cc657abb3aa9166ee21b2d3f7"
+    }
+  ],
+  "remaining_files": [
+    "packages/streamdeck/eslint.config.mjs",
+    "packages/streamdeck/scripts/build-package.mjs",
+    "packages/streamdeck/scripts/probe-input.mjs",
+    "packages/streamdeck/scripts/render-demo.mjs",
+    "packages/streamdeck/scripts/render-modes.mjs",
+    "packages/streamdeck/scripts/render-preview.mjs",
+    "packages/streamdeck/scripts/reset-device.mjs",
+    "packages/streamdeck/scripts/test/build-package.test.mjs",
+    "packages/streamdeck/src/aiur-speech.ts",
+    "packages/streamdeck/src/art/gradient.ts",
+    "packages/streamdeck/src/art/icons.ts",
+    "packages/streamdeck/src/art/segments.ts",
+    "packages/streamdeck/src/art/vendorMark.ts",
+    "packages/streamdeck/src/audio/aggregate.ts",
+    "packages/streamdeck/src/audio/buffer.ts",
+    "packages/streamdeck/src/audio/capture.ts",
+    "packages/streamdeck/src/audio/devices.ts",
+    "packages/streamdeck/src/audio/elevenlabs-tts.ts",
+    "packages/streamdeck/src/audio/index.ts",
+    "packages/streamdeck/src/audio/node-fetch.ts",
+    "packages/streamdeck/src/audio/node-playback.ts",
+    "packages/streamdeck/src/audio/node-preferences.ts",
+    "packages/streamdeck/src/audio/node-system.ts",
+    "packages/streamdeck/src/audio/pcm.ts",
+    "packages/streamdeck/src/audio/playback.ts",
+    "packages/streamdeck/src/audio/preferences.ts",
+    "packages/streamdeck/src/audio/relay.ts",
+    "packages/streamdeck/src/audio/session.ts",
+    "packages/streamdeck/src/audio/stt.ts",
+    "packages/streamdeck/src/audio/system.ts",
+    "packages/streamdeck/src/audio/tts.ts",
+    "packages/streamdeck/src/audio/waveform.ts",
+    "packages/streamdeck/src/backend.ts",
+    "packages/streamdeck/src/channel.ts",
+    "packages/streamdeck/src/commands.ts",
+    "packages/streamdeck/src/controller.ts",
+    "packages/streamdeck/src/debug.ts",
+    "packages/streamdeck/src/demo.ts",
+    "packages/streamdeck/src/device-path.ts",
+    "packages/streamdeck/src/dial.ts",
+    "packages/streamdeck/src/hidraw-backend.ts",
+    "packages/streamdeck/src/imageWriter/headerGenerator.ts",
+    "packages/streamdeck/src/index.ts",
+    "packages/streamdeck/src/input.ts",
+    "packages/streamdeck/src/key-face-contract.ts",
+    "packages/streamdeck/src/keys.ts",
+    "packages/streamdeck/src/keys/keyCache.ts",
+    "packages/streamdeck/src/keys/keyContent.ts",
+    "packages/streamdeck/src/keys/keyFace.ts",
+    "packages/streamdeck/src/keys/keyFill.ts",
+    "packages/streamdeck/src/keys/keyImage.ts",
+    "packages/streamdeck/src/keys/keyLatency.ts",
+    "packages/streamdeck/src/keys/keyRenderer.ts",
+    "packages/streamdeck/src/keys/keyWriter.ts",
+    "packages/streamdeck/src/keys/quality.ts",
+    "packages/streamdeck/src/keys/writeQueue.ts",
+    "packages/streamdeck/src/lifecycle.ts",
+    "packages/streamdeck/src/line-source.ts",
+    "packages/streamdeck/src/lock.ts",
+    "packages/streamdeck/src/logs.ts",
+    "packages/streamdeck/src/main.ts",
+    "packages/streamdeck/src/mode.ts",
+    "packages/streamdeck/src/rasterizer.ts",
+    "packages/streamdeck/src/read.ts",
+    "packages/streamdeck/src/report.ts",
+    "packages/streamdeck/src/runtime.ts",
+    "packages/streamdeck/src/settings.ts",
+    "packages/streamdeck/src/sleep-source.ts",
+    "packages/streamdeck/src/surface.ts",
+    "packages/streamdeck/src/touchStrip/agentDetail.ts",
+    "packages/streamdeck/src/touchStrip/chatLog.ts",
+    "packages/streamdeck/src/touchStrip/geometry.ts",
+    "packages/streamdeck/src/touchStrip/pagerSegment.ts",
+    "packages/streamdeck/src/touchStrip/panelCache.ts",
+    "packages/streamdeck/src/touchStrip/providerPanel.ts",
+    "packages/streamdeck/src/touchStrip/providerSegment.ts",
+    "packages/streamdeck/src/touchStrip/regionLatency.ts",
+    "packages/streamdeck/src/touchStrip/stripLayout.ts",
+    "packages/streamdeck/src/touchStrip/stripRenderer.ts",
+    "packages/streamdeck/src/touchStrip/summarySegment.ts",
+    "packages/streamdeck/src/touchStrip/typewriter.ts",
+    "packages/streamdeck/src/udev-source.ts",
+    "packages/streamdeck/src/usb-backend.ts",
+    "packages/streamdeck/src/voiceHost.ts",
+    "packages/streamdeck/src/voicePanel.ts",
+    "packages/streamdeck/test/aiur-speech.test.ts",
+    "packages/streamdeck/test/art/gradient.test.ts",
+    "packages/streamdeck/test/art/icons.test.ts",
+    "packages/streamdeck/test/art/segments.test.ts",
+    "packages/streamdeck/test/art/vendorMark.test.ts",
+    "packages/streamdeck/test/audio/aggregate.test.ts",
+    "packages/streamdeck/test/audio/buffer.test.ts",
+    "packages/streamdeck/test/audio/capture.test.ts",
+    "packages/streamdeck/test/audio/devices.test.ts",
+    "packages/streamdeck/test/audio/elevenlabs-tts.test.ts",
+    "packages/streamdeck/test/audio/index.test.ts",
+    "packages/streamdeck/test/audio/node-fetch.test.ts",
+    "packages/streamdeck/test/audio/node-playback.test.ts",
+    "packages/streamdeck/test/audio/node-preferences.test.ts",
+    "packages/streamdeck/test/audio/node-system.test.ts",
+    "packages/streamdeck/test/audio/pcm.test.ts",
+    "packages/streamdeck/test/audio/playback.test.ts",
+    "packages/streamdeck/test/audio/preferences.test.ts",
+    "packages/streamdeck/test/audio/relay.test.ts",
+    "packages/streamdeck/test/audio/session.test.ts",
+    "packages/streamdeck/test/audio/stt.test.ts",
+    "packages/streamdeck/test/audio/tts.test.ts",
+    "packages/streamdeck/test/audio/waveform.test.ts",
+    "packages/streamdeck/test/channel.test.ts",
+    "packages/streamdeck/test/commands.test.ts",
+    "packages/streamdeck/test/controller.test.ts",
+    "packages/streamdeck/test/debug.test.ts",
+    "packages/streamdeck/test/demo.test.ts",
+    "packages/streamdeck/test/device-path.test.ts",
+    "packages/streamdeck/test/dial.test.ts",
+    "packages/streamdeck/test/hidraw-backend.test.ts",
+    "packages/streamdeck/test/imageWriter/headerGenerator.test.ts",
+    "packages/streamdeck/test/index.test.ts",
+    "packages/streamdeck/test/input.test.ts",
+    "packages/streamdeck/test/key-face-contract.test.ts",
+    "packages/streamdeck/test/keys.test.ts",
+    "packages/streamdeck/test/keys/descriptorFixtures.ts",
+    "packages/streamdeck/test/keys/keyCache.test.ts",
+    "packages/streamdeck/test/keys/keyContent.test.ts",
+    "packages/streamdeck/test/keys/keyFace.test.ts",
+    "packages/streamdeck/test/keys/keyFill.test.ts",
+    "packages/streamdeck/test/keys/keyImage.test.ts",
+    "packages/streamdeck/test/keys/keyLatency.test.ts",
+    "packages/streamdeck/test/keys/keyRenderer.test.ts",
+    "packages/streamdeck/test/keys/keyWriter.test.ts",
+    "packages/streamdeck/test/keys/quality.test.ts",
+    "packages/streamdeck/test/keys/writeQueue.test.ts",
+    "packages/streamdeck/test/lifecycle.test.ts",
+    "packages/streamdeck/test/line-source.test.ts",
+    "packages/streamdeck/test/lock.test.ts",
+    "packages/streamdeck/test/logs.test.ts",
+    "packages/streamdeck/test/mode.test.ts",
+    "packages/streamdeck/test/rasterizer.test.ts",
+    "packages/streamdeck/test/read.test.ts",
+    "packages/streamdeck/test/report.test.ts",
+    "packages/streamdeck/test/runtime.test.ts",
+    "packages/streamdeck/test/settings.test.ts",
+    "packages/streamdeck/test/sleep-source.test.ts",
+    "packages/streamdeck/test/support/deckReports.ts",
+    "packages/streamdeck/test/surface.test.ts",
+    "packages/streamdeck/test/touchStrip/agentDetail.test.ts",
+    "packages/streamdeck/test/touchStrip/chatLog.test.ts",
+    "packages/streamdeck/test/touchStrip/geometry.test.ts",
+    "packages/streamdeck/test/touchStrip/pagerSegment.test.ts",
+    "packages/streamdeck/test/touchStrip/panelCache.test.ts",
+    "packages/streamdeck/test/touchStrip/providerPanel.test.ts",
+    "packages/streamdeck/test/touchStrip/providerSegment.test.ts",
+    "packages/streamdeck/test/touchStrip/regionLatency.test.ts",
+    "packages/streamdeck/test/touchStrip/stripLayout.test.ts",
+    "packages/streamdeck/test/touchStrip/stripRenderer.test.ts",
+    "packages/streamdeck/test/touchStrip/summarySegment.test.ts",
+    "packages/streamdeck/test/touchStrip/typewriter.test.ts",
+    "packages/streamdeck/test/udev-source.test.ts",
+    "packages/streamdeck/test/usb-backend.test.ts",
+    "packages/streamdeck/test/voiceHost.test.ts",
+    "packages/streamdeck/test/voicePanel.test.ts",
+    "packages/streamdeck/vitest.config.ts"
+  ],
+  "findings": [
+    {
+      "id": "nonelixir-web-01",
+      "category": "test-coverage",
+      "severity": "P2",
+      "title": "Reduced-motion assertion cannot detect a broken production freeze offset",
+      "locations": [
+        {
+          "path": "website/scripts/assert-sim.ts",
+          "lines": "16-18,114-120"
+        },
+        {
+          "path": "website/src/dashboard.ts",
+          "lines": "598-604"
+        }
+      ],
+      "description": "Check 6 validates the local literal 22 against BEAT instead of exercising startDashboard. Changing only the production freeze offset from 22 seconds to zero removes the posted user text from the reduced-motion frame, while every assertion in assert-sim still passes and prints the same output. This is a confirmed coverage hole, not evidence that the frozen baseline currently renders the wrong frame.",
+      "evidence": "website-review-probe.json: both suite exits are zero; baseline generated HTML has the posted user message, the freeze-at-zero mutation does not. The browser brand tests do not exercise reduced-motion rendering.",
+      "recommendation": "Exercise startDashboard with reduced-motion enabled and assert the posted user message and agent reply in its rendered output. Exporting a shared offset can remove the duplicate literal but does not alone verify rendering.",
+      "refactor_hint": "Keep the marketing simulation independent of the live runtime. Its own renderer should own timing; its tests should observe output rather than restate timing constants.",
+      "effort": "S",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "website-review-probe.json",
+        "limits": "No live browser or Aiur run; minimal DOM/API doubles and fake clock. No independent skeptic review yet."
+      }
+    },
+    {
+      "id": "nonelixir-web-02",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Capture readiness deadline does not bound an in-flight HTTP request",
+      "locations": [
+        {
+          "path": "website/scripts/capture-dashboard.mjs",
+          "lines": "170-198"
+        }
+      ],
+      "description": "The 30-second deadline is checked only before fetch. Neither fetch nor response.text receives a cancellation signal, so a stalled response prevents reaching the deadline check and the finally cleanup until that operation settles or its underlying transport fails. A successful response arriving after the deadline is accepted. The application-level deadline therefore does not enforce its advertised bound.",
+      "evidence": "An extracted, unmodified waitUntilReady with a fake clock remains pending at 31 seconds while fetch is unresolved; the fetch options contain no signal. Resolving the response with the fixture markers after that deadline returns success. This is a source-level controlled probe, not a measured production hang.",
+      "recommendation": "Apply an abort signal using the remaining deadline to the request and body read, and recheck the deadline before accepting readiness. Cover a connected response that never finishes, not only connection refusal.",
+      "refactor_hint": "Screenshot tooling owns fixture readiness and teardown. Keep those lifecycle obligations in its small harness instead of adding them to the production daemon.",
+      "effort": "S",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "website-review-probe.json",
+        "limits": "No live browser or Aiur run; minimal DOM/API doubles and fake clock. No independent skeptic review yet."
+      }
+    },
+    {
+      "id": "nonelixir-web-03",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Copy control advances before confirming clipboard success",
+      "locations": [
+        {
+          "path": "website/src/main.ts",
+          "lines": "81-116"
+        },
+        {
+          "path": "website/src/styles.css",
+          "lines": "372"
+        }
+      ],
+      "description": "The click handler discards copyText's promise, applies the copied class immediately, and expands shell next steps. When the modern clipboard rejects and execCommand returns false, copyText nevertheless resolves. The user can be directed to continue with an unchanged clipboard. The frozen CSS makes copied an accent state; this finding does not claim the button displays a literal success message.",
+      "evidence": "The extracted copyText function resolves with a rejected writeText and a false execCommand result; the fallback is called once. The actual click handler uses void copyText(command) before the copied class and show-next updates.",
+      "recommendation": "Return an explicit copy outcome, check execCommand's boolean, await completion in the click handler, and apply completion feedback only after success. Offer selectable command text on failure.",
+      "refactor_hint": "A local browser interaction fix; this does not justify a shared daemon clipboard service or a new package.",
+      "effort": "S",
+      "verification": {
+        "status": "reproduced_with_isolated_source_probe",
+        "evidence_file": "website-review-probe.json",
+        "limits": "No live browser or Aiur run; minimal DOM/API doubles and fake clock. No independent skeptic review yet."
+      }
+    }
+  ],
+  "unpromoted_observations": [
+    {
+      "topic": "Capture credential inheritance",
+      "disposition": "Not established as a privacy leak. Some ambient credential names are not stripped, but fixture initialization installs synthetic readers, avoids live provider-meter startup, and disables GitHub quota refresh. A retained environment name alone is insufficient evidence of real data reaching screenshots."
+    },
+    {
+      "topic": "Capture child cleanup",
+      "disposition": "No demonstrated teardown failure. Need actual child/process behavior before promoting the unbounded exit wait to a finding."
+    },
+    {
+      "topic": "Narrow landscape simulation",
+      "disposition": "Potential geometry mismatch: side-by-side uses aspect ratio and a minimum 44-column pane beside a 30-column dashboard. Needs browser reachability/layout evidence before claiming clipping."
+    }
+  ]
+}
