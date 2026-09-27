@@ -730,3 +730,7 @@ Read five complete pulse/promotion markdown files; coverage 204/250 files, 31,29
 ### Skills/prompts: publication and PR-feedback boundaries
 
 Read six complete markdown files; coverage 210/250 files, 32,180/36,169 lines. Added provisional P2 findings for unchecked Proof pull replacement and unsupported pre-existing-test classification. Extracted shell-command probe: structured error overwrites with null, empty response empties target, valid response preserves trailing newlines, malformed JSON preserves original. Added retry/privacy and escalation-contract questions; extended checkout provenance candidate. All 210 hashes/line counts verified. No external service call, credential access, PR mutation, subagent or production change. Raw units remain28/32; next recording-analysis skills.
+
+### Skills/prompts: recording evidence and behavior preservation
+
+Read thirteen complete recording/setup/simplification/strategy markdown files; coverage 223/250 files, 33,081/36,169 lines. Preserve observed/inferred distinction, unknown source mapping, exact behavioral equivalence, trust-boundary checks and strategy/execution separation. Added recording local-retention versus remote-processing candidate after targeted analyzer read; extended diff-baseline question. No new finding promoted. All 223 hashes/line counts verified. No media processing, API request, setup/config change, reviewer dispatch or production edit. Raw units remain28/32; next ce-sweep.

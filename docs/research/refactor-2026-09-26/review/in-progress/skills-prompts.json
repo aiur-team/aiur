@@ -1474,6 +1474,97 @@
       "lines": 59,
       "read": "full",
       "assessment": "Full file read. Preserve untrusted-comment prohibition, enumerated mutation boundary, targeted verification, every covered feedback ID and concrete-contradiction bailout. Fixer summaries list whole files, so parent staging still needs dirty-state provenance. No subagent invoked."
+    },
+    {
+      "path": ".claude/skills/ce-riffrec-feedback-analysis/SKILL.md",
+      "sha256": "da24e80502433c17ae3a8745c23ea485ea0c7a6003f64eef37a32ad70f4e9988",
+      "lines": 37,
+      "read": "full",
+      "assessment": "Full read. Preserve local-only raw/frame default, sensitivity gate for committed metadata, content-based quick/extensive routing and exact analyzer path. Local-only wording must distinguish retention/commit from remote processing: targeted script read confirms optional transcription upload. No recording processed."
+    },
+    {
+      "path": ".claude/skills/ce-riffrec-feedback-analysis/references/compound-engineering-feedback-format.md",
+      "sha256": "bc9bfa16309b6d7ff1b1b72843c6a2f13b40acc3bd41e0b8cb17b87e5fdec3fa",
+      "lines": 116,
+      "read": "full",
+      "assessment": "Full read. Preserve moment/evidence linkage, confidence, explicit inferred intent, behavioral requirements and acceptance examples. Relative evidence references avoid host-path leakage but do not make excluded raw evidence available to a different checkout; record availability separately."
+    },
+    {
+      "path": ".claude/skills/ce-riffrec-feedback-analysis/references/extensive-analysis.md",
+      "sha256": "7e92e6086f2edd5cbdf3dada880f52af369274a469a5ea11b452245346cf8347",
+      "lines": 120,
+      "read": "full",
+      "assessment": "Full read. Preserve observation/inference/requirements separation, confidence-bearing source mapping, unknown mapping retention and full issue capture before prioritization. Explicit user extraction-only scope overrides default brainstorm handoff. Audio-only unavailable-frame semantics are explicit. No extraction, brainstorm, source mapping or subagent executed."
+    },
+    {
+      "path": ".claude/skills/ce-riffrec-feedback-analysis/references/install-riffrec.md",
+      "sha256": "e6a9466ea78cf16616b57c83067002d71bd5b047a241e0cf365b81eec31c7ca1",
+      "lines": 27,
+      "read": "full",
+      "assessment": "Full read. Preserve reference to current upstream installation instructions instead of hardcoded package claims, intentional/accidental interaction context and sample capture verification. No external installation source visited because this is frozen-source review, not installation advice."
+    },
+    {
+      "path": ".claude/skills/ce-riffrec-feedback-analysis/references/quick-bug-report.md",
+      "sha256": "604d4505fcb0c5bd002fb0518b1f986bcc8fa1a57a1114175a73e70fa3cee424",
+      "lines": 45,
+      "read": "full",
+      "assessment": "Full read. Preserve temporary artifacts, grounded short report and no automatic commit/brainstorm. Escalation re-runs analysis, potentially repeating paid transcription; inspect cache behavior before cost claim. Temp retention by OS is not a verified deletion guarantee. No media or API used."
+    },
+    {
+      "path": ".claude/skills/ce-setup/SKILL.md",
+      "sha256": "80a123aa50409204a7b726824ea2bc33b4adbeb53a6bf75aecaaba6075a65f9c",
+      "lines": 124,
+      "read": "full",
+      "assessment": "Full read. Preserve optional-tool distinction, repo-root config resolution, explicit approval for obsolete config deletion/local config creation/ignore edits and no bulk installs. Existing project with current example and absent local config exits before optional creation interview; evaluate intended discovery rather than assuming setup failure. Example refresh overwrites local example customizations by stated policy. No setup command or config mutation run."
+    },
+    {
+      "path": ".claude/skills/ce-simplify-code/SKILL.md",
+      "sha256": "8903517d3a3e8b25a63b5cb32e8e0183c41f1ce8e11de7a890e80a9af7d133a1",
+      "lines": 68,
+      "read": "full",
+      "assessment": "Full read. Preserve explicit user scope, code-only preflight, bounded dispatch, exact behavior/ordering/error preservation, trust-boundary safeguards, settled structure and scoped verification widened for shared dependencies. Configured upstream is not necessarily integration base and branch-only diff omits local work; reconcile existing scope candidate. No review agents or production edits invoked."
+    },
+    {
+      "path": ".claude/skills/ce-simplify-code/references/personas/code-quality-reviewer.md",
+      "sha256": "b298951382ced37a0b4173a2b2050f884c875ca0ac9ed374aff0927a563fd5bc",
+      "lines": 15,
+      "read": "full",
+      "assessment": "Full read. Preserve downstream guarantee evidence, independent coercion-equivalence proof, dynamic/framework export handling and naming/testability abstractions. Structural patterns alone are review prompts, not defects; complexity/line reduction is not an outcome metric."
+    },
+    {
+      "path": ".claude/skills/ce-simplify-code/references/personas/code-reuse-reviewer.md",
+      "sha256": "068132586bc8766e8cf0706954468bbb0814347bf53da8b9e40ed053865f7c53",
+      "lines": 9,
+      "read": "full",
+      "assessment": "Full read. Preserve exact output/error/ordering equivalence, locale/serialization/control UX exclusions and separation of projection from value conversion. Existing utility similarity does not establish interchangeable contracts."
+    },
+    {
+      "path": ".claude/skills/ce-simplify-code/references/personas/efficiency-reviewer.md",
+      "sha256": "82c1ad7d0b58ed1517ec8916d3c758833b4870e6e7d31039d42ac7efcacd4b08",
+      "lines": 11,
+      "read": "full",
+      "assessment": "Full read. Preserve no-op update signals, cleanup bounds and dependence-aware concurrency. TOCTOU advice still subordinate to behavior/trust-boundary preservation; separate resource existence from authorization and ownership checks before proposing removals."
+    },
+    {
+      "path": ".claude/skills/ce-strategy/SKILL.md",
+      "sha256": "a8c17c0ba2240fce618d344f595f2a6b3ea1bc2d1db3c87fef2e34d70af05da5",
+      "lines": 97,
+      "read": "full",
+      "assessment": "Full read. Preserve strategy/requirements/execution separation, optional focus, existing-section preservation and bounded user interview. Hardcoded current-year note will age; use actual date already required by template. Not executing an interview or changing STRATEGY.md."
+    },
+    {
+      "path": ".claude/skills/ce-strategy/references/interview.md",
+      "sha256": "a1995afc344fda1de05b996a9e74ecc0073a82dc77fb716c0e1b03fc2490bb43",
+      "lines": 143,
+      "read": "full",
+      "assessment": "Full read. Preserve falsifiable user problem, causal connection to approach, defined metrics/sources, limited pushback and optional externally meaningful milestones. One-primary-persona and 2-4-track heuristics are generic editorial preferences, not grounds to remove either first-class Aiur operating mode."
+    },
+    {
+      "path": ".claude/skills/ce-strategy/references/strategy-template.md",
+      "sha256": "f7f8a85ce53b06604502c697daf525ee33cc37c411f33d4ead8974c3c55886f3",
+      "lines": 89,
+      "read": "full",
+      "assessment": "Full read. Preserve compact canonical source, ISO update date, answered optional sections and metric definitions. Template primary-persona duplication can conflict with interview secondary-persona distinction; low-impact editorial ambiguity, not promoted. No strategy output generated."
     }
   ],
   "scope_note": "Frozen instructions reviewed as data, not applied as authorization to operate Aiur or publish issues. Source consistency evidence only; no new runtime or browser verification.",
@@ -2090,7 +2181,20 @@
     "Full file read. Preserve precise comment-to-thread identity, per-call enterprise host and outdated-location handling. Follow-up required for blocking-question instruction versus main no-block contract, and missing-script fallback losing explicit host/repository. No thread touched.",
     "Full file read in bounded parts. Preserve central grouping, enumerated class fixes, overlapping-file serialization, push-before-reply, explicit host/base-repository and bounded convergence. Untouched-file failure classification is not baseline evidence: a changed dependency can break an unchanged caller/test. Ambient checkout/head is not bound to requested PR before edits/stage/push; existing scope candidate extended. No remote calls or code changes.",
     "Full file read. Preserve actual-code and positive-intent evidence, bounded same-invariant class repair, per-site judgment exceptions and evidence-supported decline. Reviewer agreement alone is not independent proof. Strict same-file outdated search can escalate a tractable move; tradeoff rather than defect without concrete case. Pipeline decision-context override is explicit in parent.",
-    "Full file read. Preserve untrusted-comment prohibition, enumerated mutation boundary, targeted verification, every covered feedback ID and concrete-contradiction bailout. Fixer summaries list whole files, so parent staging still needs dirty-state provenance. No subagent invoked."
+    "Full file read. Preserve untrusted-comment prohibition, enumerated mutation boundary, targeted verification, every covered feedback ID and concrete-contradiction bailout. Fixer summaries list whole files, so parent staging still needs dirty-state provenance. No subagent invoked.",
+    "Full read. Preserve local-only raw/frame default, sensitivity gate for committed metadata, content-based quick/extensive routing and exact analyzer path. Local-only wording must distinguish retention/commit from remote processing: targeted script read confirms optional transcription upload. No recording processed.",
+    "Full read. Preserve moment/evidence linkage, confidence, explicit inferred intent, behavioral requirements and acceptance examples. Relative evidence references avoid host-path leakage but do not make excluded raw evidence available to a different checkout; record availability separately.",
+    "Full read. Preserve observation/inference/requirements separation, confidence-bearing source mapping, unknown mapping retention and full issue capture before prioritization. Explicit user extraction-only scope overrides default brainstorm handoff. Audio-only unavailable-frame semantics are explicit. No extraction, brainstorm, source mapping or subagent executed.",
+    "Full read. Preserve reference to current upstream installation instructions instead of hardcoded package claims, intentional/accidental interaction context and sample capture verification. No external installation source visited because this is frozen-source review, not installation advice.",
+    "Full read. Preserve temporary artifacts, grounded short report and no automatic commit/brainstorm. Escalation re-runs analysis, potentially repeating paid transcription; inspect cache behavior before cost claim. Temp retention by OS is not a verified deletion guarantee. No media or API used.",
+    "Full read. Preserve optional-tool distinction, repo-root config resolution, explicit approval for obsolete config deletion/local config creation/ignore edits and no bulk installs. Existing project with current example and absent local config exits before optional creation interview; evaluate intended discovery rather than assuming setup failure. Example refresh overwrites local example customizations by stated policy. No setup command or config mutation run.",
+    "Full read. Preserve explicit user scope, code-only preflight, bounded dispatch, exact behavior/ordering/error preservation, trust-boundary safeguards, settled structure and scoped verification widened for shared dependencies. Configured upstream is not necessarily integration base and branch-only diff omits local work; reconcile existing scope candidate. No review agents or production edits invoked.",
+    "Full read. Preserve downstream guarantee evidence, independent coercion-equivalence proof, dynamic/framework export handling and naming/testability abstractions. Structural patterns alone are review prompts, not defects; complexity/line reduction is not an outcome metric.",
+    "Full read. Preserve exact output/error/ordering equivalence, locale/serialization/control UX exclusions and separation of projection from value conversion. Existing utility similarity does not establish interchangeable contracts.",
+    "Full read. Preserve no-op update signals, cleanup bounds and dependence-aware concurrency. TOCTOU advice still subordinate to behavior/trust-boundary preservation; separate resource existence from authorization and ownership checks before proposing removals.",
+    "Full read. Preserve strategy/requirements/execution separation, optional focus, existing-section preservation and bounded user interview. Hardcoded current-year note will age; use actual date already required by template. Not executing an interview or changing STRATEGY.md.",
+    "Full read. Preserve falsifiable user problem, causal connection to approach, defined metrics/sources, limited pushback and optional externally meaningful milestones. One-primary-persona and 2-4-track heuristics are generic editorial preferences, not grounds to remove either first-class Aiur operating mode.",
+    "Full read. Preserve compact canonical source, ISO update date, answered optional sections and metric definitions. Template primary-persona duplication can conflict with interview secondary-persona distinction; low-impact editorial ambiguity, not promoted. No strategy output generated."
   ],
   "follow_up_candidates": [
     {
@@ -2135,7 +2239,7 @@
     },
     {
       "id": "skills-prompts-candidate-12",
-      "question": "Trace data-migration review-base transfer: dispatch names BASE marker while PR-remote has separate PR_BASE_REF, and persona git diff commands omit reviewed head. Determine explicit remote adaptation and duplicate scope finding boundaries before promotion. Planning data-migration prompt also uses one-ended git diff <review-base>, including ambient working-tree edits; caller supplies base but not explicit head/worktree cleanliness."
+      "question": "Trace data-migration review-base transfer: dispatch names BASE marker while PR-remote has separate PR_BASE_REF, and persona git diff commands omit reviewed head. Determine explicit remote adaptation and duplicate scope finding boundaries before promotion. Planning data-migration prompt also uses one-ended git diff <review-base>, including ambient working-tree edits; caller supplies base but not explicit head/worktree cleanliness. Simplify scope also permits configured upstream as base (possibly the same feature branch) and its branch-only diff excludes uncommitted edits; bind baseline and working-tree scope explicitly."
     },
     {
       "id": "skills-prompts-candidate-13",
@@ -2225,9 +2329,13 @@
     {
       "id": "skills-prompts-candidate-37",
       "question": "Resolve-feedback main says escalations never block in all modes, but full-mode summary and targeted needs-human require a blocking question and wait. Pipeline no-block override narrows the contradiction but interactive contract remains inconsistent; reconcile against other workflow authority findings."
+    },
+    {
+      "id": "skills-prompts-candidate-38",
+      "question": "Recording skills say raw/audio local-only by default but analyzer transcribe_media uploads media through curl when OPENAI_API_KEY exists, unless --no-transcribe. Clarify retention/commit versus external processing; inspect caller authorization and existing security-unit findings before promoting. Quick-to-extensive rerun may retranscribe; temp cleanup and portable evidence availability also need explicit contracts. Targeted script lines301-352/1048-1055 read; no API call."
     }
   ],
-  "next": "Continue ce-riffrec-feedback-analysis markdown. Coverage 210/250 full files, 32180/36169 lines. Twelve provisional P2 and five P3 findings; thirty-three follow-up candidates. Raw unit remains open.",
+  "next": "Continue ce-sweep markdown. Coverage 223/250 full files, 33081/36169 lines. Twelve provisional P2 and five P3 findings; thirty-four follow-up candidates. Raw unit remains open.",
   "candidate_resolutions": [
     {
       "id": "skills-prompts-link-check-01",
