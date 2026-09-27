@@ -1835,3 +1835,7 @@ Read settings, stale?, stop, stringify_keys and summary: 38 literal entries acro
 ### Name duplication: admission and shared delegation
 
 Read toggle, transport, valid?, acquire, adjust_max_concurrent_agents and admit: 35 literal entries across six families. Identify equivalent set toggles and existing transport/capacity delegation while preserving validation scope, resource ownership and admission failure policies. Name triage now 277 families/5216 entries, leaving 1403 cross-module names. Raw findings and skeptic counts are unchanged; no runtime control completion, exclusivity or saving is claimed.
+
+### Name duplication: cursor and result evidence
+
+Read advance_cursor, agent_kind, announce, answer, api_key and apply_result: 38 literal entries across six families. Preserve cursor durability, backend authority, publication evidence, answer projections, credential absence policy and retained-result authorization. Two source-result wrappers are identical without proving their delegated semantics equivalent. Name triage now 283 families/5254 entries, leaving 1397 cross-module names. Raw findings and skeptic counts are unchanged; no confirmed delivery, runtime defect or saving is claimed.

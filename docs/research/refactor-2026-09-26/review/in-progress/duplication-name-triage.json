@@ -66968,10 +66968,559 @@
           "has_body": true
         }
       ]
+    },
+    {
+      "name": "advance_cursor",
+      "assessment": "Cursor advancement separates pagination-cycle checks from durable consumption positions.",
+      "constraints": [
+        "GitHubGraph.Pager requires a nonempty cursor and rejects previously seen cursors as pagination_mismatch; success updates cursor and seen set without discarding accumulated state.",
+        "SubscriptionStore forwards integer cursor updates to its owner. ExecutorEvents persists the maximum of current and incoming event id, ignoring nonintegers.",
+        "ExecutorWakeInbox takes the maximum of current cursor and record wake ids, writes JSON before updating in-memory state and pattern-matches :ok. Preserve cursor domain, monotonicity and persistence ordering; these methods alone do not prove event processing completed before advancement."
+      ],
+      "clauses": 6,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 108,
+          "module": "Aiur.BuildOrder.GitHubGraph.Pager",
+          "name": "advance_cursor",
+          "path": "src/lib/aiur/build_order/github_graph/pager.ex",
+          "kind": "defp",
+          "end_line": 114,
+          "body_sha256": "ff2b7b6c674ddc1d13f3e742ec63fb0cf386f8ca3e31f82f1c28021b9e36c651",
+          "normalized_body_lines": 12,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 116,
+          "module": "Aiur.BuildOrder.GitHubGraph.Pager",
+          "name": "advance_cursor",
+          "path": "src/lib/aiur/build_order/github_graph/pager.ex",
+          "kind": "defp",
+          "end_line": 116,
+          "body_sha256": "5734fc5f92573527312d3cb6afd76122528ad542e49b8a77ec6e5961fabe3d1f",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 184,
+          "module": "Aiur.Events.SubscriptionStore",
+          "name": "advance_cursor",
+          "path": "src/lib/aiur/events/subscription_store.ex",
+          "kind": "def",
+          "end_line": 187,
+          "body_sha256": "2b2c3deb0c1244782eaea3b1355b742dfbf6761ef90ec726a44fb2fb6e3fb9c3",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 246,
+          "module": "Aiur.ExecutorEvents",
+          "name": "advance_cursor",
+          "path": "src/lib/aiur/executor_events.ex",
+          "kind": "defp",
+          "end_line": 250,
+          "body_sha256": "f91106a6de667ebf186b2178264f5b6ce16cad25e7d1b8beca5bcf3bd55f140b",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 252,
+          "module": "Aiur.ExecutorEvents",
+          "name": "advance_cursor",
+          "path": "src/lib/aiur/executor_events.ex",
+          "kind": "defp",
+          "end_line": 252,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 469,
+          "module": "Aiur.ExecutorWakeInbox",
+          "name": "advance_cursor",
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "kind": "defp",
+          "end_line": 473,
+          "body_sha256": "a9b1919b4e6017578567fcbb51cffccd2b9ddc2f83b40742133c51ebcc317ea5",
+          "normalized_body_lines": 10,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "agent_kind",
+      "assessment": "Agent-kind access already centers on Config with surface-specific unavailable behavior.",
+      "constraints": [
+        "Config prefers the first priority backend, otherwise configured kind or the CodingAgent default. RenderState wraps this access with safe_call and accepts only nonempty binaries, otherwise nil.",
+        "BuildOrder.Runtime delegates configured_kind with an agent-unavailable fallback; DashboardLive directly stringifies Config.agent_kind.",
+        "Do not merge display fallback into backend selection. These wrappers are an existing authority boundary, not independent routing algorithms; transitive exception and configuration semantics remain outside this read."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 0,
+          "line": 108,
+          "module": "Aiur.AgentList.RenderState",
+          "name": "agent_kind",
+          "path": "src/lib/aiur/agent_list/render_state.ex",
+          "kind": "defp",
+          "end_line": 113,
+          "body_sha256": "52a4485b213b29c224354e4c868ccc2ac4b1bd3a758488b6e661d7040db53a14",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 316,
+          "module": "Aiur.Config",
+          "name": "agent_kind",
+          "path": "src/lib/aiur/config.ex",
+          "kind": "def",
+          "end_line": 321,
+          "body_sha256": "83bc5f65548489739af2b74ef790b17e2734fd282024a061828dcb01a8fc5d6c",
+          "normalized_body_lines": 9,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 40,
+          "module": "AiurWeb.BuildOrder.Runtime",
+          "name": "agent_kind",
+          "path": "src/lib/aiur_web/build_order/runtime.ex",
+          "kind": "def",
+          "end_line": 40,
+          "body_sha256": "93c26219ad2e1db18ec41ccb4f3378ce491aa7f383c726fa6b54d207cceebf7e",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 2589,
+          "module": "AiurWeb.DashboardLive",
+          "name": "agent_kind",
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "kind": "defp",
+          "end_line": 2589,
+          "body_sha256": "353876c0528567118e62c089ff66c217a022b100a370229dcd91a190f98a6ac9",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "announce",
+      "assessment": "Announcement methods mix semantic-change publication, lifecycle deduplication and operator notice.",
+      "constraints": [
+        "ResourceStore publishes only when observable before/after values differ. ReadyForReviewTransitions publishes with a repository/PR/action/head dedup key and then records an announced head; the entry body does not inspect the publication return before updating the ledger.",
+        "Upgrade logs binary notice text selected from atom/string keys and returns :ok.",
+        "ModeRegistry distinguishes degraded, never-delivered and recovered notices. Degraded/recovered publish mode events plus dedicated signals, while notice text and attention/severity distinguish setup failure from a previously working delivery path.",
+        "Preserve reconciliation signals and transition-specific evidence; logging, publication invocation and confirmed downstream delivery are not interchangeable. Publication helper behavior and durable acknowledgment are not certified here."
+      ],
+      "clauses": 7,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 3,
+          "line": 1521,
+          "module": "Aiur.GitHub.ResourceStore",
+          "name": "announce",
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "kind": "defp",
+          "end_line": 1527,
+          "body_sha256": "f1a4e7f0463d8aaf7e198fe72a3eeecc51554a4d414cf5ae5ba2866c0045e2a6",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 180,
+          "module": "Aiur.Orchestrator.ReadyForReviewTransitions",
+          "name": "announce",
+          "path": "src/lib/aiur/orchestrator/ready_for_review_transitions.ex",
+          "kind": "defp",
+          "end_line": 197,
+          "body_sha256": "26662956f89687c4bfd60195bf509b7dfb03ea5fc4b7d69f449877ec5e7aee45",
+          "normalized_body_lines": 26,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 183,
+          "module": "Aiur.Upgrade",
+          "name": "announce",
+          "path": "src/lib/aiur/upgrade.ex",
+          "kind": "def",
+          "end_line": 190,
+          "body_sha256": "7b1f54951c16e46c9f6a0478c0fb604c9c7e9191391f21506a48297f64171078",
+          "normalized_body_lines": 13,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 398,
+          "module": "Aiur.Webhooks.ModeRegistry",
+          "name": "announce",
+          "path": "src/lib/aiur/webhooks/mode_registry.ex",
+          "kind": "defp",
+          "end_line": 415,
+          "body_sha256": "31d274d8abd489e26e4804508c20deaf5ddbcb384cac3fee329d630e28bed4ee",
+          "normalized_body_lines": 22,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 421,
+          "module": "Aiur.Webhooks.ModeRegistry",
+          "name": "announce",
+          "path": "src/lib/aiur/webhooks/mode_registry.ex",
+          "kind": "defp",
+          "end_line": 434,
+          "body_sha256": "4d9171ed1a06063cf428970e9b9c82424343d1ba6d35926538483c773254408e",
+          "normalized_body_lines": 17,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 436,
+          "module": "Aiur.Webhooks.ModeRegistry",
+          "name": "announce",
+          "path": "src/lib/aiur/webhooks/mode_registry.ex",
+          "kind": "defp",
+          "end_line": 454,
+          "body_sha256": "24035fb9078e3153bdcf43f6f8f74ca8614760dda0548938fe94517c70189445",
+          "normalized_body_lines": 19,
+          "has_body": true
+        },
+        {
+          "arity": 3,
+          "line": 456,
+          "module": "Aiur.Webhooks.ModeRegistry",
+          "name": "announce",
+          "path": "src/lib/aiur/webhooks/mode_registry.ex",
+          "kind": "defp",
+          "end_line": 456,
+          "body_sha256": "72f88fea5e48a0a93c7714ace3fd825738ef8e1c98eeda95f2427a35dbdd8ad7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "answer",
+      "assessment": "Answer methods mix public projection, owner mutation and command execution.",
+      "constraints": [
+        "PublicLifecycleProjection returns selected answer fields including action/version, response/rationale, actor, supervisor basis and accepted time, with nil fallback for unsupported inputs.",
+        "StreamdeckCommands projects a smaller answer shape and removes nil values. DecisionStore instead sends a timed owner call with payload/options.",
+        "ExecutorCommandCLI normalizes input, invokes answering, prints answered or superseded wording and handles usage/domain errors; its displayed status defaults to accepted when the result lacks status.",
+        "Preserve mutation authority, version evidence and each surface's projection contract. Similar names do not establish duplicate answer validation or prove an omitted result status means accepted."
+      ],
+      "clauses": 9,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 7,
+          "module": "Aiur.DecisionApi.PublicLifecycleProjection",
+          "name": "answer",
+          "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+          "kind": "def",
+          "end_line": 7,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 9,
+          "module": "Aiur.DecisionApi.PublicLifecycleProjection",
+          "name": "answer",
+          "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+          "kind": "def",
+          "end_line": 20,
+          "body_sha256": "a977e9c82dc88d733585ac2ca1a0a05765a0b4310bc5f5b290df4943ea338d33",
+          "normalized_body_lines": 14,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 22,
+          "module": "Aiur.DecisionApi.PublicLifecycleProjection",
+          "name": "answer",
+          "path": "src/lib/aiur/decision_api/public_lifecycle_projection.ex",
+          "kind": "def",
+          "end_line": 22,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 5,
+          "line": 190,
+          "module": "Aiur.DecisionStore",
+          "name": "answer",
+          "path": "src/lib/aiur/decision_store.ex",
+          "kind": "def",
+          "end_line": 193,
+          "body_sha256": "793feb37949aa264b2304b1f79491dafa85092319b8fef262a6935f9585282f7",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 9,
+          "module": "Aiur.ExecutorCommandCLI",
+          "name": "answer",
+          "path": "src/lib/aiur/executor_command_cli.ex",
+          "kind": "def",
+          "end_line": 9,
+          "body_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "normalized_body_lines": 1,
+          "has_body": false
+        },
+        {
+          "arity": 2,
+          "line": 11,
+          "module": "Aiur.ExecutorCommandCLI",
+          "name": "answer",
+          "path": "src/lib/aiur/executor_command_cli.ex",
+          "kind": "def",
+          "end_line": 26,
+          "body_sha256": "2b93ae46e8b900205a3e2ce0292ec3fcc8c07592d92eeb3ce050c8259fe36c20",
+          "normalized_body_lines": 24,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 28,
+          "module": "Aiur.ExecutorCommandCLI",
+          "name": "answer",
+          "path": "src/lib/aiur/executor_command_cli.ex",
+          "kind": "def",
+          "end_line": 28,
+          "body_sha256": "7bc4c4e67aa10bb9e1323556869e5a2d7fc7b6a19e52afc5b415100960aeaf02",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 105,
+          "module": "AiurWeb.StreamdeckCommands",
+          "name": "answer",
+          "path": "src/lib/aiur_web/streamdeck_commands.ex",
+          "kind": "defp",
+          "end_line": 105,
+          "body_sha256": "7ca36bf9f86f796e26b32379f9c8e866016437867696c419daf284b0e9db7585",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 107,
+          "module": "AiurWeb.StreamdeckCommands",
+          "name": "answer",
+          "path": "src/lib/aiur_web/streamdeck_commands.ex",
+          "kind": "defp",
+          "end_line": 110,
+          "body_sha256": "c9ce34ca061d39f492a90a697a1b1e34cd3e5dc55b619fd44b7032fb1112622a",
+          "normalized_body_lines": 7,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "api_key",
+      "assessment": "Credential accessors differ in blank-value and failure policy.",
+      "constraints": [
+        "ElevenLabs.Quota and Realtime both call injected suppliers and collapse rescued/caught failures to none. Quota accepts any nonempty binary; Realtime additionally rejects whitespace-only values while returning the original nonblank string.",
+        "Linear.Config delegates secret normalization to EnvRef after section lookup. ModelDiscovery chooses a backend-specific environment name and calls an injected/default environment fetcher, otherwise nil.",
+        "Share supplier mechanics only with explicit blank/failure policy. These entry bodies neither prove credentials are usable nor imply that raw credentials should be logged or included in research evidence."
+      ],
+      "clauses": 4,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 1,
+          "line": 154,
+          "module": "Aiur.ElevenLabs.Quota",
+          "name": "api_key",
+          "path": "src/lib/aiur/eleven_labs/quota.ex",
+          "kind": "defp",
+          "end_line": 163,
+          "body_sha256": "10da5d410ac2b367eb3bc28d473a955a2c447c53e7db341d08d5812836839ba4",
+          "normalized_body_lines": 11,
+          "has_body": true
+        },
+        {
+          "arity": 1,
+          "line": 308,
+          "module": "Aiur.ElevenLabs.Realtime",
+          "name": "api_key",
+          "path": "src/lib/aiur/eleven_labs/realtime.ex",
+          "kind": "defp",
+          "end_line": 317,
+          "body_sha256": "7251676a1c53c87983c9496f07cd2360f8f7b268ce4a5daaf8cc1869e49d47a3",
+          "normalized_body_lines": 18,
+          "has_body": true
+        },
+        {
+          "arity": 0,
+          "line": 21,
+          "module": "Aiur.Linear.Config",
+          "name": "api_key",
+          "path": "src/lib/aiur/linear/config.ex",
+          "kind": "def",
+          "end_line": 23,
+          "body_sha256": "c7320238cd20110fad6a9d12d149fd3db1acf5a14d8e5830e246f0b5456efcc8",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 531,
+          "module": "Aiur.ModelDiscovery",
+          "name": "api_key",
+          "path": "src/lib/aiur/model_discovery.ex",
+          "kind": "defp",
+          "end_line": 538,
+          "body_sha256": "f53948dee4c0919167f9649c3ba36ab3a25b3aeb61d87cdeec611d02671d1144",
+          "normalized_body_lines": 13,
+          "has_body": true
+        }
+      ]
+    },
+    {
+      "name": "apply_result",
+      "assessment": "Two source wrappers are identical but result retention and authorization policies differ elsewhere.",
+      "constraints": [
+        "AdHocSource and OpenTicketSource identically apply a domain result and broadcast only when meaningful snapshot values differ. Their do_apply_result, meaningful and broadcast helpers remain domain-specific and are not certified equivalent by wrapper equality.",
+        "AnalyticsRuntime replaces a model on success, clears unavailable state, and retains an existing model unchanged when a new result is unavailable; only absence of a model records the reason.",
+        "UsageRuntime reconciles retained source with incoming snapshot, supplies status_source when retaining, assigns scope key and refreshes open drill. Authentication_required demotes to locked; other errors become unavailable snapshots through the same result path.",
+        "Preserve last-known-good status evidence, scope identity and authorization demotion. Shared result plumbing must not turn locked or unavailable into fresh success; transitive reconciliation and rendered freshness require separate verification."
+      ],
+      "clauses": 8,
+      "modules": 4,
+      "coverage": "All literal census definitions/declarations for this name read at the frozen snapshot; transitive helpers and runtime incidence not certified.",
+      "disposition": "preserve_domain_contract_before_sharing_mechanics",
+      "sites": [
+        {
+          "arity": 2,
+          "line": 320,
+          "module": "Aiur.BuildOrder.AdHocSource",
+          "name": "apply_result",
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "kind": "defp",
+          "end_line": 325,
+          "body_sha256": "85af4ce8ee3aab872511387f8f8c1a9f29cfab784322792cd9e1f88dab5655f0",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 373,
+          "module": "Aiur.OpenTicketSource",
+          "name": "apply_result",
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "kind": "defp",
+          "end_line": 378,
+          "body_sha256": "85af4ce8ee3aab872511387f8f8c1a9f29cfab784322792cd9e1f88dab5655f0",
+          "normalized_body_lines": 15,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 162,
+          "module": "AiurWeb.BuildOrder.AnalyticsRuntime",
+          "name": "apply_result",
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "kind": "defp",
+          "end_line": 166,
+          "body_sha256": "62c1aecb87758b23aa01312a55d20453d94c3c4d20a4a7fd16f502065041d820",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 170,
+          "module": "AiurWeb.BuildOrder.AnalyticsRuntime",
+          "name": "apply_result",
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "kind": "defp",
+          "end_line": 176,
+          "body_sha256": "2bbdb06d59128a0e3ef98f7e35ba225522db72e8cc7f8a9032e8edd9e5d4b538",
+          "normalized_body_lines": 10,
+          "has_body": true
+        },
+        {
+          "arity": 2,
+          "line": 178,
+          "module": "AiurWeb.BuildOrder.AnalyticsRuntime",
+          "name": "apply_result",
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "kind": "defp",
+          "end_line": 178,
+          "body_sha256": "49bc888b25dea8e77c62f9fc172e013abb23243ae35ae5bc92073365e9326ded",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 264,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "apply_result",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 280,
+          "body_sha256": "9699faa26111e15b2961951252bbd05bf34b16cf8332b1a0fe472e9c19460287",
+          "normalized_body_lines": 29,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 282,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "apply_result",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 283,
+          "body_sha256": "a8eaca93a6722ec19683c1eaa51ff327b212eb09e531ea18700c6afade0c6657",
+          "normalized_body_lines": 1,
+          "has_body": true
+        },
+        {
+          "arity": 4,
+          "line": 285,
+          "module": "AiurWeb.BuildOrder.UsageRuntime",
+          "name": "apply_result",
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "kind": "defp",
+          "end_line": 289,
+          "body_sha256": "5fa77f8226d6b3da2d96ef2a7b888c65e2dbe039ec76993bee8bdcc8307fcf43",
+          "normalized_body_lines": 1,
+          "has_body": true
+        }
+      ]
     }
   ],
-  "reviewed_clauses": 5216,
-  "limits": "277 selected families and 5216 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
+  "reviewed_clauses": 5254,
+  "limits": "283 selected families and 5254 literal definitions/declarations reviewed. The initial priority queue is not the full name sweep. Remaining names and generated callbacks are not claimed reviewed. Name/body equality is not semantic duplication; overlap with body/raw reviews is non-additive. Transitive correctness and savings are not claimed.",
   "next": [
     "Inspect high-frequency non-callback and lifecycle/state families; distinguish generic callback names from duplication evidence.",
     "Complete label-state concept and constant sweeps.",
