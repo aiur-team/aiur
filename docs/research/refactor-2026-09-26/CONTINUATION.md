@@ -1170,3 +1170,8 @@ Added four more full reads: qualified identity/observation, decision-metrics res
 ### tests-1b sixty-two-file checkpoint
 
 62 full reads,12006 lines. Added process logging, tmux, pane manager unit/live geometry, queue, firehose and duration watchdog. Confirmed negative-assertion arity hole in refused resume: actual two-element assertion passes with a three-element generation-aware message; corrected control fails. Portable assertion probe added. This does not prove a production cap bypass. Preserve claim/provider-ack separation and distinguish mocked commands, geometry integration and real chat UX. No new test suite or live tmux execution; no production changes.
+
+
+### tests-1b sixty-eight-file checkpoint
+
+68 full reads,16372 lines. Recorded prior GitHubCostCLI, CLI, AgentRunner, AgentLog and Application reads plus DecisionApi. Preserve budget observation provenance, backend-specific recovery, transcript fallback, supervision order and canonical API privacy/pagination/authority contracts. No new promoted finding; no new suite execution. Remaining seven files: agent_control_cli, agent_github_guard, build_gate, coding_agent, init, live_conversation, repo_base. Raw-unit completion remains25/32; no production changes.

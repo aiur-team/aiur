@@ -374,9 +374,45 @@
       "sha256": "36b9b4612ca8fca166f5190edbe269fc517b75d36433a49bf37b87f9f879d232",
       "lines": 463,
       "read": "full"
+    },
+    {
+      "path": "src/test/aiur/github_cost_cli_test.exs",
+      "sha256": "3251ab418d4a05eb0cac8c05c5a1afc4a837a5f71c0371bd77b63e30b86c6451",
+      "lines": 449,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/cli_test.exs",
+      "sha256": "9c20ffd42f8928f5ec339d575c53d51cd5c22113446fb9bbd017cf55969b6eae",
+      "lines": 578,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/agent_runner_test.exs",
+      "sha256": "e286e226096ceb4c5987709d652c3820ff087408277091faad6730b379a6fa85",
+      "lines": 794,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/agent_log_test.exs",
+      "sha256": "072a4ec4afb2110a44c56bf2715893017f6c6e4ddf517b5b80d0b1a79c4b0c26",
+      "lines": 753,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/application_test.exs",
+      "sha256": "aab041518c91665ca48fe8195348d91984b885659ba63019b0525a62780d69a2",
+      "lines": 825,
+      "read": "full"
+    },
+    {
+      "path": "src/test/aiur/decision_api_test.exs",
+      "sha256": "3b942e8ab9db9e4ede370ea32d790fd044cb17c5c8c86abfd505ddf0245fdde5",
+      "lines": 967,
+      "read": "full"
     }
   ],
-  "scope_note": "62 complete file reads, 12006 lines; remaining paths unreviewed. Isolated assertion probes ran; seven new test files were read, not run as a suite. No live tmux or full application verification.",
+  "scope_note": "68 complete file reads, 16372 lines; remaining paths unreviewed. Earlier isolated assertion probes ran; six newly recorded test files were read, not executed. No live application or TUI verification.",
   "findings": [
     {
       "id": "tests-1b-cont-01",
@@ -532,7 +568,13 @@
     "PaneManager unit tests protect slot reuse, retitling/sanitization, stale-pane reconciliation, packed layout and focused/background pane distinction. Live tests use isolated tmux sockets for geometry and external-close reconciliation; these are geometry integration tests, not full user chat verification.",
     "AgentQueue tests retain claim/provider-acknowledgement separation, attempt counters, correlation conflict refusal, idempotent retries, lifetime-scoped action deduplication and visibility of failed/in-flight operator messages.",
     "Firehose tests preserve watermark pagination, Retry-After/X-Poll-Interval, DNS recovery, 304 page accounting and durable attention resolution with failed-publication retry.",
-    "Duration watchdog tests retain cooperative request before confirmed pause, operator-only budget reset, automated cumulative budget, concurrency refusal and grace-limited escalation."
+    "Duration watchdog tests retain cooperative request before confirmed pause, operator-only budget reset, automated cumulative budget, concurrency refusal and grace-limited escalation.",
+    "GitHubCostCLI separates Core and GraphQL reconciliation, estimated from observed points, unavailable observations from zero, and shortfall from excess. Fixture rates are not measured production savings.",
+    "CLI tests inject startup dependencies to retain guard-before-side-effect ordering, ordered canonical ticket deduplication, incompatible command rejection and launch-option precedence.",
+    "AgentRunner tests retain backend-specific fallback, authentication versus transient failures, local resumable-session validation, persisted thread identity drift and startup-comment filtering relative to the latest workpad.",
+    "AgentLog tests preserve NDJSON preference with Markdown fallback, malformed-line tolerance, delta/completion replacement, bounded head/tail loading and authentication-failure output. Historical transcript parsing is not live chat UX verification.",
+    "Application tests encode shutdown-sensitive child ordering, ownership and membership dependencies, provider-meter aggregation order, always-on recording with optional Executor principal, and rest_for_one restart coupling with explicit process barriers.",
+    "DecisionApi tests retain bounded public projections and redaction, complete ticket matching, cursor stability under insertion, legacy offsets beyond bounded cursor scans, single-snapshot reads, partial versus unavailable health, idempotent attributed decisions and revisions, and serialized rejection of policy evidence from a different request version."
   ],
   "next": [
     "Continue remaining tests-1b paths; audit test support and shared-state restoration.",
