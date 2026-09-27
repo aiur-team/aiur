@@ -4,65 +4,17 @@
   "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
   "input_sha256": {
     "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
-    "name_triage": "e4b7162dcea6bd02f74d3f81176990d182570b3f852a43b413314aaeb3542c50"
+    "name_triage": "f8279f6ef818cfb4b2b12c51709277394304195c0bb12852d31380b5fd5ad448"
   },
   "counts": {
     "all_names": 13748,
     "cross_module_names": 1680,
     "single_module_names": 12068,
-    "reviewed_cross_module_names": 148,
-    "remaining_cross_module_names": 1532,
-    "remaining_literal_entries": 6315
+    "reviewed_cross_module_names": 156,
+    "remaining_cross_module_names": 1524,
+    "remaining_literal_entries": 6213
   },
   "families": [
-    {
-      "name": "invalidate",
-      "clauses": 9,
-      "modules": 7,
-      "summed_source_span_lines": 61
-    },
-    {
-      "name": "normalize_event",
-      "clauses": 16,
-      "modules": 7,
-      "summed_source_span_lines": 151
-    },
-    {
-      "name": "normalize_key",
-      "clauses": 19,
-      "modules": 7,
-      "summed_source_span_lines": 19
-    },
-    {
-      "name": "only_keys",
-      "clauses": 7,
-      "modules": 7,
-      "summed_source_span_lines": 38
-    },
-    {
-      "name": "parse_integer",
-      "clauses": 20,
-      "modules": 7,
-      "summed_source_span_lines": 55
-    },
-    {
-      "name": "pause_agent",
-      "clauses": 9,
-      "modules": 7,
-      "summed_source_span_lines": 28
-    },
-    {
-      "name": "progress",
-      "clauses": 14,
-      "modules": 7,
-      "summed_source_span_lines": 68
-    },
-    {
-      "name": "relationship_revision",
-      "clauses": 8,
-      "modules": 7,
-      "summed_source_span_lines": 8
-    },
     {
       "name": "replay",
       "clauses": 8,

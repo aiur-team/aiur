@@ -1026,3 +1026,7 @@ Read tracker_identity, update, actor, add_label, apply, clamp, close and compact
 ### Name duplication: completion, delivery and readiness stages
 
 Read complete, deliver, enabled?, ensure, fetch_issue_states_by_ids, fetch_issues_by_states, ingest and initialize: 66 literal entries across eight families. Preserve stale-result fences, webhook delivery evidence, replay readiness, configuration default policy and provider filtering scope. Existing wrappers already expose several ownership boundaries; equivalent names do not imply equivalent completion guarantees. Name triage now 148 families/3953 entries, leaving 1532 cross-module names. Raw findings and skeptic counts are unchanged; no new verified defect or measured saving is claimed.
+
+### Name duplication: invalidation, validation and progress evidence
+
+Read invalidate, normalize_event, normalize_key, only_keys, parse_integer, pause_agent, progress and relationship_revision: 102 literal entries across eight families. Preserve epoch revocation, webhook routing, key completeness/alias policy, integer parsing domains and progress coverage/freshness. Strict decision key/parsing helpers and endpoint pause override selection offer narrow sharing candidates. Name triage now 156 families/4055 entries, leaving 1524 cross-module names. Raw findings and skeptic counts are unchanged; downstream validation and runtime effects remain unverified where noted.
