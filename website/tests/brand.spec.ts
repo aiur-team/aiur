@@ -8,6 +8,43 @@ test('homepage establishes the canonical default theme', async ({ page }) => {
   await expect.poll(() => page.evaluate(() => localStorage.getItem('aiur-theme'))).toBe('dark')
 })
 
+test('homepage consumes shared marketing controls in both themes', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await page.goto('/')
+
+  const appearance = () => page.evaluate(() => {
+    const style = (selector: string) => getComputedStyle(document.querySelector(selector)!)
+    return {
+      background: getComputedStyle(document.documentElement).getPropertyValue('--aiur-bg').trim(),
+      docsFont: style('.aiur-topbar-link').fontFamily,
+      docsSize: style('.aiur-topbar-link').fontSize,
+      toggleWidth: style('.aiur-theme-toggle').width,
+      logoHeight: style('.aiur-lockup-logo').height,
+      wordmarkSize: style('.aiur-wordmark').fontSize,
+      taglineSize: style('.aiur-tagline').fontSize,
+      copyWidth: style('.aiur-copy-control').width
+    }
+  })
+
+  expect(await appearance()).toEqual({
+    background: '#1a1b1e',
+    docsFont: '"Aiur JetBrains Mono", monospace',
+    docsSize: '13px',
+    toggleWidth: '42px',
+    logoHeight: '224px',
+    wordmarkSize: '96px',
+    taglineSize: '22px',
+    copyWidth: '28px'
+  })
+
+  await page.locator('#themeToggle').click()
+  expect((await appearance()).background).toBe('#e7d6b2')
+
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
+  expect((await appearance()).toggleWidth).toBe('42px')
+})
+
 test('light homepage preference is applied before module hydration', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('aiur-theme', 'light')

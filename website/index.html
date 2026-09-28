@@ -32,9 +32,6 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
 <link rel="manifest" href="/site.webmanifest" />
 <link rel="alternate" type="text/markdown" href="/llms.txt" title="Aiur agent onboarding" />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
@@ -58,8 +55,8 @@
       <span>aiur</span>
     </a>
     <nav class="topbar-actions" aria-label="Primary navigation">
-      <a class="topbar-link" href="/docs/guide/quick-start">Docs</a>
-      <button class="toggle" id="themeToggle" aria-label="Toggle color theme">
+      <a class="topbar-link aiur-topbar-link" href="/docs/guide/quick-start">Docs</a>
+      <button class="toggle aiur-theme-toggle" id="themeToggle" aria-label="Toggle color theme">
         <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
           <circle cx="12" cy="12" r="4.2"></circle>
           <path d="M12 2.4v2.6M12 19v2.6M2.4 12h2.6M19 12h2.6M5.0 5.0l1.8 1.8M17.2 17.2l1.8 1.8M19 5.0l-1.8 1.8M6.8 17.2l-1.8 1.8"></path>
@@ -76,12 +73,12 @@
 
     <div class="stage">
       <div class="lockup">
-        <img class="logo keepout" src="assets/aiur-logo.png" alt="AIUR logo" />
-        <h1 class="wordmark keepout"><span>A</span><span>I</span><span>U</span><span>R</span></h1>
+        <img class="logo aiur-lockup-logo keepout" src="assets/aiur-logo.png" alt="AIUR logo" />
+        <h1 class="wordmark aiur-wordmark keepout"><span>A</span><span>I</span><span>U</span><span>R</span></h1>
       </div>
 
       <div class="sub">
-        <p class="tagline keepout">AI Unit Runtime for Executors</p>
+        <p class="tagline aiur-tagline keepout">AI Unit Runtime for Executors</p>
         <div class="install-wrap keepout" id="installWrap">
           <div class="install-box">
             <div class="pm-tabs" role="tablist" aria-label="Get started">
@@ -94,7 +91,7 @@
             <div class="install is-prompt" id="installRow">
               <span class="prompt" aria-hidden="true">$</span>
               <span class="cmd" id="installCmd">Let's run parallel agents with: https://aiur.team/</span>
-              <button class="copy" id="copyBtn" aria-label="Copy prompt">
+              <button class="copy aiur-copy-control" id="copyBtn" aria-label="Copy prompt">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="9" y="9" width="11" height="11" rx="2.2"></rect>
                   <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>

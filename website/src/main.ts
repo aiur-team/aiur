@@ -1,3 +1,6 @@
+import "@aiur/components/fonts.css";
+import "@aiur/components/theme.css";
+import "@aiur/components/marketing.css";
 import "./styles.css";
 import { createFlowField } from "./flowField";
 import { initTerminal } from "./terminal";

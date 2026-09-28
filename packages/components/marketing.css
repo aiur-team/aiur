@@ -1,0 +1,75 @@
+/* Import theme.css first. These classes can be mixed with local layout styles. */
+.aiur-topbar-link {
+  font-family: var(--aiur-font-mono);
+  font-size: var(--aiur-topbar-link-size);
+  color: var(--aiur-muted);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+.aiur-topbar-link:hover { color: var(--aiur-fg); }
+
+.aiur-theme-toggle {
+  width: var(--aiur-theme-toggle-size);
+  height: var(--aiur-theme-toggle-size);
+  border-radius: 50%;
+  border: 1px solid var(--aiur-pill-border);
+  background: var(--aiur-pill-bg);
+  color: var(--aiur-fg);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.5s cubic-bezier(.2,.9,.25,1);
+}
+.aiur-theme-toggle:hover { background: color-mix(in srgb, var(--aiur-fg) 8%, transparent); }
+.aiur-theme-toggle svg { width: 19px; height: 19px; display: block; }
+.aiur-theme-toggle .icon-moon { display: none; }
+[data-theme="light"] .aiur-theme-toggle .icon-sun { display: none; }
+[data-theme="light"] .aiur-theme-toggle .icon-moon { display: block; }
+[data-theme="light"] .aiur-theme-toggle { transform: rotate(360deg); }
+
+.aiur-lockup-logo {
+  height: var(--aiur-logo-size);
+  width: auto;
+  display: block;
+}
+.aiur-wordmark {
+  font-family: var(--aiur-font-display);
+  font-size: var(--aiur-wordmark-size);
+  line-height: 0.82;
+  letter-spacing: 0.01em;
+  color: var(--aiur-fg);
+  display: flex;
+  transition: color 0.5s ease;
+}
+.aiur-tagline {
+  font-family: var(--aiur-font-mono);
+  font-size: var(--aiur-tagline-size);
+  color: var(--aiur-muted);
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+.aiur-copy-control {
+  border: 0;
+  background: transparent;
+  color: var(--aiur-muted);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  width: var(--aiur-copy-control-size);
+  height: var(--aiur-copy-control-size);
+  border-radius: 7px;
+  transition: background-color .2s, color .2s;
+}
+.aiur-copy-control:hover { color: var(--aiur-fg); background: color-mix(in srgb, var(--aiur-fg) 9%, transparent); }
+.aiur-copy-control svg { width: 15px; height: 15px; }
+.aiur-copy-control.copied { color: var(--aiur-accent); }
+
+.aiur-topbar-link:focus-visible,
+.aiur-theme-toggle:focus-visible,
+.aiur-copy-control:focus-visible {
+  outline: 2px solid var(--aiur-accent);
+  outline-offset: 4px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .aiur-topbar-link, .aiur-theme-toggle, .aiur-wordmark, .aiur-copy-control { transition: none; }
+}

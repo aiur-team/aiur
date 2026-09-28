@@ -1,0 +1,22 @@
+/* The font files and their SIL Open Font Licenses ship in ./fonts/. */
+@font-face {
+  font-family: "Aiur Bungee";
+  src: url("./fonts/Bungee-Regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Aiur Space Grotesk";
+  src: url("./fonts/SpaceGrotesk-Variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Aiur JetBrains Mono";
+  src: url("./fonts/JetBrainsMono-Variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+}
