@@ -2,7 +2,6 @@
    so an embedded Aiur or Khala app can theme its own root independently. */
 :root,
 [data-theme="dark"] {
-  color-scheme: dark;
   --aiur-bg: #1a1b1e;
   --aiur-bg-soft: #161719;
   --aiur-fg: #edeef0;
@@ -24,10 +23,12 @@
   --aiur-tagline-size: clamp(16px, 2.2vw, 22px);
   --aiur-theme-toggle-size: 42px;
   --aiur-copy-control-size: 28px;
+  --aiur-sun-display: block;
+  --aiur-moon-display: none;
+  --aiur-toggle-rotation: none;
 }
 
 [data-theme="light"] {
-  color-scheme: light;
   --aiur-bg: #e7d6b2;
   --aiur-bg-soft: #e2cfa6;
   --aiur-fg: #2a2520;
@@ -40,4 +41,7 @@
   --aiur-accent-strong: #1f57c4;
   --aiur-on-accent: #ffffff;
   --aiur-accent-soft: rgba(31, 87, 196, 0.11);
+  --aiur-sun-display: none;
+  --aiur-moon-display: block;
+  --aiur-toggle-rotation: rotate(360deg);
 }
