@@ -40,6 +40,23 @@ test('homepage consumes shared marketing controls in both themes', async ({ page
   await page.locator('#themeToggle').click()
   expect((await appearance()).background).toBe('#e7d6b2')
 
+  const embeddedTheme = await page.evaluate(() => {
+    const embed = document.createElement('div')
+    embed.dataset.theme = 'dark'
+    embed.innerHTML = '<button class="aiur-theme-toggle"><svg class="icon-sun"></svg><svg class="icon-moon"></svg></button>'
+    document.body.append(embed)
+    const toggle = embed.querySelector('button')!
+    const result = {
+      background: getComputedStyle(embed).getPropertyValue('--aiur-bg').trim(),
+      sun: getComputedStyle(toggle.querySelector('.icon-sun')!).display,
+      moon: getComputedStyle(toggle.querySelector('.icon-moon')!).display,
+      hostColorScheme: getComputedStyle(document.documentElement).colorScheme
+    }
+    embed.remove()
+    return result
+  })
+  expect(embeddedTheme).toEqual({ background: '#1a1b1e', sun: 'block', moon: 'none', hostColorScheme: 'normal' })
+
   await page.setViewportSize({ width: 390, height: 844 })
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   expect((await appearance()).toggleWidth).toBe('42px')
