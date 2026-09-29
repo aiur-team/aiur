@@ -1096,6 +1096,25 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "dispatch_decline=blocked_on_decision"
   end
 
+  test "status renders a stale revalidation dispatch decline without failing", %{orchestrator: pid} do
+    issue = %Issue{id: "issue-2832", identifier: "repo#2832", state: "todo", title: "Stale dispatch"}
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{issue.id => issue},
+          dispatch_declines: %{issue.id => {:stale_after_revalidation, :unauthorized}}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#2832  idle"
+    assert output =~ "dispatch_decline={:stale_after_revalidation, :unauthorized}"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    refute output =~ "status query failed"
+  end
+
   test "status makes degraded supervision explicit" do
     Application.put_env(:aiur, :supervision_health_status_fun, fn ->
       {:ok, %{expected: 2, healthy: 1, missing: [%{id: Aiur.Events.IdGenerator, reason: :killed}]}}
