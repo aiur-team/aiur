@@ -196,11 +196,15 @@ wrong.
 **Incomplete label provenance is retried.** A new issue can carry `agent:todo`
 before GitHub has indexed its `labeled` timeline event. Aiur does not cache a
 missing or malformed event as a final authorization decision. For a `todo`
-ticket it defers dispatch and retries on the next candidate poll; for active
-and rework tickets it still denies incomplete evidence, preserving revocation
-after an unverified relabel. Either incomplete result retires the daemon's
-cached reads for that issue number, including the timeline body, so a webhook
-backed repository's hour-long read TTL cannot replay the early snapshot.
+ticket it defers dispatch and retries on the next candidate poll.
+
+For active and rework tickets, Aiur still denies incomplete evidence. This
+preserves revocation after an unverified relabel.
+
+Either incomplete result retires the daemon's cached reads for that issue
+number, including the timeline body. A webhook backed repository's hour-long
+read TTL cannot replay the early snapshot.
+
 The invalidation covers one issue number and may add a timeline request on each
 retry until the event appears, with further requests if the timeline spans
 pages. No quota saving is claimed.
