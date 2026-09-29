@@ -16,6 +16,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
             status(alpha,
               title: "Status title",
               resolved_model: "gpt-5.6",
+              turn_count: 3,
+              context_usage: %{used_tokens: 50_000, window_tokens: 100_000},
               workspace_path: "/private/workspace"
             )
           ],
@@ -47,6 +49,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     assert alpha_row.title == "Alpha canonical"
     assert alpha_row.backend == :codex
     assert alpha_row.resolved_model == "gpt-5.6"
+    assert alpha_row.turn_count == 3
+    assert alpha_row.context_usage == %{used_tokens: 50_000, window_tokens: 100_000}
+    assert alpha_row.field_sources.turn_count == :status_report
+    assert alpha_row.field_sources.context_usage == :status_report
     assert alpha_row.field_sources.backend == :canonical_issue
     assert alpha_row.field_sources.resolved_model == :status_report
     assert alpha_row.open_command_count == 2
@@ -61,6 +67,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     assert beta_row.title == "Beta canonical"
     assert beta_row.open_command_count == 1
     assert beta_row.progress == %{status: :unknown}
+    assert beta_row.turn_count == nil
+    assert beta_row.context_usage == nil
+    assert beta_row.field_sources.turn_count == :unknown
+    assert beta_row.field_sources.context_usage == :unknown
     refute beta_row.sources.status.available?
   end
 
@@ -536,6 +546,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
       work_state: Keyword.get(attrs, :work_state, :working),
       waiting_reason: Keyword.get(attrs, :waiting_reason, :active),
       resolved_model: Keyword.get(attrs, :resolved_model),
+      turn_count: Keyword.get(attrs, :turn_count),
+      context_usage: Keyword.get(attrs, :context_usage),
       pause_reason: Keyword.get(attrs, :pause_reason),
       tracker_paused: Keyword.get(attrs, :tracker_paused, false),
       lifecycle: Keyword.get(attrs, :lifecycle),
