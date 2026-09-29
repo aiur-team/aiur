@@ -44,7 +44,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     membership = membership_snapshot()
     packs = load_packs()
 
-    {provider_health, source_generation} = provider(membership, packs)
+    {provider_health, status_health, source_generation} = provider(membership, packs)
 
     %Snapshot{
       scope: :catalog,
@@ -52,7 +52,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       generation: source_generation,
       authority_epoch: @epoch,
       data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), provider_health, search_paths: catalog_search_paths()),
-      health: provider_health
+      health: provider_health,
+      membership_health: membership_health(membership),
+      status_health: status_health
     }
   end
 
@@ -77,7 +79,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
     case Enum.find(load_packs(include_drafts?: true), &pack_root?(&1, identity)) do
       %{} = pack ->
-        {provider_health, source_generation} = provider(membership, [pack])
+        {provider_health, status_health, source_generation} = provider(membership, [pack])
 
         %Snapshot{
           scope: {:selected, identity},
@@ -85,11 +87,14 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
           generation: source_generation,
           authority_epoch: @epoch,
           data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), provider_health, planning?: not (pack.materialized? or pack.completed)),
-          health: provider_health
+          health: provider_health,
+          membership_health: membership_health(membership),
+          status_health: status_health
         }
 
       nil ->
-        {provider_health, source_generation} = provider(membership, [])
+        {provider_health, status_health, source_generation} = provider(membership, [])
+        provider_health = %{provider_health | state: :unavailable, complete?: false, failure: :pack_unavailable}
 
         %Snapshot{
           scope: {:selected, identity},
@@ -97,7 +102,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
           generation: source_generation,
           authority_epoch: @epoch,
           data: nil,
-          health: provider_health
+          health: provider_health,
+          membership_health: membership_health(membership),
+          status_health: status_health
         }
     end
   end
@@ -205,13 +212,18 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         ticket.depends_on
         |> Enum.filter(&MapSet.member?(ids, &1))
         |> Enum.map(fn dep_id ->
-          Dependency.new(identity, Map.fetch!(identities, dep_id), nil, :blocked_by)
+          endpoint = Map.fetch!(identities, dep_id)
+
+          case Enum.find(pack.tickets, &(&1.id == dep_id)) do
+            %{number: number} when is_integer(number) -> Dependency.new(identity, endpoint, issue_url(endpoint), :blocked_by)
+            _draft -> Dependency.local(identity, endpoint)
+          end
         end)
 
       Member.new(%{
         identity: identity,
         title: ticket.title,
-        url: issue_url(identity),
+        url: if(is_integer(ticket.number), do: issue_url(identity), else: nil),
         document_url: ticket.document_url,
         document_path: ticket.document_path,
         draft_body: ticket.draft_body,
@@ -278,53 +290,54 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp provider(membership, packs) do
     pack_status_snapshot = pack_status_health_snapshot()
-    pack_status = pack_status_health(packs, pack_status_snapshot)
+    status_health = pack_status_health(packs, pack_status_snapshot)
     source_generation = source_generation(membership, pack_status_snapshot)
 
-    health =
-      membership
-      |> membership_health()
-      |> combine_pack_status(pack_status, membership)
-      |> Map.put(:generation, source_generation)
+    # The pack was read independently of live membership and ticket status.
+    # Neither runtime projection may turn a readable graph into a failed plan.
+    health = ProviderHealth.new(source_generation, :healthy, true, observed_at: DateTime.utc_now())
 
-    {health, source_generation}
+    {health, status_health, source_generation}
   end
 
   defp membership_health(%{health: :healthy, freshness: %{status: :fresh}} = membership) do
-    ProviderHealth.new(generation(membership), :healthy, true, observed_at: DateTime.utc_now())
+    ProviderHealth.new(generation(membership), :healthy, true, observed_at: membership_observed_at(membership))
   end
 
   defp membership_health(%{health: :healthy, freshness: %{status: status}} = membership)
        when status in [:stale, :unknown] do
-    ProviderHealth.new(generation(membership), :stale, false, observed_at: DateTime.utc_now(), failure: :membership_stale)
+    ProviderHealth.new(generation(membership), :stale, false, observed_at: membership_observed_at(membership), failure: :membership_stale)
   end
 
   defp membership_health(%{health: :healthy, freshness: %{status: :unavailable}} = membership) do
     ProviderHealth.new(generation(membership), :unavailable, false,
-      observed_at: DateTime.utc_now(),
+      observed_at: membership_observed_at(membership),
       failure: :membership_unavailable
     )
   end
 
   defp membership_health(%{health: {:degraded, _reason}} = membership) do
-    ProviderHealth.new(generation(membership), :stale, false, observed_at: DateTime.utc_now(), failure: :membership_stale)
+    ProviderHealth.new(generation(membership), :stale, false, observed_at: membership_observed_at(membership), failure: :membership_stale)
   end
 
   defp membership_health(%{health: {:unavailable, _reason}} = membership) do
     ProviderHealth.new(generation(membership), :unavailable, false,
-      observed_at: DateTime.utc_now(),
+      observed_at: membership_observed_at(membership),
       failure: :membership_unavailable
     )
   end
 
   defp membership_health(%{health: :unavailable} = membership) do
     ProviderHealth.new(generation(membership), :unavailable, false,
-      observed_at: DateTime.utc_now(),
+      observed_at: membership_observed_at(membership),
       failure: :membership_unavailable
     )
   end
 
-  defp membership_health(membership), do: ProviderHealth.new(generation(membership), :healthy, true, observed_at: DateTime.utc_now())
+  defp membership_health(membership), do: ProviderHealth.new(generation(membership), :healthy, true, observed_at: membership_observed_at(membership))
+
+  defp membership_observed_at(%{freshness: %{last_observed_at: %DateTime{} = at}}), do: at
+  defp membership_observed_at(_membership), do: nil
 
   defp pack_status_health(packs, snapshot) do
     packs
@@ -372,31 +385,6 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     _kind, _reason -> ProviderHealth.new(:unknown, :unavailable, false, failure: :pack_status_unavailable)
   end
 
-  defp combine_pack_status(membership_health, nil, _membership), do: membership_health
-
-  defp combine_pack_status(%ProviderHealth{state: :unavailable} = membership_health, _pack_status, _membership),
-    do: membership_health
-
-  defp combine_pack_status(membership_health, %ProviderHealth{state: :healthy}, _membership), do: membership_health
-
-  defp combine_pack_status(membership_health, %ProviderHealth{} = pack_status, membership) do
-    state =
-      if membership_health.state == :stale or pack_status.state == :stale do
-        :stale
-      else
-        :unavailable
-      end
-
-    ProviderHealth.new(generation(membership), state, false,
-      observed_at: pack_status.observed_at,
-      last_success_at: pack_status.last_success_at,
-      last_attempt_at: pack_status.last_attempt_at,
-      failure: pack_status.failure || :pack_status_unavailable,
-      retry_count: pack_status.retry_count,
-      refreshing?: pack_status.refreshing?
-    )
-  end
-
   defp generation(%{generation: generation}) when is_integer(generation) and generation >= 0, do: @generation + generation
   defp generation(_membership), do: @generation
 
@@ -438,22 +426,28 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     status_lifecycle(member_identity(pack, ticket, membership), pack) in [:completed, :cancelled, :open]
   end
 
-  defp membership_lifecycle(identity, %{members: members}) when is_list(members) do
-    membership_member(identity, members)
-    |> then(&Map.get(&1 || %{}, :lifecycle))
+  defp membership_lifecycle(identity, %{members: members} = membership) when is_list(members) do
+    if membership_current?(membership) do
+      membership_member(identity, members)
+      |> then(&Map.get(&1 || %{}, :lifecycle))
+    end
   end
 
   defp membership_lifecycle(_identity, _membership), do: nil
 
   defp live_labels(identity, membership) do
-    labels =
-      membership_member(identity, Map.get(membership, :members, []))
-      |> then(&Map.get(&1 || %{}, :labels, []))
-      |> valid_labels()
+    if membership_current?(membership) do
+      labels =
+        membership_member(identity, Map.get(membership, :members, []))
+        |> then(&Map.get(&1 || %{}, :labels, []))
+        |> valid_labels()
 
-    case labels do
-      [] -> membership |> Map.get(:labels_by_identity, %{}) |> Map.get(TrackerIdentity.github_key(identity), []) |> valid_labels()
-      labels -> labels
+      case labels do
+        [] -> membership |> Map.get(:labels_by_identity, %{}) |> Map.get(TrackerIdentity.github_key(identity), []) |> valid_labels()
+        labels -> labels
+      end
+    else
+      []
     end
   end
 
@@ -462,16 +456,23 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp member_identity(pack, %{number: nil} = ticket, _membership), do: ticket_identity(pack, ticket)
 
-  defp member_identity(pack, ticket, %{members: members}) when is_list(members) do
+  defp member_identity(pack, ticket, %{members: members} = membership) when is_list(members) do
     identity = ticket_identity(pack, ticket)
 
-    case membership_member(identity, members) do
-      %{identity: %TrackerIdentity{} = member_identity} -> member_identity
-      _member -> identity
+    if membership_current?(membership) do
+      case membership_member(identity, members) do
+        %{identity: %TrackerIdentity{} = member_identity} -> member_identity
+        _member -> identity
+      end
+    else
+      identity
     end
   end
 
   defp member_identity(pack, ticket, _membership), do: ticket_identity(pack, ticket)
+
+  defp membership_current?(%{health: :healthy, freshness: %{status: :fresh}}), do: true
+  defp membership_current?(_membership), do: false
 
   defp membership_member(identity, members) when is_list(members), do: Enum.find(members, &same_issue?(&1, identity))
   defp membership_member(_identity, _members), do: nil

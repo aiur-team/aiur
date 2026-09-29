@@ -2,13 +2,15 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
+  import Phoenix.LiveViewTest
 
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.Config
-  alias Aiur.{RepoBase, TrackerIdentity}
+  alias Aiur.{BuildOrdersCLI, RepoBase, TrackerIdentity}
   alias AiurWeb.BuildOrder.{PlanningSource, RouteState}
   alias AiurWeb.BuildOrderPresenter
+  alias AiurWeb.OperatorControlCenter.BuildOrderSelected
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 
   @pack """
@@ -128,11 +130,18 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Enum.all?(grid.cards, &(&1.state == :planned))
     assert Enum.all?(grid.cards, &(&1.status_word == "planned"))
     assert Enum.all?(grid.edges, &(&1.state == "planned"))
+    assert Enum.all?(snapshot.data.members, &is_nil(&1.url))
+    assert Enum.all?(model.edges, &is_nil(&1.url))
+    refute Enum.any?(model.diagnostics, &(&1.code == :invalid_url))
   end
 
   test "missing pack yields no catalog rather than crashing" do
+    [root] = PlanningSource.catalog().data.entries
     Application.put_env(:aiur, :build_order_planning_pack, "/does/not/exist.json")
     assert %Snapshot{data: %Catalog{entries: []}} = PlanningSource.catalog()
+
+    assert {:ok, %Snapshot{data: nil, health: %{state: :unavailable, failure: :pack_unavailable}}} =
+             PlanningSource.demand(root.identity)
   end
 
   test "excludes configured packs for another repository and reports searched directories" do
@@ -362,7 +371,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     refute card.status_word == "merged"
   end
 
-  test "marks a retained status projection stale when PackStatus is unavailable" do
+  test "keeps the plan readable and marks a retained status projection stale" do
     directory = Aiur.TestSupport.tmp_root!("planning-source-status-stale")
     path = Path.join(directory, "build-order.json")
 
@@ -378,12 +387,13 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     on_exit(fn -> File.rm_rf(directory) end)
 
     snapshot = PlanningSource.catalog()
-    assert snapshot.health.state == :stale
-    refute snapshot.health.complete?
-    assert snapshot.health.failure == :pack_status_unavailable
+    assert snapshot.health.state == :healthy
+    assert snapshot.status_health.state == :stale
+    refute snapshot.status_health.complete?
+    assert snapshot.status_health.failure == :pack_status_unavailable
   end
 
-  test "marks missing status unavailable when PackStatus has no projection" do
+  test "keeps the plan readable while missing ticket status remains unavailable" do
     directory = Aiur.TestSupport.tmp_root!("planning-source-status-unavailable")
     path = Path.join(directory, "build-order.json")
 
@@ -398,9 +408,10 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     on_exit(fn -> File.rm_rf(directory) end)
 
     snapshot = PlanningSource.catalog()
-    assert snapshot.health.state == :unavailable
-    refute snapshot.health.complete?
-    assert snapshot.health.failure == :pack_status_unavailable
+    assert snapshot.health.state == :healthy
+    assert snapshot.status_health.state == :unavailable
+    refute snapshot.status_health.complete?
+    assert snapshot.status_health.failure == :pack_status_unavailable
 
     [root] = snapshot.data.entries
     # The draft resolves and the promoted member does not: a partial pack keeps
@@ -410,13 +421,17 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert root.progress_resolved_count == 1
     assert root.member_count == 2
     {:ok, selected} = PlanningSource.demand(root.identity)
+    assert selected.health.state == :healthy
+    assert selected.status_health.state == :unavailable
     [promoted, draft] = selected.data.members
 
     assert promoted.lifecycle.state == :unknown
     assert promoted.lifecycle.state_reason == :unknown
     assert draft.lifecycle.state == :open
 
-    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
+    model = BuildOrderPresenter.present(selected, :unavailable, :unavailable)
+    assert model.status == :ready
+    grid = BuildOrderGridModel.build(model, nil)
     assert grid.overall_completion == %{progress: 0, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2, stale_count: 0, stale_observed_at: nil}
     assert Enum.find(grid.cards, &(&1.id == "4101")).completion.progress_resolution == :unresolved
   end
@@ -434,9 +449,10 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     on_exit(fn -> File.rm_rf(directory) end)
 
     snapshot = PlanningSource.catalog()
-    assert snapshot.health.state == :stale
-    refute snapshot.health.complete?
-    assert snapshot.health.failure == :pack_status_incomplete
+    assert snapshot.health.state == :healthy
+    assert snapshot.status_health.state == :stale
+    refute snapshot.status_health.complete?
+    assert snapshot.status_health.failure == :pack_status_incomplete
 
     [root] = snapshot.data.entries
     # One of two resolved, and that one is complete. The percentage is the rate
@@ -476,9 +492,10 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     on_exit(fn -> File.rm_rf(directory) end)
 
     snapshot = PlanningSource.catalog()
-    assert snapshot.health.state == :stale
-    assert snapshot.health.failure == :planning_call_budget_exhausted
-    refute snapshot.health.complete?
+    assert snapshot.health.state == :healthy
+    assert snapshot.status_health.state == :stale
+    assert snapshot.status_health.failure == :planning_call_budget_exhausted
+    refute snapshot.status_health.complete?
   end
 
   test "ignores a malformed status members shape" do
@@ -493,8 +510,9 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     on_exit(fn -> File.rm_rf(directory) end)
 
     snapshot = PlanningSource.catalog()
-    assert snapshot.health.state == :unavailable
-    assert snapshot.health.failure == :pack_status_incomplete
+    assert snapshot.health.state == :healthy
+    assert snapshot.status_health.state == :unavailable
+    assert snapshot.status_health.failure == :pack_status_incomplete
   end
 
   test "membership recovery does not regress the PackStatus-backed generation" do
@@ -658,11 +676,104 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     end)
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
-    assert snapshot.health.state == :unavailable
-    refute snapshot.health.complete?
+    assert snapshot.health.state == :healthy
+    assert snapshot.health.complete?
+    assert snapshot.membership_health.state == :unavailable
+    assert snapshot.membership_health.failure == :membership_unavailable
 
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
-    assert model.status == :provider_unavailable
+    assert model.status == :ready
+    assert length(model.nodes) == 2
+    assert length(model.edges) == 1
+    assert Enum.all?(model.nodes, & &1.card.planned?)
+  end
+
+  test "unavailable membership cannot supply a terminal ticket state" do
+    path = Aiur.TestSupport.tmp_root!("planning-source-unavailable-member") <> ".json"
+    File.write!(path, @canonical_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    {:ok, live_identity} =
+      TrackerIdentity.from_github(
+        %{"number" => 4101, "node_id" => "I_stale_4101"},
+        {"acme", "widgets"},
+        {"acme", "widgets"}
+      )
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      %{
+        generation: 9,
+        health: :healthy,
+        freshness: %{status: :unavailable},
+        members: [%{identity: live_identity, lifecycle: :completed, labels: ["agent:done"]}]
+      }
+    end)
+
+    on_exit(fn -> File.rm(path) end)
+
+    [root] = PlanningSource.catalog().data.entries
+    assert root.progress_resolution == :unresolved
+
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    [member | _] = snapshot.data.members
+    assert member.lifecycle.state == :unknown
+    assert member.identity.provider_id == "PLAN_AS-101"
+    refute "agent:done" in member.labels
+  end
+
+  test "cold globally paused membership keeps a mixed materialized plan readable" do
+    directory = Aiur.TestSupport.tmp_root!("planning-source-paused-mixed")
+    path = Path.join(directory, "build-order.json")
+    File.mkdir_p!(directory)
+    File.write!(path, @mixed_pack)
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+
+    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
+      %{generation: 0, health: :healthy, freshness: %{status: :unavailable}, members: []}
+    end)
+
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    catalog = PlanningSource.catalog()
+    assert catalog.health.state == :healthy
+    assert catalog.membership_health.state == :unavailable
+    assert catalog.status_health.state == :unavailable
+    assert [%{identity: identity, progress_resolution: :partial}] = catalog.data.entries
+
+    {:ok, selected} = PlanningSource.demand(identity)
+    assert selected.health.state == :healthy
+    assert selected.membership_health.state == :unavailable
+    assert [%{lifecycle: %{state: :unknown}}, %{draft?: true}] = selected.data.members
+
+    model = BuildOrderPresenter.present(selected, :unavailable, :unavailable)
+    assert model.status == :ready
+    assert length(model.nodes) == 2
+    assert length(model.edges) == 1
+    assert [%{url: "https://github.com/acme/widgets/issues/4101"}] = model.edges
+    refute Enum.any?(model.diagnostics, &(&1.code == :invalid_url))
+
+    {route, []} = RouteState.new("paused-test") |> RouteState.navigate("9900")
+    {route, [{:activate, ^identity}]} = RouteState.put_catalog(route, catalog)
+    {route, :generation} = RouteState.put_selected(route, selected)
+
+    html =
+      render_component(&BuildOrderSelected.build_order_selected/1, %{
+        route_state: route,
+        model: model,
+        now: ~U[2026-09-29 12:00:00Z],
+        analytics_scope: %{state: :none},
+        usage_scope: %{state: :none}
+      })
+
+    assert html =~ "The plan is readable, but live execution state is unresolved"
+    assert html =~ "Ticket status is unavailable"
+    assert html =~ "Build Order graph summary"
+
+    assert {:ok, cli} = BuildOrdersCLI.build(source: PlanningSource, root: "9900")
+    assert get_in(cli, ["sources", "planning_graph", "state"]) == "available"
+    assert get_in(cli, ["sources", "membership", "state"]) == "unavailable"
+    assert get_in(cli, ["sources", "ticket_status", "state"]) == "unavailable"
+    assert get_in(cli, ["data", "graph", "status"]) == "ready"
   end
 
   test "discovers canonical packs from the runtime build-order directory" do

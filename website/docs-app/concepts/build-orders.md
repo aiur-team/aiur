@@ -31,6 +31,8 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 
 On the catalog, ticket, epic and wave counts remain numeric when resolution succeeds, including a real `0`. A count that could not be resolved never renders as `0` or as a bare dash—it names its cause instead:
 
+A local planning pack remains readable when a run starts globally paused before its first membership snapshot. The selected page and `aiur build-orders` identify unavailable current-run membership or ticket status separately from plan readability; any unobserved ticket state or completion remains unresolved. Draft members link to their local ticket documents rather than to invented GitHub issues.
+
 | Cell | Meaning | What to do |
 | --- | --- | --- |
 | `Budget exhausted` | The planning query budget or a local GraphQL hold blocked the read. Shows the reset time when the hold reports one. | Wait for the reset, or raise `tracker.github.planning_page_budget` / `planning_call_budget`. |
