@@ -363,17 +363,6 @@ defmodule Aiur.Application do
       # (#2714). A table owned by a poll writer would die with it.
       Aiur.GitHub.OpenIssueSnapshot,
       Aiur.GitHub.ResourceStore,
-      # The bounded time-series the `/github-cache` history charts draw. Starts
-      # after the store it samples, so its first sample never races the store's
-      # boot fill; it reads ETS only, so it changes nothing about the page's
-      # zero-fetch property. Gated on the dashboard like the HTTP server that
-      # serves the page — there is no point sampling a cache nobody can view.
-      #
-      # `QuotaHistory` is the sibling ring behind the same page's "what is
-      # spending the budget" charts. It reads `Aiur.GitHub.Quota`'s already-held
-      # observations — a GenServer call, no client and no transport — so it too
-      # changes nothing about the page's zero-fetch property.
-      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory, Aiur.GitHub.AgentCacheMetrics]),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
