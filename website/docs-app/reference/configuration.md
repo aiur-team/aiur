@@ -370,9 +370,15 @@ Remote workers and Claude Remote Control are unsupported for Muse.
 
 #### `agent.backend_configs.gemini`
 
-Select `gemini` in `agent.priority` to run the installed Gemini CLI through its native ACP session. Authenticate and approve workspace trust in Gemini CLI before dispatch; Aiur uses that existing login and never stores the credential. Aiur connects its ticket-scoped tools over an authenticated local MCP endpoint. Native tool requests appear in the chat pane as `/approve <token> <choice>` commands; only the selected choice is returned. Aiur selects Gemini's default approval mode at session start so an ambient auto-approval preference does not bypass the chat decision. Gemini's folder trust still applies.
+Select `gemini` in `agent.priority` to run the installed Gemini CLI through its native ACP session. Authenticate and approve workspace trust in Gemini CLI before dispatch; Aiur uses that login and never stores the credential. Aiur connects ticket-scoped tools over an authenticated local MCP endpoint.
 
-Aiur loads a stored Gemini session by exact ID after restart. It creates a new one only if Gemini confirms that exact session is missing; authentication, transport, and uncertain failures stop the ticket. Gemini does not support Aiur remote workers, Claude Remote Control, or reasoning effort routing. Model choices come from the authenticated CLI's ACP session catalog. Gemini CLI 0.61.0's per-turn ACP quota counts feed token usage without an inferred price; other CLI versions show unknown usage until their wire shape is verified. Account allowance is unavailable; unavailable never means zero.
+Native approval choices appear in chat as `/approve <token> <choice>` commands. Aiur returns only the selected choice and sets Gemini's default approval mode at session start. Gemini's folder trust still applies.
+
+Aiur loads a stored Gemini session by exact ID after restart. It creates a new one only if Gemini confirms that session is missing; authentication, transport, and uncertain failures stop the ticket. Gemini does not support Aiur remote workers, Claude Remote Control, or reasoning effort routing.
+
+Gemini CLI 0.61.0's per-turn quota counts feed token usage without an inferred price. Other CLI versions show unknown usage until their wire shape is verified. Account allowance is unavailable; unavailable never means zero.
+
+Model choices come from the authenticated CLI's ACP session catalog.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |

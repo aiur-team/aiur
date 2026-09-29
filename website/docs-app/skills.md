@@ -20,6 +20,7 @@ Aiur ships Agent Skills under `.claude/skills/`, with shared links for Codex und
 These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under `<workspace>/.claude/skills/`, `<workspace>/.codex/skills/`, `<workspace>/.agents/skills/`, and `<workspace>/.gemini/skills/`.
 
 Muse loads workspace skills and rules only when `agent.backend_configs.muse.trust_workspace` is explicitly enabled.
+
 Gemini CLI discovers `.gemini/skills/` and `GEMINI.md` according to its own folder-trust settings; review the workspace before granting that trust in Gemini.
 
 | Skill | Loaded when | Covers |
