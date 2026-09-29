@@ -95,12 +95,13 @@ defmodule AiurEngineTest do
              "AIUR_OPERATOR_PID AIUR_LAUNCHER_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS"
   end
 
-  test "fresh foreground pane receives its owning launcher pid for the watchdog" do
+  test "fresh foreground pane receives its launcher pid and tmux bridge helper" do
     rel = fake_release()
     state = tmp_state()
     tmp = Aiur.TestSupport.tmp_root!("aiur-launcher-watchdog")
     pane_copy = Path.join(tmp, "pane.sh")
     session = Path.join(tmp, "session")
+    helper_option = Path.join(tmp, "ctrlc-option")
     File.mkdir_p!(tmp)
 
     tmux =
@@ -112,6 +113,7 @@ defmodule AiurEngineTest do
           exit 0
           ;;
         *" has-session "*) [ -f "#{session}" ]; exit $? ;;
+        *" set-option -g @aiur_ctrlc "*) echo "$*" > "#{helper_option}"; exit 0 ;;
         *" attach "*) exit 0 ;;
         *" kill-session "*) rm -f "#{session}"; exit 0 ;;
         *) exit 0 ;;
@@ -149,6 +151,7 @@ defmodule AiurEngineTest do
     [_, launcher_pid] = Regex.run(~r/LAUNCHER_PID=(\d+)/, out)
     assert File.read!(pane_copy) =~ "export AIUR_LAUNCHER_PID=#{launcher_pid}\n"
     refute File.read!(pane_copy) =~ "export AIUR_LAUNCHER_PID=999999\n"
+    assert File.read!(helper_option) =~ "set-option -g @aiur_ctrlc #{Path.dirname(@engine)}/aiur-pane-ctrlc"
   end
 
   test "sourced-engine runs isolate the node identity so reaps can't hit a live host node" do
