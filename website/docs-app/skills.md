@@ -35,7 +35,9 @@ token.
 Issue workers select focused tests from the target repository's instructions,
 package scripts, and CI configuration. The bundled `aiur-agent` skill's `mix`
 examples apply to Aiur's Elixir core; a TypeScript workspace uses its own
-runner. The `aiurdev --test` / `--test3` guard prevents destructive Aiur
+runner.
+
+The `aiurdev --test` / `--test3` guard prevents destructive Aiur
 sandbox resets from issue workspaces, not ordinary repository tests.
 
 ## Executor skills
