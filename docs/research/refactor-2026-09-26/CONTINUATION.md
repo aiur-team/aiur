@@ -4,13 +4,16 @@ The user resumed the full research goal on 2026-09-26. The pause recorded in
 `HANDOFF.md` is historical; no fleet operation or production implementation is
 authorized by this research goal. The original handoff is preserved.
 
-The requirement-by-requirement status is in
-`synthesis/final-research-audit.md`. The frozen research, review and feature
+The current status is in `synthesis/STATUS.md`; the requirement-by-requirement
+audit is in `synthesis/final-research-audit.md`. Checkpoints below preserve
+their historical state, including tasks subsequently completed. The frozen
+research, review and feature
 catalog are published. The literal request for a cause for every historical
 gap remains unsatisfied because retained evidence cannot support it, and the
 CE plan has a documented deepen pass but remains `requirements-only` pending
 current-head semantic disposition of 889 P2/P3 findings, owner-map validation
-and behavior tests for its decisions. The complete
+and behavior tests for its decisions. The completed contextual private-source
+review covers the published tip; new evidence needs another review. The complete
 `synthesis/current-head-static-triage.md` checks all 986 citation anchors
 against pinned `main`, while leaving runtime incidence unverified. Keep the
 research goal open; do not interpret checked artifact boxes as
