@@ -23,8 +23,8 @@ membership is not proof of condition-level delivery or operational incidence. Fu
   2026-07-06 it had 162 files and 58,684 lines, so the code grew 4.4× in under
   three months. Tests are larger than the code: 846 `*_test.exs` files and
   310,187 lines in `src/test`.
-- **One knot.** 35 of the 36 candidate boundaries form one strongly connected
-  component. Only the dev/test harness is outside it. The independent AST parser finds 98 mutually dependent boundary pairs (the
+- **One source-reference knot, not a runtime call graph.** 35 of the 36 candidate boundaries form one strongly connected
+  component under both checked static methods. Only the dev/test harness is outside it. The independent AST parser finds 98 mutually dependent boundary pairs (the
   original broader parser counted 99). This motivates contract-by-contract
   extraction analysis; it does not prove no package can move today.
 - **A relocation hypothesis reduces modeled upward references.** 320 of the 2,123 cross-boundary module
@@ -1331,7 +1331,10 @@ Rows depend on columns. Cells are distinct module-to-module edges. 440 of the
 
 **Strongly connected components.** At boundary level: one component of 35
 boundaries (everything except DEV). At the twelve-group level of §3.1: one
-component containing all twelve groups. 99 boundary pairs are mutual. The heaviest mutual pairs, with
+component containing all twelve groups. The original broader parser counts
+99 mutual boundary pairs and the independent AST parser counts 98 at this
+revision. These are source-reference measurements; neither is a count of
+runtime calls. The heaviest mutual pairs, with
 the edge to invert:
 
 | Pair | a→b / b→a | Why | Edge to invert |

@@ -1,6 +1,11 @@
-# Merged operational fixes: what held and what came back
+# Selected merged operational fixes and later reports
 
 Research for the 2026-09-26 refactor. Repo `aiur-team/aiur`, `origin/main` at `3339b88` (#2816).
+
+The selected chains below show concrete recurrence and cases with no later
+matching report in the checked window. They do not compare fix strategies or
+prove that every later failure has the same cause; see the `fixes-01`–`fixes-10`
+verdicts in `../synthesis/verified-claims.md`.
 
 ## Scope and method
 
@@ -455,9 +460,10 @@ In order of the operational cost of the chains above:
 1. **The running-entry state machine**, in `orchestrator/state.ex`, `lifecycle_fence.ex`,
    `comment_wake.ex`, `ci_lifecycle.ex`, `pause_resume.ex` and `dispatcher.ex`. Make
    `control.status` × liveness × pause reason an explicit type with one transition function. Give
-   every latch (fence, pause, hold, reservation) an **owner and a release condition**: a liveness
-   check or a deadline. Chains 2.1, 2.3, 2.4, 2.11, 2.13 and 2.14 are all "a latch whose release
-   depended on a process that was gone".
+   each observed latch (fence, pause, hold, reservation) an **owner and a release condition**:
+   a liveness check or a deadline where the specific failure requires it.
+   Chains 2.1, 2.3, 2.4, 2.11, 2.13 and 2.14 motivate a common review of
+   release conditions; they are not all proven to be the same dead-process defect.
 2. **One ticket-state authority.** One pure function derives the desired `agent:*` state from labels,
    the PR head, reviews at the head, CI at the head and the running entry. One writer applies it
    (`IssueState.swap_labels/4`, which agents now reach through `aiur_set_ticket_state`). This

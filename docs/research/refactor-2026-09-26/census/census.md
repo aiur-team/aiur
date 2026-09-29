@@ -33,16 +33,17 @@ aiur-team/aiur). No local source goes back that far.
 | Source | Retained window | Why it is short | How measured |
 |---|---|---|---|
 | GitHub issues and PRs | full history | — | REST `repos/{o}/{r}/issues?state=all --paginate` |
-| GitHub `agent:*` label events | aiur: **2026-07-17 → now only**; other repos: full | The repo `issues/events` endpoint stops at 300 pages (30,000 events). aiur reached this limit. | `gh api -i .../issues/events?per_page=100` Link header shows `page=300` for aiur |
-| Codex sessions `~/.codex/sessions` | 2026-07-16 → now | No older rollouts on disk | `find ~/.codex/sessions -mindepth 2 -maxdepth 2 -type d` → only `2026/07 2026/08 2026/09` |
-| Claude transcripts `~/.claude/projects` | about 2026-09-01 → now (30-day cleanup) | Claude Code cleanup (`~/.claude/.last-cleanup` = 2026-09-26T15:05Z); oldest `*.jsonl` mtime = 2026-09-01 | `find ~/.claude/projects -mindepth 2 -maxdepth 2 -name '*.jsonl' -printf '%TY-%Tm-%Td\n' \| sort \| head -1` |
+| GitHub `agent:*` label events | repo-wide aiur feed: **2026-07-17 → now**; individual issues can have older events | The repo `issues/events` endpoint stops at 300 pages (30,000 events); per-issue event history remains queryable. | `gh api -i .../issues/events?per_page=100` Link header shows `page=300` for aiur; `issues/{n}/events` verifies older labels |
+| Codex sessions `~/.codex/sessions` | 2026-07-16 → now | This machine was installed on 2026-07-17; an older local rollout corpus did not exist here | `find ~/.codex/sessions -mindepth 2 -maxdepth 2 -type d` → only `2026/07 2026/08 2026/09` |
+| Claude transcripts `~/.claude/projects` | top-level mtimes about 2026-09-01 → now; nested content can be older | Cleanup uses a 30-day default; one retained Executor session includes content from 2026-08-21 | top-level `*.jsonl` mtime census, then recursive content timestamps |
 | Claude prompt history `~/.claude/history.jsonl` | 2026-07-19 → now | Keeps interactive prompts only (1,201 lines) | `scratch/claude_hist.py` |
 | Run logs `~/.aiur/logs/*/` | **2026-09-15 → now** (39 dirs) | Older run dirs were pruned | `find ~/.aiur/logs -mindepth 1 -maxdepth 1 -type d \| wc -l` → 39 (the brief said 40) |
 | Run summaries `~/.aiur/repo/*/*/analytics/runs/*/run-summary.json` | 21 older runs, 2026-08-08 → 2026-09-17 | They name source run dirs that no longer exist | `scratch/final_runs.py` |
 | Workspaces on disk | open tickets only | Aiur deletes a workspace when its ticket closes | `find` on the three workspace roots (section 3) |
 
-So the agent and Executor session counts are **lower bounds for aiur**. aiur merged 573
-PRs from May through July. No agent transcript for that period is on disk.
+So the agent and Executor session counts are **lower bounds for aiur**. Aiur merged 573
+PRs from May through July, but the claim that none has a local agent transcript is
+false: at least 27 July-merged PRs have matching retained Codex agent sessions.
 
 **Repo identity (surprise).** `aiur-team/architecture-docs` was **renamed** to
 `aiur-team/archon`. `gh api repos/aiur-team/architecture-docs` returns
@@ -270,7 +271,7 @@ looks like a handoff loop or Executor thrash, not 58 real Executor changes.
 | kevinweaver-dev | 0 | — | 0 | 0 | 0 | 9 | 2026-08-03 | — |
 
 - **Correction to the brief.** The known figures "aiur retros=39, archon=6, khala=7, architecture-docs=6" count every `*.md` recursively. Most of those are per-check `verdict.md` files inside `<retro>.md.d/dashboard-<epoch>/`. The real retro documents number 8 / 2 / 3 / 1. Each retro doc has a `.md.d` folder of hourly snapshot dirs (38 / 8 / 23 / 8).
-- aiur `meta/*.md` by filename date: 08-08: 2, 08-09: 9, 08-10: 15, 08-11: 8, 08-21: 18, 08-22: 20, 08-23: 19, 09-10: 1, 09-11: 1. So 91 of the 93 files come from 7 days. **No aiur meta file is newer than 2026-09-11**, and khala has none at the top level. The durable meta log stopped about 2 weeks ago. Only retros, findings and handoffs continue.
+- aiur `meta/*.md` by filename date: 08-08: 2, 08-09: 9, 08-10: 15, 08-11: 8, 08-21: 18, 08-22: 20, 08-23: 19, 09-10: 1, 09-11: 1. So 91 of the 93 files come from 7 days. **No aiur top-level meta file is newer than 2026-09-11**, and khala has none at the top level. This directory count does not capture khala's later hourly records embedded in a per-run retrospective; top-level absence is not proof that the check-in practice stopped everywhere.
 
 ---
 
@@ -370,13 +371,13 @@ The 12 most frequent topic classes:
 ## 9. Surprises (short list)
 
 1. **architecture-docs and archon are one GitHub repo** (renamed, same id 1355265471), but Aiur keeps two state dirs, two wake streams and two agent-transcript namespaces for it.
-2. **Most history is gone.** Run logs start at 2026-09-15, Claude transcripts at about 2026-09-01, Codex at 2026-07-16, and aiur label events at 2026-07-17. aiur began on 2026-05-18. 573 merged aiur PRs (May–July) have no local agent trace.
+2. **Local evidence has different windows.** Run logs start at 2026-09-15; top-level Claude transcript mtimes start about 2026-09-01 but nested content is older; Codex starts at the installation-era 2026-07-16; the repo-wide aiur event feed reaches back only to 2026-07-17 while per-issue events can reach May. At least 27 July-merged PRs have matching retained agent sessions.
 3. **80% of Codex agent threads are subagents.** Agents spawned 4,812 subagent threads for 1,188 top-level threads.
 4. **khala: 58 Executor handoffs on 2026-09-18**, with a median gap of 4.4 minutes.
-5. **The /aiur-meta log stopped.** No `meta/*.md` in any repo after 2026-09-11, and 91 of the 93 aiur meta files come from 7 days. The known "retros=39" figure counts `verdict.md` snapshots; there are 8 real retro documents.
+5. **Top-level `/aiur-meta` files stopped, not all check-ins.** No top-level `meta/*.md` was found after 2026-09-11, and 91 of the 93 aiur files come from 7 days. Khala per-run retrospective content still records hourly entries through 2026-09-17 12:33Z. The known "retros=39" figure counts `verdict.md` snapshots; there are 8 real retro documents.
 6. **In September, aiur merge throughput fell to about a quarter of the August rate** (136 vs 499). The fleet was on khala and archon.
-7. **aiur agent PRs: 22% closed without merge** (277 of 1,246). archon and khala: under 1%.
-8. **Capacity-starved wakes are 57–65% of the wakes in the archon/architecture-docs streams.** They are noise that the Executor must read.
+7. **The raw aiur agent-PR closed-unmerged rate is 22%** (277 of 1,246), but 192 were sandbox fixtures, 35 develop-branch closures and 27 superseded; the unexplained remainder is about 23. It cannot be compared directly with archon and khala's under-1% raw rate.
+8. **Capacity-starved wakes are 57–65% of historical archon/architecture-docs streams.** The large bursts came from two subsequently fixed bugs, so this is not a measured current wake rate.
 9. **23% of run dirs are empty or aborted boots**, in clusters. Three daemons ended together on 2026-09-22 15:42Z.
 10. **A misrooted khala workspace** (`~/.aiur/workspaces/khala/aiur-team/khala`) has 26 Codex sessions, and a nested Claude project exists under a khala agent's runtime tmp.
 

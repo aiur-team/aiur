@@ -15,21 +15,25 @@ with the key replaced by `<REDACTED>`.
 
 ## 1. Headline
 
-- **56.5% of all agent turns do nothing.** 12,768 of 22,613 turns are "continuation" turns
-  in which the agent makes 0–1 tool calls and ends the turn. 94% of them take under 60 s.
-  The agent is waiting — on a dependency (28%), CI (28%), human review (14%) or an Executor
-  decision (6%) — and the daemon keeps re-prompting it. On Codex alone these turns
-  consumed about **2.5 billion tokens** (about 204k per turn, almost all cached input).
-  The pattern is not historical: it was 52% of turns in ISO week 38 and 29% in week 39.
-- **One no-op loop can take the whole Claude fleet offline.** On khala#230 (2026-09-26),
+- **56.5% of retained agent turns are short continuation turns.** 12,768 of 22,613 turns
+  followed a normal continuation prompt, made 0–1 tool calls and ended. They
+  consumed about **20 hours of measured turn time**; the earlier 186-hour
+  figure included idle time before a later resume. Many were waits, but the
+  final-message categories do not establish a cause for every turn. The Codex
+  token-event sum is about **2.5 billion**, mostly cached input; it is not a
+  measurement of unique billable tokens or a causal saving. Weekly shares
+  (52% in week 38, 29% in week 39) are concentrated in a few threads and
+  changed with provider mix, not with a fix that later regressed.
+- **One no-op loop contributed to a shared Claude limit.** On khala#230 (2026-09-26),
   267 turns in 41 minutes, each saying *"Nothing has changed since last turn. I'm still
   blocked on the Executor's answer…"*, added **$33.71** of metered cost and then hit the
-  account session limit. Every Claude agent shares that limit.
+  account session limit. Every Claude agent shares that limit, but this one
+  loop alone is not established as the cause of the fleet-wide outage.
 - **When a provider limit is hit, the dispatcher keeps relaunching.** 189 Claude sessions
   (14.8% of all Claude sessions) died in under 4 s with *"You've hit your session limit"*
   or *"out of usage credits"*. architecture-docs#41 was relaunched **27 times in 92 minutes**
   against a limit that reset hours later.
-- **The guard command in the agent prompt does not exist on the agents' PATH.**
+- **A guard command in the historical agent prompt did not exist on the agents' PATH; removal is planned before release.**
   `aiur guard-pr-deletions` returned `aiur: unknown command` in **579 sessions (24%) on
   384 tickets**, from 2026-08-11 through today (2026-09-26). 408 of those sessions then
   spent tool calls searching for it. Separately, at least 1,052 guard invocations pipe it
@@ -138,7 +142,7 @@ Executor must act.
 
 | # | Failure / waste mode | Frequency | Cost | Repos | Forces Executor? |
 |---|---|---|---|---|---|
-| 1 | **No-op continuation loop:** the agent is waiting, but the daemon keeps issuing continuation turns | 12,768 turns (56.5% of all); 1,364 streaks ≥3 turns, 712 ≥10, 31 ≥20; 207 sessions / 157 tickets | 186 h of turn time; about 2.5 B Codex tokens; khala#230: $33.71 in 41 min, then an account-wide session limit | all public; heaviest aiur (Codex), khala (Claude) | Indirect. The agent is waiting *for* the Executor (review, decision) or CI. The burned quota then causes mode 2, which does force action |
+| 1 | **Short continuation loop:** the daemon keeps issuing continuation turns while the ticket remains active | 12,768 turns (56.5% of all); 1,364 streaks ≥3 turns, 712 ≥10, 31 ≥20; 207 sessions / 157 tickets | about 20 measured turn-hours; about 2.5 B Codex token-event sum (mostly cached input); khala#230: $33.71 in 41 min, then a shared account limit | all public; heaviest aiur (Codex), khala (Claude) | Indirect. Many agents await review, decisions or CI; the loop's exact contribution to a later account limit is not isolated |
 | 2 | **Provider usage/session limits and dispatch retry storms** | Claude: 189 dead-on-arrival sessions, 220 sessions ending on a limit, 50 tickets. Codex: 380 turns ended by `usage limit` (155 threads, 101 tickets; 260 turns on 08-10). Daemon: 186 `claude exited with code 1` turn failures (429 session limit), 42 workspaces. Codex `401 Incorrect API key`: 70 turns, 19 khala threads on 09-25 | Fleet-wide stop until reset; relaunch churn (architecture-docs#41: 27 launches in 92 min) | all | **Yes.** 55 `paused-usage_limit_exhausted` attentions (17 workspaces); resume or reroute the model |
 | 3 | **Restart / interrupt / process-death churn** | Reproduced: about 257 gap-chained waves; 2,622 resume turns in 577 threads (p90 11, max 41 per thread); 1,149 interrupted main-thread turns. Retained daemon counts, not rechecked here: `port_exit` 109 (80 ws), `startup_failed: port_closed` 68 (47 ws), `turn_interrupt_failed` 116 (77 ws), SIGTERM exit 143 ×19, `spawn … EAGAIN` ×3 | 122.4 h recorded interrupted-turn duration, not measured loss; approximately 1,110 skill reads in the first 12 calls; 301 threads end aborted | all | Initiator and discarded-work attribution are not established; preserve recovery contracts |
 | 4 | **Blocked on an Executor answer:** unanswered decision, stale `CHANGES_REQUESTED`, re-review | `decision.requested` in 99 sessions (81 tickets); 670 `operator-decision` attentions (45 ws); 715 no-op turns name the pending decision; 66 rework sessions concluded "nothing to rework" (stale review); alerts `stale-review-verdict` 38, `stale-changes-requested` 22, `rework-loop` 14, `blocked-human-reapproval` 15 | Tickets idle until answered, and they loop (mode 1) meanwhile | all | **Yes, by definition** |
@@ -190,9 +194,11 @@ checks were genuine waits):
 **By week** (share of all turns): W31 70%, W32 78%, W33 44%, W34 29%, W36 13%, W37 0%,
 W38 52%, W39 29%.
 
-**Cost.** 186 h of turn time. For Codex, the per-turn `token_count` deltas summed over these
+**Cost.** About 20 h of measured turn time; the earlier 186 h included time
+between a turn and a later resume. For Codex, the per-turn `token_count` deltas summed over these
 turns come to 2,498,613,667 tokens (1.68 M output+reasoning), about 204k per no-op turn,
-because every turn re-sends the whole context.
+because every turn re-sends the whole context. This is a token-event sum,
+mostly cached input, not a measured unique-billable-token saving.
 
 Evidence:
 
