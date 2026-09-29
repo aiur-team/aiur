@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
-  alias Aiur.{GitHub.Client, GitHub.Issues, GitHub.ResourceStore, Issue, Orchestrator.DispatchPolicy}
+  alias Aiur.{GitHub.Client, GitHub.DispatchAuthorization, GitHub.Issues, GitHub.ResourceStore, Issue, Orchestrator.DispatchPolicy}
 
   # A double of `/issues/:n/dependencies/blocked_by` as observed on the reported
   # run: it answers `304` to anything carrying a validator — its ETag tracks the
@@ -337,7 +337,7 @@ defmodule Aiur.GitHub.IssuesTest do
       assert_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/99/timeline?per_page=50"}
       refute_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/2413/timeline?per_page=50"}
 
-      Aiur.GitHub.DispatchAuthorization.clear_cache()
+      DispatchAuthorization.clear_cache()
 
       assert {:ok, [%Issue{identifier: "99", dispatch_authorized?: true}], _cache} =
                Client.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
