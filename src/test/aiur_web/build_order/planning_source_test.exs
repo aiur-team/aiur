@@ -776,6 +776,32 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert get_in(cli, ["data", "graph", "status"]) == "ready"
   end
 
+  test "a draft blocker in a mixed pack has no invented URL or live blocking state" do
+    path = Aiur.TestSupport.tmp_root!("planning-source-draft-blocker") <> ".json"
+
+    pack =
+      @mixed_pack
+      |> Jason.decode!()
+      |> Map.update!("tickets", fn tickets ->
+        Enum.map(tickets, fn
+          %{"id" => "AS-101"} = ticket -> Map.put(ticket, "depends_on", ["AS-102"])
+          %{"id" => "AS-102"} = ticket -> Map.put(ticket, "depends_on", [])
+        end)
+      end)
+
+    File.write!(path, Jason.encode!(pack))
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+    on_exit(fn -> File.rm(path) end)
+
+    [root] = PlanningSource.catalog().data.entries
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+
+    assert model.status == :ready
+    assert [%{url: nil, state: :unknown}] = model.edges
+    refute Enum.any?(model.diagnostics, &(&1.code == :invalid_url))
+  end
+
   test "discovers canonical packs from the runtime build-order directory" do
     directory = Aiur.TestSupport.tmp_root!("planning-source-discovery")
     previous_root = Application.get_env(:aiur, :repo_base_root)

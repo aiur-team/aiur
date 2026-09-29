@@ -31,7 +31,7 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 
 On the catalog, ticket, epic and wave counts remain numeric when resolution succeeds, including a real `0`. A count that could not be resolved never renders as `0` or as a bare dash—it names its cause instead:
 
-A local planning pack remains readable when a run starts globally paused before its first membership snapshot. The selected page and `aiur build-orders` identify unavailable current-run membership or ticket status separately from plan readability; any unobserved ticket state or completion remains unresolved. Draft members link to their local ticket documents rather than to invented GitHub issues.
+A local planning pack remains readable when a run starts globally paused before its first membership snapshot. The selected page and `aiur build-orders` identify unavailable current-run membership or ticket status separately from plan readability; any unobserved ticket state or completion remains unresolved. Draft members carry local ticket document paths and no invented GitHub issue URL; draft blockers cannot claim a live blocking state.
 
 | Cell | Meaning | What to do |
 | --- | --- | --- |
