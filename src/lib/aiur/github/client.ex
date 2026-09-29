@@ -343,6 +343,10 @@ defmodule Aiur.GitHub.Client do
   def fetch_classified_pr_review_comments(pr_number, opts \\ []),
     do: PullRequests.fetch_classified_pr_review_comments(pr_number, opts)
 
+  @spec fetch_classified_pr_reviews(String.t() | integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_classified_pr_reviews(pr_number, opts \\ []),
+    do: PullRequests.fetch_classified_pr_reviews(pr_number, opts)
+
   @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_unaddressed_pr_review_thread_comments(pr_number, opts \\ []) do
