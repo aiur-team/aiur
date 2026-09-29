@@ -79,6 +79,8 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 
 ## Inspect and operate a running daemon
 
+A `workspace_ownership_waiting` row reports the held generation and unproven provider exit; local Linux sessions started after this change use a recorded kernel boot ID to release unknown-provider holds after reboot, while older receipts, remote sessions, and unreadable boot IDs remain held until exit is proved.
+
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
 | `aiur help` | Prints the current launcher usage. | `aiur help` |

@@ -4,6 +4,8 @@ defmodule Aiur.Orchestrator.StatusReportTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.{State, StatusReport}
   alias Aiur.{ProgressRetention, TrackerIdentity}
+  alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.Ownership.Store
 
   test "calculates the remaining poll interval" do
     assert StatusReport.next_poll_in_ms(nil, 10) == nil
@@ -153,6 +155,43 @@ defmodule Aiur.Orchestrator.StatusReportTest do
 
     [snapshot_row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(ready)).idle
     assert snapshot_row.waiting_reason == :workspace_ownership_waiting
+  end
+
+  test "a retained unknown provider reports its exact generation and missing exit proof" do
+    identifier = "repo#unknown-#{System.unique_integer([:positive])}"
+    issue = %Issue{id: identifier, identifier: identifier, state: "todo", title: "Retained unknown provider"}
+    parent = self()
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} = Ownership.claim(identifier)
+        :ok = Ownership.expect_provider(lease)
+        send(parent, {:unknown_provider_lease, lease})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:unknown_provider_lease, lease}, 2_000
+
+    on_exit(fn ->
+      Process.exit(lease.guardian, :kill)
+      _ = Store.delete(identifier)
+    end)
+
+    Process.exit(owner, :kill)
+    assert await_reaping(identifier, 100)
+
+    envelope = %{issue_id: issue.id, identifier: identifier, owner: :none}
+
+    state =
+      put_in(
+        %State{last_polled_issues: %{issue.id => issue}}.dispatch_recovery.workspace_ownership.waits,
+        %{identifier => envelope}
+      )
+
+    assert [%{waiting_reason: :workspace_ownership_waiting, reason: {:workspace_ownership_waiting, generation, :not_recorded}}] =
+             StatusReport.agent_statuses(state, fn _ -> {:unavailable, nil} end)
+
+    assert generation == lease.generation
   end
 
   test "after the startup pass an idle in-progress claim reads as stale, never awaiting-dispatch" do
@@ -397,6 +436,17 @@ defmodule Aiur.Orchestrator.StatusReportTest do
       identifier: "42",
       reason: nil
     }
+  end
+
+  defp await_reaping(_identifier, 0), do: false
+
+  defp await_reaping(identifier, remaining) do
+    if match?({:ok, %{phase: :reaping}}, Ownership.current(identifier)) do
+      true
+    else
+      Process.sleep(10)
+      await_reaping(identifier, remaining - 1)
+    end
   end
 
   defp stage_only(ticket) do
