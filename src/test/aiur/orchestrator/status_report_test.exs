@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.StatusReportTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.{State, StatusReport}
   alias Aiur.{ProgressRetention, TrackerIdentity}
+  alias AiurWeb.OperatorControlCenter.UnitsRow
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
 
@@ -383,6 +384,46 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     [row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).running
     assert row.progress_percent == nil
     assert row.progress_freshness == :unknown
+  end
+
+  test "Units keeps a missing running turn count unknown but preserves an observed zero" do
+    ticket = identity("turn-count-source")
+
+    issue = %Issue{
+      id: "turn-count-source",
+      identifier: "repo#turn-count-source",
+      state: "in-progress",
+      title: "Turn count source",
+      tracker_identity: ticket
+    }
+
+    entry = %{
+      identifier: issue.identifier,
+      issue: issue,
+      started_at: DateTime.utc_now(),
+      control: %{status: :working}
+    }
+
+    for {running_entry, expected_count, expected_source} <- [
+          {entry, nil, :unknown},
+          {Map.put(entry, :turn_count, 0), 0, :status_report}
+        ] do
+      [status_row] =
+        %State{running: %{issue.id => running_entry}}
+        |> StatusReport.snapshot_input()
+        |> StatusReport.snapshot_payload()
+        |> Map.fetch!(:running)
+
+      snapshot =
+        UnitsRow.snapshot(%{
+          membership: %{members: [%{identity: ticket, lifecycle: :running}]},
+          status: %{running: [status_row], retrying: [], idle: []}
+        })
+
+      assert {:ok, row} = UnitsRow.lookup(snapshot, ticket)
+      assert row.turn_count == expected_count
+      assert row.field_sources.turn_count == expected_source
+    end
   end
 
   test "a retained reading wins over a live entry that has no progress of its own (#1963)" do

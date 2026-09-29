@@ -102,7 +102,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
   defp terminal?(:membership, member, _lifecycle), do: Map.get(member, :terminal?) == true
   defp terminal?(:status, _member, lifecycle), do: lifecycle in [:completed, :cancelled]
 
-  defp running_turn_count(%{bucket: :running, turn_count: count}) when is_integer(count) and count >= 0, do: count
+  defp running_turn_count(%{bucket: :running, turn_count_observed?: true, turn_count: count})
+       when is_integer(count) and count >= 0,
+       do: count
+
   defp running_turn_count(_status_row), do: nil
 
   defp running_context_usage(%{bucket: :running, context_usage: %{used_tokens: used} = context})

@@ -503,6 +503,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
       context_usage: Map.get(metadata, :context_usage),
       turn_count: Map.get(metadata, :turn_count, 0),
+      turn_count_observed?: Map.has_key?(metadata, :turn_count),
       started_at: started_at,
       last_codex_timestamp: Map.get(metadata, :last_codex_timestamp),
       last_codex_message: Map.get(metadata, :last_codex_message),

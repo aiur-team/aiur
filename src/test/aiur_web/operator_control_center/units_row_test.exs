@@ -547,6 +547,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
       waiting_reason: Keyword.get(attrs, :waiting_reason, :active),
       resolved_model: Keyword.get(attrs, :resolved_model),
       turn_count: Keyword.get(attrs, :turn_count),
+      turn_count_observed?: Keyword.has_key?(attrs, :turn_count),
       context_usage: Keyword.get(attrs, :context_usage),
       pause_reason: Keyword.get(attrs, :pause_reason),
       tracker_paused: Keyword.get(attrs, :tracker_paused, false),
