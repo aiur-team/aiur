@@ -1,5 +1,13 @@
 # Synthesis status — 2026-09-29
 
+The later [released-main P0/P1 action ledger](high-priority-disposition-fc8270bb.md)
+now gives all 97 canonical high-priority findings a provisional action and
+component owner at `fc8270bb`: 84 `fix` (four already statically addressed in
+the release), 12 `defer`, one `keep`, zero `invalid`. Its machine-readable rows
+retain both skeptic severities, citation status, and remaining behavior or
+decision gates. This supersedes the pre-merge high-priority disposition gap
+described below; it does not convert source findings into observed incidents.
+
 The frozen-source research has a corrected 60-claim, two-lens audit, all 32
 planned review units, a lossless 986-finding synthesis of 1,033 raw source IDs,
 and a 216-feature inventory. The two independent skeptic lenses covered all
