@@ -14,6 +14,15 @@ defmodule Aiur.Codex.StartupFailure do
   @spec record(String.t() | nil, String.t() | nil, integer(), String.t()) :: :ok
   def record(identifier, attempt_id, status, output)
       when is_binary(identifier) and is_integer(status) and is_binary(output) do
+    record_with_writer(identifier, attempt_id, status, output, &File.write(&1, &2, [:append]))
+  end
+
+  def record(_identifier, _attempt_id, _status, _output), do: :ok
+
+  @doc false
+  @spec record_with_writer(String.t() | nil, String.t() | nil, integer(), String.t(), (String.t(), String.t() -> :ok | {:error, term()})) :: :ok
+  def record_with_writer(identifier, attempt_id, status, output, writer)
+      when is_binary(identifier) and is_integer(status) and is_binary(output) and is_function(writer, 2) do
     record = %{
       ticket: identifier,
       attempt_id: attempt_id,
@@ -26,8 +35,9 @@ defmodule Aiur.Codex.StartupFailure do
     path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.#{Paths.sanitize(identifier)}.startup-failures.ndjson")
 
     with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(path, Jason.encode!(record) <> "\n", [:append]),
-         :ok <- File.chmod(path, 0o600) do
+         :ok <- File.touch(path),
+         :ok <- File.chmod(path, 0o600),
+         :ok <- writer.(path, Jason.encode!(record) <> "\n") do
       :ok
     else
       {:error, reason} -> Logger.warning("Could not persist Codex startup failure for #{identifier}: #{inspect(reason)}")
@@ -36,7 +46,7 @@ defmodule Aiur.Codex.StartupFailure do
     :ok
   end
 
-  def record(_identifier, _attempt_id, _status, _output), do: :ok
+  def record_with_writer(_identifier, _attempt_id, _status, _output, _writer), do: :ok
 
   @doc false
   @spec safe_excerpt(String.t()) :: String.t()

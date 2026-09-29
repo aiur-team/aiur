@@ -43,4 +43,22 @@ defmodule Aiur.Codex.StartupFailureTest do
     assert String.length(excerpt) == 250
     assert byte_size(excerpt) <= 1_000
   end
+
+  test "diagnostic file is private before the first and subsequent append" do
+    path = Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.private-startup.startup-failures.ndjson")
+    File.mkdir_p!(Path.dirname(path))
+    parent = self()
+
+    writer = fn destination, line ->
+      send(parent, {:mode_at_write, Bitwise.band(File.stat!(destination).mode, 0o777)})
+      File.write(destination, line, [:append])
+    end
+
+    StartupFailure.record_with_writer("private-startup", "attempt-1", 23, "startup refused", writer)
+    assert_received {:mode_at_write, 0o600}
+
+    File.chmod!(path, 0o644)
+    StartupFailure.record_with_writer("private-startup", "attempt-2", 23, "startup refused", writer)
+    assert_received {:mode_at_write, 0o600}
+  end
 end
