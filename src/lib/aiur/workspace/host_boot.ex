@@ -22,6 +22,6 @@ defmodule Aiur.Workspace.HostBoot do
   @spec parse(String.t()) :: {:ok, String.t()} | :unknown
   def parse(value) when is_binary(value) do
     boot_id = String.trim(value)
-    if Regex.match?(@boot_id_pattern, boot_id), do: {:ok, boot_id}, else: :unknown
+    if Regex.match?(@boot_id_pattern, boot_id), do: {:ok, String.downcase(boot_id)}, else: :unknown
   end
 end

@@ -11,6 +11,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
   alias Aiur.Opencode.ApiClient
+  alias Aiur.Orchestrator.StatusReason
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
@@ -308,7 +309,7 @@ defmodule Aiur.AgentRunner do
   defp emit_ownership_conflict_alert(issue, {:ok, %{phase: :reaping}} = owner) do
     case HoldStatus.for_ticket(issue.identifier) do
       %{generation: generation, proof: proof} when proof != :tracked_provider ->
-        detail = Aiur.Orchestrator.StatusReason.render({:workspace_ownership_waiting, generation, proof})
+        detail = StatusReason.render({:workspace_ownership_waiting, generation, proof})
 
         Alerts.emit_custom(
           "ticket.#{issue.identifier}.workspace.ownership_hold",
