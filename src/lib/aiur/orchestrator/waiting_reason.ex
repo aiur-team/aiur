@@ -169,11 +169,10 @@ defmodule Aiur.Orchestrator.WaitingReason do
       Keyword.get(opts, :auto_resume_retry_in_ms) != nil ->
         :paused_transient
 
-      # A workspace-ownership reclaim is a known, self-clearing wait: it has a
-      # named owner and a queued redispatch envelope. It outranks every
-      # tracker-state classification below, all of which would call the same
-      # row an orphaned or stale claim and send an operator hunting for an
-      # agent that was never lost (#2810).
+      # A workspace-ownership hold has a named owner and a queued redispatch
+      # envelope. Release may require provider-exit proof, so it is not always
+      # self-clearing. It outranks the tracker-state classifications below,
+      # which would misreport the row as an orphaned or stale claim (#2810).
       Keyword.get(opts, :workspace_recovery?, false) ->
         :workspace_ownership_waiting
 
