@@ -24,6 +24,8 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
       hook_before_run: "exit 7"
     )
 
+    alert_path = AlertLedger.path(log_roots: [Application.fetch_env!(:aiur, :runtime_state_dir)])
+
     tickets = for index <- 1..2, do: "RECOVERY-#{System.unique_integer([:positive])}-#{index}"
 
     reapers =
@@ -80,10 +82,53 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
     for {ticket, _task} <- runners do
       issue_id = "issue-#{ticket}"
       assert_receive {:worker_control_state, ^issue_id, :paused, %{kind: :before_run_failure}}, 5_000
-      refute Enum.any?(AlertLedger.read(AlertLedger.path()), &(&1["topic"] == "ticket.#{ticket}.workspace.live_session"))
+      refute Enum.any?(AlertLedger.read(alert_path), &(&1["topic"] == "ticket.#{ticket}.workspace.live_session"))
     end
 
     refute_receive {:workspace_setup_contended, _, _, _, _}
+  end
+
+  test "a local retry does not release a remote provider's reaping lease" do
+    root = Aiur.TestSupport.tmp_root!("workspace-remote-reaping")
+    ticket = "REMOTE-#{System.unique_integer([:positive])}"
+    issue_id = "issue-#{ticket}"
+    issue = %Issue{id: issue_id, identifier: ticket, state: "todo", labels: ["agent:todo"]}
+    parent = self()
+
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf(root) end)
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory", workspace_root: Path.join(root, "workspaces"))
+    alert_path = AlertLedger.path(log_roots: [Application.fetch_env!(:aiur, :runtime_state_dir)])
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry)
+        :ok = Ownership.track_provider(lease, %{remote: true})
+        send(parent, {:remote_lease_ready, lease})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:remote_lease_ready, lease}, 2_000
+
+    on_exit(fn ->
+      Process.exit(lease.guardian, :kill)
+      Store.delete(ticket)
+    end)
+
+    Process.exit(owner, :kill)
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+
+    runner = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> AgentRunner.run(issue, parent) end)
+
+    assert_receive {:workspace_setup_contended, ^issue_id, ^ticket, {:ok, %{phase: :reaping}}, _wait}, 5_000
+    assert {:ok, :ok} = Task.yield(runner, 2_000)
+    assert {:ok, %{generation: generation, provider: %{remote: true}}} = Store.get(ticket)
+    assert generation == lease.generation
+    assert {:ok, %{generation: ^generation, phase: :reaping}} = Ownership.current(ticket)
+
+    assert Enum.any?(AlertLedger.read(alert_path), fn alert ->
+             alert["topic"] == "ticket.#{ticket}.workspace.live_session" and alert["needs_attention"] == true
+           end)
   end
 
   test "a competing runner cannot replace the checkout owned by a paused provisioning generation" do
@@ -115,6 +160,8 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
       hook_before_run: "exit 7"
     )
 
+    alert_path = AlertLedger.path(log_roots: [Application.fetch_env!(:aiur, :runtime_state_dir)])
+
     first = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> AgentRunner.run(issue, test_pid) end)
 
     on_exit(fn -> if Process.alive?(first.pid), do: Task.shutdown(first, :brutal_kill) end)
@@ -137,7 +184,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
 
     # Existing policy guard: a genuinely live provisioning owner still raises
     # the operator warning. This is not coverage of the reaping retry itself.
-    assert Enum.any?(AlertLedger.read(AlertLedger.path()), fn alert ->
+    assert Enum.any?(AlertLedger.read(alert_path), fn alert ->
              alert["topic"] == "ticket.#{identifier}.workspace.live_session" and alert["needs_attention"] == true
            end)
 
