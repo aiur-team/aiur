@@ -99,6 +99,33 @@ defmodule Aiur.Workspace.ReconstructionTest do
     assert File.ls!(root) == ["ticket"]
   end
 
+  test "refuses promotion over uncommitted work and removes the clean stage", %{root: root, workspace: workspace} do
+    {_, 0} = System.cmd("git", ["init", "-q", workspace])
+    File.write!(Path.join(workspace, "work.txt"), "unfinished")
+
+    assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} =
+             Reconstruction.run(workspace, fn stage ->
+               File.write!(Path.join(stage, "README.md"), "replacement")
+               :ok
+             end)
+
+    assert File.read!(Path.join(workspace, "work.txt")) == "unfinished"
+    assert File.ls!(root) == ["ticket"]
+  end
+
+  test "keeps a Git-dirty staged checkout when preparation fails", %{root: root, workspace: workspace} do
+    assert {:error, {:staged_workspace_kept, stage, _, {:error, :prepare_failed}}} =
+             Reconstruction.run(workspace, fn stage ->
+               {_, 0} = System.cmd("git", ["init", "-q", stage])
+               File.write!(Path.join(stage, "work.txt"), "unfinished")
+               {:error, :prepare_failed}
+             end)
+
+    assert File.read!(Path.join(stage, "work.txt")) == "unfinished"
+    assert File.exists?(workspace)
+    assert length(File.ls!(root)) == 2
+  end
+
   test "keeps the workspace leaf name inside its sibling stage", %{workspace: workspace} do
     assert :ok =
              Reconstruction.run(workspace, fn stage ->

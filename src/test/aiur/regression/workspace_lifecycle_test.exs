@@ -132,7 +132,7 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
       end
     end
 
-    test "dirty leftover + todo state: recreated clean, before_run re-runs exactly once (#577)" do
+    test "dirty leftover + todo state: held with work intact" do
       test_root = test_root("todo")
 
       try do
@@ -146,16 +146,16 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
           labels: ["agent:todo"]
         }
 
-        assert :ok = Workspace.run_before_run_hook(workspace, issue)
-        assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-        assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
-        assert trace_count(trace_file) == 2
+        assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
+        assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+        assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
+        assert trace_count(trace_file) == 1
       after
         File.rm_rf(test_root)
       end
     end
 
-    test "dirty leftover + agent:todo label on in-progress retry: still recreated (#577 retry path)" do
+    test "dirty leftover + agent:todo label on in-progress retry: held with work intact" do
       test_root = test_root("retry")
 
       try do
@@ -169,10 +169,10 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
           labels: ["agent:todo"]
         }
 
-        assert :ok = Workspace.run_before_run_hook(workspace, issue)
-        assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-        assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
-        assert trace_count(trace_file) == 2
+        assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
+        assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+        assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
+        assert trace_count(trace_file) == 1
       after
         File.rm_rf(test_root)
       end
@@ -219,10 +219,10 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
           labels: ["agent:todo"]
         }
 
-        assert :ok = Workspace.run_before_run_hook(workspace, issue)
-        assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-        assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
-        assert trace_count(trace_file) == 2
+        assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
+        assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+        assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
+        assert trace_count(trace_file) == 1
       after
         File.rm_rf(test_root)
       end
@@ -289,11 +289,11 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
     end
   end
 
-  describe "agent support after restart recreation (#2697)" do
+  describe "agent support after restart (#2697)" do
     # End to end: the Refresh reinstall and the dispatch check both restore these
     # pieces, so either one alone keeps this green. RefreshTest's exit-65 test
     # proves the Refresh reinstall on its own.
-    test "restart dispatch that recreates a dirty leftover workspace ends with the full .aiur-runtime" do
+    test "restart dispatch retains dirty workspace and its full .aiur-runtime" do
       test_root = test_root("restart-support")
 
       try do
@@ -308,16 +308,15 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
           labels: ["agent:todo"]
         }
 
-        # The restart dispatch order in AgentRunner: reuse the existing checkout,
-        # then before_run refuses the dirty tree (exit 65) and the todo dispatch
-        # recreates the workspace from scratch.
+        # The restart dispatch order in AgentRunner reuses the existing checkout.
+        # A refused dirty refresh now stops before replacement and retains support.
         assert {:ok, ^workspace} = Workspace.create_for_issue(issue)
-        assert :ok = Workspace.run_before_run_hook(workspace, issue)
-        assert trace_count(trace_file) == 2
-        assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
+        assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
+        assert trace_count(trace_file) == 1
+        assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
 
         assert_full_agent_runtime!(workspace)
-        assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
+        assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
       after
         File.rm_rf(test_root)
       end
