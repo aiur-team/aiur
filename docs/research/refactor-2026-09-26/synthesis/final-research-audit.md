@@ -15,7 +15,7 @@ share of historical idle time.
 | 4. Merged fixes | The [fix history](../fixes/merged-fixes.md) traces selected held and recurrent changes; ten claims received both checks. | It does not prove one universal repair strategy or comparative effectiveness. |
 | 5. Agent failure modes | The [session analysis](../agents/agent-failure-modes.md) and ten checked claims distinguish 12,768 short continuation turns from the approximately 20 measured turn-hours. | Retained sessions and provider mix limit fleet-wide cost extrapolation. |
 | 6. Feature boundaries | The [boundary survey](../codebase/feature-boundaries.md) and [architecture verification](architecture-verification.md) describe extraction candidates, revisions and graph methods. | Source-reference connectivity is not package feasibility or runtime incidence. |
-| 7. Code review | All 32 planned units are represented by [1,033 raw source IDs reconciled to 986 findings](../review/code-review.md). The [lossless index](../review/findings.json) preserves every raw claim; two independent skeptics covered all 182 inherited P0/P1 IDs. [Boundary index](../review/by-boundary.md) and [contradiction audit](report-wide-contradictions.md) cover duplication and unnecessary complexity. | The 851 inherited P2/P3 source IDs lack the same independent skepticism. Frozen static findings require current-head exposure checks before tickets. |
+| 7. Code review | All 32 planned units are represented by [1,033 raw source IDs reconciled to 986 findings](../review/code-review.md). The [lossless index](../review/findings.json) preserves every raw claim; two independent skeptics covered all 182 inherited P0/P1 IDs. All 889 canonical P2/P3 findings now have [three-part static triage](../review/p2p3-triage-part-1.json) and an [exact coverage check](../tooling/audit_p2p3_triage.py). [Boundary index](../review/by-boundary.md) and [contradiction audit](report-wide-contradictions.md) cover duplication and unnecessary complexity. | The 851 inherited P2/P3 source IDs still lack the same two independent skeptic lenses. Static triage leaves 197 unknown mechanisms and one unsupported overclaim; [threshold reconciliation](p2p3-triage-threshold-cross-review.md) and merged-main exposure checks precede tickets. |
 | 8. Feature inventory and LOC | All 216 frozen features have use evidence and a working decision in the [catalog](../features/features.json); all 91 raw cut/merge/externalize proposals were challenged. [LOC scenarios](../features/loc-reduction.md) count 51 unique candidate files and 17,944 gross physical lines without double-counting shared feature labels. | Conditional deletion is not measured net reduction. Dynamic callers, replacement paths and operator value need current-head checks. |
 
 ## Cross-cutting completion contract
@@ -26,15 +26,15 @@ share of historical idle time.
 | 60 claim pairs and six source reports | [Claim/question audit](claim-question-audit.md) matches 60 IDs and 120 lens values; all six reports carry corrected lead readings. A verdict may preserve a narrower problem while rejecting its inherited headline. |
 | Synthesis | [Verified claims](verified-claims.md), [problem map](problem-map.md), [contradictions](contradictions.md), [rewrite requirements](rewrite-requirements.md) and [open questions](open-questions.md) are published with detailed sources linked rather than duplicated. |
 | Unnecessary complexity | The catalog classifies 24 working cuts, 10 merges, 110 simplifies, 5 externalizations and 67 keeps. These are frozen planning judgments; the [plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) requires current use, behavior parity and actual removed-versus-moved LOC before implementation. |
-| Hard 500/preferred 200 lines | The corrected [frozen census](file-size-analysis.md) reproduces all 3,378 tracked paths, including 359 UTF-8 text files >500 and 1,192 >200. The [owner map](oversized-file-owner-map.md) covers all 359 with proposed dispositions: 344 split, eight regenerate/replace and seven conditional removals. The plan requires an automated universal 500-line gate, transitional counted debt and cohesion review above 200, including docs/tests/skills/vendor/generated text. The codebase does **not** meet the cap yet. |
-| CE brainstorm → plan → deepen | [Requirements framing](../../../brainstorms/2026-09-29-aiur-refactor-requirements.md) and a [deepened phased plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) exist. The plan remains `requirements-only`, since [static current-head citation triage](current-head-static-triage.md) does not establish runtime incidence or semantic disposition of the 889 P2/P3 findings. Validation of the proposed >500-file owner map and behavior tests for degraded CODEOWNERS trust, store durability and the first package seam remain gates. |
+| Hard 500/preferred 200 lines | The corrected [frozen census](file-size-analysis.md) reproduces all 3,378 tracked paths, including 359 UTF-8 text files >500 and 1,192 >200. The [owner map](oversized-file-owner-map.md) covers all 359 with proposed dispositions: 344 split, eight regenerate/replace and seven conditional removals. [All 359 owner rows](oversized-file-owner-map-audit-summary.md) have a pre-release candidate audit: 355 remain >500 and four GitHub cache page paths are absent. The plan requires an automated universal 500-line gate and cohesion review above 200 for docs/tests/skills/vendor/generated text. The codebase does **not** meet the cap yet. |
+| CE brainstorm → plan → deepen | [Requirements framing](../../../brainstorms/2026-09-29-aiur-refactor-requirements.md) and a [deepened phased plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) exist. The plan remains `requirements-only`: static triage and candidate owner audits need [decision reconciliation](p2p3-triage-reconciliation-overlay.md), a merged-main refresh, and behavior tests for degraded CODEOWNERS trust, store durability and the first package seam before implementation tickets. |
 
-The frozen >500 owner map is now present, so the remaining plan blocker is
-validation of those *proposed* semantic seams on merged main, alongside the
-other listed policy and exposure decisions. The static triage gives all
-986 findings a source-anchor status, with 26 original citation defects; 30
-of 32 defective locations have source-verified corrected anchors appended.
-It leaves every finding's runtime incidence unverified.
+The static triage gives all 986 findings a source-anchor status, with 26
+original citation defects; 30 of 32 defective locations have source-verified
+corrected anchors appended. The [release-candidate delta](release-candidate-finding-delta.md)
+finds 290 findings with changed or deleted cited paths and nine exact subjects
+statically removed. This is preparation for a merged-main recheck; it leaves
+every finding's runtime incidence unverified.
 
 ## Reproduction checks
 
@@ -42,11 +42,17 @@ It leaves every finding's runtime incidence unverified.
   32/32 raw review units and 91/91 challenged feature candidates.
 - `tooling/audit_review_synthesis.py` verifies exact raw-claim equality and
   one-time coverage of 1,033 source IDs in 986 canonical findings; 182 have
-  two independent static reviews and 851 remain provisional.
+  two independent static reviews and 851 remain provisional under that original
+  two-lens contract. `tooling/audit_p2p3_triage.py` checks all 889 canonical
+  P2/P3 records exactly once; 691 are source-supported, 197 unknown, one
+  unsupported, with 235 provisional fixes and 654 deferrals.
 - A fresh `tooling/file_size_census.py` run against the complete frozen
   snapshot matches the corrected saved JSON exactly: 3,378 tracked paths,
   3,293 text, 47 binary, 38 symlinks, 1,192 >200 and 359 >500. The owner-map
   CSV path/count set matches all 359 oversized rows exactly.
+- `tooling/audit_oversized_owner_map.py --candidate <clean-candidate>` checks
+  359/359 candidate rows, four absent dashboard paths and zero newly oversized
+  candidate paths. The merged release main still needs its own count.
 - `tooling/feature_loc_scenarios.py` reproduces 51 unique candidate files,
   17,944 gross lines and seven >500 paths; these are not net savings.
 - `tooling/privacy_check.py` passes, and every relative Markdown link in the
@@ -55,11 +61,12 @@ It leaves every finding's runtime incidence unverified.
 
 ## Disposition
 
-The frozen research corpus, review and feature/LOC synthesis are published.
-The goal's literal per-gap causal attribution and CE implementation-ready
-promotion remain open. The former cannot be inferred from silence or
-classifier labels; the latter needs the listed planning decisions,
-current-head semantic disposition and behavior validation.
+The frozen research corpus, review, feature/LOC synthesis, P2/P3 static
+triage and candidate owner audit are published. The goal's literal per-gap
+causal attribution and CE implementation-ready promotion remain open. The
+former cannot be inferred from silence or classifier labels; the latter needs
+merged-main validation, reconciliation of cross-partition decisions and
+behavior tests for affected contracts.
 No product behavior, universal 500-line compliance or net LOC saving is
 claimed by this research branch. Keep the research goal open until those
 acceptance decisions are made or the original per-gap requirement is revised.
