@@ -4,9 +4,9 @@ defmodule Aiur.Orchestrator.StatusReportTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.{State, StatusReport}
   alias Aiur.{ProgressRetention, TrackerIdentity}
-  alias AiurWeb.OperatorControlCenter.UnitsRow
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
+  alias AiurWeb.OperatorControlCenter.UnitsRow
 
   test "calculates the remaining poll interval" do
     assert StatusReport.next_poll_in_ms(nil, 10) == nil
