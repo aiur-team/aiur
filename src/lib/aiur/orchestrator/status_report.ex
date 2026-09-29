@@ -469,7 +469,7 @@ defmodule Aiur.Orchestrator.StatusReport do
          activity_by_identity
        ) do
     capabilities = OM.issue_control_capabilities(state, metadata.identifier, metadata)
-    work_state = get_in(metadata, [:control, :status]) || :working
+    work_state = startup_work_state(metadata)
     pause_reason = Map.get(metadata, :paused_reason)
     started_at = Map.get(metadata, :started_at)
     stale_for_seconds = stale_for_seconds(metadata, now)
@@ -550,6 +550,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       title: issue && issue.title,
       url: issue && issue.url,
       error: Map.get(retry, :error),
+      last_failure_at: Map.get(retry, :last_failure_at),
+      work_state: :retrying,
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path),
       waiting_reason: WaitingReason.for_retry(),
@@ -1020,7 +1022,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp running_status(%State{} = state, issue_id, entry, now) do
     identifier = Map.get(entry, :identifier) || issue_id
     issue = Map.get(entry, :issue) || %{}
-    work_state = get_in(entry, [:control, :status]) || :working
+    work_state = startup_work_state(entry)
     capabilities = OM.issue_control_capabilities(state, identifier, entry)
     pause_reason = Map.get(entry, :paused_reason)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
@@ -1082,7 +1084,7 @@ defmodule Aiur.Orchestrator.StatusReport do
         identifier: identifier,
         tracker_identity: retry_snapshot_tracker_identity(retry, issue),
         state: :paused,
-        work_state: :paused,
+        work_state: :retrying,
         tracker_state: Map.get(issue || %{}, :state),
         tracker_paused: tracker_paused,
         tag: State.issue_tag(issue),
@@ -1099,6 +1101,7 @@ defmodule Aiur.Orchestrator.StatusReport do
         last_codex_message: nil,
         last_codex_event: nil,
         retry_attempt: Map.get(retry, :attempt),
+        last_failure_at: Map.get(retry, :last_failure_at),
         retry_reason: retry_reason,
         waiting_reason: WaitingReason.for_retry(),
         pause_reason: if(tracker_paused, do: tracker_pause_cause(state)),
@@ -1120,6 +1123,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp tracker_paused?(%Issue{} = issue), do: Issue.paused?(issue)
   defp tracker_paused?(issue) when is_map(issue), do: Map.get(issue, :paused) == true
   defp tracker_paused?(_issue), do: false
+
+  defp startup_work_state(entry) do
+    case get_in(entry, [:control, :status]) || :working do
+      :working -> if(is_nil(Map.get(entry, :session_id)), do: :starting, else: :working)
+      other -> other
+    end
+  end
 
   # `Config.agent_max_dispatches_per_ticket/0` is a `WorkflowStore` GenServer
   # call that re-stats and re-reads the config file, so resolving it per idle

@@ -213,6 +213,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     running_entry
     |> failure_retry_metadata({:startup_failed, reason})
     |> Map.put(:error, "startup failed: #{inspect(reason)}")
+    |> Map.put(:last_failure_at, get_in(running_entry, [:runtime_terminal_failure, :observed_at]))
   end
 
   defp maybe_reap_orphaned_agent_shell(state, running_entry) do
@@ -499,6 +500,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
     priority = pick_retry_priority(previous_retry, metadata)
     issue_state = pick_retry_issue_state(previous_retry, metadata)
+    last_failure_at = metadata[:last_failure_at] || Map.get(previous_retry, :last_failure_at)
     prior_work? = pick_retry_prior_work(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
     retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
@@ -599,6 +601,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               due_at_ms: due_at_ms,
               identifier: identifier,
               error: error,
+              last_failure_at: last_failure_at,
               transient_reason: transient_reason,
               retry_poll_failures: retry_poll_failures,
               prior_work: prior_work?,

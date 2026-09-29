@@ -27,6 +27,31 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert [%{identifier: "repo#20", state: :paused, title: nil, reason: {:transient, _, _}}] = statuses
   end
 
+  test "startup and retry rows expose no live turn and retain failure time" do
+    issue = %Issue{id: "2895", identifier: "2895", state: "in-progress", title: "Startup"}
+    now = DateTime.utc_now()
+    entry = %{identifier: issue.identifier, issue: issue, started_at: now, session_id: nil, control: %{status: :working}}
+
+    [starting] = StatusReport.agent_statuses(%State{running: %{issue.id => entry}})
+    assert starting.work_state == :starting
+    assert starting.session_id == nil
+
+    retry = %{
+      identifier: issue.identifier,
+      attempt: 1,
+      due_at_ms: System.monotonic_time(:millisecond) + 10_000,
+      error: "startup failed: {:port_exit, 23}",
+      last_failure_at: now
+    }
+
+    [retrying] = StatusReport.agent_statuses(%State{retry_attempts: %{issue.id => retry}})
+    assert retrying.work_state == :retrying
+    assert retrying.last_failure_at == now
+    assert {:transient, "startup failed: {:port_exit, 23}", due_in_ms} = retrying.reason
+    assert due_in_ms > 0
+    assert retrying.session_id == nil
+  end
+
   test "gives tracker pause precedence while retaining retry metadata" do
     due_at_ms = System.monotonic_time(:millisecond) + 240_000
     paused = %{id: "paused-retry", identifier: "repo#21", state: "todo", paused: true}

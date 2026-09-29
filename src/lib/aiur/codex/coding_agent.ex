@@ -14,6 +14,7 @@ defmodule Aiur.Codex.CodingAgent do
     Interrupts,
     OperatorDelivery,
     SessionLifecycle,
+    StartupFailure,
     TurnEvents,
     TurnLoop
   }
@@ -139,10 +140,48 @@ defmodule Aiur.Codex.CodingAgent do
          })}
       else
         {:error, reason} ->
+          reason = recover_startup_exit(port, reason)
+
+          if match?({:port_exit, _}, reason) do
+            {:port_exit, status} = reason
+
+            StartupFailure.record(
+              identifier,
+              Keyword.get(opts, :attempt_id),
+              status,
+              Aiur.AppServer.Rpc.StreamDiagnostics.recent_text(port)
+            )
+          end
+
+          Aiur.AppServer.Rpc.StreamDiagnostics.clear(port)
           AccountGeneration.process_stopped(lifecycle_session)
           SessionLifecycle.cleanup_port(port, containment)
           {:error, reason}
       end
+    end
+  end
+
+  defp recover_startup_exit(port, :port_closed) do
+    collect_startup_exit(port, System.monotonic_time(:millisecond) + 100, "")
+  end
+
+  defp recover_startup_exit(_port, reason), do: reason
+
+  defp collect_startup_exit(port, deadline, pending) do
+    receive do
+      {^port, {:data, {:eol, chunk}}} ->
+        Aiur.AppServer.Rpc.StreamDiagnostics.record(port, pending <> to_string(chunk))
+        collect_startup_exit(port, deadline, "")
+
+      {^port, {:data, {:noeol, chunk}}} ->
+        next = String.slice(pending <> to_string(chunk), -1_000, 1_000)
+        collect_startup_exit(port, deadline, next)
+
+      {^port, {:exit_status, status}} ->
+        if pending != "", do: Aiur.AppServer.Rpc.StreamDiagnostics.record(port, pending)
+        {:port_exit, status}
+    after
+      max(0, deadline - System.monotonic_time(:millisecond)) -> :port_closed
     end
   end
 
