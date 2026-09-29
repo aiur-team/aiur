@@ -250,7 +250,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           </div>
           <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
             <span class="rs-limit-label">Limits</span>
-            <span class="rs-limit-meta">Not observed</span>
+            <div class="rs-meter" aria-label="Usage not observed"></div>
+            <span :if={@card.provider == :muse} class="rs-limit-meta">Not observed</span>
           </div>
           <div :for={window <- @windows} class="rs-limit">
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
