@@ -1,0 +1,2545 @@
+{
+  "schema": "aiur-refactor-owner-map-candidate-audit/v1",
+  "research_base": "4c00a16cf23c63f6e29dfa509ad930df4cc521a1",
+  "frozen_source": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "candidate": "7bce08f36aede1f9747d24bb3a5c08145abd081e",
+  "partition": {
+    "start_row": 0,
+    "end_row": 119,
+    "count": 120
+  },
+  "method": "Compared each public owner-map path with the clean combined release candidate Git index and counted candidate UTF-8 physical lines as LF separators plus an unterminated final line. Inspected file/module roles and selected runtime, docs, test and packaging references to assess proposed ownership/actions. Conditional actions are planning gates, not completed cuts. No candidate changes or runtime tests were performed.",
+  "interpretation": "These are candidate file sizes only. Missing page-only rows reflect user-directed pre-refactor removal; changed line counts and gross candidate lines are not net LOC savings from the future refactor. Final owner assignments require refreshed merged main and behavior checks.",
+  "summary": {
+    "audited_rows": 120,
+    "present": 118,
+    "missing": 2,
+    "present_over_500": 118,
+    "line_count_changed_from_frozen": 16,
+    "cache_dashboard_disappearances": 2,
+    "guard_deletion_disappearances": 0,
+    "owner_reassignment_or_split_needed": 5
+  },
+  "rows": [
+    {
+      "row_index": 0,
+      "path": "src/priv/static/dashboard.css",
+      "frozen_lines": 10273,
+      "candidate_lines": 10292,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "dashboard stylesheet served by StaticAssets",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Dashboard and browser static assets",
+        "basis": "Candidate source role: dashboard stylesheet served by StaticAssets."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "StaticAssets reads dashboard.css at compile time and browser packaging checks /dashboard.css; prove a bounded source-style build and byte/visual parity before ceasing to track the oversized asset."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 1,
+      "path": "docs/build-order/build-order.json",
+      "frozen_lines": 7822,
+      "candidate_lines": 7822,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "JSON schema_version, build_order_id, ticket_prefix, plan_version",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order design and generated artifacts",
+        "basis": "Candidate source role: JSON schema_version, build_order_id, ticket_prefix, plan_version."
+      },
+      "action": {
+        "proposal": "regenerate",
+        "assessment": "conditional",
+        "unresolved_condition": "This is a canonical Build Order planning pack cited by planning docs; identify the authoritative editable source and verify every consumer before replacing it with generated fragments."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 2,
+      "path": "src/test/aiur/orchestrator_deactivate_test.exs",
+      "frozen_lines": 7653,
+      "candidate_lines": 7653,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.OrchestratorDeactivateTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch tests",
+        "basis": "Candidate source role: Aiur.OrchestratorDeactivateTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.OrchestratorDeactivateTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 3,
+      "path": "src/test/aiur_web/live/dashboard_live_test.exs",
+      "frozen_lines": 6562,
+      "candidate_lines": 6562,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.DashboardLiveTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI and dashboard tests",
+        "basis": "Candidate source role: AiurWeb.DashboardLiveTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group AiurWeb.DashboardLiveTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 4,
+      "path": "src/priv/static/vendor/elk/0.11.1/elk-worker.min.js",
+      "frozen_lines": 6312,
+      "candidate_lines": 6312,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "nb",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Vendored ELK browser dependency",
+        "basis": "Candidate source role: nb."
+      },
+      "action": {
+        "proposal": "remove",
+        "assessment": "conditional",
+        "unresolved_condition": "The ELK worker is pinned by vendor manifest, hashes, same-origin URLs and offline release checks; a package-build replacement must reproduce those assets and pass offline runtime/CSP validation."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 5,
+      "path": "src/test/aiur/agent_github_guard_test.exs",
+      "frozen_lines": 5764,
+      "candidate_lines": 5762,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.AgentGitHubGuardTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "GitHub access and guard tests",
+        "basis": "Candidate source role: Aiur.AgentGitHubGuardTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.AgentGitHubGuardTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 6,
+      "path": "src/test/aiur/orchestrator_status_test.exs",
+      "frozen_lines": 4880,
+      "candidate_lines": 4880,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.OrchestratorStatusTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch tests",
+        "basis": "Candidate source role: Aiur.OrchestratorStatusTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.OrchestratorStatusTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 7,
+      "path": "src/test/aiur/decision_store_test.exs",
+      "frozen_lines": 4866,
+      "candidate_lines": 4866,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.DecisionStoreTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Decision persistence and API tests",
+        "basis": "Candidate source role: Aiur.DecisionStoreTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.DecisionStoreTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 8,
+      "path": "src/lib/aiur/decision_store.ex",
+      "frozen_lines": 4826,
+      "candidate_lines": 4826,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.DecisionStore",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Decision persistence and API",
+        "basis": "Candidate source role: Aiur.DecisionStore."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Keep DecisionStore journal append/replay authoritative while extracting projection/query code; test accepted append versus projection failure and restart before moving responsibility."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 9,
+      "path": "src/test/aiur_engine_test.exs",
+      "frozen_lines": 4245,
+      "candidate_lines": 4245,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurEngineTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Aiur CLI/integration tests",
+        "basis": "Candidate source role: AiurEngineTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group AiurEngineTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 10,
+      "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+      "frozen_lines": 4179,
+      "candidate_lines": 4174,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "shell entry point aiur-engine.sh",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "npm CLI packaging",
+        "basis": "Candidate source role: shell entry point aiur-engine.sh."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "The same launcher serves installed aiur and aiurdev; preserve command/instance identity and packed-release behavior across any semantic split."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 11,
+      "path": "src/test/aiur/agent_control_cli_test.exs",
+      "frozen_lines": 4052,
+      "candidate_lines": 4052,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.AgentControlCLITest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Agent control CLI tests",
+        "basis": "Candidate source role: Aiur.AgentControlCLITest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.AgentControlCLITest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 12,
+      "path": "src/test/aiur/core_test.exs",
+      "frozen_lines": 4023,
+      "candidate_lines": 4025,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.CoreTest",
+      "owner": {
+        "assessment": "mixed_owner",
+        "name": "Core and integration test scenarios",
+        "basis": "The generic core test file crosses behaviors; assign scenario owners before splitting."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.CoreTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 13,
+      "path": "src/test/aiur/workspace_and_config_test.exs",
+      "frozen_lines": 3640,
+      "candidate_lines": 3641,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.WorkspaceAndConfigTest",
+      "owner": {
+        "assessment": "mixed_owner",
+        "name": "Workspace and configuration test owners",
+        "basis": "The file tests both workspace lifecycle and configuration; one workspace-only owner does not cover the contents."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.WorkspaceAndConfigTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 14,
+      "path": "docs/build-order/prototype/Aiur Operator Control Center.2026-07-13-refresh.html",
+      "frozen_lines": 3515,
+      "candidate_lines": 3515,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur Operator Control Center.2026-07-13-refresh.html",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order design and generated artifacts",
+        "basis": "Candidate source role: Aiur Operator Control Center.2026-07-13-refresh.html."
+      },
+      "action": {
+        "proposal": "remove",
+        "assessment": "conditional",
+        "unresolved_condition": "Prototype README still directs readers to this HTML, and planning docs cite its visual hierarchy; establish archival decision and preserve linkable design evidence before removal."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 15,
+      "path": "docs/build-order/EXECUTOR-HANDOFF.md",
+      "frozen_lines": 3426,
+      "candidate_lines": 3426,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Build Order Executor Handoff",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order design and generated artifacts",
+        "basis": "Candidate source role: Build Order Executor Handoff."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Retain authoritative decisions, links and stable anchors; no reference migration or archival decision is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 16,
+      "path": "src/lib/aiur/agent_control_cli.ex",
+      "frozen_lines": 3408,
+      "candidate_lines": 3326,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.AgentControlCLI",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Agent control CLI",
+        "basis": "Candidate source role: Aiur.AgentControlCLI."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.AgentControlCLI, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 17,
+      "path": "src/priv/github_quota_guard.sh",
+      "frozen_lines": 3403,
+      "candidate_lines": 3403,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "shell entry point github_quota_guard.sh",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Runtime launcher and guard scripts",
+        "basis": "Candidate source role: shell entry point github_quota_guard.sh."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "This is the GitHub quota guard, not the user-deleted PR-deletion guard; preserve governed gh/git entry points, credential admission and quota accounting when splitting."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 18,
+      "path": "docs/build-order/prototype/Aiur Operator Control Center.html",
+      "frozen_lines": 3369,
+      "candidate_lines": 3369,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur Operator Control Center.html",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order design and generated artifacts",
+        "basis": "Candidate source role: Aiur Operator Control Center.html."
+      },
+      "action": {
+        "proposal": "remove",
+        "assessment": "conditional",
+        "unresolved_condition": "Prototype README names this file as an openable visual reference and other design docs cite it; removal requires replacement evidence and updated references."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 19,
+      "path": "src/test/aiur/build_gate_test.exs",
+      "frozen_lines": 3231,
+      "candidate_lines": 3231,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.BuildGateTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build gate tests",
+        "basis": "Candidate source role: Aiur.BuildGateTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.BuildGateTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 20,
+      "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+      "frozen_lines": 3197,
+      "candidate_lines": 3197,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.DispatcherTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Orchestrator tests",
+        "basis": "Candidate source role: Aiur.Orchestrator.DispatcherTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Orchestrator.DispatcherTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 21,
+      "path": "src/test/aiur/orchestrator/issue_sync_test.exs",
+      "frozen_lines": 3032,
+      "candidate_lines": 3032,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.IssueSyncTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Orchestrator tests",
+        "basis": "Candidate source role: Aiur.Orchestrator.IssueSyncTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Orchestrator.IssueSyncTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 22,
+      "path": "packages/streamdeck/package-lock.json",
+      "frozen_lines": 3028,
+      "candidate_lines": 3028,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "JSON name, version, lockfileVersion, requires",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Stream Deck package",
+        "basis": "Candidate source role: JSON name, version, lockfileVersion, requires."
+      },
+      "action": {
+        "proposal": "regenerate",
+        "assessment": "conditional",
+        "unresolved_condition": "Prove Stream Deck dependency resolution and deterministic offline install before replacing the tracked package lock; do not split the lockfile into arbitrary pieces."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 23,
+      "path": "src/lib/aiur_web/live/dashboard_live.ex",
+      "frozen_lines": 2858,
+      "candidate_lines": 2858,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.DashboardLive",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI / live",
+        "basis": "Candidate source role: AiurWeb.DashboardLive."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "DashboardLive owns many unrelated flows; map route events and dependent projections to feature owners, then verify real dashboard/TUI behavior."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 24,
+      "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+      "frozen_lines": 2670,
+      "candidate_lines": 2670,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.Dispatcher",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.Dispatcher."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.Dispatcher, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 25,
+      "path": "src/test/browser/fixture_server.exs",
+      "frozen_lines": 2634,
+      "candidate_lines": 2634,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.BrowserHarness.FixtureLayout",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Browser fixture and test harness",
+        "basis": "Candidate source role: Aiur.BrowserHarness.FixtureLayout."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.BrowserHarness.FixtureLayout scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 26,
+      "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+      "frozen_lines": 2471,
+      "candidate_lines": 2471,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.PauseResume",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.PauseResume."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.PauseResume, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 27,
+      "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+      "frozen_lines": 2295,
+      "candidate_lines": 2295,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.IssueSync",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.IssueSync."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.IssueSync, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 28,
+      "path": "SPEC.md",
+      "frozen_lines": 2292,
+      "candidate_lines": 2292,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur Service Specification",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Product specification",
+        "basis": "Candidate source role: Aiur Service Specification."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Retain authoritative decisions, links and stable anchors; no reference migration or archival decision is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 29,
+      "path": "src/test/aiur/github_client_test.exs",
+      "frozen_lines": 2252,
+      "candidate_lines": 2252,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.ClientTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "GitHub access and guard tests",
+        "basis": "Candidate source role: Aiur.GitHub.ClientTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.GitHub.ClientTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 30,
+      "path": "src/lib/aiur/github/resource_store.ex",
+      "frozen_lines": 2191,
+      "candidate_lines": 2191,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.ResourceStore",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "GitHub access",
+        "basis": "Candidate source role: Aiur.GitHub.ResourceStore."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "ResourceStore owns monotonic GitHub state; preserve write ordering, invalidation and restart persistence before extracting code."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 31,
+      "path": "src/test/aiur/init_test.exs",
+      "frozen_lines": 2185,
+      "candidate_lines": 2232,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.InitTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Initialization tests",
+        "basis": "Candidate source role: Aiur.InitTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.InitTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 32,
+      "path": ".claude/skills/ce-babysit-pr/scripts/pr-snapshot",
+      "frozen_lines": 2096,
+      "candidate_lines": 2096,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "_WatchSuperseded",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Vendored CE skill / ce-babysit-pr",
+        "basis": "Candidate source role: _WatchSuperseded."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Vendored CE skill script: identify upstream canonical source and preserve executable CLI/API behavior before splitting or replacing this copy."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 33,
+      "path": "src/test/scripts_aiurdev_test.exs",
+      "frozen_lines": 1988,
+      "candidate_lines": 1988,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "ScriptsAiurdevTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Aiur CLI/integration tests",
+        "basis": "Candidate source role: ScriptsAiurdevTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group ScriptsAiurdevTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 34,
+      "path": "src/test/aiur/github/resource_store_test.exs",
+      "frozen_lines": 1950,
+      "candidate_lines": 1950,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.ResourceStoreTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Github tests",
+        "basis": "Candidate source role: Aiur.GitHub.ResourceStoreTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.GitHub.ResourceStoreTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 35,
+      "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+      "frozen_lines": 1949,
+      "candidate_lines": 1949,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.AgentRunner.ToolExecutorTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Agent Runner tests",
+        "basis": "Candidate source role: Aiur.AgentRunner.ToolExecutorTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.AgentRunner.ToolExecutorTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 36,
+      "path": "src/priv/build_gate.bash",
+      "frozen_lines": 1912,
+      "candidate_lines": 1912,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "shell entry point build_gate.bash",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Runtime launcher and guard scripts",
+        "basis": "Candidate source role: shell entry point build_gate.bash."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Preserve shell command arguments, exit codes and packaged entry points; no split has been exercised yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 37,
+      "path": "src/test/aiur/extensions_test.exs",
+      "frozen_lines": 1874,
+      "candidate_lines": 1874,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.ExtensionsTest",
+      "owner": {
+        "assessment": "mixed_owner",
+        "name": "Workflow, tracker, and web extension test owners",
+        "basis": "The extensions test covers multiple subsystems; assign each scenario to its actual component owner."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.ExtensionsTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 38,
+      "path": ".claude/skills/aiur-build/scripts/publication/publication_operator.py",
+      "frozen_lines": 1867,
+      "candidate_lines": 1867,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "PublicationError",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Aiur operator skills",
+        "basis": "Candidate source role: PublicationError."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Aiur build-skill publication operator is an operator entry point; preserve ticket publication ordering, receipts and source skill references before splitting."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 39,
+      "path": "docs/build-order/AGENT-CHAT.md",
+      "frozen_lines": 1854,
+      "candidate_lines": 1854,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Build Order — agent chat (Claude ⇄ Codex)",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order design and generated artifacts",
+        "basis": "Candidate source role: Build Order — agent chat (Claude ⇄ Codex)."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Retain authoritative decisions, links and stable anchors; no reference migration or archival decision is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 40,
+      "path": "src/lib/aiur/build_order/graph_projection.ex",
+      "frozen_lines": 1825,
+      "candidate_lines": 1825,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.BuildOrder.GraphProjection",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order",
+        "basis": "Candidate source role: Aiur.BuildOrder.GraphProjection."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.BuildOrder.GraphProjection, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 41,
+      "path": "src/lib/aiur_web/live/github_cache_live.ex",
+      "frozen_lines": 1809,
+      "candidate_lines": null,
+      "exists_in_candidate": false,
+      "tracked_in_candidate": false,
+      "remains_over_500": false,
+      "source_signal": "deleted path",
+      "owner": {
+        "assessment": "retired_in_candidate",
+        "name": "Web UI / live",
+        "basis": "The page-only path is absent after candidate #2841 integration."
+      },
+      "action": {
+        "proposal": "remove",
+        "assessment": "removed_in_candidate",
+        "unresolved_condition": "Candidate #2841 deletes this page with its route/nav/docs; verify removal survives merge, and do not count its frozen lines as future refactor savings."
+      },
+      "disappearance_cause": "github_cache_dashboard_user_requested"
+    },
+    {
+      "row_index": 42,
+      "path": "src/test/aiur_web/live/streamdeck_live_test.exs",
+      "frozen_lines": 1804,
+      "candidate_lines": 1804,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.StreamdeckLiveTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI and dashboard tests",
+        "basis": "Candidate source role: AiurWeb.StreamdeckLiveTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group AiurWeb.StreamdeckLiveTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 43,
+      "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+      "frozen_lines": 1799,
+      "candidate_lines": 1799,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.StreamdeckLive",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI / live",
+        "basis": "Candidate source role: AiurWeb.StreamdeckLive."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of AiurWeb.StreamdeckLive, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 44,
+      "path": "src/test/aiur/build_order/github_graph_test.exs",
+      "frozen_lines": 1781,
+      "candidate_lines": 1781,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.BuildOrder.GitHubGraphTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order tests",
+        "basis": "Candidate source role: Aiur.BuildOrder.GitHubGraphTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.BuildOrder.GitHubGraphTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 45,
+      "path": "src/test/aiur_web/live/build_order_live_test.exs",
+      "frozen_lines": 1779,
+      "candidate_lines": 1779,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.BuildOrderLiveTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI and dashboard tests",
+        "basis": "Candidate source role: AiurWeb.BuildOrderLiveTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group AiurWeb.BuildOrderLiveTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 46,
+      "path": "src/test/aiur/orchestrator/retry_engine_test.exs",
+      "frozen_lines": 1774,
+      "candidate_lines": 1774,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.RetryEngineTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Orchestrator tests",
+        "basis": "Candidate source role: Aiur.Orchestrator.RetryEngineTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Orchestrator.RetryEngineTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 47,
+      "path": "src/test/aiur_web/live/github_cache_live_test.exs",
+      "frozen_lines": 1747,
+      "candidate_lines": null,
+      "exists_in_candidate": false,
+      "tracked_in_candidate": false,
+      "remains_over_500": false,
+      "source_signal": "deleted path",
+      "owner": {
+        "assessment": "retired_in_candidate",
+        "name": "Web UI and dashboard tests",
+        "basis": "The page-only path is absent after candidate #2841 integration."
+      },
+      "action": {
+        "proposal": "remove",
+        "assessment": "removed_in_candidate",
+        "unresolved_condition": "Candidate #2841 deletes these page-only tests with the page; verify surviving shared GitHub cache/CLI coverage on merged main."
+      },
+      "disappearance_cause": "github_cache_dashboard_user_requested"
+    },
+    {
+      "row_index": 48,
+      "path": "src/test/aiur/orchestrator_ci_lifecycle_test.exs",
+      "frozen_lines": 1733,
+      "candidate_lines": 1733,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.OrchestratorCILifecycleTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch tests",
+        "basis": "Candidate source role: Aiur.OrchestratorCILifecycleTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.OrchestratorCILifecycleTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 49,
+      "path": "docs/plans/2026-05-24-001-feat-event-system-foundation-plan.md",
+      "frozen_lines": 1716,
+      "candidate_lines": 1716,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "feat: Aiur event system foundation (Ticket A)",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Historical CE planning docs",
+        "basis": "Candidate source role: feat: Aiur event system foundation (Ticket A)."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Retain authoritative decisions, links and stable anchors; no reference migration or archival decision is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 50,
+      "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+      "frozen_lines": 1708,
+      "candidate_lines": 1708,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.CiLifecycle",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.CiLifecycle."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.CiLifecycle, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 51,
+      "path": "src/test/aiur_web/components/operator_control_center/run_summary_strip_test.exs",
+      "frozen_lines": 1665,
+      "candidate_lines": 1667,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.OperatorControlCenter.RunSummaryStripTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI and dashboard tests",
+        "basis": "Candidate source role: AiurWeb.OperatorControlCenter.RunSummaryStripTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group AiurWeb.OperatorControlCenter.RunSummaryStripTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 52,
+      "path": "src/test/support/test_support.exs",
+      "frozen_lines": 1663,
+      "candidate_lines": 1661,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.TestSupport",
+      "owner": {
+        "assessment": "corrected_owner",
+        "name": "Cross-cutting Aiur.TestSupport infrastructure",
+        "basis": "This is the shared support module, not a test-scenario file; 187 candidate test files use Aiur.TestSupport."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Revise action: this file defines shared TestSupport helpers rather than test scenarios. Assign helper ownership and preserve the 187 candidate test-file users."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 53,
+      "path": "website/package-lock.json",
+      "frozen_lines": 1657,
+      "candidate_lines": 1657,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "JSON name, version, lockfileVersion, requires",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Marketing website",
+        "basis": "Candidate source role: JSON name, version, lockfileVersion, requires."
+      },
+      "action": {
+        "proposal": "regenerate",
+        "assessment": "conditional",
+        "unresolved_condition": "Prove marketing-site dependency resolution and deterministic offline install before replacing the tracked package lock."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 54,
+      "path": "src/test/aiur/github/ci_readiness_test.exs",
+      "frozen_lines": 1647,
+      "candidate_lines": 1647,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.CiReadinessTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Github tests",
+        "basis": "Candidate source role: Aiur.GitHub.CiReadinessTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.GitHub.CiReadinessTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 55,
+      "path": "src/priv/build_orders/croptracker-demo.json",
+      "frozen_lines": 1611,
+      "candidate_lines": 1611,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "JSON schema_version, build_order_id, title, subtitle",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order fixture data",
+        "basis": "Candidate source role: JSON schema_version, build_order_id, title, subtitle."
+      },
+      "action": {
+        "proposal": "regenerate",
+        "assessment": "conditional",
+        "unresolved_condition": "README says this demo is deletable by removing its file and AIUR_BUILD_ORDER_DEMO config block; evaluate that simpler cut before adding a generator, preserving PlanningSource if used."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 56,
+      "path": "src/test/aiur/repo_base_test.exs",
+      "frozen_lines": 1599,
+      "candidate_lines": 1599,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.RepoBaseTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Repository checkout tests",
+        "basis": "Candidate source role: Aiur.RepoBaseTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.RepoBaseTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 57,
+      "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+      "frozen_lines": 1584,
+      "candidate_lines": 1584,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.CommentWake",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.CommentWake."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.CommentWake, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 58,
+      "path": "src/test/aiur/orchestrator/comment_wake_test.exs",
+      "frozen_lines": 1553,
+      "candidate_lines": 1553,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.CommentWakeTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Orchestrator tests",
+        "basis": "Candidate source role: Aiur.Orchestrator.CommentWakeTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Orchestrator.CommentWakeTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 59,
+      "path": "src/test/aiur_web/operator_control_center_components_test.exs",
+      "frozen_lines": 1550,
+      "candidate_lines": 1550,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.OperatorControlCenterComponentsTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI and dashboard tests",
+        "basis": "Candidate source role: AiurWeb.OperatorControlCenterComponentsTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group AiurWeb.OperatorControlCenterComponentsTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 60,
+      "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+      "frozen_lines": 1540,
+      "candidate_lines": 1540,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.RetryEngine",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.RetryEngine."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.RetryEngine, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 61,
+      "path": "src/lib/aiur/repo_base.ex",
+      "frozen_lines": 1539,
+      "candidate_lines": 1539,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.RepoBase",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Repository checkout",
+        "basis": "Candidate source role: Aiur.RepoBase."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.RepoBase, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 62,
+      "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+      "frozen_lines": 1530,
+      "candidate_lines": 1530,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Events.GithubWebhook.DepositTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Events tests",
+        "basis": "Candidate source role: Aiur.Events.GithubWebhook.DepositTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Events.GithubWebhook.DepositTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 63,
+      "path": "src/test/aiur/events/github_comments_poller_test.exs",
+      "frozen_lines": 1508,
+      "candidate_lines": 1570,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Events.GithubCommentsPollerTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Events tests",
+        "basis": "Candidate source role: Aiur.Events.GithubCommentsPollerTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Events.GithubCommentsPollerTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 64,
+      "path": "src/lib/aiur/config.ex",
+      "frozen_lines": 1462,
+      "candidate_lines": 1462,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Config",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Configuration",
+        "basis": "Candidate source role: Aiur.Config."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Config, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 65,
+      "path": "src/lib/aiur/orchestrator/status_report.ex",
+      "frozen_lines": 1462,
+      "candidate_lines": 1464,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.StatusReport",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.StatusReport."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.StatusReport, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 66,
+      "path": "src/test/aiur/github/read_cache_test.exs",
+      "frozen_lines": 1437,
+      "candidate_lines": 1437,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.ReadCacheTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Github tests",
+        "basis": "Candidate source role: Aiur.GitHub.ReadCacheTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.GitHub.ReadCacheTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 67,
+      "path": "src/test/aiur/build_order/graph_projection_test.exs",
+      "frozen_lines": 1433,
+      "candidate_lines": 1433,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.BuildOrder.GraphProjectionTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order tests",
+        "basis": "Candidate source role: Aiur.BuildOrder.GraphProjectionTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.BuildOrder.GraphProjectionTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 68,
+      "path": "src/test/aiur/app_server_test.exs",
+      "frozen_lines": 1402,
+      "candidate_lines": 1402,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.AppServerTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Aiur core/integration tests",
+        "basis": "Candidate source role: Aiur.AppServerTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.AppServerTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 69,
+      "path": "src/lib/aiur/coding_agent.ex",
+      "frozen_lines": 1392,
+      "candidate_lines": 1179,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.CodingAgent",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Aiur core / coding agent",
+        "basis": "Candidate source role: Aiur.CodingAgent."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "CodingAgent public backend/usage contracts changed in candidate; map callers and preserve native Muse plus existing backend capability before extraction."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 70,
+      "path": "src/test/aiur/alerts_test.exs",
+      "frozen_lines": 1388,
+      "candidate_lines": 1388,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.AlertsTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Alerts tests",
+        "basis": "Candidate source role: Aiur.AlertsTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.AlertsTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 71,
+      "path": "src/lib/aiur/github/quota.ex",
+      "frozen_lines": 1380,
+      "candidate_lines": 1380,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.Quota",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "GitHub access",
+        "basis": "Candidate source role: Aiur.GitHub.Quota."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.GitHub.Quota, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 72,
+      "path": "packages/streamdeck/test/controller.test.ts",
+      "frozen_lines": 1369,
+      "candidate_lines": 1369,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "controller.test.ts",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Stream Deck package",
+        "basis": "Candidate source role: controller.test.ts."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Preserve controller.test.ts exports/CLI and package or browser consumers; no bounded seam and output parity test is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 73,
+      "path": "src/test/aiur/current_run_projections_test.exs",
+      "frozen_lines": 1355,
+      "candidate_lines": 1355,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.CurrentRunProjectionsTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Current-run membership tests",
+        "basis": "Candidate source role: Aiur.CurrentRunProjectionsTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.CurrentRunProjectionsTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 74,
+      "path": "src/test/aiur/claude/repl_agent_test.exs",
+      "frozen_lines": 1352,
+      "candidate_lines": 1352,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Claude.ReplAgentTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Claude tests",
+        "basis": "Candidate source role: Aiur.Claude.ReplAgentTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Claude.ReplAgentTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 75,
+      "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+      "frozen_lines": 1339,
+      "candidate_lines": 1339,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.BuildOrder.TicketDetailCoordinatorTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order tests",
+        "basis": "Candidate source role: Aiur.BuildOrder.TicketDetailCoordinatorTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.BuildOrder.TicketDetailCoordinatorTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 76,
+      "path": "src/test/aiur_web/streamdeck_channel_test.exs",
+      "frozen_lines": 1332,
+      "candidate_lines": 1332,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.StreamdeckChannelTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI and dashboard tests",
+        "basis": "Candidate source role: AiurWeb.StreamdeckChannelTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group AiurWeb.StreamdeckChannelTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 77,
+      "path": "src/browser/tests/streamdeck-emulator.browser.spec.mjs",
+      "frozen_lines": 1311,
+      "candidate_lines": 1311,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "streamdeck-emulator.browser.spec.mjs",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Browser UI / tests",
+        "basis": "Candidate source role: streamdeck-emulator.browser.spec.mjs."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Preserve streamdeck-emulator.browser.spec.mjs exports/CLI and package or browser consumers; no bounded seam and output parity test is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 78,
+      "path": "src/lib/aiur/run_telemetry/dataset.ex",
+      "frozen_lines": 1264,
+      "candidate_lines": 1264,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.RunTelemetry.Dataset",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Run telemetry",
+        "basis": "Candidate source role: Aiur.RunTelemetry.Dataset."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Dataset mixes offline file reads, reduction and summaries; prove record-id/boot-id semantics and script consumer parity before splitting."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 79,
+      "path": "src/test/aiur/agent_list/renderer_test.exs",
+      "frozen_lines": 1257,
+      "candidate_lines": 1257,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.AgentList.RendererTest",
+      "owner": {
+        "assessment": "corrected_owner",
+        "name": "AgentList TUI renderer tests",
+        "basis": "The module is Aiur.AgentList.RendererTest; the generic core/integration label obscures its renderer owner."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Move renderer scenarios under the AgentList TUI test owner, preserving layout/ANSI behavior rather than treating them as generic integration tests."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 80,
+      "path": "src/test/aiur/github/budget_test.exs",
+      "frozen_lines": 1252,
+      "candidate_lines": 1252,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.BudgetTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Github tests",
+        "basis": "Candidate source role: Aiur.GitHub.BudgetTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.GitHub.BudgetTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 81,
+      "path": "src/test/aiur/github/issues_test.exs",
+      "frozen_lines": 1247,
+      "candidate_lines": 1247,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.IssuesTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Github tests",
+        "basis": "Candidate source role: Aiur.GitHub.IssuesTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.GitHub.IssuesTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 82,
+      "path": "src/lib/aiur/github/issues.ex",
+      "frozen_lines": 1246,
+      "candidate_lines": 1246,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.Issues",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "GitHub access",
+        "basis": "Candidate source role: Aiur.GitHub.Issues."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.GitHub.Issues, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 83,
+      "path": ".claude/skills/aiur-run/SKILL.md",
+      "frozen_lines": 1245,
+      "candidate_lines": 1245,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Run Aiur as the Executor",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Aiur operator skills",
+        "basis": "Candidate source role: Run Aiur as the Executor."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Aiur-run SKILL.md is the operator entry point; move detailed procedures to linked references only after verifying skill references and command behavior."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 84,
+      "path": "src/test/aiur/events/github_ci_poller_test.exs",
+      "frozen_lines": 1227,
+      "candidate_lines": 1227,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Events.GithubCIPollerTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Events tests",
+        "basis": "Candidate source role: Aiur.Events.GithubCIPollerTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Events.GithubCIPollerTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 85,
+      "path": "src/test/fixtures/analytics/builds/test-build/build-summary.json",
+      "frozen_lines": 1227,
+      "candidate_lines": 1227,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "JSON schema_version, boot_id, generated_at, source_files",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Test fixture data",
+        "basis": "Candidate source role: JSON schema_version, boot_id, generated_at, source_files."
+      },
+      "action": {
+        "proposal": "regenerate",
+        "assessment": "conditional",
+        "unresolved_condition": "This is a checked-in analytics fixture; enumerate test readers and prove equivalent focused cases before replacing it with generated data."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 86,
+      "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+      "frozen_lines": 1213,
+      "candidate_lines": 1213,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.DispatchPolicy",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.DispatchPolicy."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.DispatchPolicy, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 87,
+      "path": "src/browser/tests/layout-worker.browser.spec.mjs",
+      "frozen_lines": 1185,
+      "candidate_lines": 1185,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "layout-worker.browser.spec.mjs",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Browser UI / tests",
+        "basis": "Candidate source role: layout-worker.browser.spec.mjs."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Preserve layout-worker.browser.spec.mjs exports/CLI and package or browser consumers; no bounded seam and output parity test is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 88,
+      "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+      "frozen_lines": 1162,
+      "candidate_lines": 1165,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Regression.OrchestratorBlockingHttpTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Regression tests",
+        "basis": "Candidate source role: Aiur.Regression.OrchestratorBlockingHttpTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Regression.OrchestratorBlockingHttpTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 89,
+      "path": "src/test/aiur_web/live/analytics_live_test.exs",
+      "frozen_lines": 1154,
+      "candidate_lines": 1154,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.AnalyticsLiveTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI and dashboard tests",
+        "basis": "Candidate source role: AiurWeb.AnalyticsLiveTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group AiurWeb.AnalyticsLiveTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 90,
+      "path": "src/lib/aiur/github/ci_readiness.ex",
+      "frozen_lines": 1148,
+      "candidate_lines": 1148,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.CiReadiness",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "GitHub access",
+        "basis": "Candidate source role: Aiur.GitHub.CiReadiness."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.GitHub.CiReadiness, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 91,
+      "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+      "frozen_lines": 1148,
+      "candidate_lines": 1167,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.OperatorMessages",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.OperatorMessages."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.OperatorMessages, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 92,
+      "path": "src/test/aiur/workspace/ownership_test.exs",
+      "frozen_lines": 1146,
+      "candidate_lines": 1146,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Workspace.OwnershipTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Workspace tests",
+        "basis": "Candidate source role: Aiur.Workspace.OwnershipTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Workspace.OwnershipTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 93,
+      "path": "packages/streamdeck/src/art/segments.ts",
+      "frozen_lines": 1135,
+      "candidate_lines": 1135,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "segments.ts",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Stream Deck package",
+        "basis": "Candidate source role: segments.ts."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Preserve segments.ts exports/CLI and package or browser consumers; no bounded seam and output parity test is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 94,
+      "path": ".claude/skills/ce-riffrec-feedback-analysis/scripts/analyze_riffrec_zip.py",
+      "frozen_lines": 1122,
+      "candidate_lines": 1122,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "analyze_riffrec_zip.py",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Vendored CE skill / ce-riffrec-feedback-analysis",
+        "basis": "Candidate source role: analyze_riffrec_zip.py."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "This script is byte-identical to the ce-sweep copy (row 95); resolve shared vendored source and update policy before splitting copies independently."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 95,
+      "path": ".claude/skills/ce-sweep/scripts/analyze_riffrec_zip.py",
+      "frozen_lines": 1122,
+      "candidate_lines": 1122,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "analyze_riffrec_zip.py",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Vendored CE skill / ce-sweep",
+        "basis": "Candidate source role: analyze_riffrec_zip.py."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "This script is byte-identical to the ce-riffrec-feedback-analysis copy (row 94); resolve shared vendored source and update policy before splitting copies independently."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 96,
+      "path": "packages/streamdeck/test/art/segments.test.ts",
+      "frozen_lines": 1119,
+      "candidate_lines": 1119,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Ink",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Stream Deck package",
+        "basis": "Candidate source role: Ink."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Preserve Ink exports/CLI and package or browser consumers; no bounded seam and output parity test is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 97,
+      "path": "docs/build-order/scripts/tests/test_publication_operator.py",
+      "frozen_lines": 1111,
+      "candidate_lines": 1111,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "FakeClient",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Build Order publication tooling",
+        "basis": "Candidate source role: FakeClient."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Preserve FakeClient exports/CLI and package or browser consumers; no bounded seam and output parity test is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 98,
+      "path": "packages/streamdeck/src/controller.ts",
+      "frozen_lines": 1102,
+      "candidate_lines": 1102,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "ControllerVoice",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Stream Deck package",
+        "basis": "Candidate source role: ControllerVoice."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Preserve ControllerVoice exports/CLI and package or browser consumers; no bounded seam and output parity test is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 99,
+      "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+      "frozen_lines": 1101,
+      "candidate_lines": 1101,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.OperatorControlCenter.Analytics.Presenter",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI / operator_control_center / analytics",
+        "basis": "Candidate source role: AiurWeb.OperatorControlCenter.Analytics.Presenter."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of AiurWeb.OperatorControlCenter.Analytics.Presenter, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 100,
+      "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+      "frozen_lines": 1095,
+      "candidate_lines": 1101,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.AgentRunner.SessionLifecycle",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Agent runtime",
+        "basis": "Candidate source role: Aiur.AgentRunner.SessionLifecycle."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.AgentRunner.SessionLifecycle, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 101,
+      "path": "src/lib/aiur/github/config.ex",
+      "frozen_lines": 1090,
+      "candidate_lines": 1090,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.GitHub.Config",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "GitHub access",
+        "basis": "Candidate source role: Aiur.GitHub.Config."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Config.repo includes checkout-origin fallback and credential policy; retain both explicit and auto-detected repository behavior and auth precedence if splitting."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 102,
+      "path": "src/lib/aiur/orchestrator/push_routing.ex",
+      "frozen_lines": 1087,
+      "candidate_lines": 1087,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.PushRouting",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.PushRouting."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.PushRouting, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 103,
+      "path": "src/test/aiur/live_conversation_test.exs",
+      "frozen_lines": 1071,
+      "candidate_lines": 1071,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.LiveConversationTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Aiur core/integration tests",
+        "basis": "Candidate source role: Aiur.LiveConversationTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.LiveConversationTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 104,
+      "path": "src/lib/aiur/decision_event.ex",
+      "frozen_lines": 1057,
+      "candidate_lines": 1057,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.DecisionEvent",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Decision persistence and API",
+        "basis": "Candidate source role: Aiur.DecisionEvent."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "DecisionEvent is a data/wire contract; identify cohesive schema or codec seam rather than a generic IO/presentation extraction."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 105,
+      "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+      "frozen_lines": 1057,
+      "candidate_lines": 1057,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.CommentPolling",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.CommentPolling."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.Orchestrator.CommentPolling, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 106,
+      "path": "src/test/aiur/orchestrator/reconciler_test.exs",
+      "frozen_lines": 1057,
+      "candidate_lines": 1057,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.ReconcilerTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Orchestrator tests",
+        "basis": "Candidate source role: Aiur.Orchestrator.ReconcilerTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Orchestrator.ReconcilerTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 107,
+      "path": "src/lib/aiur/issue_log.ex",
+      "frozen_lines": 1049,
+      "candidate_lines": 1049,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.IssueLog",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Aiur core / issue log",
+        "basis": "Candidate source role: Aiur.IssueLog."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of Aiur.IssueLog, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 108,
+      "path": "src/lib/aiur_web/build_order_presenter.ex",
+      "frozen_lines": 1045,
+      "candidate_lines": 1045,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "AiurWeb.BuildOrderPresenter",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Web UI / presenters and channels",
+        "basis": "Candidate source role: AiurWeb.BuildOrderPresenter."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Map public and dynamic callers of AiurWeb.BuildOrderPresenter, then test a cohesive responsibility split with restart/wire behavior preserved."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 109,
+      "path": "src/test/fixtures/analytics/runs/boot-a/run-summary.json",
+      "frozen_lines": 1042,
+      "candidate_lines": 1042,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "JSON schema_version, boot_id, generated_at, source_files",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Test fixture data",
+        "basis": "Candidate source role: JSON schema_version, boot_id, generated_at, source_files."
+      },
+      "action": {
+        "proposal": "regenerate",
+        "assessment": "conditional",
+        "unresolved_condition": "This is a checked-in analytics fixture; enumerate test readers and prove equivalent focused cases before replacing it with generated data."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 110,
+      "path": "src/test/aiur/orchestrator/dispatch_policy_test.exs",
+      "frozen_lines": 1041,
+      "candidate_lines": 1041,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.DispatchPolicyTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Orchestrator tests",
+        "basis": "Candidate source role: Aiur.Orchestrator.DispatchPolicyTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.Orchestrator.DispatchPolicyTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 111,
+      "path": "src/lib/aiur/decision_projection.ex",
+      "frozen_lines": 1039,
+      "candidate_lines": 1039,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.DecisionProjection",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Decision persistence and API",
+        "basis": "Candidate source role: Aiur.DecisionProjection."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "DecisionProjection is a reducer/serialization contract with no file IO in this module; replace the proposed parsing/IO/presentation split with a verified pure responsibility seam."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 112,
+      "path": "src/test/aiur/decision_projection_test.exs",
+      "frozen_lines": 1036,
+      "candidate_lines": 1036,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.DecisionProjectionTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Decision persistence and API tests",
+        "basis": "Candidate source role: Aiur.DecisionProjectionTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.DecisionProjectionTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 113,
+      "path": "src/lib/aiur/orchestrator/state.ex",
+      "frozen_lines": 1033,
+      "candidate_lines": 1033,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.Orchestrator.State",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch",
+        "basis": "Candidate source role: Aiur.Orchestrator.State."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "State is the shared Orchestrator struct and runtime-state helpers; the proposed parsing/IO/presentation template is not supported. Assign field owners and reducer seams before moving fields."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 114,
+      "path": ".claude/skills/ce-code-review/scripts/peer-job-runner.py",
+      "frozen_lines": 1030,
+      "candidate_lines": 1030,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "RunnerError",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Vendored CE skill / ce-code-review",
+        "basis": "Candidate source role: RunnerError."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "This is byte-identical to rows 115 and 116; choose one upstream vendoring/entrypoint policy before creating three separately split implementations."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 115,
+      "path": ".claude/skills/ce-doc-review/scripts/peer-job-runner.py",
+      "frozen_lines": 1030,
+      "candidate_lines": 1030,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "RunnerError",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Vendored CE skill / ce-doc-review",
+        "basis": "Candidate source role: RunnerError."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "This is byte-identical to rows 114 and 116; choose one upstream vendoring/entrypoint policy before creating three separately split implementations."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 116,
+      "path": ".claude/skills/ce-pov/scripts/peer-job-runner.py",
+      "frozen_lines": 1030,
+      "candidate_lines": 1030,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "RunnerError",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Vendored CE skill / ce-pov",
+        "basis": "Candidate source role: RunnerError."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "This is byte-identical to rows 114 and 115; choose one upstream vendoring/entrypoint policy before creating three separately split implementations."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 117,
+      "path": "src/priv/build_gate_holder.py",
+      "frozen_lines": 1025,
+      "candidate_lines": 1025,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "build_gate_holder.py",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Runtime launcher and guard scripts",
+        "basis": "Candidate source role: build_gate_holder.py."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Preserve build_gate_holder.py exports/CLI and package or browser consumers; no bounded seam and output parity test is verified yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 118,
+      "path": "src/test/aiur/coding_agent_test.exs",
+      "frozen_lines": 1013,
+      "candidate_lines": 1026,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.CodingAgentTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Aiur core/integration tests",
+        "basis": "Candidate source role: Aiur.CodingAgentTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.CodingAgentTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    },
+    {
+      "row_index": 119,
+      "path": "src/test/aiur/orchestrator_control_routing_test.exs",
+      "frozen_lines": 1012,
+      "candidate_lines": 1012,
+      "exists_in_candidate": true,
+      "tracked_in_candidate": true,
+      "remains_over_500": true,
+      "source_signal": "Aiur.OrchestratorControlRoutingTest",
+      "owner": {
+        "assessment": "verified_domain",
+        "name": "Ticket lifecycle and dispatch tests",
+        "basis": "Candidate source role: Aiur.OrchestratorControlRoutingTest."
+      },
+      "action": {
+        "proposal": "split",
+        "assessment": "conditional",
+        "unresolved_condition": "Group Aiur.OrchestratorControlRoutingTest scenarios by owning behavior and preserve assertions, test isolation and mutation proof; no scenario split is tested yet."
+      },
+      "disappearance_cause": "none"
+    }
+  ]
+}
