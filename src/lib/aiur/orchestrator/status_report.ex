@@ -31,6 +31,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.RepoBase
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
+  alias Aiur.Workspace.Ownership.HoldStatus
 
   # `TicketActivity.snapshots/1` is a call into an in-memory projection on this
   # node, so the work itself is microseconds; the only thing this budget has to
@@ -1186,7 +1187,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       claim_released?: not is_nil(release),
       claim_release_cause: release && release.cause,
       reason:
-        idle_reason(waiting_reason, fn ->
+        idle_reason(waiting_reason, identifier, fn ->
           idle_status_reason(
             work_state,
             pause_reason,
@@ -1217,10 +1218,17 @@ defmodule Aiur.Orchestrator.StatusReport do
   # thunk so it is only computed when it is needed.
   @claim_shaped_waiting_reasons [:orphaned_claim, :stale_claim, :workspace_ownership_waiting]
 
-  defp idle_reason(waiting_reason, _fallback) when waiting_reason in @claim_shaped_waiting_reasons,
+  defp idle_reason(:workspace_ownership_waiting, identifier, _fallback) do
+    case HoldStatus.for_ticket(identifier) do
+      %{generation: generation, proof: proof} -> {:workspace_ownership_waiting, generation, proof}
+      nil -> :workspace_ownership_waiting
+    end
+  end
+
+  defp idle_reason(waiting_reason, _identifier, _fallback) when waiting_reason in @claim_shaped_waiting_reasons,
     do: waiting_reason
 
-  defp idle_reason(_waiting_reason, fallback), do: fallback.()
+  defp idle_reason(_waiting_reason, _identifier, fallback), do: fallback.()
 
   defp idle_evidence(%State{} = state, issue, latch_status, open_decision_count, now_ms) do
     auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, Map.get(issue, :id), now_ms)

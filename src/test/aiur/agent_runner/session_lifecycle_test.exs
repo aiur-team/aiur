@@ -617,6 +617,32 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   end
 
   describe "authoritative no-provider startup failures" do
+    test "persists local boot proof before invoking a provider start" do
+      ticket = "provider-boot-before-spawn-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: ticket, selected_backend: "codex", tracker_identity: telemetry_identity()}
+      assert {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: fn -> {:ok, "boot-before"} end)
+      assert {:ok, active_lease} = Ownership.activate(lease)
+      parent = self()
+
+      start_fun = fn _workspace, _opts ->
+        send(parent, {:receipt_before_start, Store.get(ticket)})
+        {:error, :bash_not_found}
+      end
+
+      assert {:error, :bash_not_found} =
+               SessionLifecycle.run_session(
+                 "/workspaces/#{ticket}",
+                 issue,
+                 nil,
+                 [workspace_ownership: active_lease, session_start_fun: start_fun, telemetry_attempt_id: "attempt-test"],
+                 nil
+               )
+
+      assert_received {:receipt_before_start, {:ok, %{provider_expected?: true, provider_scope: :local, provider_boot_id: "boot-before"}}}
+
+      assert {:ok, %{phase: :released}} = Ownership.release_and_wait(active_lease)
+    end
+
     test "preserves the legacy no-lease session API" do
       issue = %Issue{identifier: "legacy-no-lease", selected_backend: "codex"}
       start_fun = fn _workspace, _opts -> {:error, :bash_not_found} end
