@@ -40,12 +40,12 @@ blob identity, classification and physical-line count ([U0 plan](../../../../doc
 | --- | --- | --- |
 | Tracked UTF-8 text, exactly 500 LF physical lines | Pass. | Pass. |
 | Tracked UTF-8 text, 501 lines, new path or previously at most 500 | Fail with path, old/new count and owner/action. | Fail. |
-| Frozen oversized path, unchanged blob/count | Pass only if present in the refreshed, owner-assigned debt ledger; report remaining debt. | Fail. |
+| Frozen oversized path, unchanged blob/count | Pass only if present in the ledger derived from the pinned protected-main baseline Git blobs; report remaining debt. A PR cannot add itself to that grandfathered set. | Fail. |
 | Frozen oversized path edited from 600 to 599, or 600 to 601 | Shrink passes with updated count; growth fails. An edited path is never silently exempt. | Both fail while above 500. |
 | New path by rename/copy of oversized blob | Treat as new above-500 debt and fail; do not launder grandfathering through a path change. | Fail. |
 | Exactly 200 versus 201 lines | Both pass the hard gate; at 201 emit a review prompt for a cohesion rationale. No automatic split or CI failure solely at 201. | Same. |
 | 500 LF delimiters with no last newline versus 500 newline-terminated lines | First is 501 physical lines if nonempty bytes follow the 500th LF; second is 500. Empty file is zero. | Same. |
-| Tracked symlink; binary blob (invalid UTF-8 or NUL) | Classify and report separately; do not dereference/count target twice or assign arbitrary binary lines. Review a text-to-binary reclassification as a potential gate bypass. | Same classification; all UTF-8 text remains in scope. |
+| Tracked symlink; binary blob (invalid UTF-8 or NUL) | Classify and report separately; do not dereference/count target twice or assign arbitrary binary lines. A formerly text path changing to binary, including by one NUL byte, fails unless an exact path and new-blob identity was separately reviewed and recorded on protected main before this change. | Same classification and reclassification rule; all UTF-8 text remains in scope. |
 | Tracked generated, vendor, archive, test, docs, skill, CSS or lockfile text | Same size rule and owner ledger as product source, with no permanent path exclusion. | Fail at 501 regardless of directory or provenance. |
 
 The first six rows implement the [baseline contract](file-size-analysis.md)
@@ -60,13 +60,22 @@ U0 should record that decision in the executable gate and documentation.
 
 1. Generate a fresh per-path ledger from the merged-main Git tree, compare its
    oversized paths with owner-map rows and record every release deletion or
-   newly oversized path. The raw research branch contains additional large
-   evidence files; keep that corpus on its pinned research ref, not in main
+   newly oversized path. Pin the protected baseline commit and derive the
+   grandfathered path/count/blob set from **that commit's Git objects**, not
+   from a ledger edited in the PR under test. A tracked ledger may add owners
+   and actions, but cannot create baseline eligibility. For a real text-to-binary
+   migration, require a separately reviewed, previously merged protected-main
+   record naming the exact path and binary blob; otherwise fail. The raw
+   research branch contains additional large evidence files; keep that corpus
+   on its pinned research ref, not in main
    ([promotion audit](research-promotion-and-500-line-gate.md), lines 3–23).
 2. Unit-test all matrix rows against synthetic Git trees/blobs, including
    CRLF, an unterminated final line, symlink mode `120000`, an invalid UTF-8
-   blob, a NUL-containing blob, and generated/vendor paths. Test that an
-   intentional text-to-binary change is reported for review.
+   blob, a NUL-containing blob, and generated/vendor paths. Assert that a PR
+   adding its own >500 path to the debt ledger still fails, and that an
+   oversized text file changed only by appending NUL (or invalid UTF-8) fails.
+   An exact, prior protected-main classification approval may pass only for
+   its named path and new blob; a different blob must fail.
 3. Run the check on a docs-only PR fixture and a merge-group/main fixture in
    the existing required CI context. Report debt count and offending paths in
    one bounded diagnostic; machine status fails on new/growing debt.
