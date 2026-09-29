@@ -55,6 +55,8 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 
+On Linux, `aiur init` probes the Codex command sandbox when Codex is selected. A failure shows the command output and offers a retry; see the [Linux setup steps](/guide/quick-start#codex-on-linux).
+
 Event counters, subscriptions, session handles and the alert ledger survive
 restarts in instance- and repository-scoped runtime state. Central alert and
 event-publication audit logs remain per launch; `--logs-root` controls those logs.
@@ -79,9 +81,7 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 
 ## Inspect and operate a running daemon
 
-A `workspace_ownership_waiting` row names the held generation and whether provider exit remains unproven. For local sessions started after this change on Linux, Aiur records the kernel boot ID before provider startup; after a host reboot, a restored unknown-provider hold releases automatically.
-
-Existing receipts without that proof, remote sessions, and hosts where the boot ID cannot be read remain held until provider exit is independently established.
+A `workspace_ownership_waiting` row reports the held generation and unproven provider exit; local Linux sessions started after this change use a recorded kernel boot ID to release unknown-provider holds after reboot, while older receipts, remote sessions, and unreadable boot IDs remain held until exit is proved.
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |

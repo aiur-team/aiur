@@ -19,6 +19,21 @@ npm install -g aiur-cli
 
 `python3` is optional: it powers the local budget broker, and without it the daemon runs GitHub requests unmetered. Everything below the baseline is optional — see [Optional Optimizations](/reference/optional-optimizations) for what you can turn on and what it costs.
 
+### Codex on Linux
+
+Codex needs a working Linux command sandbox before Aiur can dispatch Codex workers. Install Bubblewrap on Linux or WSL2 (`sudo apt install bubblewrap` on Ubuntu/Debian, or `sudo dnf install bubblewrap` on Fedora). On Ubuntu 24.04, a restricted user namespace may also require the packaged AppArmor profile:
+
+```bash
+sudo apt update
+sudo apt install apparmor-profiles apparmor-utils
+sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap-userns-restrict
+sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+```
+
+Run `codex sandbox -- /bin/pwd` on the worker host. It should print the current directory and exit successfully. `aiur init` runs the same bounded probe when Codex is selected and shows the command's failure output if it fails.
+
+A successful prewarm build runs outside the worker sandbox and does not establish that Codex commands can run. See [Codex's sandbox prerequisites](https://learn.chatgpt.com/docs/sandboxing) for other distributions and current recovery steps.
+
 ## Initialize
 
 Run `aiur init` once for your first setup. Choose **global** to store reusable defaults in `~/.aiur/config`; any project without local config can reuse them.
