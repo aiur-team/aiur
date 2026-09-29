@@ -1,0 +1,200 @@
+{
+  "scope": "P0/P1 location existence only; no semantic or severity verdict",
+  "findings": 182,
+  "all_locations_exist": 177,
+  "exceptions": [
+    {
+      "id": "build-order-02",
+      "severity": "P1",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "lines": "179-203",
+          "status": "out_of_bounds",
+          "file_lines": 196
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_sanitizer.ex",
+          "lines": "158-169",
+          "status": "exists"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex",
+          "lines": "35-41",
+          "status": "exists"
+        }
+      ],
+      "all_locations_exist": false
+    },
+    {
+      "id": "tests-5-02",
+      "severity": "P1",
+      "locations": [
+        {
+          "path": "src/test/aiur/regression/opencode_slots_test.exs",
+          "lines": "16-19, 79-89, 312-480",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/regression/enter_opens_new_pane_test.exs",
+          "lines": "29-35, 77, 128",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/regression/warm_marker_semantics_test.exs",
+          "lines": "28-30",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/regression/warm_state_transitions_test.exs",
+          "lines": "22-23, 70",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/regression/compile_time_paths_test.exs",
+          "lines": "24-100, 126-155",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/regression/progress_renderer_boundary_test.exs",
+          "lines": "1, 17-40, 86-172",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/regression/shutdown_cleanup_test.exs",
+          "lines": "18-60",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/regression/done_agent_detach_test.exs",
+          "lines": "10-53",
+          "status": "out_of_bounds",
+          "file_lines": 51
+        },
+        {
+          "path": "src/test/aiur/regression/instance_identity_test.exs",
+          "lines": "24, 226-246",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/regression/engine_control_test.exs",
+          "lines": "4, 640-651",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+          "lines": "1206-1219",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/events/debug_log_test.exs",
+          "lines": "110-121",
+          "status": "exists"
+        },
+        {
+          "path": "src/test/aiur/pane_manager/convo_paint_test.exs",
+          "lines": "84-88",
+          "status": "exists"
+        }
+      ],
+      "all_locations_exist": false
+    },
+    {
+      "id": "web-rest-06",
+      "severity": "P1",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/streamdeck_key_face_contract.ex",
+          "lines": "142-185",
+          "status": "out_of_bounds",
+          "file_lines": 124
+        },
+        {
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "lines": "70-85",
+          "status": "exists"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "lines": "64",
+          "status": "exists"
+        }
+      ],
+      "all_locations_exist": false
+    },
+    {
+      "id": "web-rest-08",
+      "severity": "P1",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+          "lines": "257-263",
+          "status": "out_of_bounds",
+          "file_lines": 193
+        },
+        {
+          "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+          "lines": "347-349",
+          "status": "out_of_bounds",
+          "file_lines": 193
+        },
+        {
+          "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+          "lines": "1410-1415",
+          "status": "exists"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "1276-1284",
+          "status": "exists"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "1929-1941",
+          "status": "exists"
+        },
+        {
+          "path": "src/lib/aiur_web/financial_data/change_bridge.ex",
+          "lines": "369-383",
+          "status": "out_of_bounds",
+          "file_lines": 76
+        },
+        {
+          "path": "src/lib/aiur_web/financial_data_access/generation.ex",
+          "lines": "187-192",
+          "status": "out_of_bounds",
+          "file_lines": 100
+        },
+        {
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "lines": "241-330",
+          "status": "exists"
+        }
+      ],
+      "all_locations_exist": false
+    },
+    {
+      "id": "web-rest-09",
+      "severity": "P1",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/presenter.ex",
+          "lines": "543-547",
+          "status": "exists"
+        },
+        {
+          "path": "src/lib/aiur/workspace/layout.ex",
+          "lines": "33-47",
+          "status": "exists"
+        },
+        {
+          "path": "src/lib/aiur/workspace/layout.ex",
+          "lines": "100-130",
+          "status": "out_of_bounds",
+          "file_lines": 128
+        }
+      ],
+      "all_locations_exist": false
+    }
+  ]
+}

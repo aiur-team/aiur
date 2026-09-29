@@ -2219,3 +2219,24 @@ Read issue_url, issue_version, item_id, jitter_ms, join_pane, journal_base_repai
 ### User requirement: file size and modularity
 
 The final refactor plan must enforce a hard 500-line file limit and prefer files of 200 lines or fewer. Decompose large components by responsibility and interface. See `synthesis/refactor-constraints.md` for the requirement and planning acceptance obligations. Research remains paused for the separately authorized Muse integration; this entry records the new constraint only.
+
+### 2026-09-29 Muse precursor accepted; research resumed
+
+Native Muse is committed locally on `feat/native-muse` at `9341fab9d`.
+The prior 13,106-test partitioned CI run had zero test failures and 85.55%
+aggregate coverage. A stale Dialyzer PLT was rebuilt against the private OTP
+installation and `mix dialyzer --format short` passed. Final isolated
+foreground CLI/TUI acceptance showed an allow-once approval delivered through
+chat input, one scoped `progress.checkin` publication, rendered Muse output
+and a delivered follow-up. The actual dashboard was inspected at desktop and
+mobile widths with zero page errors or measured overflow. Private evidence and
+limitations are in `~/.cache/aiur-muse-planning/requirements-audit.md`; the
+shared fleet was not changed. Research is active again.
+
+The first renewed research pass adds `tooling/file_size_census.py`, its complete
+frozen-snapshot output and `synthesis/file-size-analysis.md`: 359 tracked text
+files exceed 500 physical lines (109 library, 136 tests). It also adds a
+mechanical location audit for all 182 inherited P0/P1 findings: 177 have
+readable cited spans, five cite out-of-bounds lines and need correction. This
+is not a skeptic verdict. The three duplication units, 182 semantic/severity
+checks, 58 feature challenges, reconciled reports and CE plan remain open.
