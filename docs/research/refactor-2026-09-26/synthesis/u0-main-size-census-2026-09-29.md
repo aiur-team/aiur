@@ -21,3 +21,9 @@ python3 <research-checkout>/docs/research/refactor-2026-09-26/tooling/file_size_
 ```
 
 The owner-map set comparison used the `oversized` paths in the command's JSON output against the `path` column of `synthesis/oversized-file-owner-map.csv`. Rerun this check on each implementation head; the final 500-line gate still needs implementation and CI enforcement.
+
+## Later current-main checkpoint
+
+The same census command on complete detached `b4bc11ffcb6abf693bb3c8570aca3e12d82cb24f` reports 3,434 tracked paths: 3,346 UTF-8 text files, 47 binary files, and 41 symlinks. Of the text files, 1,188 exceed 200 lines and **357 exceed 500**. This is a source census, not evidence that any runtime finding occurs in production.
+
+The original 359-row owner map still covers 355 oversized paths; its four absent paths remain the deletions listed above. Two tests now need owner rows: `src/test/aiur/orchestrator/status_report_test.exs` (508 lines) and `src/test/aiur_web/components/operator_control_center/units_table_test.exs` (513 lines). Among surviving mapped paths, 63 line counts have changed since the map's `main_lines` column was recorded. Refresh those counts and assign the two new rows on the final release base before enabling the universal gate.

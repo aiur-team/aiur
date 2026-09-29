@@ -54,6 +54,11 @@ website, launcher, scripts, skills and prompts — about 650k lines in 28 chunks
 The brainstorm and plan built on this research live in `docs/brainstorms/`
 and `docs/plans/`.
 
+The [current-main checkpoint](synthesis/merged-main-b4bc-review.md) compares
+the frozen findings with `main@b4bc11f`, records two independent P1 reviews,
+and names the remaining checks before implementation. It is a dated snapshot;
+refresh it on the final release main.
+
 ## Starting inventory (measured 2026-09-26)
 
 | Source | Size |
