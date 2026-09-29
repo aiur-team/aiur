@@ -114,15 +114,18 @@ The name closure ledger reconciles all 651 tail source screens and gives
 source-level dispositions for the 39 shared-policy leads without an automatic
 raw pointer. It also records representative negative/wrapper checks. A source
 screen and a raw name-text hit do not establish whole-call-graph equivalence;
-the name unit remains pending exact caller/overlap closure.
+an independent follow-up traced external contracts for all 20 exported
+caller-empty families and reconciled the ten one/zero-location raw text hits.
+`review/raw/dup-by-name.json` records the completed literal-name detector
+with its explicit dynamic/transitive limits.
 
 The concept closure ledger assigns all 275 inherited duplication IDs to one
 primary source-role family exactly once and source-checks representative
 cross-boundary contracts. A follow-up semantic probe runs 14 reproducible
 domain-term searches over all 1,032 library files and source-checks seven
-candidate/rejection families. This is a bounded concept detector, not a
-completed search for every differently named implementation; the concept raw
-unit remains pending an agreed coverage boundary and synthesis.
+candidate/rejection families. `review/raw/dup-by-concept.json` records this
+bounded detector as reviewed pending synthesis. It does not claim a completed
+search for every differently named implementation.
 
 The lower-fanout inline audit source-checks a small set of same-domain
 values missed by the five-module screen. It adds provisional Build Order

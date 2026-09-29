@@ -1,9 +1,9 @@
 {
   "unit_id": "dup-by-concept",
-  "status": "in-progress-not-a-raw-unit",
+  "status": "superseded-by-bounded-raw-unit",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
-  "coverage_notes": "Two cross-cutting concept families (label/state and ticket-topic grammar) have source-level checks. A separate index accounts for all 275 inherited duplication-category findings in the 29 existing raw units; indexing is not semantic reconciliation. This is not a complete concept sweep of the 32 planned review boundaries. Existing defect IDs are retained; no new defect or LOC-saving count is inferred from source similarities.",
-  "evidence_artifacts": ["in-progress/label-state-contracts.json", "in-progress/label-state-probe.json", "in-progress/duplication-concept-inventory.json", "in-progress/dup-review-coverage.md"],
+  "coverage_notes": "Two cross-cutting concept families (label/state and ticket-topic grammar) have source-level findings. The closure ledger assigns all 275 inherited duplication-category IDs in 29 existing raw units to one source-role family exactly once. A 14-term concept probe searched all 1032 frozen library files and source-checked seven candidate/rejection families; it is a bounded search, not an exhaustive search for differently named implementations or a semantic rereview of each inherited assertion. Existing defect IDs are retained; no new defect or LOC-saving count is inferred from source similarities.",
+  "evidence_artifacts": ["in-progress/label-state-contracts.json", "in-progress/label-state-probe.json", "in-progress/duplication-concept-inventory.json", "in-progress/duplication-concept-closure.md", "in-progress/duplication-concept-semantic-probe.md", "in-progress/dup-review-coverage.md"],
   "findings": [
     {
       "id": "dup-by-concept-01",

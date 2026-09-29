@@ -1,9 +1,20 @@
 {
   "unit_id": "dup-by-name",
-  "status": "superseded-by-bounded-raw-unit",
+  "status": "reviewed_pending_synthesis",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
-  "coverage_notes": "Prior semantic ledger assesses 1029/1680 cross-module literal name families. The remaining 651 families/1977 clauses are fully indexed with checked source hashes and disjoint source screens. All 118 A/B shared-policy leads have overlap navigation; 27 touch body-finding spans, 52 more have raw name-text hits, and 39 have direct source-level dispositions. An immediate local caller/capture trace covers all 211 A negative/wrapper families; 20 exported families have no same-file caller and ten raw name-text hits lack a finding located in both definition files. These exact residuals and broader external/transitive caller behavior remain outside semantic closure. The proposals below are selected source-checked findings, not additive LOC savings; preserve existing IDs on reconciliation.",
-  "evidence_artifacts": ["in-progress/duplication-name-triage.json", "in-progress/duplication-name-remaining.json", "in-progress/duplication-name-tail-a.json", "in-progress/duplication-name-tail-b.json", "in-progress/duplication-name-body-overlap.json", "in-progress/duplication-name-caller-trace.json", "in-progress/duplication-name-closure.md", "in-progress/duplication-name-residual-external.md", "in-progress/dup-review-coverage.md", "tooling/name_remaining_index.py (full output in private research root)"],
+  "coverage_notes": "Bounded literal-name review at frozen 3339b887: 1680 cross-module function-name families and 10268 definition clauses are accounted for by the prior semantic ledger (1029 families/8291 clauses) and the fully indexed 651-family/1977-clause tail with checked source hashes. Both tail partitions screen every definition head/immediate body, 118 shared-policy leads have source/overlap dispositions, all 211 A negative/wrapper rows have local caller/capture traces, and the 20 exported caller-empty plus ten incomplete raw-text-hit residual families have external/source contract checks. The seven findings are source-backed opportunities, not independent defects or additive LOC savings; inherited IDs retain priority when contracts match. This completes the declared literal-name candidate corpus, while dynamic/generated calls, downstream behavior, full transitive call graphs and differently named semantic duplication remain outside this detector. Final cross-unit synthesis remains open.",
+  "evidence_artifacts": [
+    "in-progress/duplication-name-triage.json",
+    "in-progress/duplication-name-remaining.json",
+    "in-progress/duplication-name-tail-a.json",
+    "in-progress/duplication-name-tail-b.json",
+    "in-progress/duplication-name-body-overlap.json",
+    "in-progress/duplication-name-caller-trace.json",
+    "in-progress/duplication-name-closure.md",
+    "in-progress/dup-review-coverage.md",
+    "tooling/name_remaining_index.py (full output in private research root)",
+    "in-progress/duplication-name-residual-external.md"
+  ],
   "findings": [
     {
       "id": "dup-by-name-01",
@@ -11,9 +22,18 @@
       "severity": "P2",
       "title": "Issue context text is rendered by three separate helpers",
       "locations": [
-        {"path": "src/lib/aiur/agent_runner.ex", "lines": "611-613"},
-        {"path": "src/lib/aiur/app_server/messages.ex", "lines": "68-70"},
-        {"path": "src/lib/aiur/orchestrator/state.ex", "lines": "696-700"}
+        {
+          "path": "src/lib/aiur/agent_runner.ex",
+          "lines": "611-613"
+        },
+        {
+          "path": "src/lib/aiur/app_server/messages.ex",
+          "lines": "68-70"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "696-700"
+        }
       ],
       "description": "All three format `issue_id=<id> issue_identifier=<identifier>`. AgentRunner and State require an Issue struct; AppServer.Messages matches a map. A shared renderer may prevent text drift, but callers retain typed input adaptation and missing-field behavior.",
       "recommendation": "Define one issue-context rendering contract near Issue; keep each caller's input validation explicit.",
@@ -26,8 +46,14 @@
       "severity": "P2",
       "title": "Blocker terminal checks repeat across orchestration paths",
       "locations": [
-        {"path": "src/lib/aiur/orchestrator/issue_sync.ex", "lines": "1330-1334"},
-        {"path": "src/lib/aiur/orchestrator/push_routing.ex", "lines": "931-935"}
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1330-1334"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "931-935"
+        }
       ],
       "description": "Both clause pairs check a binary blocker state with DispatchPolicy.terminal_issue_state? and use the same terminal set; malformed blockers return false. Sharing the blocker policy does not merge the two dispatch paths or prove blocker evidence is current.",
       "recommendation": "Expose a single dependency-state predicate owned by orchestration policy while preserving the false fallback.",
@@ -40,10 +66,22 @@
       "severity": "P2",
       "title": "Pull request topic grammar repeats in poll and webhook normalization",
       "locations": [
-        {"path": "src/lib/aiur/events/github_firehose.ex", "lines": "420-423"},
-        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "645-648"},
-        {"path": "src/lib/aiur/events/github_firehose.ex", "lines": "427-429"},
-        {"path": "src/lib/aiur/recent_merge.ex", "lines": "540-542"}
+        {
+          "path": "src/lib/aiur/events/github_firehose.ex",
+          "lines": "420-423"
+        },
+        {
+          "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+          "lines": "645-648"
+        },
+        {
+          "path": "src/lib/aiur/events/github_firehose.ex",
+          "lines": "427-429"
+        },
+        {
+          "path": "src/lib/aiur/recent_merge.ex",
+          "lines": "540-542"
+        }
       ],
       "description": "The two pr_topic/3 clause sets map opened, ready_for_review and merged to the same ticket topic strings. Firehose and RecentMerge also copy the merged-action and closed-plus-merged recognition clauses. A shared event grammar should retain source-specific admission, ticket identity, topic deduplication and replay compatibility. This overlaps existing topic and webhook findings and is not an independent saving.",
       "recommendation": "Put PR topic construction under an event grammar owner; keep source parsing in each adapter.",
@@ -56,8 +94,14 @@
       "severity": "P2",
       "title": "Membership run ID validation is copied at storage and codec boundaries",
       "locations": [
-        {"path": "src/lib/aiur/current_run_membership/event/codec.ex", "lines": "99-103"},
-        {"path": "src/lib/aiur/current_run_membership/store/paths.ex", "lines": "30-34"}
+        {
+          "path": "src/lib/aiur/current_run_membership/event/codec.ex",
+          "lines": "99-103"
+        },
+        {
+          "path": "src/lib/aiur/current_run_membership/store/paths.ex",
+          "lines": "30-34"
+        }
       ],
       "description": "Both functions require a binary of 1..512 bytes whose trimmed form is unchanged and return the same invalid_run_id error. The codec and path owner need one validation contract so a future format change cannot admit an ID at one boundary that storage rejects at the other. Keeping validation at both ingress points is still appropriate.",
       "recommendation": "Use the existing public Store.Paths.valid_run_id/1 or a lower shared membership identity validator from both boundaries, retaining two call sites.",
@@ -70,8 +114,14 @@
       "severity": "P2",
       "title": "Progress percentage normalization repeats across runtime and Stream Deck",
       "locations": [
-        {"path": "src/lib/aiur/orchestrator/status_report.ex", "lines": "828-830"},
-        {"path": "src/lib/aiur_web/stream_deck_grid.ex", "lines": "205-207"}
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "828-830"
+        },
+        {
+          "path": "src/lib/aiur_web/stream_deck_grid.ex",
+          "lines": "205-207"
+        }
       ],
       "description": "Both three-clause functions accept integers from zero through 100, round floats, and return nil for unavailable or out-of-range values. The runtime and presentation layers must agree on this measured-value contract. Sharing it should retain nil as unavailable, rather than converting unknown into zero; there is no measured incidence or LOC saving from the source match alone.",
       "recommendation": "Own bounded percentage normalization below runtime and presentation adapters, retaining the nil branch and explicit round policy.",
@@ -84,8 +134,14 @@
       "severity": "P2",
       "title": "Build Order dependency direction defaults repeat in domain and presentation",
       "locations": [
-        {"path": "src/lib/aiur/build_order/dependency.ex", "lines": "127-128"},
-        {"path": "src/lib/aiur_web/build_order_presenter.ex", "lines": "316-317"}
+        {
+          "path": "src/lib/aiur/build_order/dependency.ex",
+          "lines": "127-128"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "lines": "316-317"
+        }
       ],
       "description": "Both source_connection/1 functions preserve blocked_by or blocking and default any other input to blocked_by. The domain adapter uses the result to direct graph endpoints; the presenter copies it into a public projection. A shared typed direction policy prevents drift, while input validation and error/public envelopes stay at each boundary.",
       "recommendation": "Expose the direction normalization from the Build Order dependency domain and call it from the presenter.",
@@ -98,8 +154,14 @@
       "severity": "P2",
       "title": "Codex workspace-write sandbox policy is recognized twice",
       "locations": [
-        {"path": "src/lib/aiur/config.ex", "lines": "1284-1286"},
-        {"path": "src/lib/aiur/config/codex_sandbox_policy.ex", "lines": "286-288"}
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1284-1286"
+        },
+        {
+          "path": "src/lib/aiur/config/codex_sandbox_policy.ex",
+          "lines": "286-288"
+        }
       ],
       "description": "Both predicates read string or atom type keys and compare with workspaceWrite. Config and CodexSandboxPolicy use this result at separate validation stages. They should share the same policy recognizer while preserving writable-root validation and local versus remote workspace handling. This source match does not prove sandbox escape or grant equivalence.",
       "recommendation": "Own sandbox policy type normalization in CodexSandboxPolicy and use it from Config after checking dependency direction.",

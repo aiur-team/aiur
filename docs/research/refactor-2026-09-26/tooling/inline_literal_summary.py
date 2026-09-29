@@ -2,6 +2,7 @@
 """Summarize high-fanout inline literal candidates without semantic verdicts."""
 
 import collections
+import gzip
 import hashlib
 import json
 import re
@@ -48,13 +49,13 @@ def number_shape(value: int | float) -> str:
 
 
 def build(source: Path) -> dict:
-    raw = source.read_bytes()
+    raw = gzip.open(source, "rb").read() if source.suffix == ".gz" else source.read_bytes()
     data = json.loads(raw)
     groups = collections.defaultdict(list)
     for row in data["literals"]:
-        groups[(row["kind"], row["value"])].append(row)
+        groups[(row["kind"], type(row["value"]), row["value"])].append(row)
     selected = []
-    for (kind, value), rows in groups.items():
+    for (kind, _value_type, value), rows in groups.items():
         modules = {row["module"] for row in rows}
         if kind == "string":
             if len(modules) < 5 or len(value) < 8 or not value.strip() or not any(c.isalpha() for c in value):
