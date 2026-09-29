@@ -2607,7 +2607,7 @@ defmodule Aiur.AgentControlCLI do
   defp agent_activity(agent) do
     case Map.get(agent, :work_state, :working) do
       :retrying ->
-        "(retrying: #{Map.get(agent, :error) || "unknown"}; last failure #{format_failure_at(agent)})"
+        retry_activity(agent)
 
       :starting ->
         "(starting provider; no live turn yet)"
@@ -2635,8 +2635,24 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp format_failure_at(%{last_failure_at: %DateTime{} = at}), do: DateTime.to_iso8601(at)
-  defp format_failure_at(_agent), do: "unknown time"
+  defp retry_activity(agent) do
+    reason =
+      case Map.get(agent, :error) do
+        "startup failed: {:port_exit, " <> _ = error ->
+          if String.match?(error, ~r/^startup failed: \{:port_exit, \d+\}$/), do: error, else: "previous worker failure"
+
+        _ ->
+          "previous worker failure"
+      end
+
+    time =
+      case Map.get(agent, :last_failure_at) do
+        %DateTime{} = at -> "; last failure #{DateTime.to_iso8601(at)}"
+        _ -> ""
+      end
+
+    "(retrying: #{reason}#{time})"
+  end
 
   defp activity_values(agent) do
     message = Map.get(agent, :last_codex_message)

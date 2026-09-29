@@ -3316,7 +3316,14 @@ defmodule Aiur.AgentControlCLITest do
       }
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: %{"issue-2895" => starting}, retry_attempts: %{"issue-2896" => retry}}
+        %{
+          state
+          | running: %{"issue-2895" => starting},
+            retry_attempts: %{
+              "issue-2896" => retry,
+              "issue-2897" => %{retry | identifier: "repo#2897", error: "startup failed: private-key-value"}
+            }
+        }
       end)
 
       output = capture_io(fn -> AgentControlCLI.agents() end)
@@ -3325,6 +3332,8 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ ~r/#2896\s+retrying\s/
       assert output =~ "startup failed: {:port_exit, 23}"
       assert output =~ DateTime.to_iso8601(at)
+      assert output =~ "#2897"
+      refute output =~ "private-key-value"
     end
 
     test "status and agents agree on the human wait for a decision and a rework ticket (#2698)",
