@@ -4,9 +4,9 @@
   "checked_main_revision": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "method": "Manual claim and cited-source inspection; direct source line copied from pinned frozen/public tree; verdict scopes static mechanism only.",
   "partition_total": 297,
-  "completed_count": 100,
-  "residual_count": 197,
-  "next_index": 100,
+  "completed_count": 193,
+  "residual_count": 104,
+  "next_index": 193,
   "items": [
     {
       "index": 0,
@@ -1812,6 +1812,2115 @@
         "source_text": "def failure_class({:github, classification, _detail}) when classification in [:auth, :forbidden], do: :permission"
       },
       "current_head_caveat": "Test the emitted tuple through the policy before changing classification.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 100,
+      "finding_id": "build-order-08",
+      "source_ids": [
+        "build-order-08"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "A labelled-read cadence branch exists, but proving it is dead requires the catalog-reader option flow.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/graph_projection.ex",
+        "line": 1041,
+        "source_text": "if labelled_read?(inflight) or carry_expired?(state) do"
+      },
+      "current_head_caveat": "Do not remove the cadence until the flag and all readers are traced.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 101,
+      "finding_id": "build-order-09",
+      "source_ids": [
+        "build-order-09"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "GraphProjection is 1,825 physical lines in the frozen source and owns several phases.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/graph_projection.ex",
+        "line": 1,
+        "source_text": "defmodule Aiur.BuildOrder.GraphProjection do"
+      },
+      "current_head_caveat": "A split needs measured semantic seams and a before/after line census.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 102,
+      "finding_id": "build-order-12",
+      "source_ids": [
+        "build-order-12",
+        "loose-4-19"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "AdHocSource accumulates paginated issues with acc ++ and has no visible page cap in this branch.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+        "line": 280,
+        "source_text": "nil -> {:ok, acc ++ issues}"
+      },
+      "current_head_caveat": "Compare with OpenTicketSource paging under a multi-page fixture.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 103,
+      "finding_id": "build-order-13",
+      "source_ids": [
+        "build-order-13"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "A GenServer poll callback runs fetch before returning; cited peers read disk and stores similarly.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+        "line": 133,
+        "source_text": "def handle_info(:poll, state) do"
+      },
+      "current_head_caveat": "Measure callback duration and caller timeouts before performance claims.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 104,
+      "finding_id": "build-order-14",
+      "source_ids": [
+        "build-order-14"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Build Order runtime loading synchronously includes AdHocSource snapshot in a shared result.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/data_source.ex",
+        "line": 90,
+        "source_text": "Map.put(load_runtime_sources(opts), :adhoc, call(dependency(opts, :adhoc_source, AdHocSource), :snapshot, []))"
+      },
+      "current_head_caveat": "Inject slow snapshot and verify independent page sections stay truthful.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 105,
+      "finding_id": "build-order-15",
+      "source_ids": [
+        "build-order-15"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "AdHocSource captures resolved repo at initialization while listing uses a repo callback later.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+        "line": 105,
+        "source_text": "state = %{state | repo: resolve_repo(state.repo_fun)}"
+      },
+      "current_head_caveat": "Test repo config change and event reconciliation before altering ownership.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 106,
+      "finding_id": "build-order-16",
+      "source_ids": [
+        "build-order-16"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Coordinator options contain a reset_epoch helper parallel to sibling Build Order coordinators.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex",
+        "line": 65,
+        "source_text": "defp reset_epoch(opts) do"
+      },
+      "current_head_caveat": "Extract only after comparing epoch and supervision semantics.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 107,
+      "finding_id": "build-order-17",
+      "source_ids": [
+        "build-order-17"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Repository equality is implemented in this module and several other cited Build Order paths.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+        "line": 89,
+        "source_text": "def same_repository?({owner, repository}, {configured_owner, configured_repository}) do"
+      },
+      "current_head_caveat": "Count current definitions and compare case/nil rules before consolidation.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 108,
+      "finding_id": "build-order-18",
+      "source_ids": [
+        "build-order-18"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "RouteState treats two nil identities as equal, unlike other cited identity lookups.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/route_state.ex",
+        "line": 378,
+        "source_text": "defp same_identity?(nil, nil), do: true"
+      },
+      "current_head_caveat": "A common helper must preserve context-specific nil behavior.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 109,
+      "finding_id": "build-order-19",
+      "source_ids": [
+        "build-order-19"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "TicketContextPresenter constructs a normalized progress map here and repeats a parallel form later.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+        "line": 243,
+        "source_text": "%{"
+      },
+      "current_head_caveat": "Consolidate only with rendered unknown/age behavior tests.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 110,
+      "finding_id": "build-order-20",
+      "source_ids": [
+        "build-order-20"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "UsageScope has an inline invalid-status set matching AnalyticsScope in cited source.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+        "line": 55,
+        "source_text": "@invalid_statuses [:invalid_parameter, :not_found, :invalid_catalog, :selected_invalid]"
+      },
+      "current_head_caveat": "Check whether scope outputs truly have one owner before merging.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 111,
+      "finding_id": "build-order-21",
+      "source_ids": [
+        "build-order-21"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A task failure is collapsed to :transport; other cited paths use similarly specific fallthroughs.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/graph_projection.ex",
+        "line": 353,
+        "source_text": "{state, events} = complete_task(state, ref, {:error, :transport})"
+      },
+      "current_head_caveat": "Keep unknown heterogeneous causes neutral at the source and test envelope propagation.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 112,
+      "finding_id": "build-order-22",
+      "source_ids": [
+        "build-order-22"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A pack load error becomes an empty list with no visible failure result.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/planning_source.ex",
+        "line": 546,
+        "source_text": "end)"
+      },
+      "current_head_caveat": "Test malformed pack and invalid ticket handling against page health.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 113,
+      "finding_id": "build-order-23",
+      "source_ids": [
+        "build-order-23"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "A selected-root lookup calls load_packs directly; cited paths read pack files on other calls.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/planning_source.ex",
+        "line": 78,
+        "source_text": "case Enum.find(load_packs(include_drafts?: true), &pack_root?(&1, identity)) do"
+      },
+      "current_head_caveat": "Count pack count and disk reads before a cache saving claim.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 114,
+      "finding_id": "build-order-24",
+      "source_ids": [
+        "build-order-24"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Status path derives from a pack parent directory, so sibling pack mirrors can share one status file.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/pack_paths.ex",
+        "line": 77,
+        "source_text": "def status_path(pack_path) when is_binary(pack_path),"
+      },
+      "current_head_caveat": "Verify actual workspace naming and status writer contract.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 115,
+      "finding_id": "build-order-25",
+      "source_ids": [
+        "build-order-25"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "PackStatus requires all member lifecycles in one fetched window before accepting a pack.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/pack_status.ex",
+        "line": 323,
+        "source_text": "if Enum.all?(member_keys, &Map.has_key?(fetched.lifecycles, &1)) do"
+      },
+      "current_head_caveat": "Reproduce a pack wider than the configured fetch window before a convergence claim.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 116,
+      "finding_id": "build-order-26",
+      "source_ids": [
+        "build-order-26"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Synthetic planning number extracts digits from an ID, which can overlap a real issue number.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/planning_source.ex",
+        "line": 266,
+        "source_text": "case id |> String.split(~r/\\D+/, trim: true) |> List.last() do"
+      },
+      "current_head_caveat": "Test namespace separation and downstream URL/analytics routing.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 117,
+      "finding_id": "build-order-27",
+      "source_ids": [
+        "build-order-27"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "GitHub issue infrastructure imports BuildOrder.Bounded directly.",
+      "evidence": {
+        "path": "src/lib/aiur/github/issues.ex",
+        "line": 7,
+        "source_text": "alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}"
+      },
+      "current_head_caveat": "Move the shared primitive only if it removes a dependency edge and preserves callers.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 118,
+      "finding_id": "build-order-28",
+      "source_ids": [
+        "build-order-28"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "Marker exists, but a broad no-production-caller conclusion needs dynamic and test reachability review.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/marker.ex",
+        "line": 1,
+        "source_text": "defmodule Aiur.BuildOrder.Marker do"
+      },
+      "current_head_caveat": "Do not delete based only on grep counts.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 119,
+      "finding_id": "build-order-29",
+      "source_ids": [
+        "build-order-29"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "A no-op scheduling clause exists; whether it is unreachable or intentionally suppresses requeue is unclear.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/graph_projection.ex",
+        "line": 1206,
+        "source_text": "defp schedule_after_completion(state, :catalog, _delay), do: state"
+      },
+      "current_head_caveat": "Trace scope transitions and cadence tests before removing.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 120,
+      "finding_id": "build-order-30",
+      "source_ids": [
+        "build-order-30"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Graph planning validates fixed limits while other cited modules own separate caps and fallback cadences.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/graph_projection_configuration.ex",
+        "line": 96,
+        "source_text": "valid_limit?(roots, 100) and valid_limit?(pages, 4) and valid_limit?(calls, 4)"
+      },
+      "current_head_caveat": "A single bound source needs caller and semantics review; no automatic savings.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 121,
+      "finding_id": "build-order-31",
+      "source_ids": [
+        "build-order-31"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Graph task receive closure references the full state during read.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/graph_projection_task_lifecycle.ex",
+        "line": 11,
+        "source_text": "{:graph_projection_start, ^owner} -> read(state, scope, reader_options)"
+      },
+      "current_head_caveat": "Measure actual copied state size and task pressure before optimizing.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 122,
+      "finding_id": "build-order-32",
+      "source_ids": [
+        "build-order-32"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Planning generation is computed from a resettable counter plus a fixed epoch.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/planning_source.ex",
+        "line": 400,
+        "source_text": "defp generation(%{generation: generation}) when is_integer(generation) and generation >= 0, do: @generation + generation"
+      },
+      "current_head_caveat": "Reproduce route-state generation rejection across restart before claiming a frozen page.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 123,
+      "finding_id": "build-order-33",
+      "source_ids": [
+        "build-order-33"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "One invalid linked pull request halts accumulation with :error.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/ticket_detail_destinations.ex",
+        "line": 48,
+        "source_text": ":error -> {:halt, :error}"
+      },
+      "current_head_caveat": "Test whether one bad relation should degrade only that destination.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 124,
+      "finding_id": "build-order-34",
+      "source_ids": [
+        "build-order-34"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "A lifecycle-named file defines ProviderHealth first, supporting a source-level naming mismatch.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/lifecycle.ex",
+        "line": 1,
+        "source_text": "defmodule Aiur.BuildOrder.ProviderHealth do"
+      },
+      "current_head_caveat": "A file move alone has no net complexity saving unless responsibilities split.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 125,
+      "finding_id": "build-order-35",
+      "source_ids": [
+        "build-order-35"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Build Order has parallel label/provenance helpers with differing text in cited modules.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+        "line": 343,
+        "source_text": "defp log_label(:agent_decision, _label), do: \"Agent decision updated\""
+      },
+      "current_head_caveat": "Only share semantics that truly match; do not erase intentional UI wording.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 126,
+      "finding_id": "build-order-36",
+      "source_ids": [
+        "build-order-36"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "PlanningSource reads a test hook from global application environment.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/planning_source.ex",
+        "line": 368,
+        "source_text": "Application.get_env(:aiur, :build_order_pack_status_health_snapshot, &PackStatus.health/0).()"
+      },
+      "current_head_caveat": "Replace only after preserving isolation for real producer tests.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 127,
+      "finding_id": "build-order-37",
+      "source_ids": [
+        "build-order-37"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Demand bookkeeping has a fallback selected-nil branch within a large state machine.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/graph_projection.ex",
+        "line": 744,
+        "source_text": "_entry -> {:selected, nil}"
+      },
+      "current_head_caveat": "Prove it is redundant before deleting an apparent guard.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 128,
+      "finding_id": "build-order-38",
+      "source_ids": [
+        "build-order-38"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A test traces a private GraphProjection function rather than observable output.",
+      "evidence": {
+        "path": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs",
+        "line": 66,
+        "source_text": ":erlang.trace_pattern({GraphProjection, :no_schedule?, 3}, [{:_, [], [{:return_trace}]}], [:local])"
+      },
+      "current_head_caveat": "Replace with behavior evidence and mutation proof.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 129,
+      "finding_id": "build-order-39",
+      "source_ids": [
+        "build-order-39"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "The comment describes on-demand cadence, but its claimed drift requires evaluating effective runtime configuration.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/cadence.ex",
+        "line": 148,
+        "source_text": "the recommended value), the catalog has *no timer*: `graph_catalog_refresh_ms`"
+      },
+      "current_head_caveat": "Compare docs, defaults and live cadence before editing.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 130,
+      "finding_id": "build-order-40",
+      "source_ids": [
+        "build-order-40"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Exchange retry schedules every 100 ms with no backoff in this helper.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+        "line": 607,
+        "source_text": "defp schedule_exchange_retry, do: Process.send_after(self(), :resubscribe_exchange, 100)"
+      },
+      "current_head_caveat": "Test persistent subscribe failure and count wakeups before cost claims.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 131,
+      "finding_id": "dup-by-body-01",
+      "source_ids": [
+        "dup-by-body-01"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Usage scope normalization repeats across query layers; the cited body-group census records syntactic overlap and known semantic differences.",
+      "evidence": {
+        "path": "src/lib/aiur/usage/grouped_scopes.ex",
+        "line": 422,
+        "source_text": "defp unknown_attribution(selected) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/usage/grouped_scopes/scope.ex",
+        "line": 113,
+        "source_text": "defp normalize_tickets(tickets) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Current main matches frozen source. Similar body shapes do not prove one safe shared owner; inspect both callers and domain policy before a merge. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 132,
+      "finding_id": "dup-by-body-02",
+      "source_ids": [
+        "dup-by-body-02"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Decision request text and key normalization repeat; the cited body-group census records syntactic overlap and known semantic differences.",
+      "evidence": {
+        "path": "src/lib/aiur/decision_answer.ex",
+        "line": 257,
+        "source_text": "defp unsafe_control_chars?(text) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/decision_delegation.ex",
+        "line": 278,
+        "source_text": "defp required_text(value, max, field) when is_binary(value) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Current main matches frozen source. Similar body shapes do not prove one safe shared owner; inspect both callers and domain policy before a merge. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 133,
+      "finding_id": "dup-by-body-03",
+      "source_ids": [
+        "dup-by-body-03"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Persisted decision readers repeat field contracts; the cited body-group census records syntactic overlap and known semantic differences.",
+      "evidence": {
+        "path": "src/lib/aiur/decision_event.ex",
+        "line": 1011,
+        "source_text": "defp fetch_string(raw, key, field) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/decision_event.ex",
+        "line": 1018,
+        "source_text": "defp fetch_version(raw, key, field) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Current main matches frozen source. Similar body shapes do not prove one safe shared owner; inspect both callers and domain policy before a merge. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 134,
+      "finding_id": "dup-by-body-04",
+      "source_ids": [
+        "dup-by-body-04"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Log rotation repeats with different retention policies; the cited body-group census records syntactic overlap and known semantic differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_process_log.ex",
+        "line": 406,
+        "source_text": "defp rotate_if_large(path) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/agent_process_log.ex",
+        "line": 415,
+        "source_text": "defp rotate(path, generation) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Current main matches frozen source. Similar body shapes do not prove one safe shared owner; inspect both callers and domain policy before a merge. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 135,
+      "finding_id": "dup-by-body-05",
+      "source_ids": [
+        "dup-by-body-05"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Orchestrator call adapters repeat failure classification; the cited body-group census records syntactic overlap and known semantic differences.",
+      "evidence": {
+        "path": "src/lib/aiur/orchestrator/interrupts.ex",
+        "line": 158,
+        "source_text": "defp control_api_call(server, request) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+        "line": 1069,
+        "source_text": "defp control_api_call(server, request, timeout) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Current main matches frozen source. Similar body shapes do not prove one safe shared owner; inspect both callers and domain policy before a merge. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 136,
+      "finding_id": "dup-by-body-06",
+      "source_ids": [
+        "dup-by-body-06"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Usage persistence repeats checksums and coverage codecs; the cited body-group census records syntactic overlap and known semantic differences.",
+      "evidence": {
+        "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+        "line": 122,
+        "source_text": "defp encode_coverage(coverage) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+        "line": 130,
+        "source_text": "defp decode_coverage(%{\"<literal>\" => folded, \"<literal>\" => partial, \"<literal>\" => reasons})",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Current main matches frozen source. Similar body shapes do not prove one safe shared owner; inspect both callers and domain policy before a merge. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 137,
+      "finding_id": "dup-by-body-08",
+      "source_ids": [
+        "dup-by-body-08"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Membership callbacks repeat narrow failure adapters; the cited body-group census records syntactic overlap and known semantic differences.",
+      "evidence": {
+        "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+        "line": 519,
+        "source_text": "defp safely_mark_membership_unavailable(",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+        "line": 562,
+        "source_text": "defp invoke_terminal_verification_marker(",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Current main matches frozen source. Similar body shapes do not prove one safe shared owner; inspect both callers and domain policy before a merge. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 138,
+      "finding_id": "dup-by-body-09",
+      "source_ids": [
+        "dup-by-body-09"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Build-order route resolution repeats across scope adapters; the cited body-group census records syntactic overlap and known semantic differences.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+        "line": 202,
+        "source_text": "defp current_identity(route_state) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+        "line": 55,
+        "source_text": "def decide(%RouteState{} = route_state) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Current main matches frozen source. Similar body shapes do not prove one safe shared owner; inspect both callers and domain policy before a merge. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 139,
+      "finding_id": "dup-by-body-10",
+      "source_ids": [
+        "dup-by-body-10"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Renderer duplicates separator construction; the cited body-group census records syntactic overlap and known semantic differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+        "line": 261,
+        "source_text": "def separator_row(inner_width) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/agent_list/renderer/table.ex",
+        "line": 39,
+        "source_text": "def table_separator_row(inner_width, _layout) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Current main matches frozen source. Similar body shapes do not prove one safe shared owner; inspect both callers and domain policy before a merge. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 140,
+      "finding_id": "dup-by-body-11",
+      "source_ids": [
+        "dup-by-body-11"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Build-order providers duplicate lifecycle metrics; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/catalog_store.ex",
+        "line": 170,
+        "source_text": "defp metric_count(metadata, field) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/build_order/catalog_store.ex",
+        "line": 185,
+        "source_text": "defp member_state_digest(lifecycles) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 141,
+      "finding_id": "dup-by-body-12",
+      "source_ids": [
+        "dup-by-body-12"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Web duration formatters repeat conversion mechanics; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+        "line": 149,
+        "source_text": "defp format_duration(seconds) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur_web/live/github_cache_live.ex",
+        "line": 1327,
+        "source_text": "defp fmt_window(ms) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 142,
+      "finding_id": "dup-by-body-13",
+      "source_ids": [
+        "dup-by-body-13"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Git origin discovery repeats across entry points; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/git.ex",
+        "line": 158,
+        "source_text": "def parse_origin_url(url) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/init/github.ex",
+        "line": 297,
+        "source_text": "def parse_repo(url) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 143,
+      "finding_id": "dup-by-body-14",
+      "source_ids": [
+        "dup-by-body-14"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Filesystem preconditions repeat with distinct contracts; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/current_run_membership/store/file_ops.ex",
+        "line": 28,
+        "source_text": "def regular_or_missing?(path) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/current_run_membership/store/terminal_verification.ex",
+        "line": 87,
+        "source_text": "defp remove_marker(path) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 144,
+      "finding_id": "dup-by-body-15",
+      "source_ids": [
+        "dup-by-body-15"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Web outbound-link policy repeats; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+        "line": 181,
+        "source_text": "defp trusted_url(value) when is_binary(value) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+        "line": 75,
+        "source_text": "defp trusted_url(value) when is_binary(value) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 145,
+      "finding_id": "dup-by-body-16",
+      "source_ids": [
+        "dup-by-body-16"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Bridge address resolution repeats before probe and bind; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/bridge_port.ex",
+        "line": 113,
+        "source_text": "defp parse_ip(host) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/opencode/bridge_supervisor.ex",
+        "line": 57,
+        "source_text": "defp parse_ip(host) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 146,
+      "finding_id": "dup-by-body-17",
+      "source_ids": [
+        "dup-by-body-17"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Build-order options repeat bounded-positive selection; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+        "line": 219,
+        "source_text": "defp positive(opts, key, default, maximum) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex",
+        "line": 51,
+        "source_text": "defp bounded_positive_option(opts, key, default, maximum) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 147,
+      "finding_id": "dup-by-body-18",
+      "source_ids": [
+        "dup-by-body-18"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "GitHub source support repeats subscriptions and repository resolution; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+        "line": 387,
+        "source_text": "defp subscribe_to_events do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+        "line": 396,
+        "source_text": "defp maybe_relist(%{repo: {owner, repo}} = state, degraded_repo) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 148,
+      "finding_id": "dup-by-body-20",
+      "source_ids": [
+        "dup-by-body-20"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Daemon log streams repeat parent-path resolution; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/run_telemetry.ex",
+        "line": 61,
+        "source_text": "def telemetry_file do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/saturation_sentinel.ex",
+        "line": 63,
+        "source_text": "def file_path do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 149,
+      "finding_id": "dup-by-body-22",
+      "source_ids": [
+        "dup-by-body-22"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "TUI failure handling duplicates an existing helper; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_list/activation.ex",
+        "line": 137,
+        "source_text": "defp safe_call(function) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/agent_list/app.ex",
+        "line": 334,
+        "source_text": "defp safe_call(function) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 150,
+      "finding_id": "dup-by-body-23",
+      "source_ids": [
+        "dup-by-body-23"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Agent support installation repeats directory checks; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_command_installer.ex",
+        "line": 98,
+        "source_text": "defp ensure_directory(path) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/agent_github_guard.ex",
+        "line": 485,
+        "source_text": "defp ensure_directory(path) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 151,
+      "finding_id": "dup-by-body-24",
+      "source_ids": [
+        "dup-by-body-24"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Usage corruption markers repeat encoding mechanics; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/usage_aggregate/paths.ex",
+        "line": 52,
+        "source_text": "def write_degraded_marker(path, reason, sync_fun) when is_atom(reason) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/usage_ledger/recovery.ex",
+        "line": 394,
+        "source_text": "defp write_marker(path, reason, sync_fun)",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 152,
+      "finding_id": "dup-by-body-25",
+      "source_ids": [
+        "dup-by-body-25"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Decision store adapters repeat scoped failure envelopes; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+        "line": 645,
+        "source_text": "defp safely_request_decision(decision_requester, payload, opts) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/decision_api.ex",
+        "line": 308,
+        "source_text": "defp safe_store_call(fun) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 153,
+      "finding_id": "dup-by-body-27",
+      "source_ids": [
+        "dup-by-body-27"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Repository comparison repeats through different shapes; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/github_graph/endpoint.ex",
+        "line": 98,
+        "source_text": "defp same_repository?(",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+        "line": 168,
+        "source_text": "defp same_repository?(",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 154,
+      "finding_id": "dup-by-body-28",
+      "source_ids": [
+        "dup-by-body-28"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Usage persistence repeats callback failure envelopes; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/usage_aggregate/store.ex",
+        "line": 328,
+        "source_text": "defp safe(fun) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+        "line": 354,
+        "source_text": "defp safe(fun) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 155,
+      "finding_id": "dup-by-body-29",
+      "source_ids": [
+        "dup-by-body-29"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Build-order adapters repeat joinable identity equality; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+        "line": 272,
+        "source_text": "defp same_identity?(left, right) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+        "line": 324,
+        "source_text": "defp same_identity?(left, right) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 156,
+      "finding_id": "dup-by-body-30",
+      "source_ids": [
+        "dup-by-body-30"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Ticket evidence normalization repeats across presentation; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+        "line": 210,
+        "source_text": "defp source(%{kind: kind, name: name})",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+        "line": 257,
+        "source_text": "defp maybe_put_opaque(map, key, value) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 157,
+      "finding_id": "dup-by-body-31",
+      "source_ids": [
+        "dup-by-body-31"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Durable logs repeat bounded tail-read mechanics; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/alert_ledger/tail.ex",
+        "line": 37,
+        "source_text": "defp read_bytes(device, bytes) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/alert_ledger/tail.ex",
+        "line": 47,
+        "source_text": "defp drop_partial_prefix(contents, true) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 158,
+      "finding_id": "dup-by-body-32",
+      "source_ids": [
+        "dup-by-body-32"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "GitHub usage surfaces repeat consumer labels; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/github/credential_usage.ex",
+        "line": 96,
+        "source_text": "defp actor_label(actor) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/github_usage_cli.ex",
+        "line": 120,
+        "source_text": "defp actor_label(actor) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 159,
+      "finding_id": "dup-by-body-33",
+      "source_ids": [
+        "dup-by-body-33"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Provider adapters repeat process metadata normalization; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+        "line": 607,
+        "source_text": "defp maybe_put_provider_pid(provider, pid) when is_binary(pid) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/codex/app_server_port.ex",
+        "line": 259,
+        "source_text": "defp maybe_put_provider_pid(provider, pid) when is_binary(pid) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 160,
+      "finding_id": "dup-by-body-35",
+      "source_ids": [
+        "dup-by-body-35"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Transcript helpers repeat existing protocol field operations; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/message_handler.ex",
+        "line": 344,
+        "source_text": "defp timestamp_for(message) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/claude/transcript.ex",
+        "line": 171,
+        "source_text": "defp item_id(item) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 161,
+      "finding_id": "dup-by-body-36",
+      "source_ids": [
+        "dup-by-body-36"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "GitHub adapters repeat strict positive-number parsing; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/catalog_store.ex",
+        "line": 306,
+        "source_text": "defp positive_number(value) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/build_order/github_graph/reconciliation.ex",
+        "line": 188,
+        "source_text": "defp positive_number(value) when is_binary(value) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 162,
+      "finding_id": "dup-by-body-37",
+      "source_ids": [
+        "dup-by-body-37"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Decision kind canonicalization repeats; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/decision_authority.ex",
+        "line": 122,
+        "source_text": "defp normalize_kind(kind) when is_binary(kind) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/decision_command_type.ex",
+        "line": 56,
+        "source_text": "defp normalize_kind(kind) when is_binary(kind) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 163,
+      "finding_id": "dup-by-body-38",
+      "source_ids": [
+        "dup-by-body-38"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Current-run projections repeat task-start fallback; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/current_run_projections/checkpoint_persistence.ex",
+        "line": 105,
+        "source_text": "defp start_task(supervisor, fun) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/current_run_projections/checkpoint_persistence.ex",
+        "line": 112,
+        "source_text": "defp safe_supervised_start(supervisor, fun) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 164,
+      "finding_id": "dup-by-body-39",
+      "source_ids": [
+        "dup-by-body-39"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Timestamp clauses repeat with incompatible outer policies; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/comment_context.ex",
+        "line": 190,
+        "source_text": "defp parse_comment_datetime(value) when is_binary(value) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/alert_feed.ex",
+        "line": 459,
+        "source_text": "defp parse_timestamp(timestamp) when is_binary(timestamp) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 165,
+      "finding_id": "dup-by-body-40",
+      "source_ids": [
+        "dup-by-body-40"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Usage schemas repeat safe enum validation; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/usage/price_table/validator.ex",
+        "line": 200,
+        "source_text": "defp enum(value, allowed, error) when is_binary(value) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/usage_envelope.ex",
+        "line": 399,
+        "source_text": "defp enum(value, allowed, error) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 166,
+      "finding_id": "dup-by-body-41",
+      "source_ids": [
+        "dup-by-body-41"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "GitHub events repeat review-context projection; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_comments_poller.ex",
+        "line": 490,
+        "source_text": "defp review_context(pr) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+        "line": 608,
+        "source_text": "defp review_context(pr) when is_map(pr) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 167,
+      "finding_id": "dup-by-body-43",
+      "source_ids": [
+        "dup-by-body-43"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Field readers repeat presence-preserving lookup; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/progress_renderer.ex",
+        "line": 195,
+        "source_text": "defp field(value, key) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/executor_wake_projection.ex",
+        "line": 87,
+        "source_text": "defp value(map, key) when is_map(map) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 168,
+      "finding_id": "dup-by-body-44",
+      "source_ids": [
+        "dup-by-body-44"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Build-order URL adapters repeat diagnostic shaping; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/member.ex",
+        "line": 152,
+        "source_text": "defp url(value, identity) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/build_order/member.ex",
+        "line": 159,
+        "source_text": "defp safe_url(value) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 169,
+      "finding_id": "dup-by-body-45",
+      "source_ids": [
+        "dup-by-body-45"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Tracker health repeats existing connectivity streak policy; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/github/connectivity.ex",
+        "line": 133,
+        "source_text": "def streak_count(streaks, source) when is_map(streaks) and is_atom(source) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/orchestrator/tracker_health.ex",
+        "line": 80,
+        "source_text": "defp connectivity_streak_count(streaks, source) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 170,
+      "finding_id": "dup-by-body-46",
+      "source_ids": [
+        "dup-by-body-46"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Event consumers repeat topic parsing; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_event_feed.ex",
+        "line": 283,
+        "source_text": "defp strip_scope(\"<literal>\" <> rest) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/agent_event_feed.ex",
+        "line": 290,
+        "source_text": "defp strip_scope(\"<literal>\" <> rest) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 171,
+      "finding_id": "dup-by-body-47",
+      "source_ids": [
+        "dup-by-body-47"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Usage drill views repeat cursor parsing; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+        "line": 395,
+        "source_text": "defp parse_cursor(cursor) when is_binary(cursor) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur_web/live/dashboard_live.ex",
+        "line": 1677,
+        "source_text": "defp parse_cursor(cursor) when is_binary(cursor) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 172,
+      "finding_id": "dup-by-body-48",
+      "source_ids": [
+        "dup-by-body-48"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Display tailers repeat graceful-stop wrappers; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+        "line": 825,
+        "source_text": "defp stop_display_tailer(pid) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/claude/display_tailer.ex",
+        "line": 280,
+        "source_text": "defp stop_tailer(pid) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 173,
+      "finding_id": "dup-by-body-50",
+      "source_ids": [
+        "dup-by-body-50"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Comment context repeats the workpad filter; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/comment_context.ex",
+        "line": 156,
+        "source_text": "defp workpad_comment?(comment) when is_map(comment) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/events/comment_filter.ex",
+        "line": 5,
+        "source_text": "def agent_workpad?(%{} = comment) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 174,
+      "finding_id": "dup-by-body-51",
+      "source_ids": [
+        "dup-by-body-51"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Build-order tasks repeat termination adapters; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/graph_projection_task_lifecycle.ex",
+        "line": 38,
+        "source_text": "defp terminate_child(task_supervisor, pid) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/build_order/ticket_detail_coordinator_task_lifecycle.ex",
+        "line": 218,
+        "source_text": "defp terminate_task(task_supervisor, pid) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 175,
+      "finding_id": "dup-by-body-52",
+      "source_ids": [
+        "dup-by-body-52"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Comment ingestion duplicates validator removal; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_comments_poller.ex",
+        "line": 270,
+        "source_text": "defp remember_list(resource, comments, nil) when is_list(comments) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/orchestrator/command_scan.ex",
+        "line": 205,
+        "source_text": "defp remember_list(resource, comments, nil) when is_list(comments) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 176,
+      "finding_id": "dup-by-body-53",
+      "source_ids": [
+        "dup-by-body-53"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Protocol payload adapters repeat nested map traversal; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/orchestrator/token_accounting/payloads.ex",
+        "line": 144,
+        "source_text": "defp map_at_path(payload, path) when is_map(payload) and is_list(path) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/usage/headless/adapter.ex",
+        "line": 288,
+        "source_text": "defp dig(map, path) when is_map(map) and is_list(path) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 177,
+      "finding_id": "dup-by-body-54",
+      "source_ids": [
+        "dup-by-body-54"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Pane opening repeats an existing slot operation; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/pane_manager/generic_open.ex",
+        "line": 127,
+        "source_text": "defp record_slot_pane(state, slot, pane_id, identifier) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/pane_manager/slot_attach.ex",
+        "line": 175,
+        "source_text": "def record_slot_pane(state, slot, pane_id, identifier) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 178,
+      "finding_id": "dup-by-body-55",
+      "source_ids": [
+        "dup-by-body-55"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Web chat surfaces duplicate transport override dispatch; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur_web/live/dashboard_live.ex",
+        "line": 2644,
+        "source_text": "defp send_agent_message(target, text, message_id) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur_web/live/dashboard_live.ex",
+        "line": 2652,
+        "source_text": "defp pause_agent(target) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 179,
+      "finding_id": "dup-by-body-56",
+      "source_ids": [
+        "dup-by-body-56"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Dependency ingestion repeats complete-list edge merge; both cited definitions are present in current public source, and the original body-group evidence records syntactic overlap with possible contract differences.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+        "line": 837,
+        "source_text": "defp merge_blocked_by_edge(held, blocker) when is_list(held) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/github/dependencies_api.ex",
+        "line": 307,
+        "source_text": "defp merge_blocked_edge(held, blocker_issue) when is_list(held) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Static duplication candidate only. Compare callers, failure behavior and domain ownership before merging; do not count moved code as saved lines. Runtime incidence and net LOC are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 180,
+      "finding_id": "dup-by-body-57",
+      "source_ids": [
+        "dup-by-body-57"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Token adapters repeat permissive numeric-prefix parsing; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/orchestrator/token_accounting/payloads.ex",
+        "line": 245,
+        "source_text": "defp integer_like(value) when is_binary(value) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/token_usage.ex",
+        "line": 120,
+        "source_text": "defp parse_token_value(v) when is_binary(v) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 181,
+      "finding_id": "dup-by-body-58",
+      "source_ids": [
+        "dup-by-body-58"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Keyed task schedulers repeat start and runnable mechanics; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/coordination_tasks.ex",
+        "line": 296,
+        "source_text": "defp runnable?(state, key) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/coordination_tasks.ex",
+        "line": 354,
+        "source_text": "defp safely_start_task(starter, entry) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 182,
+      "finding_id": "dup-by-body-59",
+      "source_ids": [
+        "dup-by-body-59"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Process adapters repeat selective port-message draining; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/github/budget.ex",
+        "line": 624,
+        "source_text": "defp flush_port(port) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/model_catalog.ex",
+        "line": 177,
+        "source_text": "defp flush_port(port) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 183,
+      "finding_id": "dup-by-body-60",
+      "source_ids": [
+        "dup-by-body-60"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Host integrations repeat positive PID-list parsing; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_resource_guard.ex",
+        "line": 151,
+        "source_text": "defp parse_pid_list(out) when is_binary(out) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/github/config.ex",
+        "line": 978,
+        "source_text": "defp parse_pids(out) when is_binary(out) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 184,
+      "finding_id": "dup-by-constant-02",
+      "source_ids": [
+        "dup-by-constant-02"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Model catalog refresh budget mirrors the CLI probe budget; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/model_catalog.ex",
+        "line": 22,
+        "source_text": "@model_list_id 9_307",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/model_discovery.ex",
+        "line": 83,
+        "source_text": "@cooldown_seconds 600",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 185,
+      "finding_id": "dup-by-constant-03",
+      "source_ids": [
+        "dup-by-constant-03"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Build Order draft-body byte cap is repeated at load and record boundaries; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/planning_source.ex",
+        "line": 808,
+        "source_text": "defp draft_body(path, pack_dir) when is_binary(path) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/build_order/member.ex",
+        "line": 93,
+        "source_text": "defp draft_body(value) when is_binary(value) and byte_size(value) in 1..64_000, do: value",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 186,
+      "finding_id": "dup-by-constant-05",
+      "source_ids": [
+        "dup-by-constant-05"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Dashboard advertised-host fallback is repeated for control URLs; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/http_server.ex",
+        "line": 264,
+        "source_text": "defp display_host(host) when host in [\"<literal>\", \"<literal>\", \"<literal>\", nil], do: \"<literal>\"",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/pane_manager/anchor.ex",
+        "line": 59,
+        "source_text": "defp control_url_host do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 187,
+      "finding_id": "dup-by-name-01",
+      "source_ids": [
+        "dup-by-name-01"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Issue context text is rendered by three separate helpers; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner.ex",
+        "line": 611,
+        "source_text": "@doc false",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/app_server/messages.ex",
+        "line": 68,
+        "source_text": "def issue_context(%{id: issue_id, identifier: identifier}) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 188,
+      "finding_id": "dup-by-name-02",
+      "source_ids": [
+        "dup-by-name-02"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Blocker terminal checks repeat across orchestration paths; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+        "line": 1330,
+        "source_text": "defp blocker_terminal?(%{state: state_name}) when is_binary(state_name) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/orchestrator/push_routing.ex",
+        "line": 931,
+        "source_text": "defp blocker_terminal?(%{state: state_name}) when is_binary(state_name) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 189,
+      "finding_id": "dup-by-name-04",
+      "source_ids": [
+        "dup-by-name-04"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Membership run ID validation is copied at storage and codec boundaries; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/current_run_membership/event/codec.ex",
+        "line": 99,
+        "source_text": "defp valid_run_id(run_id) when is_binary(run_id) and byte_size(run_id) in 1..512 do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/current_run_membership/store/paths.ex",
+        "line": 30,
+        "source_text": "def valid_run_id(run_id) when is_binary(run_id) and byte_size(run_id) in 1..512 do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 190,
+      "finding_id": "dup-by-name-05",
+      "source_ids": [
+        "dup-by-name-05"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Progress percentage normalization repeats across runtime and Stream Deck; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/orchestrator/status_report.ex",
+        "line": 828,
+        "source_text": "defp normalized_percent(percent) when is_integer(percent) and percent in 0..100, do: percent",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur_web/stream_deck_grid.ex",
+        "line": 205,
+        "source_text": "defp normalized_percent(percent) when is_integer(percent) and percent in 0..100, do: percent",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 191,
+      "finding_id": "dup-by-name-06",
+      "source_ids": [
+        "dup-by-name-06"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Build Order dependency direction defaults repeat in domain and presentation; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/dependency.ex",
+        "line": 127,
+        "source_text": "defp source_connection(source) when source in [:blocked_by, :blocking], do: source",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur_web/build_order_presenter.ex",
+        "line": 316,
+        "source_text": "defp source_connection(value) when value in [:blocked_by, :blocking], do: value",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 192,
+      "finding_id": "dup-by-name-07",
+      "source_ids": [
+        "dup-by-name-07"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Codex workspace-write sandbox policy is recognized twice; the two cited public source sites remain present, supporting the repeated shape recorded by the frozen duplication review.",
+      "evidence": {
+        "path": "src/lib/aiur/config.ex",
+        "line": 1284,
+        "source_text": "defp workspace_write_policy?(policy) do",
+        "redacted_literals": true
+      },
+      "comparand": {
+        "path": "src/lib/aiur/config/codex_sandbox_policy.ex",
+        "line": 286,
+        "source_text": "defp workspace_write_policy?(policy) do",
+        "redacted_literals": true
+      },
+      "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
       "runtime_incidence": "not_tested"
     }
   ]
