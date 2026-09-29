@@ -738,6 +738,29 @@ if [ -n "$agent_workspace_marker" ] && { [ "$test_single" -eq 1 ] || [ "$test3_m
   exit 64
 fi
 
+# The scope is an internal daemon launch value, never inherited by an ordinary
+# run or by the reset command. Validate it before build, log clearing, stop, or
+# GitHub reset so an unreadable pinned file cannot start an unbounded test run.
+unset AIUR_DEV_TEST_TICKET_IDS
+test_scope_ids=""
+if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
+  tickets_file="$repo_root/.aiur-test-tickets.json"
+  if ! command -v jq >/dev/null 2>&1 || [ ! -r "$tickets_file" ]; then
+    echo "❌ test launch requires jq and a readable $tickets_file; no tickets were reset" >&2
+    exit 64
+  fi
+
+  if ! test_scope_ids="$(jq -er --argjson single "$test_single" '
+    .tickets
+    | if type == "array" and length > 0 and all(.[]; type == "number" and . > 0 and floor == .)
+      then (if $single == 1 then .[0:1] else . end | map(tostring) | join(","))
+      else error("invalid pinned tickets") end
+  ' "$tickets_file" 2>/dev/null)"; then
+    echo "❌ test launch requires positive pinned ticket IDs in $tickets_file; no tickets were reset" >&2
+    exit 64
+  fi
+fi
+
 if [ -n "$agent_workspace_marker" ]; then
   enable_agent_ir_sandbox "$agent_workspace_marker" 0
 fi
@@ -783,6 +806,8 @@ if [ "$test_single" -eq 1 ] || [ "$test3_mode" -eq 1 ]; then
     echo "❌ test reset failed; refusing to launch. Inspect the output above." >&2
     exit 1
   fi
+
+  export AIUR_DEV_TEST_TICKET_IDS="$test_scope_ids"
 
   # GitHub's label index is eventually consistent — wait until the pinned
   # tickets show under agent:todo (or fall through after 30s) so the

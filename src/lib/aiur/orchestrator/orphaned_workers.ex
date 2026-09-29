@@ -58,7 +58,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
 
   require Logger
 
-  alias Aiur.Config
+  alias Aiur.{Config, TestTicketScope}
   alias Aiur.Orchestrator.{AgentTeardown, RetryEngine, State}
   alias Aiur.Workspace.Ownership
 
@@ -77,7 +77,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkers do
 
       registry
       |> Ownership.holders()
-      |> Enum.filter(&untracked?(&1, scope))
+      |> Enum.filter(&(TestTicketScope.allowed_identifier?(&1.ticket) and untracked?(&1, scope)))
       |> Enum.reduce(state, &stop_if_current(&1, &2, registry))
     else
       state
