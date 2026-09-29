@@ -26,7 +26,7 @@ share of historical idle time.
 | 60 claim pairs and six source reports | [Claim/question audit](claim-question-audit.md) matches 60 IDs and 120 lens values; all six reports carry corrected lead readings. A verdict may preserve a narrower problem while rejecting its inherited headline. |
 | Synthesis | [Verified claims](verified-claims.md), [problem map](problem-map.md), [contradictions](contradictions.md), [rewrite requirements](rewrite-requirements.md) and [open questions](open-questions.md) are published with detailed sources linked rather than duplicated. |
 | Unnecessary complexity | The catalog classifies 24 working cuts, 10 merges, 110 simplifies, 5 externalizations and 67 keeps. These are frozen planning judgments; the [plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) requires current use, behavior parity and actual removed-versus-moved LOC before implementation. |
-| Hard 500/preferred 200 lines | The corrected [frozen census](file-size-analysis.md) reproduces all 3,378 tracked paths, including 359 UTF-8 text files >500 and 1,192 >200. The [owner map](oversized-file-owner-map.md) covers all 359 with proposed dispositions: 344 split, eight regenerate/replace and seven conditional removals. [All 359 owner rows](oversized-file-owner-map-audit-summary.md) have a pre-release candidate audit: 355 remain >500 and four GitHub cache page paths are absent. The plan requires an automated universal 500-line gate and cohesion review above 200 for docs/tests/skills/vendor/generated text. The codebase does **not** meet the cap yet. |
+| Hard 500/preferred 200 lines | The corrected [frozen census](file-size-analysis.md) reproduces all 3,378 tracked paths, including 359 UTF-8 text files >500 and 1,192 >200. The [owner map](oversized-file-owner-map.md) covers all 359 with proposed dispositions: 344 split, eight regenerate/replace and seven conditional removals. [All 359 owner rows](oversized-file-owner-map-audit-summary.md) have a pre-release candidate audit. The later [merged-main recount](u0-main-size-census-2026-09-29.md) finds 355 >500 at `c2cbf881b`, all from the original map; four GitHub cache paths are absent. The plan requires an automated universal 500-line gate and cohesion review above 200 for docs/tests/skills/vendor/generated text. The codebase does **not** meet the cap yet. |
 | CE brainstorm → plan → deepen | [Requirements framing](../../../brainstorms/2026-09-29-aiur-refactor-requirements.md) and a [deepened phased plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) exist. The plan remains `requirements-only`: [cross-partition reconciliation](p2p3-triage-reconciliation-overlay.md) is complete at the frozen source level, while the candidate owner audit needs a merged-main refresh and degraded CODEOWNERS trust, store durability and first-seam contracts still need behavior tests before implementation tickets. |
 
 The static triage gives all 986 findings a source-anchor status, with 26
@@ -53,7 +53,9 @@ every finding's runtime incidence unverified.
   CSV path/count set matches all 359 oversized rows exactly.
 - `tooling/audit_oversized_owner_map.py --candidate <clean-candidate>` checks
   359/359 candidate rows, four absent dashboard paths and zero newly oversized
-  candidate paths. The merged release main still needs its own count.
+  candidate paths. The later merged-main Git-tree count at `c2cbf881b` finds
+  355 >500 text paths, all in that map; the implementation-base gate and a
+  fresh count after subsequent merges remain open.
 - `tooling/feature_loc_scenarios.py` reproduces 51 unique candidate files,
   17,944 gross lines and seven >500 paths; these are not net savings.
 - `tooling/privacy_check.py` passes, and every relative Markdown link in the
