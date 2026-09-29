@@ -376,7 +376,7 @@ Aiur passes the key through ACP authentication without copying it into the Gemin
 
 Aiur gives each workspace an isolated Gemini settings home, permits only its ticket-scoped MCP server, and rejects personal OAuth. A missing supported key stops dispatch with an auth diagnostic.
 
-A workspace `.gemini/settings.json` must not set `security.auth.selectedType` or `security.auth.enforcedType`, since trusted workspace settings override the isolated home. Aiur rejects malformed JSON settings before launch.
+A workspace `.gemini/settings.json` must not set `security.auth.selectedType` or `security.auth.enforcedType`, since trusted workspace settings override the isolated home. Aiur accepts Gemini's JSON comments and rejects invalid JSON or trailing commas before launch.
 
 Native approval choices appear in chat as `/approve <token> <choice>` commands. Aiur returns only the selected choice and sets Gemini's default approval mode at session start.
 

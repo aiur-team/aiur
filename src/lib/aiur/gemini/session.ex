@@ -7,6 +7,7 @@ defmodule Aiur.Gemini.Session do
   alias Aiur.{PauseContainment, ProcessReaper}
 
   @timeout 30_000
+  @json_comment_tokens ~r{"(?:\\.|[^"\\])*"|//[^\r\n]*|/\*[\s\S]*?\*/}
 
   @spec start(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def start(workspace, opts) do
@@ -161,7 +162,7 @@ defmodule Aiur.Gemini.Session do
   end
 
   defp validate_workspace_auth_settings(content) do
-    case Jason.decode(content) do
+    case content |> strip_json_comments() |> Jason.decode() do
       {:ok, %{"security" => %{"auth" => auth}}} when is_map(auth) ->
         if Map.has_key?(auth, "selectedType") or Map.has_key?(auth, "enforcedType"),
           do: {:error, :gemini_workspace_auth_override},
@@ -173,6 +174,19 @@ defmodule Aiur.Gemini.Session do
       {:error, _} ->
         {:error, :gemini_workspace_settings_invalid_json}
     end
+  end
+
+  # Gemini CLI parses settings with JSON.parse(stripJsonComments(content)).
+  # Preserve strings so URLs and comment-shaped text remain data, while Jason
+  # enforces the same JSON grammar after comments are replaced with whitespace.
+  defp strip_json_comments(content) do
+    Regex.replace(@json_comment_tokens, content, fn token ->
+      if String.starts_with?(token, "\"") do
+        token
+      else
+        String.replace(token, ~r/[^\r\n]/, " ")
+      end
+    end)
   end
 
   defp isolated_home(workspace, opts) do
