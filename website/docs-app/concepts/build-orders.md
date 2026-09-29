@@ -2,6 +2,23 @@
 
 A Build Order turns a large feature into typed members, lanes, phases, dependencies, complexity, and optional icons.
 
+<img src="/images/dashboard/build-orders-dark.png" alt="Build Order graph of a 42-member pack: four lane columns across the top with per-lane completion, four wave rows down the left, and dependency edges drawn between member cards in done, active and blocked states">
+
+A real 42-member pack, four lanes wide and four waves deep, part way through execution. A graph this dense
+is easy to look at and hard to read, so:
+
+| Where | What it tells you |
+| --- | --- |
+| Lane headers | Members and completion for each lane. Lanes progress independently, so an uneven spread across them is normal rather than a fault. |
+| Wave rows | How wide the front is at each depth. This pack is 5, 8, 10, then 19 — the shape of a dependency graph that opens up once its keystone lands. |
+| Card badges | The tracker number, complexity, and percent complete for one member. |
+| Edges | Dependencies. A member with many inbound edges is a bottleneck worth dispatching early. |
+| Card tone | Done, active, and blocked. Most of wave 4 reads blocked here because its dependencies have not landed yet, which is the graph working, not a stall. |
+
+The wave counts are the useful part when you are judging a pack before you run it. A first wave far wider
+than the second usually means members were grouped by topic rather than by dependency, and the fan-out
+will not survive contact with the scheduler.
+
 ## Pack contents
 
 | File or field | Purpose |
@@ -43,8 +60,6 @@ On the catalog, ticket, epic and wave counts remain numeric when resolution succ
 | `Unresolved` | The failure could not be classified. | No cause is claimed on purpose—a wrong reason is worse than none. |
 
 These states are intentionally not estimates. `aiur build-orders --json` reports the same cause as `count_resolution_failure`, with `count_resolution_reset_at` when a reset horizon is known.
-
-<img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
 
 ## The repository state node
 
