@@ -1,4 +1,4 @@
-[ 
+[
   {
     "id": "cli-04",
     "holds": false,
@@ -76,5 +76,17 @@
     "holds": true,
     "recommendation": "cut",
     "note": "The frozen AGENTS.md explicitly claims `--debug` records each chat pane as `log/record/chat.<issue>.ansi` and keeps ANSI with `capture-pane -e`, but the source search found no recorder or stitching implementation and no retained record directory. This is a documentation defect rather than code to delete. Remove or qualify the three claims in AGENTS.md, the TUI guide and the debug skill unless the recorder is implemented and manually verified; no source-LOC saving can be booked for this cut. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-46",
+    "holds": true,
+    "recommendation": "merge",
+    "note": "The default launcher resolves the packaged share/aiur.tmux.conf after optional AIUR_TMUX_CONF and user configuration, while scripts/verify-ctrlc-binding.sh tests scripts/aiur.tmux.conf. The two tracked copies differ materially: the test copy has synchronized-output advertising and a C-q hide binding, and the packaged copy retains the old h=...; $h form that the regression harness comment says raw-kills a pane on Ctrl+C. The source comparison is a strong defect signal, but no live packaged-keypress reproduction is claimed here. Merge the files by choosing one tested packaged source, then run the real wrapper-client keypress regression against that exact file and test C-c, C-q and user override precedence. The 109-line estimate is gross deletion only; a retained regression test and comments count toward net LOC. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-18",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "The agent-workspace --test guard blocks ticket workers from resetting pinned GitHub sandbox tickets; it does not remove Executor-root manual testing. AGENTS.md still requires the real foreground CLI/TUI smoke path, and the launcher calls preflight_stale_manual_smoke on foreground startup and reap_stale_manual_smoke on stop. The inventory uses same-user, workspace-path and tmux-aliveness checks before reaping stale BEAMs, plus orphan-attach and wrapper-socket checks. One explicit CLI use does not count automatic preflight/stop executions or the loss from abandoned child processes. Preserve scoped stale cleanup while the smoke harness exists; simplify inventory only after measuring false-positive/false-negative behavior, and keep dry-run visibility before destructive cleanup. The 181-line estimate is an unsupported net saving. This is a continuing-researcher challenge, not an independent reviewer result."
   }
 ]

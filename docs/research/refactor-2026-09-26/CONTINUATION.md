@@ -2265,3 +2265,14 @@ planning-skill package seam with no net LOC claim. `ui-12/30/33` are conditional
 cuts with required fixture, browser or documentation checks; their notes correct
 missed test use and distinguish dead code from documentation-only cleanup.
 Challenge artifact coverage is now 46 of 91, leaving 45.
+
+A further source-backed challenge checked the tmux config split and stale
+manual-smoke cleanup. The packaged tmux config differs from the file exercised
+by `verify-ctrlc-binding.sh`; the latter's regression comment describes a
+failure shape present in the packaged binding. This is a source signal, not a
+live keypress reproduction. `cleanup-stale` also runs through automatic
+preflight/stop paths while Executor-root manual testing remains required, so
+one explicit invocation cannot justify deleting it. Challenge artifact
+coverage is now 48 of 91, leaving 43. The inherited opencode bridge
+`agent-backends-oc-01` has a direct source and Plug-level reproduction in
+`review/in-progress/`, but still awaits independent severity review.
