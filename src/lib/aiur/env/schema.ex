@@ -49,7 +49,7 @@ defmodule Aiur.Env.Schema do
       voice: "Optional - Voice. Mic input and spoken replies on dashboard and Stream Deck.",
       dashboard: "Optional - Aiur dashboard. Web UI at :4000; CLI and TUI work without it.",
       decision_api: "Optional - Supervisor Decision API. Dedicated bearer credential for Executor automation.",
-      provider_keys: "Optional - Provider API keys. Named by agent.backend_configs.<backend>.api_key_env.",
+      provider_keys: "Optional - Provider API keys. Used by configured backends and native Gemini CLI.",
       runtime: "Runtime - launcher-managed. Normally set by `aiur` itself, not by hand.",
       dev: "Development and debugging.",
       ambient: nil
