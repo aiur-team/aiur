@@ -5166,6 +5166,23 @@ defmodule AiurWeb.DashboardLiveTest do
     assert render(view) =~ "Waiting for an agent to start"
   end
 
+  test "read-only Tickets prevents opening the setup dialog even for a forged event" do
+    start_test_endpoint(
+      control_center_cache: false,
+      dashboard_writable: false,
+      open_tickets_fun: fn -> open_ticket_snapshot([open_ticket("2101", [])]) end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+    assert html =~ "Read-only dashboard: adding an agent is unavailable here"
+    assert has_element?(view, ~s(button[id^="ticket-add-agent-"][disabled]))
+    refute has_element?(view, ~s(button[phx-click="open-add-agent"]))
+
+    [_, token] = Regex.run(~r/id="ticket-add-agent-([^"]+)"/, html)
+    render_hook(view, "open-add-agent", %{"ticket" => token})
+    refute has_element?(view, "#add-agent-modal")
+  end
+
   test "Add Agent stays responsive while the tracker blocks and reports completion after closing" do
     test_pid = self()
     orchestrator_name = Module.concat(__MODULE__, :BlockedAddAgentOrchestrator)

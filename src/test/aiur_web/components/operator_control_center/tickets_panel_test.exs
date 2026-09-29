@@ -11,7 +11,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanelTest do
     view = view(:available, [ticket("41", ["agent:todo", "complexity:3"]), ticket("42")])
     [first, _second] = view.rows
 
-    html = render_component(&TicketsPanel.tickets_panel/1, %{view: view})
+    html = render_component(&TicketsPanel.tickets_panel/1, %{view: view, writable: true})
 
     assert html =~ ~s(<span class="rs-group-title" id="tickets-title">Tickets</span>)
     assert html =~ ~s(<span class="rs-group-count">2 tickets</span>)
@@ -24,6 +24,16 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanelTest do
     assert html =~ ~s(phx-click="open-add-agent")
     assert html =~ ~s(title="Add an agent")
     assert html =~ "<svg"
+  end
+
+  test "read-only tickets explain CLI handoff before an add-agent action can open" do
+    html = render_component(&TicketsPanel.tickets_panel/1, %{view: view(:available, [ticket("41")]), writable: false})
+
+    assert html =~ ~s(id="tickets-agent-readonly")
+    assert html =~ "aiur --todo &lt;ticket-id&gt;"
+    assert html =~ ~s(disabled)
+    assert html =~ ~s(aria-describedby="tickets-agent-readonly")
+    refute html =~ ~s(phx-click="open-add-agent")
   end
 
   # The routing prediction is a decision the operator makes in the add-agent

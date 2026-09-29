@@ -95,6 +95,8 @@ observability:
   dashboard_writable: false
 ```
 
+In read-only mode, Tickets shows the Add an agent action as unavailable before any routing choices are requested. Run `aiur --todo <ticket-id>` from the repository to queue a ticket through the CLI.
+
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
 
 ## Authentication and network exposure
