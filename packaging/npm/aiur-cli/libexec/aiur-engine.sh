@@ -807,6 +807,16 @@ run_session() {
   scrub_run_only_env
   export AIUR_DEFAULT_DASHBOARD_HOST="$(default_dashboard_host)"
 
+  # The BEAM lives in tmux, but a fresh foreground run belongs to this shell:
+  # it waits on the UI attach and owns the teardown trap. Hand its pid to the
+  # pane watchdog so a hard-killed launcher cannot leave agents running.
+  # A detached run has no such owner; discard any inherited stale value.
+  if [ "$mode" = "foreground" ]; then
+    export AIUR_LAUNCHER_PID="$$"
+  else
+    unset AIUR_LAUNCHER_PID
+  fi
+
   # The daemon's `Aiur.Upgrade` check uses the CLI package version (not the mix
   # version) as the "installed" version, so an npm install's notice names what
   # the user actually has. `run_version` sets the same var for `--version`.
@@ -923,7 +933,7 @@ run_session() {
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE AIUR_ALERT_LEDGER_PATH_FILE \
       ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG \
-      AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
+      AIUR_OPERATOR_PID AIUR_LAUNCHER_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
       AIUR_BG_STATE_DIR AIUR_CLI_VERSION; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
