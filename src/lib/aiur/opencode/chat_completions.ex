@@ -54,7 +54,8 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp handle_identified(body, conn, identifier) do
-    with {:ok, body} <- InputIdentity.unwrap(body, conn),
+    with {:ok, conn} <- Caller.authorize(conn),
+         {:ok, body} <- InputIdentity.unwrap(body, conn),
          {:ok, text} <- TurnRequest.last_user_text(body) do
       handle_identified_text(body, conn, identifier, text)
     else
