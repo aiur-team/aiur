@@ -15,16 +15,16 @@ CANDIDATE = "0299daca28383a336682374e19e90d6434aa4e1a"
 RESEARCH = Path(__file__).resolve().parents[1]
 INVENTORY = RESEARCH / "features/features.json"
 OUTPUT = RESEARCH / "synthesis/feature-release-candidate-v3-delta.jsonl"
-PATH_TOKEN = re.compile(r"(?<![A-Za-z0-9_./-])(?:[A-Za-z0-9_.{}*+-]+/)+[A-Za-z0-9_.{}*+-]+")
+PATH_TOKEN = re.compile(r"(?<![A-Za-z0-9_./-])(?:[A-Za-z0-9_.{},*+-]+/)+[A-Za-z0-9_.{},*+-]+")
 
 # New Muse files did not exist in the frozen inventory, so exact cited-path
 # matching cannot discover their adjacency. Keep this small, explicit and
 # separately labeled; it is a review queue, not proof that a decision changed.
 MUSE_ADJACENT = {
-    "cli-23", "config-16", "config-18", "config-19", "config-37",
+    "cli-23", "config-16", "config-17", "config-18", "config-19", "config-37",
     "integrations-05", "integrations-06",
     "integrations-07", "integrations-08", "integrations-10", "integrations-13",
-    "integrations-12", "integrations-14", "integrations-15", "subsystems-04",
+    "integrations-12", "integrations-14", "integrations-15", "integrations-47", "subsystems-04",
     "subsystems-12", "subsystems-38", "ui-20", "ui-23",
 }
 
@@ -54,7 +54,18 @@ def cited_paths(citations: list[str], known: set[str]) -> tuple[list[str], list[
     found: set[str] = set()
     unresolved: set[str] = set()
     for citation in citations:
-        for token in PATH_TOKEN.findall(citation):
+        # ui-12 abbreviates a README plus "three demo pack JSON files" with
+        # spaces inside braces. At the frozen revision this directory has
+        # exactly those four tracked files; resolve the explicit shorthand.
+        build_order_shorthand = "src/priv/build_orders/{README.md, three demo pack JSON files}"
+        if build_order_shorthand in citation:
+            found.update(path for path in known if path.startswith("src/priv/build_orders/"))
+            citation = citation.replace(build_order_shorthand, "")
+        for raw_token in PATH_TOKEN.findall(citation):
+            token = raw_token.rstrip(",")
+            # Elixir arity such as `analytics/1` is a function, not a path.
+            if re.search(r"/\d+$", token):
+                continue
             matches: set[str] = set()
             for expanded in expand_braces(token):
                 # The subsystems partition uses paths relative to src/.
@@ -99,6 +110,17 @@ def build(repo: Path) -> list[dict]:
             reasons.append("inventory_release_override")
         if feature["id"] in MUSE_ADJACENT:
             reasons.append("new_muse_surface_adjacency")
+        resolution = "tracked_citation" if source_paths else "unresolved"
+        if feature["id"] == "cli-39":
+            # The frozen entry expressly cites Mix's generated release boot
+            # script, not a tracked Aiur path. Related configuration/caller
+            # anchors are documented in the manual reconciliation note.
+            resolution = "generated_release_script"
+            reasons.append("generated_release_rpc_contract")
+        elif feature["id"] == "ui-33":
+            # The frozen entry expressly says this recorder is absent.
+            resolution = "documented_without_implementation"
+            reasons.append("documented_absent_surface")
         rows.append({
             "id": feature["id"],
             "surface": feature["surface"],
@@ -110,6 +132,7 @@ def build(repo: Path) -> list[dict]:
             "cited_docs_delta": docs_delta,
             "unresolved_source_citations": unresolved_source,
             "unresolved_docs_citations": unresolved_docs,
+            "source_resolution": resolution,
             "merged_main_revalidation_reasons": reasons,
         })
     assert len({row["id"] for row in rows}) == 216
