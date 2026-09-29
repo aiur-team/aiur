@@ -2291,3 +2291,12 @@ without preserving its historical JSON window, and reject treating
 `github-cost` point attribution. Source and docs are cited in each entry;
 none is an independent reviewer verdict or a measured LOC saving. Challenge
 artifact coverage is 54 of 91, leaving 37.
+
+The next two challenges accept extraction of the host-local findings ledger
+only with its durable schema, migration and diagnostics intact, and reject
+folding Executor-authored operator asks into agent-originated Commands without
+an explicit authority/delivery model. Artifact coverage is 56 of 91, leaving
+35. Muse's post-auth-repair full test suite passed 13,108 tests and 19
+properties with zero failures; the two new bridge tests fail with the exact
+production auth hunk removed and pass when restored. The final rebuilt-release
+TUI check is pending, so the implementation is not yet marked complete.

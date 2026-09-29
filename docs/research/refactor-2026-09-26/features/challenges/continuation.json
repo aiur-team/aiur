@@ -124,5 +124,17 @@
     "holds": false,
     "recommendation": "keep",
     "note": "`github-usage` reports per-actor and per-credential Core, GraphQL and search request-count ceilings with reset windows; `github-cost` attributes Core/GraphQL points to call sites and reconciles a separate credential window. The GitHub API documentation and both CLI contracts warn against treating these as one metric. A common command family could present both only with distinct named schemas, units, windows and 0-versus-unknown states; changing the spelling saves about 26 wrapper lines at most while risking operator confusion. Keep the separate query contract until a measured demand and migration plan justify consolidation. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-36",
+    "holds": true,
+    "recommendation": "externalize",
+    "note": "The finding ledger is host-local Executor/meta bookkeeping with 73 sampled records and a documented aiur-meta workflow, so an independently versioned skill-owned tool is a plausible owner. Extraction must preserve repository state-node discovery, bounded record validation, append semantics, unfiled/latest-slug reduction, digest output and readable corrupt-record diagnostics. The existing `aiur findings` command is documented and used; ship a migration command and references before removing it. Moving the ledger/parser code is relocation, while only the thin CLI glue can count as net deletion after measurement. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-37",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "Asks are Executor-authored repository-operator requests with urgency, blocking, append-only resolution and notes. Commands are agent-originated decisions with offered options, optimistic versions, supersede/moot and ticket delivery. Their low-count ledgers do not make their authority and delivery contracts interchangeable. A shared presentation or notification layer may simplify status/watch, but moving asks into DecisionStore needs an explicit schema, authorization and migration design that preserves old ask history and does not send an operator-only request to an agent. The 120-line CLI estimate omits the store and migration cost. This is a continuing-researcher challenge, not an independent reviewer result."
   }
 ]
