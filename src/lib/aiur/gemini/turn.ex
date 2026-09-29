@@ -6,6 +6,7 @@ defmodule Aiur.Gemini.Turn do
   alias Aiur.Gemini.{Protocol, Transport}
   alias Aiur.PauseContainment
 
+  @spec run(map(), String.t(), map(), keyword()) :: {:ok, map()} | {:paused, map()} | {:error, term()}
   def run(%{port: port, gateway: gateway, thread_id: session_id} = session, prompt, issue, opts)
       when is_binary(prompt) and byte_size(prompt) > 0 do
     if PauseContainment.paused?(Map.get(session, :containment)) do
@@ -88,24 +89,30 @@ defmodule Aiur.Gemini.Turn do
         {:pause_agent, request_id} when is_integer(request_id) ->
           interrupt(state, {:pause, request_id})
 
-        {:agent_queue_updated, issue_id, _item_id, _urgent} when issue_id == state.issue_id and map_size(state.permissions) > 0 ->
-          answer_permission(state)
+        {:agent_queue_updated, _, _, _} = update ->
+          handle_queue_update(state, update)
 
-        {:agent_queue_updated, issue_id, _item_id, true} when issue_id == state.issue_id ->
-          interrupt(state, :operator_message)
-
-        {:agent_queue_updated, _, _, _} ->
-          loop(state)
-
-        {:agent_queue_updated, issue_id, _item_id} when issue_id == state.issue_id and map_size(state.permissions) > 0 ->
-          answer_permission(state)
-
-        {:agent_queue_updated, _, _} ->
-          loop(state)
+        {:agent_queue_updated, _, _} = update ->
+          handle_queue_update(state, update)
       after
         remaining -> finish(state, {:error, :gemini_turn_outcome_unknown})
       end
     end
+  end
+
+  defp handle_queue_update(state, {:agent_queue_updated, issue_id, _, urgent}) do
+    cond do
+      issue_id != state.issue_id -> loop(state)
+      map_size(state.permissions) > 0 -> answer_permission(state)
+      urgent -> interrupt(state, :operator_message)
+      true -> loop(state)
+    end
+  end
+
+  defp handle_queue_update(state, {:agent_queue_updated, issue_id, _}) do
+    if issue_id == state.issue_id and map_size(state.permissions) > 0,
+      do: answer_permission(state),
+      else: loop(state)
   end
 
   defp handle_frame(%{request_id: id} = state, %{"id" => id, "result" => %{"stopReason" => reason}} = frame) do
@@ -159,7 +166,7 @@ defmodule Aiur.Gemini.Turn do
   end
 
   defp handle_frame(state, %{"method" => method, "id" => id}) when is_binary(method) do
-    Transport.send_frame(state.session.port, %{"jsonrpc" => "2.0", "id" => id, "error" => %{"code" => -32601, "message" => "Aiur does not support #{method}"}})
+    Transport.send_frame(state.session.port, %{"jsonrpc" => "2.0", "id" => id, "error" => %{"code" => -32_601, "message" => "Aiur does not support #{method}"}})
     loop(state)
   end
 
@@ -168,39 +175,45 @@ defmodule Aiur.Gemini.Turn do
   defp answer_permission(state) do
     case state.operator_response.("/approve") do
       {:deliver_text, text, success, failure} ->
-        case String.split(String.trim(text)) do
-          ["/approve", token, choice] ->
-            case Map.pop(state.permissions, token) do
-              {%{id: id, options: options}, rest} ->
-                if Enum.any?(options, &(&1["optionId"] == choice)) do
-                  frame = %{"jsonrpc" => "2.0", "id" => id, "result" => %{"outcome" => %{"outcome" => "selected", "optionId" => choice}}}
-
-                  case Transport.send_frame(state.session.port, frame) do
-                    :ok ->
-                      success.(%{transport: :gemini_acp, approval_id: id, decision: choice, confirmation: :request_only})
-                      loop(%{state | permissions: rest})
-
-                    {:error, reason} ->
-                      failure.(reason)
-                      finish(state, {:error, reason})
-                  end
-                else
-                  failure.({:invalid_native_response, :invalid_approval_choice})
-                  loop(state)
-                end
-
-              {nil, _} ->
-                failure.({:invalid_native_response, :stale_approval})
-                loop(state)
-            end
-
-          _ ->
-            failure.({:invalid_native_response, :invalid_approval_command})
-            loop(state)
-        end
+        handle_permission_reply(state, String.split(String.trim(text)), success, failure)
 
       :noop ->
         loop(state)
+    end
+  end
+
+  defp handle_permission_reply(state, ["/approve", token, choice], success, failure) do
+    case Map.pop(state.permissions, token) do
+      {%{id: id, options: options}, rest} ->
+        send_permission_choice(state, id, options, rest, choice, success, failure)
+
+      {nil, _} ->
+        failure.({:invalid_native_response, :stale_approval})
+        loop(state)
+    end
+  end
+
+  defp handle_permission_reply(state, _, _success, failure) do
+    failure.({:invalid_native_response, :invalid_approval_command})
+    loop(state)
+  end
+
+  defp send_permission_choice(state, id, options, rest, choice, success, failure) do
+    if Enum.any?(options, &(&1["optionId"] == choice)) do
+      frame = %{"jsonrpc" => "2.0", "id" => id, "result" => %{"outcome" => %{"outcome" => "selected", "optionId" => choice}}}
+
+      case Transport.send_frame(state.session.port, frame) do
+        :ok ->
+          success.(%{transport: :gemini_acp, approval_id: id, decision: choice, confirmation: :request_only})
+          loop(%{state | permissions: rest})
+
+        {:error, reason} ->
+          failure.(reason)
+          finish(state, {:error, reason})
+      end
+    else
+      failure.({:invalid_native_response, :invalid_approval_choice})
+      loop(state)
     end
   end
 

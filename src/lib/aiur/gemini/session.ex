@@ -7,6 +7,7 @@ defmodule Aiur.Gemini.Session do
 
   @timeout 30_000
 
+  @spec start(Path.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def start(workspace, opts) do
     config = Keyword.get_lazy(opts, :config, fn -> Aiur.Config.backend_config("gemini") end)
     command = Keyword.get(opts, :command, Map.get(config, "command", "gemini --acp"))
@@ -30,6 +31,7 @@ defmodule Aiur.Gemini.Session do
     end
   end
 
+  @spec stop(map()) :: :ok
   def stop(%{port: port, gateway: gateway} = session) do
     Transport.stop(port)
     ProcessReaper.unregister({:os_pid, get_in(session, [:metadata, :provider_pid])})
@@ -96,21 +98,25 @@ defmodule Aiur.Gemini.Session do
   defp establish_session(port, workspace, server, opts, timeout) do
     case Keyword.get(opts, :resume_thread_id) do
       id when is_binary(id) and id != "" ->
-        frame = Protocol.session(2, "session/load", workspace, [server], id)
-
-        case Transport.request(port, frame, timeout, fn _ -> :ok end) do
-          {:ok, result} ->
-            {:ok, id, true, result}
-
-          {:error, {:acp_error, %{"message" => message}}} = error ->
-            if confirmed_missing?(message, id), do: new_session(port, workspace, server, timeout), else: error
-
-          {:error, _} = error ->
-            error
-        end
+        load_session(port, workspace, server, id, timeout)
 
       _ ->
         new_session(port, workspace, server, timeout)
+    end
+  end
+
+  defp load_session(port, workspace, server, id, timeout) do
+    frame = Protocol.session(2, "session/load", workspace, [server], id)
+
+    case Transport.request(port, frame, timeout, fn _ -> :ok end) do
+      {:ok, result} ->
+        {:ok, id, true, result}
+
+      {:error, {:acp_error, %{"message" => message}}} = error ->
+        if confirmed_missing?(message, id), do: new_session(port, workspace, server, timeout), else: error
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -122,10 +128,8 @@ defmodule Aiur.Gemini.Session do
   defp confirmed_missing?(_, _), do: false
 
   defp new_session(port, workspace, server, timeout) do
-    with {:ok, %{"sessionId" => id} = result} when is_binary(id) and id != "" <-
-           Transport.request(port, Protocol.session(2, "session/new", workspace, [server]), timeout) do
-      {:ok, id, false, result}
-    else
+    case Transport.request(port, Protocol.session(2, "session/new", workspace, [server]), timeout) do
+      {:ok, %{"sessionId" => id} = result} when is_binary(id) and id != "" -> {:ok, id, false, result}
       {:ok, _} -> {:error, :invalid_acp_session_id}
       {:error, _} = error -> error
     end

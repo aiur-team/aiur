@@ -3,6 +3,7 @@ defmodule Aiur.Config.Schema.GeminiBackend do
 
   @allowed ~w(command enabled)
 
+  @spec validate(term()) :: :ok | {:error, String.t()}
   def validate(config) when is_map(config) do
     case Enum.find(Map.keys(config), &(to_string(&1) not in @allowed)) do
       nil -> validate_values(config)

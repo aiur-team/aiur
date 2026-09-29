@@ -37,25 +37,22 @@ defmodule Aiur.Usage.Headless.Gemini.TurnUsage do
   @impl true
   def extract(%{"method" => "session/prompt", "id" => id, "result" => result, "aiurCliVersion" => version, "aiurSessionId" => session_id}, _raw, %Context{agent_family: :gemini} = context, ingested_at)
       when is_integer(id) and is_map(result) and is_binary(session_id) do
-    cond do
-      version != "0.61.0" ->
-        [{:coverage, Adapter.coverage(__MODULE__, :unsupported_source_revision, :source_version)}]
-
-      true ->
-        quota = get_in(result, ["_meta", "quota", "token_count"])
-
-        case quota do
-          %{"input_tokens" => input, "output_tokens" => output}
-          when is_integer(input) and input >= 0 and is_integer(output) and output >= 0 ->
-            envelope(context, session_id, id, input, output, ingested_at)
-
-          _ ->
-            [{:coverage, Adapter.coverage(__MODULE__, :missing_usage_measurement, :tokens)}]
-        end
+    if version == "0.61.0" do
+      quota = get_in(result, ["_meta", "quota", "token_count"])
+      usage_from_quota(quota, context, session_id, id, ingested_at)
+    else
+      [{:coverage, Adapter.coverage(__MODULE__, :unsupported_source_revision, :source_version)}]
     end
   end
 
   def extract(_payload, _raw, _context, _ingested_at), do: []
+
+  defp usage_from_quota(%{"input_tokens" => input, "output_tokens" => output}, context, session_id, id, ingested_at)
+       when is_integer(input) and input >= 0 and is_integer(output) and output >= 0,
+       do: envelope(context, session_id, id, input, output, ingested_at)
+
+  defp usage_from_quota(_, _, _, _, _),
+    do: [{:coverage, Adapter.coverage(__MODULE__, :missing_usage_measurement, :tokens)}]
 
   defp envelope(context, session_id, id, input, output, ingested_at) do
     event_id = Adapter.fingerprint([session_id, id])

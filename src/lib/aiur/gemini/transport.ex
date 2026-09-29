@@ -9,6 +9,7 @@ defmodule Aiur.Gemini.Transport do
   defdelegate send_frame(port, frame), to: JsonLines
   defdelegate decode_chunk(pending, chunk), to: JsonLines
 
+  @spec request(port(), map(), pos_integer(), (map() -> term())) :: {:ok, map()} | {:error, term()}
   def request(port, frame, timeout, on_notification \\ fn _ -> :ok end) do
     case JsonLines.request(port, frame, timeout, on_notification) do
       {:error, {:msp_error, error}} -> {:error, {:acp_error, error}}

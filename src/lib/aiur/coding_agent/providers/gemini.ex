@@ -1,20 +1,25 @@
 defmodule Aiur.CodingAgent.Providers.Gemini do
   @moduledoc "Native Gemini CLI ACP backend capabilities."
 
+  alias Aiur.Config.Schema.GeminiBackend
+  alias Aiur.Gemini.{CodingAgent, Init, ModelCatalog, Transcript}
+  alias Aiur.Usage.Headless.Gemini.TurnUsage
+
+  @spec entry() :: map()
   def entry do
     %{
-      adapter: Aiur.Gemini.CodingAgent,
-      transcript: Aiur.Gemini.Transcript,
+      adapter: CodingAgent,
+      transcript: Transcript,
       family: "gemini",
       configurable: true,
-      config_validator: &Aiur.Config.Schema.GeminiBackend.validate/1,
+      config_validator: &GeminiBackend.validate/1,
       init_order: 6,
-      init: Aiur.Gemini.Init,
+      init: Init,
       default_command: "gemini --acp",
       install_hint: "Install and authenticate Gemini CLI, then select gemini",
       skill_install: %{path: ".gemini/skills"},
-      model_catalog: &Aiur.Gemini.ModelCatalog.extract/1,
-      model_probe: &Aiur.Gemini.ModelCatalog.probe/2,
+      model_catalog: &ModelCatalog.extract/1,
+      model_probe: &ModelCatalog.probe/2,
       models: [],
       model_aliases: :native,
       efforts: [],
@@ -41,7 +46,7 @@ defmodule Aiur.CodingAgent.Providers.Gemini do
       meter_supported: false,
       usage_backend: :app_server,
       usage_transport: :gemini_acp,
-      usage: %{adapters: [Aiur.Usage.Headless.Gemini.TurnUsage]},
+      usage: %{adapters: [TurnUsage]},
       account_generation: %{backends: [], trusted_sources: [], auth_modes: []}
     }
   end

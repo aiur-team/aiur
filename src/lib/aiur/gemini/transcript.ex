@@ -3,6 +3,7 @@ defmodule Aiur.Gemini.Transcript do
 
   alias Aiur.AgentEvents
 
+  @spec extract(map(), term()) :: {:ok, map()} | :skip
   def extract(%{payload: %{"method" => "session/update", "params" => %{"update" => update}}} = message, fallback)
       when is_map(update) do
     event_for_update(update, message, fallback)

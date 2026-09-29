@@ -3,6 +3,7 @@ defmodule Aiur.Gemini.ModelCatalog do
 
   alias Aiur.Gemini.Session
 
+  @spec probe(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def probe(_backend, opts) do
     workspace = Keyword.get(opts, :workspace, File.cwd!())
 
@@ -19,6 +20,7 @@ defmodule Aiur.Gemini.ModelCatalog do
     end
   end
 
+  @spec extract(map()) :: {:ok, [String.t()]} | {:error, atom()}
   def extract(%{"models" => %{"availableModels" => models}}) when is_list(models) do
     if Enum.all?(models, &match?(%{"modelId" => id} when is_binary(id) and id != "", &1)) do
       {:ok, models |> Enum.map(& &1["modelId"]) |> Enum.uniq()}
