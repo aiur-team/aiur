@@ -84,11 +84,25 @@ for pin_path in "${pin_paths[@]}"; do
   fi
 done
 
-# Bare-substring scan catches flow-map and list-form YAML in addition to key-colon form.
+# A single base-code-only gate uses pull_request_target. Keep the exception
+# limited to its exact trigger line; all other trigger shapes remain forbidden.
 if output="$(scan_yaml "$workflow_path" 'pull_request_target|workflow_run' 2>&1)"; then
-  echo "$output"
-  echo "workflow security guard: pull_request_target and workflow_run are forbidden" >&2
-  exit 1
+  if [[ "$workflow_path" == '.github/workflows' ]]; then
+    unexpected=''
+    while IFS= read -r line; do
+      if [[ "$line" =~ ^\.github/workflows/trusted-pr-deletions\.yml:[0-9]+:\ \ pull_request_target:$ ]]; then
+        continue
+      fi
+      unexpected+="$line"$'\n'
+    done <<<"$output"
+    output="$unexpected"
+  fi
+
+  if [[ -n "$output" ]]; then
+    echo "$output"
+    echo "workflow security guard: pull_request_target and workflow_run are forbidden" >&2
+    exit 1
+  fi
 else
   status="$?"
   fail_on_scanner_error "$status" "$output"

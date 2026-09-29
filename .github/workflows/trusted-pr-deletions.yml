@@ -1,0 +1,38 @@
+name: trusted PR deletion gate
+
+on:
+  pull_request_target:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: publish trusted deletion status
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout protected base code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          fetch-depth: 0
+          # The read-only checkout token is needed to fetch the PR ref as data.
+          persist-credentials: true
+      - name: Mint dedicated status App token
+        id: guard-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AIUR_DELETION_GUARD_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AIUR_DELETION_GUARD_APP_PRIVATE_KEY }}
+          permission-statuses: write
+      - name: Evaluate PR commits as data and publish head status
+        env:
+          GH_TOKEN: ${{ steps.guard-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: bash scripts/trusted-pr-deletion-gate.sh --publish "$BASE_SHA" "$HEAD_SHA" "$PR_NUMBER"

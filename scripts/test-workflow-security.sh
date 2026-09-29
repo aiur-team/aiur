@@ -81,3 +81,23 @@ if ! grep -Fq "workflow security guard: scanner refused symlink" <<<"$output"; t
 fi
 
 scripts/verify-workflow-security.sh
+
+# Only the dedicated base-code workflow may use pull_request_target, and only
+# as its ordinary trigger. A second workflow or workflow_run remains rejected.
+trusted_fixture="$(mktemp -d "${TMPDIR:-/tmp}/aiur-trusted-workflow.XXXXXX")"
+trap 'rm -rf "$symlink_fixture" "$trusted_fixture"' EXIT
+mkdir -p "$trusted_fixture/.github/workflows"
+cp .github/workflows/trusted-pr-deletions.yml "$trusted_fixture/.github/workflows/"
+(
+  cd "$trusted_fixture"
+  "$OLDPWD/scripts/verify-workflow-security.sh"
+)
+printf 'on:\n  pull_request_target:\n' >"$trusted_fixture/.github/workflows/rogue.yml"
+if (
+  cd "$trusted_fixture"
+  "$OLDPWD/scripts/verify-workflow-security.sh" >"$trusted_fixture/rogue-output" 2>&1
+); then
+  echo 'workflow guard accepted pull_request_target in a second workflow' >&2
+  exit 1
+fi
+grep -q 'pull_request_target and workflow_run are forbidden' "$trusted_fixture/rogue-output"

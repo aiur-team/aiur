@@ -88,6 +88,16 @@ The keyring lookup (`gh auth token`) is bounded at boot, so a `gh` that stalls â
 
 The lookup logs before the shell-out and treats an unanswered lookup as "no keyring credential" (never a fatal error), naming `gh auth login` on timeout. The default bound is 5 seconds; set `AIUR_GH_KEYRING_TIMEOUT_MS` to a larger positive integer when a slow-but-succeeding unlock legitimately needs more time, or a smaller one to fail faster.
 
+### Trusted PR deletion gate
+
+The protected-base `pull_request_target` workflow checks PR commits as data, without running PR files. It posts `aiur/trusted-pr-deletions` to the head commit through a dedicated GitHub App. More than 50 net file deletions from merge base to head fail the check. A moved PR ref or unavailable input posts an error instead of success.
+
+The workflow must first exist on the protected base. Then an administrator installs the dedicated App, supplies its Client ID and private key as the workflow variable and secret, and requires the App-authored context in the branch ruleset.
+
+The gate is enforceable only after a blocked PR is confirmed unmergeable. Aiur's PR-head CI deletion check remains an additional signal.
+
+The [rollout runbook](https://github.com/aiur-team/aiur/blob/main/docs/security/trusted-pr-deletion-gate.md) records the setup and verification sequence. The existing non-strict ruleset stays valid while `main` only advances: base-only additions do not alter the merge base or a fixed PR head's deletions.
+
 ### Organization repository access during init
 
 `aiur init` verifies that it can read the configured repository before it offers CI or label setup. GitHub deliberately returns `404 Not Found`, rather than `403 Forbidden`, for an inaccessible private repository, so a repository 404 is not proof that the repository or its base branch is missing.
