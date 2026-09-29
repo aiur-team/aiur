@@ -27,11 +27,14 @@ share of historical idle time.
 | Synthesis | [Verified claims](verified-claims.md), [problem map](problem-map.md), [contradictions](contradictions.md), [rewrite requirements](rewrite-requirements.md) and [open questions](open-questions.md) are published with detailed sources linked rather than duplicated. |
 | Unnecessary complexity | The catalog classifies 24 working cuts, 10 merges, 110 simplifies, 5 externalizations and 67 keeps. These are frozen planning judgments; the [plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) requires current use, behavior parity and actual removed-versus-moved LOC before implementation. |
 | Hard 500/preferred 200 lines | The corrected [frozen census](file-size-analysis.md) reproduces all 3,378 tracked paths, including 359 UTF-8 text files >500 and 1,192 >200. The [owner map](oversized-file-owner-map.md) covers all 359 with proposed dispositions: 344 split, eight regenerate/replace and seven conditional removals. The plan requires an automated universal 500-line gate, transitional counted debt and cohesion review above 200, including docs/tests/skills/vendor/generated text. The codebase does **not** meet the cap yet. |
-| CE brainstorm → plan → deepen | [Requirements framing](../../../brainstorms/2026-09-29-aiur-refactor-requirements.md) and a [phased plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) exist. The plan is deliberately `requirements-only`; no documented implementation-ready deepen pass exists. Current-head incidence, validation of the proposed >500-file owner map, degraded CODEOWNERS trust, store durability choices and the first package seam remain blocking planning decisions. |
+| CE brainstorm → plan → deepen | [Requirements framing](../../../brainstorms/2026-09-29-aiur-refactor-requirements.md) and a [deepened phased plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) exist. The plan remains `requirements-only`, since [static current-head citation triage](current-head-static-triage.md) does not establish runtime incidence or semantic disposition of the 889 P2/P3 findings. Validation of the proposed >500-file owner map and behavior tests for degraded CODEOWNERS trust, store durability and the first package seam remain gates. |
 
 The frozen >500 owner map is now present, so the remaining plan blocker is
 validation of those *proposed* semantic seams on merged main, alongside the
-other listed policy and exposure decisions.
+other listed policy and exposure decisions. The static triage gives all
+986 findings a source-anchor status, with 26 original citation defects; 30
+of 32 defective locations have source-verified corrected anchors appended.
+It leaves every finding's runtime incidence unverified.
 
 ## Reproduction checks
 
@@ -53,9 +56,10 @@ other listed policy and exposure decisions.
 ## Disposition
 
 The frozen research corpus, review and feature/LOC synthesis are published.
-The goal's literal per-gap causal attribution and CE deepen-plan completion
-remain open. The former cannot be inferred from silence or classifier labels;
-the latter needs the listed planning decisions and current-head validation.
+The goal's literal per-gap causal attribution and CE implementation-ready
+promotion remain open. The former cannot be inferred from silence or
+classifier labels; the latter needs the listed planning decisions,
+current-head semantic disposition and behavior validation.
 No product behavior, universal 500-line compliance or net LOC saving is
 claimed by this research branch. Keep the research goal open until those
 acceptance decisions are made or the original per-gap requirement is revised.

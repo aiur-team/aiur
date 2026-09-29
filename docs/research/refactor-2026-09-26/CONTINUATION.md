@@ -8,8 +8,12 @@ The requirement-by-requirement status is in
 `synthesis/final-research-audit.md`. The frozen research, review and feature
 catalog are published. The literal request for a cause for every historical
 gap remains unsatisfied because retained evidence cannot support it, and the
-CE plan remains `requirements-only` pending its listed decisions and deepen
-pass. Keep the research goal open; do not interpret checked artifact boxes as
+CE plan has a documented deepen pass but remains `requirements-only` pending
+current-head semantic disposition of 889 P2/P3 findings, owner-map validation
+and behavior tests for its decisions. The complete
+`synthesis/current-head-static-triage.md` checks all 986 citation anchors
+against pinned `main`, while leaving runtime incidence unverified. Keep the
+research goal open; do not interpret checked artifact boxes as
 permission to implement or as proof of a net LOC saving.
 
 ## Current review synthesis checkpoint — 2026-09-28
@@ -258,8 +262,10 @@ do not equate transitively loaded probe dependencies with reviewed files.
       `synthesis/final-research-audit.md`.
 - [ ] Run CE brainstorm, plan, and deepen-plan; write requirements and a
       detailed evidence-linked plan under `docs/brainstorms` and `docs/plans`.
-      Brainstorm and requirements-only plan exist; implementation-ready deepen
-      pass is still gated by the decisions in `synthesis/open-questions.md`.
+      Brainstorm, plan and a documented deepen pass exist, but the plan is
+      still `requirements-only`; implementation-ready promotion is gated by
+      the decisions in `synthesis/open-questions.md` and current-head semantic
+      disposition of the 889 P2/P3 findings.
 - [x] Commit and push incremental research; verify remote head directly.
 - [x] Final requirement-by-requirement audit recorded in
       `synthesis/final-research-audit.md`; keep the goal open for its gaps.
