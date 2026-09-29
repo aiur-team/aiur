@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
-  alias Aiur.{GitHub.Issues, GitHub.ResourceStore, Issue, Orchestrator.DispatchPolicy}
+  alias Aiur.{GitHub.Client, GitHub.Issues, GitHub.ResourceStore, Issue, Orchestrator.DispatchPolicy}
 
   # A double of `/issues/:n/dependencies/blocked_by` as observed on the reported
   # run: it answers `304` to anything carrying a validator — its ETag tracks the
@@ -45,6 +45,54 @@ defmodule Aiur.GitHub.IssuesTest do
   end
 
   describe "fetch_issues_by_states/2" do
+    test "direct conditional GitHub lists expose only pinned test tickets, including cached pages" do
+      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
+      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+
+      issue = fn number ->
+        %{
+          "number" => number,
+          "title" => "Issue #{number}",
+          "body" => nil,
+          "html_url" => "https://github.com/owner/repo/issues/#{number}",
+          "labels" => [%{"name" => "sym:ci-wait"}],
+          "assignee" => nil,
+          "created_at" => "2026-01-01T00:00:00Z",
+          "updated_at" => "2026-01-02T00:00:00Z"
+        }
+      end
+
+      request_fun = fn
+        %{url: url, etag: _etag} ->
+          assert url =~ "/issues?labels="
+          {:ok, %{status: 304}}
+
+        %{url: url} ->
+          if url =~ "/timeline" do
+            {:ok, %{status: 200, headers: [], body: []}}
+          else
+            {:ok, %{status: 200, headers: [{"etag", "list-v1"}], body: [issue.(99), issue.(2413)]}}
+          end
+      end
+
+      assert {:ok, [%Issue{identifier: "99"}], cache} =
+               Client.fetch_issues_by_states_conditional(["ci-wait"], %{}, request_fun: request_fun)
+
+      assert {:ok, [%Issue{identifier: "99"}], _cache} =
+               Client.fetch_issues_by_states_conditional(["ci-wait"], cache, request_fun: request_fun)
+
+      System.delete_env("AIUR_DEV_TEST_TICKET_IDS")
+
+      assert {:ok, issues, _cache} =
+               Client.fetch_issues_by_states_conditional(["ci-wait"], cache, request_fun: request_fun)
+
+      assert Enum.map(issues, & &1.identifier) |> Enum.sort() == ["2413", "99"]
+
+      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "")
+      assert_raise ArgumentError, fn -> Aiur.TestTicketScope.validate!() end
+    end
+
     test "returns empty list when no states given" do
       assert {:ok, []} = Issues.fetch_issues_by_states([])
     end
