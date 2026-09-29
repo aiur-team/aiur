@@ -5,13 +5,13 @@ defmodule Aiur.Workspace.Provisioner do
   """
 
   require Logger
-  alias Aiur.{AgentGitHubGuard, Config, RepoBase, TicketBranch, Tracker}
+  alias Aiur.{AgentCLI, AgentGitHubGuard, Config, RepoBase, TicketBranch, Tracker}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.{Checkout, Context, Materialize, Reconstruction, Remote}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
-  @remote_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentScratch]
-  @local_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentBuildGuard, Aiur.AgentScratch]
+  @remote_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentCLI, Aiur.AgentScratch]
+  @local_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentCLI, Aiur.AgentBuildGuard, Aiur.AgentScratch]
   @remote_workspace_ready_marker "__AIUR_WORKSPACE_READY__"
   @workspace_ready_marker ".claude/.aiur-workspace-ready"
 
@@ -42,7 +42,7 @@ defmodule Aiur.Workspace.Provisioner do
   # missing, dispatch is refused with the names of the missing pieces.
   @spec ensure_local_agent_support(Path.t()) :: :ok | {:error, term()}
   def ensure_local_agent_support(workspace) when is_binary(workspace) do
-    case AgentGitHubGuard.missing_workspace_support(workspace) do
+    case missing_local_agent_support(workspace) do
       [] ->
         :ok
 
@@ -54,16 +54,20 @@ defmodule Aiur.Workspace.Provisioner do
             verify_local_agent_support(workspace)
 
           {:error, reason} ->
-            {:error, {:agent_support_repair_failed, workspace, AgentGitHubGuard.missing_workspace_support(workspace), reason}}
+            {:error, {:agent_support_repair_failed, workspace, missing_local_agent_support(workspace), reason}}
         end
     end
   end
 
   defp verify_local_agent_support(workspace) do
-    case AgentGitHubGuard.missing_workspace_support(workspace) do
+    case missing_local_agent_support(workspace) do
       [] -> :ok
       missing -> {:error, {:agent_support_incomplete, workspace, missing}}
     end
+  end
+
+  defp missing_local_agent_support(workspace) do
+    AgentGitHubGuard.missing_workspace_support(workspace) ++ AgentCLI.missing_workspace_support(workspace)
   end
 
   @doc false
