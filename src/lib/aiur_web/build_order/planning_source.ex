@@ -334,7 +334,12 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     )
   end
 
-  defp membership_health(membership), do: ProviderHealth.new(generation(membership), :healthy, true, observed_at: membership_observed_at(membership))
+  defp membership_health(membership) do
+    ProviderHealth.new(generation(membership), :unavailable, false,
+      observed_at: membership_observed_at(membership),
+      failure: :membership_unavailable
+    )
+  end
 
   defp membership_observed_at(%{freshness: %{last_observed_at: %DateTime{} = at}}), do: at
   defp membership_observed_at(_membership), do: nil

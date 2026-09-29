@@ -97,6 +97,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert %Catalog{entries: [root]} = snapshot.data
     assert root.title == "Demo Plan"
     assert TrackerIdentity.joinable?(root.identity)
+    assert snapshot.membership_health.state == :unavailable
+    assert snapshot.membership_health.failure == :membership_unavailable
   end
 
   test "selected root builds a valid, planning-flagged view model" do
