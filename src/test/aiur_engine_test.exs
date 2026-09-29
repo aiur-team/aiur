@@ -92,7 +92,63 @@ defmodule AiurEngineTest do
     engine = File.read!(@engine)
 
     assert engine =~
-             "AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS"
+             "AIUR_OPERATOR_PID AIUR_LAUNCHER_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS"
+  end
+
+  test "fresh foreground pane receives its owning launcher pid for the watchdog" do
+    rel = fake_release()
+    state = tmp_state()
+    tmp = Aiur.TestSupport.tmp_root!("aiur-launcher-watchdog")
+    pane_copy = Path.join(tmp, "pane.sh")
+    session = Path.join(tmp, "session")
+    File.mkdir_p!(tmp)
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" new-session "*)
+          cp "#{tmp}"/aiur-pane.* "#{pane_copy}"
+          touch "#{session}"
+          exit 0
+          ;;
+        *" has-session "*) [ -f "#{session}" ]; exit $? ;;
+        *" attach "*) exit 0 ;;
+        *" kill-session "*) rm -f "#{session}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm_rf(tmp)
+    end)
+
+    script = """
+    export TMPDIR="$TMP_ROOT"
+    probe_control_liveness() { printf up; }
+    start_beam_death_watchdog() { printf '424242\\n'; }
+    reap_aiur_agents() { :; }
+    kill_beams_matching() { :; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    echo "LAUNCHER_PID=$$"
+    run_session foreground --no-dashboard
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"TMP_ROOT", tmp},
+        {"XDG_RUNTIME_DIR", tmp},
+        {"PATH", "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"},
+        {"AIUR_LAUNCHER_PID", "999999"}
+      ])
+
+    [_, launcher_pid] = Regex.run(~r/LAUNCHER_PID=(\d+)/, out)
+    assert File.read!(pane_copy) =~ "export AIUR_LAUNCHER_PID=#{launcher_pid}\n"
+    refute File.read!(pane_copy) =~ "export AIUR_LAUNCHER_PID=999999\n"
   end
 
   test "sourced-engine runs isolate the node identity so reaps can't hit a live host node" do
