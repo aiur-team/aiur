@@ -8,8 +8,9 @@ strings and 9,816 numbers. File hashes exactly match the existing function
 census. The first implementation accidentally traversed token metadata and
 counted source line/column integers; the corrected traversal and synthetic
 fixture reject that false population. The full output is private at
-`scratch/inline-literal-census.json`; it contains source literals, no runtime
-values.
+`scratch/inline-literal-census.json.gz`; its decompressed SHA256 is
+`8312b5b6289193bedc1c0c439a5238833e0e3baf9a50aff469e7fde8b5a826e8`.
+It contains source literals, no runtime values.
 
 `tooling/inline_literal_summary.py` selects high-fanout values: static strings
 with at least eight characters and five distinct modules, and nonzero,
@@ -37,9 +38,11 @@ full candidate assessments.
 | Time-unit candidate | 4 | `1_000`, `3_600`, `60_000`, `86_400` appear in conversion and policy expressions. Conversion math may be shared, but freshness, reset time, retention and UX thresholds remain distinct. |
 | Private-file mode | 1 | Elixir parses `0o600` as 384. Repeated durable-store writes set private mode; preserve this requirement and use the existing filesystem owner, without treating every store's durability semantics as the same. |
 
-The two strongest constant extraction candidates remain the four ordered
-five-token-dimension lists and the model probe/refresh timeout relationship in
-`dup-by-constant-draft.json`. Two inline families corroborate other units:
+The attribute/regex sweep's two strongest constant extraction candidates are
+the four ordered five-token-dimension lists and the model probe/refresh timeout
+relationship in `dup-by-constant-draft.json`. The lower-fanout follow-up adds
+the Build Order draft-body bound and active-turn provider error code, with
+source-role checks in `inline-literal-lowfanout.md`. Two other inline families corroborate other units:
 the exact 1..512 membership run-ID check belongs with `dup-by-name-04`, and
 progress percentage bounds belong with `dup-by-name-05`. They are not four
 independent LOC savings.

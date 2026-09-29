@@ -110,6 +110,27 @@ is navigation evidence only: broad spans can overmatch and locations can
 understate a finding. It prevents those leads from being counted additively;
 their contract still needs source-level reconciliation.
 
+The name closure ledger reconciles all 651 tail source screens and gives
+source-level dispositions for the 39 shared-policy leads without an automatic
+raw pointer. It also records representative negative/wrapper checks. A source
+screen and a raw name-text hit do not establish whole-call-graph equivalence;
+the name unit remains pending exact caller/overlap closure.
+
+The concept closure ledger assigns all 275 inherited duplication IDs to one
+primary source-role family exactly once and source-checks representative
+cross-boundary contracts. A follow-up semantic probe runs 14 reproducible
+domain-term searches over all 1,032 library files and source-checks seven
+candidate/rejection families. This is a bounded concept detector, not a
+completed search for every differently named implementation; the concept raw
+unit remains pending an agreed coverage boundary and synthesis.
+
+The lower-fanout inline audit source-checks a small set of same-domain
+values missed by the five-module screen. It adds provisional Build Order
+draft-body and provider active-turn-code findings, cross-links the repeated
+OpenAI-compatible source version to `telemetry-usage-32`, and rejects a
+global SQLite busy timeout. The remaining 1,514 cross-module value groups
+outside the high-fanout screen are not semantically cleared by this audit.
+
 ## Reproduction
 
 `python tooling/name_remaining_index.py <research-root> <frozen-snapshot>`
