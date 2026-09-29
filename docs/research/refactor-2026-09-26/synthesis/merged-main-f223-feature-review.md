@@ -1,6 +1,6 @@
 # Merged-main feature review: deletion and watchdog boundary
 
-Reviewed 23 of the 156 queued feature entries against `f223f30ead855c1f88ea188fb8f9cf74414ffb90` source. The other 133 entries remain a review queue. This records source reachability and decision effect, not live usage or an implementation approval.
+Reviewed 34 of the 156 queued feature entries against `f223f30ead855c1f88ea188fb8f9cf74414ffb90` source or generated-release contract. The other 122 entries remain a review queue. This records source reachability and decision effect, not live usage or an implementation approval.
 
 | Feature | Merged-main observation | Decision effect / remaining gate |
 | --- | --- | --- |
@@ -15,6 +15,7 @@ Reviewed 23 of the 156 queued feature entries against `f223f30ead855c1f88ea188fb
 | `integrations-09` | Claude REPL and Remote Control modules remain, and `model:remote`/`+remote` are documented operator routes. | Frozen `cut` is still only a proposal. Require operator-use evidence, a replacement interaction path, and live Remote Control/TUI tests before changing routing or hooks. |
 | `integrations-46` | The `aiur-build` skill and its publication scripts remain tracked and dispatched. | Frozen `externalize` is still only a proposal. Prove the distribution/update path, source authority, and offline workspace/release behavior first. |
 | `cli-44` | `scripts/aiurdev` still implements `--test`/`--test3`/`--allow-remote`; the timer and phase scripts remain. | Frozen `externalize` is still only a proposal. Preserve the Executor manual-testing entry point and sandbox-ticket protections, or demonstrate equivalent behavior before extraction. |
+| `cli-39` | This is Mix's generated release `rpc`/`eval` interface, explicitly source-less in the tracked Aiur tree. The frozen census recorded 242 Executor calls to it. | Keep the break-glass route while adding supported verbs for repeated operational uses; deleting Aiur code cannot remove it, and no line saving is available. Verify the built 0.0.6 release interface before changing its documented status. |
 
 ## Other provisional cuts and externalizations
 
@@ -43,6 +44,20 @@ The merged provider registry adds `"muse" => Muse.entry()` with `Aiur.Muse.Codin
 | `ui-20`, `ui-23` | Registry presentation supplies Muse label/icon/colors; TUI usage tests include a stale Muse allowance. Preserve rendered pane events, busy-message queueing and stale meter state in real TUI acceptance. |
 
 These 21 entries remain provisional at the behavior layer. The table identifies which source contracts need characterization before splitting shared modules; it does not approve the frozen `simplify`/`keep` choices or claim that Muse passed a real CLI/TUI run.
+
+## Ten provisional merge decisions
+
+| Feature(s) | Merged-main check and required parity |
+| --- | --- |
+| `cli-08` | `aiur watch` still has full/changes/once/interval modes and a daemon-side delta baseline; the merged engine diff does not edit its function. `agents` and `alerts` cannot replace it by naming alone. Preserve removed-row detection, actionable asks/alerts, age and restart-baseline semantics in any shared board. |
+| `cli-10` | `aiur usage` still exists. The main delta moves provider-meter rendering from `AgentControlCLI` into `ProviderMeters.CLI`, while leaving the command entry point. A merge into `status` must retain windows, observation age, reset time and explicit unknown state for headless/script users. |
+| `cli-14` | `reset-budget` is still a separate CLI verb; its engine handler and control method are unchanged by the cited shared-file delta. A merge into `resume` must keep a distinct per-ticket latch-reset acknowledgement and reject an accidental `--all` reset. |
+| `cli-46` | The script and packaged tmux configs still differ, and `verify-ctrlc-binding.sh` tests the script copy while the default installed launcher selects the packaged copy. Choose and test one authoritative shipped config; verify C-c, C-q, user override precedence and actual packed keypress behavior. |
+| `integrations-30` | `PRHealthScanner` remains supervised. Its useful scans and ticket rework writes have different ownership; move only rework state selection into one lifecycle authority after preserving alert behavior. |
+| `integrations-49` | Codex git skills and CE counterparts still coexist. Reconcile actual dispatch/reader paths before deduplication; preserve pull, land, merge policy and Linear tool semantics for active users. |
+| `subsystems-03` | The Python `analytics/reduce` package is still the daemon-invoked summary writer, and downstream views read its JSON. The frozen challenge disproves the raw unused-copy premise. A merge requires a parity Elixir writer, build rollups, schema/fixture migration, package/release inclusion and CI guard adjustment before Python removal. |
+| `subsystems-05`, `subsystems-06` | `UsageLedger` and `UsageAggregate.Store` are still supervised and feed user-facing usage/finance views. A shared append log with rebuilt rollup is a proposal; retain durable token identity, checkpoint/restart behavior, price derivation and unknown dimensions under fault injection. Null cost in raw records does not make the token ledger disposable. |
+| `subsystems-29` | `AgentResourceGuard` remains a supervised default-on backstop for the historic load-generator incident. A merge into `AgentProcessLog` must preserve enforcement, config and the test helper while removing duplicate process-tree scans. Zero observed trims is normal guard behavior, not a safe-cut argument. |
 
 The three explicit page/guard cuts are already merged release changes and are excluded from the future refactor savings ledger. `config-08`, `integrations-18`, and `integrations-19` are partial path changes, not feature deletions. The watchdog changes make two previously static citations behaviorally relevant; foreground crash cleanup must be tested with the real launcher before splitting it.
 
