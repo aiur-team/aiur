@@ -458,9 +458,13 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event("open-add-agent", %{"ticket" => token}, socket) when is_binary(token) do
-    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
-      {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
-      {:error, :not_found} -> {:noreply, socket}
+    if socket.assigns.writable and dashboard_writable?() do
+      case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+        {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
+        {:error, :not_found} -> {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
     end
   end
 
@@ -947,7 +951,7 @@ defmodule AiurWeb.DashboardLive do
         <%!-- The searched view, so the reveal batches and counts the matches
         rather than the whole backlog behind them. --%>
         <p :if={@add_agent_notice} id="add-agent-notice" class="add-agent-note" role="status">{@add_agent_notice}</p>
-        <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} />
+        <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} writable={@writable} />
       </div>
 
       <AgentLogModal.agent_log_modal
