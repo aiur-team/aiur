@@ -500,7 +500,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
     priority = pick_retry_priority(previous_retry, metadata)
     issue_state = pick_retry_issue_state(previous_retry, metadata)
-    last_failure_at = metadata[:last_failure_at] || Map.get(previous_retry, :last_failure_at)
+    last_failure_at = pick_retry_last_failure_at(previous_retry, metadata)
     prior_work? = pick_retry_prior_work(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
     retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
@@ -1457,6 +1457,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp pick_retry_error(previous_retry, metadata) do
     metadata[:error] || Map.get(previous_retry, :error)
+  end
+
+  defp pick_retry_last_failure_at(previous_retry, metadata) do
+    metadata[:last_failure_at] || Map.get(previous_retry, :last_failure_at)
   end
 
   # The structured (non-formatted) failure reason, retained so retry exhaustion

@@ -37,7 +37,7 @@ defmodule Aiur.Codex.StartupFailureTest do
   end
 
   test "diagnostics drop protocol frames and cap lengthy output" do
-    text = "{\"id\":1,\"result\":{\"token\":\"hidden\"}}\n" <> String.duplicate("lengthy output ", 200)
+    text = ~s({"id":1,"result":{"token":"hidden"}}\n) <> String.duplicate("lengthy output ", 200)
     excerpt = StartupFailure.safe_excerpt(text)
     refute excerpt =~ "hidden"
     assert String.length(excerpt) == 250

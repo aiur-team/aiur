@@ -273,8 +273,7 @@ defmodule Aiur.AgentControlCLI do
       case fleet_view(opts, timeout_ms) do
         {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
           print_snapshot_freshness(freshness)
-          retrying = Map.get(snapshot, :retrying, [])
-          print_agents_table(running ++ if(is_list(retrying), do: retrying, else: []))
+          print_agents_table(running ++ retry_rows(snapshot))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->
@@ -285,6 +284,9 @@ defmodule Aiur.AgentControlCLI do
       end
     end)
   end
+
+  defp retry_rows(%{retrying: retrying}) when is_list(retrying), do: retrying
+  defp retry_rows(_snapshot), do: []
 
   # `aiur watch` — the server-side status board. Compiles one row per active
   # agent (state · complexity · activity-age · what it's doing) plus an
@@ -2612,16 +2614,10 @@ defmodule Aiur.AgentControlCLI do
       :starting ->
         "(starting provider; no live turn yet)"
 
-      :paused ->
+      paused when paused in [:paused, "paused"] ->
         paused_activity(agent)
 
-      "paused" ->
-        paused_activity(agent)
-
-      :deactivated ->
-        "(deactivated)"
-
-      "deactivated" ->
+      deactivated when deactivated in [:deactivated, "deactivated"] ->
         "(deactivated)"
 
       _ ->
