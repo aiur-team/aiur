@@ -90,7 +90,7 @@ The lookup logs before the shell-out and treats an unanswered lookup as "no keyr
 
 ### Trusted PR deletion gate
 
-The protected-base `pull_request_target` workflow checks PR commits as data, without running PR files. It posts `aiur/trusted-pr-deletions` to the head commit through a dedicated GitHub App. More than 50 net file deletions from merge base to head fail the check. A moved PR ref or unavailable input posts an error instead of success.
+The protected-base `pull_request_target` workflow checks PR commits as data, without running PR files. It posts `aiur/trusted-pr-deletions` to the head commit through a dedicated GitHub App. More than 50 net file deletions from merge base to head fail the check. A moved PR ref posts an error; a missing App token leaves the status absent.
 
 The workflow must first exist on the protected base. Then an administrator installs the dedicated App, supplies its Client ID and private key as the workflow variable and secret, and requires the App-authored context in the branch ruleset.
 
