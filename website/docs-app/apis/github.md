@@ -201,9 +201,9 @@ and rework tickets it still denies incomplete evidence, preserving revocation
 after an unverified relabel. Either incomplete result retires the daemon's
 cached reads for that issue number, including the timeline body, so a webhook
 backed repository's hour-long read TTL cannot replay the early snapshot.
-This is a number-scoped invalidation, not a repository-wide flush. It may add
-a timeline request on each retry until the event appears, with further requests
-if the timeline spans pages; no quota saving is claimed.
+The invalidation covers one issue number and may add a timeline request on each
+retry until the event appears, with further requests if the timeline spans
+pages. No quota saving is claimed.
 
 **A validator belongs to the thing it describes.**
 
