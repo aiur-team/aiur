@@ -31,7 +31,7 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 
 The catalog's **Tickets completed** percentage counts tickets with an accepted completed lifecycle among tickets whose lifecycle is resolved; partial coverage is shown alongside the percentage. In a selected Build Order, **Estimated work progress** combines each member's reported work estimate with its complexity weight, so it can advance before any ticket is complete. Last-known estimates are marked with their age, and unavailable measurements stay unknown rather than becoming zero.
 
-Open a member's context to use **Read chat** when that member has a readable conversation in the current run. This opens the same conversation drawer as Units and does not resume the worker. A draft says chat has not started; a member without readable current-run history shows chat as unavailable.
+Open a member's context to use **Read chat** when that member has a readable conversation in the current run. This opens the same conversation drawer as Units and does not resume the worker. A draft says chat has not started; a member without readable current-run history shows chat as unavailable. Completed workers normally have no current-run chat handle after they leave the running roster, so their context shows chat as unavailable.
 
 On the catalog, ticket, epic and wave counts remain numeric when resolution succeeds, including a real `0`. A count that could not be resolved never renders as `0` or as a bare dash—it names its cause instead:
 

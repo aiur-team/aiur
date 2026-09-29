@@ -1238,11 +1238,11 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert FakeDataSource.calls(source) == calls_before
   end
 
-  test "member context links running, paused, and completed readable chat while an unstarted draft explains its absence", %{first: first} do
+  test "member context links running and paused chat but leaves completed and unstarted chat unavailable", %{first: first} do
     completed = %{member(9) | lifecycle: Lifecycle.from_github("CLOSED", "COMPLETED")}
     draft = %{member(10) | draft?: true}
     selected = selected_snapshot(first, "Root forty-two", 1, :healthy, members: [member(7), member(8), completed, draft])
-    handles = Map.new(7..9, fn number -> {number, "conversation:" <> String.duplicate(Integer.to_string(number), 43)} end)
+    handles = Map.new(7..8, fn number -> {number, "conversation:" <> String.duplicate(Integer.to_string(number), 43)} end)
 
     install_source(
       catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
@@ -1255,7 +1255,9 @@ defmodule AiurWeb.BuildOrderLiveTest do
               %{tracker_identity: identity(8, "NODE-8"), work_state: :paused, tracker_paused: true, live_conversation: %{generation_handle: handles[8]}}
             ],
             retrying: [],
-            idle: [%{tracker_identity: identity(9, "NODE-9"), live_conversation: %{generation_handle: handles[9]}}]
+            # StatusReport.idle_issue_snapshot/6 carries no conversation handle
+            # after the worker leaves the running bucket.
+            idle: [%{tracker_identity: identity(9, "NODE-9"), work_state: :idle}]
           },
           activity: %{generation: 1, entries: []}
         }
@@ -1267,7 +1269,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
         case Enum.find(handles, fn {_number, candidate} -> candidate == handle end) do
           {7, _handle} -> {:ok, %{state: :live, messages: [%{content: "Current conversation"}]}}
           {8, _handle} -> {:ok, %{state: :stale, messages: [%{content: "Paused conversation"}]}}
-          {9, _handle} -> {:ok, %{state: :ended, messages: [%{content: "Completed conversation"}]}}
           nil -> {:error, :unavailable}
         end
       end)
@@ -1279,13 +1280,19 @@ defmodule AiurWeb.BuildOrderLiveTest do
     render_async(view, 2_000)
     assert render(view) =~ "Estimated work progress"
 
-    for number <- 7..9 do
+    for number <- 7..8 do
       view |> element(~s([data-bo-card="#{number}"][phx-click="open-ticket-context"])) |> render_click()
       html = render(view)
       assert html =~ ~s(href="/chat/owner/repo/#{number}")
       assert html =~ "Read chat"
       view |> element(~s(button[phx-click="build-order-context-close"])) |> render_click()
     end
+
+    view |> element(~s([data-bo-card="9"][phx-click="open-ticket-context"])) |> render_click()
+    html = render(view)
+    refute html =~ ~s(href="/chat/owner/repo/9")
+    assert html =~ "Chat is unavailable."
+    view |> element(~s(button[phx-click="build-order-context-close"])) |> render_click()
 
     view |> element(~s([data-bo-card="10"][phx-click="open-ticket-context"])) |> render_click()
     html = render(view)
