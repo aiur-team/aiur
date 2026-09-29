@@ -35,10 +35,12 @@ failure, moved head, or failed status post cannot produce a success status.
    `scripts/verify-human-only-merge-ruleset.sh` and the read-only live verifier.
    Do not use the GitHub Actions integration ID; the rule must bind the
    dedicated App so another token cannot impersonate the context.
-5. Recheck the 51-deletion PR: GitHub must report it unmergeable, including
-   for the Executor's pull-request-rule bypass actor. Only then is #2803's
-   server-side enforcement proven. Repeat the setup in Khala's repository
-   with its own installation, secrets, workflow, and required status rule.
+5. Recheck the 51-deletion PR from a non-bypass actor: GitHub must report it
+   unmergeable. The existing Executor bypass actor can override repository
+   rules and must respect the same deletion policy operationally; the status
+   rule alone cannot constrain that actor. Only then is #2803's server-side
+   enforcement for ordinary merges proven. Repeat the setup in Khala's
+   repository with its own installation, secrets, workflow, and required status rule.
 
 The workflow listens for `opened`, `synchronize`, `reopened`, `edited`, and
 `ready_for_review`. A head update gets a new SHA and status; a base-target
