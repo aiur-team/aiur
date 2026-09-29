@@ -26,6 +26,11 @@ Label read/create failures stop startup before agents start and explain the requ
 
 Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
 
+A ticket retry re-reads only that ticket, including its current trigger-label
+provenance, rather than listing and authorizing the entire candidate backlog.
+Normal tracker polls still discover other work. Retry eligibility, pause,
+dependency, and dispatch-time validation checks remain in place.
+
 The repository events feed does not show a pull request going from draft to ready. Without a webhook, the polls infer it from each ticket PR's draft flag, which the comment poll and the CI poll already read.
 
 A durable per-PR ledger records what they saw:

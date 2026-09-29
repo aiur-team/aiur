@@ -217,7 +217,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                  2,
                  %{identifier: issue.identifier, worker_host: nil},
                  ensure_tracker_preflight_fun: fn current_state -> {:ok, current_state} end,
-                 fetch_candidate_issues_fun: fn ->
+                 fetch_issue_states_by_ids_fun: fn _ids ->
                    Enum.each(1..25, fn candidate ->
                      send(parent, {:dispatch_authorization, candidate})
                    end)
@@ -263,7 +263,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                    send(parent, :tracker_preflight)
                    {:ok, current_state}
                  end,
-                 fetch_candidate_issues_fun: fn ->
+                 fetch_issue_states_by_ids_fun: fn _ids ->
                    send(parent, :candidate_fetch)
                    {:ok, [issue]}
                  end
@@ -308,7 +308,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                    send(parent, :tracker_preflight)
                    {:ok, current_state}
                  end,
-                 fetch_candidate_issues_fun: fn ->
+                 fetch_issue_states_by_ids_fun: fn _ids ->
                    send(parent, :candidate_fetch)
                    {:ok, [issue]}
                  end
@@ -341,7 +341,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                    send(parent, :tracker_preflight)
                    {:ok, current_state}
                  end,
-                 fetch_candidate_issues_fun: fn ->
+                 fetch_issue_states_by_ids_fun: fn _ids ->
                    send(parent, :candidate_fetch)
                    {:ok, [issue]}
                  end

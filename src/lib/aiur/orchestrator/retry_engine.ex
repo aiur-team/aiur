@@ -699,11 +699,12 @@ defmodule Aiur.Orchestrator.RetryEngine do
   defp retry_state_capacity_available?(%State{}, _issue_state), do: true
 
   defp handle_retry_tracker_poll(state, issue_id, attempt, metadata, opts) do
-    fetch_candidate_issues = Keyword.get(opts, :fetch_candidate_issues_fun, &Tracker.fetch_candidate_issues/0)
     fetch_issue_states_by_ids = Keyword.get(opts, :fetch_issue_states_by_ids_fun, &Tracker.fetch_issue_states_by_ids/1)
 
-    with {:ok, issues} <- fetch_candidate_issues.(),
-         {:ok, issue} <- fetch_retry_issue(issues, issue_id, fetch_issue_states_by_ids) do
+    # Retry ownership names one ticket. Its targeted read still normalizes and
+    # authorizes current state; listing the backlog also authorizes unrelated
+    # candidates that this retry cannot dispatch.
+    with {:ok, issue} <- fetch_retry_issue([], issue_id, fetch_issue_states_by_ids) do
       handle_retry_issue_lookup(issue, state, issue_id, attempt, metadata, opts)
     else
       {:error, reason} ->
