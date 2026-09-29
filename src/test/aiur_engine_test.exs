@@ -154,6 +154,64 @@ defmodule AiurEngineTest do
     assert File.read!(helper_option) =~ "set-option -g @aiur_ctrlc #{Path.dirname(@engine)}/aiur-pane-ctrlc"
   end
 
+  test "generated tmux pane launcher gives the inner daemon the pinned test ticket scope" do
+    rel = fake_release()
+    state = tmp_state()
+    tmp = Aiur.TestSupport.tmp_root!("aiur-test-scope-pane")
+    pane_copy = Path.join(tmp, "pane.sh")
+    session = Path.join(tmp, "session")
+    File.mkdir_p!(tmp)
+
+    File.write!(
+      Path.join([rel, "releases", "0.1.1", "elixir"]),
+      ~S|#!/usr/bin/env bash
+printf 'INNER_SCOPE=%s\n' "${AIUR_DEV_TEST_TICKET_IDS:-missing}"
+|
+    )
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" new-session "*) cp "#{tmp}"/aiur-pane.* "#{pane_copy}"; touch "#{session}"; exit 0 ;;
+        *" has-session "*) [ -f "#{session}" ]; exit $? ;;
+        *" attach "*) exit 0 ;;
+        *" kill-session "*) rm -f "#{session}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(state)
+      File.rm_rf(tmp)
+    end)
+
+    script = """
+    export TMPDIR="$TMP_ROOT"
+    probe_control_liveness() { printf up; }
+    start_beam_death_watchdog() { printf '424242\n'; }
+    reap_aiur_agents() { :; }
+    kill_beams_matching() { :; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    run_session foreground --no-dashboard
+    """
+
+    {_out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"AIUR_DEV_TEST_TICKET_IDS", "99,100,101"},
+        {"TMP_ROOT", tmp},
+        {"XDG_RUNTIME_DIR", tmp},
+        {"PATH", "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"}
+      ])
+
+    # A pre-existing tmux server can carry an unrelated value. The generated
+    # pane must overwrite it with the scope selected by the outer launcher.
+    {inner, 0} = System.cmd("bash", [pane_copy], env: [{"AIUR_DEV_TEST_TICKET_IDS", "777"}])
+    assert inner =~ "INNER_SCOPE=99,100,101\n"
+  end
+
   test "sourced-engine runs isolate the node identity so reaps can't hit a live host node" do
     # The engine's launch/stop paths reap any BEAM holding their node name
     # (`kill_beams_matching "-name $AIUR_RELEASE_NODE"`). When `mix test` sources
