@@ -11,6 +11,8 @@ skills do not make a target workspace an Elixir project.
    for TypeScript, inspect package.json scripts and the selected runner's file
    filters rather than assuming npm, pnpm, Vitest, Jest, or a `test` script.
    Run the required typecheck, formatting and lint checks for that repository.
+   Where practical, verify a new behavior test fails with the production
+   change reverted in an isolated worktree, then passes when it is restored.
 3. Search all relevant test roots for renamed identifiers, including colocated
    tests and sibling files outside a directory-targeted run. A large passing
    count does not prove those files ran. Follow local concurrency/resource caps.

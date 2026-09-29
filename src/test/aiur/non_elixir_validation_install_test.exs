@@ -39,6 +39,7 @@ defmodule Aiur.NonElixirValidationInstallTest do
       assert loop =~ "The Elixir examples below apply only to Aiur's Elixir core"
       assert validation =~ "inspect package.json scripts and the selected runner's file filters"
       assert validation =~ "including colocated tests and sibling files"
+      assert validation =~ "test fails with the production change reverted in an isolated worktree"
       assert validation =~ "not a prohibition on focused repository tests"
     end
   end
