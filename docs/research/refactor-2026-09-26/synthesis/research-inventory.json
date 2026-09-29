@@ -246,15 +246,11 @@
       "ui": 33
     },
     "cut_merge_externalize": 91,
-    "challenges_present": 50,
+    "challenges_present": 54,
     "remaining_challenges": [
-      "cli-08",
-      "cli-10",
       "cli-19",
       "cli-22",
       "cli-24",
-      "cli-28",
-      "cli-30",
       "cli-36",
       "cli-37",
       "integrations-10",

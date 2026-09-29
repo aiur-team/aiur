@@ -100,5 +100,29 @@
     "holds": true,
     "recommendation": "externalize",
     "note": "The dev-only sandbox reset and timer belong beside the test fixtures rather than in the shared product launcher, but Executor-root aiurdev --test remains the canonical real CLI/TUI acceptance path in AGENTS.md; only agent-workspace launches are blocked. An extraction must preserve a one-command foreground path that starts the actual release and tmux, preserves --allow-remote safety, explicit force/clear semantics and cleanup, and keeps the user-facing CLI guide accurate. --test3 has no observed invocations in the sample, which supports prioritizing its removal after checking the three-ticket scenario owner; it does not prove that --test can be deleted. The 300-line figure is gross source movement/deletion; count retained harness lines as relocation and run manual acceptance on the extracted command. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-08",
+    "holds": true,
+    "recommendation": "merge",
+    "note": "`watch` reads the daemon fleet view without a GitHub round trip and adds a persistent delta baseline, removed-row detection, attention/ask evidence and an ACTIONABLE section; the monitor skill names `watch --full` its primary board and `--changes` its periodic tick. A lower invocation count than `agents` therefore does not establish duplicate behavior. Consolidation into `agents --changes` can hold only if the same server-side baseline, full/changes/interval modes, freshness and actionable signals survive, including restart-baseline handling. Count eliminated code after an output-equivalence test; 280 lines is a gross estimate. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-10",
+    "holds": true,
+    "recommendation": "merge",
+    "note": "The low observed invocation count makes a dedicated usage command a reasonable consolidation candidate, but the output carries provider windows, observation age and reset time, including an explicit unknown state. A status section or JSON envelope must retain those fields and their source freshness; a dashboard or Stream Deck display does not by itself cover headless operators or script callers. Preserve documented `aiur usage` compatibility until callers can migrate, and measure the net deletion after adding the status presentation. The 80-line figure is predictive, not measured. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-28",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "The documented terminal analytics form supplies a selectable retained time window, Build Order scope and a timestamped JSON pressure series; the dashboard capture skill explicitly calls the /analytics page current data, not a frozen window. Zero invocations in the sampled transcript population does not prove that this read-only diagnostic contract has no other headless consumer. A cut would need a counted installed/API population and a replacement query that preserves source freshness, unavailable/null semantics and historical time filters. The raw 45-line estimate omits the renderer owned under subsystems-02 and does not establish meaningful net deletion. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-30",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "`github-usage` reports per-actor and per-credential Core, GraphQL and search request-count ceilings with reset windows; `github-cost` attributes Core/GraphQL points to call sites and reconciles a separate credential window. The GitHub API documentation and both CLI contracts warn against treating these as one metric. A common command family could present both only with distinct named schemas, units, windows and 0-versus-unknown states; changing the spelling saves about 26 wrapper lines at most while risking operator confusion. Keep the separate query contract until a measured demand and migration plan justify consolidation. This is a continuing-researcher challenge, not an independent reviewer result."
   }
 ]

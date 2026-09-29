@@ -2283,3 +2283,11 @@ only if a one-command real foreground CLI/TUI acceptance path survives. Both
 correct gross line estimates that would otherwise count relocation or tests as
 removed product complexity. Challenge artifact coverage is now 50 of 91,
 leaving 41; this is still far short of synthesis.
+
+The next four CLI challenges retain `watch` delta/actionable behavior and usage
+freshness if either command is merged. They reject cutting terminal analytics
+without preserving its historical JSON window, and reject treating
+`github-usage` request-count admission ceilings as the same metric as
+`github-cost` point attribution. Source and docs are cited in each entry;
+none is an independent reviewer verdict or a measured LOC saving. Challenge
+artifact coverage is 54 of 91, leaving 37.
