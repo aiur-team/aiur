@@ -51,26 +51,11 @@
       "P2": 616,
       "P3": 221
     },
+    "independent_reviewer_counts": {
+      "independent_a": 19,
+      "independent_b": 19
+    },
     "high_priority_verdicts_missing": [
-      "agent-backends-cc-01",
-      "agent-backends-cc-02",
-      "agent-backends-cc-03",
-      "agent-backends-cc-04",
-      "agent-backends-cc-05",
-      "agent-backends-cc-06",
-      "agent-backends-cc-07",
-      "agent-backends-cc-08",
-      "agent-backends-oc-01",
-      "agent-backends-oc-02",
-      "agent-backends-oc-03",
-      "agent-backends-oc-04",
-      "agent-backends-oc-05",
-      "agent-backends-oc-06",
-      "agent-backends-oc-07",
-      "agent-backends-oc-08",
-      "agent-backends-oc-09",
-      "agent-backends-oc-10",
-      "agent-backends-oc-11",
       "agent-runtime-01",
       "agent-runtime-02",
       "agent-runtime-03",
@@ -246,9 +231,8 @@
       "ui": 33
     },
     "cut_merge_externalize": 91,
-    "challenges_present": 56,
+    "challenges_present": 57,
     "remaining_challenges": [
-      "cli-19",
       "cli-22",
       "cli-24",
       "integrations-10",

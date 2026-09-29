@@ -136,5 +136,11 @@
     "holds": false,
     "recommendation": "simplify",
     "note": "Asks are Executor-authored repository-operator requests with urgency, blocking, append-only resolution and notes. Commands are agent-originated decisions with offered options, optimistic versions, supersede/moot and ticket delivery. Their low-count ledgers do not make their authority and delivery contracts interchangeable. A shared presentation or notification layer may simplify status/watch, but moving asks into DecisionStore needs an explicit schema, authorization and migration design that preserves old ask history and does not send an operator-only request to an agent. The 120-line CLI estimate omits the store and migration cost. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-19",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The three dotenv parsers can drift, and the GitHub credential group precedence is subtle (#2638), but moving all resolution into the daemon does not preserve the frozen launcher contract. `run_aiur` calls `load_dotenv` before it chooses `AIUR_DEFAULT_DASHBOARD_HOST`, starts the release, and scrubs the run-only CI readiness token; the launcher needs some credential presence before BEAM boot, and `aiur init` has its own pre-daemon use. Consolidate a shared parser or generated contract only after specifying this preboot boundary, preserving shell-export precedence, blank handling, GitHub-group isolation and child scrubbing. The raw 70-line saving is speculative until the replacement code and tests are counted. This is a continuing-researcher challenge, not an independent reviewer result."
   }
 ]

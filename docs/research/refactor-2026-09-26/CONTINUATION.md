@@ -2300,3 +2300,15 @@ an explicit authority/delivery model. Artifact coverage is 56 of 91, leaving
 properties with zero failures; the two new bridge tests fail with the exact
 production auth hunk removed and pass when restored. The final rebuilt-release
 TUI check is pending, so the implementation is not yet marked complete.
+
+The native Muse precursor is now locally complete on `feat/native-muse` at
+`a9876ea4b`. After the shared opencode bridge authentication repair, all
+13,108 tests passed; specs, strict Credo and Dialyzer passed. The two new
+bridge tests fail against the exact reverted authorization hunk and pass when
+restored. A rebuilt isolated release showed a typed allow-once approval,
+one scoped event publication and a delivered follow-up in the real TUI pane;
+an unauthenticated live bridge probe returned 401. Scoped resources were
+stopped, shared daemon untouched. Private acceptance detail is in
+`~/.cache/aiur-muse-planning/requirements-audit.md`. Research continues;
+independent reviewers A and B are now authorized and recording separate
+P0/P1 assessments.

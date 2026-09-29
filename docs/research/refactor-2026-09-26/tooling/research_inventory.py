@@ -56,7 +56,17 @@ def inventory(root):
     challenged = {x["id"] for x in challenges}
     present = {p.stem for p in (root / "review/raw").glob("*.json")}
     high = {x["id"] for x in findings if x["severity"] in ("P0", "P1")}
-    checked = {row["id"] for _, row in rows(root / "review/verdicts", "verdicts")}
+    reviewer_checks = defaultdict(set)
+    for path in sorted((root / "review/verdicts").glob("*.json")):
+        data = json.loads(path.read_text())
+        reviewer = data.get("reviewer", path.stem)
+        for row in data["verdicts"]:
+            if row.get("verdict") == "pending":
+                continue
+            if row["id"] in reviewer_checks[reviewer]:
+                raise ValueError(f"Duplicate review of {row['id']} by {reviewer}")
+            reviewer_checks[reviewer].add(row["id"])
+    checked_twice = {finding for finding in high if sum(finding in ids for ids in reviewer_checks.values()) >= 2}
     return {
         "note": "Artifact coverage only. Verdict presence does not prove correctness or research completion.",
         "claims": {"expected": len(expected), "verdict_records": verdict_count,
@@ -64,7 +74,8 @@ def inventory(root):
         "review": {"expected_units": len(UNITS), "present_units": sorted(present),
                    "missing_units": sorted(set(UNITS) - present), "findings": len(findings),
                    "original_severity_counts": dict(sorted(Counter(x["severity"] for x in findings).items())),
-                   "high_priority_verdicts_missing": sorted(high - checked)},
+                   "independent_reviewer_counts": {name: len(ids & high) for name, ids in sorted(reviewer_checks.items())},
+                   "high_priority_verdicts_missing": sorted(high - checked_twice)},
         "features": {"count": len(features), "by_surface": dict(sorted(Counter(x["id"].rsplit("-", 1)[0] for x in features).items())),
                      "cut_merge_externalize": len(candidates), "challenges_present": len(challenges),
                      "remaining_challenges": sorted(candidates - challenged)},
