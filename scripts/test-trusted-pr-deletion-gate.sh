@@ -119,4 +119,22 @@ bash "$root/scripts/trusted-pr-deletion-gate.sh" --publish "$new_base" "$fork_cu
 grep -q "repos/aiur-team/aiur/statuses/$fork_current.*state=success.*context=aiur/trusted-pr-deletions" "$STATUS_LOG"
 test ! -e "$tmp/untrusted-executed"
 
+export REAL_GIT="$(command -v git)"
+cat >"$tmp/bin/git" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == diff ]]; then exit 1; fi
+exec "$REAL_GIT" "$@"
+EOF
+chmod +x "$tmp/bin/git"
+: >"$STATUS_LOG"
+if bash "$root/scripts/trusted-pr-deletion-gate.sh" --publish "$new_base" "$fork_current" 18 >"$tmp/diff-error" 2>&1; then
+  echo 'trusted gate accepted a failed git diff' >&2
+  exit 1
+fi
+grep -q "repos/aiur-team/aiur/statuses/$fork_current.*state=error.*context=aiur/trusted-pr-deletions" "$STATUS_LOG"
+if grep -q 'state=failure' "$STATUS_LOG"; then
+  echo 'trusted gate mislabeled a git failure as excessive deletions' >&2
+  exit 1
+fi
+
 echo 'trusted PR deletion gate covers same-repo, fork, stale-base and status outcomes'

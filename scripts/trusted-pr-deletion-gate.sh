@@ -52,7 +52,7 @@ check_deletions() {
   deleted_count="$(git diff --name-only --diff-filter=D -z "$merge_base" "$head_sha" | python3 -c 'import sys; print(sys.stdin.buffer.read().count(b"\0"))')"
   if ((deleted_count > 50)); then
     echo "trusted deletion gate: refusing $deleted_count deleted files (limit: 50)" >&2
-    return 1
+    return 3
   fi
 
   echo "trusted deletion gate: $deleted_count deleted files (limit: 50)"
@@ -72,7 +72,7 @@ case "$mode" in
       post_status success 'PR deletion count is within the 50-file limit'
     else
       result="$?"
-      if [[ "$result" -eq 1 ]]; then
+      if [[ "$result" -eq 3 ]]; then
         post_status failure 'PR deletes more than 50 files'
       else
         post_status error 'PR deletion check could not complete'
