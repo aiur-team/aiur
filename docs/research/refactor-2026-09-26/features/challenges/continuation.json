@@ -88,5 +88,17 @@
     "holds": false,
     "recommendation": "keep",
     "note": "The agent-workspace --test guard blocks ticket workers from resetting pinned GitHub sandbox tickets; it does not remove Executor-root manual testing. AGENTS.md still requires the real foreground CLI/TUI smoke path, and the launcher calls preflight_stale_manual_smoke on foreground startup and reap_stale_manual_smoke on stop. The inventory uses same-user, workspace-path and tmux-aliveness checks before reaping stale BEAMs, plus orphan-attach and wrapper-socket checks. One explicit CLI use does not count automatic preflight/stop executions or the loss from abandoned child processes. Preserve scoped stale cleanup while the smoke harness exists; simplify inventory only after measuring false-positive/false-negative behavior, and keep dry-run visibility before destructive cleanup. The 181-line estimate is an unsupported net saving. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-14",
+    "holds": true,
+    "recommendation": "merge",
+    "note": "The dispatch-budget latch is a distinct durable state. The CLI reference explicitly says resume cannot clear it, and the orchestrator has its own reset_dispatch_budget call path. Merging the spelling into `resume <id> --reset-budget` is plausible only if the implementation keeps an explicit per-ticket acknowledgement, rejects --all, preserves the latch reset transaction and documents that the flag changes two states. Do not remove the lifetime budget itself as an incidental simplification. The 35-line estimate is gross wrapper removal, not a measured net saving after parse/docs/tests. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-44",
+    "holds": true,
+    "recommendation": "externalize",
+    "note": "The dev-only sandbox reset and timer belong beside the test fixtures rather than in the shared product launcher, but Executor-root aiurdev --test remains the canonical real CLI/TUI acceptance path in AGENTS.md; only agent-workspace launches are blocked. An extraction must preserve a one-command foreground path that starts the actual release and tmux, preserves --allow-remote safety, explicit force/clear semantics and cleanup, and keeps the user-facing CLI guide accurate. --test3 has no observed invocations in the sample, which supports prioritizing its removal after checking the three-ticket scenario owner; it does not prove that --test can be deleted. The 300-line figure is gross source movement/deletion; count retained harness lines as relocation and run manual acceptance on the extracted command. This is a continuing-researcher challenge, not an independent reviewer result."
   }
 ]

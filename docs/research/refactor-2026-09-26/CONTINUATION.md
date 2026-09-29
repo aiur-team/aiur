@@ -2276,3 +2276,10 @@ one explicit invocation cannot justify deleting it. Challenge artifact
 coverage is now 48 of 91, leaving 43. The inherited opencode bridge
 `agent-backends-oc-01` has a direct source and Plug-level reproduction in
 `review/in-progress/`, but still awaits independent severity review.
+
+Two further challenge entries retain the distinct durable dispatch-budget reset
+while allowing a CLI spelling merge, and permit moving the dev smoke harness
+only if a one-command real foreground CLI/TUI acceptance path survives. Both
+correct gross line estimates that would otherwise count relocation or tests as
+removed product complexity. Challenge artifact coverage is now 50 of 91,
+leaving 41; this is still far short of synthesis.
