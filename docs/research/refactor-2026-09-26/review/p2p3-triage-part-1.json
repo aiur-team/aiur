@@ -1,0 +1,372 @@
+{
+  "partition": "p2p3 sorted finding IDs, indexes 0..296",
+  "source_revision": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "checked_main_revision": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "method": "Manual claim and cited-source inspection; direct source line copied from pinned frozen/public tree; verdict scopes static mechanism only.",
+  "partition_total": 297,
+  "completed_count": 20,
+  "residual_count": 277,
+  "next_index": 20,
+  "items": [
+    {
+      "index": 0,
+      "finding_id": "agent-backends-cc-05",
+      "source_ids": [
+        "agent-backends-cc-05"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "A Codex process helper delegates into the Claude RemoteControl namespace; the shared ownership issue is visible.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/app_server_port.ex",
+        "line": 141,
+        "source_text": "defdelegate process_group_for_pid(pid), to: RemoteControl"
+      },
+      "current_head_caveat": "Splitting the large module needs caller and behavior parity, not a presumed LOC saving.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 1,
+      "finding_id": "agent-backends-cc-06",
+      "source_ids": [
+        "agent-backends-cc-06"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "The cross-backend tool handler defaults directly to LinearClient; GitHub review handling has the same concrete-client shape.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/dynamic_tool/linear_graphql.ex",
+        "line": 51,
+        "source_text": "linear_client = Keyword.get(opts, :linear_client, &LinearClient.graphql/3)"
+      },
+      "current_head_caveat": "A new namespace alone would not eliminate coupling; confirm actual backend callers first.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 2,
+      "finding_id": "agent-backends-cc-09",
+      "source_ids": [
+        "agent-backends-cc-09"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Telemetry declares a usage topic; a source-wide src/lib search finds no production subscribe_usage call.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/telemetry.ex",
+        "line": 16,
+        "source_text": "@usage_topic \"claude_telemetry:usage\""
+      },
+      "current_head_caveat": "External or dynamically registered subscribers and the live population were not tested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 3,
+      "finding_id": "agent-backends-cc-10",
+      "source_ids": [
+        "agent-backends-cc-10"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "The emitter version is pinned to an exact literal and the event parser rejects mismatches.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/telemetry/contract.ex",
+        "line": 6,
+        "source_text": "@emitter_version \"2.1.210\""
+      },
+      "current_head_caveat": "The frequency of Claude updates and actual dropped events are unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 4,
+      "finding_id": "agent-backends-cc-11",
+      "source_ids": [
+        "agent-backends-cc-11"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Codex binding wrappers overlap Claude account generation, with different error paths in the cited modules.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/account_generation.ex",
+        "line": 146,
+        "source_text": "defp with_recovered_binding(session, transition) when is_function(transition, 3) do"
+      },
+      "current_head_caveat": "An extraction should follow provider behavior characterization; equal-looking helpers may have distinct contracts.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 5,
+      "finding_id": "agent-backends-cc-12",
+      "source_ids": [
+        "agent-backends-cc-12"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "The fallthrough maps every unknown failure reason to :transport; Claude has the same collapse.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+        "line": 471,
+        "source_text": "defp failure_reason(_reason), do: :transport"
+      },
+      "current_head_caveat": "Confirm consumers before changing envelope vocabulary.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 6,
+      "finding_id": "agent-backends-cc-13",
+      "source_ids": [
+        "agent-backends-cc-13"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "The rate window parser has its own usedPercent validation, while other cited modules parse the same payload differently.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+        "line": 258,
+        "source_text": "defp rate_window(limit_id, name, %{\"usedPercent\" => used_percent} = source_window, observed_at)"
+      },
+      "current_head_caveat": "Unification needs fixtures for each accepted provider shape and no duplicate new parser.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 7,
+      "finding_id": "agent-backends-cc-14",
+      "source_ids": [
+        "agent-backends-cc-14"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Claude constructs a usage-limit pause here; Codex has a separate reset-delay policy in its cited module.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/notification_policy.ex",
+        "line": 157,
+        "source_text": "@spec usage_limit_pause(term()) :: map()"
+      },
+      "current_head_caveat": "Shared policy should preserve provider-specific parsing and be tested before extraction.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 8,
+      "finding_id": "agent-backends-cc-15",
+      "source_ids": [
+        "agent-backends-cc-15"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Codex detects usage-limit errors by inspecting the whole payload string.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/notification_policy.ex",
+        "line": 230,
+        "source_text": "|> inspect()"
+      },
+      "current_head_caveat": "A test must show structured fields still recognize real provider error shapes.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 9,
+      "finding_id": "agent-backends-cc-16",
+      "source_ids": [
+        "agent-backends-cc-16"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "The event path table includes atom-key alternatives while map_path already handles alternative keys.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/event_humanizer.ex",
+        "line": 341,
+        "source_text": "[:params, :summaryText],"
+      },
+      "current_head_caveat": "Prove each removed variant is redundant through current payload fixtures.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 10,
+      "finding_id": "agent-backends-cc-17",
+      "source_ids": [
+        "agent-backends-cc-17"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "The named public handshake wrapper exists in production source.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/handshake.ex",
+        "line": 20,
+        "source_text": "@spec establish(port(), Path.t(), map(), String.t() | nil, keyword()) ::"
+      },
+      "current_head_caveat": "Absence of dynamic callers and safe deletion of all listed functions is not established by a single source search.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 11,
+      "finding_id": "agent-backends-cc-18",
+      "source_ids": [
+        "agent-backends-cc-18"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "The boot sweep scans RC debug filenames, but the claim that nothing creates them relies on a negative source search.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/remote_control.ex",
+        "line": 518,
+        "source_text": "|> Enum.filter(&String.match?(&1, ~r/^rc-\\d+-\\d+.*\\.debug$/))"
+      },
+      "current_head_caveat": "External Claude behavior and actual debug-file population were not checked.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 12,
+      "finding_id": "agent-backends-cc-19",
+      "source_ids": [
+        "agent-backends-cc-19"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Approvals exposes a high-arity public function and overlapping wrappers in the cited file.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/approvals.ex",
+        "line": 12,
+        "source_text": "@spec maybe_handle_approval_request("
+      },
+      "current_head_caveat": "Refactor to a request struct only with approval behavior parity.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 13,
+      "finding_id": "agent-backends-cc-20",
+      "source_ids": [
+        "agent-backends-cc-20"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "A polling loop sleeps directly; cited sibling loops repeat the pattern.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/repl/rc_attach.ex",
+        "line": 70,
+        "source_text": "Process.sleep(@url_poll_ms)"
+      },
+      "current_head_caveat": "Thirteen-loop total and any latency saving need a fresh count and measurement.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 14,
+      "finding_id": "agent-backends-cc-21",
+      "source_ids": [
+        "agent-backends-cc-21"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "graceful_kill_tree walks descendants with Enum.each, calling a potentially waiting kill for each.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/remote_control.ex",
+        "line": 252,
+        "source_text": "descendants |> Enum.reverse() |> Enum.each(&graceful_kill/1)"
+      },
+      "current_head_caveat": "Real shutdown delay depends on process population and was not measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 15,
+      "finding_id": "agent-backends-cc-22",
+      "source_ids": [
+        "agent-backends-cc-22"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Failure clears tailer and path without a retry timer in the cited handler.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/display_tailer.ex",
+        "line": 214,
+        "source_text": "stop_tailer(state.tailer)"
+      },
+      "current_head_caveat": "The latching sequence requires a focused restart/ENOENT test.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 16,
+      "finding_id": "agent-backends-cc-23",
+      "source_ids": [
+        "agent-backends-cc-23"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "The binding is stored with Process.put; cited backend state uses the same process-local pattern.",
+      "evidence": {
+        "path": "src/lib/aiur/provider_account_generation/context.ex",
+        "line": 15,
+        "source_text": "Process.put(context_key(context), binding)"
+      },
+      "current_head_caveat": "Whether cross-process handoff occurs is runtime-dependent; preserve owner-pid contract if retained.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 17,
+      "finding_id": "agent-backends-cc-24",
+      "source_ids": [
+        "agent-backends-cc-24"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "pause_confirm_ms is read into state, but the cited loop has no later use of that field.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/repl/hook_turn.ex",
+        "line": 52,
+        "source_text": "pause_confirm_ms = Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms)"
+      },
+      "current_head_caveat": "A pause timing test must prove the desired confirmation behavior.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 18,
+      "finding_id": "agent-backends-cc-25",
+      "source_ids": [
+        "agent-backends-cc-25"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Echo confirmation searches joined pane lines for the prompt prefix or paste marker.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/repl/prompt_submit.ex",
+        "line": 134,
+        "source_text": "joined = Enum.join(lines, \"\\n\")"
+      },
+      "current_head_caveat": "Reproduce a previous-turn marker false positive before claiming user impact.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 19,
+      "finding_id": "agent-backends-cc-26",
+      "source_ids": [
+        "agent-backends-cc-26"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Skipped-route announcement is Logger.info only, despite the file promising a boot announcement.",
+      "evidence": {
+        "path": "src/lib/aiur/coding_agent/route_credentials.ex",
+        "line": 80,
+        "source_text": "Logger.info("
+      },
+      "current_head_caveat": "Check whether the operator already sees the log before choosing an alert surface.",
+      "runtime_incidence": "not_tested"
+    }
+  ]
+}
