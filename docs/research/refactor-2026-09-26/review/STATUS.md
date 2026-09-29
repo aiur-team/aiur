@@ -1,12 +1,16 @@
-# Status: partial, not synthesized
+# Status: source-level synthesis published; runtime validity open
 
-Current artifact checkpoint: the bounded duplication sweeps by name, concept
-and constant are now in `raw/`, bringing planned raw-unit presence to **32/32**
-and raw findings to **1,033** (14 P0, 168 P1, 628 P2, 223 P3). Both independent
-skeptic verdict files cover all 182 inherited P0/P1 IDs. This is artifact
-coverage, not final correctness: semantic deduplication, final findings and
-boundary syntheses remain open. The inherited and continuation entries below
-retain their historical counts at the time they were written.
+Current artifact checkpoint: all **32/32** planned raw units are present with
+**1,033** source findings (14 P0, 168 P1, 628 P2, 223 P3). Both independent
+skeptic verdict files cover all 182 inherited P0/P1 IDs. The
+[lossless synthesis](findings.json) maps every original ID once to 986
+canonical planning items (3 P0, 94 P1, 674 P2, 215 P3 after frozen-source
+severity review); [the report](code-review.md) and [boundary index](by-boundary.md)
+are derived from it. This is source-level triage, not runtime validation or
+proof that an unmerged finding is unique. The historical entries below retain
+their counts from the checkpoints when they were written.
+
+## Inherited checkpoint (historical)
 
 The inherited code review stopped early on 2026-09-26: first the account session limit was hit, then Claude credits ran out.
 

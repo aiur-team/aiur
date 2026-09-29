@@ -4,6 +4,32 @@ The user resumed the full research goal on 2026-09-26. The pause recorded in
 `HANDOFF.md` is historical; no fleet operation or production implementation is
 authorized by this research goal. The original handoff is preserved.
 
+## Current review synthesis checkpoint — 2026-09-28
+
+All 32 planned raw review units are present for their declared boundaries.
+`review/findings.json` maps all 1,033 original source IDs exactly once to
+986 canonical planning items. Thirty source-backed semantic merges combine
+77 IDs; each original raw claim, citation, recommendation and provisional
+verification status remains embedded under its source ID. The reviewed
+severity distribution is 3 P0, 94 P1, 674 P2 and 215 P3. Both independent
+skeptics covered all 182 inherited P0/P1 IDs; 25 severity disagreements use
+the source-cited reconciliation draft, and 851 original P2/P3 IDs remain
+without independent skepticism. These are frozen-source triage judgments, not
+live incidence or post-snapshot validity.
+
+`review/code-review.md` and `review/by-boundary.md` are rendered from the
+lossless findings index. `tooling/audit_review_synthesis.py` independently
+checks exact raw-claim equality, source-ID coverage, reviewer counts and
+boundary references. A reproducible lexical/shared-path candidate screen
+found 25 strong pairs, of which 20 are merged and five have retained-separate
+reasons in `review/in-progress/cross-unit-reconciliation.md`. The privacy
+audit's separate branch was cherry-picked before publication;
+`tooling/privacy_check.py` scans the merged tree, but the
+contextual private-source audit remains open as described in
+`synthesis/privacy-review.md`. Next research work is report-wide synthesis,
+feature/LOC decisions and the CE plan. Before implementation, recheck
+findings against current source and test their actual failure conditions.
+
 ## Authoritative sources
 
 - Research branch: `research/refactor-2026-09-26`.
@@ -156,11 +182,11 @@ do not equate transitively loaded probe dependencies with reviewed files.
 - [ ] Complete privacy/provenance review of inherited and new public artifacts.
 - [ ] Finish both checks on all 60 claims; retain corrections and disagreement.
 - [ ] Correct all six source reports where verdicts contradict their headlines.
-- [ ] Complete the 32 planned review units and coverage follow-ups, including
+- [x] Complete the 32 planned review units and coverage follow-ups, including
       the runtime areas omitted from the old extraction.
-- [ ] Skeptic-check every P0/P1 finding; retain P2/P3 with honest verification
+- [x] Skeptic-check every P0/P1 finding; retain P2/P3 with honest verification
       status. Deduplicate without losing any source ID.
-- [ ] Produce `review/code-review.md`, `review/findings.json`, and
+- [x] Produce `review/code-review.md`, `review/findings.json`, and
       `review/by-boundary.md`, then audit source-ID coverage and counts.
 - [ ] Challenge every cut/merge/externalize recommendation and account for
       features omitted from the five inventories.

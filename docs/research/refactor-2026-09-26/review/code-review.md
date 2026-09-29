@@ -4,20 +4,22 @@ Frozen source: `3339b887196d5e9aefb273117a14bf33391ee41f`. This is a source-revi
 
 ## Coverage and reconciliation
 
-All 32 planned raw units are present. Their 1,033 source IDs map exactly once to 1,012 canonical work items. Fourteen checked semantic merges combine 35 source IDs, reducing the work-item count by 21. The [merge decisions](findings.json) retain the reason and every original claim. A shared file, broad module finding, or textual resemblance was not enough to merge separate failure modes. Unmerged entries are separate for planning; their independence is not proven by this pass.
+All 32 planned raw units are present. Their 1,033 source IDs map exactly once to 986 canonical work items. 30 source-supported semantic merges combine 77 source IDs, reducing the work-item count by 47. The [merge decisions](findings.json) retain the reason and every original claim. A shared file, broad module finding, or textual resemblance was not enough to merge separate failure modes. Unmerged entries are separate for planning; their independence is not proven by this pass.
+
+The [reconciliation audit](in-progress/cross-unit-reconciliation.md) records the overlap screen and five strong lexical pairs retained separately. The screen is a way to find candidates, not proof that every remaining pair is independent.
 
 | Severity after source review | Canonical work items |
 | --- | ---: |
 | P0 | 3 |
 | P1 | 94 |
-| P2 | 697 |
-| P3 | 218 |
+| P2 | 674 |
+| P3 | 215 |
 
 Both independent skeptics reviewed every one of the 182 inherited P0/P1 source IDs. Their 25 severity disagreements have a source-cited reconciliation in `verdicts/severity-reconciliation-draft.json`. The other 851 P2/P3 source IDs remain provisional and have not received those independent checks. Final severity is a triage judgment on the frozen source, not an incident frequency or a claim that the bug survives later changes. Five originally high-priority citations required corrected line overlays; `location-audit.md` retains the correction trail.
 
 ## Highest-priority source findings
 
-The three retained P0 items are concrete authorization, credential and instance-isolation paths. Each still needs a release-specific exposure check before a fix is scoped:
+The 3 retained P0 items are concrete authorization, credential and instance-isolation paths. Each still needs a release-specific exposure check before a fix is scoped:
 
 | Severity | Source ID | Finding |
 | --- | --- | --- |
@@ -49,19 +51,19 @@ The following P1 items directly touch the progress gaps, state truth, event deli
 
 | Category | Canonical work items |
 | --- | ---: |
-| duplication | 273 |
-| performance | 89 |
-| error-handling | 78 |
-| silent-failure | 65 |
-| coupling | 60 |
-| dead-code | 48 |
-| test-quality | 47 |
+| duplication | 260 |
+| performance | 86 |
+| error-handling | 77 |
+| silent-failure | 64 |
+| coupling | 58 |
+| dead-code | 47 |
+| test-quality | 46 |
 | anti-pattern | 45 |
 | large-module | 39 |
 | documentation | 38 |
 | correctness | 33 |
-| complexity | 32 |
-| Other categories combined | 165 |
+| complexity | 31 |
+| Other categories combined | 162 |
 
 Duplication is the largest category, but the number of repeated literals, source spans or duplicated helper bodies is not a measured LOC saving. The topic grammar, core-to-web dependency, GitHub request classification and state-label families were merged only where the raw claims describe the same work item. Specific failures inside a large module remain independent because splitting the module does not itself repair those failures.
 
