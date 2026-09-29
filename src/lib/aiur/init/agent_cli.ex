@@ -145,8 +145,10 @@ defmodule Aiur.Init.AgentCli do
 
     receive do
       {^port, {:data, chunk}} ->
-        available = max(@sandbox_probe_output_bytes - byte_size(output), 0)
-        collect_codex_sandbox_probe(port, deadline, timeout_ms, output <> binary_part(chunk, 0, min(byte_size(chunk), available)))
+        buffered = output <> chunk
+        kept = min(byte_size(buffered), @sandbox_probe_output_bytes)
+        recent_output = binary_part(buffered, byte_size(buffered) - kept, kept)
+        collect_codex_sandbox_probe(port, deadline, timeout_ms, recent_output)
 
       {^port, {:exit_status, 0}} ->
         :ok

@@ -167,4 +167,16 @@ defmodule Aiur.Init.AgentCliTest do
     assert {:error, message} = AgentCli.run_codex_sandbox_probe(executable, 50)
     assert message =~ "timed out after 50ms"
   end
+
+  test "the sandbox probe keeps the final diagnostic after a long startup banner" do
+    root = Aiur.TestSupport.tmp_root!("codex-sandbox-long-output")
+    executable = Path.join(root, "codex-probe")
+    File.mkdir_p!(root)
+    File.write!(executable, "#!/bin/sh\nprintf '%05000d' 0 >&2\nprintf '\\nbwrap: setting up uid map: Permission denied\\n' >&2\nexit 1\n")
+    File.chmod!(executable, 0o755)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    assert {:error, message} = AgentCli.run_codex_sandbox_probe(executable, 500)
+    assert message =~ "bwrap: setting up uid map: Permission denied"
+  end
 end
