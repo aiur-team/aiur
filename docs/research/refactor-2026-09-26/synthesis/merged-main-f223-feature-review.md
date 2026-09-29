@@ -29,6 +29,21 @@ Reviewed 23 of the 156 queued feature entries against `f223f30ead855c1f88ea188fb
 | `ui-29` | The named dashboard component files remain. Static source search finds no production caller of `FleetTable`, `DecisionLatency`, `LifecycleComponents` or `BuildOrderIcon`; `FleetFilters` is also referenced by `Overview.fleet_overview`, whose reachability needs a template/caller check. Do not delete `Overview`: other functions in that module are used by dashboard, Stream Deck, analytics and Build Order views. |
 | `ui-33` | The ANSI recorder has no tracked implementation, while documentation still describes it. Resolve as a docs correction after confirming the supported `--debug` behavior; there is no production code saving to count. |
 
+## Muse adjacency across 21 queued entries
+
+The merged provider registry adds `"muse" => Muse.entry()` with `Aiur.Muse.CodingAgent`, a native MSP `Session`/`Turn`/`Transport`, a Muse config validator/init path, model discovery, cumulative session usage adapter, meter observation, and presentation metadata. This is source reachability for the new backend, not a live Muse acceptance result or a decision to merge transport implementations.
+
+| Existing feature entries | New adjacency and behavior gate |
+| --- | --- |
+| `cli-23`, `config-37`, `subsystems-38` | Muse appears in `aiur init` and example workflow/config templates. Init tests require an affirmative workspace-trust choice and write `backend_configs.muse`; preserve fresh and existing config behavior, docs checker, and the opt-in trust boundary. |
+| `config-16`–`config-19`, `integrations-05` | Registry capabilities expose Muse as selectable and routable. Preserve `muse` priority/routing, backend override validation, model/effort constraints and fallback outcomes before consolidating settings. |
+| `integrations-06`–`integrations-08`, `integrations-10` | Muse implements the stable `CodingAgent.Backend` callbacks, while its MSP protocol/session differs from Codex AppServer, Claude headless and OpenAI-compatible command adapters. A shared lifecycle extraction must keep transport-specific approvals, resume and operator-message semantics distinct; the existing `keep` decisions do not imply one shared transport. |
+| `integrations-12`, `integrations-47` | Muse approval/tool paths and `.agents/skills` installation join the existing dynamic-tool/skill delivery surface. Preserve agent-facing tool authority, workspace trust and skill resolution in Muse workspaces. |
+| `integrations-13`–`integrations-15`, `subsystems-04`, `subsystems-12` | Muse has native model probing and a cumulative `session/tokenUsage` adapter. It deliberately leaves cache/reasoning dimensions unknown and marks meter identity host-unverified. Do not flatten it into per-turn token addition or a verified account generation. |
+| `ui-20`, `ui-23` | Registry presentation supplies Muse label/icon/colors; TUI usage tests include a stale Muse allowance. Preserve rendered pane events, busy-message queueing and stale meter state in real TUI acceptance. |
+
+These 21 entries remain provisional at the behavior layer. The table identifies which source contracts need characterization before splitting shared modules; it does not approve the frozen `simplify`/`keep` choices or claim that Muse passed a real CLI/TUI run.
+
 The three explicit page/guard cuts are already merged release changes and are excluded from the future refactor savings ledger. `config-08`, `integrations-18`, and `integrations-19` are partial path changes, not feature deletions. The watchdog changes make two previously static citations behaviorally relevant; foreground crash cleanup must be tested with the real launcher before splitting it.
 
 For the remaining queue, 55 entries have documentation-only citation changes, 91 cite changed source, and 21 are adjacent to newly added Muse paths; these sets overlap. Review source hunks and actual call/release paths before updating any decision. Do not infer a saving or runtime incidence from these counts.
