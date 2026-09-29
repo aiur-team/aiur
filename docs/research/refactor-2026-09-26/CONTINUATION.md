@@ -4,6 +4,14 @@ The user resumed the full research goal on 2026-09-26. The pause recorded in
 `HANDOFF.md` is historical; no fleet operation or production implementation is
 authorized by this research goal. The original handoff is preserved.
 
+The requirement-by-requirement status is in
+`synthesis/final-research-audit.md`. The frozen research, review and feature
+catalog are published. The literal request for a cause for every historical
+gap remains unsatisfied because retained evidence cannot support it, and the
+CE plan remains `requirements-only` pending its listed decisions and deepen
+pass. Keep the research goal open; do not interpret checked artifact boxes as
+permission to implement or as proof of a net LOC saving.
+
 ## Current review synthesis checkpoint — 2026-09-28
 
 All 32 planned raw review units are present for their declared boundaries.
@@ -242,14 +250,19 @@ do not equate transitively loaded probe dependencies with reviewed files.
       `features/loc-reduction.md`, and `features/features.json`; measure physical
       LOC without double counting shared modules. Distinguish predicted savings
       from measured change and moving code from removing it.
-- [ ] Produce `synthesis/verified-claims.md`, `problem-map.md`,
+- [x] Produce `synthesis/verified-claims.md`, `problem-map.md`,
       `contradictions.md`, `rewrite-requirements.md`, and `open-questions.md`.
       Tie idle-gap explanations to measured evidence, not structural guesses.
-- [ ] Audit all eight research questions in README against concrete evidence.
+- [x] Audit all eight research questions in README against concrete evidence;
+      question 3's per-gap causal attribution remains unproved as recorded in
+      `synthesis/final-research-audit.md`.
 - [ ] Run CE brainstorm, plan, and deepen-plan; write requirements and a
       detailed evidence-linked plan under `docs/brainstorms` and `docs/plans`.
-- [ ] Commit and push incremental research; verify remote head directly.
-- [ ] Final requirement-by-requirement audit before completing the goal.
+      Brainstorm and requirements-only plan exist; implementation-ready deepen
+      pass is still gated by the decisions in `synthesis/open-questions.md`.
+- [x] Commit and push incremental research; verify remote head directly.
+- [x] Final requirement-by-requirement audit recorded in
+      `synthesis/final-research-audit.md`; keep the goal open for its gaps.
 
 ## Publishing
 

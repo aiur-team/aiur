@@ -87,6 +87,13 @@ text. The unpublished journals, private records and local acceptance details
 were not imported or independently verified in this audit. Any claim relying
 only on them remains limited to the cited aggregate or reported observation.
 
+The subsequent final audit found that the file-size census path replacement
+above had over-redacted a public tracked Build Order fixture: it turned one
+real path into a non-existent alias while leaving its 1,611-line count. The
+original public path is restored in the corrected census and owner map after
+checking the pre-redaction census and frozen Git blob. No private content was
+read or published by that correction.
+
 ## Contextual provenance pass — 2026-09-28
 
 The follow-up [contextual audit](privacy-provenance-audit.md) screened 275
