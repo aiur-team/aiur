@@ -8,6 +8,14 @@ retain both skeptic severities, citation status, and remaining behavior or
 decision gates. This supersedes the pre-merge high-priority disposition gap
 described below; it does not convert source findings into observed incidents.
 
+The [current-main citation update](merged-main-04ef-static-update.md) rechecked
+all 986 canonical findings after PR #2876 merged at `04ef05c41`. Relative to
+the published `fc8270bb6` baseline, eleven citations moved from identical to
+unknown, all in changed factual-Command guidance or its tests. The current
+static counts are 711 identical, 37 stale and 238 unknown. These are review
+queues, not evidence that the underlying behavior changed or that the findings
+occur in live runs.
+
 The frozen-source research has a corrected 60-claim, two-lens audit, all 32
 planned review units, a lossless 986-finding synthesis of 1,033 raw source IDs,
 and a 216-feature inventory. The two independent skeptic lenses covered all
