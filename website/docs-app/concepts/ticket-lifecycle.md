@@ -263,6 +263,7 @@ If an old workspace contains uncommitted or untracked Git work, Aiur keeps it
 instead of removing or recreating it. The needs-attention alert names the
 workspace. Commit, stash, or copy the work, then retry the ticket; Aiur does
 not automatically carry those files into a new checkout.
+
 If a failed reconstruction leaves work in its separate staging checkout, the
 alert identifies that path so the operator can recover it too.
 
