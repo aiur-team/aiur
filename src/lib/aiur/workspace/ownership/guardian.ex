@@ -150,7 +150,12 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       {:workspace_guardian_call, from, ref, {:cancel_provider_expectation, generation}} ->
         {reply_value, next} = cancel_provider_expectation(state, generation)
         reply(from, ref, reply_value)
-        loop(next)
+
+        cond do
+          reply_value != :ok -> loop(state)
+          next.owner_dead? or next.release_requested? -> maybe_release_or_reap(next)
+          true -> loop(next)
+        end
 
       {:workspace_guardian_call, from, ref, {:track_provider, generation, provider}} ->
         {reply_value, next} = track_provider(state, generation, provider)
