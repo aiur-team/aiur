@@ -4,13 +4,13 @@ Checked the 21 `action_status: unresolved` rows in `oversized-owner-audit-part-2
 
 ## Eleven historical planning documents: preserve paths and original text
 
-All eleven are historical plans or requirements. Their present paths are document entrypoints, and five have at least one literal in-repository inbound reference. An `rg -l -F <path>` search found no literal inbound reference for the other six, but cannot rule out external links or generated references. Git preserves the exact original at a commit even when the working-tree file changes. **Proposed action for each row:** at the implementation-base SHA, retain the original file path as a short historical index under 500 lines; link to its full immutable GitHub blob and map each existing heading fragment to the corresponding old-blob fragment. Keep date, title, outcome/provenance and known inbound links. Check all local links, heading anchors and an offline checkout before replacing the body. Do not silently delete or minify the record. This action settles the archival-versus-splitting policy; the link/anchor migration is its acceptance gate.
+All eleven are historical plans or requirements. Their present paths are document entrypoints, and **seven have at least one in-repository inbound source file** when legacy `elixir/docs/...` spellings are included. The initial exact-path search missed rows 133 and 143 because their readers retain that old prefix. No reference found for the other four cannot rule out external links or generated references. Git preserves the exact original at a commit even when the working-tree file changes. **Proposed action for each row:** at the implementation-base SHA, retain the original file path as a short historical index under 500 lines; link to its full immutable GitHub blob and map each existing heading fragment to the corresponding old-blob fragment. Keep date, title, outcome/provenance and known inbound links. Check both current and legacy spellings, all local links, heading anchors and an offline checkout before replacing the body. Update known `elixir/docs/...` readers to the canonical `src/docs/...` path or provide an equivalent path-preserving redirect; a short index only at the current path will not repair those old references. Do not silently delete or minify the record. This action settles the archival-versus-splitting policy; the link/anchor migration is its acceptance gate.
 
-| Row | Historical entrypoint | V3 lines | Literal inbound paths | Largest H2 section |
+| Row | Historical entrypoint | V3 lines | Known inbound source files | Largest H2 section |
 | ---: | --- | ---: | ---: | ---: |
 | 123 | `docs/plans/2026-06-12-002-fix-chat-control-lifecycle-ux-plan.md` | 998 | 0 | 680 |
-| 133 | `src/docs/plans/2026-05-19-001-feat-opencode-pane-chat-plan.md` | 964 | 0 | 544 |
-| 143 | `src/docs/plans/2026-05-20-001-feat-opencode-prewarm-and-history-injection-plan.md` | 920 | 0 | 627 |
+| 133 | `src/docs/plans/2026-05-19-001-feat-opencode-pane-chat-plan.md` | 964 | 2 | 544 |
+| 143 | `src/docs/plans/2026-05-20-001-feat-opencode-prewarm-and-history-injection-plan.md` | 920 | 2 | 627 |
 | 157 | `docs/plans/2026-07-12-004-feat-supervisor-decision-api-plan.md` | 859 | 0 | 428 |
 | 162 | `docs/plans/2026-07-12-001-feat-decision-domain-persistence-plan.md` | 842 | 1 | 427 |
 | 169 | `docs/plans/2026-07-06-001-refactor-production-readiness-planning-spike-plan.md` | 828 | 3 | 370 |
@@ -21,6 +21,8 @@ All eleven are historical plans or requirements. Their present paths are documen
 | 230 | `docs/plans/2026-05-24-003-feat-dashboard-events-panel-and-security-plan.md` | 676 | 0 | 384 |
 
 Three H2 sections already exceed 500 lines, so a one-file-per-H2 split alone cannot close rows 123, 133 or 143. The path-preserving index avoids inventing nested arbitrary slices. Preserve Markdown heading slug behavior, including duplicate headings, when mapping fragments; a path-only redirect is insufficient for existing deep links. If an original section is still an active operator or implementation contract, move that contract into the current owning docs first and link it from the index; historical Git text alone must not become the live source of truth.
+
+The missed readers are concrete: row 133 is named by `src/docs/opencode-pane-brainstorm.md:4` and row 143's own plan at `:910`; row 143 is named twice by `src/docs/plans/2026-05-21-001-feat-pane-lifecycle-and-background-attach-plan.md` (`:77`, `:653`) and twice by `src/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md` (`:82`, `:648`). These are historical `elixir/docs/...` references to the same basenames now under `src/docs/...`. Count distinct reader files in the table, not mention occurrences. The implementation gate must migrate these references and verify where they land; an exact current-path `rg` check is insufficient.
 
 ## Eight Compound Engineering files: upstream identity is not proved
 
