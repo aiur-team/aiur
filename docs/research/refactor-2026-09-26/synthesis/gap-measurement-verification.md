@@ -126,7 +126,7 @@ acknowledgement and completed work need separate evidence.
 Reproduction (local paths are inputs; no raw transcript text is emitted):
 
 ```sh
-python3 tooling/wake_consumption_audit.py "$LOCAL_REPO_STATE" "$LOCAL_CLAUDE_PROJECTS"
+python3 tooling/wake_consumption_audit.py "$LOCAL_REPO_STATE" "$PUBLIC_PROJECT_SESSIONS"
 ```
 
 Validation compared string and block-list transcript content against an

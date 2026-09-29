@@ -27,7 +27,7 @@ Later directives (verbatim):
 | Item | State | Last checked | Re-verify with |
 |---|---|---|---|
 | Research branch `research/refactor-2026-09-26` | pushed; see §3 | 19:20Z, by this push | `git -C <aiur-research worktree> log --oneline -5` |
-| Research worktree | `/home/everdred/github/everdred/aiur-research` (docs under `docs/research/refactor-2026-09-26/`) | 19:20Z | `git -C … status` |
+| Research worktree | `<local-checkouts>/aiur-research` (docs under `docs/research/refactor-2026-09-26/`) | 19:20Z | `git -C … status` |
 | Working research dir (source of truth) | `~/.aiur/research/refactor-2026-09-26/` | 19:20Z | `find … -maxdepth 1` |
 | Background workflows | none running; the last one was stopped on purpose | 19:12Z | n/a (Claude-only tool) |
 | Orphan shells started by workflow agents | none | 19:25Z | `ps -eo pid,etimes,args \| grep refactor-2026-09-26 \| grep -v grep`; kill **by PID only** |
@@ -88,7 +88,7 @@ None were opened for this research. #2818 (dispatch-authorization denial) got a 
 
 ## 6. Operator-specific context
 
-- **Privacy.** its-everdred/private-multisig and its-everdred/croptracker are PRIVATE. Anything that goes to this public branch may carry only counts and categories, marked "(private)". Never titles, quotes, paths or ticket text.
+- **Privacy.** <private-owner>/private-repo-a and <private-owner>/private-repo-b are PRIVATE. Anything that goes to this public branch may carry only counts and categories, marked "(private)". Never titles, quotes, paths or ticket text.
   - `sync.sh` blocks a push when a line names them without "(private)", or when it contains a secret-shaped string.
   - This push replaced the names with `<private repo> (private)` in the raw JSON.
   - A human-level privacy review (unnamed private content) has NOT been done. See §11.

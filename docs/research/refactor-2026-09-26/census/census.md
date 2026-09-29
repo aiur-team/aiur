@@ -5,8 +5,8 @@ while I measured (khala wakes went from 2,201 to 2,203 lines; Claude transcript
 counts grew by one or two). Every number states its source. Numbers are counts
 unless marked **estimate**.
 
-Private repos are shown only as counts: **private-multisig (private)** and
-**croptracker (private)**. This file has no titles, bodies, label breakdowns, branch
+Private repos are shown only as counts: **private-repo-a (private)** and
+**private-repo-b (private)**. This file has no titles, bodies, label breakdowns, branch
 names, ticket numbers or paths from those repos.
 
 Files in this folder:
@@ -66,8 +66,8 @@ Fixtures (`test-org/test-repo`, `owner/repo`, `acme/widgets`, `_unresolved`) are
 | archon (incl. architecture-docs era) | 152 (63) | 93 | 110 (109) | 80 | 368 | 333 | 11 | 7 | 22 | 3 | 8 | 0 / 1 | 2,691 |
 | khala | 217 (29) | 214 | 222 (218) | 197 | 852 | 1,043 | 2 | 61 | 0 | 3 | 13 | 20 / 0 | 2,203 |
 | kevinweaver-dev | 63 (8) | 51 | 119 (76) | 46 | 52 | 74 | 10 | 0 | 0 | 0 | 9 | 0 / 0 | 0 |
-| private-multisig (private) | 49 (7) | 37 | 63 (61) | 25 | 79 | 171 | 1 | 0 | 0 | 0 | 0 | 5 / 0 | 117 |
-| croptracker (private) | 8 (8) | 3 | 1 (0) | 3 | 3 | 17 | 1 | 0 | 0 | 0 | 0 | 0 / 0 | 0 |
+| private-repo-a (private) | 49 (7) | 37 | 63 (61) | 25 | 79 | 171 | 1 | 0 | 0 | 0 | 0 | 5 / 0 | 117 |
+| private-repo-b (private) | 8 (8) | 3 | 1 (0) | 3 | 3 | 17 | 1 | 0 | 0 | 0 | 0 | 0 / 0 | 0 |
 | **Total** | **1,761 (226)** | **≥1,319** | **2,062 (1,672)** | **823** | **2,468** | **5,187** | **62** | **86** | **115** | **14** | **73** | **30 / 21** (+9 empty) | **9,760** |
 
 1. Issues (not PRs) that had an `agent:*` label at any time in the event window, or have one now. For aiur the event window starts on 2026-07-17, so 921 is a lower bound. Script: `scratch/label_stats.py`.
@@ -93,8 +93,8 @@ then `scratch/gh_stats.py`. PRs are removed with `pr==false`.
 | archon | 152 | 63 | 89 | 0 | 92 | 60 | 2026-09-02 | 2026-09-24 |
 | khala | 217 | 29 | 188 | 1 | 202 | 15 | 2026-09-16 | 2026-09-26 |
 | kevinweaver-dev | 63 | 8 | 55 | 9 | 55 | 8 | 2026-08-01 | 2026-08-03 |
-| private-multisig (private) | 49 | 7 | 42 | 0 | 48 | 1 | withheld | withheld |
-| croptracker (private) | 8 | 8 | 0 | 0 | 8 | 0 | withheld | withheld |
+| private-repo-a (private) | 49 | 7 | 42 | 0 | 48 | 1 | withheld | withheld |
+| private-repo-b (private) | 8 | 8 | 0 | 0 | 8 | 0 | withheld | withheld |
 | **Total** | **1,761** | **226** | **1,535** | **66** | **1,401 (80%)** | **360 (20%)** | | |
 
 **Who filed them.** Only two logins filed issues. `its-applekid` is the agent account.
@@ -114,8 +114,8 @@ then `scratch/label_stats.py`.
 | archon | 2026-09-02 → 09-24 | 972 | 93 | 93 | 93 | 417 | 359 | 196 |
 | khala | 2026-09-16 → 09-26 | 2,267 | 214 | 49 | 214 | 1,798 | 6 | 463 |
 | kevinweaver-dev | 2026-08-01 → 08-03 | 409 | 51 | 50 | 51 | 162 | 0 | 247 |
-| private-multisig (private) | one day | 198 | 37 | 35 | 37 | 105 | 0 | 93 |
-| croptracker (private) | one day | 10 | 3 | 3 | 3 | 7 | 0 | 3 |
+| private-repo-a (private) | one day | 198 | 37 | 35 | 37 | 105 | 0 | 93 |
+| private-repo-b (private) | one day | 10 | 3 | 3 | 3 | 7 | 0 | 3 |
 
 - khala has 214 issues that were ever labeled, but only 49 carry an `agent:*` label now. In khala, closing an issue removes the label (only 6 `agent:done` events). In aiur, `agent:done` stays (564 issues). So "labeled now" is not a reliable pipeline measure across repos.
 - Label churn is high. aiur has 2,873 `agent:rework` events and 2,708 `agent:ci-wait` events in the truncated window. That is about 15.8 `agent:*` events per issue labeled in the window (10,810 ÷ 683). archon has about 10.5, khala about 10.6.
@@ -132,8 +132,8 @@ Same fetch as section 2. PRs are the rows with `pr==true`. Time to merge = `merg
 | archon | 110 | 109 | 0 | 1 | 102 | 8 | 0 | 102 | 0.76 | 4.57 |
 | khala | 222 | 218 | 3 | 1 | 194 | 28 | 0 | 192 | 0.64 | 4.93 |
 | kevinweaver-dev | 119 | 76 | 41 | 2 | 23 | 48 | 48 (github-actions[bot]) | 22 | 0.34 | 8.22 |
-| private-multisig (private) | 63 | 61 | 1 | 1 | 24 | 39 | 0 | 24 | 0.16 | 1.21 |
-| croptracker (private) | 1 | 0 | 0 | 1 | 1 | 0 | 0 | 0 | — | — |
+| private-repo-a (private) | 63 | 61 | 1 | 1 | 24 | 39 | 0 | 24 | 0.16 | 1.21 |
+| private-repo-b (private) | 1 | 0 | 0 | 1 | 1 | 0 | 0 | 0 | — | — |
 | **Total** | **2,062** | **1,672** | **356** | **34** | **1,590 (77%)** | **424** | **48** | **1,287** | | |
 
 Split by author (from `scratch/pr_split.py`):
@@ -165,7 +165,7 @@ The workspace roots come from each repo's `.aiur/config` (`workspace.root`).
 | Root | Repos | Ticket dirs on disk now | Command |
 |---|---|---|---|
 | `~/code/aiur-workspaces/<owner>/<repo>/<n>` | aiur (321 under `aiur-team/aiur`, 28 under the old `its-everdred/aiur`) | 337 distinct aiur tickets (346 once the old flat dirs below are added) | `find ~/code/aiur-workspaces -mindepth 1 -maxdepth 3 -type d -name '[0-9]*' -prune` |
-| `~/.aiur/workspaces/<owner>/<repo>/<n>` | archon, khala, private-multisig (private), croptracker (private) | archon 17, khala 28 (live; 25 earlier in the census), private-multisig (private) 10, croptracker (private) 3 | `find ~/.aiur/workspaces/<o>/<r> -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9]+$'` |
+| `~/.aiur/workspaces/<owner>/<repo>/<n>` | archon, khala, private-repo-a (private), private-repo-b (private) | archon 17, khala 28 (live; 25 earlier in the census), private-repo-a (private) 10, private-repo-b (private) 3 | `find ~/.aiur/workspaces/<o>/<r> -mindepth 1 -maxdepth 1 -type d -regex '.*/[0-9]+$'` |
 | `~/.aiur/workspaces/<n>` (old flat layout) | architecture-docs, aiur, khala | 24 dirs: 8 architecture-docs, 15 aiur (#1471–#1793), 1 khala | `git config -f <dir>/.git/config remote.origin.url` for each dir |
 | `~/.aiur/workspaces/khala/aiur-team/khala` | khala (misrooted: repo path doubled) | 1 dir, with 26 Codex sessions | |
 | `~/code/kwdev-workspaces/its-everdred/kevinweaver-dev/<n>` | kevinweaver-dev | 38 (+3 `-manual`) | |
@@ -173,7 +173,7 @@ The workspace roots come from each repo's `.aiur/config` (`workspace.root`).
 ### 4.2 Sessions per backend
 
 - **Codex**: `scratch/codex_scan.py` reads line 1 (`session_meta`) of all 6,534 `~/.codex/sessions/**/*.jsonl` files. It records `cwd`, `originator` and `source`. Then `scratch/codex_classify.py` sorts each session by `cwd`.
-- **Claude**: `scratch/claude_scan.py` reads each `~/.claude/projects/<dir>`. Agent dirs match `-home-everdred-(-aiur-workspaces|code-aiur-workspaces)-<owner>-<repo>-<n>`.
+- **Claude**: `scratch/claude_scan.py` reads each `~/.claude/projects/<dir>`. Agent dirs match `-home-user-(-aiur-workspaces|code-aiur-workspaces)-<owner>-<repo>-<n>`.
 - **opencode**: `sqlite3 -readonly ~/.local/share/opencode/opencode.db "select directory, parent_id is not null from session"` returns 98 sessions. Only 2 are agent sessions (khala).
 
 | Repo | Tickets with transcripts | Codex top-level | Codex subagent | Claude top-level | Claude subagent | opencode | Codex window | Claude window |
@@ -182,8 +182,8 @@ The workspace roots come from each repo's `.aiur/config` (`workspace.root`).
 | archon (both eras) | 77 | 36 | 195 | 332 | 138 | 0 | 2026-09-03 → 09-04 | 2026-09-03 → 09-11 |
 | khala | 196 | 128 | 871 | 722* | 172 | 2 | 2026-09-16 → 09-26 | 2026-09-18 → 09-26 |
 | kevinweaver-dev | 35 | 52 | 74 | 0 | 0 | 0 | 2026-08-01 → 08-02 | — |
-| private-multisig (private) | 25 | 20 | 126 | 59 | 45 | 0 | one day | one day |
-| croptracker (private) | 3 | 3 | 17 | 0 | 0 | 0 | one day | — |
+| private-repo-a (private) | 25 | 20 | 126 | 59 | 45 | 0 | one day | one day |
+| private-repo-b (private) | 3 | 3 | 17 | 0 | 0 | 0 | one day | — |
 | **Total** | **731** | **1,188** | **4,812** | **1,278** | **375** | **2** | | |
 
 \* khala Claude includes 9 sessions from a nested `claude-proof` dir that an agent
@@ -199,7 +199,7 @@ Codex total check: 6,000 agent + 501 at a repo root + 33 elsewhere = 6,534.
 | archon | 4 | 10 | 31 | 7 | 18 |
 | khala | 4 | 8 | 15 | 7 | 19 |
 | kevinweaver-dev | 1 | 2 | 3 | 2 | 6.2 |
-| private-multisig (private) | 1 | 7.2 | 13 | 9 | 17.8 |
+| private-repo-a (private) | 1 | 7.2 | 13 | 9 | 17.8 |
 
 Findings:
 
@@ -212,10 +212,10 @@ Findings:
 
 ## 5. Executor sessions
 
-Executor candidates are sessions whose cwd is a repo root (`/home/everdred/github/everdred/<repo>`),
+Executor candidates are sessions whose cwd is a repo root (`<local-checkouts>/<repo>`),
 not an agent workspace. Sources:
 
-- Claude transcript dir `-home-everdred-github-everdred-<repo>`.
+- Claude transcript dir `-home-user-github-everdred-<repo>`.
 - Claude `history.jsonl` session IDs for that project path. This covers a longer period, but only interactive prompts.
 - Codex sessions with that cwd. `codex-tui` = interactive; `codex_exec` = scripted, not an Executor.
 - opencode sessions with that directory.
@@ -229,8 +229,8 @@ Script: `scratch/exec_agg.py`.
 | archon | 4 | 2026-09-14 → 09-25 | 4 | 146 | 2 | 0 | 2026-09-09 → 09-16 | 0 | 0 / 0 |
 | khala | 1 | 2026-09-18 → 09-26 | 1 | 259 | 1 | 7 | 2026-09-16 | 1 | 0 / 0 |
 | kevinweaver-dev | 4 | 2026-07-31 → 08-11 | 0 | 0 | 3 | 90 | 2026-08-02 → 08-17 | 0 | 3 / 5 |
-| private-multisig (private) | 1 | one day | 1 | 110 | 0 | 0 | — | 0 | 0 / 0 |
-| croptracker (private) | 1 | one day | 0 | 0 | 0 | 0 | — | 0 | 0 / 0 |
+| private-repo-a (private) | 1 | one day | 1 | 110 | 0 | 0 | — | 0 | 0 / 0 |
+| private-repo-b (private) | 1 | one day | 0 | 0 | 0 | 0 | — | 0 | 0 / 0 |
 
 Non-Aiur repo roots, for context only: flowerpot, dotfiles, health, hard-cache, norentgrets.
 Codex also ran 10 scripted `codex_exec` sessions from `~/.aiur/executor-worktrees/*`.
@@ -248,7 +248,7 @@ Codex also ran 10 scripted `codex_exec` sessions from `~/.aiur/executor-worktree
 | archon | 5 | 2026-09-09 | 2026-09-10 | 146 | 0 | |
 | architecture-docs | 2 | 2026-09-03 | 2026-09-03 | 215 | 0 | |
 | khala | **61** | 2026-09-17 | 2026-09-20 | **4.4** | **45** | **09-18: 58** |
-| private-multisig (private), kevinweaver-dev | 0 | | | | | |
+| private-repo-a (private), kevinweaver-dev | 0 | | | | | |
 
 Each of those state dirs (except `_unresolved`) also has one rolling `executor/handoff.md`.
 **Surprise:** khala wrote 58 handoffs in one day, with a median gap of 4.4 minutes. That
@@ -266,7 +266,7 @@ looks like a handoff loop or Executor thrash, not 58 real Executor changes.
 | archon | 22 | 2026-09-10 → 09-11 | 2 | 6 | 8 | 8 | 2026-09-10 | 0 |
 | architecture-docs | 0 | — | 1 | 6 | 8 | 0 | — | 0 |
 | khala | 0 | — | 3 | 7 | 23 | 13 | 2026-09-16 → 09-26 | 0 |
-| private-multisig (private) | 0 | — | 0 | 0 | 0 | 0 | — | 0 |
+| private-repo-a (private) | 0 | — | 0 | 0 | 0 | 0 | — | 0 |
 | kevinweaver-dev | 0 | — | 0 | 0 | 0 | 9 | 2026-08-03 | — |
 
 - **Correction to the brief.** The known figures "aiur retros=39, archon=6, khala=7, architecture-docs=6" count every `*.md` recursively. Most of those are per-check `verdict.md` files inside `<retro>.md.d/dashboard-<epoch>/`. The real retro documents number 8 / 2 / 3 / 1. Each retro doc has a `.md.d` folder of hourly snapshot dirs (38 / 8 / 23 / 8).
@@ -291,7 +291,7 @@ runs it keeps only the last window. For this reason `span_h` (start to end) and
 |---|---|---|---|---|
 | khala | 20 | 184.7 | 607 | 201 |
 | aiur | 5 | 143.9 | 197 | 31 |
-| private-multisig (private) | 5 | 161.6 | 102 | 25 |
+| private-repo-a (private) | 5 | 161.6 | 102 | 25 |
 | empty or aborted boot (0–4 files) | 9 | 0.2 | 0.4 | 0 |
 | **Total** | **39** | | **≈869 MB (`du -sh`)** | |
 
@@ -299,7 +299,7 @@ The longest spans:
 
 | Run | Repo | Span |
 |---|---|---|
-| withheld | private-multisig (private) | 144 h, 6 files, 0 tickets |
+| withheld | private-repo-a (private) | 144 h, 6 files, 0 tickets |
 | `20260917T022859Z` | aiur | 133 h, 12 tickets |
 | `20260920T010817Z` | khala | 62.6 h, 2 tickets |
 | `20260918T104829Z` | khala | 38 h, 31 tickets |
@@ -330,11 +330,11 @@ and `scratch/handoffs.py` (`needs_attention`).
 | architecture-docs | 1,881 | 2026-09-03 → 09-05 | 1,471 (78%) | 54 |
 | archon | 810 | 2026-09-09 → 09-11 | 569 (70%) | 29 |
 | khala | 2,203 | 2026-09-16 → 09-26 (live) | 534 (24%) | 195 |
-| private-multisig (private) | 117 | withheld | 17 | 25 |
+| private-repo-a (private) | 117 | withheld | 17 | 25 |
 
 By family (first two parts of `topic_class`):
 
-| Family | aiur | khala | arch-docs | archon | private-multisig (private) | Total |
+| Family | aiur | khala | arch-docs | archon | private-repo-a (private) | Total |
 |---|---|---|---|---|---|---|
 | system.fleet | 660 | 65 | 1,156 | 562 | 5 | 2,448 |
 | ticket.branch | 833 | 687 | 122 | 97 | 50 | 1,789 |
@@ -347,7 +347,7 @@ By family (first two parts of `topic_class`):
 
 The 12 most frequent topic classes:
 
-| Topic class | aiur | khala | arch-docs | archon | private-multisig (private) | Total |
+| Topic class | aiur | khala | arch-docs | archon | private-repo-a (private) | Total |
 |---|---|---|---|---|---|---|
 | ticket.branch.push | 833 | 687 | 122 | 97 | 50 | 1,789 |
 | system.fleet.capacity.starved | 106 | 31 | 1,067 | 523 | 0 | 1,727 |

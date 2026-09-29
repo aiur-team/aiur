@@ -21,7 +21,7 @@ def blocks(record):
     return [b for b in content if isinstance(b, dict)] if isinstance(content, list) else []
 
 
-def audit(state_root, projects_root):
+def audit(state_root, public_project_sessions):
     summary = []
     for repo in PUBLIC_REPOS:
         base = state_root / 'aiur-team' / repo / 'executor'
@@ -39,8 +39,7 @@ def audit(state_root, projects_root):
             'cursor_sha256': hashlib.sha256(cursor_file.read_bytes()).hexdigest(),
         })
     limits, notifications, resets, read_results = [], 0, [], []
-    project = projects_root / '-home-everdred-github-everdred-architecture-docs'
-    for session in sorted(project.glob('*.jsonl')):
+    for session in sorted(public_project_sessions.glob('*.jsonl')):
         calls = {}
         for line in session.open():
             try:
@@ -92,6 +91,6 @@ def audit(state_root, projects_root):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('local_repo_state_root', type=Path)
-    parser.add_argument('local_claude_projects_root', type=Path)
+    parser.add_argument('public_project_sessions_dir', type=Path)
     args = parser.parse_args()
-    print(json.dumps(audit(args.local_repo_state_root, args.local_claude_projects_root), indent=2))
+    print(json.dumps(audit(args.local_repo_state_root, args.public_project_sessions_dir), indent=2))

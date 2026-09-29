@@ -58,11 +58,11 @@ and `docs/plans/`.
 
 | Source | Size |
 | --- | --- |
-| Repositories with Executor state | aiur, archon, khala, architecture-docs, kevinweaver-dev (public); private-multisig (private), croptracker (private) |
+| Repositories with Executor state | aiur, archon, khala, architecture-docs, kevinweaver-dev (public); private-repo-a (private), private-repo-b (private) |
 | `/aiur-meta` logs | aiur 93, archon 22 |
 | Retros | aiur 39, khala 7, archon 6, architecture-docs 6 |
 | Executor handoffs | khala 61, aiur 18, archon 5, architecture-docs 2 |
-| Executor wake-stream records | aiur 4,749; khala 2,199; architecture-docs 1,881; archon 810; private-multisig (private) 117 |
+| Executor wake-stream records | aiur 4,749; khala 2,199; architecture-docs 1,881; archon 810; private-repo-a (private) 117 |
 | Run log directories | 40 (865 MB) |
 | Agent workspaces on disk | 26 GB |
 | Codex sessions | 6,534 |
@@ -70,6 +70,6 @@ and `docs/plans/`.
 ## Disclosure rules for this branch
 
 This repository is public. Findings are committed with secrets redacted, and
-content from the two private repositories — private-multisig (private) and croptracker (private) — is
+content from the two private repositories — private-repo-a (private) and private-repo-b (private) — is
 reported as counts and categories only, marked `(private)`,
 never quoted.

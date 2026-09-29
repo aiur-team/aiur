@@ -165,7 +165,7 @@ Executor must act.
 
 ## 5. Detail and evidence per class
 
-Paths use `~` for `/home/everdred`. `L<n>` is the line in the JSONL file.
+Paths use `~` for `<local-home>`. `L<n>` is the line in the JSONL file.
 
 ### 5.1 No-op continuation loop (rank 1)
 
@@ -200,13 +200,13 @@ Evidence:
   L3714–L3824: **11 turns in 25 s**, zero tool calls each: L3719 `"Awaiting CI."`, L3729
   `"No new terminal result has been delivered."`, L3749 `"CI is the only blocker."`, L3789
   `"Still waiting on CI."`, L3819 `"No terminal CI event has arrived."`
-- khala#230 (Claude), `~/.claude/projects/-home-everdred--aiur-workspaces-aiur-team-khala-230/5fba9417-ef98-46e8-9d1d-cc023de44231.jsonl`
+- khala#230 (Claude), `~/.claude/projects/-home-user--aiur-workspaces-aiur-team-khala-230/5fba9417-ef98-46e8-9d1d-cc023de44231.jsonl`
   L1143–L1242: a turn every ~9 s, each `"Nothing has changed since last turn. I'm still
   blocked on the Executor's answer to decision dec_7ba13ea633c1b749."`. In the daemon
   transcript `~/.aiur/workspaces/aiur-team/khala/230/logs/agent.ndjson`, cumulative
   `cost_usd` goes from 3.08 (L551, 01:20Z) to 36.79 (L3248, 02:01Z) over 267 turns. Then
   L3252 shows `"You've hit your session limit · resets 8:40pm"` and L3254 `turn_failed`.
-- khala#33 (Claude), `~/.claude/projects/-home-everdred--aiur-workspaces-aiur-team-khala-33/bfdfe7ad-a2ef-4e40-9d5c-031db1e9641f.jsonl`
+- khala#33 (Claude), `~/.claude/projects/-home-user--aiur-workspaces-aiur-team-khala-33/bfdfe7ad-a2ef-4e40-9d5c-031db1e9641f.jsonl`
   L287 `"Still no change (9 consecutive identical checks now)… nothing has moved on the
   reviewer/Executor side."`; L300 `"Repeating this identical check every turn produces no
   new information and isn't genuine progress — I'm fully dependent on an external
@@ -271,7 +271,7 @@ Evidence:
   infrastructure 4, credentials 3.
 - **Stale `CHANGES_REQUESTED` rework loop.** GitHub keeps the old verdict, so the ticket
   bounces back to `agent:rework` with nothing to do. 66 rework sessions said so explicitly.
-  khala#15, `~/.claude/projects/-home-everdred--aiur-workspaces-aiur-team-khala-15/de0e91c5-b56c-468d-b853-ba8990b5b707.jsonl`
+  khala#15, `~/.claude/projects/-home-user--aiur-workspaces-aiur-team-khala-15/de0e91c5-b56c-468d-b853-ba8990b5b707.jsonl`
   L530: `"agent:rework came back at 10:10:49Z, 22 s after ci-wait, with no new review or
   comment. GitHub keeps the old CHANGES_REQUESTED decision until the Executor re-reviews.
   Every finding is already addressed… so nothing was pushed."`
@@ -287,7 +287,7 @@ Evidence:
   L86: `aiur: opencode was not found on PATH… aiur: unknown command: guard-pr-deletions`,
   then `Usage: aiur [--interactive] …`.
 - **Agent handoff notes normalize it.** aiur#2531,
-  `~/.claude/projects/-home-everdred-code-aiur-workspaces-aiur-team-aiur-2531/26201355-6d87-4db9-9cf7-2af6b9344348.jsonl`
+  `~/.claude/projects/-home-user-code-aiur-workspaces-aiur-team-aiur-2531/26201355-6d87-4db9-9cf7-2af6b9344348.jsonl`
   L17: `"aiur guard-pr-deletions is not a subcommand in this build (exit 64, usage printed),
   so the deletion property was verified directly instead"`.
 - **Root cause was already diagnosed by an agent.** aiur#1778,
@@ -306,7 +306,7 @@ Evidence:
 ### 5.6 GitHub API friction in the `gh` guard (rank 6)
 
 - **Client errors are treated as secondary rate limits.** archon#171,
-  `~/.claude/projects/-home-everdred--aiur-workspaces-aiur-team-archon-171/26943c6b-54f1-4715-96ad-fb5305cad4a4.jsonl`
+  `~/.claude/projects/-home-user--aiur-workspaces-aiur-team-archon-171/26943c6b-54f1-4715-96ad-fb5305cad4a4.jsonl`
   L55: `gh: Not Found (HTTP 404)\naiur: GitHub secondary rate limit; backing off 60s before
   the next call`. Across the corpus, 399 of 681 backoff messages directly follow an HTTP
   400/401/404/422. **This is a probable guard bug; the codebase report should confirm it.**
@@ -321,7 +321,7 @@ Evidence:
 
 ### 5.7 Executor check-ins (rank 7)
 
-aiur#2531, `~/.claude/projects/-home-everdred-code-aiur-workspaces-aiur-team-aiur-2531/eb297173-e597-4822-8e8f-4743c030e492.jsonl`:
+aiur#2531, `~/.claude/projects/-home-user-code-aiur-workspaces-aiur-team-aiur-2531/eb297173-e597-4822-8e8f-4743c030e492.jsonl`:
 
 - L109: `ticket.2531.operator.progress_request: Executor check-in: emit progress.checkin…
   this is a silent status ping.`
@@ -357,7 +357,7 @@ L528 `50 tests, 14 failures`, L849 `1858 tests, 1 failure`), over 8.4 h. Codex t
 
 architecture-docs#24: two *initial* Claude sessions started at 05:05Z and 05:06Z on
 2026-09-04 and ran concurrently for about 30 min (`9c399df5…`, `7b86f9b2…`). The Executor
-then wrote, in `~/.claude/projects/-home-everdred--aiur-workspaces-aiur-team-architecture-docs-24/f265d9ed-29f8-4ab8-8208-78cac4707d54.jsonl`
+then wrote, in `~/.claude/projects/-home-user--aiur-workspaces-aiur-team-architecture-docs-24/f265d9ed-29f8-4ab8-8208-78cac4707d54.jsonl`
 L292: `"Executor: the workspace collision is resolved and you are the sole owner of …/24.
 Root cause was a second aiur daemon … that had lost its repo pin"`.
 
@@ -365,7 +365,7 @@ Root cause was a second aiur daemon … that had lost its repo pin"`.
 
 - **Missing labels.** 35 sessions hit `gh: Label does not exist (HTTP 404)` while removing
   a label the ticket no longer had. Each also pays the 60 s false backoff from §5.6.
-- **Shell hang.** archon#164, `~/.claude/projects/-home-everdred--aiur-workspaces-aiur-team-archon-164/b6e1a104-7d32-4b88-a45b-49ae0acbf9a5.jsonl`
+- **Shell hang.** archon#164, `~/.claude/projects/-home-user--aiur-workspaces-aiur-team-archon-164/b6e1a104-7d32-4b88-a45b-49ae0acbf9a5.jsonl`
   L183 (Executor to agent): `"The mutation shell stalled twice because any cd … triggers
   the replayed chpwd/eza hook before the command runs. Do not use cd anywhere."`
 
