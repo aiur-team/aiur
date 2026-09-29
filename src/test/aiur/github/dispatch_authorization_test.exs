@@ -547,6 +547,25 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert denied.dispatch_authorization == :deferred
   end
 
+  test "missing or malformed current-label evidence still revokes active and rework tickets" do
+    for state <- ["in-progress", "rework"] do
+      current_label = "agent:#{state}"
+
+      malformed_event = %{
+        "event" => "labeled",
+        "label" => %{"name" => current_label},
+        "actor" => %{"login" => "outsider"}
+      }
+
+      for events <- [[], [malformed_event]] do
+        denied = authorize_with_events(issue(state: state), events, ["trusted"])
+
+        refute denied.dispatch_authorized?
+        assert denied.dispatch_authorization == :denied
+      end
+    end
+  end
+
   test "fails closed when the timeline request errors" do
     denied =
       DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",

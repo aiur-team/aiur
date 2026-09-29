@@ -444,12 +444,18 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         end
 
       :missing ->
-        {:deferred, :missing_label_event}
+        incomplete_label_decision(issue, :missing_label_event)
 
       :invalid ->
-        {:deferred, :missing_label_event_id}
+        incomplete_label_decision(issue, :missing_label_event_id)
     end
   end
+
+  # A newly created todo issue can precede indexing of its creation-time
+  # label event. For an active or rework ticket, the same missing evidence may
+  # follow an untrusted relabel; keep the revocation verdict for those states.
+  defp incomplete_label_decision(%Issue{state: "todo"}, reason), do: {:deferred, reason}
+  defp incomplete_label_decision(_issue, reason), do: {:ambiguous, reason}
 
   defp decide_fetched_timeline(issue, label, prefix, events, owner, repo) do
     decision = timeline_decision(issue, label, prefix, events)

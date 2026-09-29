@@ -193,6 +193,18 @@ than the first's. If neither is practical, do not make the read conditional:
 an unconditional read that is correct beats a conditional one that is quietly
 wrong.
 
+**Incomplete label provenance is retried.** A new issue can carry `agent:todo`
+before GitHub has indexed its `labeled` timeline event. Aiur does not cache a
+missing or malformed event as a final authorization decision. For a `todo`
+ticket it defers dispatch and retries on the next candidate poll; for active
+and rework tickets it still denies incomplete evidence, preserving revocation
+after an unverified relabel. Either incomplete result retires the daemon's
+cached reads for that issue number, including the timeline body, so a webhook
+backed repository's hour-long read TTL cannot replay the early snapshot.
+This is a number-scoped invalidation, not a repository-wide flush. It may add
+a timeline request on each retry until the event appears, with further requests
+if the timeline spans pages; no quota saving is claimed.
+
 **A validator belongs to the thing it describes.**
 
 A read of one resource earns a validator for that resource; a read of a query
