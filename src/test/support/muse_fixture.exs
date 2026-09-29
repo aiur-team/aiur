@@ -79,6 +79,12 @@ defmodule Aiur.TestSupport.MuseFixture do
                 terminal('completed')
             elif mode == 'approval':
                 emit({'jsonrpc': '2.0', 'method': 'approval/request', 'params': {'sessionId': 'native-session', 'turnId': 'turn-1', 'approvalId': 'approval-1', 'currentRequirementId': {'approvalId': 'approval-1', 'sourceIndex': 0}, 'availableChoices': [{'choiceId': 'allow_once', 'label': 'Allow once'}]}})
+            elif mode == 'approval_replay':
+                request = {'jsonrpc': '2.0', 'method': 'approval/request', 'params': {'sessionId': 'native-session', 'turnId': 'turn-1', 'viewCursor': 'approval-1', 'approvalId': 'approval-1', 'currentRequirementId': {'approvalId': 'approval-1', 'sourceIndex': 0}, 'availableChoices': [{'choiceId': 'allow_once', 'label': 'Allow once'}]}}
+                emit(request)
+                emit({'jsonrpc': '2.0', 'method': 'approval/resolved', 'params': {'sessionId': 'native-session', 'turnId': 'turn-1', 'viewCursor': 'approval-2', 'approvalId': 'approval-1', 'decision': 'approved'}})
+                emit(request)
+                emit({'jsonrpc': '2.0', 'method': 'item/started', 'params': {'sessionId': 'native-session', 'viewCursor': 'ready', 'item': {'itemId': 'ready-1', 'kind': 'agentMessage', 'revision': 1}}})
             elif mode in ['user_input', 'user_input_foreign']:
                 session = 'foreign-session' if mode == 'user_input_foreign' else 'native-session'
                 emit({'jsonrpc': '2.0', 'id': 'input-1', 'method': 'userInput/request', 'params': {'sessionId': session, 'turnId': 'turn-1'}})

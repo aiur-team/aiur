@@ -104,6 +104,24 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
   end
 
   describe "Muse first-turn transport recovery" do
+    test "a Muse first turn completed during pause consumes its delivered work", ctx do
+      {:ok, worker} =
+        Task.start(fn ->
+          run_first_turn(
+            ctx,
+            fn _session, _prompt, _issue, _opts ->
+              {:paused, %{native_terminal: :completed, control: %{request_id: 71, generation: 1}}}
+            end,
+            "muse"
+          )
+        end)
+
+      on_exit(fn -> if Process.alive?(worker), do: Process.exit(worker, :kill) end)
+      identifier = ctx.issue.identifier
+      assert_receive {:queue_item_consumed, ^identifier}
+      refute_received {:queue_item_restored, ^identifier}
+    end
+
     test "pre-write closed turn/start restores the delivered work for replacement", ctx do
       assert {:error, {:turn_start_failed, :port_closed}} =
                run_first_turn(

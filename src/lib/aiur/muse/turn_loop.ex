@@ -154,7 +154,6 @@ defmodule Aiur.Muse.TurnLoop do
   end
 
   defp handle_frame(state, %{"method" => _} = frame) do
-    state = %{state | approvals: Approvals.observe(state.approvals, frame)}
     ingest(state, frame)
   end
 
@@ -169,7 +168,7 @@ defmodule Aiur.Muse.TurnLoop do
     case View.ingest(state.view, frame) do
       {:emit, details, view} ->
         emit(state, :notification, frame, Map.delete(details, :payload))
-        {:continue, %{state | view: view}}
+        {:continue, %{state | view: view, approvals: Approvals.observe(state.approvals, frame)}}
 
       {:ignore, view} ->
         {:continue, %{state | view: view}}

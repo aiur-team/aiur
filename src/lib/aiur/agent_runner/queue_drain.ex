@@ -723,7 +723,13 @@ defmodule Aiur.AgentRunner.QueueDrain do
           Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session))
         )
 
-        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
+        if pause_payload[:native_terminal] == :completed do
+          maybe_observe_accepted_operator_delivery(issue, item, backend, callbacks.live_opts)
+          :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
+          maybe_broadcast_turn_completed(turn_id, issue)
+        else
+          :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
+        end
 
         Aiur.AgentRunner.write_pause_log(
           SessionLifecycle.session_workspace(app_session),

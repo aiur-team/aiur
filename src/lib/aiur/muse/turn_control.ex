@@ -24,12 +24,23 @@ defmodule Aiur.Muse.TurnControl do
     case {state.interrupt && state.interrupt.action, outcome} do
       # Completion can win the race with interruption. Both matching terminal
       # outcomes prove the turn stopped; retain the actual terminal in details.
-      {{:pause, request}, terminal} when terminal in [:cancelled, :completed] -> {:paused, Map.merge(base, pause_details(request, params))}
-      {:operator_message, :cancelled} -> {:ok, Map.put(base, :result, :turn_interrupted_for_operator_message)}
-      {{:error, reason}, terminal} when terminal in [:cancelled, :completed] -> {:error, reason}
-      {_, :completed} -> {:ok, Map.put(base, :result, :turn_completed)}
-      {_, :failed} -> {:error, {:native_turn_failed, params["error"]}}
-      {_, :cancelled} -> {:error, {:native_turn_cancelled, params["reason"]}}
+      {{:pause, request}, terminal} when terminal in [:cancelled, :completed] ->
+        {:paused, base |> Map.merge(pause_details(request, params)) |> Map.put(:native_terminal, terminal)}
+
+      {:operator_message, :cancelled} ->
+        {:ok, Map.put(base, :result, :turn_interrupted_for_operator_message)}
+
+      {{:error, reason}, terminal} when terminal in [:cancelled, :completed] ->
+        {:error, reason}
+
+      {_, :completed} ->
+        {:ok, Map.put(base, :result, :turn_completed)}
+
+      {_, :failed} ->
+        {:error, {:native_turn_failed, params["error"]}}
+
+      {_, :cancelled} ->
+        {:error, {:native_turn_cancelled, params["reason"]}}
     end
   end
 

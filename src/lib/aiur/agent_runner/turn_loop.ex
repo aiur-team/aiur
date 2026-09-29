@@ -181,11 +181,19 @@ defmodule Aiur.AgentRunner.TurnLoop do
           Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session))
         )
 
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
-          :restore,
-          issue
-        )
+        if pause_payload[:native_terminal] == :completed do
+          best_effort_queue_bookkeeping(
+            Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier),
+            :consume,
+            issue
+          )
+        else
+          best_effort_queue_bookkeeping(
+            Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
+            :restore,
+            issue
+          )
+        end
 
         Aiur.AgentRunner.write_pause_log(workspace, worker_host)
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)

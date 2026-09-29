@@ -28,7 +28,9 @@ defmodule Aiur.Muse.TurnTest do
     task = run_fixture(dir, "pause_completed")
     receive_barrier({:turn_ready, owner})
     send(owner, {:pause_agent, 78, 5})
-    assert {:paused, %{control: %{request_id: 78, generation: 5}, details: %{"terminal" => "completed"}}} = Task.await(task, :infinity)
+
+    assert {:paused, %{control: %{request_id: 78, generation: 5}, details: %{"terminal" => "completed"}, native_terminal: :completed}} =
+             Task.await(task, :infinity)
   end
 
   @tag :tmp_dir
@@ -55,6 +57,15 @@ defmodule Aiur.Muse.TurnTest do
     [decision] = Enum.filter(frames(dir), &(&1["method"] == "approval/decide"))
     assert decision["params"]["requirementId"] == requirement
     refute Enum.any?(frames(dir), &(&1["method"] == "turn/interrupt"))
+  end
+
+  @tag :tmp_dir
+  test "a replayed approval request cannot reopen a resolved approval", %{tmp_dir: dir} do
+    task = run_fixture(dir, "approval_replay", 2_000)
+    receive_barrier({:event, %{payload: %{"method" => "item/started", "params" => %{"viewCursor" => "ready"}}}})
+    send(task.pid, {:agent_queue_updated, "MUSE-1", 9, true})
+    assert {:ok, %{result: :turn_interrupted_for_operator_message}} = Task.await(task, 5_000)
+    assert Enum.count(frames(dir), &(&1["method"] == "turn/interrupt")) == 1
   end
 
   @tag :tmp_dir
