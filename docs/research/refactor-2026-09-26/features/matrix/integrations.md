@@ -47,9 +47,9 @@ Usage and raw recommendations are frozen research observations; challenged recom
 | integrations-41 | Executor takeover advisory alerts | regular | simplify | pending |
 | integrations-42 | Executor handoffs | regular | keep | pending |
 | integrations-43 | Executor-to-agent messages (aiur message) | heavy | keep | pending |
-| integrations-44 | Build Order graph, catalog and CLI (daemon side) | regular | externalize | pending |
-| integrations-45 | Build Order dashboard pages | unknown | externalize | pending |
-| integrations-46 | aiur-build planning skill (Build Order pack authoring and publication) | occasional | externalize | pending |
+| integrations-44 | Build Order graph, catalog and CLI (daemon side) | regular | externalize | overturned → simplify |
+| integrations-45 | Build Order dashboard pages | unknown | externalize | overturned → simplify |
+| integrations-46 | aiur-build planning skill (Build Order pack authoring and publication) | occasional | externalize | holds |
 | integrations-47 | Agent skill installer and bundled aiur agent skills (aiur-agent, aiur-debug, design-import) | heavy | keep | pending |
 | integrations-48 | Vendored Compound Engineering skills (31 skills, pinned 3.19.0) | regular | simplify | pending |
 | integrations-49 | Codex-native git skills (commit, push, pull, land, linear) | occasional | merge | pending |

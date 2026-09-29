@@ -15,7 +15,7 @@ Usage and raw recommendations are frozen research observations; challenged recom
 | ui-09 | ElevenLabs credit-quota meter | rare | cut | pending |
 | ui-10 | Analytics page | regular | simplify | pending |
 | ui-11 | Build Order pages (catalog and root detail) | heavy | simplify | pending |
-| ui-12 | Build Order PlanningSource (pre-ticket demo data source) | none-found | cut | pending |
+| ui-12 | Build Order PlanningSource (pre-ticket demo data source) | none-found | cut | holds |
 | ui-13 | GitHub cache inspector page | occasional | cut | pending |
 | ui-14 | Stream Deck browser emulator page | none-found | cut | pending |
 | ui-15 | Stream Deck server channel and projections | regular | externalize | pending |
@@ -33,7 +33,7 @@ Usage and raw recommendations are frozen research observations; challenged recom
 | ui-27 | Browser test harness and dashboard visual check | regular | keep | pending |
 | ui-28 | Dashboard stylesheet (dashboard.css) | heavy | simplify | pending |
 | ui-29 | Unreferenced dashboard components | none-found | cut | pending |
-| ui-30 | Build Order graph layout engine (ELK worker + DOM-SVG adapter) - dead | none-found | cut | pending |
+| ui-30 | Build Order graph layout engine (ELK worker + DOM-SVG adapter) - dead | none-found | cut | holds |
 | ui-31 | Remote Control affordances in the TUI | none-found | cut | pending |
 | ui-32 | UI launch switches (foreground attach, --bg, --bg --interactive, --no-dashboard, --host, --debug) | heavy | simplify | pending |
-| ui-33 | Debug chat-pane ANSI recorder (documented, not implemented) | none-found | cut | pending |
+| ui-33 | Debug chat-pane ANSI recorder (documented, not implemented) | none-found | cut | holds |

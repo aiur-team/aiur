@@ -2257,3 +2257,11 @@ coverage is now 40 of 91, with 51 remaining. `features/usage-matrix.md`
 indexes all 216 frozen feature entries in five short surface tables, keeping
 raw and challenged recommendations separate. It supplies navigation and
 coverage, not a final keep/cut verdict or line-reduction case.
+
+The next challenge batch checked Build Order package/deletion proposals and
+three candidate UI removals. `integrations-44/45` retain the domain and web
+contracts pending equivalent replacement, while `integrations-46` has a valid
+planning-skill package seam with no net LOC claim. `ui-12/30/33` are conditional
+cuts with required fixture, browser or documentation checks; their notes correct
+missed test use and distinguish dead code from documentation-only cleanup.
+Challenge artifact coverage is now 46 of 91, leaving 45.

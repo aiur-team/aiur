@@ -40,5 +40,41 @@
     "holds": false,
     "recommendation": "keep",
     "note": "The frozen delivery census shows an actual failed webhook deployment, not an unused or redundant capability. `website/docs-app/apis/github.md` documents verified-delivery gating: failed or absent deliveries keep full polling and short cache TTLs; a proven delivery widens selected reconciliation reads and retires stale cache entries. Removing ingress would delete that conditional product contract and its event latency/reconciliation path. The cited 5,721 accepted deliveries in the earlier period show a real population, while 3,524 later 502 responses show the current path needs operational diagnosis. No quota saving may be claimed during the failed period, and the proposed 5,120-line deletion is a gross estimate that omits replacement work. Keep the capability while deciding whether to repair the deployment or replace transport; test loss recovery, signature validation and measured read displacement before any cut. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-44",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "Build Order is used in the counted pack and CLI populations, and `codebase/feature-boundaries.md` assigns it a coherent domain boundary but also records tracker, catalog, dashboard and projection dependencies. The raw proposal combines a plausible package seam with unproven deletion of catalog cadence, ticket history and selected-root policy. On-demand graph reads do not automatically preserve freshness, bounded GitHub cost, recursive membership or historical context; the inherited P0 detail-loop finding also makes read policy a correctness issue. Extract a package inside the repository after its identity, event, cache and read-model contracts are characterized. Defer repository separation and any 4,000-line deletion claim until equivalent behavior and measured physical lines exist. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-45",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The dashboard pages are a consumer of the Build Order read model, not a free-standing extraction merely because they share a name. No page-view telemetry exists, so 72 transcript URL mentions cannot measure ordinary use. The proposed collapse of PlanningSource, DataSource, SourceRuntime and ContextRuntime needs behavior tests for demo/no-source, selected root, loading, stale/error and ticket detail/history states. Keep the Phoenix presentation in the web app while moving domain reads behind an explicit contract; count any deleted lines after the replacement, not from an estimated 2,000-line collapse. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-46",
+    "holds": true,
+    "recommendation": "externalize",
+    "note": "The planning-only `aiur-build` skill declares that it prepares durable packs and never runs Aiur or implements tickets; that is a real ownership seam from the daemon. The source inventory counts actual pack directories and skill reads, so the skill is not dead. Externalize only as a separately versioned skill/plugin with its planning contract, documentation links, template loading and tests intact; ensure a later `aiur-run` can consume the same pack schema. Moving the skill to another repository removes no product complexity and creates no net LOC saving by itself. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "ui-12",
+    "holds": true,
+    "recommendation": "cut",
+    "note": "The frozen production code does not select `PlanningSource` through a run config, but the raw usage note missed `src/test/aiur/build_order/pack_status_test.exs`, which calls `PlanningSource.catalog/0` and `demand/1`. Cut the production demo data source only after moving those test fixtures behind the real data-source contract and preserving documentation screenshots that depend on it. The proposed 926 source lines plus bundled JSON are a gross footprint; replacement test fixture lines and any retained examples must be subtracted from a measured net deletion. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "ui-30",
+    "holds": true,
+    "recommendation": "cut",
+    "note": "The frozen source registers `Hooks.DomSvgLayout` in `layouts.ex:252-253` and tests its worker through a dedicated browser script, but a full `phx-hook=\"DomSvgLayout\" search over `src` finds no mounted element. The Build Order grid uses its separate hook. That makes the ELK/DOM-SVG runtime a credible removal candidate, including its 6,312-line vendored worker, which is already over the 500-line file limit. Before deletion, search generated templates and dynamic hook names, remove the loader and packaging checks together, and run the real Build Order browser flow. Count the deleted files exactly; the raw LOC estimate omitted the worker. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "ui-33",
+    "holds": true,
+    "recommendation": "cut",
+    "note": "The frozen AGENTS.md explicitly claims `--debug` records each chat pane as `log/record/chat.<issue>.ansi` and keeps ANSI with `capture-pane -e`, but the source search found no recorder or stitching implementation and no retained record directory. This is a documentation defect rather than code to delete. Remove or qualify the three claims in AGENTS.md, the TUI guide and the debug skill unless the recorder is implemented and manually verified; no source-LOC saving can be booked for this cut. This is a continuing-researcher challenge, not an independent reviewer result."
   }
 ]
