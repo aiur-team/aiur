@@ -90,9 +90,15 @@ The lookup logs before the shell-out and treats an unanswered lookup as "no keyr
 
 ### Bulk deletion guard
 
-The worker's `aiur guard-pr-deletions` command refuses excessive untouched deletions locally, but a shell pipeline can hide its nonzero exit status. A required CI status check is the merge backstop. Aiur runs `scripts/check-pr-deletions.sh` in its required `workflow security` job; new consumer GitHub CI scaffolds run an embedded copy in `ci / required`. CI compares the pull request base and head commits and refuses more than 50 net deleted files. Because CI cannot trust a worker-local branch-start ref, its threshold is intentionally more conservative than the local guard's untouched-file rule.
+The worker's `aiur guard-pr-deletions` command refuses excessive untouched deletions locally, but a shell pipeline can hide its nonzero exit status. Aiur also checks deletions in its required `workflow security` CI job. New consumer GitHub CI scaffolds run an embedded copy in `ci / required`.
 
-For an existing consumer repository, copy `scripts/check-pr-deletions.sh` to `.github/scripts/aiur-check-pr-deletions.sh`, add a full-history checkout and a step invoking it with `github.event.pull_request.base.sha` and `github.event.pull_request.head.sha` to an always-running PR job, then require that job's status check on the target branch. A workflow file alone does not enforce the merge gate. An administrator must configure branch protection or a ruleset requiring the check; for Khala, require `ci / required` (or the existing job containing the step) on its main branch and verify that a deliberately blocked PR cannot merge. Protect workflow changes with the repository's normal human review policy.
+CI compares the merge base with the pull request head and refuses more than 50 net deleted files. This avoids counting files added only to the target branch. CI cannot trust a worker-local branch-start ref, so its rule is more conservative than the local guard's untouched-file rule.
+
+For an existing consumer repository, copy `scripts/check-pr-deletions.sh` to `.github/scripts/aiur-check-pr-deletions.sh`. Add a full-history checkout and a step invoking it with the pull request base and head SHAs to an always-running PR job.
+
+An administrator must make that job's status check required on the target branch. For Khala, require `ci / required` or the existing job containing the step on main, then verify that a blocked PR cannot merge. A workflow file alone does not enforce this gate.
+
+Code run from a pull request's own workflow and scripts can be changed by that pull request. Protect workflow changes with human review; a fully independent merge gate needs a trusted base-branch check and a required status rule.
 
 ### Organization repository access during init
 

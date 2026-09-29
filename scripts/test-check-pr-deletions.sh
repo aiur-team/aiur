@@ -38,23 +38,35 @@ head="$(git rev-parse HEAD)"
 
 # This is the observed failure shape: the local guard refuses, tail succeeds,
 # and the worker's shell then pushes the branch anyway.
+if "$root/scripts/guard-pr-deletions" develop >"$tmp/local-guard" 2>&1; then
+  echo "expected the local guard to refuse base-only additions" >&2
+  exit 1
+fi
+grep -q 'refusing PR with 51 untouched file deletions' "$tmp/local-guard"
 set +o pipefail
 "$root/scripts/guard-pr-deletions" develop 2>&1 | tail -n 3 >"$tmp/piped-guard-output" && git push -q origin feature
 set -o pipefail
 test "$(git --git-dir="$tmp/origin.git" rev-parse refs/heads/feature)" = "$head"
 
-if "$root/scripts/check-pr-deletions.sh" "$base" "$head" >"$tmp/refusal" 2>&1; then
-  echo "server-side check accepted the 51 deleted files after a piped guard refusal" >&2
+"$root/scripts/check-pr-deletions.sh" "$base" "$head" >"$tmp/stale-branch"
+grep -q '0 deleted files' "$tmp/stale-branch"
+
+# A real PR deletion is counted from the merge base and blocked even when a
+# worker's shell has hidden a local guard failure in another command chain.
+git checkout -qb feature-delete develop
+git rm -q base-*.txt
+git commit -qm 'delete base files'
+if "$root/scripts/check-pr-deletions.sh" "$base" HEAD >"$tmp/refusal" 2>&1; then
+  echo "CI check accepted a PR with 51 deleted files" >&2
   exit 1
 fi
 grep -q 'refusing PR with 51 deleted files' "$tmp/refusal"
 
 # The threshold itself is intentional: exactly 50 net deletions are allowed.
-git checkout -qb feature-50 "$seed"
-git checkout "$base" -- base-51.txt
-git add base-51.txt
-git commit -qm 'retain one base file'
+git checkout -qb feature-50 develop
+git rm -q base-{1..50}.txt
+git commit -qm 'delete 50 base files'
 "$root/scripts/check-pr-deletions.sh" "$base" HEAD >"$tmp/allowed"
 grep -q '50 deleted files' "$tmp/allowed"
 
-echo 'PR deletion check rejects a piped-guard push and allows the threshold'
+echo 'PR deletion check ignores base-only files, refuses 51 PR deletions, and allows 50'

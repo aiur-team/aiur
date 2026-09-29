@@ -48,7 +48,9 @@ The wizard offers these setup steps:
 | Recreate | `aiur init --force` refreshes config while preserving sibling scaffold files. |
 | Route agents | Collects backends, models, limits, readiness, and lifecycle labels. |
 
-For a GitHub repository without CI, `aiur init` can create `.github/workflows/ci.yml` and `.github/scripts/aiur-check-pr-deletions.sh`. The workflow's `ci / required` job runs the deletion check before the project test placeholder. Replace the placeholder with your test command and make `ci / required` a required status check in branch protection or an organization ruleset. Existing CI files are preserved; add the [deletion check and required status gate](/apis/github#bulk-deletion-guard) to those workflows yourself.
+For a GitHub repository without CI, `aiur init` can create `.github/workflows/ci.yml` and `.github/scripts/aiur-check-pr-deletions.sh`. The `ci / required` job runs the deletion check before the project test placeholder.
+
+Replace the placeholder with your test command and make `ci / required` a required status check in branch protection or an organization ruleset. Existing CI files are preserved; add the [deletion check and required status gate](/apis/github#bulk-deletion-guard) to those workflows yourself.
 
 Add `agent:todo` to the issues you want worked. If agents are hitting rate limits, consider the optional [GitHub App setup](/apis/github#github-app-authentication).
 
