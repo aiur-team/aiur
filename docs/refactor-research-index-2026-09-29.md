@@ -10,6 +10,8 @@ Pre-merge behavior evidence narrows three plan gates: [CODEOWNERS trust](https:/
 
 U0 source checks now cover [22 provisional path-role rows and 19 owner corrections](https://github.com/aiur-team/aiur/blob/e1b45d963553456a019cc8a6a16191684d2dbc59/docs/research/refactor-2026-09-26/synthesis/u0-owner-row-source-validation.md); the other 21 provisional rows have the action review linked above. The [500-line migration gate contract](https://github.com/aiur-team/aiur/blob/e1b45d963553456a019cc8a6a16191684d2dbc59/docs/research/refactor-2026-09-26/synthesis/u0-500-line-migration-gate-2026-09-29.md) is research only; no gate or refactor implementation has merged.
 
+The [216-feature release delta](https://github.com/aiur-team/aiur/blob/4f48ba83db1be5606c05e35d71b76d9f24f58c97/docs/research/refactor-2026-09-26/synthesis/feature-release-candidate-v3-delta.md) queues 152 entries for merged-main source revalidation, including 19 adjacent to newly added Muse paths. These are citation changes, not measured usage or revised feature decisions.
+
 To reproduce the checks, fetch the pinned commit into a separate research checkout and run from the repository root:
 
 ```sh
