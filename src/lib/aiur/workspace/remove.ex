@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.Remove do
   @moduledoc "Workspace removal: local and remote rm-rf with before_remove hook dispatch and per-issue multi-host fanout."
 
   alias Aiur.Config
-  alias Aiur.Workspace.{Hooks, Layout, Remote}
+  alias Aiur.Workspace.{DirtyGuard, Hooks, Layout, Remote}
 
   @type worker_host :: String.t() | nil
 
@@ -15,8 +15,16 @@ defmodule Aiur.Workspace.Remove do
       true ->
         case Layout.validate_workspace_path(workspace, nil) do
           :ok ->
-            maybe_run_before_remove_hook(workspace, nil)
-            File.rm_rf(workspace)
+            with :ok <- DirtyGuard.check(workspace, nil) do
+              maybe_run_before_remove_hook(workspace, nil)
+
+              case DirtyGuard.check(workspace, nil) do
+                :ok -> File.rm_rf(workspace)
+                {:error, reason} -> {:error, reason, ""}
+              end
+            else
+              {:error, reason} -> {:error, reason, ""}
+            end
 
           {:error, reason} ->
             {:error, reason, ""}
@@ -28,24 +36,28 @@ defmodule Aiur.Workspace.Remove do
   end
 
   def remove(workspace, worker_host) when is_binary(worker_host) do
-    maybe_run_before_remove_hook(workspace, worker_host)
+    with :ok <- DirtyGuard.check(workspace, worker_host) do
+      maybe_run_before_remove_hook(workspace, worker_host)
 
-    script =
-      [
-        Remote.remote_shell_assign("workspace", workspace),
-        "rm -rf \"$workspace\""
-      ]
-      |> Enum.join("\n")
+      script =
+        [
+          Remote.remote_shell_assign("workspace", workspace),
+          DirtyGuard.remote_check_script(),
+          "rm -rf \"$workspace\""
+        ]
+        |> Enum.join("\n")
 
-    case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
-      {:ok, {_output, 0}} ->
-        {:ok, []}
-
-      {:ok, {output, status}} ->
-        {:error, {:workspace_remove_failed, worker_host, status, output}, ""}
-
-      {:error, reason} ->
-        {:error, reason, ""}
+      case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+        {:ok, {_output, 0}} -> {:ok, []}
+        {:ok, {_output, 75}} -> DirtyGuard.refuse(workspace, :dirty)
+        {:ok, {_output, 76}} -> DirtyGuard.refuse(workspace, :git_status_failed)
+        {:ok, {output, status}} -> {:error, {:workspace_remove_failed, worker_host, status, output}, ""}
+        {:error, reason} -> {:error, reason, ""}
+      end
+    end
+    |> case do
+      {:error, reason} -> {:error, reason, ""}
+      result -> result
     end
   end
 
