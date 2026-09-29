@@ -1,7 +1,7 @@
 {
   "status": "checkpoint_local_source_screen_not_full_semantic_review",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
-  "source_index": "/home/everdred/.aiur/research/refactor-2026-09-26/review/in-progress/duplication-name-remaining-index.json",
+  "source_index": "local unpublished index (not included in this branch)",
   "range": {"first_index":0,"last_index":325},
   "counts": {"families":326,"literal_clauses":1013,"dispositions":{"different_contract_or_policy":81,"shared_policy_candidate":34,"source_screened_no_shared_policy_proposed":116,"existing_delegation_or_boundary_wrapper":95}},
   "method": "Read source heads, guards and immediate bodies for every indexed clause; inspected local uses for candidate families. Source excerpts and body hashes are copied from the frozen source/index. Judgments concern shared policy, not merely identical spelling or body bytes.",

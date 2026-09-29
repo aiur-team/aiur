@@ -2229,9 +2229,9 @@ installation and `mix dialyzer --format short` passed. Final isolated
 foreground CLI/TUI acceptance showed an allow-once approval delivered through
 chat input, one scoped `progress.checkin` publication, rendered Muse output
 and a delivered follow-up. The actual dashboard was inspected at desktop and
-mobile widths with zero page errors or measured overflow. Private evidence and
-limitations are in `~/.cache/aiur-muse-planning/requirements-audit.md`; the
-shared fleet was not changed. Research is active again.
+mobile widths with zero page errors or measured overflow. The detailed acceptance
+record is local and unpublished, so these observations are not independently
+verifiable from this branch. The shared fleet was not changed. Research is active again.
 
 The first renewed research pass adds `tooling/file_size_census.py`, its complete
 frozen-snapshot output and `synthesis/file-size-analysis.md`: 359 tracked text
@@ -2308,8 +2308,9 @@ bridge tests fail against the exact reverted authorization hunk and pass when
 restored. A rebuilt isolated release showed a typed allow-once approval,
 one scoped event publication and a delivered follow-up in the real TUI pane;
 an unauthenticated live bridge probe returned 401. Scoped resources were
-stopped, shared daemon untouched. Private acceptance detail is in
-`~/.cache/aiur-muse-planning/requirements-audit.md`. Research continues;
+stopped, shared daemon untouched. The detailed acceptance record is local and
+unpublished, so this evidence cannot be independently checked from the branch.
+Research continues;
 independent reviewers A and B are now authorized and recording separate
 P0/P1 assessments.
 

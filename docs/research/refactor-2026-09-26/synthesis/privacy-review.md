@@ -54,3 +54,35 @@ that change when formatting is normalized. No removed value is repeated here.
 
 Do not interpret the automated scan as the completed human-level audit requested
 in the original handoff.
+
+## 2026-09-28 continuation audit
+
+The public research tree was scanned again, including inherited reports, raw
+findings, verdicts, feature inventories, CSVs, tooling and the newer continuation
+artifacts. Two private repository names were replaced consistently with
+`private-repo-a` and `private-repo-b`; these are opaque aliases, not repository
+names. The replacement includes a source-fixture path in the file-size census.
+Literal host-home paths were normalized to `<local-home>`, and an unpublished
+duplication index path was replaced with an explicit local-evidence description.
+The source-screen tool now requires a caller-provided frozen snapshot path.
+
+The 26 recovered verdict records whose text changed carry
+`provenance.privacy_audit_2026_09_28` with the changed fields. Their journal
+hashes describe the original pre-redaction records; an exact match against the
+current text is not claimed. The unchanged numerical CSV cells, row order and
+row counts were checked against the branch base. Private acceptance-record
+paths in `CONTINUATION.md` were removed, and the document now says that the
+reported acceptance observations cannot be independently checked from this
+branch.
+
+The scan found no GitHub, OpenAI or AWS credential pattern or private-key block.
+Credential-like matches in raw findings were variable names and synthetic test
+values. Public repository and account identifiers remain where they identify
+public Aiur source or public GitHub history; a named private source must stay
+aliased even when its aggregate counts are retained. Loopback addresses and
+documented runtime paths are technical evidence, not private host addresses.
+
+This is a branch-tip correction. Earlier public commits still contain the old
+text. The unpublished journals, private records and local acceptance details
+were not imported or independently verified in this audit. Any claim relying
+only on them remains limited to the cited aggregate or reported observation.

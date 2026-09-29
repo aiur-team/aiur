@@ -185,19 +185,19 @@ khala,20260925T042508Z-193656,runlog,2026-09-25T22:59Z,2026-09-25T23:29Z,30.1,b,
 khala,20260925T042508Z-193656,runlog,2026-09-26T02:13Z,2026-09-26T02:36Z,23.8,f,0,0,0,0,0,23,0.967,agents working (no output yet),"wake system.fleet.capacity.starved @2026-09-25T22:29Z, no resolution before boot end 2026-09-26T05:20Z (2026-09-25T22:29Z->2026-09-26T05:20Z) | Executor transcript ""You've hit your session limit"" 2026-09-26T02:01Z (reset 2026-09-26T03:40Z) | labels at start: human-review=1, in-progress=11, parked=13, rework=3, todo=30 | human-review tickets (age h): #255(0) | executor-active-min=4 agent-active-min=23 human-msgs-min=0 | last progress: wake:ticket.pr.opened by agent/wake #298 @2026-09-26T02:13Z | next progress: wake:ticket.branch.push by agent/wake #298 @2026-09-26T02:36Z",1.0
 khala,20260925T042508Z-193656,runlog,2026-09-26T02:42Z,2026-09-26T03:43Z,60.9,d,0,0,0,49,0,12,1.001,Executor session limit (Claude Code),"wake system.fleet.capacity.starved @2026-09-25T22:29Z, no resolution before boot end 2026-09-26T05:20Z (2026-09-25T22:29Z->2026-09-26T05:20Z) | Executor transcript ""You've hit your session limit"" 2026-09-26T02:01Z (reset 2026-09-26T03:40Z) | labels at start: human-review=1, in-progress=11, parked=13, rework=3, todo=30 | human-review tickets (age h): #255(1) | executor-active-min=9 agent-active-min=2 human-msgs-min=1 | last progress: tel:dispatch by daemon #298 @2026-09-26T02:42Z | next progress: gh:labeled:agent:in-progress by its-applekid #185 @2026-09-26T03:43Z",1.0
 khala,20260926T055641Z-1318024,runlog,2026-09-26T07:14Z,2026-09-26T08:42Z,88.3,d,0,0,0,65,0,23,0.996,Executor session limit (Claude Code),"wake ticket.agent.attention.paused-usage_limit_exhausted ticket 48 (2026-09-26T07:15Z->2026-09-26T07:16Z) | wake ticket.agent.attention.paused-usage_limit_exhausted ticket 215 (2026-09-26T07:15Z->2026-09-26T07:16Z) | Executor transcript ""You've hit your session limit"" 2026-09-26T07:15Z (reset 2026-09-26T08:40Z) | labels at start: ci-wait=3, human-review=1, in-progress=3, parked=15, rework=3, todo=11 | human-review tickets (age h): #231(1) | executor-active-min=12 agent-active-min=8 human-msgs-min=1 | last progress: comment by its-everdred #48 @2026-09-26T07:14Z | next progress: comment by its-applekid #374 @2026-09-26T08:42Z",1.0
-private-multisig (private),,runlog,,,26.4,f,0,0,0,0,0,26,0.985,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,83.0,f,0,0,0,0,0,83,1.0,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,21.2,f,0,4,6,0,0,11,0.993,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,28.1,f,0,0,0,0,0,28,0.996,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,211.2,f,0,45,5,0,0,161,0.999,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,20.4,f,0,0,0,0,0,20,0.98,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,17.2,f,0,0,0,0,0,18,1.045,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,16.2,f,0,0,0,0,0,16,0.987,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,26.4,f,0,0,0,0,0,27,1.023,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,46.2,f,0,0,0,0,0,46,0.997,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,21.9,f,0,0,0,0,0,22,1.006,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,21.7,f,0,0,0,0,0,22,1.016,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,18.8,f,0,0,0,0,0,18,0.956,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,25.6,f,0,0,0,0,0,25,0.975,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,19.8,f,0,0,0,0,0,19,0.962,agents working,private — omitted,1.0
-private-multisig (private),,runlog,,,8665.8,e,0,0,0,2,8664,0,0.524,no work queued,private — omitted,0.524303
+private-repo-a (private),,runlog,,,26.4,f,0,0,0,0,0,26,0.985,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,83.0,f,0,0,0,0,0,83,1.0,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,21.2,f,0,4,6,0,0,11,0.993,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,28.1,f,0,0,0,0,0,28,0.996,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,211.2,f,0,45,5,0,0,161,0.999,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,20.4,f,0,0,0,0,0,20,0.98,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,17.2,f,0,0,0,0,0,18,1.045,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,16.2,f,0,0,0,0,0,16,0.987,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,26.4,f,0,0,0,0,0,27,1.023,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,46.2,f,0,0,0,0,0,46,0.997,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,21.9,f,0,0,0,0,0,22,1.006,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,21.7,f,0,0,0,0,0,22,1.016,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,18.8,f,0,0,0,0,0,18,0.956,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,25.6,f,0,0,0,0,0,25,0.975,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,19.8,f,0,0,0,0,0,19,0.962,agents working,private — omitted,1.0
+private-repo-a (private),,runlog,,,8665.8,e,0,0,0,2,8664,0,0.524,no work queued,private — omitted,0.524303

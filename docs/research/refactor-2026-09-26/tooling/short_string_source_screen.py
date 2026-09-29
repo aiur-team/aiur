@@ -15,9 +15,9 @@ import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 INPUT = ROOT / "review/in-progress/inline-literal-lowfanout-ledger.json"
-SNAPSHOT = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else pathlib.Path(
-    "/home/everdred/.aiur/research/refactor-2026-09-26/scratch/snapshot-3339b887-complete"
-)
+if len(sys.argv) != 2:
+    raise SystemExit("usage: short_string_source_screen.py <frozen-snapshot-root>")
+SNAPSHOT = pathlib.Path(sys.argv[1])
 
 EXISTING = {
     "ticket.": "dup-by-body-46; dup-by-concept-02",

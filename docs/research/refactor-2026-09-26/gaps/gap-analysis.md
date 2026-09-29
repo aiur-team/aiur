@@ -3,9 +3,9 @@
 Research for the refactor of 2026-09-26. Window: 2026-08-18 to 2026-09-26 15:40Z.
 Data is read-only. The machine-readable companion is [`gaps.csv`](gaps.csv), with one row per gap of 15 minutes or more (202 rows).
 
-> **Privacy rule.** `its-everdred/private-multisig (private)` is a private repository. For it, this report gives
+> **Privacy rule.** `<private-owner>/private-repo-a (private)` is a private repository. For it, this report gives
 > only counts, durations and attribution categories. It gives no ticket numbers, titles, log text or
-> paths from inside it. In `gaps.csv` its rows use `repo = private-multisig (private)`, blank run identifiers and timestamps,
+> paths from inside it. In `gaps.csv` its rows use `repo = private-repo-a (private)`, blank run identifiers and timestamps,
 > and `evidence = private — omitted`. Numerical measurements are retained.
 
 ---
@@ -43,7 +43,7 @@ not verified continuous uptime or measured wasted time. See
 | Measure | Value |
 |---|---|
 | Retained active-span union within each repo, summed across repos | **961.9397 h** (638.6 h cross-repo union at stored minute precision); historical run-span sum 963.0758 h includes 1.1361 h overlap |
-| &nbsp;&nbsp;historical raw run-log spans, 09-15 to 09-26 (first/last telemetry model) | 490.7 h: aiur 143.9, khala 185.3, private-multisig (private) 161.6 |
+| &nbsp;&nbsp;historical raw run-log spans, 09-15 to 09-26 (first/last telemetry model) | 490.7 h: aiur 143.9, khala 185.3, private-repo-a (private) 161.6 |
 | &nbsp;&nbsp;historical raw pre-log spans, 08-18 to 09-11 (unverified wake-ID inference) | 472.4 h: aiur 395.2, archon (formerly architecture-docs) 77.2 |
 | Gap time, gaps ≥ 30 min | **727.7334 h = 75.6527 % of retained per-repo active-span unions** (108 gaps); category bins sum to 727.8 h |
 | Gap time, gaps ≥ 15 min | 760.3 h (202 gaps) |
@@ -121,7 +121,7 @@ Sources:
 CI results (`ticket.ci.passed/failed`) are not progress; they are used as an infrastructure signal.
 
 **Activity** is not progress. It is used only for attribution:
-* *Agent activity*: any record in an agent transcript: Claude workspace projects (`~/.claude/projects/-home-everdred-*aiur-workspaces-<repo>-<n>`), Codex `aiur-orchestrator` sessions, and run-log `*.agent_events.jsonl`. A minute counts as "agent working" for 10 min after an agent record.
+* *Agent activity*: any record in an agent transcript: Claude workspace projects (`~/.claude/projects/-home-user-*aiur-workspaces-<repo>-<n>`), Codex `aiur-orchestrator` sessions, and run-log `*.agent_events.jsonl`. A minute counts as "agent working" for 10 min after an agent record.
 * *Executor activity*: assistant or tool records in the Executor transcripts (per repo, by session home directory, or when a command names the repo), plus the Executor's background subagents. "Present" = within ±5 min of such a record, or within 30 min after a human-typed message (`origin.kind = human`) in any session.
 * *Attended* minute: any Executor activity within ±60 min.
 
@@ -162,7 +162,7 @@ Each cell: number of gaps / gap hours / share of active-run time.
 |---|---:|---:|---:|---:|---:|---:|
 | run-log · aiur | 143.9 | 19 / 123.4 h / 86 % | 12 / 121.5 h / 84 % | 10 / 120.0 h / 83 % | 7 / 116.0 h / 81 % | 4 / 106.6 h / 74 % |
 | run-log · khala | 185.3 | 36 / 144.3 h / 78 % | 25 / 140.2 h / 76 % | 16 / 133.9 h / 72 % | 12 / 128.9 h / 70 % | 7 / 114.9 h / 62 % |
-| run-log · private-multisig (private) | 161.6 | 16 / 154.5 h / 96 % | 4 / 150.1 h / 93 % | 3 / 149.3 h / 92 % | 2 / 147.9 h / 92 % | 1 / 144.4 h / 89 % |
+| run-log · private-repo-a (private) | 161.6 | 16 / 154.5 h / 96 % | 4 / 150.1 h / 93 % | 3 / 149.3 h / 92 % | 2 / 147.9 h / 92 % | 1 / 144.4 h / 89 % |
 | pre-log · aiur | 395.2 | 87 / 297.8 h / 75 % | 44 / 282.9 h / 72 % | 26 / 270.8 h / 69 % | 18 / 259.4 h / 66 % | 11 / 239.3 h / 61 % |
 | pre-log · archon | 77.2 | 44 / 40.2 h / 52 % | 23 / 33.1 h / 43 % | 10 / 24.9 h / 32 % | 5 / 18.2 h / 24 % | 2 / 11.6 h / 15 % |
 
@@ -192,9 +192,9 @@ and chronology are withheld; their counts and numerical measurements remain.
 
 | Repo | Run | Era | Start (UTC) | End (UTC) | Hours | Gaps ≥15m (n / h) | Gaps ≥30m (n / h) | Gaps ≥60m (n / h) |
 |---|---|---|---|---|---:|---:|---:|---:|
-| private-multisig (private) | withheld | run-log | withheld | withheld | 1.06 | 1 / 0.44 | 0 / 0.0 | 0 / 0.0 |
-| private-multisig (private) | withheld | run-log | withheld | withheld | 16.04 | 14 / 9.63 | 3 / 5.67 | 2 / 4.9 |
-| private-multisig (private) | withheld | run-log | withheld | withheld | 144.43 | 1 / 144.43 | 1 / 144.43 | 1 / 144.43 |
+| private-repo-a (private) | withheld | run-log | withheld | withheld | 1.06 | 1 / 0.44 | 0 / 0.0 | 0 / 0.0 |
+| private-repo-a (private) | withheld | run-log | withheld | withheld | 16.04 | 14 / 9.63 | 3 / 5.67 | 2 / 4.9 |
+| private-repo-a (private) | withheld | run-log | withheld | withheld | 144.43 | 1 / 144.43 | 1 / 144.43 | 1 / 144.43 |
 | aiur | 20260916T153434Z-2651128 | run-log | 2026-09-16T15:34Z | 2026-09-16T17:41Z | 2.12 | 1 / 0.74 | 1 / 0.74 | 0 / 0.0 |
 | aiur | 20260916T175148Z-3063564 | run-log | 2026-09-16T17:51Z | 2026-09-16T19:05Z | 1.23 | 0 / 0.0 | 0 / 0.0 | 0 / 0.0 |
 | aiur | 20260916T190631Z-3754910 | run-log | 2026-09-16T19:06Z | 2026-09-16T21:24Z | 2.3 | 0 / 0.0 | 0 / 0.0 | 0 / 0.0 |
@@ -262,7 +262,7 @@ use the CSV duration-weighted column for a bounded fraction.
 | # | Repo | Start → end (UTC) | h | Attr. | Cause and evidence |
 |---|---|---|---:|---|---|
 | 1 | aiur | 08-25 23:04 → 09-01 06:26 | 151.3621 | model d; historical attendance 0.004 | The classifier extends an unresolved starvation record across an event-ID group and gives it precedence over waiting work. Continuous daemon uptime and operator absence are unproved. Label replay: 12 human-review issues, 5 rework, 1 paused, 3 ci-wait, 1 todo (#2394, already linked to open PR #2396). Positive dispatch eligibility and historical decision holds are not independently established. See the largest-gap attribution audit; neither d nor a replacement b allocation is a measured cause. |
-| 2 | private-multisig (private) | withheld | 144.4 | e | private — omitted (daemon up, nothing queued; ended by the host crash) |
+| 2 | private-repo-a (private) | withheld | 144.4 | e | private — omitted (daemon up, nothing queued; ended by the host crash) |
 | 3 | aiur | 09-20 02:04 → 09-22 15:42 | 61.6 | b (50.9 h) + c (10.5 h) | Labels: human-review 9 (#2751 and #2749 fresh, #2668 at 71 h, others up to 17 days), paused 10, error 4. The rework tickets #1767, #2245 and #2413 were `Dispatch declined for 1767: :blocked_on_decision.` on decisions pending since 08-21/22 (`ticket.agent.attention.operator-decision` 08-22T02:17Z). Alert 09-21T02:01Z: *"PR #2752 … has been open 24 hours with no review — it is unseen, not blocked."* On 09-20 from 07:26Z to 22:27Z, the aiur Executor session was steering background agents on an unrelated side project (a browser game), so the result is c. The selected Executor transcript coverage ends at 22:27Z; this does not establish operator absence. The host interruption is discussed in §6; the exact crash time is unproved. |
 | 4 | khala | 09-20 03:34 → 09-22 15:42 | 60.1 | model b/c; causal duration unverified | Six dependency declines are recorded at 01:08Z, when ticket 42 also starts. After 42 closes, the recorded graph and replayed closure state reduce to paused #41 as the open root outside tickets 43, 44, 45, 47, 48 and 49. The handoff requires provisioned live-proof inputs plus code/test changes and rebasing. Twenty-three credential attentions occur about 15 minutes apart. A later sample reports effective capacity 12 and occupied 0 but omits load fields. This supports a finite dependency bottleneck, not continuous whole-fleet causality or attribution of later host downtime. |
 | 5 | aiur | 09-18 11:40 → 09-19 17:59 | 30.3 | b | Labels: human-review 5 (#2668 at 33 h, #2633/#2610/#2394 at about 175 h, #2519 at 363 h), paused 12, error 4, 3 decision-blocked. Executor 8 active minutes in 30 h. Alert: *"PR #2736 (Provision deletion guards in workspaces) has been open 24 hours with no review — it is unseen, not blocked."* It ended with an Executor control command at 09-19T17:59Z. |
@@ -301,7 +301,7 @@ close. A merge of the linked PR also ends the wait. If the label went away with 
 | aiur, run-log | 10 | 0.98 h | 3.7 h | 4.2 h | 4.2 h | 5 | 2 | 0 | 17.7 h |
 | khala, run-log | 191 | **0.08 h** | 0.23 h | 1.1 h | 19.2 h | 20 | 13 | 11 | 210 h |
 | archon, pre-log | 88 | 0.11 h | 0.33 h | 0.70 h | 2.9 h | 7 | 0 | 0 | 27 h |
-| private-multisig (private) | 9 | 0.12 h | 0.46 h | 2.1 h | 2.1 h | 1 | 0 | 0 | 3.6 h |
+| private-repo-a (private) | 9 | 0.12 h | 0.46 h | 2.1 h | 2.1 h | 1 | 0 | 0 | 3.6 h |
 | Executor present when the PR became ready | 445 | 0.23 h | 1.9 h | 9.6 h | | 147 | 81 | 35 | |
 | Executor absent when the PR became ready | 55 | **3.5 h** | 5.5 h | 9.3 h | | 44 | 22 | 5 | |
 | Withdrawn (label churn, no Executor action) | 369 | 0.01 h | 0.03 h | 0.37 h | 257 h | 24 | 13 | 8 | |
@@ -361,7 +361,7 @@ Other sources for the same question:
 | aiur | 09-01 06:26 → 09-02 01:55 | 19.5 | Not run (end of gap 1) |
 | archon | 09-05 02:16 → 09-09 22:34 | 116.3 | Not run |
 | archon | 09-03, 3 short periods | 1.6 / 5.6 / 2.2 | Restart churn on the first day |
-| private-multisig (private) | withheld | 20.9 | — |
+| private-repo-a (private) | withheld | 20.9 | — |
 
 **The reported "khala down 4.6 days"** is 09-20T03:34Z (last progress, PR #109 merged) to 09-24T18:59Z
 (next progress, PR #131 *"Add a public splash page at khala.aiur.team"* by the Executor), which is 111.4 h.
