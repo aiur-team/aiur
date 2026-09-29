@@ -30,7 +30,6 @@ after_create: |
   else
     git checkout -B "$AIUR_TICKET_BRANCH" "origin/$base_branch"
   fi
-  git update-ref refs/aiur/branch-start "$(git merge-base "origin/$base_branch" HEAD)"
   cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
   mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"
   touch "$cache_root/meta/findings.ndjson"
@@ -78,9 +77,6 @@ before_run: |
       exit 65
     fi
     git merge --no-edit "origin/$base_branch"
-  fi
-  if ! git rev-parse --verify --quiet 'refs/aiur/branch-start^{commit}' >/dev/null; then
-    git update-ref refs/aiur/branch-start "$(git merge-base "origin/$base_branch" HEAD)"
   fi
 
 # Optional — run after each agent turn (e.g. format, quick checks):

@@ -293,19 +293,7 @@ focused test runner, test-tree paths and CI gate at each step.
    hold clears. Any other broker diagnostic remains fail-closed and must not be
    relabelled as this self-clearing condition.
 
-   Immediately before pushing, run
-   `aiur guard-pr-deletions "$AIUR_BASE_BRANCH"`. The command fetches the exact
-   configured base and refuses a PR when its tree deletes more than 50 base
-   files that none of the feature commits touched. Never bypass a refusal:
-   repair the wrong or stale base, or alert the Executor.
-
-   Run it as its own command. Do not chain it through a pipe, `;`, `|| true`,
-   or anything else that discards its exit status — `guard | tail && git push`
-   tests `tail`, not the guard, and pushes anyway. A 2026-09-25 audit found 70
-   of 289 agent pushes where the guard never ran for exactly this class of
-   reason.
-
-   A repository may also enforce this server-side as a required check that
+   A repository may enforce file deletion policy as a required check that
    fails when a pull request removes files. **A red deletion check is not a CI
    failure to fix.** Do not restore files you deleted on purpose to make it
    green, and **never add an allow-deletions label, or any label that
