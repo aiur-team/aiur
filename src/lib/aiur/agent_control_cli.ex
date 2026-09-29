@@ -1920,8 +1920,11 @@ defmodule Aiur.AgentControlCLI do
 
   defp waiting_reason_detail(_status), do: nil
 
-  defp dispatch_decline_detail(%{dispatch_decline_reason: reason}) when not is_nil(reason),
+  defp dispatch_decline_detail(%{dispatch_decline_reason: reason}) when is_atom(reason) and not is_nil(reason),
     do: "dispatch_decline=#{reason}"
+
+  defp dispatch_decline_detail(%{dispatch_decline_reason: reason}) when not is_nil(reason),
+    do: "dispatch_decline=#{inspect(reason)}"
 
   defp dispatch_decline_detail(_status), do: nil
 
