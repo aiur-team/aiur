@@ -14,6 +14,9 @@ Data is read-only. The machine-readable companion is [`gaps.csv`](gaps.csv), wit
 
 The [gap measurement audit](../synthesis/gap-measurement-verification.md) corrects
 attendance quantization and separates model buckets from established causes.
+The [causal timeline synthesis](../synthesis/causal-gap-attribution.md) grades
+the recorded prewarm, dependency, decision/usage and host-interruption signals
+without assigning unsupported hours to one cause.
 The exact retained >=30-minute gaps total **727.7334 h**; the historical
 minute-bin category sum is **727.8 h**. Do not combine them as identical measures.
 `gaps.csv` retains the original `attended_frac` for provenance (67 of 202 values
@@ -268,7 +271,7 @@ use the CSV duration-weighted column for a bounded fraction.
 | # | Repo | Start → end (UTC) | h | Attr. | Cause and evidence |
 |---|---|---|---:|---|---|
 | 1 | aiur | 08-25 23:04 → 09-01 06:26 | 151.3621 | model d; historical attendance 0.004 | The classifier extends an unresolved starvation record across an event-ID group and gives it precedence over waiting work. Continuous daemon uptime and operator absence are unproved. Label replay: 12 human-review issues, 5 rework, 1 paused, 3 ci-wait, 1 todo (#2394, already linked to open PR #2396). Positive dispatch eligibility and historical decision holds are not independently established. See the largest-gap attribution audit; neither d nor a replacement b allocation is a measured cause. |
-| 2 | private-repo-a (private) | withheld | 144.4 | e | private — omitted (daemon up, nothing queued; ended by the host crash) |
+| 2 | private-repo-a (private) | withheld | 144.4 | e | private — category and duration only |
 | 3 | aiur | 09-20 02:04 → 09-22 15:42 | 61.6 | b (50.9 h) + c (10.5 h) | Labels: human-review 9 (#2751 and #2749 fresh, #2668 at 71 h, others up to 17 days), paused 10, error 4. The rework tickets #1767, #2245 and #2413 were `Dispatch declined for 1767: :blocked_on_decision.` on decisions pending since 08-21/22 (`ticket.agent.attention.operator-decision` 08-22T02:17Z). Alert 09-21T02:01Z: *"PR #2752 … has been open 24 hours with no review — it is unseen, not blocked."* On 09-20 from 07:26Z to 22:27Z, the aiur Executor session was steering background agents on an unrelated side project (a browser game), so the result is c. The selected Executor transcript coverage ends at 22:27Z; this does not establish operator absence. The host interruption is discussed in §6; the exact crash time is unproved. |
 | 4 | khala | 09-20 03:34 → 09-22 15:42 | 60.1 | model b/c; causal duration unverified | Six dependency declines are recorded at 01:08Z, when ticket 42 also starts. After 42 closes, the recorded graph and replayed closure state reduce to paused #41 as the open root outside tickets 43, 44, 45, 47, 48 and 49. The handoff requires provisioned live-proof inputs plus code/test changes and rebasing. Twenty-three credential attentions occur about 15 minutes apart. A later sample reports effective capacity 12 and occupied 0 but omits load fields. This supports a finite dependency bottleneck, not continuous whole-fleet causality or attribution of later host downtime. |
 | 5 | aiur | 09-18 11:40 → 09-19 17:59 | 30.3 | b | Labels: human-review 5 (#2668 at 33 h, #2633/#2610/#2394 at about 175 h, #2519 at 363 h), paused 12, error 4, 3 decision-blocked. Executor 8 active minutes in 30 h. Alert: *"PR #2736 (Provision deletion guards in workspaces) has been open 24 hours with no review — it is unseen, not blocked."* It ended with an Executor control command at 09-19T17:59Z. |

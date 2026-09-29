@@ -58,6 +58,17 @@ feature artifact and the still-incomplete causal attribution of idle gaps.
 See `synthesis/claim-question-audit.md`; artifact consistency does not prove
 all historical source data can be recollected.
 
+The follow-up privacy/provenance pass reviewed the public research tree's
+private-source contexts and corrected two private tracker-value statements, a
+private transcript path scaffold and a private gap-row chronology. The raw
+feature catalog was regenerated, and the lexical checker now rejects the path
+shape. `synthesis/privacy-provenance-audit.md` records scope and limits; prior
+public commits are unchanged. The causal timeline synthesis identifies direct
+prewarm and dependency point causes plus a bounded telemetry-to-restart
+interruption. It leaves the 78.18% waiting model share and the 151-hour
+historical gap unassigned because the retained data cannot prove per-minute
+causes. See `synthesis/causal-gap-attribution.md`; no causal saving is claimed.
+
 ## Authoritative sources
 
 - Research branch: `research/refactor-2026-09-26`.
@@ -207,7 +218,8 @@ do not equate transitively loaded probe dependencies with reviewed files.
 
 ## Completion contract — all still required unless explicitly checked
 
-- [ ] Complete privacy/provenance review of inherited and new public artifacts.
+- [x] Complete branch-tip privacy/provenance review of inherited and new public
+      artifacts, with history and unpublished-source limits recorded.
 - [x] Finish both checks on all 60 claims; retain corrections and disagreement.
 - [x] Correct all six source reports where verdicts contradict their headlines.
 - [x] Complete the 32 planned review units and coverage follow-ups, including

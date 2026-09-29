@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PATTERNS = {
     "absolute home path": re.compile(r"/(?:home|Users)/[A-Za-z0-9_.-]+/"),
     "encoded home path": re.compile(r"-home-(?!user(?:/|\b))[A-Za-z0-9_-]+"),
+    "private path scaffold": re.compile(r"(?:/|\{)<private repo>"),
     "GitHub token": re.compile(r"(?:ghp_|gho_|ghu_|ghs_|github_pat_)[A-Za-z0-9_]{12,}"),
     "OpenAI token": re.compile(r"\bsk-[A-Za-z0-9_-]{20,}"),
     "AWS key": re.compile(r"\bAKIA[A-Z0-9]{16}\b"),

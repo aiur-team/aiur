@@ -1,4 +1,4 @@
-# Privacy review — in progress
+# Privacy review — branch-tip audit
 
 The research branch is public. Private sources may contribute aggregate counts
 and categories marked `(private)`, never configuration values, ticket text,
@@ -41,11 +41,11 @@ not a declaration that every inherited artifact is safe.
 The correction locations above use stable JSON fields instead of line numbers
 that change when formatting is normalized. No removed value is repeated here.
 
-## Remaining audit work
+## Limits retained after the first audit
 
 - Check unlabelled quotations and examples against their public provenance,
-  particularly feature usage evidence and historical reports; a name scan cannot
-  establish that an anonymous passage did not come from a private source.
+  particularly feature usage evidence and historical reports; the follow-up
+  contextual pass is recorded below.
 - Review every new artifact before publishing and repeat the full scan at final
   completion. Scratch data and raw session journals remain machine-local.
 - The correction removes the value from the current branch tip, not from old
@@ -86,3 +86,23 @@ This is a branch-tip correction. Earlier public commits still contain the old
 text. The unpublished journals, private records and local acceptance details
 were not imported or independently verified in this audit. Any claim relying
 only on them remains limited to the cited aggregate or reported observation.
+
+## Contextual provenance pass — 2026-09-28
+
+The follow-up [contextual audit](privacy-provenance-audit.md) screened 275
+existing research artifacts, inspected private-source contexts in 37 matching
+files, and reviewed the high-risk source families: 32 raw review units, five
+feature inventories and all 91 challenge records, verdicts for 60 claims, six
+historical reports, and private rows in eight CSVs. It checked whether quoted
+examples near private-source counts came from the public Aiur source, boot
+logs or explicitly named public transcripts rather than a private config or
+ticket. The two private tracker-value statements, a private transcript path
+scaffold, and a private gap-row chronology were removed. The generated feature
+catalog was rebuilt from corrected sources.
+
+The lexical checker now also rejects a private-repo placeholder embedded in a
+path scaffold. It passes at this branch tip. No additional credential or
+private ticket text was found. This completes the branch-tip audit under the
+stated aggregate-only rule; it cannot erase earlier public commit history or
+prove the provenance of unpublished raw journals. Any later artifact must
+receive the same review before publication.

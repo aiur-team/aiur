@@ -5,6 +5,10 @@ and interpretation check, not a completed source-completeness audit or a new
 measurement of the running system. Aggregate totals include private-source
 counts and durations (private); no private chronology or identifiers are added.
 
+The [causal timeline synthesis](causal-gap-attribution.md) separates direct
+point diagnoses, bounded interruption evidence and classifier proxies. It
+leaves unmeasured duration shares unassigned.
+
 ## Reproduced and corrected measurements
 
 The independent `tooling/gap_measurement_audit.py` parses retained gap records
