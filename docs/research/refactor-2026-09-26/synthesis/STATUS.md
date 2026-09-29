@@ -14,6 +14,12 @@ all 986 canonical findings after workspace recovery PR #2879 merged at
 to unknown in changed ownership code and tests. The current static counts are
 698 identical, 37 stale and 251 unknown. These are review queues, not evidence
 that the underlying behavior changed or that the findings occur in live runs.
+The [Guardian safety gate](u5-guardian-fail-closed-current-main-2026-09-29.md)
+rechecks one ownership finding on that main. A `:gen_statem` rewrite stays
+deferred until a malformed receipt can be held durably per ticket without
+allowing that ticket to dispatch or stopping unrelated tickets. Existing store
+tests distinguish malformed bytes from an unreadable newer version; neither
+proves that proposed per-ticket behavior.
 
 The frozen-source research has a corrected 60-claim, two-lens audit, all 32
 planned review units, a lossless 986-finding synthesis of 1,033 raw source IDs,
