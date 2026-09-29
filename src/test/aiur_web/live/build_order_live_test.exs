@@ -1264,7 +1264,12 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     endpoint_config =
       Keyword.put(Application.get_env(:aiur, Endpoint), :live_conversation_resolve_fun, fn handle ->
-        if handle in Map.values(handles), do: {:ok, %{state: :ended, messages: [%{content: "Retained conversation"}]}}, else: {:error, :unavailable}
+        case Enum.find(handles, fn {_number, candidate} -> candidate == handle end) do
+          {7, _handle} -> {:ok, %{state: :live, messages: [%{content: "Current conversation"}]}}
+          {8, _handle} -> {:ok, %{state: :stale, messages: [%{content: "Paused conversation"}]}}
+          {9, _handle} -> {:ok, %{state: :ended, messages: [%{content: "Completed conversation"}]}}
+          nil -> {:error, :unavailable}
+        end
       end)
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
