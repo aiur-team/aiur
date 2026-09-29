@@ -1,0 +1,205 @@
+---
+title: "Evidence-led Aiur refactor - Plan"
+date: "2026-09-29"
+artifact_contract: ce-unified-plan/v1
+artifact_readiness: requirements-only
+product_contract_source: ce-brainstorm
+execution: code
+deepened: 2026-09-28
+origin: docs/brainstorms/2026-09-29-aiur-refactor-requirements.md
+---
+
+# Evidence-led Aiur refactor - Plan
+
+## Goal Capsule
+
+**Objective:** Reduce no-progress time and unnecessary complexity while preserving Aiur's human-operated and agent-operated modes. Give each durable state and failure one owner, remove redundant paths, and bring every tracked text file under the 500-line hard limit.
+
+**Authority:** User directions and AGENTS.md govern implementation; this plan uses the corrected 60-claim audit, all 32 review units, the 216-feature inventory and the frozen `3339b887` source census as evidence. The guard and GitHub cache dashboard removals merged in release PRs #2840/#2841 and are not savings from this future refactor. Finding IDs below resolve to [docs/research/refactor-2026-09-26/review/findings.json](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/review/findings.json).
+
+**Readiness:** This is a detailed proposed program, still `requirements-only`. The branch-tip contextual privacy audit is complete; new evidence must be checked before publication. All 889 provisional P2/P3 findings have static dispositions; 17 cross-review decisions are reconciled in overlays, yielding 244 provisional fixes and 645 deferrals. Merged-main static audits through `fc8270bb6` reconciled all 359 frozen owner paths: 355 remain over 500 lines, four were deleted, and no new oversized path appeared. They also classified all 986 findings' citations as 722 unchanged, 37 stale and 227 unknown; no behavior or runtime incidence is inferred. The surviving owner rows need reviewed worker assignments. Current-head incidence, CODEOWNERS trust, journal/projection, and first in-process seam policies still need behavior tests on the implementation base. The causal timeline identifies local prewarm/dependency point causes, while historical duration shares remain unassigned; the plan measures progress prospectively.
+
+## Product Contract
+
+### Summary
+
+Aiur should make an actionable ticket or PR advance without silent stalls, and tell the Executor exactly what is waiting, failed or uncertain. The refactor should simplify ownership before extracting packages, preserve observed behavior, and account for actual code removed separately from code moved.
+
+### Problem Frame
+
+The corrected retained model contains 108 gaps of at least 30 minutes totaling 727.73 hours, but the bins do not prove who caused each gap. Agent transcripts contain 12,768 short continuation turns taking about 20 measured turn-hours, concentrated in a few threads. The frozen review has 986 canonical findings after preserving 1,033 source IDs; the feature inventory has 216 entries. A source-reference graph joins 35 of 36 proposed boundaries, while Orchestrator shares a 100-field state across lifecycle reducers. These facts support narrower authority and recovery contracts; they do not by themselves prove a package split or a net LOC saving. Sources: [docs/research/refactor-2026-09-26/synthesis/problem-map.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/problem-map.md), [docs/research/refactor-2026-09-26/synthesis/claim-question-audit.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/claim-question-audit.md), [docs/research/refactor-2026-09-26/review/code-review.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/review/code-review.md) and [docs/research/refactor-2026-09-26/features/feature-inventory.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/features/feature-inventory.md).
+
+### Requirements
+
+**Progress and truth**
+
+- R1. Preserve both operating modes: a human drives the CLI, or a coding agent acts as Executor while the human stays in conversation.
+- R2. Expose actionable work, waiting for a person, provider unavailability, stale evidence, unknown state and uncertain delivery as distinct states with observed age.
+- R3. Make ticket lifecycle transitions, review/rework, CI, pause, capacity and redispatch follow one accountable decision path with a durable result.
+- R4. Replace unconditional normal continuation with a condition-driven wait and relevant wake, without reducing accepted ticket throughput.
+
+**Durability and external boundaries**
+
+- R5. Preserve identity, ordering, acknowledgements and idempotency across event, command and review delivery, including restart and ambiguous outcomes.
+- R6. Keep the workspace/process lifecycle correct on Linux and Darwin and isolate stop/reap operations to one Aiur instance.
+- R7. Keep GitHub reads complete, monotonic and budget-aware across pagination, truncation, webhook failure and cache invalidation; measure any claimed saving on live traffic and a counted population.
+- R8. Preserve native Muse and existing backend capabilities during shared extraction; Gemini follows its post-release ticket.
+
+**Simplification and delivery**
+
+- R9. Give each feature a keep, simplify, merge, cut or externalize decision with current usage, indirect reachability and a challenged removal path.
+- R10. Remove duplicate authorities and obsolete paths when extracting a component; never claim code movement, a disabled optimization or conditional gross deletion as measured saving.
+- R11. Enforce a final 500-physical-line maximum for every tracked UTF-8 text file, including tests, docs, skills, generated and vendor text; prefer 200 or fewer lines with a cohesion rationale above 200.
+- R12. Carry docs with changed CLI, config, environment or user surface behavior, and verify user-visible paths with the real foreground CLI/TUI.
+- R13. Make each behavior-changing regression test fail when its production hunk is reverted in a clean worktree; retain the existing coverage floor and Dialyzer gate.
+- R14. Publish current-head source evidence, a disposition for every canonical finding and preserved source ID, unresolved conditions, privacy-safe review records and before/after physical LOC for each implementation phase.
+
+### Actors and key flows
+
+- F1. The Executor sees a ticket become actionable, follows an attention to its evidence, acts once, and sees accepted delivery or a named uncertainty.
+- F2. A worker starts in its isolated workspace, receives a message, pauses or restarts, and resumes with the same ticket and process ownership.
+- F3. A developer changes one owning component, runs targeted and repository gates, and records behavior preserved plus net text-line change.
+
+### Acceptance examples
+
+- AE1. A rework label arrives while a lifecycle fence is open: the ticket has one visible pending cause, a bounded retry, and an accepted dispatch after the fence closes. Evidence: [docs/research/refactor-2026-09-26/gaps/gap-analysis.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/gaps/gap-analysis.md) #2678 and findings `orch-a-01`, `orch-b-02`.
+- AE2. A publisher or subscriber restarts with an event in flight: delivery preserves order and cursor; no buffered event is discarded behind a newer one. Evidence: `events-webhooks-executor-01`.
+- AE3. A former owner renews after lease expiry and successor claim: the old owner cannot regain owner status. Evidence: `events-webhooks-executor-02`.
+- AE4. A GitHub issue has more than 100 comments or a response is truncated: the agent receives complete, explicitly incomplete or failed context, never a success-shaped first page. Evidence: `github-a-04` and `fixes-06`.
+- AE5. A tracked UTF-8 text file has 500 lines: the final gate passes; at 501 it fails and names the path/count. At 201, review records a cohesion reason; an edited baseline debt file cannot grow.
+- AE6. A paused Muse or Codex worker has a queued Executor message: foreground `scripts/aiurdev --test` chat shows one delivered message and the expected response through the TUI.
+- AE7. A proposed cut with `none-found` use is blocked until dynamic, config, transcript, packaging and operator evidence plus replacement checks are complete.
+
+### Scope boundaries and outstanding questions
+
+Aiur 0.0.6 is published and the program can begin after this research promotion is reviewed. Its current merged-main static census is recorded at `fc8270bb6`; repeat it at the implementation head. It does not re-add deletion gates or the GitHub cache page. Gemini CLI support is a separately queued post-release implementation. Package extraction is conditional on behavior-preserving seams; a count of packages is not a success measure.
+
+Blocking before code work on the affected boundary: merged-main source and exposure validation, behavior checks for provisional P2/P3 fix/defer decisions, and promotion of the pre-release oversized-file audit to current-main worker assignments. The identified threshold conflicts are reconciled on frozen source; the trust, journal and first-seam decisions below still require source-based behavior tests before code extraction. The completed branch-tip privacy audit must be repeated for new public evidence. Historical gap duration causality is unresolved, not permission to guess a causal saving; use [docs/research/refactor-2026-09-26/synthesis/causal-gap-attribution.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/causal-gap-attribution.md) for measured point cases and limits.
+
+## Planning Contract
+
+### Key Technical Decisions
+
+- KTD1. Use the 500-line gate for every tracked text file, with a visible migration ledger and no permanent vendor/generated exemption. (session-settled: user-directed — chosen over an advisory-only cap: the user required automated enforcement.) Source: [docs/research/refactor-2026-09-26/synthesis/file-size-analysis.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/file-size-analysis.md).
+- KTD2. Exclude the local deletion guard and GitHub cache dashboard from the refactor baseline; their release PRs #2840/#2841 have merged. (session-settled: user-directed — the user explicitly ordered both removed before publication.) Source: [docs/research/refactor-2026-09-26/features/feature-inventory.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/features/feature-inventory.md).
+- KTD3. Start with ownership and typed outcomes; split repositories only when process startup, state, recovery and test contracts can move intact. The static graph is not an extraction proof. Source: [docs/research/refactor-2026-09-26/codebase/feature-boundaries.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/codebase/feature-boundaries.md), [docs/research/refactor-2026-09-26/synthesis/architecture-verification.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/architecture-verification.md).
+- KTD4. Keep read models derived from one field owner with timestamp/freshness. Do not build separate status/dashboard/cache authorities. Source IDs: `orch-b-01`, `loose-2-02`, `web-rest-02`, `web-occ-07`.
+- KTD5. Keep store-specific durability rules. A failed derived projection may be rebuilt; a failed authoritative journal append cannot be silently accepted. Source IDs: `loose-1-02`, `loose-1-03`, `platform-misc-09`, `loose-4-04`.
+- KTD6. Reconcile external mutation outcomes before retrying. Keep GitHub admission, pagination and monotonic resource writes in their existing owning layers until one tested replacement is ready. Source IDs: `github-b-02`, `github-b-03`, `github-a-04`.
+- KTD7. Count all tracked physical text lines with LF-separated lines, blank/comment lines and an unterminated final line included; classify binary, do not double-count a symlink target. At 201 lines request a cohesion reason, not an automatic split. Source: [docs/research/refactor-2026-09-26/synthesis/file-size-analysis.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/file-size-analysis.md).
+- KTD8. A savings claim needs a running-system baseline, units, a counted reachable production population and a before/after result. The frozen 17,944-line candidate footprint is conditional gross deletion, not a forecast. Source: [docs/research/refactor-2026-09-26/features/loc-reduction.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/features/loc-reduction.md) and AGENTS.md.
+- KTD9. Degraded CODEOWNERS trust fails closed for unknown people while preserving explicitly configured trusted/daemon accounts and the owner of the repository resolved by `Aiur.GitHub.Config.repo/0` (explicit `tracker.github.repo` or checkout `origin` fallback). A failed team lookup contributes no newly trusted members, and stale team membership does not authorize fresh comment content; per-path ownership returns unknown for incomplete context rather than a smaller authoritative set. Sanitized untrusted comment bodies and structural metadata remain visible in Executor logs/dashboard; the agent digest excludes those bodies and they confer no command authority. Emit a cause and age so the Executor can repair access or config. The single `Aiur.GitHub.CodeOwners` trust authority avoids a second local fallback in `Aiur.Codeowners`. Source: `src/lib/aiur/github/code_owners.ex:182`, `src/lib/aiur/codeowners.ex:120`, `src/lib/aiur/codeowners.ex:289`, `src/lib/aiur/events/sanitizer.ex:28`, `src/lib/aiur/events/pr_command_scanner.ex:20`, `src/lib/aiur/github/config.ex:19`, `website/docs-app/apis/github.md`.
+- KTD10. Treat a successfully fsynced `decisions.ndjson` append as authoritative even if `decisions.json` regeneration fails. Mark the projection stale with visible health/age, retain event identity, and replay/rebuild before claiming a fresh projection or delivering a side effect that requires it. A failed or ambiguous append is not accepted; reconcile the journal before retrying that transition. Unrelated work proceeds only while journal health is proven. Corrupt complete records keep the store read-only until repair; a torn unacknowledged tail follows the existing replay contract. This is a DecisionStore-specific rule, not a blanket best-effort rule. Source: `src/lib/aiur/decision_log.ex`, `src/lib/aiur/decision_store.ex:619`, `src/lib/aiur/decision_store.ex:733`, `src/lib/aiur/decision_store.ex:2483`; findings `loose-1-02`, `loose-1-03`.
+- KTD11. Use the existing in-process GitHub access layers as the first seam; do not add a new service, package or facade by default. Keep credential selection, headroom, read cache, quota, resource store and webhook invalidation in their existing `Aiur.Application` startup order; align complete/held/unknown outcomes in existing `Transport`/`Client` entry points. A failed reader cannot fabricate success or reset durable resource state. After U5 removes duplicate access paths and proves caller/restart parity, U7 may propose a physical package only if dependency and release evidence shows an ownership benefit. Source: `src/lib/aiur.ex:330`, `src/lib/aiur/github/transport.ex`, [docs/research/refactor-2026-09-26/synthesis/architecture-verification.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/architecture-verification.md).
+
+### Sequencing and package decision
+
+`U0` freezes the implementation base and owner map. `U1` addresses confirmed P0 paths before broad extraction; independent GitHub work in `U5` can start after U0. `U2`–`U6` repair owning contracts with characterization tests. `U8` can start after U0 on disjoint doc, skill, test and generated-file assignments, while component-owned code files wait for their U1–U7 owner changes. `U7` evaluates cuts and package decisions after the owning contracts exist. `U9` runs full acceptance only after all component work and the universal size gate. Each unit lands in a reviewable PR or small PR series on a refreshed merged main.
+
+Possible eventual package seams are GitHub access, agent/backend runtime, lifecycle/Executor state, and presentation. They are options, not four preapproved repositories. The first seam is the in-process GitHub access contract in KTD11. It keeps startup ownership with `Aiur.Application` and makes failures typed through existing entry points. Physical package extraction remains conditional on counted callers and dependencies, preserved `rest_for_one` startup order, restart and release tests, and deletion of duplicate access paths. Source IDs and ownership conflicts are collected in [docs/research/refactor-2026-09-26/synthesis/report-wide-contradictions.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/report-wide-contradictions.md).
+
+### Risks and validation gates
+
+| Risk | Gate |
+| --- | --- |
+| A false causal reading produces a large speculative rewrite. | Use prospective actionable-demand and accepted-progress measures; preserve the 60-claim corrections and mark historical attribution uncertain. |
+| A cut erases indirect use. | Challenge `none-found` against configs, dynamic references, packaging, docs and real CLI/TUI behavior before deleting. |
+| New helper modules raise LOC and cycle count. | Require one owner, deleted duplicate path, dependency edge diff and before/after physical LOC. |
+| A new line gate strands legacy files. | Transitional debt ledger blocks new/increased >500 files; universal gate only after zero debt; no permanent exceptions. |
+| A privacy-sensitive corpus leaks into public artifacts. | The branch-tip contextual audit is complete; repeat source-level review for each new public ticket or evidence artifact. This plan carries aggregate counts and source IDs only. |
+| A merged fix never runs. | Compare source HEAD, assembled release stamp and running process; use foreground CLI/TUI acceptance on latest main. |
+
+### Cross-boundary failure contract
+
+| Boundary | Authoritative evidence | Failure result and recovery owner |
+| --- | --- | --- |
+| Comment authority | One CODEOWNERS trust snapshot plus complete path/team resolution | Unknown membership blocks agent-digest inclusion and command authority, retains sanitized body plus structural metadata for Executor logs/dashboard, and alerts the Executor with cause/age; GitHub access owner retries resolution. |
+| Decision write | Fsynced event ID in `decisions.ndjson` | Append failure or uncertainty holds that transition for replay/reconciliation; projection failure keeps the accepted event but marks read models stale; DecisionStore owns repair and withheld notification replay. |
+| GitHub access contract | Existing quota, cache and resource-store processes under `Aiur.Application` | Return complete, held or unknown; never convert truncation or a dead child into success. Application supervision restores children in dependency order; the access layer owns no duplicate durable state. |
+| File-size migration | Tracked Git blob and reviewed owner-map row | New/enlarged >500 path fails the transitional gate; a worker resolves its assigned semantic seam and proves behavior before the universal gate removes baseline debt. |
+
+## Implementation Units
+
+These are proposed units. Readiness remains blocked by the Goal Capsule gates; no product-code work is authorized by this research-only branch.
+
+| Unit | Owner boundary and primary files | Depends on |
+| --- | --- | --- |
+| U0 | Evidence/baseline: [docs/research/refactor-2026-09-26/](https://github.com/aiur-team/aiur/tree/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/), `scripts/`, CI | 0.0.6 publication |
+| U1 | Opencode and instance stop: `src/lib/aiur/opencode/`, `src/lib/aiur/open_ai_compat/`, `packaging/npm/aiur-cli/libexec/aiur-engine.sh` | U0 |
+| U2 | Ticket lifecycle: `src/lib/aiur/orchestrator/`, `src/lib/aiur/current_run_membership/` | U0, U1 |
+| U3 | Event/claim delivery: `src/lib/aiur/events/`, `src/lib/aiur/executor/` | U2 |
+| U4 | Agent/backend runtime: `src/lib/aiur/agent_runner/`, `src/lib/aiur/claude/`, `src/lib/aiur/codex/` | U2, U3 |
+| U5 | GitHub access: `src/lib/aiur/github/`, `website/docs-app/apis/github.md` | U0 |
+| U6 | Decision, usage and durable status: `src/lib/aiur/decision_store.ex`, `src/lib/aiur/usage_aggregate/`, `src/lib/aiur_web/` | U2, U3 |
+| U7 | Feature cuts and package seams: [docs/research/refactor-2026-09-26/features/](https://github.com/aiur-team/aiur/tree/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/features/), candidate subsystem paths | U4, U5, U6 |
+| U8 | File-size debt migration: all 359 frozen >500 tracked text paths, refreshed on main | U0 for disjoint paths; owning U1–U7 unit for shared paths |
+| U9 | Full system acceptance and net LOC census: `scripts/aiurdev`, `src/browser/`, packaging | U1–U8 |
+
+### U0. Refresh evidence and establish the size gate
+
+**Goal:** Recheck privacy for new public evidence, inspect merged main after release, assign a disposition to every canonical finding, and turn the proposed 359-file owner map into assigned work. **Files:** [docs/research/refactor-2026-09-26/review/findings.json](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/review/findings.json), [docs/research/refactor-2026-09-26/synthesis/oversized-file-owner-map.csv](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/oversized-file-owner-map.csv), `scripts/`, `.github/workflows/ci.yml`. **Approach:** Recheck P0/P1 source and reachable population; triage all 889 provisional P2/P3 findings against current head and preserve all 1,033 source-ID mappings. For each surviving oversized path, verify the merged-main blob count, assign an accountable owner, confirm the semantic seam or regeneration/removal prerequisite, capture indirect callers and a behavior test; record the four release deletions separately. The map currently proposes 344 splits, eight regenerations and seven conditional removals; these are dispositions to verify, not approved savings. Install a transitional gate that fails new or enlarged >500 text files. **Tests:** finding-ledger completeness; every map path exists or has a recorded release deletion, every main count agrees with the blob, 500/501 and 200/201, generated/vendor, binary/symlink, and edited baseline debt. **Exit:** every finding and oversized path has a reviewable owner, evidence and next action; low-confidence paths have named resolution gates; new evidence passes privacy review; CLI/release identity is recorded.
+
+### U1. Validate the merged P0 repairs without a new deletion policy
+
+**Goal:** Validate the merged repairs for Opencode completion-route authorization (#2827), raw GitHub-token scrubbing in OpenAI-compatible command sandboxes (#2845), and instance-scoped stop/reap pidfiles (#2846); implement a residual fix only if the current-head behavior test fails. **Files:** `src/lib/aiur/opencode/bridge.ex`, `src/lib/aiur/open_ai_compat/command_runner.ex`, `packaging/npm/aiur-cli/libexec/aiur-engine.sh` and corresponding tests in `src/test/aiur/`. **Evidence:** `agent-backends-oc-01`, `agent-backends-oc-02`, `nonelixir-shell-01`. **Tests:** unauthorized marker with coalesced text cannot send; sandbox env contains no PAT; stopping instance A leaves instance B's live agent and pidfile intact. **Exit:** focused tests mutate red/green; no new GitHub App gate or PR deletion status check.
+
+### U2. Give lifecycle one owner
+
+**Goal:** Make labels, provider delivery, review/CI head evidence, fences and slot leases produce one desired ticket state and a recorded transition. **Files:** `src/lib/aiur/orchestrator/issue_sync.ex`, `src/lib/aiur/orchestrator/dispatcher.ex`, `src/lib/aiur/orchestrator/pause_resume.ex`, `src/lib/aiur/orchestrator/rate_limit_fallback.ex`, `src/lib/aiur/current_run_membership/` and tests under `src/test/aiur/orchestrator/`. **Evidence:** `orch-a-01`, `orch-b-02`, `orch-b-08`, `platform-misc-03`; corrected #2678/#46 gap cases. **Tests:** stale/unjoinable terminal ticket, parked rework with a closed fence, failed label write amid multiple tickets, lease after restart and capacity release. **Exit:** every stuck state has one owner, cause, age and bounded recovery; no second label writer remains.
+
+### U3. Preserve event and claim ordering
+
+**Goal:** Advance a cursor only after ordered delivery and durable acknowledgement, prevent former-owner renewal, and make action receipts distinct from observation. **Files:** `src/lib/aiur/events/subscription_store.ex`, `src/lib/aiur/executor/claims.ex`, `src/lib/aiur/executor_wake_inbox.ex` and related tests. **Evidence:** `events-webhooks-executor-01`, `events-webhooks-executor-02`, `loose-4-04`. **Tests:** buffered event/new mailbox interleaving, successor claim then former renewal, corrupt journal tail and restart replay. **Exit:** no silent drop or double owner in injected sequences; attention reports unknown/action-pending honestly.
+
+### U4. Simplify agent turn and backend lifecycles
+
+**Goal:** Use condition-driven continuation; settle pause once for TurnLoop and QueueDrain; share only backend session lifecycle that has identical safety semantics. **Files:** `src/lib/aiur/agent_runner/`, `src/lib/aiur/pause_containment.ex`, `src/lib/aiur/claude/`, `src/lib/aiur/codex/`, `src/lib/aiur/muse/` where present on the implementation base, and corresponding tests. **Evidence:** `agent-runtime-01`, `agent-runtime-02`, `agent-backends-cc-04` and corrected `agents-01`–`agents-03`. **Tests:** blocked turn does not loop until its condition changes; paused process remains contained; queued message delivered exactly once; Muse capabilities and unsupported actions remain explicit. **Exit:** count normal continuation turns and accepted work before/after; no unmeasured quota-saving claim.
+
+### U5. Make GitHub outcomes complete and monotonic
+
+**Goal:** Use one complete issue-comment reader, one CODEOWNERS grammar and team resolver, typed truncated/held outcomes, and monotonic resource writes. **Files:** `src/lib/aiur/github/comments.ex`, `src/lib/aiur/github/code_owners.ex`, `src/lib/aiur/github/teams.ex`, `src/lib/aiur/github/resource_store.ex`, `src/lib/aiur/github/transport.ex`, `src/lib/aiur/github/quota.ex`, `src/lib/aiur/codeowners.ex`, `website/docs-app/apis/github.md`, `src/test/aiur/github/code_owners_test.exs`, `src/test/aiur/codeowners_test.exs`, `src/test/aiur/github/teams_test.exs`, `src/test/aiur/events/sanitizer_test.exs`, `src/test/aiur/events/pr_command_scanner_test.exs`, `src/test/aiur/agent_runner/events_digest_test.exs`, `src/test/aiur_web/live/dashboard_live_test.exs`, and `src/test/aiur/github/config_test.exs`. **Approach:** Make KTD9's degraded trust a single snapshot consumed by event sanitization and per-path comment authority; preserve configured identities and the resolved repository-owner fallback for both explicit repo config and origin auto-detection without treating a failed team lookup as a negative or positive membership fact. Align KTD11 outcomes in existing access layers, then migrate callers only when a duplicate path is removed and parity tests pass. **Evidence:** `github-a-01`, `github-a-04`, `github-a-07`, `github-b-02`, `github-b-03`. **Tests:** 101+ comments; incomplete page/rate hold; team membership across pages, 403 and transport failure; absent/empty CODEOWNERS; previously trusted but now unresolved member denied with a visible cause; no trust-server process; sanitized untrusted body still visible in Executor log/dashboard while absent from agent digest and non-authoritative as a command; explicit-repo and origin-derived owner fallback (plus unavailable origin); stale deposit racing newer write; ambiguous review mutation; access caller parity under restart. **Exit:** unknown trust is visible to the Executor, preserves sanitized body visibility, and never grants agent-digest or command authority; complete/held/unknown outcomes survive restart; credential-side live rates accompany any claimed saving; no new dashboard cache page.
+
+### U6. Align durable decisions, usage and status
+
+**Goal:** Separate authoritative journal failures from rebuildable projections; re-subscribe aggregates after ledger restart; give CLI/web a shared complete status read model with age. **Files:** `src/lib/aiur/decision_log.ex`, `src/lib/aiur/decision_store.ex`, `src/lib/aiur/decision_projection.ex`, `src/lib/aiur/usage_aggregate/store.ex`, `src/lib/aiur/orchestrator/status_report.ex`, `src/lib/aiur_web/operator_control_center/` and `src/test/aiur/decision_store_test.exs`. **Approach:** Implement KTD10's outcome matrix at the journal boundary, then make projection health explicit to consumers and replay any side-effect notification withheld during repair by event ID. Do not turn a known accepted append into a second accepted decision after retry. **Evidence:** `loose-1-02`, `loose-1-03`, `telemetry-usage-04`, `orch-b-01`, `web-rest-02`, `web-occ-07`. **Tests:** failure before append; ambiguous sync after bytes written; successful append followed by JSON write failure and restart; corrupt complete record versus unacknowledged torn tail; ledger restart, nondefault field projection, unknown cap and loader timeout. **Exit:** accepted journal events remain queryable and uniquely identified; stale projection and held side effects are visible until rebuilt; failed authority does not claim success; CLI and dashboard share the same field values and ages.
+
+### U7. Cut duplicate paths and choose package seams
+
+**Goal:** Revalidate 216 feature decisions on merged main, apply `release_override_decision` before `working_decision` for the already cut `cli-38`, `integrations-20`, and `ui-13` surfaces, cut other paths only with proved replacement/migration, and assess whether the first in-process seam deserves physical packaging. **Files:** paths recorded in [docs/research/refactor-2026-09-26/features/features.json](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/features/features.json), `src/lib/aiur/github/`, `src/lib/aiur.ex`, `src/test/aiur/application_test.exs`, and the build/release manifests. **Approach:** Confirm current use and replacement for still-live provisional cuts/externalizations `integrations-03` (Linear), `integrations-09` (Claude REPL Remote Control), `integrations-46` (aiur-build), and `cli-44` (manual test harness) before changing their implementation. Count static and dynamic callers of the KTD11 access boundary after U5; compare dependencies before/after, startup order, state ownership and recovery. If a physical package adds a second cache, credential authority, supervisor, or circular dependency, keep the existing access boundary in-process and record the rejected extraction. A later package proposal must preserve the existing `rest_for_one` ordering, release startup, no-dashboard/headless modes and failure states. **Evidence:** [docs/research/refactor-2026-09-26/features/feature-inventory.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/features/feature-inventory.md), [docs/research/refactor-2026-09-26/synthesis/architecture-verification.md](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/architecture-verification.md). **Tests:** config/CLI/docs parity, dynamic caller and package entry points, crash/restart ordering with resource-store state intact, release build/boot and old/new behavior characterization. **Exit:** each cut deletes its old owner; an extraction decision states retained versus removed dependencies and tested failure isolation; moved and removed lines are reported separately.
+
+### U8. Retire the universal file-size debt
+
+**Goal:** Reach zero tracked UTF-8 text paths above 500 with cohesive responsibility splits and a 200-line review preference. **Files:** every refreshed owner-map path, including `src/test/`, `docs/`, `.claude/`, `packages/`, `website/`, CSS and vendored text. **Approach:** Assign parallel workers to disjoint owning boundaries after U0's reviewed map; each worker preserves entry points, updates semantic callers/tests/docs and deletes its old oversized file or unneeded generated output. Regeneration and removal rows need reproducible packaging or reachability evidence before execution. The four audited GitHub cache page paths belong to the pre-refactor release and leave this debt ledger at release merge, not as claimed refactor savings. **Evidence:** [docs/research/refactor-2026-09-26/synthesis/oversized-file-owner-map.csv](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/oversized-file-owner-map.csv), [docs/research/refactor-2026-09-26/synthesis/file-size-census.json](https://github.com/aiur-team/aiur/blob/e09869f9c1afe21dc4edda2c4244e624ccebde1b/docs/research/refactor-2026-09-26/synthesis/file-size-census.json). **Tests:** universal gate, extracted responsibility's behavior tests, generated artifact regeneration and offline/release dependency checks where relevant. **Exit:** 500 passes and 501 fails on all tracked text; no permanent exclusions, no arbitrary line-slice modules and no added coverage-ignore entries; owner map and actual net LOC updated.
+
+### U9. Prove the whole release and account for actual removal
+
+**Goal:** Run full required CI and real latest-main CLI/TUI/browser acceptance with multiple agents, then publish a before/after tracked-text census. **Files:** `scripts/aiurdev`, `src/browser/`, `packaging/npm/`, operator docs and the plan's evidence ledger. **Tests:** complete `mix lint`, format, test/coverage, Dialyzer, browser harness and package checks, plus foreground `scripts/aiurdev --test` opened agent chat and Executor message via TUI. **Exit:** rendered user-visible output captured, current release identity confirmed, all hard-size debt zero, net LOC reported by source/test/docs/generated with moved lines excluded, and abandoned experimental code removed.
+
+## Verification Contract
+
+| Gate | Command or evidence | Applies to |
+| --- | --- | --- |
+| Source and dependency scan | `rg` all changed symbols/callers in `src/lib` and `src/test`; refresh frozen review citations on current main | Every unit |
+| Finding and owner disposition | Reconcile 1,033 source IDs to 986 canonical findings; verify all 889 provisional P2/P3 records. Recount every path in the 359-file owner map and record owner, action, caller/release check and current-main difference | U0 before implementation-ready promotion; refresh affected records in later units |
+| Trust failure matrix | Inject absent/empty CODEOWNERS, failed paginated team lookup, missing trust process, explicit-repo and origin-derived owner fallback; verify sanitized untrusted bodies remain in Executor log/dashboard but are omitted from agent digest and cannot authorize commands, with a visible degraded age | U5 |
+| Durable write matrix | Inject append error, ambiguous sync, projection write error after accepted append, corrupt complete record and torn tail; verify accepted event identity, read-model freshness and side-effect replay | U6 |
+| First seam startup | Crash a GitHub cache/quota/resource child before and after access-layer consolidation; compare startup order, caller outcomes, retained state and headless/release behavior | U5, U7 |
+| Focused and affected tests | From `src/` run focused `mix test <files>` and `mix aiur.affected_tests`; include sibling test files | Each behavior unit |
+| Mutation proof | In an isolated clean worktree, revert each guarded production hunk; the exact added test fails, restore hunk and it passes; record commands/results in PR | Every new regression test |
+| Required CI | From `src/` run `mix format --check-formatted`, `mix lint`, `mix test`, `mix dialyzer` as applicable; required GitHub CI includes sharded coverage and browser | Every PR / integrated main |
+| UI and package | Run `npm test` in `src/browser/` where affected, package layout checks and docs build where surfaces change | U4–U9 |
+| Real manual acceptance | From the Executor repo, launch foreground `scripts/aiurdev --test` in wrapper tmux, interact with agent list/chat input, capture pane output and stop/clean up | User-visible behavior and U9 |
+| Size and savings | Recount every tracked UTF-8 text path; transitional and final 500-line gate; actual before/after net LOC by area; credential-side live measurements for any GitHub saving | U0, U5, U7–U9 |
+
+Tests should assert values and effects, not permissive maps or constants. A claimed saving must include units, baseline, current population and merge-time activation. A removed feature's docs and tests change in the same PR. No manual acceptance claim is valid from logs or HTTP alone.
+
+## Definition of Done
+
+- D1. All ten units have merged as reviewed, behavior-preserving PRs. Every source ID maps to a canonical finding with a current-head disposition; confirmed actionable defects are fixed and mutation tested or explicitly deferred with reason, owner and follow-up phase. Stale, duplicate and false findings retain their evidence-backed decisions.
+- D2. The Executor and agents complete the accepted foreground CLI/TUI scenarios, including Muse, pause/resume, event delivery and multi-agent progress, on a release built from latest main.
+- D3. Every tracked UTF-8 text path is at most 500 lines; files above 200 carry a cohesion rationale; all 359 frozen owner-map rows have reviewed current-head dispositions, including generated/vendor paths and pre-refactor release deletions; the universal gate is required in CI.
+- D4. The feature ledger records current use and challenged decisions; retained behavior remains reachable, and cut features leave no dead config, CLI, docs or package entry points.
+- D5. The before/after census reports source, test, docs and generated text lines; net change is measured, conditional candidates remain labeled, and relocated lines are not claimed as removed.
+- D6. Each new regression test has a recorded red/green production-hunk reversal; full CI, Dialyzer, browser, docs and package gates pass for relevant changes.
+- D7. Contextual private-source review is complete before implementation-ticket promotion; uncertainty in historical causal claims remains explicit.
+- D8. No experimental dead ends, duplicate helpers or second authorities remain from the migration; operator-facing docs agree with final behavior.
