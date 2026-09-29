@@ -1,6 +1,6 @@
 {
   "revision": "3339b887196d5e9aefb273117a14bf33391ee41f",
-  "counting_rule": "bytes separated by LF; a nonempty unterminated final line counts as one; NUL-containing files are binary; symlinks are listed but targets are not double-counted",
+  "counting_rule": "UTF-8 text counted by LF bytes; a nonempty unterminated final line counts as one; NUL-containing or non-UTF-8 files are binary; symlinks are listed but targets are not double-counted",
   "tracked_paths": 3378,
   "text_files": 3293,
   "binary_files": 47,

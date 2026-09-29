@@ -2240,3 +2240,13 @@ mechanical location audit for all 182 inherited P0/P1 findings: 177 have
 readable cited spans, five cite out-of-bounds lines and need correction. This
 is not a skeptic verdict. The three duplication units, 182 semantic/severity
 checks, 58 feature challenges, reconciled reports and CE plan remain open.
+
+The five citation groups now have eight exact source-span overlays, and the
+corrected mechanical audit resolves all 182 locations without editing raw
+findings. Two P0 candidates have provisional source checks in `review/in-progress/`;
+they are not counted as independent skeptic verdicts. Four feature
+recommendations have continuing-researcher challenges in
+`features/challenges/continuation.json`, bringing artifact coverage to 37 of
+91 and leaving 54. The requirements-only unified refactor plan is
+`docs/plans/2026-09-29-001-refactor-production-readiness-plan.md` in the
+research branch; implementation readiness awaits full reconciliation.

@@ -1,0 +1,26 @@
+[ 
+  {
+    "id": "cli-04",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The five flags form different contracts and cannot be cut as one unused group. The launcher inserts --interactive and --headless internally, so zero operator-typed occurrences cannot establish dead code. --no-dashboard is a documented foreground and background mode with a Remote Control safety check in AGENTS.md and the CLI reference. --logs-root was used by the isolated 2026-09-29 native Muse acceptance to keep the test run separate from the shared daemon; that is observed post-snapshot use, not evidence of frozen-period frequency. The guardrails acknowledgement is launcher-injected, and removing it changes the daemon's accepted launch contract. Consolidate internal mode handling if equivalent tests prove it; preserve the documented operator flags and safety behavior. Any line saving must be measured after implementation. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-20",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "A search that finds no `.aiurconfig` on the research host cannot measure installed users who still have one. The documented behavior deliberately rejects a legacy file with an actionable migration error, while config discovery otherwise falls through to `~/.aiur/config`. Removing that guard risks silently running a different workflow for a user who expected the local legacy file to apply. The 134-line gross estimate is too small to justify a compatibility break without a measured installed population and an equivalent fail-closed detection path. Keep the migration guard or replace it with a smaller equivalent; test local and global discovery precedence. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-11",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The evidence does not support deleting the agent chat capability or booking an 8,500-line saving. Aiur's documented human-driven foreground mode opens a live chat pane; AGENTS.md makes real TUI chat interaction the manual acceptance path. The 2026-09-29 native Muse acceptance used that path to display a skill read, an allow-once approval, a scoped tool result and a delivered follow-up. The inherited usage sample counts mostly headless runs and has no retained pane recordings, but a missing recording is not evidence that foreground users do not use the pane. The existing bridge's private opencode SQLite dependency is a valid simplification target. A plain transcript-backed TUI can replace it only after feature parity for rendered tool/prose output, typed operator input, queued delivery, approval commands, pause/resume and restart is demonstrated in the real CLI/TUI. Count removed lines after the replacement exists and includes its tests; moving the TUI to another package is relocation, not deletion. This challenge was performed by the continuing researcher, not an independent reviewer."
+  },
+  {
+    "id": "integrations-25",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "The frozen delivery census shows an actual failed webhook deployment, not an unused or redundant capability. `website/docs-app/apis/github.md` documents verified-delivery gating: failed or absent deliveries keep full polling and short cache TTLs; a proven delivery widens selected reconciliation reads and retires stale cache entries. Removing ingress would delete that conditional product contract and its event latency/reconciliation path. The cited 5,721 accepted deliveries in the earlier period show a real population, while 3,524 later 502 responses show the current path needs operational diagnosis. No quota saving may be claimed during the failed period, and the proposed 5,120-line deletion is a gross estimate that omits replacement work. Keep the capability while deciding whether to repair the deployment or replace transport; test loss recovery, signature validation and measured read displacement before any cut. This is a continuing-researcher challenge, not an independent reviewer result."
+  }
+]

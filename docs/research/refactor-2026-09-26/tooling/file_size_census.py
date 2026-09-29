@@ -39,6 +39,11 @@ def main() -> None:
             missing.append(name)
             continue
         content = path.read_bytes()
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError:
+            binary.append(name)
+            continue
         if b"\0" in content:
             binary.append(name)
             continue
@@ -49,7 +54,7 @@ def main() -> None:
     areas = Counter(row["path"].split("/", 1)[0] for row in oversized)
     report = {
         "revision": args.revision,
-        "counting_rule": "bytes separated by LF; a nonempty unterminated final line counts as one; NUL-containing files are binary; symlinks are listed but targets are not double-counted",
+        "counting_rule": "UTF-8 text counted by LF bytes; a nonempty unterminated final line counts as one; NUL-containing or non-UTF-8 files are binary; symlinks are listed but targets are not double-counted",
         "tracked_paths": len(rows) + len(binary) + len(symlinks) + len(missing),
         "text_files": len(rows),
         "binary_files": len(binary),

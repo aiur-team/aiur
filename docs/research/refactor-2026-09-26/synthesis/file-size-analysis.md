@@ -1,8 +1,8 @@
 # Physical file size baseline
 
 The complete frozen `3339b887` extraction contains 3,378 tracked paths. The
-reproducible [census](file-size-census.json) counted 3,293 text files, 47
-NUL-containing binary files and 38 symlinks; no tracked path was missing.
+reproducible [census](file-size-census.json) counted 3,293 UTF-8 text files,
+47 binary files and 38 symlinks; no tracked path was missing.
 There are **359 text files above the hard 500-line target** and 1,192 above
 the preferred 200-line target. These are baseline violations for a future
 refactor, not violations introduced by the Muse branch.
