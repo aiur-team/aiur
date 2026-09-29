@@ -57,8 +57,25 @@ def main():
     expected = set(range(359))
     missing = sorted(expected - reviewed.keys())
     assert args.partial or not missing, f"unreviewed owner-map rows: {missing}"
+    tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=args.candidate).decode().split("\0")
+    mapped_paths = {row["path"] for row in owner_rows}
+    new_oversized = []
+    for relative in tracked:
+        if not relative or relative in mapped_paths:
+            continue
+        file = args.candidate / relative
+        if not file.is_file():
+            continue
+        try:
+            count = physical_lines(file)
+        except UnicodeDecodeError:
+            continue
+        if count > 500:
+            new_oversized.append((relative, count))
+    assert not new_oversized, f"new oversized tracked text: {new_oversized}"
     print(f"owner-map rows reconciled: {len(reviewed)}/359")
     print(f"missing paths: {sum(row.get('candidate_lines', row.get('release_candidate_lines')) is None for row in reviewed.values())}")
+    print("new oversized tracked paths: 0")
     if missing:
         print(f"unreviewed row indexes: {missing[0]}–{missing[-1]} ({len(missing)} rows)")
 
