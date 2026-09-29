@@ -138,6 +138,7 @@ defmodule AiurWeb.Router do
 
     live_session :dashboard, on_mount: AiurWeb.FinancialDataAccess do
       live("/", DashboardLive, :index)
+      live("/chat/:owner/:repository/:identifier", DashboardLive, :index)
       live("/commands", DashboardLive, :decisions)
       live("/commands/:decision_id", DashboardLive, :decision)
       live("/build-orders", BuildOrderLive, :build_orders)

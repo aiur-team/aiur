@@ -163,6 +163,8 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:ticket_context_row, nil)
       |> assign(:ticket_context_subscriptions, MapSet.new())
       |> assign(:conversation_drawer, nil)
+      |> assign(:conversation_from_route?, false)
+      |> assign(:conversation_notice, nil)
       |> assign(:conversation_handle, nil)
       |> assign(:conversation_identity, nil)
       |> assign(:conversation_row, nil)
@@ -186,20 +188,50 @@ defmodule AiurWeb.DashboardLive do
   end
 
   @impl true
-  def handle_params(params, _uri, socket) do
+  def handle_params(params, uri, socket) do
     filter = normalize_filter(params["filter"])
+    conversation_route? = String.starts_with?(URI.parse(uri).path || "", "/chat/")
 
     {:noreply,
      socket
      |> assign(:decision_filter, filter)
      |> assign(:table_sort, normalize_table_sort(params["sort"]))
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
+     |> assign(:conversation_from_route?, conversation_route?)
      |> assign_units_selection(params)
      |> assign_decision_page(filter, params)
      |> load_history(:first_page)
      |> assign_selected_decision(params["decision_id"])
+     |> maybe_open_conversation_route(if(conversation_route?, do: params, else: %{}))
      |> maybe_canonicalize_units_url(params)}
   end
+
+  defp maybe_open_conversation_route(socket, %{"owner" => owner, "repository" => repository, "identifier" => identifier}) do
+    catalog = Map.get(socket.assigns.payload, :units, %{})
+    rows = get_in(catalog, [:snapshot, :rows]) || []
+
+    case Enum.find(rows, fn row ->
+           case Map.get(row, :identity) do
+             %TrackerIdentity{owner: ^owner, repository: ^repository, identifier: ^identifier} -> true
+             _identity -> false
+           end
+         end) do
+      nil ->
+        assign(socket, :conversation_notice, "Chat is unavailable for this ticket.")
+
+      row ->
+        with token when is_binary(token) <- UnitsPresenter.row_token(row),
+             handle when is_binary(handle) <- conversation_handle(row),
+             {:ok, %{state: state} = snapshot} when state in [:live, :stale, :ended, :known_empty] <-
+               resolve_conversation(handle) do
+          socket |> assign(:conversation_notice, nil) |> open_conversation(row, token, handle, snapshot)
+        else
+          _unavailable -> assign(socket, :conversation_notice, "Chat is unavailable for this ticket.")
+        end
+    end
+  end
+
+  defp maybe_open_conversation_route(socket, _params), do: assign(socket, :conversation_notice, nil)
 
   @impl true
   def handle_info(:runtime_tick, socket) do
@@ -542,7 +574,13 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("read-conversation", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-conversation", _params, socket) do
-    {:noreply, close_conversation(socket)}
+    socket = close_conversation(socket)
+
+    if socket.assigns.conversation_from_route? do
+      {:noreply, push_patch(socket, to: units_path(socket, socket.assigns.units_selection), replace: true)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event(event, params, socket) when event in @decision_events do
@@ -816,6 +854,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:ticket_context, nil)
       |> Map.put_new(:unit_controls, %{})
       |> Map.put_new(:conversation_drawer, nil)
+      |> Map.put_new(:conversation_notice, nil)
       |> Map.put_new(:conversation_origin_id, nil)
       |> Map.put_new(:units_selection, UnitsURL.default_selection())
       |> Map.put_new(
@@ -927,6 +966,7 @@ defmodule AiurWeb.DashboardLive do
         />
 
         <section class="section-card units-card" aria-labelledby="route-title">
+          <p :if={@conversation_notice} id="conversation-notice" role="status" class="bo-state-card">{@conversation_notice}</p>
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>
@@ -1131,7 +1171,7 @@ defmodule AiurWeb.DashboardLive do
     selection = socket.assigns.units_selection
     expected = UnitsURL.params(selection) |> maybe_put_table_sort(socket.assigns[:table_sort]) |> Map.new()
 
-    if socket.assigns.live_action == :index and map_size(params) > 0 and
+    if socket.assigns.live_action == :index and not socket.assigns.conversation_from_route? and map_size(params) > 0 and
          params != expected do
       push_patch(socket, to: units_path(socket, selection), replace: true)
     else
