@@ -1779,8 +1779,27 @@ workspace_root_file_from_instance_record() {
 
 agent_pidfile_from_instance_record() {
   load_aiur_instance_record "$(aiur_instance_record_path)" || return 1
-  [ -n "${AIUR_RECORD_AGENT_TMPFILE:-}" ] || return 1
-  printf '%s\n' "$AIUR_RECORD_AGENT_TMPFILE"
+  if [ -n "${AIUR_RECORD_AGENT_TMPFILE:-}" ]; then
+    printf '%s\n' "$AIUR_RECORD_AGENT_TMPFILE"
+    return 0
+  fi
+
+  # Records written before the pidfile field still carry the handoff created
+  # by the same launcher: aiur-PID-workspace-root and aiur-PID-agents share a
+  # runtime directory. Derive that one file only when the old path has the
+  # exact launch shape under this runtime root; never scan other instances.
+  local session_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" handoff pid
+  session_root="${session_root%/}"
+  [ -n "$session_root" ] || session_root=/
+  handoff="${AIUR_RECORD_WORKSPACE_ROOT_FILE:-}"
+  case "$handoff" in
+    "$session_root"/aiur-*-workspace-root) ;;
+    *) return 1 ;;
+  esac
+  pid="${handoff#"$session_root"/aiur-}"
+  pid="${pid%-workspace-root}"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  printf '%s/aiur-%s-agents\n' "$session_root" "$pid"
 }
 
 # Background watchdog that survives the BEAM. Polls for the release BEAM by

@@ -3,12 +3,13 @@ defmodule AiurEngineStopPidfileTest do
 
   @engine Path.expand("../../packaging/npm/aiur-cli/libexec/aiur-engine.sh", __DIR__)
 
-  test "stop reaps only its recorded pidfile for live and crashed instances" do
+  test "stop reaps only its own pidfile for live, crashed, and legacy instances" do
     root = Aiur.TestSupport.tmp_root!("aiur-stop-pidfile")
     state = Path.join(root, "state")
     runtime = Path.join(root, "runtime")
     target = Path.join(runtime, "aiur-101-agents")
     sibling = Path.join(runtime, "aiur-202-agents")
+    handoff = Path.join(runtime, "aiur-101-workspace-root")
     events = Path.join(root, "events")
     fake_bin = Path.join(root, "bin")
 
@@ -17,6 +18,7 @@ defmodule AiurEngineStopPidfileTest do
     File.mkdir_p!(fake_bin)
     File.write!(target, "pid 101 codex\n")
     File.write!(sibling, "pid 202 codex\n")
+    File.write!(handoff, root <> "\n")
     File.write!(events, "")
     File.write!(Path.join(fake_bin, "tmux"), "#!/bin/sh\nexit 1\n")
     File.chmod!(Path.join(fake_bin, "tmux"), 0o755)
@@ -52,6 +54,27 @@ defmodule AiurEngineStopPidfileTest do
     : > "$(aiur_crash_marker_path)"
     probe_node_liveness() { printf down; }
     cmd_stop
+
+    # An older instance record has the launcher's workspace handoff but no
+    # agent pidfile field. Its matching pidfile is still attributable.
+    printf 'pid 101 codex\n' > "$TARGET"
+    AIUR_AGENT_TMPFILE="$TARGET"
+    AIUR_WORKSPACE_ROOT_FILE="$HANDOFF"
+    write_aiur_instance_record aiur-test-default aiur-test
+    grep -v '^AIUR_RECORD_AGENT_TMPFILE=' "$(aiur_instance_record_path)" > "$STATE/legacy-record"
+    mv "$STATE/legacy-record" "$(aiur_instance_record_path)"
+    unset AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE
+    : > "$(aiur_crash_marker_path)"
+    cmd_stop
+
+    # A similarly named handoff outside this run's runtime directory cannot
+    # be used to infer a pidfile, even if an old record contains that path.
+    AIUR_WORKSPACE_ROOT_FILE="$ROOT/aiur-202-workspace-root"
+    write_aiur_instance_record aiur-test-default aiur-test
+    grep -v '^AIUR_RECORD_AGENT_TMPFILE=' "$(aiur_instance_record_path)" > "$STATE/legacy-record"
+    mv "$STATE/legacy-record" "$(aiur_instance_record_path)"
+    unset AIUR_WORKSPACE_ROOT_FILE
+    ! agent_pidfile_from_instance_record > /dev/null
     cat "$EVENTS"
     """
 
@@ -66,13 +89,15 @@ defmodule AiurEngineStopPidfileTest do
           {"XDG_RUNTIME_DIR", runtime},
           {"ROOT", root},
           {"TARGET", target},
+          {"HANDOFF", handoff},
+          {"STATE", state},
           {"EVENTS", events},
           {"PATH", fake_bin <> ":" <> System.get_env("PATH", "")}
         ],
         stderr_to_stdout: true
       )
 
-    assert length(String.split(output, "REAP:#{target}\n")) == 3
+    assert length(String.split(output, "REAP:#{target}\n")) == 4
     refute output =~ "REAP:#{sibling}\n"
     refute File.exists?(target)
     assert File.read!(sibling) == "pid 202 codex\n"
