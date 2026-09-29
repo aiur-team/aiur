@@ -16,7 +16,7 @@ origin: docs/brainstorms/2026-09-29-aiur-refactor-requirements.md
 
 **Authority:** User directions and AGENTS.md govern implementation; this plan uses the corrected 60-claim audit, all 32 review units, the 216-feature inventory and the frozen `3339b887` source census as evidence. The guard and GitHub cache dashboard removals are pending release PRs #2840/#2841, not savings from this future refactor. Finding IDs below resolve to `docs/research/refactor-2026-09-26/review/findings.json`.
 
-**Readiness:** This is a detailed proposed program, still `requirements-only`. The branch-tip contextual privacy audit is complete; new evidence must be checked before publication. Current-head incidence checks, a complete >500-file owner map, degraded CODEOWNERS trust policy and first package seam require resolution before the affected code units can be launched. The causal timeline identifies local prewarm/dependency point causes, while historical duration shares remain unassigned; the plan measures progress prospectively.
+**Readiness:** This is a detailed proposed program, still `requirements-only`. The branch-tip contextual privacy audit is complete; new evidence must be checked before publication. Current-head incidence checks and disposition of all 889 provisional P2/P3 findings, a complete >500-file owner map, degraded CODEOWNERS trust policy and first package seam require resolution before the affected code units can be launched. The causal timeline identifies local prewarm/dependency point causes, while historical duration shares remain unassigned; the plan measures progress prospectively.
 
 ## Product Contract
 
@@ -51,7 +51,7 @@ The corrected retained model contains 108 gaps of at least 30 minutes totaling 7
 - R11. Enforce a final 500-physical-line maximum for every tracked UTF-8 text file, including tests, docs, skills, generated and vendor text; prefer 200 or fewer lines with a cohesion rationale above 200.
 - R12. Carry docs with changed CLI, config, environment or user surface behavior, and verify user-visible paths with the real foreground CLI/TUI.
 - R13. Make each behavior-changing regression test fail when its production hunk is reverted in a clean worktree; retain the existing coverage floor and Dialyzer gate.
-- R14. Publish current-head source evidence, unresolved conditions, privacy-safe review records and before/after physical LOC for each implementation phase.
+- R14. Publish current-head source evidence, a disposition for every canonical finding and preserved source ID, unresolved conditions, privacy-safe review records and before/after physical LOC for each implementation phase.
 
 ### Actors and key flows
 
@@ -73,7 +73,7 @@ The corrected retained model contains 108 gaps of at least 30 minutes totaling 7
 
 The program begins after the 0.0.6 guard/dashboard removal release and refreshes the census on merged main. It does not re-add deletion gates or the GitHub cache page. Gemini CLI support is a separately queued post-release implementation. Package extraction is conditional on behavior-preserving seams; a count of packages is not a success measure.
 
-Blocking before code work on the affected boundary: current-head source and exposure validation; all oversized-file owner/disposition assignments; degraded CODEOWNERS trust behavior; which durable journal failures stop writes versus permit a retry; and the first package seam's startup/failure contract. The completed branch-tip privacy audit must be repeated for new public evidence. Historical gap duration causality is unresolved, not permission to guess a causal saving; use `docs/research/refactor-2026-09-26/synthesis/causal-gap-attribution.md` for measured point cases and limits.
+Blocking before code work on the affected boundary: current-head source and exposure validation plus triage of all provisional P2/P3 findings; all oversized-file owner/disposition assignments; degraded CODEOWNERS trust behavior; which durable journal failures stop writes versus permit a retry; and the first package seam's startup/failure contract. The completed branch-tip privacy audit must be repeated for new public evidence. Historical gap duration causality is unresolved, not permission to guess a causal saving; use `docs/research/refactor-2026-09-26/synthesis/causal-gap-attribution.md` for measured point cases and limits.
 
 ## Planning Contract
 
@@ -124,7 +124,7 @@ These are proposed units. Readiness remains blocked by the Goal Capsule gates; n
 
 ### U0. Refresh evidence and establish the size gate
 
-**Goal:** Recheck privacy for any new public evidence, inspect current main after release, map every >500 path to a component and chosen disposition, and publish a fresh text-file census. **Files:** `docs/research/refactor-2026-09-26/synthesis/`, `scripts/`, `.github/workflows/ci.yml`. **Approach:** Recheck P0/P1 source and reachable population; re-count every tracked path; install a transitional CI gate that fails new or enlarged >500 text files. **Tests:** 500/501, 200/201, blank and unterminated lines, generated/vendor, binary/symlink, and edited baseline debt. **Exit:** owner ledger complete; new evidence passes privacy review; counts and CLI/release identity recorded.
+**Goal:** Recheck privacy for any new public evidence, inspect current main after release, assign a disposition to every canonical finding, map every >500 path to a component and chosen disposition, and publish a fresh text-file census. **Files:** `docs/research/refactor-2026-09-26/review/findings.json`, `docs/research/refactor-2026-09-26/synthesis/`, `scripts/`, `.github/workflows/ci.yml`. **Approach:** Recheck P0/P1 source and reachable population; triage all 889 provisional P2/P3 findings against current head and preserve the mapping from all 1,033 source IDs to 986 canonical records. Record each as confirmed/actionable, needs reproduction, stale, duplicate or false, with evidence, owner, phase or defer reason; a `needs reproduction` record blocks promotion of its affected unit. Re-count every tracked path; install a transitional CI gate that fails new or enlarged >500 text files. **Tests:** finding-ledger completeness/unique mapping; 500/501, 200/201, blank and unterminated lines, generated/vendor, binary/symlink, and edited baseline debt. **Exit:** every finding has a reviewable disposition, owner and next action; owner ledger complete; new evidence passes privacy review; counts and CLI/release identity recorded.
 
 ### U1. Close current P0 paths without a new deletion policy
 
@@ -167,6 +167,7 @@ These are proposed units. Readiness remains blocked by the Goal Capsule gates; n
 | Gate | Command or evidence | Applies to |
 | --- | --- | --- |
 | Source and dependency scan | `rg` all changed symbols/callers in `src/lib` and `src/test`; refresh frozen review citations on current main | Every unit |
+| Finding disposition | Reconcile 1,033 source IDs to 986 canonical findings; verify all 889 provisional P2/P3 records have current-head evidence, status, owner and phase/defer reason | U0 before implementation-ready promotion; refresh affected records in later units |
 | Focused and affected tests | From `src/` run focused `mix test <files>` and `mix aiur.affected_tests`; include sibling test files | Each behavior unit |
 | Mutation proof | In an isolated clean worktree, revert each guarded production hunk; the exact added test fails, restore hunk and it passes; record commands/results in PR | Every new regression test |
 | Required CI | From `src/` run `mix format --check-formatted`, `mix lint`, `mix test`, `mix dialyzer` as applicable; required GitHub CI includes sharded coverage and browser | Every PR / integrated main |
@@ -178,7 +179,7 @@ Tests should assert values and effects, not permissive maps or constants. A clai
 
 ## Definition of Done
 
-- D1. All ten units have merged as reviewed, behavior-preserving PRs, with every source-ID-specific defect either fixed and mutation tested or explicitly deferred with a reason and owner.
+- D1. All ten units have merged as reviewed, behavior-preserving PRs. Every source ID maps to a canonical finding with a current-head disposition; confirmed actionable defects are fixed and mutation tested or explicitly deferred with reason, owner and follow-up phase. Stale, duplicate and false findings retain their evidence-backed decisions.
 - D2. The Executor and agents complete the accepted foreground CLI/TUI scenarios, including Muse, pause/resume, event delivery and multi-agent progress, on a release built from latest main.
 - D3. Every tracked UTF-8 text path is at most 500 lines; files above 200 carry a cohesion rationale; generated/vendor paths have a concrete disposition; the universal gate is required in CI.
 - D4. The feature ledger records current use and challenged decisions; retained behavior remains reachable, and cut features leave no dead config, CLI, docs or package entry points.
