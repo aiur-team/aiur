@@ -56,7 +56,19 @@ grep -q '0 deleted files' "$tmp/stale-branch"
 git checkout -qb feature-delete develop
 git rm -q base-*.txt
 git commit -qm 'delete base files'
-if "$root/scripts/check-pr-deletions.sh" "$base" HEAD >"$tmp/refusal" 2>&1; then
+deleted_head="$(git rev-parse HEAD)"
+git update-ref -d refs/aiur/branch-start
+if AIUR_BRANCH_START_SHA= "$root/scripts/guard-pr-deletions" develop >"$tmp/local-deletion-guard" 2>&1; then
+  echo "expected the local guard to refuse 51 deletions without a branch-start ref" >&2
+  exit 1
+fi
+grep -q 'refusing 51 deletions because the workspace branch-start ref is unavailable' "$tmp/local-deletion-guard"
+set +o pipefail
+AIUR_BRANCH_START_SHA= "$root/scripts/guard-pr-deletions" develop 2>&1 | tail -n 3 >"$tmp/piped-deletion-guard-output" && git push -q origin feature-delete
+set -o pipefail
+test "$(git --git-dir="$tmp/origin.git" rev-parse refs/heads/feature-delete)" = "$deleted_head"
+
+if "$root/scripts/check-pr-deletions.sh" "$base" "$deleted_head" >"$tmp/refusal" 2>&1; then
   echo "CI check accepted a PR with 51 deleted files" >&2
   exit 1
 fi
@@ -68,5 +80,16 @@ git rm -q base-{1..50}.txt
 git commit -qm 'delete 50 base files'
 "$root/scripts/check-pr-deletions.sh" "$base" HEAD >"$tmp/allowed"
 grep -q '50 deleted files' "$tmp/allowed"
+
+git checkout --orphan unrelated -q
+git rm -qrf .
+printf 'unrelated\n' >unrelated.txt
+git add unrelated.txt
+git commit -qm unrelated
+if "$root/scripts/check-pr-deletions.sh" "$base" HEAD >"$tmp/unrelated" 2>&1; then
+  echo "CI check accepted unrelated base and head commits" >&2
+  exit 1
+fi
+grep -q 'base and head have no common ancestor' "$tmp/unrelated"
 
 echo 'PR deletion check ignores base-only files, refuses 51 PR deletions, and allows 50'

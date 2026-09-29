@@ -19,8 +19,7 @@ for sha in "$base_sha" "$head_sha"; do
   fi
 done
 
-merge_base="$(git merge-base "$base_sha" "$head_sha")"
-if [[ -z "$merge_base" ]]; then
+if ! merge_base="$(git merge-base "$base_sha" "$head_sha")"; then
   echo "check-pr-deletions: base and head have no common ancestor" >&2
   exit 2
 fi
