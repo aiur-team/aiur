@@ -17,7 +17,9 @@ Aiur ships Agent Skills under `.claude/skills/`, with shared links for Codex und
 
 ## Agent-workspace skills
 
-These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under `<workspace>/.claude/skills/`, `<workspace>/.codex/skills/`, and `<workspace>/.agents/skills/`. Muse loads workspace skills and rules only when `agent.backend_configs.muse.trust_workspace` is explicitly enabled.
+These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under `<workspace>/.claude/skills/`, `<workspace>/.codex/skills/`, and `<workspace>/.agents/skills/`.
+
+Muse loads workspace skills and rules only when `agent.backend_configs.muse.trust_workspace` is explicitly enabled.
 
 | Skill | Loaded when | Covers |
 | --- | --- | --- |

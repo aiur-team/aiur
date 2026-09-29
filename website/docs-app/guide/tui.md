@@ -67,9 +67,11 @@ When Muse requests approval, its chat transcript lists each available choice wit
 an exact `/approve <approval-id> <requirement-token> <choice-id>` reply. Copy the
 chosen command into that agent's chat input (the dashboard conversation input
 works too). The token identifies the current native requirement; an old token or
-unknown choice is rejected. Ordinary queued messages remain pending while the
-approval reply is delivered. Aiur confirms delivery after Muse reports the
-resolution, not merely after accepting the command. No choice is automatic.
+unknown choice is rejected.
+
+Ordinary queued messages remain pending while the approval reply is delivered.
+Aiur confirms delivery after Muse reports the resolution, not merely after
+accepting the command. No choice is automatic.
 
 Muse's native input dialogs are unsupported. If one arrives, Aiur explains the
 limitation in chat and requests cancellation. After the turn stops, send your
