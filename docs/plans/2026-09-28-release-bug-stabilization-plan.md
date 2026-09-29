@@ -66,7 +66,7 @@ Each existing issue should be implemented in its own isolated worktree and PR. R
 1. Merge reviewed U5 and U3 early; U1/U2 can progress in parallel but require a combined dispatch/review acceptance pass. Merge U4 after U3. Add U6/U7 as their issue evidence and implementation pass.
 2. For each PR, confirm the new tests fail when the production hunk is removed in an isolated worktree, then pass restored; record exact commands in the PR body. Review current head, address findings, and wait for required CI before merge.
 3. Pull latest `main` after all selected fixes merge. Launch the real foreground `scripts/aiurdev --test` TUI from the Executor checkout, open chat panes, send user-path messages, and run at least two agents through dispatch, tool use, review/rework and completion where feasible. Capture rendered pane evidence and exact build identity. A log or HTTP-only check does not satisfy this gate.
-4. Only after that acceptance, publish the main npm package and Linux-friendly packages under the repository's release procedure. Verify registry access and package-manager install paths against published versions; resume refactor research after these checks.
+4. Registry preflight found `aiur-cli` and all three platform packages already published at `0.0.5`, matching the current source version. After fixes merge, bump the stable version to `0.0.6` in `src/mix.exs` and run `packaging/scripts/stamp-versions.mjs`; do not bump on a planning or bug branch. Run the release dry run, then stable publish under the repository's release procedure. Verify each package's `0.0.6` registry entry and package-manager install path before resuming refactor research.
 
 ## Risks and verification contract
 
