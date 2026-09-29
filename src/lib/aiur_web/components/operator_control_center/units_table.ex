@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   use Phoenix.Component
 
+  alias Aiur.AgentContextPresentation
   alias Aiur.BuildOrder.Bounded
   alias Aiur.CodingAgent
   alias Aiur.TrackerIdentity
@@ -112,6 +113,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                   <span><span class="sr-only">Progress </span>{progress_pct(row.progress)}</span>
                   <span><span class="sr-only">Runtime </span>{runtime(row, @now)}</span>
                 </div>
+                <div class="ut-latest-meta ut-agent-context mono num">
+                  <span title="Aiur orchestration turns in this running attempt">Turns {turn_count(row)}</span>
+                  <span title="Current context occupancy, separate from cumulative token usage">Context {AgentContextPresentation.compact(row[:context_usage])}</span>
+                </div>
               </td>
 
               <td data-label="Command" class="ut-cmd-cell">
@@ -153,6 +158,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     </div>
     """
   end
+
+  defp turn_count(%{turn_count: count}) when is_integer(count) and count >= 0, do: count
+  defp turn_count(_row), do: "—"
 
   attr(:token, :string, required: true)
   attr(:row, :map, required: true)

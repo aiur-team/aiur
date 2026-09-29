@@ -38,6 +38,8 @@ Use the browser when you need interactive detail; use the paired command when te
 
 The operator-facing UI and CLI call these records **Commands**.
 
+Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. An unknown count or context observation appears as `—`; context is separate from cumulative token usage.
+
 GUI data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. Icon and action columns are not sortable.
 
 The fleet table's **Context** column shows each agent's observed context occupancy when its provider reports it. If the provider reports used tokens without a window size, the table says **unknown capacity**; an absent observation shows **—**.
