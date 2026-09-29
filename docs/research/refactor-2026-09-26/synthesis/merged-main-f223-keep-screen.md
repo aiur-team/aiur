@@ -1,0 +1,12 @@
+# Keep-decision source screen at merged `f223f30ea`
+
+Of the 156 queued feature entries, 42 with frozen `working_decision: keep` remain after the 34 individually reviewed entries. All 42 retain at least one tracked cited source on merged main; none cites a deleted source path. Twenty-six cite a modified source file and 38 cite changed documentation, with overlap. This establishes presence only. Their keep decisions and current behavior still need contract checks; it does not supersede the separate release overrides that cut `cli-38`, `integrations-20`, and `ui-13`.
+
+| Cohort | Entries | Merged-main preservation gate |
+| --- | ---: | --- |
+| CLI command/launcher surfaces | 20 (`cli-03`, `07`, `09`, `12`, `15`, `18`, `20`, `23`–`25`, `27`–`34`, `40`, `45`) | The changed shared engine hunks concern guard removal, fresh launch ownership and scoped stop; other verb handlers remain. Verify flags, exit codes, JSON, message identity and config discovery through the release CLI. `cli-23` also gains Muse init trust behavior; `cli-45` owns the agent IR sandbox, not a general run flag. |
+| Backend, GitHub and Executor integrations | 13 (`integrations-06`–`08`, `10`, `17`, `21`, `25`, `38`, `42`, `43`, `47`, `50`, `51`) | Preserve adapter capability distinctions, GitHub auth/transport/webhook paths, alert and handoff identity, Executor messages, skill installation and ElevenLabs meter semantics. The four backend entries and skill installer have explicit Muse adjacency in the separate matrix. |
+| Runtime and test infrastructure | 6 (`subsystems-22`, `34`, `36`, `39`, `43`, `46`) | Keep durable log/boot evidence, remote worker isolation, protected test sandbox reset, env/config discovery, workspace plumbing and Codex sandbox permissions. A documented path or frozen local use count alone is not a complete release check. |
+| UI surfaces | 3 (`ui-06`, `15`, `31`) | Preserve conversation projection, Stream Deck channel/projection and Remote Control TUI affordances through rendered UI and transport tests. `ui-15` cites a modified source file; inspect its channel hunk before calling it behavior-preserving. |
+
+The 80 remaining queued `simplify` entries are the next decision-review cohort. Some of the 42 keep entries will still need explicit behavior tests on the implementation head, especially those touched indirectly by launcher startup or Muse routing. No present-source check approves a package extraction or a deletion.
