@@ -24,4 +24,6 @@ python3 docs/research/refactor-2026-09-26/tooling/audit_p2p3_reconciled.py
 python3 docs/research/refactor-2026-09-26/tooling/privacy_check.py
 ```
 
+The [04ef current-main citation update](research/refactor-2026-09-26/synthesis/merged-main-04ef-static-update.md) finds 711 findings with identical cited lines, 37 stale and 238 unknown; eleven citations that were identical at release head now need source recheck. This is source drift, not runtime incidence.
+
 **Before implementation:** resolve source reachability and finding incidence beyond the merged-main static audit; assign the 355 surviving oversized-file owner rows against the implementation head; test the CODEOWNERS trust, journal/projection and first in-process GitHub seam contracts. Preserve the universal 500-physical-line target for every tracked UTF-8 text file, including docs, tests and vendor/generated text. The raw evidence tree is intentionally kept outside main because its large artifacts exceed that future cap. The retained history cannot assign a cause to every idle-gap minute; prospective measurements must record actionable demand and observed action.
