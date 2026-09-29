@@ -12,11 +12,12 @@ The source-anchor audit checked all 986 canonical findings against pinned
 two remain freeform or negative claims without a direct positive source anchor.
 This proves static citation integrity, not live failure incidence. All 889
 provisional P2/P3 findings now have source-level triage in three disjoint
-parts under `../review/`: 691 source-supported mechanisms, 197 unknown and
-one unsupported overclaim; 235 provisional fixes and 654 deferrals. The
-partition coverage checker passes exactly. An independent cross-review found
-material differences in `fix`/`defer` thresholds, so those proposals still
-need reconciliation before becoming an implementation queue.
+parts under `../review/`. The two reconciliation overlays resolve 17
+cross-review IDs without editing those raw partitions. The effective-decision
+checker passes exactly: 696 source-supported mechanisms, 192 unknown and
+one unsupported overclaim; 244 provisional fixes and 645 deferrals. These
+are source-level proposals, not implementation-ready tickets; merged-main
+reachability, behavioral gates and runtime incidence remain unverified.
 
 All 359 rows of the proposed oversized-file owner map have an audit against
 the clean pre-release integration candidate. Four paths disappear with the
