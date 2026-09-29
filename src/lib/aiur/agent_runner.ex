@@ -14,6 +14,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.Ownership.HoldStatus
   alias Aiur.Workspace.Ownership.Store
 
   @type worker_host :: String.t() | nil
@@ -172,7 +173,7 @@ defmodule Aiur.AgentRunner do
       {:error, {:workspace_owned, owner}} ->
         record_workspace_ownership_conflict(issue, opts, owner)
         record_workspace_setup_end(issue, opts, :contended, :workspace_owned)
-        emit_live_session_alert(issue, describe_owner(owner))
+        emit_ownership_conflict_alert(issue, owner)
 
         wait =
           if is_pid(codex_update_recipient) do
@@ -303,6 +304,30 @@ defmodule Aiur.AgentRunner do
 
     :ok
   end
+
+  defp emit_ownership_conflict_alert(issue, {:ok, %{phase: :reaping}} = owner) do
+    case HoldStatus.for_ticket(issue.identifier) do
+      %{generation: generation, proof: proof} when proof != :tracked_provider ->
+        detail = Aiur.Orchestrator.StatusReason.render({:workspace_ownership_waiting, generation, proof})
+
+        Alerts.emit_custom(
+          "ticket.#{issue.identifier}.workspace.ownership_hold",
+          "Refused to dispatch #{issue.identifier}: #{detail}.",
+          issue: issue.identifier,
+          workspace_generation: generation,
+          recovery_proof: proof,
+          needs_attention: true,
+          severity: "warning"
+        )
+
+        :ok
+
+      _ ->
+        emit_live_session_alert(issue, describe_owner(owner))
+    end
+  end
+
+  defp emit_ownership_conflict_alert(issue, owner), do: emit_live_session_alert(issue, describe_owner(owner))
 
   defp describe_owner({:ok, %{owner_id: owner_id, generation: generation}}),
     do: "this daemon's session owner=#{owner_id} generation=#{generation}"
