@@ -32,9 +32,10 @@ stated cost. Both numbers are approximate; the ranking does not depend on their 
 
 **Privacy.** One private repo is in the corpus. It is reported only as counts and categories.
 
-## Summary: the ten most expensive recurring problems
+## Summary: ten frequently cited problems with high stated costs
 
-Ranked by stated cost (hours stalled, tickets stranded) first, then by recurrence.
+Ranked by stated cost (hours stalled, tickets stranded) first, then by recurrence;
+the selected documents overlap and this is not a comparative cost census.
 "Fix held?" asks whether the records show the problem again after a fix was claimed.
 
 | # | Problem class | Citations | Span | Repos | Largest stated costs | Fix held? |
@@ -42,7 +43,7 @@ Ranked by stated cost (hours stalled, tickets stranded) first, then by recurrenc
 | 1 | Reported dispatch and state-transition failures (distinct mechanisms; see verification boundary) | ~150 reported citations | 08-02 → 09-26 | all 5 + private | fleet 15→1 overnight; 13 agents stalled ~15 h; dispatch frozen 5 h and 9–12 h by silent size caps; ≥10 retrospectively reported non-dispatch cases on 09-26 | ≥12 reported fixes; recurrence rate unverified |
 | 2 | Human and authority gates hold agents for hours to weeks | ~110 | 08-03 → 09-26 | 5 | 4 workers × ~17 h (~68 worker-hours) on one permission question; green PRs waiting 15–16 days; rebuild request unanswered ≥23 h | **No.** Authority-floor fixes did not change the floor |
 | 3 | Review ownership, consumption gaps and repeated base integration | ~60 | 08-08 → 09-26 | aiur, archon, khala | 17 reworked PRs unreviewed up to a day; reported queue reached 40 with 0 approved; 12h45m09s between merges; 4 PRs with approval history unmerged | **No.** Skill rules added twice; recurred |
-| 4 | The Executor's discovery path is not running (durable wake inbox not consumed; monitors lapse) | ~60 | 08-18 → 09-25 | aiur, archon, khala, arch-docs + private | cursor stuck 5 days, then frozen 11 days, then idle 13.5 days; 1,529 wakes never consumed; 13.6 h stall when monitors expired | **No.** Skill rule (#2412) and code fix (#2481) both followed by recurrences |
+| 4 | The Executor's discovery path is not running (durable wake inbox not acknowledged; monitors lapse) | ~60 | 08-18 → 09-25 | aiur, archon, khala, arch-docs + private | cursor stuck 5 days, then frozen 11 days, then idle 13.5 days; 1,529 wakes above the acknowledgement cursor; 13.6 h reported stall when monitors expired | **No.** Skill rule (#2412) and code fix (#2481) both followed by reported recurrences; action completion was not checked for every wake |
 | 5 | Rework is not re-dispatched after a request-changes review | ~48 | 08-05 → 09-26 | aiur, archon, khala | 12 of 12 green PRs in a rework loop; 19+ manual relabels in khala, 5 after the latest fix | **No.** ≥10 fix attempts, #1427 → #2817 |
 | 6 | The Executor and the fleet stop together (provider quota, session death, host continuity) | ~58 | 08-10 → 09-26 | aiur, archon, khala, arch-docs | 2 h 33 m, 3.6 h, ~4 h 06 m, ~8.5 h, part of 13.6 h; 16 of 20 slots held after a limit | Partly: Codex limit auto-paused in 7 min on 09-25; Claude limits still needed hand-resumes 09-26 |
 | 7 | Merged fixes do not run until someone rebuilds and restarts | ~100 (with restart friction) | 08-09 → 09-26 | aiur, archon, khala, arch-docs | "a day of merged work had never run"; reported multi-hour activation gaps; exact endpoints and repeated-bug count under audit | **Partial evidence.** Standard inspected status paths lack that comparison; other version notices exist |
@@ -57,17 +58,17 @@ the Executor doing fleet work, agent stalls, and cross-Executor coordination.
 
 ### Verdict on the operator's hypothesis, in one paragraph
 
-**Supported, but the mechanism is different from "loss of focus".** The records show long,
-frequent gaps in which neither the Executor nor the agents progress: at least 50 dated gaps,
-from 45 minutes to 13.5 days. But the most common causes are not an attentive Executor drifting
-away. They are: (a) a discovery path that does not run by itself, so the Executor learns about
+**Supported as a concern, with narrower evidence than the original count implies.**
+The selected records describe 50 dated examples, including overlaps and one
+retrospective-record gap; they are not 50 independent no-progress intervals.
+The recurring mechanisms described are: (a) a discovery path that does not run by itself, so the Executor learns about
 work only when it happens to look; (b) a single, serial review lane that treats review as one
 pass, so rework pushes go unseen; (c) daemon states that strand tickets while every surface
 reports health; (d) Executor sessions that stop entirely (quota, crash, host) with nothing to
 notice; and (e) gates only a human can open, while the human is away. When a working event
 loop and quota were present, the Executor answered events in seconds (archon: push → wake
-18 s, review → label 35 s). The problem is structural: nothing in Aiur holds the Executor's
-loop together when the Executor is absent, busy, or wrong. Details are in
+18 s, review → label 35 s). The examples do not rank causal shares or prove
+that one new loop mechanism would remove the observed gaps. Details are in
 [the hypothesis section](#the-operators-hypothesis-tested).
 
 ---
@@ -230,17 +231,18 @@ and its evidence artifacts; universal serialization and wasted-effort fractions 
 
 ### Rank 4 — A2. The Executor's discovery path is not running
 
-**Definition.** The durable, cursored wake inbox (`executor-wait`) is not consumed. The
-Executor watches a notification-only tail or a session Monitor instead, which dies with the
+**Definition.** The durable, cursored wake inbox (`executor-wait`) is not
+acknowledged in the retained cursor. The Executor may watch a notification-only
+tail or a session Monitor instead, which dies with the
 session or after 30 minutes, so work is found late, by the hourly check, or by chance.
 
 - **Citations:** ~60. **First seen** 2026-08-18 (aiur inbox starts; cursor stays at 1).
   **Last seen** 2026-09-25 (khala: monitors expired; 112 pending in the evidence capture).
 - **Repos:** aiur, archon, khala, architecture-docs; also a private repo (55 of 117 wakes
-  never consumed).
+  above its acknowledgement cursor).
 - **Measured wake-inbox state (from `executor/*.wakes.ndjson` and `*.wakes.cursor.json`):**
 
-  | Repo | Episode | Unconsumed |
+  | Repo | Episode | Unacknowledged in cursor |
   |---|---|---|
   | aiur | cursor at `wake_id 1` for 5 days (~08-18 → 08-23) | 2,832 records drained on 08-23 |
   | aiur | cursor frozen at 2832 from 08-23 to ≥09-03 | 1,137 → ~1,476 |
@@ -251,7 +253,7 @@ session or after 30 minutes, so work is found late, by the hourly check, or by c
   | khala | cursor stuck at 517 from 09-18 12:55Z to 09-24 22:15Z | 89 → 155 → 262 |
   | khala | 09-25 evidence capture | 112 |
 
-  The operator's "2,832 unconsumed" is the first episode. The same failure then recurred four
+  The operator's "2,832 unconsumed" describes the first cursor-lag episode; it does not prove no one saw those records. The same cursor lag then recurred four
   more times on aiur and once in each other repo.
 - **Stated cost:** 17 reworked PRs unseen (08-20); 81 wakes piled up during the archon quota
   outage; 7 green PRs never noticed (09-11); a 13.6 h stall on 09-25 ("the monitors expired
@@ -681,12 +683,12 @@ deliberate choice.
 | 19 | 08-22 | — | Executor's 8 reviewers pushed load to 45; dispatch halted | M4 | aiur/meta 20260822T223000Z |
 | 20 | 08-23 08:30 → 11:25 | ~3 h | merges flat; 9 green PRs waiting on the Executor | M1 | aiur/meta 20260823T112500Z |
 | 21 | 08-23 | hours | 10 tickets in `agent:error`; pool not examined | M6 | aiur/meta 20260823T122000Z |
-| 22 | 08-23 → 09-03 | 11 days | cursor frozen at 2832; ~1,476 unconsumed | M2 | aiur handoffs 0902, 0903 |
+| 22 | 08-23 → 09-03 | 11 days | cursor frozen at 2832; ~1,476 above cursor | M2 | aiur handoffs 0902, 0903 |
 | 23 | 08-25 → 09-02 | ~8 days | global pause on; fleet 0/16; nobody noticed | M3 | aiur handoff 20260902T035500Z |
 | 24 | 09-03 | ~8.5 h | aiur Executor died in API 529s; no successor | M3 | arch-docs handoff 20260903T154905Z |
 | 25 | 09-03 | 9–12 h | arch-docs dispatch frozen (1 MiB cap) | M6 | arch-docs handoffs |
 | 26 | 09-03 | — | Executor background agents: load 84, fleet 0/16 | M4 | aiur handoff 20260903T053500Z |
-| 27 | 09-03 22:50 → run end (09-05) | ~1.1 days | arch-docs cursor frozen; 1,529 wakes never consumed | M2 | wake files; arch-docs handoff |
+| 27 | 09-03 22:50 → run end (09-05) | ~1.1 days | arch-docs cursor frozen; 1,529 wakes above its acknowledgement cursor | M2 | wake files; arch-docs handoff |
 | 28 | 09-03 → 09-16 | 13.5 days | aiur cursor 4329 idle; 198 pending | M2 | aiur handoff 20260916T184046Z |
 | 29 | 09-10 04:55 → 07:28 | 2 h 33 m | account limit; fleet and Executor down | M3 | archon/meta 20260910T073040Z |
 | 30 | 09-10 | 85 min | delegated reviewer silent, unnoticed | M4 | archon/meta 20260910T142948Z |
@@ -696,7 +698,7 @@ deliberate choice.
 | 34 | 09-16 19:47 → 09-17 15:18 | ≥19.5 h | khala 0 working; bot Write gate | M5 | khala retro, handoff previous |
 | 35 | 09-16 22:10 → 09-17 02:19 | ~4 h 06 m | both Executors stopped at once | M3 | aiur resume retro; khala handoff |
 | 36 | 09-17 02:27 → 15:12 | 12.75 h | no aiur merges; approved PRs abandoned; Executor implements | M4 | aiur evidence; handoff.md |
-| 37 | 09-17 02:56 → 09-20 | ~3.7 days | aiur wakes never consumed (66); lease renewed | M2 | wake files |
+| 37 | 09-17 02:56 → 09-20 | ~3.7 days | aiur wakes above cursor (66); lease renewed | M2 | wake files |
 | 38 | 09-17 → 09-26 | 9 days | no hourly retros | M2* | e09 retro |
 | 39 | 09-18 04:47 → 08:22 | 3.6 h | Claude limit; 6 rework tickets to `agent:error` | M3 | khala handoff 09-18 |
 | 40 | 09-18 04:04–04:16 | — | rework on 3 PRs missed (watcher scope) | M2 | khala handoff 09-18 |
@@ -725,7 +727,7 @@ consuming events, or nobody is running.
    counting the operator's choice and the retro gap) are longer than 5 hours. The records state no-progress windows of 12.75 h, 13.6 h, 19.6 h and several days.
 2. **Pull requests are where the Executor's attention fails first.** The operator's picture is
    correct in one precise way: *re-review after rework* is the step that is lost. First reviews
-   happen, while recorded rework notifications can go unconsumed (rows 9, 13, 17, 18,
+   happen, while recorded rework notifications can remain unacknowledged (rows 9, 13, 17, 18,
    20, 40, 48). Frozen defaults already bind ticket.*.branch.push, and the historical
    skill describes ignored signals. Absence of a wake mechanism is not established. The
    Executor describes the consumption gap: "every rework waits on me noticing" (`aiur/meta/20260823T132000Z`).
@@ -770,8 +772,8 @@ consuming events, or nobody is running.
 
 | Mechanism | What happens | Evidence (count of gap rows) | What would remove it |
 |---|---|---|---|
-| Discovery depends on the session | Tail and Monitor die with the session or after 30 min; the durable cursor is not consumed; noise buries the backlog | 11 rows; 8 inbox episodes | a daemon-owned loop that wakes the Executor and escalates an unconsumed backlog |
-| Review ownership and consumption gaps | Existing push wakes can go unconsumed; repeated base integrations are recorded; review also runs concurrently | Historical queue reports and bounded meta-10 Git census; causal effort fraction unresolved | Trace existing wake consumption, bound reviewer/test concurrency and evaluate integration scheduling |
+| Discovery depends on the session | Tail and Monitor die with the session or after 30 min; the durable cursor is not advanced; noise buries the backlog | 11 rows; 8 inbox episodes | a daemon-owned loop that wakes the Executor and escalates an unacknowledged backlog |
+| Review ownership and consumption gaps | Existing push wakes can remain unacknowledged; repeated base integrations are recorded; review also runs concurrently | Historical queue reports and bounded meta-10 Git census; causal effort fraction unresolved | Trace observation, acknowledgement and action, bound reviewer/test concurrency and evaluate integration scheduling |
 | Executor absence is invisible | Quota, crash, host, rotation, pause | 8 rows | a heartbeat on the Executor with a successor or an alert |
 | Self-authored loops omit obligations | E09 reports a missing retro step and a compaction cut; other records describe narrow waiters/watchers | e09 retro; rows 33, 38, 40 | Assign cadence ownership and check invocation of the existing coded arm/due/record helper; choose enforcement placement explicitly |
 | Attention capture by deep work | Spikes, diagnosing Aiur defects, doing agent work, peer mail | 6 rows | move toil to the daemon; a work-in-progress limit for the Executor |
@@ -858,7 +860,7 @@ These are places where a later document says an earlier claim was wrong.
   17:56) have no stated cause. The simultaneous stop of both Executors on 09-16 22:10 →
   09-17 02:19 has an inferred link to two SSH logins at 02:17:45Z and 02:17:54Z (khala
   `evidence/current-lock-proof-20260917T0244Z.md`); check the session logs.
-- **Census lane:** unconsumed wakes now: architecture-docs 1,529, archon 264, aiur 66, khala 0,
+- **Census lane:** wakes above the retained cursors: architecture-docs 1,529, archon 264, aiur 66, khala 0,
   and one private repo 55. Owner leases kept renewing after the last ack (archon 36 h, aiur to
   09-22).
 - **Fixes lane:** the chains above; verify #2817–#2819 and whether #2815 is in the running

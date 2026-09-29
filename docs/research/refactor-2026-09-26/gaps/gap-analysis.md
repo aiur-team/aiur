@@ -49,6 +49,11 @@ not verified continuous uptime or measured wasted time. See
 | Gap time, gaps ≥ 15 min | 760.3 h (202 gaps) |
 | Daemon-down time between runs (reported separately, not in the totals above) | 51.1 h khala after a host crash, plus deliberate idle periods (§6) |
 
+The 75.65% fraction is time without one of the selected progress events
+*inside the retained interval model*. It is not a measured fraction of all
+calendar time in which no useful work occurred; five long gaps account for
+61.54% of the modeled >=30-minute gap hours.
+
 **Attribution of gap time (gaps ≥ 30 min, minute by minute):**
 
 | Category | All eras | % | Run-log era (current system) | % | Run-log, aiur + khala only | % |
@@ -85,8 +90,9 @@ causation and current-era source completeness remain under review.
    the claimed six-day operator absence remains unverified. The 257.2 h equals 90.91% of pre-log aiur gap bins;
    the 86.40% figure instead uses all-pre-log d (273.0667 of 316.0333 h). Neither
    percentage establishes one defect's causal share.
-2. **Agents waiting on an absent Executor (b), 181 h; 66 % of current-era aiur/khala idle time.** Dependency
-   graphs make one human-blocked ticket block the whole fleet. For 4.6 days, khala waited on one paused
+2. **Historical waiting classification (b), 181 h; 66% of current-era aiur/khala gap bins.** This is a
+   precedence-assigned label/attention category, not a causal share of human
+   absence. Dependency graphs can make one blocked ticket affect dependents. For 4.6 days, khala waited on one paused
    ticket (#41, *"live two-human proof credentials: this is an operator provis[ioning]…"*). All six
    remaining todo tickets were declined with *"Dispatch declined for 43: :dependency."*. aiur waited
    61.6 h on 9 human-review PRs and 3 rework tickets. Those 3 tickets were `:blocked_on_decision` on
