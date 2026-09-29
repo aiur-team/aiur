@@ -1,0 +1,15 @@
+# High-priority finding source queue on merged `f223f30ea`
+
+The exact cited-line check at `f223f30ead855c1f88ea188fb8f9cf74414ffb90` has three P0 findings with changed citations and 25 P1 findings requiring source recheck (24 changed or moved citations, one stale). Another 69 P1 citations remain byte-identical at the cited lines; that does not establish behavior, incidence or a disposition. Retain all source IDs and independent skeptic verdicts from the frozen ledger.
+
+| Priority | Finding IDs | Current source task |
+| --- | --- | --- |
+| P0 | `agent-backends-oc-01` | Recheck the Opencode completion/marker authentication path and unauthorized-output test on main. |
+| P0 | `agent-backends-oc-02`, `nonelixir-shell-01` | #2845 and #2846 changed the token sandbox and instance stop paths. Verify their exact merged tests/mutation proof and reachable population; recycled PID identity is separate #2844. |
+| P1 runtime | `agent-runtime-01`, `agent-runtime-02`, `agent-runtime-04`, `agent-runtime-07`, `agent-runtime-08`, `platform-misc-01`, `tests-5-01` | Queue-drain pause/restore, checkpoint delivery, renderer, comment context and session lifecycle anchors moved or changed. Reproduce the specific turn/pause/failure path before assigning a fix. |
+| P1 GitHub/events | `events-webhooks-executor-05`, `github-a-04`, `github-b-03`, `orch-a-10`, `orch-b-02` | Recheck comment polling, context completeness, cache/resource identity, operator message delivery and accounting under their current callers. |
+| P1 status/web | `loose-2-02`, `loose-4-04`, `orch-b-01`, `orch-b-14`, `web-rest-02`, `web-rest-03`, `web-rest-08` | Recheck startup/status/read-model truth and rescue outcomes. `web-rest-08` is stale because the removed GitHub cache page was one of its cited files; its frozen rescue-count figure cannot be reused on main. |
+| P1 shell | `nonelixir-shell-02`, `nonelixir-shell-03`, `nonelixir-shell-08`, `platform-misc-08` | The argv newline/empty-argument loss in `write_argv` plus `CLI.argv_from_file` is source-confirmed, pending actual CLI reproduction and not by itself a 0.0.6 block. The packaged Ctrl+C failure in `nonelixir-shell-03` has a real attached-client keypress reproduction and release-blocking issue [#2855](https://github.com/aiur-team/aiur/issues/2855). Engine project-root walk and Workflow config discovery still differ; test a subdirectory launch and exact loaded config before disposition. Recheck the remaining shell path separately. |
+| P1 other | `build-order-02`, `tests-1c-01` | Recheck normalizer and test-support anchors against current callers. |
+
+The grouped rows enumerate exactly 25 P1 IDs. The shell keypress result used a disposable tmux server and the shipped config; it is not a substitute for full foreground CLI/TUI acceptance. No other grouped entry is claimed as a reproduced runtime defect on this head. Start behavior review with the P0s and #2855, then work outward by actual production reachability and user impact.
