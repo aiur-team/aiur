@@ -147,6 +147,10 @@ A `model:` label overrides complexity routing for one ticket, and aiur reads it 
 | `model:claude-opus-4-8`, `model:codex-astra` | That backend, always. A family name resolves to its newest release; anything else is passed to the CLI as an exact pin. |
 | `model:opus`, `model:astra` | Any model or family an installed CLI offers. aiur finds the backend itself. |
 
+When a ticket has no `complexity:` or `model:` label, Aiur uses the configured
+default backend. If that backend is usage-limited, the ticket waits for its
+reset instead of starting an agent that cannot run.
+
 The names come from the installed CLIs, not from aiur, so a model released after your aiur
 build works as soon as your CLI lists it. aiur reads each CLI's model list about daily, and
 again when a ticket names something it has not seen (at most once every 10 minutes).

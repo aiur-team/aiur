@@ -129,6 +129,16 @@ defmodule Aiur.CodingAgentTest do
     # into its own exhausted Claude account.
     @limited %{"backends" => %{"claude" => %{"limited" => true, "reset_at" => "2999-01-01T00:00:00Z"}}}
 
+    test "an unlabelled ticket waits when its default backend is usage-limited" do
+      assert {:all_limited, ["claude"]} =
+               CodingAgent.select_for_dispatch(issue([]),
+                 backends: [],
+                 default_backend: "claude",
+                 state: @limited,
+                 now: ~U[2026-09-26 02:30:00Z]
+               )
+    end
+
     test "a usage-limited routed backend parks the claim instead of dispatching into the limit" do
       assert {:all_limited, ["claude"]} =
                CodingAgent.select_for_dispatch(issue(["complexity:3"]),
