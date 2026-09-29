@@ -368,6 +368,17 @@ Remote workers and Claude Remote Control are unsupported for Muse.
 | `agent.backend_configs.muse.model` | string or nil | nil | Optional Muse model override; omit to use the CLI default. |
 | `agent.backend_configs.muse.provider_id` | string or nil | nil | Optional Muse provider identifier. |
 
+#### `agent.backend_configs.gemini`
+
+Select `gemini` in `agent.priority` to run the installed Gemini CLI through its native ACP session. Authenticate and approve workspace trust in Gemini CLI before dispatch; Aiur uses that existing login and never stores the credential. Aiur connects its ticket-scoped tools over an authenticated local MCP endpoint. Native tool requests appear in the chat pane as `/approve <token> <choice>` commands; only the selected choice is returned. Aiur selects Gemini's default approval mode at session start so an ambient auto-approval preference does not bypass the chat decision. Gemini's folder trust still applies.
+
+Aiur loads a stored Gemini session by exact ID after restart. It creates a new one only if Gemini confirms that exact session is missing; authentication, transport, and uncertain failures stop the ticket. Gemini does not support Aiur remote workers, Claude Remote Control, or reasoning effort routing. Model choices come from the authenticated CLI's ACP session catalog. Gemini CLI 0.61.0's per-turn ACP quota counts feed token usage without an inferred price; other CLI versions show unknown usage until their wire shape is verified. Account allowance is unavailable; unavailable never means zero.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.gemini.command` | non-empty string | `gemini --acp` | Command launching the local Gemini CLI ACP server. |
+| `agent.backend_configs.gemini.enabled` | boolean | `true` | Whether this configured backend may dispatch. |
+
 #### Cost attribution
 
 | Cost case | Attribution |

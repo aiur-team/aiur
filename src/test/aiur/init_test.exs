@@ -1467,7 +1467,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex", "kimi", "openrouter", "muse", "fake"]
+      assert opts == ["claude", "codex", "kimi", "openrouter", "muse", "gemini", "fake"]
       refute "claude-repl" in opts
       # DeepSeek is registered but not dispatch-enabled by default, so it must
       # not be offerable from init.

@@ -28,7 +28,7 @@ defmodule Aiur.AgentTools.MCP do
       when is_function(executor, 2) do
     result =
       case GenServer.call(server, {:valid_binding, binding}) do
-        :ok -> execute(invocation, name, args, executor)
+        {:ok, transport} -> execute(transport, invocation, name, args, executor)
         error -> error
       end
 
@@ -68,7 +68,7 @@ defmodule Aiur.AgentTools.MCP do
       {:ok, listener} ->
         case ThousandIsland.listener_info(listener) do
           {:ok, {_ip, port}} ->
-            {:ok, %{owner: owner, listener: listener, port: port, token: token, id: id, binding: nil, requests: %{}}}
+            {:ok, %{owner: owner, listener: listener, port: port, token: token, id: id, transport: Keyword.get(opts, :transport, :muse_mcp), binding: nil, requests: %{}}}
 
           _ ->
             Process.exit(listener, :shutdown)
@@ -111,7 +111,7 @@ defmodule Aiur.AgentTools.MCP do
   def handle_call({:unbind, _}, _from, state), do: {:reply, {:error, :unauthorized}, state}
 
   def handle_call({:valid_binding, binding}, {owner, _}, %{owner: owner, binding: {binding, _}} = state),
-    do: {:reply, :ok, state}
+    do: {:reply, {:ok, state.transport}, state}
 
   def handle_call({:valid_binding, _}, _from, state), do: {:reply, {:error, :inactive_attempt}, state}
 
@@ -179,10 +179,10 @@ defmodule Aiur.AgentTools.MCP do
     end)
   end
 
-  defp execute(invocation, name, args, executor) do
+  defp execute(transport, invocation, name, args, executor) do
     fingerprint = :crypto.hash(:sha256, :erlang.term_to_binary({name, args}, [:deterministic]))
 
-    ToolCallLedger.execute({:muse_mcp, invocation}, fingerprint, fn ->
+    ToolCallLedger.execute({transport, invocation}, fingerprint, fn ->
       ToolExecutor.execute(executor, name, args, invocation)
     end)
   end
