@@ -107,8 +107,13 @@ CE skills frame it.
 
 ## Docs ship in the same PR
 
+For Aiur repository changes, follow the page map below. In other repositories,
+follow that repository's documentation policy and update the pages its change
+affects; do not create a `website/docs-app/` path just because Aiur's skill
+names one.
+
 Documentation is part of the change, not a follow-up ticket. Update
-`website/docs-app/` **in this PR** when your work:
+Aiur's `website/docs-app/` **in this PR** when your Aiur work:
 
 - adds or changes a **config key** (`.aiur/config`, `Aiur.Config.Schema.*`) →
   `reference/configuration.md`, plus the `.aiur/examples/` and
@@ -144,7 +149,8 @@ focused test runner, test-tree paths and CI gate at each step.
 
 1. Implement
 2. Add / update / run tests
-3. Update `website/docs-app/` if the change crossed the threshold above
+3. Update the target repository's documentation if its change requires it;
+   for Aiur changes, use `website/docs-app/` and the threshold above
 4. Run the scoped local pre-PR verification gate before opening or finalizing
    the PR using the target repository's commands. For Aiur's Elixir core:
    `mix compile --warnings-as-errors`, `mix format`, and affected tests

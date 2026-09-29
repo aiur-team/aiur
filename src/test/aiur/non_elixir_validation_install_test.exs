@@ -37,6 +37,8 @@ defmodule Aiur.NonElixirValidationInstallTest do
       assert entry =~ "`validation.md`"
       assert loop =~ "[`validation.md`](validation.md)"
       assert loop =~ "The Elixir examples below apply only to Aiur's Elixir core"
+      assert loop =~ "follow that repository's documentation policy"
+      assert loop =~ "for Aiur changes, use `website/docs-app/`"
       assert validation =~ "inspect package.json scripts and the selected runner's file filters"
       assert validation =~ "including colocated tests and sibling files"
       assert validation =~ "test fails with the production change reverted in an isolated worktree"
