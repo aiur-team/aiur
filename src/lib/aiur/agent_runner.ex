@@ -12,6 +12,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
   alias Aiur.Opencode.ApiClient
+  alias Aiur.Orchestrator.AutoResume
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
@@ -54,7 +55,7 @@ defmodule Aiur.AgentRunner do
   def fail_run(reason, message) do
     # Preserve the typed hold across Task's DOWN boundary. Turning it into a
     # RuntimeError string hides reset_at from RetryEngine and consumes retries.
-    if Aiur.Orchestrator.AutoResume.classify(reason) == :local_budget_hold do
+    if AutoResume.classify(reason) == :local_budget_hold do
       exit(reason)
     else
       raise RuntimeError, message
