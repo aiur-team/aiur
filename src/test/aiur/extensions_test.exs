@@ -627,6 +627,7 @@ defmodule Aiur.ExtensionsTest do
                  "attempt" => 2,
                  "due_at" => state_payload["retrying"] |> List.first() |> Map.fetch!("due_at"),
                  "error" => "boom",
+                 "last_failure_at" => nil,
                  "worker_host" => nil,
                  "workspace_path" => nil,
                  "state" => nil,
