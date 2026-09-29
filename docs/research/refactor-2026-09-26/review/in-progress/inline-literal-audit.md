@@ -62,6 +62,7 @@ Reproduce from the research branch with Elixir 1.19.5 / OTP 28:
 
 ```sh
 python tooling/test_inline_literal_census.py
+python tooling/test_inline_literal_summary.py
 elixir tooling/inline_literal_census.exs /path/to/frozen-snapshot > /tmp/inline-literal-census.json
 python tooling/inline_literal_summary.py /tmp/inline-literal-census.json
 ```
