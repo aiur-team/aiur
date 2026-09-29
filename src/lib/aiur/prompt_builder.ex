@@ -125,10 +125,13 @@ defmodule Aiur.PromptBuilder do
 
     ## Rename and signature-change test audit (restated)
 
-    Before pushing a function rename, option-key rename, or signature change, search the complete test tree with
-    `mise exec -- rg -n --fixed-strings -- '<old-name>' src/test/` and account for every hit. Directory-scoped runs do
+    Run focused tests using the target repository's documented commands, package manager and runner configuration.
+    The destructive `aiurdev --test` / `--test3` reset prohibition does not prohibit focused repository tests.
+    Before pushing a function rename, option-key rename, or signature change, search all of that repository's
+    test roots, including colocated tests, and account for every old-identifier hit.
+    Only for Aiur's Elixir core, use `mise exec -- rg -n --fixed-strings -- '<old-name>' src/test/`. Directory-scoped runs do
     not cover sibling root-level files: `test/aiur/github/` does not collect `test/aiur/github_client_test.exs`.
-    `mix aiur.affected_tests` also adds every test file matching a reference deleted from a source diff hunk.
+    In that Elixir core, `mix aiur.affected_tests` also adds every test file matching a reference deleted from a source diff hunk.
 
     """
   end

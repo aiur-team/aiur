@@ -32,6 +32,12 @@ credential failure. A budget-held agent requests a typed, expiring pause and is
 resumed automatically; it does not raise a credential attention for a healthy
 token.
 
+Issue workers select focused tests from the target repository's instructions,
+package scripts, and CI configuration. The bundled `aiur-agent` skill's `mix`
+examples apply to Aiur's Elixir core; a TypeScript workspace uses its own
+runner. The `aiurdev --test` / `--test3` guard prevents destructive Aiur
+sandbox resets from issue workspaces, not ordinary repository tests.
+
 ## Executor skills
 
 These stay with the Executor and are not copied into ticket workspaces.
