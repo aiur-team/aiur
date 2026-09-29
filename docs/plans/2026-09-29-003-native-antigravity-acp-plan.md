@@ -22,6 +22,14 @@ this operator. Aiur `v0.0.6` was already published, satisfying the original
 post-release gate. The Executor continues refactor research while a background
 worker implements this plan.
 
+**2026-09-29 scope gate:** Google's current Terms §6 and FAQ prohibit using a
+personal Antigravity login through third-party software and recommend Gemini
+Enterprise or Google AI Studio API keys for third-party coding agents. Aiur is
+third-party software. Do not use `oauth-personal` or implement a personal-login
+Antigravity backend. Research whether a permitted API-key or enterprise ACP
+route meets the same approval and MCP contract, then revise this plan before
+implementation resumes.
+
 ## Product Contract
 
 ### Summary
@@ -43,10 +51,10 @@ request to the Executor. Existing backends keep their current defaults.
   distributes Google's proprietary `agy_acp_server` separately from `agy`.
   Aiur does not bundle it or copy the user's `agy` credentials. Missing server
   or server authentication produces actionable setup state. An authenticated
-  ACP-server login is an operator prerequisite for the live wire probe; the
-  existing `agy` login does not satisfy it. The worker must establish and
-  document the server's supported native authentication flow before the plan
-  can be marked implementation-ready.
+  ACP-server login through a permitted API-key or enterprise route is an
+  operator prerequisite for the live wire probe; the existing personal `agy`
+  login does not satisfy it. The worker must establish that the chosen route
+  is supported and allowed before the plan can be marked implementation-ready.
 - **Do not invent usage.** The server's token and quota fields are unverified
   for this plan. Unknown is distinct from zero, and a quota reported by a
   separate `agy` account cannot be attributed to an ACP session.
@@ -110,6 +118,11 @@ evidence and product decision.
   approvals that cannot be obtained in headless mode. A local authenticated
   `agy` 1.2.13 probe completed two turns; a shell-tool probe was soft-denied
   with exit zero under `request-review`.
+- Google's [Terms §6](https://antigravity.google/terms) and
+  [FAQ](https://www.antigravity.google/docs/faq/) explicitly prohibit personal
+  Antigravity login through third-party software and recommend Gemini
+  Enterprise or Google AI Studio API keys for third-party coding agents. The
+  server's advertised `oauth-personal` method is not an acceptable Aiur route.
 - The [ACP Registry manifest](https://github.com/agentclientprotocol/registry/blob/main/antigravity-acp/agent.json)
   names Google as publisher and lists server 1.2.1 for Linux and Darwin. A
   locally cached Linux server answered ACP `initialize` with protocol 1,
