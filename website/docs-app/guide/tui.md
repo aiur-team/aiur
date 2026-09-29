@@ -59,6 +59,8 @@ Press `?` in the board for the on-screen keybind and state-circle help.
 | --- | --- |
 | `enter` on running agent | Opens its live conversation beside the board. |
 | Message during a turn | Queues until the current turn finishes. |
+| `Ctrl+C` in chat | With the dashboard listener available, interrupts active work or pauses an idle agent through Aiur; an already paused pane hides. |
+| `Ctrl+Q` in chat | With the dashboard listener available, hides the pane while keeping the agent session available to reopen. |
 | `max_vertical_panes` | Caps visible chat panes. |
 
 ### Muse approval requests

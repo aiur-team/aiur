@@ -1000,6 +1000,20 @@ run_session() {
     exit 1
   fi
 
+  # Each instance has its own tmux socket. Publish the executable shipped next
+  # to this engine before the TUI opens a chat pane; tmux receives the path as
+  # one argument, including when the npm install directory contains spaces.
+  if [ "$mode" = "foreground" ]; then
+    local ctrlc_helper="$engine_dir/aiur-pane-ctrlc"
+    if [ ! -x "$ctrlc_helper" ] ||
+       ! "$tmux_bin" -L "$socket" -f "$conf" set-option -g @aiur_ctrlc "$ctrlc_helper"; then
+      "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+      rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
+      release_aiur_launch_lock "$launch_lock"
+      die "aiur pane control helper is unavailable at $ctrlc_helper"
+    fi
+  fi
+
   # Title the agent-list pane (the only pane in the fresh session). The conf's
   # `pane-border-status`/`pane-border-format` render it; PaneManager titles the
   # chat panes it opens. Best-effort — a missing title just shows the default.
