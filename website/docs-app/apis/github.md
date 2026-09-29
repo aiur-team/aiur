@@ -26,7 +26,9 @@ Label read/create failures stop startup before agents start and explain the requ
 
 Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
 
-The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails, so a review submitted during `agent:ci-wait` is still considered when the ticket returns to review. This does not recover reviews that an older daemon already skipped before this cursor existed.
+The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails. A review submitted during `agent:ci-wait` is still considered when the ticket returns to review.
+
+This does not recover reviews that an older daemon already skipped before this cursor existed.
 
 The repository events feed does not show a pull request going from draft to ready. Without a webhook, the polls infer it from each ticket PR's draft flag, which the comment poll and the CI poll already read.
 
