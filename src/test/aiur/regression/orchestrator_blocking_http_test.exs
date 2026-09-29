@@ -398,6 +398,9 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
             issue: %Aiur.Issue{id: "57", identifier: "57", state: "in-progress", title: "Slow setup"}
           }
         })
+        # This fixture owns exactly one running target plus two configured
+        # slots; pending reconciliation from the shared process adds waves.
+        |> Map.put(:github_comment_reconcile_targets, MapSet.new())
         |> CommentPolling.start_async(opts)
       end)
 

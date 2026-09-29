@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
   use ExUnit.Case, async: false
 
   alias Aiur.AgentRunner.{QueueDrain, ToolExecutor}
-  alias Aiur.{AlertFeed, Issue, LiveConversation, TrackerIdentity}
+  alias Aiur.{AlertFeed, Issue, LiveConversation, PauseContainment, TrackerIdentity}
   alias Aiur.Events.Exchange
 
   @active_turn_mismatch %{
@@ -727,6 +727,131 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       refute_receive {:replacement_turn, "replacement-thread", "survive closed start"}
       assert_receive {:queue_item_consumed, ^identifier}
       refute_receive {:queue_item_restored, ^identifier}
+    end
+
+    test "Muse pre-write closed turn/start restores a queued message for one replacement delivery" do
+      identifier = "QD-muse-start-port-closed-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      item = %{category: :operator_message, id: 52, body: %{text: "survive Muse closed start"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+
+      assert {:error, {:turn_start_failed, :port_closed}} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "muse", thread_id: "retired-native-session"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: fn _session, _text, _issue, _opts ->
+                   {:error, {:turn_start_failed, :port_closed}}
+                 end
+               )
+
+      assert_receive {:queue_item_restored, ^identifier}
+      refute_received {:queue_item_consumed, ^identifier}
+      refute_received {:queue_item_failed, ^identifier, _reason}
+
+      test_pid = self()
+
+      assert :ok =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "muse", thread_id: "replacement-native-session"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: fn session, text, _issue, _opts ->
+                   send(test_pid, {:muse_replacement_turn, session.thread_id, text})
+                   {:ok, session}
+                 end
+               )
+
+      assert_receive {:muse_replacement_turn, "replacement-native-session", "survive Muse closed start"}
+      assert_receive {:queue_item_consumed, ^identifier}
+      refute_received {:queue_item_failed, ^identifier, _reason}
+      refute_received {:muse_replacement_turn, "replacement-native-session", "survive Muse closed start"}
+    end
+
+    # Future-regression guard: this behavior already held before Muse recovery.
+    test "Muse transport exit after admission fails a queued message rather than replaying it" do
+      identifier = "QD-muse-accepted-port-exit-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      item = %{category: :operator_message, id: 53, body: %{text: "uncertain outcome"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+
+      assert {:error, {:native_port_exit, 9}} =
+               QueueDrain.drain_operator_messages(
+                 %{backend: "muse", thread_id: "accepted-native-session"},
+                 issue,
+                 fn _message -> :ok end,
+                 orchestrator,
+                 nil,
+                 run_turn: fn _session, _text, _issue, _opts -> {:error, {:native_port_exit, 9}} end
+               )
+
+      assert_receive {:queue_item_failed, ^identifier, {:native_port_exit, 9}}
+      refute_received {:queue_item_restored, ^identifier}
+    end
+
+    test "a paused queued turn confirms containment before waiting for resume" do
+      identifier = "QD-paused-containment-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      item = %{category: :operator_message, id: 51, body: %{text: "pause this follow-up"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+      fake_pid = 2_147_483_647
+      assert {:ok, containment} = PauseContainment.register(identifier, fake_pid, fake_pid)
+      on_exit(fn -> PauseContainment.unregister(containment) end)
+      assert {:ok, ^containment} = PauseContainment.arm(identifier)
+
+      {:ok, worker} =
+        Task.start(fn ->
+          QueueDrain.drain_operator_messages(
+            %{backend: "muse", thread_id: "native-thread", containment: containment},
+            issue,
+            fn _message -> :ok end,
+            orchestrator,
+            nil,
+            run_turn: fn _session, _text, _issue, _opts ->
+              {:paused, %{control: %{request_id: 51, generation: containment.generation}}}
+            end
+          )
+        end)
+
+      on_exit(fn -> if Process.alive?(worker), do: Process.exit(worker, :kill) end)
+      assert_receive {:queue_item_restored, ^identifier}
+      assert %{^identifier => %{mode: :paused}} = :sys.get_state(PauseContainment).entries
+      refute_received {:queue_item_failed, ^identifier, _reason}
+    end
+
+    test "a queued Muse turn completed during pause is consumed before waiting for resume" do
+      identifier = "QD-muse-completed-pause-#{System.unique_integer([:positive])}"
+      issue = %Issue{identifier: identifier}
+      item = %{category: :operator_message, id: 52, body: %{text: "apply once"}}
+      {:ok, orchestrator} = FakeQueueOrchestrator.start_link(item, self())
+      fake_pid = 2_147_483_647
+      assert {:ok, containment} = PauseContainment.register(identifier, fake_pid, fake_pid)
+      on_exit(fn -> PauseContainment.unregister(containment) end)
+      assert {:ok, ^containment} = PauseContainment.arm(identifier)
+
+      {:ok, worker} =
+        Task.start(fn ->
+          QueueDrain.drain_operator_messages(
+            %{backend: "muse", thread_id: "native-thread", containment: containment},
+            issue,
+            fn _message -> :ok end,
+            orchestrator,
+            nil,
+            run_turn: fn _session, _text, _issue, _opts ->
+              {:paused, %{native_terminal: :completed, control: %{request_id: 52, generation: containment.generation}}}
+            end
+          )
+        end)
+
+      on_exit(fn -> if Process.alive?(worker), do: Process.exit(worker, :kill) end)
+      assert_receive {:queue_item_consumed, ^identifier}, 1_000
+      refute_received {:queue_item_restored, ^identifier}
+      assert %{item: nil, delivered: nil} = :sys.get_state(orchestrator)
+      assert %{^identifier => %{mode: :paused}} = :sys.get_state(PauseContainment).entries
     end
 
     test "a transient unavailable restore is confirmed before replacement, without stranding or failing the item" do

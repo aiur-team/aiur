@@ -10,14 +10,16 @@ Shared credentials can live in `~/.aiur/.env` outside Git. Local settings, permi
 
 `aiur-intro` explains one-time home setup and per-repository readiness: GitHub access, base branch, CODEOWNERS or dispatch allowlist, labels and validation. The Executor tells the user what was configured and what still blocks startup or worker publication.
 
-Aiur ships Agent Skills under `.claude/skills/` and makes them available to Codex under `.codex/skills/`. They split into two families by **where they run**:
+Aiur ships Agent Skills under `.claude/skills/`, with shared links for Codex under `.codex/skills/` and Muse under `.agents/skills/` in the source checkout. They split into two families by **where they run**:
 
 - **Agent-workspace skills** are copied into every ticket workspace, so the agent working a ticket can load them on any repository.
 - **Executor skills** stay in this repository and load in the Executor's own session, whether that Executor is a human or an agent driving Aiur.
 
 ## Agent-workspace skills
 
-These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under both `<workspace>/.claude/skills/` and `<workspace>/.codex/skills/`, so a Claude workspace and a Codex workspace get the same set without a machine-local plugin cache.
+These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under `<workspace>/.claude/skills/`, `<workspace>/.codex/skills/`, and `<workspace>/.agents/skills/`.
+
+Muse loads workspace skills and rules only when `agent.backend_configs.muse.trust_workspace` is explicitly enabled.
 
 | Skill | Loaded when | Covers |
 | --- | --- | --- |

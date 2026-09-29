@@ -973,11 +973,17 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   defp tag_session(session, backend, opts) do
     session
     |> Map.put(:backend, backend)
-    |> Map.put(:model, Keyword.get(opts, :model))
+    |> Map.put(:model, established_model(session, opts))
     |> Map.put(:effort, supported_effort(backend, Keyword.get(opts, :effort)))
     |> maybe_put_attempt_id(Keyword.get(opts, :attempt_id))
     |> maybe_put_telemetry_launch_session(Keyword.get(opts, :telemetry_launch))
   end
+
+  defp established_model(%{model: model}, opts) when is_binary(model) do
+    if String.trim(model) == "", do: Keyword.get(opts, :model), else: model
+  end
+
+  defp established_model(_session, opts), do: Keyword.get(opts, :model)
 
   defp supported_effort(backend, effort) when is_binary(effort) do
     if effort in CodingAgent.efforts(backend) do

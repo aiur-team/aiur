@@ -11,6 +11,7 @@ defmodule AiurWeb.FinancialData.ChangeBridgeTest do
         name: :"change_bridge_#{System.unique_integer([:positive])}",
         subscribe_fun: fn -> send(parent, :subscribed) end,
         provider_meter_subscribe_fun: fn -> :ok end,
+        host_meter_subscribe_fun: fn -> :ok end,
         broadcast_fun: fn -> send(parent, :broadcast) end
       )
 
@@ -31,6 +32,7 @@ defmodule AiurWeb.FinancialData.ChangeBridgeTest do
         name: :"change_bridge_#{System.unique_integer([:positive])}",
         subscribe_fun: fn -> :ok end,
         provider_meter_subscribe_fun: fn -> send(parent, :meter_subscribed) end,
+        host_meter_subscribe_fun: fn -> :ok end,
         broadcast_fun: fn -> send(parent, :broadcast) end
       )
 
@@ -38,6 +40,23 @@ defmodule AiurWeb.FinancialData.ChangeBridgeTest do
 
     send(bridge, {:provider_meter_changed, %{provider: :deepseek}})
     assert_receive :broadcast
+  end
+
+  test "host meter invalidation reaches the protected facade without observation data" do
+    parent = self()
+
+    {:ok, bridge} =
+      ChangeBridge.start_link(
+        name: nil,
+        subscribe_fun: fn -> :ok end,
+        provider_meter_subscribe_fun: fn -> :ok end,
+        host_meter_subscribe_fun: fn -> send(parent, :host_subscribed) end,
+        broadcast_fun: fn -> send(parent, :host_refresh) end
+      )
+
+    assert_receive :host_subscribed
+    send(bridge, {:host_meter_changed, :muse})
+    assert_receive :host_refresh
   end
 
   test "boots even when subscription raises and ignores unrelated messages" do
@@ -48,12 +67,14 @@ defmodule AiurWeb.FinancialData.ChangeBridgeTest do
         name: :"change_bridge_#{System.unique_integer([:positive])}",
         subscribe_fun: fn -> raise "pubsub not started" end,
         provider_meter_subscribe_fun: fn -> :ok end,
+        host_meter_subscribe_fun: fn -> :ok end,
         broadcast_fun: fn -> send(parent, :broadcast) end
       )
 
     assert Process.alive?(bridge)
 
     send(bridge, :some_other_message)
-    refute_receive :broadcast, 100
+    :sys.get_state(bridge)
+    refute_received :broadcast
   end
 end

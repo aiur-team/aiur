@@ -15,8 +15,10 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
 
   use ExUnit.Case, async: false
 
-  alias Aiur.AgentList.App
+  alias Aiur.AgentList.{App, RenderState}
   alias Aiur.Events.DebugLog
+  alias Aiur.ProviderMeterProjection
+  alias Aiur.ProviderMeters.HostObservations
 
   setup do
     parent = self()
@@ -52,7 +54,12 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
       send(pid, {:event_debug, entry})
       latest_with_event = await_render("💬 42 pushed")
 
-      assert latest_with_event =~ "💬 42 pushed", "events box should render the event"
+      message =
+        if latest_with_event =~ "💬 42 pushed",
+          do: "events box should render the event",
+          else: render_failure_details(pid, latest_with_event)
+
+      assert latest_with_event =~ "💬 42 pushed", message
 
       # Trigger a subsequent render via :refresh_tick. This is the bug
       # surface: if debug_events is stripped from render_state, the
@@ -141,6 +148,29 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
         Process.sleep(10)
         await_render(expected, deadline, latest)
     end
+  end
+
+  # Keep suite-only failures diagnosable without extending the wait or changing
+  # the assertion. Do not inspect process messages or other credential-bearing state.
+  defp render_failure_details(pid, frame) do
+    processes = [
+      app: pid,
+      projection: Process.whereis(ProviderMeterProjection),
+      host: Process.whereis(HostObservations)
+    ]
+
+    process_info =
+      Map.new(processes, fn {label, process} ->
+        info =
+          if is_pid(process),
+            do: Process.info(process, [:current_function, :current_stacktrace, :message_queue_len, :status]),
+            else: :absent
+
+        {label, info}
+      end)
+
+    details = %{frame: String.slice(frame, 0, 4_000), processes: process_info, geometry: RenderState.terminal_geometry()}
+    "events box should render the event: #{inspect(details, pretty: true)}"
   end
 
   # Drain any pending {:rendered, _} messages from the test process mailbox.

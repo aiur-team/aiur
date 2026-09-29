@@ -42,6 +42,7 @@ defmodule Aiur.AgentList.Renderer.Layout do
   # Beyond that, format_runtime/1 rolls over to `Nh` so the column
   # still fits.
   @runtime_cell_width 7
+  @context_cell_width 12
 
   @min_id_width 4
   @min_title_width 6
@@ -63,6 +64,8 @@ defmodule Aiur.AgentList.Renderer.Layout do
   def progress_bar_width, do: @progress_bar_width
   @spec runtime_cell_width() :: term()
   def runtime_cell_width, do: @runtime_cell_width
+  @spec context_cell_width() :: term()
+  def context_cell_width, do: @context_cell_width
   @spec min_id_width() :: term()
   def min_id_width, do: @min_id_width
   @spec min_title_width() :: term()
@@ -78,6 +81,14 @@ defmodule Aiur.AgentList.Renderer.Layout do
   # space as they actually need, leaving the rest for the title.
   # Recomputed on every render so a wider pane reflows immediately
   # when tmux resizes.
+  defp context_block_width(true), do: @context_cell_width + 1
+  defp context_block_width(false), do: 0
+
+  defp show_context?(summaries, available) do
+    Enum.any?(summaries, &is_map(Map.get(&1, :context_usage))) and
+      available - @min_id_width - @min_title_width - @min_latest_width - 1 >= @context_cell_width + 1
+  end
+
   @spec compute(term(), term()) :: term()
   def compute(summaries, inner_width) do
     natural_id_width =
@@ -125,7 +136,12 @@ defmodule Aiur.AgentList.Renderer.Layout do
         @min_latest_width - 1 >= Model.base_width() + 1
 
     model_base_block = if show_model?, do: Model.base_width() + 1, else: 0
-    fixed_non_id_overhead = base_overhead + progress_block_width + model_base_block
+    context_available = inner_width - base_overhead - progress_block_width - model_base_block
+    show_context? = show_context?(summaries, context_available)
+
+    fixed_non_id_overhead =
+      base_overhead + progress_block_width + model_base_block +
+        context_block_width(show_context?)
 
     # Cap id so the row never bleeds past `inner_width` — title and
     # latest still get their minimums regardless of identifier length.
@@ -178,7 +194,8 @@ defmodule Aiur.AgentList.Renderer.Layout do
       title_width: title_width,
       latest_width: latest_width,
       model_width: model_width,
-      show_progress?: show_progress?
+      show_progress?: show_progress?,
+      show_context?: show_context?
     }
   end
 end

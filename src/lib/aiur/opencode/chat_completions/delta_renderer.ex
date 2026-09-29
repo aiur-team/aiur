@@ -23,6 +23,13 @@ defmodule Aiur.Opencode.ChatCompletions.DeltaRenderer do
   @spec transcript_delta(map(), atom() | nil) :: {:delta, String.t(), atom()} | :drop
   def transcript_delta(%{role: :user}, _last_role), do: :drop
 
+  # Completed snapshots retain their full durable body, while append-only SSE
+  # receives only content that was not already emitted as partial fragments.
+  def transcript_delta(%{role: :assistant, stream_body: ""}, _last_role), do: :drop
+
+  def transcript_delta(%{role: :assistant, stream_body: body} = event, last_role) when is_binary(body),
+    do: transcript_delta(event |> Map.delete(:stream_body) |> Map.put(:body, body), last_role)
+
   def transcript_delta(%{role: role, body: body} = event, last_role)
       when role in [:assistant, :command, :system, :alert, :reasoning, :tool] do
     {:delta, bar_connector(last_role, role) <> format_delta(role, body, event), role}
