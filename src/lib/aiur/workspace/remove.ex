@@ -1,7 +1,7 @@
 defmodule Aiur.Workspace.Remove do
   @moduledoc "Workspace removal: local and remote rm-rf with before_remove hook dispatch and per-issue multi-host fanout."
 
-  alias Aiur.Config
+  alias Aiur.{Config, TestTicketScope}
   alias Aiur.Workspace.{DirtyGuard, Hooks, Layout, Remote}
 
   @type worker_host :: String.t() | nil
@@ -71,8 +71,14 @@ defmodule Aiur.Workspace.Remove do
   def remove_issue_workspaces(identifier), do: remove_issue_workspaces(identifier, nil)
 
   @spec remove_issue_workspaces(term(), worker_host()) :: :ok
-  def remove_issue_workspaces(identifier, worker_host)
-      when is_binary(identifier) and is_binary(worker_host) do
+  def remove_issue_workspaces(identifier, worker_host) when is_binary(identifier) do
+    if TestTicketScope.allowed_identifier?(identifier), do: do_remove_issue_workspaces(identifier, worker_host), else: :ok
+  end
+
+  def remove_issue_workspaces(_identifier, _worker_host), do: :ok
+
+  defp do_remove_issue_workspaces(identifier, worker_host)
+       when is_binary(identifier) and is_binary(worker_host) do
     safe_id = Layout.safe_identifier(identifier)
 
     case Layout.workspace_path_for_issue(safe_id, worker_host) do
@@ -83,7 +89,7 @@ defmodule Aiur.Workspace.Remove do
     :ok
   end
 
-  def remove_issue_workspaces(identifier, nil) when is_binary(identifier) do
+  defp do_remove_issue_workspaces(identifier, nil) when is_binary(identifier) do
     safe_id = Layout.safe_identifier(identifier)
 
     case Config.settings!().worker.ssh_hosts do
@@ -100,9 +106,7 @@ defmodule Aiur.Workspace.Remove do
     :ok
   end
 
-  def remove_issue_workspaces(_identifier, _worker_host) do
-    :ok
-  end
+  defp do_remove_issue_workspaces(_identifier, _worker_host), do: :ok
 
   defp maybe_run_before_remove_hook(workspace, nil) do
     hooks = Config.settings!().hooks

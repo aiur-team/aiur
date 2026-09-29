@@ -8,6 +8,7 @@ defmodule Aiur.GitHub.Tracker do
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
   alias Aiur.Issue
+  alias Aiur.TestTicketScope
 
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.repo()
@@ -37,11 +38,14 @@ defmodule Aiur.GitHub.Tracker do
   def fetch_candidate_issues_conditional(cache) when is_map(cache) do
     client = client_module()
 
-    if Code.ensure_loaded?(client) and function_exported?(client, :fetch_candidate_issues_conditional, 1) do
-      client.fetch_candidate_issues_conditional(cache)
-    else
-      with {:ok, issues} <- client.fetch_candidate_issues(), do: {:ok, issues, cache}
-    end
+    result =
+      if Code.ensure_loaded?(client) and function_exported?(client, :fetch_candidate_issues_conditional, 1) do
+        client.fetch_candidate_issues_conditional(cache)
+      else
+        with {:ok, issues} <- client.fetch_candidate_issues(), do: {:ok, issues, cache}
+      end
+
+    TestTicketScope.filter_result(result)
   end
 
   @spec auth_preflight() :: :ok | {:error, term()}
