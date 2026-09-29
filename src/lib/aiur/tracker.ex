@@ -14,6 +14,7 @@ defmodule Aiur.Tracker do
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   @callback fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   @callback fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  @callback fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   @callback fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) ::
               {:ok, [map()]} | {:error, term()}
   @callback fetch_open_pull_request_for_branch(String.t() | integer()) ::
@@ -122,6 +123,11 @@ defmodule Aiur.Tracker do
   @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number) do
     adapter().fetch_classified_pr_review_comments(pr_number)
+  end
+
+  @spec fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_classified_pr_reviews(pr_number) do
+    adapter().fetch_classified_pr_reviews(pr_number)
   end
 
   @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) ::
