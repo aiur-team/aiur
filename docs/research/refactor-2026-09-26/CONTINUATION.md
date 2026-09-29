@@ -51,6 +51,13 @@ private-source provenance audit described in `synthesis/privacy-review.md`
 is still open. No production change or actual LOC saving is asserted by this
 research checkpoint.
 
+The claim/question audit now checks all 60 IDs under both lenses (120 lens
+values) and aligns the six historical source reports with corrected lead
+interpretations. Its eight-question table records the completed frozen
+feature artifact and the still-incomplete causal attribution of idle gaps.
+See `synthesis/claim-question-audit.md`; artifact consistency does not prove
+all historical source data can be recollected.
+
 ## Authoritative sources
 
 - Research branch: `research/refactor-2026-09-26`.
@@ -201,8 +208,8 @@ do not equate transitively loaded probe dependencies with reviewed files.
 ## Completion contract — all still required unless explicitly checked
 
 - [ ] Complete privacy/provenance review of inherited and new public artifacts.
-- [ ] Finish both checks on all 60 claims; retain corrections and disagreement.
-- [ ] Correct all six source reports where verdicts contradict their headlines.
+- [x] Finish both checks on all 60 claims; retain corrections and disagreement.
+- [x] Correct all six source reports where verdicts contradict their headlines.
 - [x] Complete the 32 planned review units and coverage follow-ups, including
       the runtime areas omitted from the old extraction.
 - [x] Skeptic-check every P0/P1 finding; retain P2/P3 with honest verification

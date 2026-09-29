@@ -73,9 +73,10 @@ authority if a later sentence conflicts with the corrected lead.
 | 5 | Agent failure modes | [`../agents/agent-failure-modes.md`](../agents/agent-failure-modes.md) contains the retained-session taxonomy. | Corrected 20-hour turn-time and provider-mix readings govern; transcript retention limits population claims. |
 | 6 | Feature boundaries | [`../codebase/feature-boundaries.md`](../codebase/feature-boundaries.md) surveys candidate boundaries and dependency graphs. | Package feasibility, runtime ownership and LOC reduction remain implementation hypotheses. |
 | 7 | Code review | [`../review/code-review.md`](../review/code-review.md) and `review/findings.json` cover 32 units and 1,033 source IDs; two skeptics checked all 182 inherited P0/P1 IDs. | The 851 inherited P2/P3 IDs are provisional; current-head/runtime checks are needed before tickets. |
-| 8 | Feature inventory and cut case | Five raw inventories contain 216 features and the challenge ledger records 91 proposed cut/merge/externalize decisions with skeptic checks. | **Incomplete:** `feature-inventory.md`, final `usage-matrix.md`, `loc-reduction.md` and `features.json` are not all published at this branch head; no measured net LOC reduction may be claimed yet. |
+| 8 | Feature inventory and cut case | Five raw inventories contain 216 features; all 91 proposed cut/merge/externalize decisions have skeptic checks. The reconciled [`feature-inventory.md`](../features/feature-inventory.md), [`usage-matrix.md`](../features/usage-matrix.md), [`loc-reduction.md`](../features/loc-reduction.md) and [`features.json`](../features/features.json) are now published. | The 17,944-line whole-file footprint is conditional gross deletion potential, not implemented net savings; recheck current usage and source before removal. |
 
-Question 8 and the causal part of question 3 are the clearest incomplete
-acceptance items. The next plan should explicitly carry these limits and the
+The causal part of question 3 remains incomplete; question 8 now has a frozen
+feature/LOC planning synthesis, but no measured implementation saving. The
+next plan should explicitly carry these limits and the
 user's hard 500-line gate with a 200-line preference; it must not infer a
 saving from code movement, a cache classifier or a disabled setting.
