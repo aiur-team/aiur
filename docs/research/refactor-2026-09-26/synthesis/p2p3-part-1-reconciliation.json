@@ -1,0 +1,246 @@
+{
+  "schema": "p2p3-part-1-reconciliation-v1",
+  "source_review": "synthesis/p2p3-triage-threshold-cross-review.md",
+  "frozen_source_commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "integration_candidate_commit": "7bce08f36aede1f9747d24bb3a5c08145abd081e",
+  "candidate_comparison": "Cited product source and test paths are byte-identical between frozen source and clean pre-release candidate except WorkspaceSetup: the candidate adds an input-identity plugin copy but retains the config write without an explicit chmod. The configuration-reference file also changes elsewhere but retains the app_installation own-token promise at line 98. No behavioral recheck is implied; final merged-main recheck remains pending.",
+  "status": "research_reconciled_implementation_unverified",
+  "original_partition_artifacts_unchanged": true,
+  "entries": {
+    "github-b-14": {
+      "original": {
+        "verdict": "source-supported",
+        "action": "defer"
+      },
+      "reconciled": {
+        "verdict": "source-supported",
+        "action": "fix",
+        "scope": "The request_fun authentication bypass only; other production test seams remain a separate audit."
+      },
+      "owner": "Aiur.GitHub.Transport",
+      "same_mechanism_as": [
+        "tests-2-04"
+      ],
+      "citations": [
+        "src/lib/aiur/github/transport.ex:79-92",
+        "src/test/aiur/github/transport_test.exs:49-57"
+      ],
+      "behavior_test_gate": {
+        "setup": "Leave all real token sources unset and inject only request_fun; separately provide an explicit synthetic token.",
+        "action": "Call Transport.require_token/1 for both cases.",
+        "expected": "An injected request_fun alone cannot authorize a request; an explicitly supplied token follows the documented path. The first assertion must fail with the old branch restored.",
+        "decision": "Remove or isolate the test-token branch; retain broader github-b-14 only for other proven seams."
+      },
+      "runtime_incidence": "unknown",
+      "merged_main_recheck": "pending"
+    },
+    "github-a-36": {
+      "original": {
+        "verdict": "source-supported",
+        "action": "defer"
+      },
+      "reconciled": {
+        "verdict": "source-supported",
+        "action": "fix",
+        "scope": "Expiry behavior is a fix candidate; synchronous init acquisition remains deferred pending latency/boot contract."
+      },
+      "owner": "Aiur.GitHub.AppTokenRefresher",
+      "citations": [
+        "src/lib/aiur/github/app_token_refresher.ex:59-75",
+        "src/lib/aiur/github/app_token_refresher.ex:98-129"
+      ],
+      "subclaims": [
+        {
+          "claim": "current_token returns an expired cached token",
+          "verdict": "source-supported",
+          "action": "fix"
+        },
+        {
+          "claim": "network acquisition in init causes unacceptable boot delay",
+          "verdict": "unknown",
+          "action": "defer"
+        }
+      ],
+      "behavior_test_gate": {
+        "setup": "Cache a nonempty installation token with an expiry before a controlled clock instant; separately block the injected acquisition function during GenServer startup.",
+        "action": "Call current_token/0 at and after expiry; start the refresher under a supervisor while acquisition is blocked.",
+        "expected": "Expired token is not returned under the intended validity contract. Startup behavior meets a stated timeout/availability contract; no boot-latency defect is inferred from the static call alone.",
+        "decision": "Repair expiry handling if the contract requires valid tokens; decide init restructuring only after the startup contract and observation are recorded."
+      },
+      "runtime_incidence": "unknown",
+      "merged_main_recheck": "pending"
+    },
+    "github-a-19": {
+      "original": {
+        "verdict": "source-supported",
+        "action": "defer"
+      },
+      "reconciled": {
+        "verdict": "source-supported",
+        "action": "fix",
+        "scope": "The documented own-token promise contradicts singleton lookup; the implementation branch depends on the supported multi-installation contract."
+      },
+      "owner": "Aiur.GitHub.Credential and GitHub configuration reference",
+      "citations": [
+        "src/lib/aiur/github/credential.ex:46-56",
+        "src/lib/aiur/github/credential.ex:76-90",
+        "website/docs-app/reference/configuration.md:90-101"
+      ],
+      "behavior_test_gate": {
+        "setup": "Configure two app_installation entries with distinct IDs and installation identities; inject independently recognizable token providers.",
+        "action": "Resolve each credential token and its accounting identity; inspect the documented promise.",
+        "expected": "Token source and accounting identity follow one stated model for both entries; documentation describes that model accurately.",
+        "decision": "If one daemon token is intended, correct the docs and identity accounting; if independent tokens are supported, implement per-entry resolution."
+      },
+      "runtime_incidence": "unknown",
+      "merged_main_recheck": "pending"
+    },
+    "agent-backends-oc-25": {
+      "original": {
+        "verdict": "source-supported",
+        "action": "defer"
+      },
+      "reconciled": {
+        "verdict": "source-supported",
+        "action": "defer",
+        "scope": "Whole-state overwrite is static fact; production lost-message incidence and caller reachability are unproved."
+      },
+      "owner": "Aiur.OpenAICompat.CodingAgent",
+      "citations": [
+        "src/lib/aiur/open_ai_compat/coding_agent.ex:70-97",
+        "src/lib/aiur/open_ai_compat/coding_agent.ex:116-128"
+      ],
+      "behavior_test_gate": {
+        "setup": "Barrier run_turn after its Session.get snapshot and before Session.update; start with a known message list.",
+        "action": "Call send_operator_message/2 through the exported API, then release run_turn and read Session state; inventory production callers.",
+        "expected": "The appended message remains in the session. Under the frozen overwrite it is lost if the interleaving is reachable.",
+        "decision": "Fix the merge if a production caller can interleave; otherwise close runtime-loss framing or remove the unused API after compatibility review."
+      },
+      "runtime_incidence": "unknown",
+      "merged_main_recheck": "pending"
+    },
+    "agent-backends-cc-23": {
+      "original": {
+        "verdict": "source-supported",
+        "action": "defer"
+      },
+      "reconciled": {
+        "verdict": "source-supported",
+        "action": "defer",
+        "scope": "Process-local storage is visible; cross-process usage is unproved and the three stores have distinct lifetimes."
+      },
+      "owner": "Aiur.ProviderAccountGeneration.Context and backend state owners",
+      "citations": [
+        "src/lib/aiur/provider_account_generation/context.ex:12-18",
+        "src/lib/aiur/provider_account_generation/context.ex:83-89",
+        "src/lib/aiur/codex/exhausted_reset.ex:92-100",
+        "src/lib/aiur/codex/dynamic_tool/emit_event.ex:129-134"
+      ],
+      "behavior_test_gate": {
+        "setup": "For each of the three stores, map the real producer and consumer process; create a binding or counter in the producer process.",
+        "action": "Invoke the intended consumer in its actual process, then repeat from a different process with an explicit handoff.",
+        "expected": "Either the supported workflow stays on the same owner PID, or state is explicitly transferred and observed by the consumer.",
+        "decision": "Fix only stores that violate a documented cross-process handoff; otherwise document owner-PID confinement."
+      },
+      "runtime_incidence": "unknown",
+      "merged_main_recheck": "pending"
+    },
+    "build-order-24": {
+      "original": {
+        "verdict": "source-supported",
+        "action": "defer"
+      },
+      "reconciled": {
+        "verdict": "source-supported",
+        "action": "defer",
+        "scope": "Parent-derived status path is verified; the asserted wrong attribution depends on workspace writer/reader semantics."
+      },
+      "owner": "Aiur.BuildOrder.PackPaths and PackStatus",
+      "citations": [
+        "src/lib/aiur/build_order/pack_paths.ex:75-88",
+        "src/lib/aiur/build_order/pack_status.ex:441-476",
+        "src/lib/aiur_web/build_order/planning_source.ex:690-697"
+      ],
+      "behavior_test_gate": {
+        "setup": "Create two distinct pack JSON files under the same workspace directory, each with a distinct status identity.",
+        "action": "Write and read both statuses through production PackStatus/PlanningSource paths.",
+        "expected": "A per-pack status contract preserves both identities; a workspace-wide contract intentionally shares one status and is stated accurately in the code and docs.",
+        "decision": "Fix path ownership if one status overwrites the other incorrectly; otherwise correct the invariant text and close the misattribution claim."
+      },
+      "runtime_incidence": "unknown",
+      "merged_main_recheck": "pending"
+    },
+    "agent-backends-oc-30": {
+      "original": {
+        "verdict": "source-supported",
+        "action": "defer"
+      },
+      "reconciled": {
+        "verdict": "source-supported",
+        "action": "defer",
+        "scope": "Slot-index path mechanism only; debug path, GC effect, and token-file permission are separately unverified outcomes."
+      },
+      "owner": "Aiur.Opencode.Slot.ServeLifecycle, AttachPane, SessionGC, and WorkspaceSetup",
+      "citations": [
+        "src/lib/aiur/opencode/slot/serve_lifecycle.ex:171-176",
+        "src/lib/aiur/opencode/slot/attach_pane.ex:160-162",
+        "src/lib/aiur/opencode/session_gc.ex:28-60",
+        "src/lib/aiur/opencode/workspace_setup.ex:70-80"
+      ],
+      "subclaims": [
+        {
+          "claim": "slot workspace path omits instance key",
+          "verdict": "source-supported",
+          "action": "defer"
+        },
+        {
+          "claim": "debug path collision",
+          "verdict": "source-supported",
+          "action": "defer"
+        },
+        {
+          "claim": "GC deletes another instance session",
+          "verdict": "unknown",
+          "action": "defer"
+        },
+        {
+          "claim": "bridge token file has unsafe effective permissions",
+          "verdict": "unknown",
+          "action": "defer"
+        }
+      ],
+      "behavior_test_gate": {
+        "setup": "Run two isolated instance keys with the same slot index and separate session inventories; create token output under a controlled umask.",
+        "action": "Resolve workspace/debug paths, run each GC against both inventories, and stat the generated token file.",
+        "expected": "Instances do not share mutable slot/debug state, GC preserves the other instance's session, and token mode meets the explicit permission contract.",
+        "decision": "Promote each demonstrated violation independently; close subclaims whose actual effective state is isolated or protected."
+      },
+      "runtime_incidence": "unknown",
+      "merged_main_recheck": "pending"
+    },
+    "github-b-27": {
+      "original": {
+        "verdict": "source-supported",
+        "action": "defer"
+      },
+      "reconciled": {
+        "verdict": "source-supported",
+        "action": "defer",
+        "scope": "Whole-type clear is static fact; loss of a newer authoritative delivery needs a controlled interleaving and precedence contract."
+      },
+      "owner": "Aiur.GitHub.ResourceStore and BuildOrder GitHubGraph reconciliation",
+      "citations": [
+        "src/lib/aiur/github/resource_store.ex:1077-1105",
+        "src/lib/aiur/build_order/github_graph/reconciliation.ex:40-104"
+      ],
+      "behavior_test_gate": {
+        "setup": "Barrier a catalog reconciliation after snapshot fetch but before ResourceStore.clear; prepare a newer webhook-delivered membership edge.",
+        "action": "Deposit the newer edge, release reconciliation, and read the final edge with provenance/version.",
+        "expected": "If the newer delivery has authority, it remains or is restored; if catalog snapshot has authority, precedence is explicitly documented and observable.",
+        "decision": "Promote to fix if an authoritative newer edge disappears; otherwise close the data-loss framing after validating precedence."
+      },
+      "runtime_incidence": "unknown",
+      "merged_main_recheck": "pending"
+    }
+  }
+}

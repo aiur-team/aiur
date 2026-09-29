@@ -8,6 +8,8 @@ Compared the verdict, action, and category of all 889 partition records on resea
 2. Use **fix** when an active path has a specific violated contract and a behavioral test can distinguish the repaired implementation. Record the owner, exact path, expected result, and fault or concurrency setup before implementation. A documented contradiction can be a docs fix without a runtime incident.
 3. Use **defer** for semantic extraction, unmeasured performance, or uncertain reachability only with an executable verification contract: input/state, action, observable result, and decision after the result. Close an inactive or superseded finding after proving that condition. A generic “check callers” or “test later” is insufficient for a functional risk.
 
+The [eight-ID reconciliation overlay](p2p3-part-1-reconciliation.json) records the resolved narrow verdict/action, owner, source citations, and executable behavior-test gate for each part-1 case. Its pre-release candidate comparison uses clean commit `7bce08f3`; merged-main validation remains pending. Original partition records remain intact.
+
 ## Material reconciliation
 
 | Finding IDs and current dispositions | Frozen evidence | Required decision and verification contract |
