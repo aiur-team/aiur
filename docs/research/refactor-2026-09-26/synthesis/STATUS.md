@@ -19,10 +19,21 @@ one unsupported overclaim; 244 provisional fixes and 645 deferrals. These
 are source-level proposals, not implementation-ready tickets; merged-main
 reachability, behavioral gates and runtime incidence remain unverified.
 
+On clean, pre-merge release candidate `0299daca`, the two frozen release P0
+mechanisms have static repairs: [PR #2845](https://github.com/aiur-team/aiur/pull/2845)
+removes raw GitHub token inheritance from OpenAI-compatible command sandboxes,
+and [PR #2846](https://github.com/aiur-team/aiur/pull/2846) scopes stop-time
+headless-agent pidfile cleanup to its instance. The [v3 recheck](p0-release-candidate-v3-recheck.md)
+records their tests and limits. Four additional findings have changed cited
+paths since v2, bringing the pre-merge path-affected set to 294; this is a
+source recheck queue, not 294 open defects. Merged-main and runtime checks
+remain pending. The recycled-PID identity risk is separate issue #2844.
+
 All 359 rows of the proposed oversized-file owner map have an audit against
 the clean pre-release integration candidate. Four paths disappear with the
 user-requested GitHub cache dashboard removal; the other 355 still exceed
-500 lines, and no new tracked candidate path exceeds 500. Owner corrections,
+500 lines, and no new tracked v3 candidate path exceeds 500. The already
+oversized launcher grows from 4,174 to 4,200 lines. Owner corrections,
 action conditions and the final merged-main recount remain open. The
 17,944-line candidate footprint is gross and conditional; no net saving has
 been measured. The deletion guard and GitHub cache dashboard removals belong
