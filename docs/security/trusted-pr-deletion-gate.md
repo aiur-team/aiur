@@ -19,7 +19,9 @@ failure, moved head, or failed status post cannot produce a success status.
    require the new context yet. This gives `pull_request_target` a base-owned
    workflow and script to run.
 2. Create a dedicated GitHub App with **Commit statuses: Read and write** and
-   install it only on the repository. Keep it separate from Aiur's daemon App.
+   install it only on `aiur-team/aiur` and `aiur-team/khala`. Each workflow
+   requests a token scoped to its current repository. Keep this App separate
+   from Aiur's daemon App.
    Set repository variable `AIUR_DELETION_GUARD_APP_CLIENT_ID` to its Client ID
    and secret `AIUR_DELETION_GUARD_APP_PRIVATE_KEY` to its private key. The
    workflow requests only `permission-statuses: write` from the installation.
