@@ -158,6 +158,8 @@ jobs:
           GUARD_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
           GUARD_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
         run: bash scripts/check-pr-deletions.sh "$GUARD_BASE_SHA" "$GUARD_HEAD_SHA"
+      - name: Test PR deletion check
+        run: bash scripts/test-check-pr-deletions.sh
       - name: Disclose rerun attempt
         if: ${{ github.run_attempt > 1 }}
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
