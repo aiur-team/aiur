@@ -1,6 +1,6 @@
 # Merged-main feature review: deletion and watchdog boundary
 
-Reviewed 34 of the 156 queued feature entries against `f223f30ead855c1f88ea188fb8f9cf74414ffb90` source or generated-release contract. A [separate keep-decision screen](merged-main-f223-keep-screen.md) checks source presence and preservation gates for 42 more entries. The remaining 80 queued `simplify` entries need decision review. This records source reachability and decision effect, not live usage or an implementation approval.
+Reviewed 34 of the 156 queued feature entries against `f223f30ead855c1f88ea188fb8f9cf74414ffb90` source or generated-release contract. A [keep-decision screen](merged-main-f223-keep-screen.md) checks source presence and preservation gates for 42 more; a [simplify-decision screen](merged-main-f223-simplify-screen.md) accounts for the remaining 80. Thus the static source queue is covered 156/156, while behavior, actual use and replacement tests remain gates before any decision is promoted. This records source reachability and decision effect, not live usage or an implementation approval.
 
 | Feature | Merged-main observation | Decision effect / remaining gate |
 | --- | --- | --- |
