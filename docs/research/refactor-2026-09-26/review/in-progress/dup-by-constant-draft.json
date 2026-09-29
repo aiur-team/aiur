@@ -2,8 +2,8 @@
   "unit_id": "dup-by-constant",
   "status": "in-progress-not-a-raw-unit",
   "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
-  "coverage_notes": "All 162 cross-module module-attribute candidate groups and all 28 cross-module regex sigil groups have source-consumer assessments. The parse-only inline census covers 32745 scalar leaves in all 1032 frozen src/lib Elixir files; the 191 high-fanout value groups have a lexical/source-role screen and lower-fanout value groups remain under review. Dynamic Regex.compile, generated code and non-Elixir files remain outside this detector. Equal values are not counted as independent extraction opportunities or savings.",
-  "evidence_artifacts": ["in-progress/constant-census-summary.json", "in-progress/constant-triage.json", "in-progress/regex-census.json", "in-progress/regex-triage.json", "in-progress/inline-literal-summary.json", "in-progress/inline-literal-audit.md", "in-progress/dup-review-coverage.md"],
+  "coverage_notes": "All 162 cross-module module-attribute candidate groups and all 28 cross-module regex sigil groups have source-consumer assessments. The parse-only inline census covers 32745 scalar leaves in all 1032 frozen src/lib Elixir files. The 191 high-fanout value groups have lexical/source-role screens. A type-preserving lower-fanout index records all 1514 other cross-module values: 316/738 long strings and 63/67 numbers have bounded source-context screens; the 709 short strings have a source-role ledger with 261 classified as existing overlap, syntax, display/log or external protocol/path tokens. Exactly 422 long strings, 448 short strings and four generic zero/one numeric forms remain without semantic caller review. Screens do not prove transitive equivalence. Dynamic Regex.compile, generated code and non-Elixir files remain outside this detector. Equal values are not counted as independent extraction opportunities or savings.",
+  "evidence_artifacts": ["in-progress/constant-census-summary.json", "in-progress/constant-triage.json", "in-progress/regex-census.json", "in-progress/regex-triage.json", "in-progress/inline-literal-summary.json", "in-progress/inline-literal-audit.md", "in-progress/inline-literal-lowfanout-ledger.json", "in-progress/inline-literal-long-tail.md", "in-progress/short-string-source-screen.json", "in-progress/short-string-source-review.md", "in-progress/dup-review-coverage.md"],
   "findings": [
     {
       "id": "dup-by-constant-01",
@@ -64,6 +64,20 @@
       "effort": "S",
       "refactor_hint": "agent-runner/provider error",
       "overlaps": ["agent-runtime-09"]
+    },
+    {
+      "id": "dup-by-constant-05",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Dashboard advertised-host fallback is repeated for control URLs",
+      "locations": [
+        {"path": "src/lib/aiur/http_server.ex", "lines": "264-266"},
+        {"path": "src/lib/aiur/pane_manager/anchor.ex", "lines": "50-64"}
+      ],
+      "description": "HttpServer.display_host/1 and PaneManager.Anchor.control_url_host/0 both map wildcard, empty and nil dashboard bind hosts to 127.0.0.1 before advertising a reachable URL. HttpServer also stringifies other host values, while Anchor only handles binaries; sharing a policy must preserve or explicitly resolve that input difference. The string match is a local source contract, not evidence of a measured operator failure or LOC saving.",
+      "recommendation": "Define an advertised-dashboard-host policy below both URL publishers, with a tested nonbinary input contract.",
+      "effort": "S",
+      "refactor_hint": "dashboard/control URL host"
     }
   ]
 }

@@ -131,8 +131,14 @@ The lower-fanout inline audit source-checks a small set of same-domain
 values missed by the five-module screen. It adds provisional Build Order
 draft-body and provider active-turn-code findings, cross-links the repeated
 OpenAI-compatible source version to `telemetry-usage-32`, and rejects a
-global SQLite busy timeout. The remaining 1,514 cross-module value groups
-outside the high-fanout screen are not semantically cleared by this audit.
+global SQLite busy timeout. A reproducible type-preserving index now records
+all 1,514 cross-module value groups outside the high-fanout screen. Bounded
+source-context screens cover 316 long strings and 63 nontrivial numbers; a
+separate source-role ledger classifies all 709 short strings, 261 into
+existing-overlap, syntax, display/log or external-protocol categories. The
+exact unreviewed semantic boundary is 422 long strings, 448 short strings
+and four generic zero/one numeric forms. These screens do not complete the
+constant raw unit.
 
 ## Reproduction
 
