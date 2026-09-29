@@ -154,5 +154,47 @@
     "holds": false,
     "recommendation": "keep",
     "note": "`aiur units` is a filtered catalog over current-run membership, including non-running tickets; the launcher and UnitsCLI share the Dashboard Units projection with scope, condition, format, source freshness and a versioned JSON envelope. `agents` and `watch` are active-agent fleet views and cannot express the non-running catalog. Thirteen observed Executor calls are a real population, not zero. A common CLI umbrella could reuse presentation code, but replacing Units with `agents --json` would need its own catalog query and schema, likely moving rather than deleting most lines. Retain the distinct query contract until equivalent output and net physical deletion are demonstrated. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-29",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "CODEOWNERS author matching is applied to comment content before agents see it; tracker trusted_accounts, allowed_users and human_mergers govern different identity/action questions. A single flat list would authorize people for actions they did not have before, or fail closed on legitimate repository owners. The frozen Codeowners module also handles path-specific rules and an explicit trusted-account fallback when no rule matches. Consolidate policy vocabulary and configuration ownership, but retain separate permissions for comment instructions, issue writes and merge authority; prove each against adversarial comments and missing CODEOWNERS. Dropping the runtime parser/refresh needs an equivalent current owner signal, not only an init-time seed. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-30",
+    "holds": true,
+    "recommendation": "merge",
+    "note": "The PR-health scan is configured in two of sixteen distinct configs and emits counted stale/unmergeable alerts, so retaining the scan is supported. ReworkRequeue writes a ticket state based on own-contribution diff since the latest CHANGES_REQUESTED review, distinguishing merge-only from addressed changes; that decision belongs in the single lifecycle authority if extraction preserves review-thread clearance, failed-write attention, head-change throttling and a bounded GitHub read policy. Do not merge it into a timestamp/head-SHA heuristic or erase the different alert classes. Actual net LOC saving and read rate require measurement after the move. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-31",
+    "holds": true,
+    "recommendation": "cut",
+    "note": "The frozen PrWatch schema defaults disabled, and the retained config census has zero of 68 enabling `pr_watch.*`; the one-off command and anchored human-PR paths therefore have no configured production population in that census. A cut is justified if a final census of shipped and external configs still finds no enabled deployment and there is no documented compatibility commitment. Remove the schema, poller, target-selection branch, docs and tests together, retaining safety that ignores human PR comments unless explicitly trusted. Count actual deleted lines, not the estimated branch size. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-36",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "No revision/enrichment event appeared in the retained decision population, but `executor-answer --supersede` and `executor-moot` are documented emergency controls for withdrawing or replacing an answer before an agent receives it. A zero-use normal window cannot establish those recovery semantics are obsolete. The decision-latency writer does have retained rows and the dashboard reads them, so it is not a dead pipeline. Simplify the storage/metrics implementation if a read-derived latency preserves event-time, source freshness and unknown paths; remove revision only after proving an equivalent pre-delivery withdrawal/replacement contract. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-37",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The HTTP Decision API was disabled in 30 retained boots, with no configured supervisor_allowed_kinds in the sampled configs, which establishes zero current enabled population there. The proposal that a future remote Executor can use the same RPC as the local CLI is not an equivalent authenticated network contract: DecisionApi includes bearer validation, fail-closed delegation and authority checks. A cut may be attractive, but first decide whether the first-class agent-operated Executor mode needs remote decision submission, count external deployments, and either keep this authority seam or specify and test a replacement. Do not count moving its policy into a new adapter as deletion. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-39",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The append-only Asks ledger records Executor-authored requests for a repository operator, with urgency, blocking and explicit done notes. Commands are agent-originated, ticket-addressed decisions with offered answers, versioning and delivery back to a worker. Representing an ask as an Executor-created Command changes who can answer, where the answer goes and how history is reduced; five records are too small a population to prove equivalence. A common notification/read model could reduce duplicate presentation, but a store merge needs schema, authority and migration proofs before deletion. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-40",
+    "holds": true,
+    "recommendation": "externalize",
+    "note": "The host-local Findings ledger has an observed 73-record population across four public repositories and serves the aiur-meta workflow, which is a sensible external ownership seam. Preserve bounded NDJSON validation, append behavior, state-node discovery, latest-slug/unfiled reduction and digest diagnostics in a versioned skill-side tool, then migrate documented `aiur findings` callers. The existing daemon CLI wrapper can be deleted only after a usable replacement exists; moving the ledger to another package is relocation, not net LOC reduction. This is a continuing-researcher challenge, not an independent reviewer result."
   }
 ]

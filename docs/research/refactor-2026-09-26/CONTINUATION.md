@@ -2320,3 +2320,12 @@ catalog members). Challenge artifact coverage is 59 of 91, leaving 32.
 Independent reviewers' checkpoint counts are recomputed by
 `tooling/research_inventory.py`; pending or single-review entries do not
 satisfy the two-review acceptance condition.
+
+Seven integration challenges now distinguish CODEOWNERS comment trust from
+tracker/merge permissions; preserve PR health scan signals while assigning
+rework state to one authority; conditionally cut the disabled human-PR watch;
+retain pre-delivery decision recovery and HTTP delegation semantics pending
+replacement; and separate Executor asks from agent Commands while allowing a
+versioned Findings extraction. Challenge artifact coverage is 66 of 91,
+leaving 25. These are continuing-researcher challenges, not independent
+skeptic verdicts.
