@@ -37,8 +37,8 @@ def paths_at(repo: Path, revision: str) -> set[str]:
     return set(git(repo, "ls-tree", "-r", "--name-only", revision).splitlines())
 
 
-def changed_at(repo: Path) -> dict[str, str]:
-    rows = git(repo, "diff", "--no-renames", "--name-status", FROZEN, CANDIDATE).splitlines()
+def changed_at(repo: Path, candidate: str) -> dict[str, str]:
+    rows = git(repo, "diff", "--no-renames", "--name-status", FROZEN, candidate).splitlines()
     return {path: status for status, path in (row.split("\t", 1) for row in rows)}
 
 
@@ -87,13 +87,13 @@ def cited_paths(citations: list[str], known: set[str]) -> tuple[list[str], list[
     return sorted(found), sorted(unresolved)
 
 
-def build(repo: Path) -> list[dict]:
+def build(repo: Path, candidate: str = CANDIDATE) -> list[dict]:
     inventory = json.loads(INVENTORY.read_text())
     assert inventory["source_revision"] == FROZEN
     assert len(inventory["features"]) == 216
-    assert git(repo, "rev-parse", CANDIDATE).strip() == CANDIDATE
-    known = paths_at(repo, FROZEN) | paths_at(repo, CANDIDATE)
-    changes = changed_at(repo)
+    assert git(repo, "rev-parse", candidate).strip() == candidate
+    known = paths_at(repo, FROZEN) | paths_at(repo, candidate)
+    changes = changed_at(repo, candidate)
     rows = []
     for feature in inventory["features"]:
         source_paths, unresolved_source = cited_paths(feature["modules"], known)
@@ -142,13 +142,15 @@ def build(repo: Path) -> list[dict]:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, required=True, help="checkout containing both source revisions")
+    parser.add_argument("--candidate", default=CANDIDATE, help="full revision to compare with the frozen inventory")
+    parser.add_argument("--output", type=Path, default=OUTPUT, help="JSONL artifact path")
     parser.add_argument("--check", action="store_true", help="compare committed artifact without writing")
     args = parser.parse_args()
-    body = "".join(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in build(args.repo))
+    body = "".join(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in build(args.repo, args.candidate))
     if args.check:
-        assert OUTPUT.read_text() == body, "feature release delta is stale"
+        assert args.output.read_text() == body, "feature release delta is stale"
     else:
-        OUTPUT.write_text(body)
+        args.output.write_text(body)
 
 
 if __name__ == "__main__":
