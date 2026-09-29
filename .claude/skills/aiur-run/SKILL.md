@@ -142,12 +142,13 @@ delivery history over a tunnel's status, the running daemon's behaviour over a
 merge commit.
 
 If `CONTRIBUTING.md` names issue authors eligible for Executor intake, monitor
-their new issues during the run. Check scope and duplicates, then promptly
-apply the configured todo label as an authorized dispatch operator and include
-the issue in the active queue. An eligible author is not a dispatch operator:
-the label's verified applier, not the issue creator, authorizes Aiur to work.
-Do not add an issue author to CODEOWNERS or `tracker.github.allowed_users`
-merely to make their issues eligible.
+their new issues during the run. As an authorized dispatch operator, immediately
+apply the configured todo label and include each in the active queue; triage
+scope, duplicates, and holds afterward through the normal ticket lifecycle.
+If no run is active, the label remains queued for the next startup. An eligible
+author is not a dispatch operator: the label's verified applier, not the issue
+creator, authorizes Aiur to work. Do not add an issue author to CODEOWNERS or
+`tracker.github.allowed_users` merely to make their issues eligible.
 
 On 2026-08-22 a run inherited "webhook ingress was never enabled", confirmed it
 by checking a tunnel that was never the transport in use, repeated it in five

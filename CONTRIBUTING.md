@@ -19,14 +19,17 @@ triage and queue when they fit the active run's scope:
 | --- |
 | [@ben-chain](https://github.com/ben-chain) |
 
-For a new issue from an account in this table, check that it is actionable,
-not a duplicate, and within the run's authorized scope. Then have an
-authorized dispatch operator apply `agent:todo` and pull it into the active
-run. If it needs clarification or falls outside scope, leave it unqueued and
-record the reason. This table gives an author eligibility for issue intake;
-it does not make them a code owner, grant review or command authority, or
-authorize them to apply dispatch labels. Aiur verifies the provenance of the
-`agent:todo` label independently of who opened the issue.
+For every new issue from an account in this table, an authorized Executor
+applies `agent:todo` immediately and pulls the issue into the active Aiur run.
+If no Aiur run is active, the label persists and makes the issue available at
+the next run's startup. Then perform normal ticket triage. If the issue needs
+clarification, is a duplicate, or must wait, use the normal pause, closure,
+or disposition flow and record the reason; do not leave it silently unqueued.
+
+This table gives an author eligibility for issue intake; it does not make
+them a code owner, grant review or command authority, or authorize them to
+apply dispatch labels. Aiur verifies the provenance of the `agent:todo` label
+independently of who opened the issue.
 
 ## Code structure
 
