@@ -4,25 +4,30 @@ defmodule Aiur.Gemini.Turn do
   alias Aiur.AgentTools.MCP
   alias Aiur.AppServer.Messages
   alias Aiur.Gemini.{Protocol, Transport}
+  alias Aiur.PauseContainment
 
   def run(%{port: port, gateway: gateway, thread_id: session_id} = session, prompt, issue, opts)
       when is_binary(prompt) and byte_size(prompt) > 0 do
-    attempt = Keyword.get(opts, :attempt_id, make_ref())
+    if PauseContainment.paused?(Map.get(session, :containment)) do
+      {:paused, %{request_id: :containment, turn_id: nil, details: :pause_latched_before_turn}}
+    else
+      attempt = Keyword.get(opts, :attempt_id, make_ref())
 
-    with {:ok, binding} <- MCP.bind(gateway, attempt) do
-      try do
-        request_id = System.unique_integer([:positive])
-        frame = Protocol.prompt(request_id, session_id, prompt)
+      with {:ok, binding} <- MCP.bind(gateway, attempt) do
+        try do
+          request_id = System.unique_integer([:positive])
+          frame = Protocol.prompt(request_id, session_id, prompt)
 
-        case Transport.send_frame(port, frame) do
-          :ok ->
-            start_loop(session, issue, request_id, binding, opts)
+          case Transport.send_frame(port, frame) do
+            :ok ->
+              start_loop(session, issue, request_id, binding, opts)
 
-          {:error, reason} ->
-            {:error, {:gemini_prompt_not_sent, reason}}
+            {:error, reason} ->
+              {:error, {:gemini_prompt_not_sent, reason}}
+          end
+        after
+          MCP.unbind(gateway, binding)
         end
-      after
-        MCP.unbind(gateway, binding)
       end
     end
   end
@@ -34,7 +39,7 @@ defmodule Aiur.Gemini.Turn do
     metadata = Map.get(session, :metadata, %{})
     Messages.emit_message(on_message, :session_started, %{session_id: "#{session.thread_id}-#{request_id}", thread_id: session.thread_id, turn_id: request_id}, metadata)
 
-    delivery = Keyword.get(opts, :on_provider_delivery, fn _ -> :ok end).(%{transport: :gemini_acp, turn_id: request_id})
+    delivery = notify_delivery(opts, request_id)
 
     state = %{
       session: session,
@@ -214,9 +219,22 @@ defmodule Aiur.Gemini.Turn do
     end)
 
     case state.delivery do
-      {:error, reason} -> {:error, {:provider_delivery_ack_failed, %{cause: reason, native_outcome: result}}}
+      {:error, reason} -> {:error, {:provider_delivery_ack_failed, %{turn_id: state.request_id, cause: reason, native_outcome: result}}}
       _ -> result
     end
+  end
+
+  defp notify_delivery(opts, request_id) do
+    callback = Keyword.get(opts, :on_provider_delivery, fn _ -> :ok end)
+
+    case callback.(%{transport: :gemini_acp, turn_id: request_id}) do
+      {:error, reason} -> {:error, reason}
+      _acknowledged -> :ok
+    end
+  rescue
+    error -> {:error, {:callback_exception, error.__struct__}}
+  catch
+    kind, _reason -> {:error, {:callback_failure, kind}}
   end
 
   defp emit(state, frame, extras) do

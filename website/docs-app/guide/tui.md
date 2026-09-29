@@ -79,6 +79,14 @@ Muse's native input dialogs are unsupported. If one arrives, Aiur explains the
 limitation in chat and requests cancellation. After the turn stops, send your
 instructions through the ordinary chat input.
 
+### Gemini CLI approval requests
+
+Gemini's chat transcript lists each native choice as `/approve <token> <choice-id>`.
+Enter one listed command in that agent's chat input. An unknown or expired token
+or choice is rejected, and Aiur never selects a choice automatically. Aiur
+confirms that the choice was sent to Gemini; final tool execution is known only
+from Gemini's subsequent updates.
+
 ## Foreground vs. background
 
 | Launch | Terminal behavior |

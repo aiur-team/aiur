@@ -2,6 +2,7 @@ defmodule Aiur.Gemini.NativeSessionTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Gemini.{ModelCatalog, Protocol, Session, Transcript, Turn}
+  alias Aiur.PauseContainment
 
   @tag :tmp_dir
   test "ACP handshake creates an exact session with a private HTTP MCP route", %{tmp_dir: dir} do
@@ -141,6 +142,45 @@ defmodule Aiur.Gemini.NativeSessionTest do
     assert {:error, :remote_control_unsupported} = Session.start(dir, remote_control: true)
   end
 
+  @tag :tmp_dir
+  test "a latched pause prevents prompt admission", %{tmp_dir: dir} do
+    assert {:ok, session} = Session.start(dir, command: fixture(dir, "plain"), timeout_ms: 2_000)
+    identifier = "GEMINI-#{System.unique_integer([:positive])}"
+    assert {:ok, containment} = PauseContainment.register(identifier, 999_999_999, 999_999_999)
+
+    try do
+      assert {:ok, ^containment} = PauseContainment.arm(identifier)
+      assert PauseContainment.paused?(containment)
+
+      assert {:paused, %{details: :pause_latched_before_turn}} =
+               Turn.run(%{session | containment: containment}, "must not run", %{identifier: identifier}, [])
+
+      refute Enum.any?(read_frames(dir), &(&1["method"] == "session/prompt"))
+    after
+      PauseContainment.unregister(containment)
+      Session.stop(session)
+    end
+  end
+
+  for {label, callback, cause} <- [
+        {"returned error", quote(do: fn _ -> {:error, :unavailable} end), :unavailable},
+        {"raised error", quote(do: fn _ -> raise "ack failed" end), {:callback_exception, RuntimeError}}
+      ] do
+    @tag :tmp_dir
+    test "#{label} from delivery acknowledgement waits for the native outcome", %{tmp_dir: dir} do
+      assert {:ok, session} = Session.start(dir, command: fixture(dir, "plain"), timeout_ms: 2_000)
+
+      try do
+        assert {:error, {:provider_delivery_ack_failed, %{cause: unquote(Macro.escape(cause)), native_outcome: {:ok, %{result: :turn_completed}}}}} =
+                 Turn.run(session, "one prompt", %{identifier: "GEMINI-TEST"}, on_provider_delivery: unquote(callback), turn_timeout_ms: 2_000)
+
+        assert Enum.count(read_frames(dir), &(&1["method"] == "session/prompt")) == 1
+      after
+        Session.stop(session)
+      end
+    end
+  end
+
   defp read_frames(dir) do
     dir |> Path.join("frames.ndjson") |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
   end
@@ -179,6 +219,9 @@ defmodule Aiur.Gemini.NativeSessionTest do
         elif method == 'session/prompt':
             prompt_id = frame['id']
             session = frame['params']['sessionId']
+            if mode == 'plain':
+                print(json.dumps({'jsonrpc':'2.0','id':prompt_id,'result':{'stopReason':'end_turn'}}), flush=True)
+                continue
             print(json.dumps({'jsonrpc':'2.0','method':'session/update','params':{'sessionId':session,'update':{'sessionUpdate':'agent_message_chunk','content':{'type':'text','text':'hello'}}}}), flush=True)
             print(json.dumps({'jsonrpc':'2.0','id':77,'method':'session/request_permission','params':{'sessionId':session,'toolCall':{'title':'write file'},'options':[{'optionId':'allow','name':'Allow'},{'optionId':'reject','name':'Reject'}]}}), flush=True)
             continue
