@@ -78,11 +78,23 @@ def main() -> None:
     parser.add_argument("--base", required=True, help="full frozen source commit")
     parser.add_argument("--head", required=True, help="full current-main commit")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--corrections", type=Path, help="reviewed anchor corrections, preserving raw citations")
     args = parser.parse_args()
     findings = json.loads(args.findings.read_text())
     if findings["snapshot"] != args.base:
         parser.error("findings snapshot does not match --base")
     base, head, cache = tree(args.base), tree(args.head), {}
+    corrections = {}
+    if args.corrections:
+        correction_file = json.loads(args.corrections.read_text())
+        if correction_file["base_revision"] != args.base:
+            parser.error("correction ledger does not match --base")
+        for correction in correction_file["corrections"]:
+            key = (correction["source_id"], correction["original_path"], correction["original_lines"])
+            if key in corrections:
+                raise SystemExit(f"duplicate correction for {key}")
+            corrections[key] = correction
+    used_corrections = set()
     rows = []
     location_statuses, location_reasons = Counter(), Counter()
     for finding in findings["findings"]:
@@ -91,8 +103,26 @@ def main() -> None:
             locations = []
             for location in source["claim"]["locations"]:
                 status, reason = location_status(location, base, head, cache)
-                locations.append({"path": location["path"], "lines": location["lines"],
-                                  "status": status, "reason": reason})
+                entry = {"path": location["path"], "lines": location["lines"],
+                         "status": status, "reason": reason}
+                key = (source["claim"]["id"], location["path"], location["lines"])
+                if key in corrections:
+                    if status != "unknown":
+                        raise SystemExit(f"correction does not target an unknown citation: {key}")
+                    correction = corrections[key]
+                    corrected = {"path": correction["corrected_path"], "lines": correction["corrected_lines"]}
+                    checked, _ = location_status(corrected, base, head, cache)
+                    if checked != "current":
+                        raise SystemExit(f"corrected citation is not current: {key}")
+                    ranges = spans(corrected["lines"])
+                    oid = head[corrected["path"]][1]
+                    cited = b"\n".join(b"\n".join(lines(oid, cache)[start - 1 : end]) for start, end in ranges)
+                    if correction["needle"].encode() not in cited:
+                        raise SystemExit(f"uncorroborated correction: {key}")
+                    entry["corrected_anchor"] = {**corrected, "status": "verified_at_head",
+                                                 "needle": correction["needle"], "note": correction["note"]}
+                    used_corrections.add(key)
+                locations.append(entry)
                 location_statuses[status] += 1
                 location_reasons[reason] += 1
             statuses = {item["status"] for item in locations}
@@ -108,17 +138,26 @@ def main() -> None:
     source_ids = [source["source_id"] for row in rows for source in row["source_claims"]]
     if len(rows) != findings["counts"]["canonical_findings"] or len(source_ids) != findings["counts"]["raw_source_ids"] or len(source_ids) != len(set(source_ids)):
         raise SystemExit("finding/source-ID coverage mismatch")
+    if used_corrections != corrections.keys():
+        raise SystemExit("a correction does not match a source citation")
+    unknown_findings = [{"finding_id": row["finding_id"], "reviewed_severity": row["reviewed_severity"],
+                         "source_ids": row["source_ids"],
+                         "citation_defects": [{"source_id": source["source_id"], **exception}
+                                              for source in row["source_claims"] for exception in source["exceptions"]]}
+                        for row in rows if row["source_status"] == "unknown"]
     summary = {
         "finding_status": dict(Counter(row["source_status"] for row in rows)),
         "source_id_status": dict(Counter(source["status"] for row in rows for source in row["source_claims"])),
         "location_status": dict(location_statuses),
         "location_reasons": dict(location_reasons),
         "finding_by_severity": {severity: dict(Counter(row["source_status"] for row in rows if row["reviewed_severity"] == severity)) for severity in ("P0", "P1", "P2", "P3")},
+        "corrected_unknown_locations": len(used_corrections),
+        "unknown_locations_needing_anchor": location_statuses["unknown"] - len(used_corrections),
     }
     report = {"method": "Pinned Git blob and cited-line equality only; unchanged source is not runtime reproduction or finding confirmation.",
               "base_revision": args.base, "head_revision": args.head,
               "base_head_same_tree": git("rev-parse", f"{args.base}^{{tree}}").strip() == git("rev-parse", f"{args.head}^{{tree}}").strip(),
-              "summary": summary, "findings": rows}
+              "summary": summary, "unknown_findings": unknown_findings, "findings": rows}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
     print(json.dumps(summary, sort_keys=True))

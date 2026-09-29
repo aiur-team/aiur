@@ -37,8 +37,680 @@
         "current": 207,
         "unknown": 8
       }
-    }
+    },
+    "corrected_unknown_locations": 30,
+    "unknown_locations_needing_anchor": 2
   },
+  "unknown_findings": [
+    {
+      "finding_id": "build-order-02",
+      "reviewed_severity": "P1",
+      "source_ids": [
+        "build-order-02"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "build-order-02",
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "lines": "179-203",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+            "lines": "125-135",
+            "status": "verified_at_head",
+            "needle": "Sanitizer.sanitize(value, max_bytes)",
+            "note": "Description sanitizer error maps to validation; line moved within same frozen file."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "web-rest-08",
+      "reviewed_severity": "P1",
+      "source_ids": [
+        "web-rest-08"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "web-rest-08",
+          "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+          "lines": "257-263",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+            "lines": "63-69",
+            "status": "verified_at_head",
+            "needle": "apply(decision_api(conn)",
+            "note": "Invoke rescue/catch is at this frozen location."
+          }
+        },
+        {
+          "source_id": "web-rest-08",
+          "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+          "lines": "347-349",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+            "lines": "185-193",
+            "status": "verified_at_head",
+            "needle": "Endpoint.config(key)",
+            "note": "Separate endpoint config rescue/catch is at this frozen location."
+          }
+        },
+        {
+          "source_id": "web-rest-08",
+          "path": "src/lib/aiur_web/financial_data/change_bridge.ex",
+          "lines": "369-383",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur_web/financial_data/change_bridge.ex",
+            "lines": "61-75",
+            "status": "verified_at_head",
+            "needle": "_error -> :error",
+            "note": "Safe subscribe and broadcast rescue/catch are at this frozen location."
+          }
+        },
+        {
+          "source_id": "web-rest-08",
+          "path": "src/lib/aiur_web/financial_data_access/generation.ex",
+          "lines": "187-192",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur_web/financial_data_access/generation.ex",
+            "lines": "23-35",
+            "status": "verified_at_head",
+            "needle": ":exit, _reason -> :ok",
+            "note": "Invalidate and subscribe catch branches are at this frozen location."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "agent-backends-oc-21",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "agent-backends-oc-21"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "agent-backends-oc-21",
+          "path": "src/lib/aiur/opencode/session_writer_registry.ex",
+          "lines": "332-344",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/opencode/session_writer_registry.ex",
+            "lines": "194-200",
+            "status": "verified_at_head",
+            "needle": "restart: :transient",
+            "note": "The transient SessionWriter child spec is at this frozen location."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "agent-runtime-17",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "agent-runtime-17"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "agent-runtime-17",
+          "path": "src/lib/aiur/agent_list/activity_intake.ex",
+          "lines": "281-307",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/agent_list/activity_intake.ex",
+            "lines": "140-162",
+            "status": "verified_at_head",
+            "needle": "timestamp: evidence[:observed_at]",
+            "note": "Observed timestamp is retained in activity intake at this frozen location."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "agent-runtime-18",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "agent-runtime-18"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "agent-runtime-18",
+          "path": "src/lib/aiur/agent_list/controls.ex",
+          "lines": "199-237",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/agent_list/controls.ex",
+            "lines": "43-59",
+            "status": "verified_at_head",
+            "needle": "Orchestrator.resume_agent",
+            "note": "AgentList key handling invokes orchestrator resume synchronously here."
+          }
+        },
+        {
+          "source_id": "agent-runtime-18",
+          "path": "src/lib/aiur/agent_list/rc_pane_borders.ex",
+          "lines": "71-81,99-103",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/agent_list/rc_pane_borders.ex",
+            "lines": "12-20,42-47",
+            "status": "verified_at_head",
+            "needle": "safe_list_open_panes",
+            "note": "Pane-border reconcile calls pane manager at this frozen location."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "build-order-17",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "build-order-17"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "build-order-17",
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "lines": "220-230",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+            "lines": "88-95",
+            "status": "verified_at_head",
+            "needle": "def same_repository?",
+            "note": "Repository-equality helper is in the repository module; original path was wrong."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "tests-5-02",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "tests-5-02"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "tests-5-02",
+          "path": "src/test/aiur/regression/done_agent_detach_test.exs",
+          "lines": "10-53",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/test/aiur/regression/done_agent_detach_test.exs",
+            "lines": "10-51",
+            "status": "verified_at_head",
+            "needle": "source = File.read!",
+            "note": "Source-text assertions are inside the actual 51-line test file."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "tests-5-11",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "tests-5-11"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "tests-5-11",
+          "path": "src/test/aiur_web/github_webhook_delivery_test.exs",
+          "lines": "(outside unit; also clears Publisher.Dedup)",
+          "status": "unknown",
+          "reason": "freeform_line_reference"
+        }
+      ]
+    },
+    {
+      "finding_id": "tests-5-12",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "tests-5-12"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "tests-5-12",
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "(call atoms)",
+          "status": "unknown",
+          "reason": "freeform_line_reference",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+            "lines": "136-170",
+            "status": "verified_at_head",
+            "needle": "{:claim_next_queue_item",
+            "note": "Queue call atoms are enumerated in this API section."
+          }
+        },
+        {
+          "source_id": "tests-5-12",
+          "path": "src/lib/aiur/orchestrator.ex",
+          "lines": "(call atoms)",
+          "status": "unknown",
+          "reason": "freeform_line_reference",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/orchestrator.ex",
+            "lines": "594-624",
+            "status": "verified_at_head",
+            "needle": "claim_next_operator_queue_item",
+            "note": "Public queue wrappers show the separate call paths."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "tests-5-14",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "tests-5-14"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "tests-5-14",
+          "path": "src/test/aiur/events/github_ci_poller_test.exs",
+          "lines": "(18 calls to evaluate_for_test)",
+          "status": "unknown",
+          "reason": "freeform_line_reference",
+          "corrected_anchor": {
+            "path": "src/test/aiur/events/github_ci_poller_test.exs",
+            "lines": "205-224",
+            "status": "verified_at_head",
+            "needle": "evaluate_for_test",
+            "note": "Representative direct test calls are at this frozen location; count still needs a dedicated census."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "tests-5-21",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "tests-5-21"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "tests-5-21",
+          "path": "src/lib/aiur/opencode/slot_policy.ex",
+          "lines": "(no start_first_slot / slot_chain_parallel_start)",
+          "status": "unknown",
+          "reason": "freeform_line_reference"
+        }
+      ]
+    },
+    {
+      "finding_id": "tests-5-22",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "tests-5-22"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "tests-5-22",
+          "path": "src/test/aiur/regression/chat_open_perf_test.exs",
+          "lines": "19, 35-80",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/test/aiur/regression/chat_open_perf_test.exs",
+            "lines": "35-56",
+            "status": "verified_at_head",
+            "needle": "@log_path",
+            "note": "The test reads the checkout log path at this frozen location."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "tests-6-04",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "tests-6-04"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "tests-6-04",
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "lines": "1188-1290,1356-1435",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/test/aiur/build_order/graph_projection_test.exs",
+            "lines": "1238-1246,1354-1360",
+            "status": "verified_at_head",
+            "needle": "defp finish",
+            "note": "Representative copied helper and catalog builder; original broad end range exceeded file."
+          }
+        },
+        {
+          "source_id": "tests-6-04",
+          "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
+          "lines": "150-230",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
+            "lines": "188-198",
+            "status": "verified_at_head",
+            "needle": "defp finish",
+            "note": "Copied helper is inside the actual 228-line file."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "web-rest-06",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "web-rest-06"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "web-rest-06",
+          "path": "src/lib/aiur_web/streamdeck_key_face_contract.ex",
+          "lines": "142-185",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur_web/streamdeck_key_face_contract.ex",
+            "lines": "9-13",
+            "status": "verified_at_head",
+            "needle": "@contract_path",
+            "note": "Compile-time JSON read is at the beginning of the file."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "web-rest-09",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "web-rest-09"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "web-rest-09",
+          "path": "src/lib/aiur/workspace/layout.ex",
+          "lines": "100-130",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/workspace/layout.ex",
+            "lines": "102-120",
+            "status": "verified_at_head",
+            "needle": "defp repo_segment",
+            "note": "Repository segment selection is within the actual 128-line file."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "web-rest-16",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "web-rest-16"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "web-rest-16",
+          "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+          "lines": "361-386",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+            "lines": "166-193",
+            "status": "verified_at_head",
+            "needle": "endpoint_config",
+            "note": "Controller option seam and global endpoint config are at this frozen location."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "web-rest-27",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "web-rest-27"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "web-rest-27",
+          "path": "src/lib/aiur_web/control_center_presenter.ex",
+          "lines": "338-348",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur_web/control_center_presenter.ex",
+            "lines": "235-245",
+            "status": "verified_at_head",
+            "needle": "counts: %{running: 0",
+            "note": "Unavailable fleet fills zero counts at this frozen location."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "web-rest-28",
+      "reviewed_severity": "P2",
+      "source_ids": [
+        "web-rest-28"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "web-rest-28",
+          "path": "src/lib/aiur_web/financial_data/cache.ex",
+          "lines": "181-183",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur_web/financial_data/cache.ex",
+            "lines": "25-31",
+            "status": "verified_at_head",
+            "needle": ":infinity",
+            "note": "The fetch call has an infinite timeout here."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "agent-runtime-31",
+      "reviewed_severity": "P3",
+      "source_ids": [
+        "agent-runtime-31"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "agent-runtime-31",
+          "path": "src/lib/aiur/live_conversation/compactor.ex",
+          "lines": "329-362",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/live_conversation/compactor.ex",
+            "lines": "110-120",
+            "status": "verified_at_head",
+            "needle": "Normalizer.compact_fragments",
+            "note": "Compactor delegates joined fragment normalization at this frozen location."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "agent-runtime-32",
+      "reviewed_severity": "P3",
+      "source_ids": [
+        "agent-runtime-32"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "agent-runtime-32",
+          "path": "src/lib/aiur/live_conversation/source.ex",
+          "lines": "184-191",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/live_conversation/source.ex",
+            "lines": "90-103",
+            "status": "verified_at_head",
+            "needle": ":crypto.hash",
+            "note": "Opaque identifier SHA-256 helper is within the actual file."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "agent-runtime-38",
+      "reviewed_severity": "P3",
+      "source_ids": [
+        "agent-runtime-38"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "agent-runtime-38",
+          "path": "src/lib/aiur/agent_list/activity_intake.ex",
+          "lines": "358",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/agent_list/activity_intake.ex",
+            "lines": "211-214",
+            "status": "verified_at_head",
+            "needle": "TrackerIdentity.github_key",
+            "note": "The tracker identity helper is here."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "nonelixir-shell-31",
+      "reviewed_severity": "P3",
+      "source_ids": [
+        "nonelixir-shell-31"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "nonelixir-shell-31",
+          "path": "scripts/report-known-flaky-tests.sh",
+          "lines": "76-78,113-116",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "scripts/report-known-flaky-tests.sh",
+            "lines": "53-65",
+            "status": "verified_at_head",
+            "needle": "grep -vE",
+            "note": "Under pipefail, this grep pipeline can return nonzero for an all-comment list."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "tests-1c-32",
+      "reviewed_severity": "P3",
+      "source_ids": [
+        "tests-1c-32"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "tests-1c-32",
+          "path": "src/test/aiur/os_test.exs",
+          "lines": "1-75",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/test/aiur/os_test.exs",
+            "lines": "1-55",
+            "status": "verified_at_head",
+            "needle": "async: true",
+            "note": "The 74-line test module is async and writes Application environment in this span."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "tests-5-26",
+      "reviewed_severity": "P3",
+      "source_ids": [
+        "tests-5-26"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "tests-5-26",
+          "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+          "lines": "1-1949 (737-742, 781-786 duplicate publication_records/1 at 1919-1925)",
+          "status": "unknown",
+          "reason": "freeform_line_reference",
+          "corrected_anchor": {
+            "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+            "lines": "1919-1925",
+            "status": "verified_at_head",
+            "needle": "defp publication_records",
+            "note": "One named helper is verified; the oversized-file count remains a separate census fact."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "tests-5-29",
+      "reviewed_severity": "P3",
+      "source_ids": [
+        "tests-5-29"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "tests-5-29",
+          "path": "src/lib/aiur/tmux/mock_transport.ex",
+          "lines": "(whole file)",
+          "status": "unknown",
+          "reason": "freeform_line_reference",
+          "corrected_anchor": {
+            "path": "src/lib/aiur/tmux/mock_transport.ex",
+            "lines": "1-48",
+            "status": "verified_at_head",
+            "needle": "def request",
+            "note": "The entire 48-line production mock transport is a regular tracked file."
+          }
+        }
+      ]
+    },
+    {
+      "finding_id": "web-rest-33",
+      "reviewed_severity": "P3",
+      "source_ids": [
+        "web-rest-33"
+      ],
+      "citation_defects": [
+        {
+          "source_id": "web-rest-33",
+          "path": "src/lib/aiur_web/streamdeck_auth.ex",
+          "lines": "231-234",
+          "status": "unknown",
+          "reason": "frozen_line_range_out_of_bounds",
+          "corrected_anchor": {
+            "path": "src/lib/aiur_web/streamdeck_auth.ex",
+            "lines": "42-45",
+            "status": "verified_at_head",
+            "needle": "defp secure_equal?",
+            "note": "Duplicate secure-equality helper is at this frozen location."
+          }
+        }
+      ]
+    }
+  ],
   "findings": [
     {
       "finding_id": "agent-backends-oc-01",
@@ -449,7 +1121,14 @@
               "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
               "lines": "179-203",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+                "lines": "125-135",
+                "status": "verified_at_head",
+                "needle": "Sanitizer.sanitize(value, max_bytes)",
+                "note": "Description sanitizer error maps to validation; line moved within same frozen file."
+              }
             }
           ]
         }
@@ -1739,25 +2418,53 @@
               "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
               "lines": "257-263",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+                "lines": "63-69",
+                "status": "verified_at_head",
+                "needle": "apply(decision_api(conn)",
+                "note": "Invoke rescue/catch is at this frozen location."
+              }
             },
             {
               "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
               "lines": "347-349",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+                "lines": "185-193",
+                "status": "verified_at_head",
+                "needle": "Endpoint.config(key)",
+                "note": "Separate endpoint config rescue/catch is at this frozen location."
+              }
             },
             {
               "path": "src/lib/aiur_web/financial_data/change_bridge.ex",
               "lines": "369-383",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur_web/financial_data/change_bridge.ex",
+                "lines": "61-75",
+                "status": "verified_at_head",
+                "needle": "_error -> :error",
+                "note": "Safe subscribe and broadcast rescue/catch are at this frozen location."
+              }
             },
             {
               "path": "src/lib/aiur_web/financial_data_access/generation.ex",
               "lines": "187-192",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur_web/financial_data_access/generation.ex",
+                "lines": "23-35",
+                "status": "verified_at_head",
+                "needle": ":exit, _reason -> :ok",
+                "note": "Invalidate and subscribe catch branches are at this frozen location."
+              }
             }
           ]
         }
@@ -2383,7 +3090,14 @@
               "path": "src/lib/aiur/opencode/session_writer_registry.ex",
               "lines": "332-344",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/opencode/session_writer_registry.ex",
+                "lines": "194-200",
+                "status": "verified_at_head",
+                "needle": "restart: :transient",
+                "note": "The transient SessionWriter child spec is at this frozen location."
+              }
             }
           ]
         }
@@ -2826,7 +3540,14 @@
               "path": "src/lib/aiur/agent_list/activity_intake.ex",
               "lines": "281-307",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/agent_list/activity_intake.ex",
+                "lines": "140-162",
+                "status": "verified_at_head",
+                "needle": "timestamp: evidence[:observed_at]",
+                "note": "Observed timestamp is retained in activity intake at this frozen location."
+              }
             }
           ]
         }
@@ -2850,13 +3571,27 @@
               "path": "src/lib/aiur/agent_list/controls.ex",
               "lines": "199-237",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/agent_list/controls.ex",
+                "lines": "43-59",
+                "status": "verified_at_head",
+                "needle": "Orchestrator.resume_agent",
+                "note": "AgentList key handling invokes orchestrator resume synchronously here."
+              }
             },
             {
               "path": "src/lib/aiur/agent_list/rc_pane_borders.ex",
               "lines": "71-81,99-103",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/agent_list/rc_pane_borders.ex",
+                "lines": "12-20,42-47",
+                "status": "verified_at_head",
+                "needle": "safe_list_open_panes",
+                "note": "Pane-border reconcile calls pane manager at this frozen location."
+              }
             }
           ]
         }
@@ -3210,7 +3945,14 @@
               "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
               "lines": "220-230",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/build_order/ticket_detail_repository.ex",
+                "lines": "88-95",
+                "status": "verified_at_head",
+                "needle": "def same_repository?",
+                "note": "Repository-equality helper is in the repository module; original path was wrong."
+              }
             }
           ]
         }
@@ -11912,7 +12654,14 @@
               "path": "src/test/aiur/regression/done_agent_detach_test.exs",
               "lines": "10-53",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/test/aiur/regression/done_agent_detach_test.exs",
+                "lines": "10-51",
+                "status": "verified_at_head",
+                "needle": "source = File.read!",
+                "note": "Source-text assertions are inside the actual 51-line test file."
+              }
             }
           ]
         }
@@ -12117,13 +12866,27 @@
               "path": "src/lib/aiur/orchestrator/operator_messages.ex",
               "lines": "(call atoms)",
               "status": "unknown",
-              "reason": "freeform_line_reference"
+              "reason": "freeform_line_reference",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+                "lines": "136-170",
+                "status": "verified_at_head",
+                "needle": "{:claim_next_queue_item",
+                "note": "Queue call atoms are enumerated in this API section."
+              }
             },
             {
               "path": "src/lib/aiur/orchestrator.ex",
               "lines": "(call atoms)",
               "status": "unknown",
-              "reason": "freeform_line_reference"
+              "reason": "freeform_line_reference",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/orchestrator.ex",
+                "lines": "594-624",
+                "status": "verified_at_head",
+                "needle": "claim_next_operator_queue_item",
+                "note": "Public queue wrappers show the separate call paths."
+              }
             }
           ]
         }
@@ -12164,7 +12927,14 @@
               "path": "src/test/aiur/events/github_ci_poller_test.exs",
               "lines": "(18 calls to evaluate_for_test)",
               "status": "unknown",
-              "reason": "freeform_line_reference"
+              "reason": "freeform_line_reference",
+              "corrected_anchor": {
+                "path": "src/test/aiur/events/github_ci_poller_test.exs",
+                "lines": "205-224",
+                "status": "verified_at_head",
+                "needle": "evaluate_for_test",
+                "note": "Representative direct test calls are at this frozen location; count still needs a dedicated census."
+              }
             }
           ]
         }
@@ -12314,7 +13084,14 @@
               "path": "src/test/aiur/regression/chat_open_perf_test.exs",
               "lines": "19, 35-80",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/test/aiur/regression/chat_open_perf_test.exs",
+                "lines": "35-56",
+                "status": "verified_at_head",
+                "needle": "@log_path",
+                "note": "The test reads the checkout log path at this frozen location."
+              }
             }
           ]
         }
@@ -12447,13 +13224,27 @@
               "path": "src/test/aiur/build_order/graph_projection_test.exs",
               "lines": "1188-1290,1356-1435",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/test/aiur/build_order/graph_projection_test.exs",
+                "lines": "1238-1246,1354-1360",
+                "status": "verified_at_head",
+                "needle": "defp finish",
+                "note": "Representative copied helper and catalog builder; original broad end range exceeded file."
+              }
             },
             {
               "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
               "lines": "150-230",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
+                "lines": "188-198",
+                "status": "verified_at_head",
+                "needle": "defp finish",
+                "note": "Copied helper is inside the actual 228-line file."
+              }
             }
           ]
         }
@@ -13233,7 +14024,14 @@
               "path": "src/lib/aiur_web/streamdeck_key_face_contract.ex",
               "lines": "142-185",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur_web/streamdeck_key_face_contract.ex",
+                "lines": "9-13",
+                "status": "verified_at_head",
+                "needle": "@contract_path",
+                "note": "Compile-time JSON read is at the beginning of the file."
+              }
             }
           ]
         }
@@ -13274,7 +14072,14 @@
               "path": "src/lib/aiur/workspace/layout.ex",
               "lines": "100-130",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/workspace/layout.ex",
+                "lines": "102-120",
+                "status": "verified_at_head",
+                "needle": "defp repo_segment",
+                "note": "Repository segment selection is within the actual 128-line file."
+              }
             }
           ]
         }
@@ -13397,7 +14202,14 @@
               "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
               "lines": "361-386",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur_web/controllers/decision_api_controller.ex",
+                "lines": "166-193",
+                "status": "verified_at_head",
+                "needle": "endpoint_config",
+                "note": "Controller option seam and global endpoint config are at this frozen location."
+              }
             }
           ]
         }
@@ -13591,7 +14403,14 @@
               "path": "src/lib/aiur_web/control_center_presenter.ex",
               "lines": "338-348",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur_web/control_center_presenter.ex",
+                "lines": "235-245",
+                "status": "verified_at_head",
+                "needle": "counts: %{running: 0",
+                "note": "Unavailable fleet fills zero counts at this frozen location."
+              }
             }
           ]
         }
@@ -13615,7 +14434,14 @@
               "path": "src/lib/aiur_web/financial_data/cache.ex",
               "lines": "181-183",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur_web/financial_data/cache.ex",
+                "lines": "25-31",
+                "status": "verified_at_head",
+                "needle": ":infinity",
+                "note": "The fetch call has an infinite timeout here."
+              }
             }
           ]
         }
@@ -13928,7 +14754,14 @@
               "path": "src/lib/aiur/live_conversation/compactor.ex",
               "lines": "329-362",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/live_conversation/compactor.ex",
+                "lines": "110-120",
+                "status": "verified_at_head",
+                "needle": "Normalizer.compact_fragments",
+                "note": "Compactor delegates joined fragment normalization at this frozen location."
+              }
             }
           ]
         }
@@ -13952,7 +14785,14 @@
               "path": "src/lib/aiur/live_conversation/source.ex",
               "lines": "184-191",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/live_conversation/source.ex",
+                "lines": "90-103",
+                "status": "verified_at_head",
+                "needle": ":crypto.hash",
+                "note": "Opaque identifier SHA-256 helper is within the actual file."
+              }
             }
           ]
         }
@@ -14061,7 +14901,14 @@
               "path": "src/lib/aiur/agent_list/activity_intake.ex",
               "lines": "358",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/agent_list/activity_intake.ex",
+                "lines": "211-214",
+                "status": "verified_at_head",
+                "needle": "TrackerIdentity.github_key",
+                "note": "The tracker identity helper is here."
+              }
             }
           ]
         }
@@ -15462,7 +16309,14 @@
               "path": "scripts/report-known-flaky-tests.sh",
               "lines": "76-78,113-116",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "scripts/report-known-flaky-tests.sh",
+                "lines": "53-65",
+                "status": "verified_at_head",
+                "needle": "grep -vE",
+                "note": "Under pipefail, this grep pipeline can return nonzero for an all-comment list."
+              }
             }
           ]
         }
@@ -16523,7 +17377,14 @@
               "path": "src/test/aiur/os_test.exs",
               "lines": "1-75",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/test/aiur/os_test.exs",
+                "lines": "1-55",
+                "status": "verified_at_head",
+                "needle": "async: true",
+                "note": "The 74-line test module is async and writes Application environment in this span."
+              }
             }
           ]
         }
@@ -16887,7 +17748,14 @@
               "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
               "lines": "1-1949 (737-742, 781-786 duplicate publication_records/1 at 1919-1925)",
               "status": "unknown",
-              "reason": "freeform_line_reference"
+              "reason": "freeform_line_reference",
+              "corrected_anchor": {
+                "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+                "lines": "1919-1925",
+                "status": "verified_at_head",
+                "needle": "defp publication_records",
+                "note": "One named helper is verified; the oversized-file count remains a separate census fact."
+              }
             }
           ]
         }
@@ -16945,7 +17813,14 @@
               "path": "src/lib/aiur/tmux/mock_transport.ex",
               "lines": "(whole file)",
               "status": "unknown",
-              "reason": "freeform_line_reference"
+              "reason": "freeform_line_reference",
+              "corrected_anchor": {
+                "path": "src/lib/aiur/tmux/mock_transport.ex",
+                "lines": "1-48",
+                "status": "verified_at_head",
+                "needle": "def request",
+                "note": "The entire 48-line production mock transport is a regular tracked file."
+              }
             }
           ]
         }
@@ -17292,7 +18167,14 @@
               "path": "src/lib/aiur_web/streamdeck_auth.ex",
               "lines": "231-234",
               "status": "unknown",
-              "reason": "frozen_line_range_out_of_bounds"
+              "reason": "frozen_line_range_out_of_bounds",
+              "corrected_anchor": {
+                "path": "src/lib/aiur_web/streamdeck_auth.ex",
+                "lines": "42-45",
+                "status": "verified_at_head",
+                "needle": "defp secure_equal?",
+                "note": "Duplicate secure-equality helper is at this frozen location."
+              }
             }
           ]
         }

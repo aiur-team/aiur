@@ -18,6 +18,7 @@ python3 docs/research/refactor-2026-09-26/tooling/current_head_static_triage.py 
   --findings docs/research/refactor-2026-09-26/review/findings.json \
   --base 3339b887196d5e9aefb273117a14bf33391ee41f \
   --head 3339b887196d5e9aefb273117a14bf33391ee41f \
+  --corrections docs/research/refactor-2026-09-26/synthesis/source-anchor-corrections.json \
   --output docs/research/refactor-2026-09-26/synthesis/current-head-static-triage.json
 ```
 
@@ -43,6 +44,20 @@ current traffic, or ready to implement. In particular, zero stale anchors is
 an expected consequence of `main` still equaling the frozen revision; rerun
 against the first merged release head before assigning work.
 
+The JSON also has an explicit `unknown_findings` index with the 26 IDs and
+their exact citation defects. The separate [correction ledger](source-anchor-corrections.json)
+preserves each original path and line reference and appends a corrected path,
+range and identifying source text. The generator checks corrected ranges and
+text against pinned Git blobs before attaching them. **Thirty of 32** unknown
+locations now have a verified corrected anchor, including both P1 findings;
+their original status remains `unknown` so the audit never silently rewrites
+raw research. The remaining two are `tests-5-11` (a comment about an outside
+unit's Publisher dedup cleanup, not a line citation) and `tests-5-21` (an
+absence claim requiring a negative symbol search). Those two need a different
+evidence form rather than an invented line number. Some corrected anchors
+support only the cited subclaim; the broader finding still needs semantic
+review and reproduction.
+
 ## Severity and disposition readiness
 
 | Reviewed severity | Canonical count | Current source | Unknown source | Next review |
@@ -59,11 +74,12 @@ denominator; merged canonical severities and raw-review provenance must not be
 conflated. No current-head semantic disposition has been completed for these
 889, so the implementation-ready count from this triage is **zero**.
 
-The two high-priority unknowns are `build-order-02` (one cited range exceeds
-its file) and `web-rest-08` (four cited ranges exceed their files). The JSON
-names every lower-priority unknown ID, path and line reference without
-repeating the 4,929 current citations. These are citation defects, not proof
-that the underlying proposed issues are false.
+The two high-priority original citation defects are `build-order-02` (one
+cited range exceeds its file) and `web-rest-08` (four cited ranges exceed
+their files). All five have verified corrected anchors in the ledger. The
+JSON names every lower-priority unknown ID, path and line reference without
+repeating the 4,929 current citations. Citation defects do not prove that the
+underlying proposed issues are false.
 
 ## Next validation boundary
 
