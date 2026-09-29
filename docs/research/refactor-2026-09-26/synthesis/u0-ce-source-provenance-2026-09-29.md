@@ -11,12 +11,14 @@ A local Claude plugin cache labeled `3.19.0` matches **257/259** Aiur managed fi
 From the research checkout, use a fresh disposable upstream clone outside the Aiur checkout. The patch is relative to upstream `skills/`; it includes only the five differing managed paths.
 
 ```sh
+set -e
 scratch="$(mktemp -d "${HOME}/aiur-ce-repro.XXXXXX")"
 git clone https://github.com/EveryInc/compound-engineering-plugin.git "$scratch/ce-upstream"
 git -C "$scratch/ce-upstream" checkout 4aeaf6853074efe021409e880ad27958bf07bca6
 git -C "$scratch/ce-upstream" apply --check "$PWD/docs/research/refactor-2026-09-26/synthesis/ce-upstream-4ae-to-aiur-overlay.patch"
 git -C "$scratch/ce-upstream" apply "$PWD/docs/research/refactor-2026-09-26/synthesis/ce-upstream-4ae-to-aiur-overlay.patch"
-while IFS= read -r skill; do diff -qr "$scratch/ce-upstream/skills/$skill" ".claude/skills/$skill"; done < .claude/skills/compound-engineering.skills
+test "$(wc -l < .claude/skills/compound-engineering.skills)" -eq 31
+while IFS= read -r skill; do diff -qr "$scratch/ce-upstream/skills/$skill" ".claude/skills/$skill" || exit 1; done < .claude/skills/compound-engineering.skills
 cmp "$scratch/ce-upstream/LICENSE" .claude/skills/compound-engineering.LICENSE
 ```
 
