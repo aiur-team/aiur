@@ -39,7 +39,7 @@ The repository records CE version `3.19.0` in `.claude/skills/compound-engineeri
 | 229 | `.claude/skills/ce-compound-refresh/SKILL.md` | 679 | Present, bytes differ |
 | 232 | `.claude/skills/ce-optimize/SKILL.md` | 667 | Present, bytes differ |
 
-None of the eight Aiur blobs exactly matched a blob at the same path in fetched upstream history; all eight entered Aiur together in bundling commit `8c00340df`. **Keep these eight action gates open.** Before splitting, record whether Aiur's copy is a deliberate local overlay or an upstream snapshot from another commit; choose a reproducible source plus patch/overlay policy. Then split at that source, run the updater into a disposable checkout, compare both Claude and Codex installed trees, and test `Aiur.AgentSkills` workspace dispatch and skill-relative references. A manual split in only the bundled copy would be erased by the current updater. The version string alone does not establish byte-for-byte reproducibility.
+The [full source-provenance audit](u0-ce-source-provenance-2026-09-29.md) found that all eight audited Aiur files match upstream commit `4aeaf6853074efe021409e880ad27958bf07bca6` byte-for-byte. Across all 259 managed files, 254 match that commit; a five-file overlay patch reproduces the current Aiur tree exactly. The source-identity question is resolved, but **keep these eight regeneration action gates open**: the current updater neither pins that commit nor reapplies the overlay, so a refresh from the named `3.19.0` tag would lose behavior. Split from the proved source/overlay and verify regenerated Claude and Codex trees, `Aiur.AgentSkills` workspace dispatch and skill-relative references before closing a row.
 
 ## Build Order fixture and preview
 

@@ -1,0 +1,882 @@
+diff --git i/skills/ce-babysit-pr/SKILL.md w/skills/ce-babysit-pr/SKILL.md
+index 29142a7..3450411 100644
+--- i/skills/ce-babysit-pr/SKILL.md
++++ w/skills/ce-babysit-pr/SKILL.md
+@@ -1,12 +1,12 @@
+ ---
+ name: ce-babysit-pr
+-description: "Babysits or watches an open GitHub PR until merge-ready, continuously reacting to new review comments and CI failures throughout the PR's life. Use when asked to 'babysit the PR', 'watch the PR', monitor, or keep an eye on a PR over time — not a one-shot request to resolve review comments or debug one CI failure (those are separate skills). GitHub only, including GitHub Enterprise."
++description: "Babysits or watches an open GitHub PR until merge-ready, continuously reacting to review comments, CI failures, and routine base movement throughout the PR's life. Use when asked to 'babysit the PR', 'watch the PR', monitor, or keep an eye on a PR over time — not a one-shot request to resolve review comments or debug one CI failure (those are separate skills). GitHub only, including GitHub Enterprise."
+ argument-hint: "[PR number, URL, or blank for current branch's PR] [watch|checkpoint] [duration]"
+ ---
+ 
+ # Babysit a PR
+ 
+-Keep an open PR **continuously moving toward merge** by reacting to two independent event streams — **incoming review comments** and **CI status changes** — as each arrives, for as long as the PR stays open. Comment fixes are delegated to `ce-resolve-pr-feedback`; CI failures are delegated to `ce-debug`. This skill owns the watch loop: snapshot, order, dedup, act, and decide when to **keep watching**, move to the next authorized managed-stack layer, or stop.
++Keep an open PR **continuously moving toward merge** by reacting to three independent event streams — **incoming review comments**, **CI status changes**, and **branch currency** — as each arrives, for as long as the PR stays open. Comment fixes are delegated to `ce-resolve-pr-feedback`; CI failures are delegated to `ce-debug`; routine target-local base movement follows the bounded protocol below. This skill owns the watch loop: snapshot, order, dedup, act, and decide when to **keep watching**, move to the next authorized managed-stack layer, or stop.
+ 
+ **Outcome:** leave the requested PR at an honest terminal, looks-ready, blocked, or budget state. For an independent PR or manual dependency chain, that target-local result is done. For a confirmed managed stack, a settled requested layer is a transition checkpoint: offer stack-wide continuation once when another immediate non-draft layer needs work; if accepted, babysit one layer at a time and stop advancement at the first draft not explicitly in scope, a human-blocked layer, the end of the stack, or the normal budget/user stop. Never infer this broader semantic scope from branch topology alone.
+ 
+@@ -31,7 +31,7 @@ Once a signal appears on the current head, it starts an **incomplete review life
+ 
+ **The in-progress signal gates only the *merge-ready declaration* — never the work.** Keep resolving open feedback as it arrives even while a review is in progress: **do not wait for the 👀 to clear before acting on the comments it has already posted.** Waiting for the review to *finish* before addressing feedback it already left would serialize the exact way waiting for a full CI run before addressing comments would — the same mistake the core principle forbids. Act on every open item continuously; the *only* thing the in-progress signal withholds is the "looks ready" call. (The detector automates the one cheap programmatic sign — the 👀, surfaced as `review_in_progress`; the `merge-ready` wake already refuses to fire while it holds; **you** apply the interim-comment and reviewed-an-earlier-head signs at the settle decision, Step 3's review-still-expected guard, since those need judgment the detector can't cheaply make.)
+ 
+-**Mutation envelope (what running this authorizes):** on the active target PR's head the loop fixes failing checks, commits, pushes, replies to and resolves review threads, and refreshes the PR description when incremental changes have left it stale — autonomously, as its normal operation. When that owned work pushes a target in a **confirmed managed stack**, preserving the manager's linear chain is part of the same authorization: the loop performs the manager-owned upstack maintenance in Step 2. Mutating review/CI work on a *different* PR is semantic scope, so it begins only after the user explicitly requested the whole managed stack or accepted Step 1's one-time stack-wide continuation offer. It **never** merges the PR, approves a gated CI run, changes stack structure, rebases the active target onto trunk/its parent, runs raw `git rebase`/`git push --force`, or rewrites a manual dependency chain. Being asked to babysit the PR is what authorizes this envelope — see Step 2's pre-authorization and the bounded scope it passes to the skills it delegates to.
++**Mutation envelope (what running this authorizes):** on the active target PR's head the loop fixes failing checks, commits, pushes, replies to and resolves review threads, refreshes a stale PR description, and performs Step 2's bounded routine branch-currency maintenance — autonomously, as its normal operation. When that owned work pushes a target in a **confirmed managed stack**, preserving the manager's linear chain is part of the same authorization: the loop performs the manager-owned upstack maintenance in Step 2. Mutating review/CI work on a *different* PR is semantic scope, so it begins only after the user explicitly requested the whole managed stack or accepted Step 1's one-time stack-wide continuation offer. It **never** merges the PR, approves a gated CI run, changes stack structure, rebases the active target onto trunk/its parent, runs raw `git rebase`/`git push --force`, or rewrites a manual dependency chain. Being asked to babysit the PR is what authorizes this envelope — see Step 2's pre-authorization and the bounded scope it passes to the skills it delegates to.
+ 
+ **Asking the user:** When this skill says "ask the user", use the platform's blocking question tool: `AskUserQuestion` in Claude Code (call `ToolSearch` with `select:AskUserQuestion` first if its schema isn't loaded), `request_user_input` in Codex, `ask_question` in Antigravity CLI (`agy`), `ask_user` in Pi. Fall back to presenting the question in chat only when no blocking tool exists or the call errors. Never silently skip the question.
+ 
+@@ -80,7 +80,7 @@ Then establish **how the watch sustains itself** — a skill can't be re-invoked
+ Same tick engine, three deltas:
+ 
+ 1. **Delegates run non-interactively.** Invoke `ce-resolve-pr-feedback mode:pipeline` for comments and `ce-debug mode:pipeline` for CI; collect their structured results (fixes + residuals). Never ask the user anything.
+-2. **Bounded stop, not merge-ready.** Exit when no actionable backlog remains AND either CI is **clean** (`all_checks_ok` — every check terminal, **none failing**, and at least one observed) with no `stack_blocker` → **success**, or a fix/round/time budget is hit → **return with residuals**. **Report success only on `all_checks_ok` with no chain blocker.** A terminal-but-**red** check that `ce-debug` marked dispatched but left failing (`diagnosed-no-fix`/`needs-human` → `has_failing_checks` stays true), manager-stale/unknown target, or an **empty** `statusCheckRollup` right after PR creation (`checks_present` false — Actions hasn't created check-runs *yet*, not that CI passed) is a residual, not a pass. **Never** wait for the merge-ready settle window or human approval (interactive-only).
++2. **Bounded stop, not merge-ready.** Exit when no actionable backlog remains AND either CI is **clean** (`all_checks_ok` — every check terminal, **none failing**, and at least one observed), GitHub reports a known clean merge state (`mergeability_certain` and `merge_state_status == "CLEAN"`), and both `stack_blocker` and `branch_currency_blocker` are null → **success**, or a fix/round/time budget is hit → **return with residuals**. **Report success only when those exact gates hold.** A terminal-but-**red** check that `ce-debug` marked dispatched but left failing (`diagnosed-no-fix`/`needs-human` → `has_failing_checks` stays true), unknown or non-clean merge state, manager-stale/unknown target, an open/claimed/parked current currency item, or an **empty** `statusCheckRollup` right after PR creation (`checks_present` false — Actions hasn't created check-runs *yet*, not that CI passed) is a residual, not a pass. **Never** wait for the merge-ready settle window or human approval (interactive-only).
+ 3. **Native residual surfacing + structured return.** Needs-human review threads stay open (the resolver posts `decision_context` there). Anything with no thread home — CI you could not fix after budget, a `needs-human` from `ce-debug` — goes into **one run-report PR comment** (a point-in-time narrative), never a PR-body section. Return a structured result: `{ status, checks_terminal, fixes_applied, residuals: [...] }`.
+ 
+ ## Step 2: Run one tick
+@@ -114,7 +114,7 @@ Do **not** pass `--settle-seconds` here — the script's 300s default is the ini
+ 
+ **`<host>` in `STATE_DIR` is load-bearing for GitHub Enterprise.** Derive it from the PR URL's host (or `gh repo view --json url`); use the same value in every `mark`. Keying only by `<owner>-<repo>-<N>` would let two PRs with the same `owner/repo#N` on *different* hosts (github.com + a GHE instance) share one `state.json`, so one host's dispositions/dispatched CI would silence or contaminate the other's actionable set. On plain github.com the host segment is just `github.com`. **Pass the same host in `--repo <host>/<owner>/<repo>`** (the documented `[HOST/]OWNER/REPO` selector) so `pr-snapshot`'s first `gh pr view` — which runs before it parses the URL host — queries the right host instead of the checkout's default `github.com`.
+ 
+-The snapshot emits the **attention set** — unresolved threads you have not yet acted on, **non-thread feedback candidates** (top-level PR comments + review-submission bodies) you have not yet classified, failing checks on the current head you have not yet dispatched — plus `pr_state`, `mergeable`, `merge_state_status`, `review_decision`, `head_sha`, `head_changed`, `quiet_seconds`, `invocation_elapsed_seconds`, `invocation_remaining_seconds`, `persisted_state_age_seconds`, `checks_awaiting_approval` / `blocked_external` (a fork-PR workflow gated on maintainer approval — see the blocked-external stop in Step 3), a `pr_chain` block, and a `trajectory` block (cross-tick facts: `check_recur_max`, `recurring_checks`, `unresolved_trend`, `new_threads_this_tick`, `stream_alternations`, `heads_since_progress`). Invocation time and persisted-state age are separate; never report one as the other. `pr_chain` carries the two independent axes: `manager_status` (`confirmed|absent|probe-error`) and `relationship_status` (`dependent|independent|probe-error`), plus manager source, target/upstack freshness, ordered entries, and ordinary parent/dependent PRs when available. The JSON field remains `actionable.comments` for the claim→act→confirm protocol, but its members are candidates awaiting semantic classification, not detector-proven action items. For non-thread feedback, the deterministic fetch excludes only empty bodies and messages known to be from the PR author (loop prevention). It does **not** decide from content, bot identity, or comment-vs-review surface whether an external message is valid feedback; `ce-resolve` applies that judgment. The snapshot **never** marks a surfaced item handled just from observing it; an item stays in the attention set until you confirm you acted or classified it (`mark`) or remote truth removes it (a resolved thread drops out of the fetch). Every `mark` write must present the same `RUN_INVOCATION_ID`, `RUN_STARTED_AT`, and `RUN_BUDGET_SECONDS`; a stale resolver tick must fail before it can silence work in a replacement invocation. So a crashed, failed, or superseded resolve pass leaves its items in the set next tick. Read `references/watch-loop.md` for the state schema and the claim→act→confirm protocol before acting.
++The snapshot emits the **attention set** — unresolved threads you have not yet acted on, **non-thread feedback candidates** (top-level PR comments + review-submission bodies) you have not yet classified, and failing checks on the current head you have not yet dispatched — plus the exact current `branch_currency` item and its `attention` route. It also emits `pr_state`, `mergeable`, `merge_state_status`, `base`, `host_branch_update_capability`, `branch_currency_blocker`, `review_decision`, `head_sha`, `head_changed`, `quiet_seconds`, `invocation_elapsed_seconds`, `invocation_remaining_seconds`, `persisted_state_age_seconds`, `checks_awaiting_approval` / `blocked_external` (a fork-PR workflow gated on maintainer approval — see the blocked-external stop in Step 3), a `pr_chain` block, and a `trajectory` block (cross-tick facts: `check_recur_max`, `recurring_checks`, `unresolved_trend`, `new_threads_this_tick`, `stream_alternations`, `heads_since_progress`). Invocation time and persisted-state age are separate; never report one as the other. `pr_chain` carries the two independent axes: `manager_status` (`confirmed|absent|probe-error`) and `relationship_status` (`dependent|independent|probe-error`), plus manager source, target/upstack freshness, ordered entries, and ordinary parent/dependent PRs when available. The JSON field remains `actionable.comments` for the claim→act→confirm protocol, but its members are candidates awaiting semantic classification, not detector-proven action items. For non-thread feedback, the deterministic fetch excludes only empty bodies and messages known to be from the PR author (loop prevention). It does **not** decide from content, bot identity, or comment-vs-review surface whether an external message is valid feedback; `ce-resolve` applies that judgment. The snapshot **never** marks a surfaced item handled just from observing it; an item stays in the attention set until you confirm you acted or classified it (`mark`) or remote truth removes it (a resolved thread drops out of the fetch). Every `mark` write must present the same `RUN_INVOCATION_ID`, `RUN_STARTED_AT`, and `RUN_BUDGET_SECONDS`; a stale resolver tick must fail before it can silence work in a replacement invocation. So a crashed, failed, or superseded resolve pass leaves its items in the set next tick. Read `references/watch-loop.md` for the state schema and the claim→act→confirm protocol before acting.
+ 
+ **The `trajectory` is facts, not a verdict — you hand it to the leaves, they judge convergence.** When it crosses a trigger (`check_recur_max >= 2`, `stream_alternations >= 3`, a rising `unresolved_trend` with `new_threads_this_tick > 0` across passes, or `heads_since_progress >= 2`), pass the trajectory to that tick's `ce-debug`/`ce-resolve-pr-feedback` invocation as **mandatory input** and let it decide whether this is ordinary progress or genuine non-convergence (a leaf may then return a `needs-human` residual that parks the *whole stream*, e.g. an emergent CI trade-off or a wrong-approach nitpick cluster). Never declare non-convergence yourself. Read `references/watch-loop.md` (**Non-convergence** section) for the trigger→route→park→re-open protocol before acting on it.
+ 
+@@ -122,6 +122,9 @@ The snapshot emits the **attention set** — unresolved threads you have not yet
+ 
+ 1. **Terminal check first.** If `pr_state` is `MERGED` or `CLOSED`, stop and report — the loop is done.
+ 2. **Capture the head SHA now** (`git rev-parse HEAD` or the snapshot's `head_sha`) so you can tell later whether the comment pass pushed.
++
++**Managed-stack atomicity gate.** Before invoking a delegate that may push the active target in a confirmed managed stack, positively verify that the manager's upstack push is atomic; help text alone is not proof (`github/gh-stack#216`). If atomicity cannot be proven, this is a true stop for the active invocation in every mode: do not invoke a delegate, run another tick, or arm/re-arm a watcher; the interactive/self-sustaining watch ends and hands control back, and pipeline mode returns an `atomicity-unproven` residual and terminates. State what did or did not change and what the user must do to continue, and give the exact resume invocation for the current context — normally bare `/ce-babysit-pr` while still on the paused PR's branch; include the PR number or URL only when the current branch no longer identifies that PR.
++
+ 3. **Feedback before CI.** If the attention set has **either** unresolved threads **or** non-thread feedback candidates (`counts.threads > 0` or `counts.comments > 0`), invoke `ce-resolve-pr-feedback` **once**, passing the resolved PR ref — the base `[HOST/]OWNER/REPO#N` or the full PR URL from the snapshot's `url` (so a fork→upstream PR resolves against the **upstream base**, not the fork checkout's `origin`, which would query the wrong PR namespace) — in full mode **with `mode:pipeline`** (non-interactive: it parks any `needs-human` on the thread and returns it as a structured residual instead of pausing on a blocking user question, which would stall the autonomous watch — the same reason Step 2 step 5 invokes `ce-debug mode:pipeline`); it re-fetches and judges *all* feedback — inline threads, review bodies, and top-level comments — and is idempotent on empty. The `actionable.comments` field contains the top-level/review-body candidates the resolver would otherwise not know the loop cares about — a Changes-Requested review body or a bare top-level "please rename X" with **no inline thread** must still trigger a pass. **When the review trigger above is crossed (rising backlog, new-item arrivals, or a repeating cluster), pass the `trajectory`** so it can judge a treadmill / wrong-approach nitpick cluster and return one approach-level `needs-human` instead of fixing forever — **and, when the recurring items are *valid* and share one root and fix, request a bounded-class assessment** so it consolidates the equivalent sites this PR touched into a single fix rather than dripping one per head (`references/watch-loop.md`, Non-convergence). One resolve pass per tick — never fan out multiple. When it returns, record what it left unresolved so the loop stops re-dispatching it (re-set the vars inline — shell state does not persist between calls): for each `needs-human` **thread**, `mark --thread <ID> --disposition needs-human`. Then reconcile the **comments you passed** — a top-level comment / review body never drops out of the fetch on its own, and `ce-resolve` may **silently drop** boilerplate, status noise, or other non-actionable feedback after applying agent judgment. So **mark *every* comment you passed as `dispatched`** (`mark --comment <ID> --disposition dispatched`), **except** those `ce-resolve` returned as `needs-human` (mark those `--disposition needs-human`). Marking only the ones it explicitly *handled* would leave silently-dropped candidates in the attention set forever, so `counts.comments` would never reach 0 and the loop would never settle:
+ 
+ ```bash
+@@ -145,12 +148,20 @@ These are decisions the resolver judged would change intended behavior or need a
+    ```
+ 
+    (A new head SHA clears these automatically.)
+-6. **Branch currency & conflicts (the third stream — after comments and CI).** Route from `pr_chain` before acting on GitHub's ordinary merge state:
+-   - **Managed stack** (`manager_status == "confirmed"`): manager currency outranks ordinary `CLEAN`/`BEHIND`. If `target_needs_rebase` is true or unknown before this tick, surface a `stack-sync-needed` standing residual; do not run `gh pr update-branch`, merge the base locally, or silently turn that pre-existing downstack/trunk problem into a full-stack rewrite. A clean upstack cascade caused by this tick's authorized target push is different: Step 7 owns that manager maintenance. After it, inspect `upstack_needs_rebase`; report only entries the maintenance could not clear rather than claiming the whole stack is healthy.
+-   - **Manual dependency chain** (`manager_status == "absent"` and `relationship_status == "dependent"`): babysit the requested target; **do not redirect** to its parent. Ordinary base merges remain permitted on the target under the conflict rules below, but qualify readiness as relative to its parent and report the effect of a target-head move on each dependent PR. Never rebase, rewrite, or restack dependent PR heads.
+-   - **Independent PR** (`manager_status == "absent"` and `relationship_status == "independent"`): behind base → `gh pr update-branch <PR-url-or-number>` when it actually unblocks merge; conflicting → merge base into head locally, resolve only mechanical conflicts, and surface semantic conflicts as `needs-human`. Pass the resolved PR ref to `update-branch`, run it at most once per tick, then resync the local head with `git fetch origin && git merge --ff-only` (or `gh pr checkout <ref>`). Never rebase or force-push.
+-   - **Probe uncertainty** (`manager_status == "probe-error"` or `relationship_status == "probe-error"`): continue independent review/CI work but surface the uncertainty as a standing residual and perform no branch-currency mutation until a later snapshot classifies the chain.
+-7. **After an authorized target-head push in a confirmed managed stack, preserve the upstack before resuming the watch.** This is manager-owned maintenance implicitly authorized by babysitting a managed layer, not permission for arbitrary history edits. Retain the delegate-reported pushed SHA, re-run read-only `gh stack view --json`, and require that it still identifies the target PR on the current local branch. Require a clean worktree, fetch the target branch from its tracking remote, and verify both the target's local head and remote-tracking tip still equal that pushed SHA; a moved target becomes an upstack residual, never something this step rebases or overwrites. From the fresh manager order, select the first open dependent branch immediately above the target. If there is none, no cascade is needed. If any precondition fails, leave an upstack residual without importing, checking out, or guessing at the stack. Otherwise run `gh stack rebase <first-dependent-branch> --upstack --no-trunk --remote <tracking-remote>`, verify the target local head is still unchanged at the pushed SHA, then run `gh stack push --remote <tracking-remote>`. Starting at the first dependent excludes the target from the cascading rebase; `--no-trunk` confines the operation to inter-branch propagation and avoids a stale local trunk. `gh stack push` supplies `--force-with-lease --atomic`, so every changed dependent branch updates or none do. If the rebase conflicts, immediately run `gh stack rebase --abort` and surface a `needs-human`/stack-sync residual — do not decide conflict semantics in another PR layer. If the target moved or the atomic push rejects changed remote state, do not retry with raw force; surface the residual. This route never applies to a manual dependency chain, and the delegated target fixers never perform it.
++6. **Branch currency & conflicts (the third stream — after comments and CI).** Consume the exact current `branch_currency` item; never infer a new item from merge-state prose. `UNKNOWN` mergeability yields no item and is only re-polled. Managed stacks and `probe-error` are excluded from this route. A `normal-base` item may be target-local for an independent PR or an eligible manual dependency; do not redirect a manual dependency to its parent. An open child dependent does not disqualify a root PR, but this route never rewrites, rebases, or mutates dependent heads.
++   - **Inspection and claim lifecycle.** If `attention == "inspect"`, first preview the current conflict and compute its semantic conflict fingerprint. Compare it with `parked_semantic_fingerprints`, then mark the exact item with `--currency-inspected-fingerprint <fingerprint>`. Unchanged evidence stays parked; changed evidence retires the old park and reopens the item. Do not claim before that inspection clears. For `attention == "claim"`, and only while fixed budget remains, atomically mark the exact item **before any external mutation or local merge starts**:
++
++     ```bash
++     SKILL_DIR="<absolute path of this skill's directory>"; STATE_DIR="/tmp/compound-engineering-<effective-uid>/ce-babysit-pr/<host>-<owner>-<repo>-<N>"; RUN_INVOCATION_ID="<invocation_id>"; RUN_STARTED_AT="<invocation_started_at>"; RUN_BUDGET_SECONDS="<invocation_budget_seconds>";
++     python3 "$SKILL_DIR/scripts/pr-snapshot" mark --state-dir "$STATE_DIR" --invocation-id "$RUN_INVOCATION_ID" --session-started-at "$RUN_STARTED_AT" --invocation-budget-seconds "$RUN_BUDGET_SECONDS" --currency-key <currency_key> --currency-disposition claimed
++     ```
++
++     A re-entry into `claimed` is reconciliation-only: inspect remote and local evidence, never directly resubmit. Record exactly one of `--currency-outcome mutation-observed`, `--currency-outcome proven-no-mutation`, or `--currency-outcome ambiguous`. Exactly one retry is possible only after conclusive no-mutation proof and the engine's backoff; an ambiguous result never retries or resubmits. Confirm or park with `--currency-disposition confirmed|needs-human` against that same `--currency-key` and invocation tuple. A stale invocation, exhausted budget/`max-runtime`, or head/base movement between claim and mutation rejects or invalidates the action before it writes.
++   - **`BEHIND`: host-owned update only.** Proceed only for `route == "normal-base"` with `host_branch_update_capability == true`; `false`/denied or `unknown` is a `needs-human` path, never inferred from Git or direct-push authority. After claim, immediately revalidate that remote head and base OIDs still equal the observation. Invoke the host update operation once through GitHub's `PUT /repos/{owner}/{repo}/pulls/{number}/update-branch` endpoint with `expected_head_sha` set to the claimed observation's head SHA; never use an update helper that cannot transmit that precondition. Treat an HTTP 422 head mismatch as a stale claim: re-snapshot and reconcile without resubmitting. Host acceptance is `mutation-observed`, not completion. Confirm the exact claimed observation only after a fresh snapshot and ancestry evidence prove the resulting head contains its observed base OID and no unrelated head/base movement or different current currency evidence invalidates that proof. The claimed item's own `branch_currency_blocker` remains until confirmation and need not be null beforehand. A moved head alone is not proof.
++   - **`DIRTY`: exact-base local repair only.** `host_branch_update_capability` is irrelevant and does not imply push access. Separately prove, without mutating, ordinary direct-push authority to the exact head ref; unknown or denied authority is `needs-human`. Require a verified clean PR-head checkout at the observed head, fetch the exact observed base OID, and run a non-mutating merge preview. The semantic conflict fingerprint is the sorted conflicted paths plus their stage blob identities; it excludes the base OID so unrelated later base movement cannot disguise the same conflict. A resolution is mechanical only with **positive intent evidence** and **no reasonable alternative behavior**. Two plausible resolutions, a material behavior or user-intent choice, unbounded scope, stale OIDs, incomplete evidence, or missing authority means abort safely and park with `--currency-disposition needs-human --semantic-conflict-fingerprint <fingerprint>`, plus concise competing options, tradeoffs, and a lean.
++   - **Apply and confirm a mechanical `DIRTY` repair.** Claim and revalidate the exact head/base OIDs and clean checkout again, merge that exact base OID, and mark `--currency-outcome mutation-observed` as soon as the local merge starts. Resolve only the previewed mechanical conflict, validate proportionally, and use a normal push to the exact head ref. Never rebase or force-push. An interrupted local merge must be reconciled to its validated commit or aborted safely before parking; never layer a second attempt over it. Confirm only when remote evidence proves the head equals or contains the validated merge commit, a fresh snapshot clears the currency gate, and no unrelated movement invalidated the claim. **Remote head movement alone is not proof or confirmation.**
++   - **Managed stack or probe uncertainty.** With `manager_status == "confirmed"`, manager currency outranks ordinary state: pre-existing target staleness becomes `stack-sync-needed`, never this route; Step 7 alone owns post-push manager maintenance. With a manager or relationship `probe-error`, continue review/CI but perform no branch-currency mutation or ready declaration until classification succeeds.
++7. **After an authorized target-head push in a confirmed managed stack, preserve the upstack before resuming the watch.** This is manager-owned maintenance implicitly authorized by babysitting a managed layer, not permission for arbitrary history edits. Retain the delegate-reported pushed SHA, re-run read-only `gh stack view --json`, and require that it still identifies the target PR on the current local branch. Require a clean worktree, fetch the target branch from its tracking remote, and verify both the target's local head and remote-tracking tip still equal that pushed SHA; a moved target becomes an upstack residual, never something this step rebases or overwrites. From the fresh manager order, select the first open dependent branch immediately above the target. If there is none, no cascade is needed. If any precondition fails, leave an upstack residual without importing, checking out, or guessing at the stack. Otherwise run `gh stack rebase <first-dependent-branch> --upstack --no-trunk --remote <tracking-remote>`, verify the target local head is still unchanged at the pushed SHA, then run `gh stack push --remote <tracking-remote>`. Starting at the first dependent excludes the target from the cascading rebase; `--no-trunk` confines the operation to inter-branch propagation and avoids a stale local trunk. The push capability proven before delegation supplies `--force-with-lease --atomic`, so every changed dependent branch updates or none do. If the rebase conflicts, immediately run `gh stack rebase --abort` and surface a `needs-human`/stack-sync residual — do not decide conflict semantics in another PR layer. If the target moved or the atomic push rejects changed remote state, do not retry with raw force; surface the residual. This route never applies to a manual dependency chain, and the delegated target fixers never perform it.
+ 8. **After any mutation, re-snapshot** at the start of the next tick, passing the same `--invocation-id "$RUN_INVOCATION_ID" --session-started-at "$RUN_STARTED_AT" --invocation-budget-seconds "$RUN_BUDGET_SECONDS"` — the head SHA and CI universe have changed, but the invocation-wide budget has not. Do not run a second `snapshot` mid-tick to re-derive CI; that is what caused stale-SHA confusion.
+ 
+ During accepted managed-stack continuation, do not run watchers across every PR. Recheck the manager's ordered entries and the settledness of the active target's downstack only at a layer transition, immediately before an active-target mutation, and at its looks-ready decision. If a lower layer has become unsettled, stop the active watcher and return to the lowest unsettled non-draft layer; never mutate both layers concurrently. If manager confirmation disappears, end continuation and surface the classification residual.
+@@ -165,7 +176,7 @@ During accepted managed-stack continuation, do not run watchers across every PR.
+ 
+ ## Step 3: Stop conditions
+ 
+-**In `mode:pipeline`, use the bounded pipeline stop** (Step 1's Pipeline-mode delta 2): exit when no actionable backlog remains and report **success only when `all_checks_ok` and `stack_blocker` is null** (every check terminal, none failing, at least one observed, target currency known) — a terminal-but-**red** check, manager-stale/unknown target, or empty rollup is **not** success: keep working independent streams until clear or the budget, then return with residuals. **Skip** the merge-ready settle window and human approval. The terminal and blocked conditions still apply.
++**In `mode:pipeline`, use the bounded pipeline stop** (Step 1's Pipeline-mode delta 2): exit when no actionable backlog remains and report **success only when `all_checks_ok`, `mergeability_certain`, `merge_state_status == "CLEAN"`, `stack_blocker` is null, and `branch_currency_blocker` is null/current currency is clear** — a terminal-but-**red** check, unknown or non-clean merge state, manager-stale/unknown target, open/claimed/parked currency item, or empty rollup is **not** success: keep working independent streams until clear or the budget, then return with residuals. **Skip** the merge-ready settle window and human approval. The terminal and blocked conditions still apply.
+ 
+ Otherwise (interactive), classify each condition as either a **true stop** (the watch ends and hands back) or a **standing residual** (surfaced to the user and blocking a *merge-ready declaration*, but which the self-sustaining watch **keeps running around** — it does **not** end the loop). **Terminal**, **looks-merge-ready**, **budget**, and the user's chosen end at **blocked-external** are true stops for the active PR; **`needs-human`**, **`blocked-failing`**, `stack-sync-needed` / chain-probe uncertainty, and an unresolved **semantic conflict** are standing residuals. A stale dependent above a target that is itself current is a stack-health residual, not a blocker to calling the target ready *as the next PR*. In **checkpoint mode** the single tick ends regardless of class; the distinction only changes what you report and whether you print a resume command.
+ 
+@@ -174,7 +185,7 @@ Otherwise (interactive), classify each condition as either a **true stop** (the
+ **True stops — the watch ends:**
+ 
+ - **Terminal** — PR `MERGED` or `CLOSED`.
+-- **Looks merge-ready (settled)** — GitHub itself reports it mergeable: `mergeable == "MERGEABLE"` and `merge_state_status == "CLEAN"` (this defers required-checks and required-review to GitHub's own gate, rather than re-deriving them), `checks_terminal` is true (nothing still running), there is **zero actionable backlog** — `counts.threads == 0` **and** `counts.comments == 0` (no unresolved inline threads and no un-acted top-level/review-body feedback) — **and `open_needs_human == 0`** (a thread or comment you deferred for a human decision means it is *not* ready — surface it, do not call it merge-ready), **and** `quiet_seconds` has reached the settle threshold **and either the review-still-expected guard below is clear** (no in-progress review signal, and any expected reviewer has reviewed the *current* head) **or its only uncleared condition is an incomplete lifecycle that the bounded stale protocol below says must stop** (at 15 quiet minutes without concrete slower prior-round timing, or at the 30-minute terminal ceiling after an evidence-based extension). Chain state further qualifies that result: a managed target requires `target_needs_rebase == false`; call it **"ready as the next PR in the stack"**, never independently ready, and list stale upstack entries separately. In a manual dependency chain, call it **"ready relative to its parent"** and name any open parent that must land first. `probe-error` or unknown managed freshness blocks readiness. The settle threshold is the script's **300s default**; the *only* thing that ever widens it is the re-arm after a rejected `merge-ready` wake (the wake protocol below) — never pre-widen the initial arm, review bots or not. The settle window is a *cooling-off* signal — evidence the PR stopped moving, **not** a guarantee no further review is coming. **Before you report it ready, reflect on PR-description freshness (the final checkpoint).** A watch full of incremental commits — fixes, new behavior, resolved feedback, a base-into-head merge — routinely leaves the *original* PR description describing a PR that no longer exists. If what the PR now does has materially drifted from its description (new/removed behavior, a changed approach, resolved caveats), **refresh it autonomously: invoke `ce-commit-push-pr` in description-update mode, non-interactively (`mode:pipeline` — it rewrites and applies via `gh pr edit` directly, no preview prompt). Do not ask — a current description is part of leaving a PR merge-ready**, and updating it is one of `ce-commit-push-pr`'s own functions. If the description still reflects the change, leave it untouched. Report an independent PR as "looks ready — your call to merge," never "safe to merge." For a confirmed managed stack, apply the transition paragraph above before treating this layer stop as the whole run's stop. In **checkpoint mode** you cannot enforce elapsed time between manual re-runs, so if it is otherwise clean but `quiet_seconds` is under the threshold, say "green now, re-run in ~5 min to confirm it stayed quiet before merging."
++- **Looks merge-ready (settled)** — GitHub itself reports it mergeable: `mergeable == "MERGEABLE"` and `merge_state_status == "CLEAN"` (this defers required-checks and required-review to GitHub's own gate, rather than re-deriving them), `checks_terminal` is true (nothing still running), there is **zero actionable backlog** — `counts.threads == 0` **and** `counts.comments == 0` (no unresolved inline threads and no un-acted top-level/review-body feedback) — **and `open_needs_human == 0`** (a thread or comment you deferred for a human decision means it is *not* ready — surface it, do not call it merge-ready), **and `branch_currency_blocker == null`** (no open, claimed, or parked base-movement item), **and** `quiet_seconds` has reached the settle threshold **and either the review-still-expected guard below is clear** (no in-progress review signal, and any expected reviewer has reviewed the *current* head) **or its only uncleared condition is an incomplete lifecycle that the bounded stale protocol below says must stop** (at 15 quiet minutes without concrete slower prior-round timing, or at the 30-minute terminal ceiling after an evidence-based extension). Chain state further qualifies that result: a managed target requires `target_needs_rebase == false`; call it **"ready as the next PR in the stack"**, never independently ready, and list stale upstack entries separately. In a manual dependency chain, call it **"ready relative to its parent"** and name any open parent that must land first. `probe-error` or unknown managed freshness blocks readiness. The settle threshold is the script's **300s default**; the *only* thing that ever widens it is the re-arm after a rejected `merge-ready` wake (the wake protocol below) — never pre-widen the initial arm, review bots or not. The settle window is a *cooling-off* signal — evidence the PR stopped moving, **not** a guarantee no further review is coming. **Before you report it ready, reflect on PR-description freshness (the final checkpoint).** A watch full of incremental commits — fixes, new behavior, resolved feedback, a base-into-head merge — routinely leaves the *original* PR description describing a PR that no longer exists. If what the PR now does has materially drifted from its description (new/removed behavior, a changed approach, resolved caveats), **refresh it autonomously: invoke `ce-commit-push-pr` in description-update mode, non-interactively (`mode:pipeline` — it rewrites and applies via `gh pr edit` directly, no preview prompt). Do not ask — a current description is part of leaving a PR merge-ready**, and updating it is one of `ce-commit-push-pr`'s own functions. If the description still reflects the change, leave it untouched. Report an independent PR as "looks ready — your call to merge," never "safe to merge." For a confirmed managed stack, apply the transition paragraph above before treating this layer stop as the whole run's stop. In **checkpoint mode** you cannot enforce elapsed time between manual re-runs, so if it is otherwise clean but `quiet_seconds` is under the threshold, say "green now, re-run in ~5 min to confirm it stayed quiet before merging."
+ - **Blocked on external CI approval** — `checks_awaiting_approval > 0` (the snapshot's `blocked_external`) with no actionable backlog: a workflow is **awaiting a base-repo maintainer's approval to run** (GitHub's fork-PR security gate). Neither you nor the loop can trigger it — it is up to a maintainer, on an **open-ended** timeline (hours to days), and on many repos review is *also* gated on CI, so there may be nothing to watch until they engage. **Never auto-approve** the run — that gate is the maintainer's. Handback:
+   - **Interactive: recommend ending (the default).** Report it plainly ("CI is blocked on a maintainer of `<base-repo>` approving the workflow run — you can't trigger it and the wait is open-ended; recommend stopping here") and give the resume command (`/ce-babysit-pr <url>`) — your own GitHub notifications are the natural trigger to re-run. Offer **one** alternative: keep watching at a **~30-min cadence within this invocation's remaining fixed budget** — resume full babysitting the moment CI clears; if the budget expires first, hand back the same resume command. State the measured remaining duration; never promise or mint a longer approval-watch window after invocation entry. Use the blocking-question tool with **stop as the default**; do not enumerate more options.
+   - **Pipeline / unattended:** do **not** ask and do **not** spin — return a `blocked-external` residual with the run URL and terminate (the orchestrator can't unblock it either).
+@@ -226,4 +237,4 @@ In **checkpoint mode** you are done after Step 4 — the next tick is the user r
+ 
+ ## Edge cases
+ 
+-`references/watch-loop.md` covers these in full. The non-negotiable ones: classify `pr_chain` before any branch-currency action; use `gh pr update-branch`/base merges only for confirmed-unmanaged PRs; a pre-existing managed target currency problem becomes `stack-blocked`, never an ordinary base merge; after an owned target push, maintain a locally confirmed managed upstack through Step 7 and abort cleanly on conflict; external head change / force-push → the snapshot's SHA-scoped state resets automatically, just re-snapshot; PR closed out from under the loop → clean exit; `needs-human` feedback → record it, keep doing independent CI work, never auto-resolve someone else's thread; no push access / fork PR → detect the push failure from the delegated skill, report it, stop; rate limits → honor reset headers and back off.
++`references/watch-loop.md` covers these in full. The non-negotiable ones: classify `pr_chain` and consume an exact claimed `branch_currency` item before any base-movement mutation; use the positive host-capability route for `BEHIND` and the clean-checkout exact-base route for bounded mechanical `DIRTY` repairs; semantic, stale, ambiguous, or unauthorized outcomes park rather than retrying or guessing; a pre-existing managed target currency problem becomes `stack-blocked`, never an ordinary base merge; after an owned target push, maintain a locally confirmed managed upstack through Step 7 and abort cleanly on conflict; external head change / force-push → re-snapshot and reconcile rather than clobber unrelated work; PR closed out from under the loop → clean exit; `needs-human` feedback → record it, keep doing independent CI work, never auto-resolve someone else's thread; no push access / fork PR → prove the appropriate route before mutation or park it; rate limits → honor reset headers and back off.
+diff --git i/skills/ce-babysit-pr/references/watch-loop.md w/skills/ce-babysit-pr/references/watch-loop.md
+index aa8049d..5b0f97c 100644
+--- i/skills/ce-babysit-pr/references/watch-loop.md
++++ w/skills/ce-babysit-pr/references/watch-loop.md
+@@ -6,7 +6,7 @@ Read this once per babysit session, before acting on the first tick's output. It
+ 
+ A skill's turn ends when it returns, so *the skill sets up its own loop* — nothing re-invokes it by magic. The robust, cross-harness-verified way is **not** to call a specific per-harness scheduler; it is to run a cheap deterministic background change-detector and **stay in-session**, woken when it signals:
+ 
+-- **`pr-snapshot watch`** is that detector — same fetch→diff on an interval, **no agent tokens**, prints one `BABYSIT_WAKE {reason,url,...}` line *only* on work to inspect (`actionable` for unresolved threads or failed CI; `feedback-candidate` for non-thread content awaiting resolver judgment) or a stop condition (`terminal` / `blocked-external` / `blocked-failing` — a dispatched check left terminally red — / `needs-human` / `merge-ready` after settle / `max-runtime` / `stop-signal` / `invocation-superseded`), then exits. A `feedback-candidate` that the resolver silent-drops is a normal classification outcome, not a detector false positive.
++- **`pr-snapshot watch`** is that detector — same fetch→diff on an interval, **no agent tokens**, prints one `BABYSIT_WAKE {reason,url,...}` line *only* on work to inspect (`actionable` for unresolved threads or failed CI; `feedback-candidate` for non-thread content awaiting resolver judgment; `branch-currency` for an item requiring claim, semantic inspection, or reconciliation) or a stop condition (`terminal` / `blocked-external` / `blocked-failing` — a dispatched check left terminally red — / `needs-human` / `merge-ready` after settle / `max-runtime` / `stop-signal` / `invocation-superseded`), then exits. A `feedback-candidate` that the resolver silent-drops is a normal classification outcome, not a detector false positive.
+ - At the fixed deadline, the final refresh preserves `terminal` and already-settled `merge-ready` stops; `max-runtime` outranks every non-terminal work/residual wake so the cap cannot start another agent round.
+ - The agent **backgrounds `watch` and waits for that line** with its harness's *background-and-wake* capability, runs a tick, and re-arms. The loop lives **in the current session**, so it keeps every decision the conversation made — declined nits, a reviewer judged wrong, the user's mid-run steering — and spends reasoning only when something changed.
+ 
+@@ -39,7 +39,7 @@ The needed capability is generic — *run a background process and be woken when
+ 
+ An orchestrator (`lfg`) drives ticks in-line and needs the loop to terminate. Run ticks back-to-back until the stop below. **To wait for CI to progress between ticks, use the harness's native non-blocking wait — never a bare foreground `sleep`** (blocked on Claude Code, discouraged elsewhere): Claude Code's `Monitor` until-loop; Grok's `get_command_or_subagent_output(timeout_ms=…)` or a `monitor`; Cursor's `Await` on a backgrounded `gh pr checks --watch`. If the harness has no non-blocking wait, do one tick and return control to the orchestrator rather than busy-spinning. Loop until:
+ 
+-- **Report success only when** `all_checks_ok` is true (every check terminal, **none failing**, and at least one observed), the actionable backlog is empty, and `stack_blocker` is null. A terminal-but-**red** check `ce-debug` left as a residual (`has_failing_checks` true), an empty rollup (`checks_present` false — Actions has not created check-runs yet, not that CI passed), or manager-stale/probe-error chain state is **not** success: keep ticking until it clears or the time budget expires, then return with residuals or `no-checks-observed`; or
++- **Report success only when** `all_checks_ok` is true (every check terminal, **none failing**, and at least one observed), the actionable backlog is empty, `mergeability_certain` is true, `merge_state_status == "CLEAN"`, `stack_blocker` is null, and `branch_currency_blocker` is null/current currency is clear. A terminal-but-**red** check `ce-debug` left as a residual (`has_failing_checks` true), an empty rollup (`checks_present` false — Actions has not created check-runs yet, not that CI passed), unknown or non-clean merge state, manager-stale/probe-error chain state, or an open/claimed/parked currency item is **not** success: keep ticking until it clears or the time budget expires, then return with residuals or `no-checks-observed`; or
+ - a **budget** is hit: default **3 CI fix rounds** per head-lineage (mirrors `lfg`'s historical cap) and an overall time cap (~30-45 min). On budget-exhaust, the still-red checks and any `needs-human` items become residuals.
+ 
+ Never wait on the merge-ready settle window or human review in pipeline mode — those are interactive stops. A check stuck `IN_PROGRESS` past the time cap ends the run with a "CI still running" residual rather than blocking forever.
+@@ -92,6 +92,13 @@ State lives at `<scratch-root>/ce-babysit-pr/<host>-<owner>-<repo>-<pr>/state.js
+   "review_signal_last_changed_at": "<iso8601>",
+   "mergeable": "MERGEABLE",
+   "merge_state_status": "CLEAN",
++  "base": { "host": "github.com", "repository": "owner/repo", "ref": "main", "oid": "base-sha" },
++  "branch_currency_state": {
++    "current_key": "currency:<identity-hash>",
++    "head_sha": "abc123",
++    "items": { "<currency-key>": { "status": "BEHIND|DIRTY", "disposition": "open|claimed|confirmed|needs-human", "host_branch_update_capability": true, "recovery_state": "claimed|mutation-observed|ambiguous|retry-authorized|retry-exhausted", "semantic_conflict_fingerprint": "<paths-and-stage-blobs>" } },
++    "semantic_parks": { "<fingerprint>": { "head_sha": "abc123", "status": "DIRTY", "route": "normal-base", "observation_key": "<currency-key>" } }
++  },
+   "pr_chain": {
+     "manager_status": "confirmed|absent|probe-error",
+     "manager_source": "gh-stack|graphql|null",
+@@ -126,11 +133,17 @@ The rule that makes ticks idempotent *and* crash-safe: **the snapshot never mark
+ - **Non-thread feedback candidates** (top-level PR comments + review-submission bodies). Surfaced as `actionable.comments` for content that has **no inline thread** — a Changes-Requested review summary or a bare top-level "please rename X". The field name supports the shared claim→act→confirm protocol; it does not mean the detector has semantically proven that the body requires work. A comments-only watch emits `feedback-candidate`, and a resolver pass that silent-drops it is a normal classification outcome. The deterministic fetch excludes only empty bodies and messages known to be from the PR author; those are structural loop-prevention facts. It never classifies external feedback by content, bot identity, or comment-vs-review surface: those are semantic signals for `ce-resolve` to judge, and bot formats, identities, and posting surfaces can change. Unlike a thread there is **no remote resolve**, so a surfaced item never drops out of the fetch on its own: `mark --comment <id> --disposition dispatched` (handled or judged non-actionable) or `--disposition needs-human` (escalated) is the *only* thing that silences it. Same open/dispatched/needs-human dispositions and explicit re-open (`--disposition open`) as threads. A `dispatched` item reactivates when its own body is **edited** to add a request (tracked by an `edit_id` body hash, since `gh pr view` exposes no `updatedAt`) — a *new* comment is simply a new id, and our reply is a separate top-level comment that never edits the original, so it does not retrigger. Both streams count as one **review** stream for the trajectory (a bot re-posting fresh top-level nits every commit is a treadmill, not silence) and for the merge-ready backlog (`counts.threads` **and** `counts.comments` must both be 0).
+ - **CI checks.** A failing check on the current head is actionable until you `mark --check <key>` (recorded in `ci_dispatched[head_sha]`). A new head SHA clears `ci_dispatched` and re-evaluates every check against the new commit, so green is never carried across a push. There is no transition-tracking: a failing check simply stays actionable until you record acting on it, which is both simpler and immune to missing an `IN_PROGRESS → FAILURE` edge between polls.
+ 
+-`ci_dispatched`, the thread dispositions, and the feedback dispositions **are** the journal — they are written by `mark` and read by `snapshot`. There is no separate crash-recovery record because an un-`mark`ed item is, by construction, still actionable.
++- **Branch currency.** `branch_currency` is the third attention stream. Its identity binds host-qualified base repository/ref/OID, head SHA, merge status, and route. `UNKNOWN` mergeability emits no item. Managed stacks and manager/relationship `probe-error` are excluded; a `normal-base` target may be independent or an eligible target-local manual dependency, and a root with open child dependents remains allowed. Never mutate those dependents.
++
++  A current open item with carried `parked_semantic_fingerprints` must be previewed first. Compute the current fingerprint from sorted conflicted paths plus stage blob identities, excluding the base OID, and mark `--currency-inspected-fingerprint <fingerprint>`. Unchanged evidence remains parked; changed evidence retires the old park and reopens attention. Before either a host update or local merge, atomically mark the exact item with `--currency-key <currency_key> --currency-disposition claimed`, plus `--invocation-id "$RUN_INVOCATION_ID" --session-started-at "$RUN_STARTED_AT" --invocation-budget-seconds "$RUN_BUDGET_SECONDS"`. Stale invocation fencing and `max-runtime` take precedence over a new claim or mutation.
++
++  Re-entry into `claimed` is reconciliation-only, never a direct resubmission. Record the observed recovery as `--currency-outcome mutation-observed`, `--currency-outcome proven-no-mutation`, or `--currency-outcome ambiguous`. Exactly one retry follows only conclusive no-mutation proof and the engine backoff. Ambiguous recovery never retries or resubmits; keep reconciling or park. Confirm or park the same exact item with `--currency-disposition confirmed|needs-human`; never transfer a claim to a moved head/base observation.
++
++`ci_dispatched`, the thread dispositions, the feedback dispositions, and `branch_currency_state` **are** the journal — they are written by `mark` and read by `snapshot`. There is no separate crash-recovery record: an unmarked review/CI item stays actionable, while a claimed currency item stays reconciliation-only until explicitly confirmed or parked.
+ 
+ ## Merge-readiness and the settle window
+ 
+-Do not re-derive "required checks" — GitHub already computes it. Use `mergeable == "MERGEABLE"` and `merge_state_status == "CLEAN"` for GitHub gates, then apply chain currency separately. A managed target is ready only when `target_needs_rebase == false`; true or unknown emits `stack_blocker`. A manual dependency can be ready relative to its parent but is not independently landable while that parent remains open. `UNSTABLE` means mergeable but a non-required check is red; `BLOCKED` means a required gate is unmet. The snapshot also emits `has_failing_checks` so you can act on a red check even while `merge_state_status` is `UNSTABLE`.
++Do not re-derive "required checks" — GitHub already computes it. Use `mergeable == "MERGEABLE"` and `merge_state_status == "CLEAN"` for GitHub gates, then require both chain and branch currency to be clear. A managed target is ready only when `target_needs_rebase == false`; true or unknown emits `stack_blocker`. Any current `branch_currency_blocker` blocks ready until fresh remote evidence clears it. A manual dependency can be ready relative to its parent but is not independently landable while that parent remains open. `UNSTABLE` means mergeable but a non-required check is red; `BLOCKED` means a required gate is unmet. The snapshot also emits `has_failing_checks` so you can act on a red check even while `merge_state_status` is `UNSTABLE`.
+ 
+ The settle window guards the most damaging false positive: "CI went green, told the user to merge, then feedback landed."
+ 
+@@ -142,7 +155,8 @@ The settle window guards the most damaging false positive: "CI went green, told
+ ## Concurrency
+ 
+ - **Lock.** The script takes a file lock around each state read/write. It cannot span the agent's mutations (which happen between script calls), so it is necessary but not sufficient.
+-- **Pre-mutation revalidation.** The delegated skills re-check remote before they write, but a second babysitter or a human can still act between your snapshot and your action. Treat the snapshot as a hint, never as a guarantee the world is unchanged at mutation time.
++- **Pre-mutation claim and revalidation.** Before a `BEHIND`/`DIRTY` external mutation, claim the exact item, then immediately prove its observed head and base OIDs are still current. A moved head or base invalidates the stale action. Treat the snapshot as a hint, never as a guarantee the world is unchanged at mutation time.
++- **Interrupted local merge.** On re-entry, inspect the checkout and remote before acting. Reconcile an interrupted merge to the already-validated commit or abort it safely; never begin another merge over unknown local state.
+ 
+ ## Managed-stack continuation
+ 
+@@ -152,9 +166,12 @@ The one-time semantic-scope offer and draft/human boundaries live inline in SKIL
+ 
+ ## Edge cases
+ 
+-- **Managed stack:** `target_needs_rebase` true/unknown becomes `stack-blocked`; do not use `gh pr update-branch` or a local base merge. After an authorized target push, retain the pushed SHA, re-confirm that local `gh stack view --json` still owns the target/current branch, require a clean worktree, fetch the target branch, and verify its local and remote-tracking heads remain at the pushed SHA. Select the first open dependent immediately above the target, then run `gh stack rebase <first-dependent-branch> --upstack --no-trunk --remote <tracking-remote>` followed by `gh stack push --remote <tracking-remote>`; if there is no dependent, skip the cascade. Starting at the dependent excludes the target from the rebase, and verify the target local head is still unchanged before pushing. The rebase confines the cascade to inter-branch propagation; the push uses `--force-with-lease --atomic`, so all changed remote branches update or none do. This manager-owned continuation is implicit in babysitting a managed layer. On a rebase conflict, run `gh stack rebase --abort` and leave a `needs-human`/upstack residual; on target movement or push rejection, leave the residual and never retry with raw force. If local CLI membership cannot be re-confirmed, do not import or guess at the stack.
+-- **Manual dependency chain:** keep the requested PR as the target, qualify readiness relative to its parent, and report downstream impact. Ordinary target-local base merges remain allowed. Never rebase, rewrite, or restack its dependent branches; a target push may make them stale, which is a residual only.
+-- **Independent PR behind/conflicting:** use `gh pr update-branch` when needed, or resolve only mechanical conflicts via a base merge. Semantic conflicts become `needs-human`. Never rebase or force-push.
++- **Managed stack:** `target_needs_rebase` true/unknown becomes `stack-blocked`; do not use `gh pr update-branch` or a local base merge. After an authorized target push, retain the pushed SHA, re-confirm that local `gh stack view --json` still owns the target/current branch, require a clean worktree, fetch the target branch, and verify its local and remote-tracking heads remain at the pushed SHA. Select the first open dependent immediately above the target, then run `gh stack rebase <first-dependent-branch> --upstack --no-trunk --remote <tracking-remote>` followed by `gh stack push --remote <tracking-remote>`; if there is no dependent, skip the cascade. Starting at the dependent excludes the target from the rebase, and verify the target local head is still unchanged before pushing. The rebase confines the cascade to inter-branch propagation; the capability proven before delegation supplies `--force-with-lease --atomic`, so all changed remote branches update or none do. This manager-owned continuation is implicit in babysitting a managed layer. On a rebase conflict, run `gh stack rebase --abort` and leave a `needs-human`/upstack residual; on target movement or push rejection, leave the residual and never retry with raw force. If local CLI membership cannot be re-confirmed, do not import or guess at the stack.
++- **Manual dependency chain:** keep the requested PR as the target, qualify readiness relative to its parent, and report downstream impact. An eligible emitted `normal-base` item may be repaired target-locally, but never rebase, rewrite, restack, or otherwise mutate its dependent branches. A root with open child dependents remains eligible; a target push may make those children stale, which is a residual only.
++- **Normal-base `BEHIND`:** require `host_branch_update_capability == true`; denied/`false` or `unknown` becomes `needs-human`, and that capability is never treated as Git push or direct push authority. Claim the exact item and revalidate its observed head and base OIDs. Invoke the host update operation once through GitHub's `PUT /repos/{owner}/{repo}/pulls/{number}/update-branch` endpoint with `expected_head_sha` set to the claimed observation's head SHA; never use an update helper that cannot transmit that precondition. Treat an HTTP 422 head mismatch as a stale claim: re-snapshot and reconcile without resubmitting. Host acceptance or a `mutation-observed` outcome is not completion. Confirm only after a fresh snapshot plus ancestry evidence proves the resulting head contains the observed base OID and the currency gate is clear. Remote head movement alone is not proof.
++- **Normal-base `DIRTY`:** `host_branch_update_capability` is irrelevant and does not apply. Separately prove ordinary direct push authority to the exact head ref without mutating; unknown or denied proof parks. Require a verified clean PR-head checkout at the observed head, fetch the exact observed base OID, and perform a non-mutating merge preview against it. Fingerprint the sorted conflicted paths and stage blob identities, explicitly excluding the base OID. If `parked_semantic_fingerprints` is present, record `--currency-inspected-fingerprint` before any claim: an unchanged fingerprint remains parked, while changed evidence retires the old park and reopens the item.
++
++  A resolution is mechanical only when positive intent evidence leaves no reasonable alternative behavior. Two plausible resolutions, a material intent change, stale/unauthorized/incomplete evidence, or unbounded work requires safe abort and `--currency-disposition needs-human --semantic-conflict-fingerprint <fingerprint>`, with concise competing options, tradeoffs, and a lean. For a mechanical case, claim and revalidate, merge the exact observed base, and mark `--currency-outcome mutation-observed` when the local merge starts. Resolve only the previewed conflict, validate proportionally, and use a normal push. Never rebase or force-push. Confirm only after the remote head equals or contains the validated merge commit and a fresh snapshot clears the gate; remote head movement alone is not confirmation. An interrupted local merge must reconcile or abort safely.
+ - **Manager/relationship probe error:** continue review and CI streams, but perform no branch-currency mutation and do not declare ready until classification succeeds.
+ - **External head change / force-push:** the head SHA moved under the loop. The snapshot clears SHA-scoped CI state automatically; just re-snapshot. Never clobber unrelated pushed work.
+ - **PR closed or merged externally:** detected as `pr_state != "OPEN"` on any tick → clean exit with a final status.
+diff --git i/skills/ce-babysit-pr/scripts/pr-snapshot w/skills/ce-babysit-pr/scripts/pr-snapshot
+index 4ee9c17..0c06633 100755
+--- i/skills/ce-babysit-pr/scripts/pr-snapshot
++++ w/skills/ce-babysit-pr/scripts/pr-snapshot
+@@ -40,7 +40,7 @@ import tempfile
+ import threading
+ import uuid
+ from contextlib import contextmanager
+-from datetime import datetime, timezone
++from datetime import datetime, timedelta, timezone
+ from urllib.parse import urlsplit
+ 
+ # Conclusions that mean "this check needs attention" (failing states).
+@@ -49,6 +49,14 @@ FAILING = {"FAILURE", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAIL
+ DISPOSITION_OPEN = "open"
+ DISPOSITION_NEEDS_HUMAN = "needs-human"
+ DISPOSITION_DISPATCHED = "dispatched"
++CURRENCY_CLAIMED = "claimed"
++CURRENCY_CONFIRMED = "confirmed"
++CURRENCY_OUTCOME_MUTATION_OBSERVED = "mutation-observed"
++CURRENCY_OUTCOME_PROVEN_NO_MUTATION = "proven-no-mutation"
++CURRENCY_OUTCOME_AMBIGUOUS = "ambiguous"
++CURRENCY_ATTENTION_CLAIM = "claim"
++CURRENCY_ATTENTION_INSPECT = "inspect"
++CURRENCY_ATTENTION_RECONCILE = "reconcile"
+ 
+ MANAGER_CONFIRMED = "confirmed"
+ MANAGER_ABSENT = "absent"
+@@ -77,6 +85,7 @@ CHECK_HISTORY_TTL = 30
+ # maximum-length GitHub-hosted Actions job (six hours) plus reaction and settle time. Callers may
+ # choose another fixed value on the first snapshot; later commands must present the same value.
+ DEFAULT_INVOCATION_BUDGET_SECONDS = 8 * 60 * 60
++CURRENCY_RETRY_BACKOFF_SECONDS = 30
+ 
+ 
+ class _WatchSuperseded(Exception):
+@@ -151,6 +160,30 @@ def _host_args(host):
+     return ["--hostname", host] if host else []
+ 
+ 
++def fetch_host_branch_update_capability(pr, owner, name, host=None):
++    """Read GitHub's operation-specific update-branch capability without mutating.
++
++    This fact intentionally says nothing about direct Git push authority, which DIRTY repair must
++    prove separately. Probe and response-shape uncertainty fail closed as `unknown`.
++    """
++    query = """
++query($owner:String!,$repo:String!,$pr:Int!){
++  repository(owner:$owner,name:$repo){
++    pullRequest(number:$pr){ viewerCanUpdateBranch }
++  }
++}"""
++    r = _run(["gh", "api", "graphql", *_host_args(host), "-f", f"owner={owner}",
++              "-f", f"repo={name}", "-F", f"pr={pr}", "-f", f"query={query}"])
++    if r.returncode != 0:
++        return "unknown"
++    try:
++        capability = json.loads(r.stdout)["data"]["repository"]["pullRequest"][
++            "viewerCanUpdateBranch"]
++    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
++        return "unknown"
++    return capability if isinstance(capability, bool) else "unknown"
++
++
+ def _eyes_reaction_identities(reaction_pages):
+     """Stable identities for current PR-body eyes reactors from paginated REST results."""
+     if not isinstance(reaction_pages, list):
+@@ -215,6 +248,7 @@ def _default_pr_chain():
+         "manager_source": None,
+         "relationship_status": RELATIONSHIP_INDEPENDENT,
+         "trunk": None,
++        "default_branch": None,
+         "current_branch": None,
+         "target_position": None,
+         "target_needs_rebase": None,
+@@ -402,6 +436,7 @@ def fetch_pr_chain(pr, repo, url, base_ref_name, head_ref_name, owner, name, hos
+ 
+     manager_status, chain, default_branch = _fetch_graphql_stack(pr, owner, name, host)
+     if manager_status == MANAGER_CONFIRMED:
++        chain["default_branch"] = default_branch
+         return chain
+ 
+     relationship, parents, dependents = _manual_relationships(
+@@ -410,6 +445,7 @@ def fetch_pr_chain(pr, repo, url, base_ref_name, head_ref_name, owner, name, hos
+     result.update({
+         "manager_status": manager_status,
+         "relationship_status": relationship,
++        "default_branch": default_branch,
+         "parent_prs": parents,
+         "dependent_prs": dependents,
+     })
+@@ -420,7 +456,7 @@ def fetch(pr, repo):
+     """Fetch both event streams via gh into one combined snapshot dict."""
+     repo_args = ["--repo", repo] if repo else []
+     view = _run_checked(["gh", "pr", "view", str(pr), *repo_args, "--json",
+-                         "state,mergeable,mergeStateStatus,reviewDecision,headRefOid,baseRefName,headRefName,url,number,"
++                         "state,mergeable,mergeStateStatus,reviewDecision,headRefOid,baseRefOid,baseRefName,headRefName,url,number,"
+                          "statusCheckRollup,author,comments,reviews"],
+                         "gh pr view")
+     v = json.loads(view.stdout)
+@@ -449,6 +485,25 @@ def fetch(pr, repo):
+             })
+ 
+     owner, name, host = _resolve_repo_ref(repo, v.get("url"))
++    base = {
++        "host": host or "github.com",
++        "repository": f"{owner}/{name}",
++        "ref": v.get("baseRefName"),
++        "oid": v.get("baseRefOid"),
++    }
++    pr_chain = fetch_pr_chain(v.get("number") or pr, repo, v.get("url"),
++                              v.get("baseRefName"), v.get("headRefName"), owner, name, host)
++    currency_probe = {
++        "mergeable": v.get("mergeable"),
++        "merge_state_status": v.get("mergeStateStatus"),
++        "base": base,
++        "pr_chain": pr_chain,
++    }
++    host_branch_update_capability = "unknown"
++    if (v.get("mergeStateStatus") == "BEHIND"
++            and _branch_currency_observation(currency_probe, v.get("headRefOid")) is not None):
++        host_branch_update_capability = fetch_host_branch_update_capability(
++            v.get("number") or pr, owner, name, host)
+ 
+     # In-progress review signal: an 👀 (EYES) reaction on the PR body is how several review bots
+     # (Codex among them) announce a review is *underway* — a present in-progress signal means the PR
+@@ -465,6 +520,8 @@ def fetch(pr, repo):
+         "merge_state_status": v.get("mergeStateStatus"),
+         "review_decision": v.get("reviewDecision") or None,
+         "head_sha": head,
++        "base": base,
++        "host_branch_update_capability": host_branch_update_capability,
+         "url": v.get("url"),
+         "checks": checks,
+         "review_in_progress": review_in_progress,
+@@ -477,8 +534,7 @@ def fetch(pr, repo):
+         # resolver's judgment; this deterministic layer keeps every non-empty non-author body.
+         "feedback": _extract_feedback(v),
+         "awaiting_approval": fetch_awaiting_approval(owner, name, head, host),
+-        "pr_chain": fetch_pr_chain(v.get("number") or pr, repo, v.get("url"),
+-                                   v.get("baseRefName"), v.get("headRefName"), owner, name, host),
++        "pr_chain": pr_chain,
+     }
+ 
+ 
+@@ -582,12 +638,224 @@ def _empty_state(pr, repo, url, now):
+         "review_signal_seen_on_head": False,
+         "review_signal_first_seen_at": None, "review_signal_last_changed_at": None,
+         "pr_chain": _default_pr_chain(),
++        "base": None,
++        "branch_currency_state": _empty_branch_currency_state(),
+         "last_change_at": None, "last_action": None, "stop_reason": None,
+         "watch_generation": None, "watch_pid": None, "watch_process_identity": None,
+         "trajectory": _empty_trajectory(),
+     }
+ 
+ 
++def _empty_branch_currency_state():
++    return {"current_key": None, "items": {}, "semantic_parks": {}, "head_sha": None}
++
++
++def _load_branch_currency_state(state):
++    """Conservatively migrate durable state written before branch currency existed."""
++    currency = state.get("branch_currency_state")
++    if not isinstance(currency, dict):
++        currency = {}
++    defaults = _empty_branch_currency_state()
++    for key, value in defaults.items():
++        currency.setdefault(key, value)
++    if not isinstance(currency.get("items"), dict):
++        currency["items"] = {}
++    if not isinstance(currency.get("semantic_parks"), dict):
++        currency["semantic_parks"] = {}
++    state["branch_currency_state"] = currency
++    return currency
++
++
++def _mergeability_certain(mergeable, merge_state_status):
++    """GitHub computes mergeability asynchronously; UNKNOWN/incomplete values are not facts."""
++    if mergeable not in ("MERGEABLE", "CONFLICTING"):
++        return False
++    if not merge_state_status or merge_state_status == "UNKNOWN":
++        return False
++    if merge_state_status == "DIRTY":
++        return mergeable == "CONFLICTING"
++    if merge_state_status == "BEHIND":
++        return mergeable == "MERGEABLE"
++    return True
++
++
++def _normal_base_route(cur):
++    """Return the only route U1 may classify: an unmanaged PR rooted on its normal base.
++
++    Ordinary dependents are intentionally harmless. An open or unknown parent means this target is
++    itself in a manual dependency chain and therefore outside this unit's authority.
++    """
++    chain = cur.get("pr_chain") or _default_pr_chain()
++    base = cur.get("base") or {}
++    if chain.get("manager_status") != MANAGER_ABSENT:
++        return None
++    if chain.get("relationship_status") == RELATIONSHIP_PROBE_ERROR:
++        return None
++    if not chain.get("default_branch") or base.get("ref") != chain.get("default_branch"):
++        return None
++    parents = chain.get("parent_prs") or []
++    if any(not isinstance(parent, dict) or parent.get("state") not in ("CLOSED", "MERGED")
++           for parent in parents):
++        return None
++    return "normal-base"
++
++
++def _branch_currency_observation(cur, head):
++    status = cur.get("merge_state_status")
++    certain = _mergeability_certain(cur.get("mergeable"), status)
++    if not certain or status not in ("BEHIND", "DIRTY"):
++        return None
++    route = _normal_base_route(cur)
++    base = cur.get("base") or {}
++    if (route is None or not head
++            or not all(base.get(key) for key in ("host", "repository", "ref", "oid"))):
++        return None
++    identity = {
++        "host": base["host"],
++        "base_repository": base["repository"],
++        "base_ref": base["ref"],
++        "base_oid": base["oid"],
++        "head_sha": head,
++        "status": status,
++        "route": route,
++    }
++    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
++    return {"key": f"currency:{hashlib.sha256(encoded).hexdigest()}", **identity}
++
++
++def _claimed_currency_items(currency):
++    """Return unresolved mutation claims with the current item first.
++
++    Base or expected head movement may be the result of the claimed mutation. It is evidence to
++    reconcile, not permission to discard the claim and start another attempt.
++    """
++    items = currency.get("items") or {}
++    current_key = currency.get("current_key")
++    claimed = []
++    current = items.get(current_key)
++    if isinstance(current, dict) and current.get("disposition") == CURRENCY_CLAIMED:
++        claimed.append((current_key, current))
++    claimed.extend(
++        (key, item) for key, item in items.items()
++        if key != current_key and isinstance(item, dict)
++        and item.get("disposition") == CURRENCY_CLAIMED
++    )
++    return claimed
++
++
++def _prepare_claimed_currency_item(state, item, cur=None, head=None):
++    invocation_id = state.get("invocation_id")
++    already_handled_here = (
++        item.get("claimed_invocation_id") == invocation_id
++        or item.get("reconciled_invocation_id") == invocation_id
++    )
++    base = (cur or {}).get("base") or {}
++    async_evidence_moved = (
++        item.get("recovery_state") in (
++            CURRENCY_OUTCOME_MUTATION_OBSERVED, CURRENCY_OUTCOME_AMBIGUOUS)
++        and ((head and head != item.get("head_sha"))
++             or (base.get("oid") and base.get("oid") != item.get("base_oid")))
++    )
++    item["attention"] = (CURRENCY_ATTENTION_RECONCILE
++                         if async_evidence_moved or not already_handled_here else None)
++    item["reconciliation_only"] = True
++    return item
++
++
++def _apply_branch_currency(state, cur, head, head_changed, now):
++    currency = _load_branch_currency_state(state)
++    carried_claims = _claimed_currency_items(currency)
++    if head_changed or (currency.get("head_sha") not in (None, head)):
++        currency = _empty_branch_currency_state()
++        currency["items"] = dict(carried_claims)
++        state["branch_currency_state"] = currency
++    currency["head_sha"] = head
++
++    # An unresolved claim owns the branch-currency lane until it is explicitly reconciled. A base
++    # move or expected head move may be the mutation's result, so a new observation must not replace
++    # the old exact key or make the PR look clear in the meantime.
++    claimed_items = _claimed_currency_items(currency)
++    if claimed_items:
++        key, item = claimed_items[0]
++        currency["current_key"] = key
++        return _prepare_claimed_currency_item(state, item, cur, head)
++
++    observation = _branch_currency_observation(cur, head)
++    if observation is None:
++        currency["current_key"] = None
++        return None
++
++    key = observation["key"]
++    items = currency["items"]
++    item = items.get(key)
++    if not isinstance(item, dict):
++        item = {**observation, "disposition": DISPOSITION_OPEN}
++        prior_host_branch_update_capability = None
++    else:
++        prior_host_branch_update_capability = item.get(
++            "host_branch_update_capability", "unknown")
++        # Refresh non-identity facts without changing an invocation-fenced disposition.
++        item.update(observation)
++    item["host_branch_update_capability"] = cur.get(
++        "host_branch_update_capability", "unknown")
++    parks = currency.get("semantic_parks") or {}
++    item["parked_semantic_fingerprints"] = sorted(parks)
++    item.setdefault("retry_count", 0)
++    item.setdefault("mutation_consumed", False)
++    disposition = item.get("disposition", DISPOSITION_OPEN)
++    # A transient capability park is not a durable decision: the unchanged observation becomes
++    # claimable as soon as the host confirms that the branch-update operation is authorized.
++    if (disposition == DISPOSITION_NEEDS_HUMAN
++            and item.get("status") == "BEHIND"
++            and item.get("recovery_state") is None
++            and prior_host_branch_update_capability in (False, "unknown")
++            and item.get("host_branch_update_capability") is True):
++        item["disposition"] = DISPOSITION_OPEN
++        disposition = DISPOSITION_OPEN
++    if disposition == DISPOSITION_OPEN:
++        inspection_required = (item.get("status") == "DIRTY"
++                               and bool(parks)
++                               and item.get("inspection_result") != "changed")
++        item["inspection_required"] = inspection_required
++        retry_wait_seconds = 0
++        retry_not_before = item.get("retry_not_before")
++        if retry_not_before:
++            try:
++                retry_wait_seconds = max(
++                    0, int((_parse_iso8601(retry_not_before) - now).total_seconds()))
++            except (ValueError, TypeError):
++                retry_wait_seconds = 0
++        item["retry_wait_seconds"] = retry_wait_seconds
++        if inspection_required:
++            item["attention"] = CURRENCY_ATTENTION_INSPECT
++        elif retry_wait_seconds > 0:
++            item["attention"] = None
++        else:
++            item["attention"] = CURRENCY_ATTENTION_CLAIM
++        item["reconciliation_only"] = False
++    elif disposition == CURRENCY_CLAIMED:
++        _prepare_claimed_currency_item(state, item, cur, head)
++    else:
++        item["attention"] = None
++        item["reconciliation_only"] = False
++    items[key] = item
++    currency["current_key"] = key
++
++    # Old observations are useful only when they carry an unresolved claim or semantic park. Claims
++    # are never pruned; the small bounded tail applies only to parked base generations.
++    retained = {item_key: value for item_key, value in items.items()
++                if item_key == key
++                or value.get("disposition") in (CURRENCY_CLAIMED, DISPOSITION_NEEDS_HUMAN)}
++    if len(retained) > 8:
++        parked_keys = [item_key for item_key, value in retained.items()
++                       if item_key != key
++                       and value.get("disposition") == DISPOSITION_NEEDS_HUMAN]
++        for item_key in parked_keys[:-7]:
++            retained.pop(item_key, None)
++    currency["items"] = retained
++    return item
++
++
+ def _empty_trajectory():
+     """Deterministic cross-tick facts babysit hands the leaves (facts, not judgment):
+     babysit ships the trajectory, the leaf decides whether it means non-convergence."""
+@@ -910,6 +1178,8 @@ def diff(state, cur, now=None, advance_trajectory=True):
+     state["review_signal_identities"] = review_signal_identities
+     state["awaiting_approval"] = cur.get("awaiting_approval", 0)
+     state["pr_chain"] = cur.get("pr_chain") or _default_pr_chain()
++    state["base"] = cur.get("base")
++    branch_currency = _apply_branch_currency(state, cur, head, head_changed, now)
+ 
+     actionable = {"ci": actionable_ci, "threads": actionable_threads, "comments": actionable_feedback}
+     if advance_trajectory:
+@@ -954,6 +1224,16 @@ def diff(state, cur, now=None, advance_trajectory=True):
+         "review_decision": cur["review_decision"],
+         "head_sha": head,
+         "head_changed": head_changed,
++        "base": state.get("base"),
++        "mergeability_certain": _mergeability_certain(
++            cur.get("mergeable"), cur.get("merge_state_status")),
++        "host_branch_update_capability": cur.get("host_branch_update_capability", "unknown"),
++        "branch_currency": branch_currency,
++        "branch_currency_blocker": ({
++            "key": branch_currency.get("key"),
++            "disposition": branch_currency.get("disposition"),
++            "recovery_state": branch_currency.get("recovery_state"),
++        } if branch_currency else None),
+         "url": cur["url"],
+         "has_failing_checks": has_failing,
+         "checks_terminal": checks_terminal,
+@@ -1000,11 +1280,19 @@ def _change_sig(state):
+     checks = {k: (v.get("status"), v.get("conclusion")) for k, v in state.get("checks", {}).items()}
+     threads = {tid: _thread_identity(v) for tid, v in state.get("threads", {}).items()}
+     feedback = {fid: v.get("disposition") for fid, v in state.get("feedback", {}).items()}
++    currency = _load_branch_currency_state(state)
++    current_currency = currency.get("items", {}).get(currency.get("current_key")) or {}
+     return (checks, threads, feedback, state.get("review_decision"), state.get("mergeable"),
+             state.get("merge_state_status"), state.get("review_in_progress"),
+             state.get("review_signal_count"),
+             tuple(state.get("review_signal_identities") or []),
+             json.dumps(state.get("pr_chain") or _default_pr_chain(), sort_keys=True),
++            json.dumps(state.get("base"), sort_keys=True),
++            (current_currency.get("host_branch_update_capability")
++             if current_currency.get("status") == "BEHIND" else None),
++            currency.get("current_key"), current_currency.get("disposition"),
++            current_currency.get("attention"), current_currency.get("recovery_state"),
++            current_currency.get("retry_count"), current_currency.get("mutation_consumed"),
+             # awaiting-approval clearing is movement: a fork gate lifting must reset the settle clock
+             # so merge-ready waits for the now-imminent check-runs instead of firing on an empty rollup.
+             bool(state.get("awaiting_approval")))
+@@ -1182,8 +1470,6 @@ def _wake_reason(a, settle_seconds):
+     Ordered by precedence — a terminal/blocked/needs-human state outranks a merge-ready read."""
+     if a.get("pr_state") in ("MERGED", "CLOSED"):
+         return "terminal"
+-    if a.get("blocked_external"):
+-        return "blocked-external"
+     c = a.get("counts") or {}
+     if c.get("threads", 0) or c.get("ci", 0):
+         return "actionable"
+@@ -1193,12 +1479,24 @@ def _wake_reason(a, settle_seconds):
+         return "feedback-candidate"
+     if a.get("stack_blocker"):
+         return "stack-blocked"
+-    if a.get("open_needs_human", 0):
+-        return "needs-human"         # parked items block ready; surface them
++    branch_currency = a.get("branch_currency") or {}
+     if a.get("has_failing_checks") and a.get("checks_terminal"):
+         # a dispatched check left terminally red (counts.ci is 0 — nothing new to dispatch) is a
+         # blocker to hand back, not a reason to idle to max-runtime.
+         return "blocked-failing"
++    # Branch maintenance is a third attention stream. It runs only after new review/CI work and
++    # standing red blockers are clear, but a passive in-progress check or review signal does not
++    # delay a BEHIND update that will invalidate that work anyway. Claimed observations wake only
++    # for reconciliation; confirmed and parked residuals remain quiet.
++    if branch_currency.get("attention") in (CURRENCY_ATTENTION_CLAIM,
++                                             CURRENCY_ATTENTION_INSPECT,
++                                             CURRENCY_ATTENTION_RECONCILE):
++        return "branch-currency"
++    if a.get("blocked_external"):
++        return "blocked-external"
++    if (a.get("open_needs_human", 0)
++            or branch_currency.get("disposition") == DISPOSITION_NEEDS_HUMAN):
++        return "needs-human"         # parked items block ready; surface them
+     # merge-ready candidate: green + settled with no fresh review movement. A live 👀 blocks the
+     # ordinary 300s settle, but wakes the agent after 900 quiet seconds for the semantic stale-review
+     # judgment. The agent may extend once to 1800s by re-arming with that settle value; the detector
+@@ -1210,6 +1508,7 @@ def _wake_reason(a, settle_seconds):
+     if (a.get("mergeable") == "MERGEABLE" and a.get("merge_state_status") == "CLEAN"
+             and a.get("checks_terminal") and not a.get("has_failing_checks")
+             and a.get("checks_awaiting_approval", 0) == 0
++            and a.get("branch_currency_blocker") is None
+             and not review_blocking
+             and a.get("quiet_seconds", 0) >= settle_seconds):
+         return "merge-ready"
+@@ -1244,6 +1543,13 @@ def _blocker_sig(a):
+         sig.add("__blocked_external__")
+     if a.get("stack_blocker"):
+         sig.add(f"__stack__:{a['stack_blocker']}")
++    branch_currency = a.get("branch_currency") or {}
++    currency_disposition = branch_currency.get("disposition")
++    if (currency_disposition in (CURRENCY_CONFIRMED, DISPOSITION_NEEDS_HUMAN)
++            or (currency_disposition == CURRENCY_CLAIMED
++                and not branch_currency.get("attention"))):
++        sig.add(("currency", branch_currency.get("key"), currency_disposition,
++                 branch_currency.get("recovery_state")))
+     # A new head is "context materially changed": a human may have pushed a commit that answers or
+     # supersedes a parked residual, so the head is part of the baseline — when it moves, the residual
+     # is no longer "already-surfaced against this state" and the watch wakes to give the agent a tick
+@@ -1523,12 +1829,150 @@ def _mark_thread_baseline(item_id, args, state):
+     return None
+ 
+ 
++def _mark_branch_currency(args, state, now):
++    currency = _load_branch_currency_state(state)
++    key = args.currency_key
++    if not key or currency.get("current_key") != key:
++        raise SystemExit("currency mark requires the exact current observation key")
++    item = currency.get("items", {}).get(key)
++    if not isinstance(item, dict):
++        raise SystemExit("currency mark requires a current observed item")
++    prior = item.get("disposition", DISPOSITION_OPEN)
++    outcome = args.currency_outcome
++    inspected_fingerprint = args.currency_inspected_fingerprint
++
++    if outcome:
++        if prior != CURRENCY_CLAIMED:
++            raise SystemExit("currency outcomes require a claimed observation")
++        item["reconciled_invocation_id"] = state.get("invocation_id")
++        item["reconciled_at"] = _iso(now)
++        if outcome == CURRENCY_OUTCOME_MUTATION_OBSERVED:
++            item["mutation_consumed"] = True
++            item["mutation_observed_at"] = _iso(now)
++            item["recovery_state"] = CURRENCY_OUTCOME_MUTATION_OBSERVED
++        elif outcome == CURRENCY_OUTCOME_AMBIGUOUS:
++            item["recovery_state"] = CURRENCY_OUTCOME_AMBIGUOUS
++        elif outcome == CURRENCY_OUTCOME_PROVEN_NO_MUTATION:
++            if item.get("mutation_consumed"):
++                raise SystemExit("cannot record no mutation after mutation start was observed")
++            retries = int(item.get("retry_count", 0))
++            if retries < 1:
++                item["retry_count"] = retries + 1
++                item["disposition"] = DISPOSITION_OPEN
++                item["recovery_state"] = "retry-authorized"
++                item["retry_not_before"] = _iso(
++                    now + timedelta(seconds=CURRENCY_RETRY_BACKOFF_SECONDS))
++                item.pop("claimed_invocation_id", None)
++                item.pop("reconciled_invocation_id", None)
++            else:
++                item["disposition"] = DISPOSITION_NEEDS_HUMAN
++                item["recovery_state"] = "retry-exhausted"
++        state["last_action"] = f"{outcome} currency {key}"
++        return
++
++    if inspected_fingerprint:
++        if prior != DISPOSITION_OPEN:
++            raise SystemExit("currency inspection requires an open observation")
++        parks = currency.get("semantic_parks") or {}
++        if not parks:
++            raise SystemExit("currency inspection requires carried semantic conflict evidence")
++        item["inspected_semantic_conflict_fingerprint"] = inspected_fingerprint
++        item["inspected_at"] = _iso(now)
++        if inspected_fingerprint in parks:
++            item["disposition"] = DISPOSITION_NEEDS_HUMAN
++            item["semantic_conflict_fingerprint"] = inspected_fingerprint
++            item["recovery_state"] = "semantic-unchanged"
++            item["inspection_result"] = "unchanged"
++        else:
++            item["inspection_required"] = False
++            item["inspection_result"] = "changed"
++            item["recovery_state"] = "semantic-changed"
++            # The preview describes the current conflict set for this head. Once it differs, the
++            # carried fingerprints are no longer standing residuals and must not tax every later
++            # base generation with inspection of stale evidence.
++            currency["semantic_parks"] = {}
++            item["parked_semantic_fingerprints"] = []
++        state["last_action"] = f"inspected currency {key}"
++        return
++
++    disposition = args.currency_disposition
++    allowed = {
++        DISPOSITION_OPEN: {DISPOSITION_OPEN, CURRENCY_CLAIMED, DISPOSITION_NEEDS_HUMAN},
++        CURRENCY_CLAIMED: {CURRENCY_CLAIMED, CURRENCY_CONFIRMED, DISPOSITION_NEEDS_HUMAN},
++        CURRENCY_CONFIRMED: {CURRENCY_CONFIRMED, DISPOSITION_OPEN},
++        DISPOSITION_NEEDS_HUMAN: {DISPOSITION_NEEDS_HUMAN, DISPOSITION_OPEN},
++    }
++    if disposition not in allowed.get(prior, set()):
++        raise SystemExit(f"invalid currency transition: {prior} -> {disposition}")
++    if (prior == DISPOSITION_OPEN and disposition == CURRENCY_CLAIMED
++            and item.get("inspection_required")):
++        raise SystemExit("currency claim requires semantic-fingerprint inspection first")
++    if prior == DISPOSITION_OPEN and disposition == CURRENCY_CLAIMED:
++        retry_not_before = item.get("retry_not_before")
++        if retry_not_before:
++            try:
++                if _parse_iso8601(retry_not_before) > now:
++                    raise SystemExit("currency retry backoff has not elapsed")
++            except (ValueError, TypeError):
++                raise SystemExit("currency retry backoff is invalid")
++        budget = state.get("invocation_budget_seconds")
++        if budget is not None and _elapsed(state.get("started_at"), now) >= budget:
++            raise SystemExit("currency claim cannot start after max-runtime")
++    item["disposition"] = disposition
++    item["transitioned_at"] = _iso(now)
++    if disposition == CURRENCY_CLAIMED:
++        # A repeated claim is deliberately idempotent. It cannot transfer or renew an existing
++        # claim; a later invocation must reconcile it and record an explicit outcome.
++        if prior == DISPOSITION_OPEN:
++            item["claimed_invocation_id"] = state.get("invocation_id")
++            item["claimed_at"] = _iso(now)
++            item["attempt_number"] = int(item.get("retry_count", 0)) + 1
++            item["mutation_consumed"] = False
++            item["recovery_state"] = "claimed"
++            item.pop("reconciled_invocation_id", None)
++    elif disposition == CURRENCY_CONFIRMED:
++        item["confirmed_invocation_id"] = state.get("invocation_id")
++    elif disposition == DISPOSITION_NEEDS_HUMAN:
++        fingerprint = args.semantic_conflict_fingerprint
++        if fingerprint:
++            item["semantic_conflict_fingerprint"] = fingerprint
++            currency.setdefault("semantic_parks", {})[fingerprint] = {
++                "head_sha": item.get("head_sha"),
++                "status": item.get("status"),
++                "route": item.get("route"),
++                "observation_key": key,
++            }
++    elif disposition == DISPOSITION_OPEN:
++        old_fingerprint = item.pop("semantic_conflict_fingerprint", None)
++        if old_fingerprint:
++            currency.setdefault("semantic_parks", {}).pop(old_fingerprint, None)
++        item.pop("claimed_invocation_id", None)
++        item.pop("confirmed_invocation_id", None)
++        item.pop("reconciled_invocation_id", None)
++        item.pop("inspected_semantic_conflict_fingerprint", None)
++        item.pop("inspection_result", None)
++        item["retry_count"] = 0
++        item["mutation_consumed"] = False
++        item.pop("retry_not_before", None)
++        item.pop("recovery_state", None)
++    item["parked_semantic_fingerprints"] = sorted(currency.get("semantic_parks") or {})
++    state["last_action"] = f"{disposition} currency {key}"
++
++
+ def cmd_mark(args):
+     now = _now()
+     with locked_state(args.state_dir, args.pr, args.repo, now) as box:
+         _apply_invocation(box, args, now)
+         state = box["state"]
+-        if args.check:
++        if (args.currency_key or args.currency_disposition or args.currency_outcome
++                or args.currency_inspected_fingerprint):
++            actions = sum(bool(value) for value in (
++                args.currency_disposition, args.currency_outcome,
++                args.currency_inspected_fingerprint))
++            if not args.currency_key or actions != 1:
++                raise SystemExit("currency marks require --currency-key and exactly one currency action")
++            _mark_branch_currency(args, state, now)
++        elif args.check:
+             head = state.get("head_sha")
+             if not head:
+                 raise SystemExit("mark --check requires a prior snapshot (state has no head_sha)")
+@@ -1555,7 +1999,7 @@ def cmd_mark(args):
+                     # snapshot-time edit_id the agent passes is already the correct baseline (no fetch).
+                     entry["acted_identity"] = [args.acted_edit_id]
+             state["last_action"] = f"{args.disposition} {label} {item_id}"
+-    print(json.dumps({"marked": args.check or args.thread or args.comment}))
++    print(json.dumps({"marked": args.currency_key or args.check or args.thread or args.comment}))
+ 
+ 
+ def main():
+@@ -1600,6 +2044,17 @@ def main():
+     m.add_argument("--comment", default=None)
+     m.add_argument("--fetch-file", default=None)  # reuse the tick's fetch for the at-mark baseline
+     m.add_argument("--acted-edit-id", default=None)  # snapshot-time edit_id baseline for a --comment
++    m.add_argument("--currency-key", default=None,
++                   help="exact branch-currency observation key emitted by snapshot")
++    m.add_argument("--currency-disposition",
++                   choices=[DISPOSITION_OPEN, CURRENCY_CLAIMED, CURRENCY_CONFIRMED,
++                            DISPOSITION_NEEDS_HUMAN], default=None)
++    m.add_argument("--semantic-conflict-fingerprint", default=None)
++    m.add_argument("--currency-outcome",
++                   choices=[CURRENCY_OUTCOME_MUTATION_OBSERVED,
++                            CURRENCY_OUTCOME_PROVEN_NO_MUTATION,
++                            CURRENCY_OUTCOME_AMBIGUOUS], default=None)
++    m.add_argument("--currency-inspected-fingerprint", default=None)
+     m.set_defaults(func=cmd_mark)
+ 
+     w = sub.add_parser("watch")
+diff --git i/skills/ce-resolve-pr-feedback/references/full-mode.md w/skills/ce-resolve-pr-feedback/references/full-mode.md
+index c70d234..2799d17 100644
+--- i/skills/ce-resolve-pr-feedback/references/full-mode.md
++++ w/skills/ce-resolve-pr-feedback/references/full-mode.md
+@@ -187,7 +187,10 @@ GH_HOST=<derived-host> bash "$SKILL_DIR/scripts/resolve-pr-thread" THREAD_ID
+ These cannot be resolved via GitHub's API. Reply with a top-level PR comment referencing the original (pass `-R OWNER/REPO` — the parsed base repo — so a fork→upstream reply posts on the watched upstream PR, not the fork namespace):
+ 
+ ```bash
+-GH_HOST=<derived-host> gh pr comment PR_NUMBER -R OWNER/REPO --body "REPLY_TEXT"
++REPLY_FILE=$(mktemp "${TMPDIR:-/tmp}/ce-pr-reply.XXXXXX")
++trap 'rm -f "$REPLY_FILE"' EXIT
++printf '%s\n' "REPLY_TEXT" > "$REPLY_FILE"
++GH_HOST=<derived-host> gh pr comment PR_NUMBER -R OWNER/REPO --body-file "$REPLY_FILE"
+ ```
+ 
+ Include enough quoted context in the reply so the reader can follow which comment is being addressed without scrolling.
+diff --git i/skills/ce-resolve-pr-feedback/scripts/reply-to-pr-thread w/skills/ce-resolve-pr-feedback/scripts/reply-to-pr-thread
+index bde485e..a56a06a 100755
+--- i/skills/ce-resolve-pr-feedback/scripts/reply-to-pr-thread
++++ w/skills/ce-resolve-pr-feedback/scripts/reply-to-pr-thread
+@@ -12,14 +12,16 @@ if [ $# -lt 1 ]; then
+ fi
+ 
+ THREAD_ID=$1
+-BODY=$(cat)
++BODY_FILE=$(mktemp "${TMPDIR:-/tmp}/ce-review-reply.XXXXXX")
++trap 'rm -f "$BODY_FILE"' EXIT
++cat > "$BODY_FILE"
+ 
+-if [ -z "$BODY" ]; then
++if [ ! -s "$BODY_FILE" ]; then
+     echo "Error: No body provided on stdin."
+     exit 1
+ fi
+ 
+-gh api graphql -f threadId="$THREAD_ID" -f body="$BODY" -f query='
++gh api graphql -f threadId="$THREAD_ID" -F "body=@$BODY_FILE" -f query='
+ mutation ReplyToReviewThread($threadId: ID!, $body: String!) {
+   addPullRequestReviewThreadReply(input: {
+     pullRequestReviewThreadId: $threadId

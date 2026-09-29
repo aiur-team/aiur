@@ -35,6 +35,9 @@ user-requested GitHub cache dashboard removal; the other 355 still exceed
 500 lines, and no new tracked v3 candidate path exceeds 500. The already
 oversized launcher grows from 4,174 to 4,200 lines. Owner corrections,
 action conditions and the final merged-main recount remain open. The
+eight CE source identities are now proved against upstream `4aeaf685` plus
+a five-file Aiur overlay, but their updater/regeneration gate remains open;
+see [the source audit](u0-ce-source-provenance-2026-09-29.md). The
 17,944-line candidate footprint is gross and conditional; no net saving has
 been measured. The deletion guard and GitHub cache dashboard removals belong
 to the preceding release, not to refactor savings.
