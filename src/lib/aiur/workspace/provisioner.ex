@@ -410,15 +410,20 @@ defmodule Aiur.Workspace.Provisioner do
 
   defp force_recreate_workspace(workspace, branch_name, pr_head_ref) do
     Reconstruction.with_log_lock(workspace, fn ->
-      with :ok <- DirtyGuard.check(workspace, nil) do
-        File.rm_rf!(workspace)
-
-        case create_or_materialize(workspace, branch_name, pr_head_ref) do
-          {:ok, _workspace, _created?} -> :ok
-          {:error, _reason} = error -> error
-        end
+      case DirtyGuard.check(workspace, nil) do
+        :ok -> replace_workspace(workspace, branch_name, pr_head_ref)
+        {:error, _reason} = error -> error
       end
     end)
+  end
+
+  defp replace_workspace(workspace, branch_name, pr_head_ref) do
+    File.rm_rf!(workspace)
+
+    case create_or_materialize(workspace, branch_name, pr_head_ref) do
+      {:ok, _workspace, _created?} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   # A materialization failure can race the first transcript event for an

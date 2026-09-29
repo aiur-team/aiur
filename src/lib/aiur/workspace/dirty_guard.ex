@@ -9,6 +9,7 @@ defmodule Aiur.Workspace.DirtyGuard do
   @timeout_ms 5_000
   @dirty_status 75
 
+  @spec check(Path.t(), String.t() | nil) :: :ok | {:error, {:workspace_not_safe_to_delete, Path.t(), term()}}
   def check(workspace, nil) do
     if File.exists?(Path.join(workspace, ".git")) do
       task =
@@ -46,6 +47,7 @@ defmodule Aiur.Workspace.DirtyGuard do
     end
   end
 
+  @spec remote_check_script() :: String.t()
   def remote_check_script do
     """
     if [ -e "$workspace/.git" ]; then
@@ -55,6 +57,7 @@ defmodule Aiur.Workspace.DirtyGuard do
     """
   end
 
+  @spec refuse(Path.t(), term()) :: {:error, {:workspace_not_safe_to_delete, Path.t(), term()}}
   def refuse(workspace, reason) do
     Logger.warning("Keeping workspace instead of deleting unpreserved work workspace=#{workspace} reason=#{inspect(reason)}")
     ticket = Path.basename(workspace)

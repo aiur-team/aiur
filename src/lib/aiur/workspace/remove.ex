@@ -15,16 +15,7 @@ defmodule Aiur.Workspace.Remove do
       true ->
         case Layout.validate_workspace_path(workspace, nil) do
           :ok ->
-            with :ok <- DirtyGuard.check(workspace, nil) do
-              maybe_run_before_remove_hook(workspace, nil)
-
-              case DirtyGuard.check(workspace, nil) do
-                :ok -> File.rm_rf(workspace)
-                {:error, reason} -> {:error, reason, ""}
-              end
-            else
-              {:error, reason} -> {:error, reason, ""}
-            end
+            remove_local(workspace)
 
           {:error, reason} ->
             {:error, reason, ""}
@@ -58,6 +49,21 @@ defmodule Aiur.Workspace.Remove do
     |> case do
       {:error, reason} -> {:error, reason, ""}
       result -> result
+    end
+  end
+
+  defp remove_local(workspace) do
+    case DirtyGuard.check(workspace, nil) do
+      :ok ->
+        maybe_run_before_remove_hook(workspace, nil)
+
+        case DirtyGuard.check(workspace, nil) do
+          :ok -> File.rm_rf(workspace)
+          {:error, reason} -> {:error, reason, ""}
+        end
+
+      {:error, reason} ->
+        {:error, reason, ""}
     end
   end
 
