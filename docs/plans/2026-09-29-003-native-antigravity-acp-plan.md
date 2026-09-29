@@ -4,7 +4,7 @@ type: feat
 date: 2026-09-29
 topic: native-antigravity-acp
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: implementation-ready
+artifact_readiness: probe-gated
 product_contract_source: ce-brainstorm
 execution: code
 ---
@@ -42,7 +42,11 @@ request to the Executor. Existing backends keep their current defaults.
 - **Keep server installation and authentication explicit.** The ACP Registry
   distributes Google's proprietary `agy_acp_server` separately from `agy`.
   Aiur does not bundle it or copy the user's `agy` credentials. Missing server
-  or server authentication produces actionable setup state.
+  or server authentication produces actionable setup state. An authenticated
+  ACP-server login is an operator prerequisite for the live wire probe; the
+  existing `agy` login does not satisfy it. The worker must establish and
+  document the server's supported native authentication flow before the plan
+  can be marked implementation-ready.
 - **Do not invent usage.** The server's token and quota fields are unverified
   for this plan. Unknown is distinct from zero, and a quota reported by a
   separate `agy` account cannot be attributed to an ACP session.
@@ -125,8 +129,11 @@ evidence and product decision.
   modules. Reuse PR #2870 code only where a local server probe verifies the
   same wire contract and ownership behavior.
 - KTD2. Resolve the server from an explicit executable path or `PATH` and
-  validate `initialize` before dispatch. Surface the server's auth methods
-  without handling credentials inside Aiur.
+  validate `initialize` before dispatch. Use the ACP Registry invocation for
+  the installed platform: Linux x86_64 and aarch64 run
+  `agy_acp_server.par --uid=`; macOS runs `agy_acp_server.par` without that
+  argument. Test the same invocation in the probe and runtime. Surface the
+  server's auth methods without handling credentials inside Aiur.
 - KTD3. Persist a confirmed native session ID per ticket attempt. Correlate
   ACP request IDs, notifications and permission choices; do not infer delivery
   from a process write alone.
@@ -139,7 +146,8 @@ evidence and product decision.
 
 ### Implementation units
 
-1. **Probe and registration.** Record authenticated `initialize`,
+1. **Probe and registration.** First determine and document the server's
+   native login flow, have the operator complete it, and record authenticated `initialize`,
    `session/new`, `session/load`, model and permission wire behavior from
    server 1.2.1 in an isolated fixture workspace. Register `antigravity` in
    provider/config/init paths only after required capabilities are proved.
@@ -165,7 +173,9 @@ evidence and product decision.
 
 - The server authentication and live ACP approval/MCP probe are required
   before claiming a usable backend. A successful `agy -p` run does not satisfy
-  either gate.
+  either gate. Until the login procedure and authenticated probe are verified,
+  this plan is probe-gated; implementation may prepare isolated adapter work,
+  but must not claim parity or merge.
 - Do not merge a provider that can stream text but cannot bind tools and
   approval authority. If Google server 1.2.1 cannot meet those contracts,
   report the exact unsupported boundary and return to product scope rather
