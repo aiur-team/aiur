@@ -202,6 +202,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # workspace underneath it.
     with_expected_provider(
       Keyword.get(opts, :workspace_ownership),
+      if(is_nil(worker_host), do: :local, else: :remote),
       fn ownership ->
         start_expected_session(
           workspace,
@@ -219,10 +220,10 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     )
   end
 
-  defp with_expected_provider(nil, start, _issue, _session_context), do: start.(nil)
+  defp with_expected_provider(nil, _scope, start, _issue, _session_context), do: start.(nil)
 
-  defp with_expected_provider(ownership, start, issue, session_context) do
-    case Ownership.expect_provider(ownership) do
+  defp with_expected_provider(ownership, scope, start, issue, session_context) do
+    case Ownership.expect_provider(ownership, scope) do
       :ok ->
         start.(ownership)
 
