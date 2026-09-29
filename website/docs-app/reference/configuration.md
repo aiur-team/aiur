@@ -349,6 +349,20 @@ These settings control the OpenRouter *transport*; selection lives entirely in `
 | `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean or nil | omitted | Whether OpenRouter may cross to another upstream within one request. |
 | `agent.backend_configs.openrouter.provider.sort` | string or nil | omitted | `price`, `throughput`, or `latency`. |
 
+#### `agent.backend_configs.muse`
+
+Select `muse` in `agent.priority` to dispatch native Muse sessions. `aiur init` asks separately before trusting an agent workspace; selecting Muse alone leaves that trust disabled. Enable it only for workspaces whose skills and rules you intend Muse to load. Muse CLI authentication is handled by `muse auth` outside Aiur's config.
+
+Local Muse sessions retain a native session handle across Aiur restarts. Aiur starts a fresh session only when Muse explicitly reports that the stored session was not found. Other resume errors, including a busy session, timeout, or mismatched session identity, remain failures so conversation continuity is preserved. Remote workers and Claude Remote Control are unsupported for Muse.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.muse.command` | non-empty string | `muse serve` | Command launching the native Muse MSP server. |
+| `agent.backend_configs.muse.trust_workspace` | boolean | `false` | Allows Muse to load workspace-local skills and rules. `aiur init` asks explicitly before writing `true`. |
+| `agent.backend_configs.muse.approval_mode` | string | `onRequest` | Muse approval mode: `allowAll`, `promptUnmatched`, `onRequest`, or `denyUnmatched`. |
+| `agent.backend_configs.muse.model` | string or nil | nil | Optional Muse model override; omit to use the CLI default. |
+| `agent.backend_configs.muse.provider_id` | string or nil | nil | Optional Muse provider identifier. |
+
 #### Cost attribution
 
 | Cost case | Attribution |

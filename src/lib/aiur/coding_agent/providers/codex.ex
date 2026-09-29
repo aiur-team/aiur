@@ -1,6 +1,7 @@
 defmodule Aiur.CodingAgent.Providers.Codex do
   @moduledoc "Registry definition for the Codex app-server backend."
 
+  alias Aiur.Codex.SessionRecovery
   alias Aiur.ModelCatalog
   alias Aiur.ProviderMeterProbe
   alias Aiur.RunTelemetry.Lifecycle
@@ -27,6 +28,7 @@ defmodule Aiur.CodingAgent.Providers.Codex do
       # via `thread/resume` against its on-disk rollout, so a respawned
       # session continues rather than cold-starting (issue #378).
       resumable: true,
+      recoverable_session_error: &SessionRecovery.recoverable?/1,
       models: [
         "gpt-5.6-sol",
         "gpt-5.6-terra",

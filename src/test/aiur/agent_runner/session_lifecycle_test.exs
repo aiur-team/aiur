@@ -409,6 +409,23 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   end
 
   describe "start_agent_session/3" do
+    test "keeps the provider's established model, falling back to the requested model when absent" do
+      opts = [backend: "muse", model: "requested-model"]
+
+      for reported <- ["native-model", " native-model "] do
+        start_fun = fn _workspace, _opts -> {:ok, %{model: reported}} end
+        assert {:ok, %{model: ^reported}} = SessionLifecycle.start_agent_session("/ws", opts, start_fun)
+      end
+
+      for reported <- [nil, "", "  "] do
+        start_fun = fn _workspace, _opts -> {:ok, %{model: reported}} end
+        assert {:ok, %{model: "requested-model"}} = SessionLifecycle.start_agent_session("/ws", opts, start_fun)
+      end
+
+      assert {:ok, %{model: "requested-model"}} =
+               SessionLifecycle.start_agent_session("/ws", opts, fn _workspace, _opts -> {:ok, %{}} end)
+    end
+
     test "tags the started backend and falls back from claude-repl to claude once" do
       parent = self()
 

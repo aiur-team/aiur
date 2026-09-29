@@ -193,6 +193,7 @@ defmodule Aiur.CodingAgent do
           unit_background: String.t(),
           pricing: map(),
           usage: map(),
+          meter_identity_policy: :account | :host_unverified,
           account_generation: map()
         }
 
@@ -215,6 +216,7 @@ defmodule Aiur.CodingAgent do
             |> Map.put(:provider, String.to_atom(entry.family))
             |> Map.put(:pricing, Map.get(entry, :pricing, %{}))
             |> Map.put(:usage, Map.get(entry, :usage, %{}))
+            |> Map.put(:meter_identity_policy, Map.get(entry, :meter_identity_policy, :account))
             |> Map.put(:account_generation, Map.get(entry, :account_generation, %{}))
           ]
 
@@ -952,6 +954,15 @@ defmodule Aiur.CodingAgent do
   @doc "Delivery-policy default: whether the backend supports Executor interrupts."
   @spec can_interrupt?(backend()) :: boolean()
   def can_interrupt?(backend), do: fetch_backend!(backend).can_interrupt
+
+  @doc "Whether the provider can safely replace its session after this error."
+  @spec recoverable_session_error?(backend(), term()) :: boolean()
+  def recoverable_session_error?(backend, reason) do
+    case Map.fetch(backends(), backend) do
+      {:ok, %{recoverable_session_error: classifier}} -> classifier.(reason)
+      _ -> false
+    end
+  end
 
   @doc "Whether the backend can emit correlated worker-application evidence for unit controls."
   @spec control_application_confirmation(backend()) :: :confirmed | :request_only | :unsupported

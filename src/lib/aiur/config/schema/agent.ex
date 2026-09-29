@@ -346,6 +346,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:budget_broker_rate_window_seconds, greater_than: 0)
     |> validate_number(:budget_broker_degraded_retry_threshold, greater_than: 0)
     |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
+    |> validate_backend_configs()
     |> update_change(:max_concurrent_agents_by_state, &AgentValidation.normalize_state_limits/1)
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
@@ -378,6 +379,25 @@ defmodule Aiur.Config.Schema.Agent do
     |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
     |> cast_embed(:rtk, with: &Rtk.changeset/2)
   end
+
+  defp validate_backend_configs(changeset) do
+    configs = Ecto.Changeset.get_field(changeset, :backend_configs) || %{}
+
+    Enum.reduce(configs, changeset, fn {backend, config}, acc ->
+      case get_in(Aiur.CodingAgent.backends(), [backend, :config_validator]) do
+        validator when is_function(validator, 1) ->
+          apply_backend_validation(acc, backend, validator.(config))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp apply_backend_validation(changeset, _backend, :ok), do: changeset
+
+  defp apply_backend_validation(changeset, backend, {:error, reason}),
+    do: add_error(changeset, :backend_configs, "#{backend}: #{reason}")
 
   defp validate_dispatch_selections(changeset) do
     dispatchable = dispatchable_with_priority(changeset)

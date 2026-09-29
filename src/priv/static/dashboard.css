@@ -3820,6 +3820,17 @@ html[data-theme="light"] .toggle-icon .moon {
   min-width: 0;
 }
 
+/* Account scope and observation age must not consume the meter's column. */
+.rs-models-rows {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+}
+
+.rs-model > .rs-head {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: var(--rs-provider-row-height);
+}
+
 /* Top-aligned, not centred: the stat block on a provider card is taller than
    the name, and centring pushed the logo and name down so they no longer lined
    up with Summary's. */
@@ -4252,6 +4263,14 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   .rs-models-rows,
   .rs-apis-rows {
     gap: 0.55rem 0.55rem;
+  }
+
+  .rs-models-rows {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rs-model:not(:first-child) > .rs-head {
+    margin-top: 0.4rem;
   }
 
   .rs-provider-row > .rs-provider-body {

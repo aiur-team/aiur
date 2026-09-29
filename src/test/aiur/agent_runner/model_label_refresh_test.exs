@@ -48,7 +48,7 @@ defmodule Aiur.AgentRunner.ModelLabelRefreshTest do
       ModelLabelRefresh.prepare(issue, catalogue: reader, refresh: refreshing(store, "none", nil))
 
       refreshed = for {:refreshed, backend} <- Process.info(self(), :messages) |> elem(1), do: backend
-      assert Enum.sort(refreshed) == ["claude", "codex"]
+      assert Enum.sort(refreshed) == ["claude", "codex", "muse"]
     end
 
     test "a resolvable label does not probe any CLI" do

@@ -4,10 +4,9 @@ defmodule Aiur.ModelCatalog do
 
   aiur's registry list (`Aiur.CodingAgent.backends/0`) is a baseline, not a
   source of truth — providers ship models faster than this repo is edited.
-  Both supported CLIs answer a `model/list` request over the same
-  JSON-line app-server transport dispatch already uses, and that CLI is
-  precisely the thing that has to accept the model string, so it is the
-  authority worth asking.
+  Each provider owns its discovery protocol through a registry callback,
+  with the shared app-server probe as a default. The CLI must accept the
+  model string, so it is the authority worth asking.
 
   Every failure — CLI not installed, offline, unreadable answer, slow
   start — comes back as `{:error, reason}`. Callers are expected to carry
@@ -38,14 +37,13 @@ defmodule Aiur.ModelCatalog do
   @spec discover(CodingAgent.backend()) :: result()
   @spec discover(CodingAgent.backend(), keyword()) :: result()
   def discover(backend, opts \\ []) do
-    probe = Keyword.get(opts, :probe, &probe_app_server/2)
-
     case CodingAgent.backends()[backend] do
       nil ->
         {:error, {:unknown_backend, backend}}
 
       %{model_catalog: extract} = entry when is_function(extract, 1) ->
         source_backend = Map.get(entry, :model_catalog_backend, backend)
+        probe = Keyword.get(opts, :probe, Map.get(entry, :model_probe, &probe_app_server/2))
 
         with {:ok, payload} <- probe.(source_backend, opts) do
           extract.(payload)

@@ -398,6 +398,7 @@ defmodule Aiur.Application do
       # Reads the store's observations and serves them to consumer surfaces
       # without a binding. Starts after the store so no accepted observation
       # is broadcast before there is anything retaining it.
+      Aiur.ProviderMeters.HostObservations,
       Aiur.ProviderMeterProjection,
       # Decides when usage is observed: one baseline after boot, then only
       # while agents are running. Starts after the projection so a baseline

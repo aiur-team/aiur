@@ -52,6 +52,8 @@ Add `agent:todo` to the issues you want worked. If agents are hitting rate limit
 
 GitHub Free does not expose rulesets or classic branch protection for private repositories. When GitHub reports that plan limit during CI-readiness setup, `aiur init` shows GitHub's explanation and continues without saving a full readiness assessment. Make the repository public or upgrade its plan to enable that verification.
 
+For native Muse, install and authenticate its CLI before selecting `muse` in the wizard. Workspace trust is a separate opt-in that lets Muse load the installed skills and repository rules; see [Muse configuration](/reference/configuration#agent-backend-configs-muse).
+
 ## First run
 
 The bare `aiur` command discovers `.aiur/config`, starts a foreground run when this repository has no live session, attaches to its directory-scoped tmux session when one is already running, and leaves `aiur run` as the explicit launch form.

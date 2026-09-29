@@ -62,6 +62,15 @@ Configure `elevenlabs.voice_id` and grant the key **Text to Speech** permission 
 
 ## Usage and cost
 
+Muse allowance meters show the current and weekly windows reported by its native
+CLI. These are observations from a live local host, labeled **account unverified**;
+they are not account bindings or admission evidence. The dashboard renders the
+observation age and marks retained readings **Stale** after a failed refresh or
+when they age out; readings disappear when their host is retired. Missing
+readings remain unknown, while percentages above 100% retain their reported value
+(the visual bar stops at 100%). Token usage and context capacity are separate
+from these allowance windows; missing capacity or pricing is not treated as zero.
+
 The authenticated Usage and cost summary follows **Tokens by model** with **Cost by provider route**.
 
 | Route case | How it reads |

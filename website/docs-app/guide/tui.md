@@ -16,6 +16,8 @@ Send a message, watch the agent act on it, and interrupt it without leaving the 
 
 ## The agent-list board
 
+The header shows provider usage with its observation age. Retained stale readings carry a `[stale]` label; Muse readings carry an `[account unverified]` qualifier.
+
 The board shows one prefixed row per ticket with runtime, turn count, backend, pinned model, work state, and pause reason:
 
 | Glyph | Meaning |
@@ -58,6 +60,20 @@ Press `?` in the board for the on-screen keybind and state-circle help.
 | `enter` on running agent | Opens its live conversation beside the board. |
 | Message during a turn | Queues until the current turn finishes. |
 | `max_vertical_panes` | Caps visible chat panes. |
+
+### Muse approval requests
+
+When Muse requests approval, its chat transcript lists each available choice with
+an exact `/approve <approval-id> <requirement-token> <choice-id>` reply. Copy the
+chosen command into that agent's chat input (the dashboard conversation input
+works too). The token identifies the current native requirement; an old token or
+unknown choice is rejected. Ordinary queued messages remain pending while the
+approval reply is delivered. Aiur confirms delivery after Muse reports the
+resolution, not merely after accepting the command. No choice is automatic.
+
+Muse's native input dialogs are unsupported. If one arrives, Aiur explains the
+limitation in chat and requests cancellation. After the turn stops, send your
+instructions through the ordinary chat input.
 
 ## Foreground vs. background
 

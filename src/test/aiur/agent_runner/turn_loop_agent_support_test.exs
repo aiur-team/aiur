@@ -103,9 +103,42 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
     end
   end
 
-  defp run_first_turn(ctx, run_turn) do
+  describe "Muse first-turn transport recovery" do
+    test "pre-write closed turn/start restores the delivered work for replacement", ctx do
+      assert {:error, {:turn_start_failed, :port_closed}} =
+               run_first_turn(
+                 ctx,
+                 fn _session, _prompt, _issue, _opts ->
+                   {:error, {:turn_start_failed, :port_closed}}
+                 end,
+                 "muse"
+               )
+
+      identifier = ctx.issue.identifier
+      assert_receive {:queue_item_restored, ^identifier}
+      refute_received {:queue_item_failed, ^identifier, _reason}
+    end
+
+    # Future-regression guard: this behavior already held before Muse recovery.
+    test "an accepted native port exit keeps the uncertain turn failed", ctx do
+      assert {:error, {:native_port_exit, 9}} =
+               run_first_turn(
+                 ctx,
+                 fn _session, _prompt, _issue, _opts ->
+                   {:error, {:native_port_exit, 9}}
+                 end,
+                 "muse"
+               )
+
+      identifier = ctx.issue.identifier
+      assert_receive {:queue_item_failed, ^identifier, {:native_port_exit, 9}}
+      refute_received {:queue_item_restored, ^identifier}
+    end
+  end
+
+  defp run_first_turn(ctx, run_turn, backend \\ "claude") do
     TurnLoop.run_turns(
-      %{backend: "claude", workspace: ctx.workspace, worker_host: nil},
+      %{backend: backend, workspace: ctx.workspace, worker_host: nil},
       ctx.workspace,
       ctx.issue,
       nil,

@@ -5,7 +5,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
   alias Aiur.AgentRunner.{MessageHandler, QueueDrain, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnProgress, TurnPrompt, TurnStreams}
-  alias Aiur.Codex.{DynamicTool, SessionRecovery}
+  alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Issue
@@ -133,6 +133,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
         on_message: message_handler,
         on_safe_checkpoint: callbacks.on_safe_checkpoint,
         on_operator_message: callbacks.on_operator_message,
+        on_operator_response: callbacks.on_operator_response,
         tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
       )
 
@@ -195,20 +196,19 @@ defmodule Aiur.AgentRunner.TurnLoop do
     end
   end
 
-  # Codex recoverable session failures (closed port, port exit, or exact
-  # active-turn desync) must not fail the durable queue item: restore it and
+  # Provider-classified recoverable session failures must not fail the durable queue item: restore it and
   # let the top-level runner clean-exit so the orchestrator replaces the stale
   # session and a fresh transport redelivers the item once. The restore is the
   # gate — issue #1238 showed that best-effort swallowing of an
   # `{:error, :unavailable}` restore stranded the claimed item `:delivered`,
   # unclaimable by the replacement. Confirm the restore before reporting clean
-  # recovery; Claude and genuine provider failures keep the best-effort fail
+  # recovery; non-recoverable provider failures keep the best-effort fail
   # settlement and its retry-exhaustion path.
   defp settle_turn_error(turn_context, backend, reason, error) do
     %{issue: issue, workspace: workspace, worker_host: worker_host, orchestrator: orchestrator, opts: opts} =
       turn_context
 
-    if backend == "codex" and SessionRecovery.recoverable?(reason) do
+    if CodingAgent.recoverable_session_error?(backend, reason) do
       confirm_restore_for_replacement(orchestrator, issue, opts, error)
     else
       TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
@@ -225,8 +225,12 @@ defmodule Aiur.AgentRunner.TurnLoop do
   end
 
   @doc false
-  @spec turn_done_reason(term()) :: :done | :input_required | {:failed, term()}
+  @spec turn_done_reason(term()) :: :done | :paused | :input_required | {:failed, term()}
   def turn_done_reason({:ok, _session}), do: :done
+
+  def turn_done_reason({:paused, %{control: %{request_id: id, generation: generation}}})
+      when is_integer(id) and is_integer(generation), do: :paused
+
   def turn_done_reason({:paused, _payload}), do: :input_required
   def turn_done_reason({:error, reason}), do: {:failed, reason}
   def turn_done_reason(_), do: :done
