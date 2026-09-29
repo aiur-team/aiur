@@ -1,6 +1,6 @@
 # U0 oversized owner rows: source validation
 
-Checked against clean combined candidate `0299daca28383a336682374e19e90d6434aa4e1a`. This note validates **22 conditional provisional path-role rows** from [middle audit](oversized-owner-audit-part-2.json) and **19 flagged corrections** from the three audits. The other 21 provisional rows have unresolved historical-document, vendored-source, generated-fixture, or preview actions and are under separate review. These are owner recommendations, not approved splits or net line savings. Source and caller anchors below are relative to the candidate root.
+Checked against clean combined candidate `0299daca28383a336682374e19e90d6434aa4e1a`. This note validates **23 conditional provisional path-role rows** from [middle audit](oversized-owner-audit-part-2.json) and **19 flagged corrections** from the three audits. The other 20 provisional path-role rows have unresolved actions, alongside one verified-namespace row; those 21 actions are under separate review. These are owner recommendations, not approved splits or net line savings. Source and caller anchors below are relative to the candidate root.
 
 ## Conditional provisional rows
 
@@ -52,4 +52,4 @@ Checked against clean combined candidate `0299daca28383a336682374e19e90d6434aa4e
 | 351 | **Coordination tasks:** `src/test/aiur/coordination_tasks_test.exs:1,8,53,145` covers keyed fairness, admission and coordinator restart. | Preserve concurrency/failure assertions. |
 | 356 | **GitHub webhook HTTP ingress:** `src/test/aiur_web/github_webhook_test.exs:1,60,149,288,311,414` covers POST, secret/signature, wiring and admission. | Keep ingress ownership distinct from dashboard presentation. |
 
-The 19 correction **rows** appear in 17 grouped lines above. The 22 conditional provisional rows are all represented once; the other 21 provisional rows are deliberately deferred to their separate source/action audit. All assignments remain conditional on a merged-main recount, source-level 500-line gate, and affected behavior tests; file path or namespace alone is insufficient proof that a split is safe.
+The 19 correction **rows** appear in 17 grouped lines above. The 23 conditional provisional rows are all represented once; the other 20 provisional rows and one verified-namespace row with unresolved actions are deliberately deferred to their separate source/action audit. All 42 validated row paths have identical Git blobs at merged main `f223f30ead855c1f88ea188fb8f9cf74414ffb90` and the candidate SHA above; this carries their source anchors forward but does not approve the assignment or action. A source-level 500-line gate and affected behavior tests remain necessary; file path or namespace alone is insufficient proof that a split is safe.
