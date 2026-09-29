@@ -7,7 +7,7 @@ source IDs, reviewed severity, verdict, proposed action and a direct public
 source line for each completed item. The same frozen source commit remains
 `origin/main` at the time of this check.
 
-**Checkpoint:** 40 of 297 reviewed; 257 remain. This is incomplete.
+**Checkpoint:** 100 of 297 reviewed; 197 remain. This is incomplete.
 
 `source-supported` means the claimed static mechanism is visible in the
 cited source. `unknown` means a negative call-site claim or behavior requires

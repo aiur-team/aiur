@@ -4,9 +4,9 @@
   "checked_main_revision": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "method": "Manual claim and cited-source inspection; direct source line copied from pinned frozen/public tree; verdict scopes static mechanism only.",
   "partition_total": 297,
-  "completed_count": 40,
-  "residual_count": 257,
-  "next_index": 40,
+  "completed_count": 100,
+  "residual_count": 197,
+  "next_index": 100,
   "items": [
     {
       "index": 0,
@@ -727,6 +727,1091 @@
         "source_text": "in_flight: MapSet.new(),"
       },
       "current_head_caveat": "Inspect full state flow and tests before deleting fields and messages.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 40,
+      "finding_id": "agent-backends-oc-14",
+      "source_ids": [
+        "agent-backends-oc-14"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "EventConsumer module exists, but the broad dead-module and protocol-path claim relies on negative caller searches.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/event_consumer.ex",
+        "line": 1,
+        "source_text": "defmodule Aiur.Opencode.EventConsumer do"
+      },
+      "current_head_caveat": "Check dynamic module loading and skipped tests before removing any surface.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 41,
+      "finding_id": "agent-backends-oc-15",
+      "source_ids": [
+        "agent-backends-oc-15"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "A map-shape branch accepts active_turn_ids, but unreachable legacy status is not established without all constructors and call sites.",
+      "evidence": {
+        "path": "src/lib/aiur/app_server/turn_state.ex",
+        "line": 37,
+        "source_text": "def register_provider_turn(%{active_turn_ids: %MapSet{} = active_turn_ids} = state, %{\"id\" => turn_id} = turn)"
+      },
+      "current_head_caveat": "Keep until state-shape census and session resume tests.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 42,
+      "finding_id": "agent-backends-oc-16",
+      "source_ids": [
+        "agent-backends-oc-16",
+        "agent-runtime-10"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "OpenAI-compat receives pause_agent inline; cited turn loops repeat queue and pause patterns with differing guards.",
+      "evidence": {
+        "path": "src/lib/aiur/open_ai_compat/coding_agent.ex",
+        "line": 299,
+        "source_text": "{:pause_agent, request_id} -> {:paused, %{reason: :operator_pause, request_id: request_id}}"
+      },
+      "current_head_caveat": "Consolidate only after backend-specific queue semantics are characterized.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 43,
+      "finding_id": "agent-backends-oc-17",
+      "source_ids": [
+        "agent-backends-oc-17"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "The shared app-server adapter imports a concrete Claude module and the cited tool path imports Codex.",
+      "evidence": {
+        "path": "src/lib/aiur/app_server/adapter.ex",
+        "line": 11,
+        "source_text": "alias Aiur.Claude.RemoteControl"
+      },
+      "current_head_caveat": "Package-seam movement should follow caller ownership and release parity.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 44,
+      "finding_id": "agent-backends-oc-18",
+      "source_ids": [
+        "agent-backends-oc-18"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Serve lifecycle sleeps while polling orchestrator state; other cited paths call orchestrator directly.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/slot/serve_lifecycle.ex",
+        "line": 205,
+        "source_text": "Process.sleep(@orchestrator_poll_interval_ms)"
+      },
+      "current_head_caveat": "Prove callback blocking and current demand before claiming latency savings.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 45,
+      "finding_id": "agent-backends-oc-19",
+      "source_ids": [
+        "agent-backends-oc-19"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Protocol constructs a tokens map at this location and repeats the row shape in two cited builders.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/protocol.ex",
+        "line": 266,
+        "source_text": "\"tokens\" => %{"
+      },
+      "current_head_caveat": "Extract one semantic row builder only if it deletes both copies.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 46,
+      "finding_id": "agent-backends-oc-20",
+      "source_ids": [
+        "agent-backends-oc-20"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "A parts value is discarded; the module also retains duplicated writers and outdated PATCH documentation.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/session_writer.ex",
+        "line": 204,
+        "source_text": "_ = parts"
+      },
+      "current_head_caveat": "Preserve serialized message order while reducing code; no net LOC claimed.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 47,
+      "finding_id": "agent-backends-oc-21",
+      "source_ids": [
+        "agent-backends-oc-21"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "The verified corrected anchor starts a SessionWriter with an existing session id; restart replay is described in the cited writer path.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/session_writer_registry.ex",
+        "line": 197,
+        "source_text": "start: {SessionWriter, :start_link, [%{identifier: identifier, session_id: session_id, base_url: base_url}]},"
+      },
+      "current_head_caveat": "A restart test must show duplicate rows before changing replay identity.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 48,
+      "finding_id": "agent-backends-oc-22",
+      "source_ids": [
+        "agent-backends-oc-22"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Hot-path snapshot calls have a 2-second timeout while the slot callback includes longer I/O paths.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/slot.ex",
+        "line": 91,
+        "source_text": "GenServer.call(server, :snapshot, 2_000)"
+      },
+      "current_head_caveat": "Measure actual contention and characterize blocking before redesign.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 49,
+      "finding_id": "agent-backends-oc-23",
+      "source_ids": [
+        "agent-backends-oc-23"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Slot state explicitly mirrors visible fields for legacy callers, and reset paths are not symmetric.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/slot/state.ex",
+        "line": 28,
+        "source_text": "# Mirror visible_identifier / visible_session_id for legacy"
+      },
+      "current_head_caveat": "Remove mirrors only after caller and state-transition tests.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 50,
+      "finding_id": "agent-backends-oc-24",
+      "source_ids": [
+        "agent-backends-oc-24"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "read_file loads the entire absolute file without a bound; conversation state also appends without compaction.",
+      "evidence": {
+        "path": "src/lib/aiur/open_ai_compat/tools.ex",
+        "line": 20,
+        "source_text": "{:ok, contents} <- File.read(absolute) do"
+      },
+      "current_head_caveat": "Count reachable file sizes and add a bounded behavior test before savings claim.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 51,
+      "finding_id": "agent-backends-oc-25",
+      "source_ids": [
+        "agent-backends-oc-25"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "run_turn overwrites the whole session state after a snapshot, which could race an external update.",
+      "evidence": {
+        "path": "src/lib/aiur/open_ai_compat/coding_agent.ex",
+        "line": 85,
+        "source_text": "Session.update(pid, fn _ -> state end)"
+      },
+      "current_head_caveat": "The cited send_operator_message path has no caller; runtime race incidence is unknown.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 52,
+      "finding_id": "agent-backends-oc-26",
+      "source_ids": [
+        "agent-backends-oc-26"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "RPC await loops reenter the timeout helper after notifications, reusing full timeout rather than elapsed budget.",
+      "evidence": {
+        "path": "src/lib/aiur/app_server/rpc.ex",
+        "line": 105,
+        "source_text": "{:ok, %{} = other} ->"
+      },
+      "current_head_caveat": "Use a monotonic deadline and test a notification stream.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 53,
+      "finding_id": "agent-backends-oc-27",
+      "source_ids": [
+        "agent-backends-oc-27"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A second pause request while one is pending matches a clause that returns the old state.",
+      "evidence": {
+        "path": "src/lib/aiur/app_server/interrupts.ex",
+        "line": 13,
+        "source_text": "def handle_pause_request(_session, %{pause_request_id: existing_request} = state, _request)"
+      },
+      "current_head_caveat": "Test whether the second requester receives an acknowledgement or stale ID.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 54,
+      "finding_id": "agent-backends-oc-28",
+      "source_ids": [
+        "agent-backends-oc-28"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A callback path rescues and returns :ok; meter and bind paths cited alongside it suppress other errors.",
+      "evidence": {
+        "path": "src/lib/aiur/app_server/turn_state.ex",
+        "line": 226,
+        "source_text": "rescue"
+      },
+      "current_head_caveat": "Preserve expected best-effort boundaries and surface real failures with cause.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 55,
+      "finding_id": "agent-backends-oc-29",
+      "source_ids": [
+        "agent-backends-oc-29"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Each TurnStream subscribes to the global DebugLog topic, unlike SessionWriter identifier filtering.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/chat_completions/turn_stream.ex",
+        "line": 38,
+        "source_text": ":ok = DebugLog.subscribe()"
+      },
+      "current_head_caveat": "Measure stream population and event rate before claiming overhead.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 56,
+      "finding_id": "agent-backends-oc-30",
+      "source_ids": [
+        "agent-backends-oc-30"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Workspace path is keyed by slot index without an Aiur instance component in this source line.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/slot/serve_lifecycle.ex",
+        "line": 175,
+        "source_text": "Path.join([base, \".local/share/aiur/opencode-slot-#{slot_index}\"])"
+      },
+      "current_head_caveat": "The combined token-permission and GC claim needs separate source and runtime checks.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 57,
+      "finding_id": "agent-backends-oc-31",
+      "source_ids": [
+        "agent-backends-oc-31",
+        "loose-3-28",
+        "dup-by-body-07"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "AIUR_DEBUG parsing appears here and in cited sibling modules with repeated truthiness rules.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+        "line": 166,
+        "source_text": "case System.get_env(\"AIUR_DEBUG\") do"
+      },
+      "current_head_caveat": "Share only a common parser that preserves each default.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 58,
+      "finding_id": "agent-backends-oc-32",
+      "source_ids": [
+        "agent-backends-oc-32"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Bridge port availability is probed before a later bind, creating a source-visible race window.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/bridge_port.ex",
+        "line": 53,
+        "source_text": "defp available?(ip, port) do"
+      },
+      "current_head_caveat": "Exercise collision and restart behavior before changing port coordination.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 59,
+      "finding_id": "agent-backends-oc-33",
+      "source_ids": [
+        "agent-backends-oc-33"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Opencode.Server directly probes process liveness with kill -0, duplicating another process-reap path.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/server.ex",
+        "line": 298,
+        "source_text": "{_output, status} = System.cmd(\"kill\", [\"-0\", to_string(pid)], stderr_to_stdout: true)"
+      },
+      "current_head_caveat": "Unify only with matching process-group and failure semantics.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 60,
+      "finding_id": "agent-backends-oc-34",
+      "source_ids": [
+        "agent-backends-oc-34"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Timeout shuts down the Elixir task while the invoked OS command may outlive it.",
+      "evidence": {
+        "path": "src/lib/aiur/open_ai_compat/command_runner.ex",
+        "line": 69,
+        "source_text": "case Task.yield(task, @timeout_ms) || Task.shutdown(task, :brutal_kill) do"
+      },
+      "current_head_caveat": "Reproduce child-process survival before changing cancellation and measuring overhead.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 61,
+      "finding_id": "agent-backends-oc-35",
+      "source_ids": [
+        "agent-backends-oc-35"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "This source-assertion suite is skipped; cited siblings read source text rather than driving behavior.",
+      "evidence": {
+        "path": "src/test/aiur/regression/warm_attach_open_test.exs",
+        "line": 37,
+        "source_text": "@describetag :skip"
+      },
+      "current_head_caveat": "The ten-suite total and relevance need a refreshed test census.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 62,
+      "finding_id": "agent-backends-oc-36",
+      "source_ids": [
+        "agent-backends-oc-36"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Turn marker prefix is defined here and in other cited modules.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/chat_completions/turn_request.ex",
+        "line": 9,
+        "source_text": "@turn_marker_prefix \"__aiur_turn__:\""
+      },
+      "current_head_caveat": "Compare exact marker protocol before deduplicating.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 63,
+      "finding_id": "agent-backends-oc-37",
+      "source_ids": [
+        "agent-backends-oc-37"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Backend registry constructs presentation metadata beside model routing.",
+      "evidence": {
+        "path": "src/lib/aiur/open_ai_compat/registry.ex",
+        "line": 25,
+        "source_text": "presentation("
+      },
+      "current_head_caveat": "Move UI-only fields only after downstream dashboard contract inspection.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 64,
+      "finding_id": "agent-backends-oc-38",
+      "source_ids": [
+        "agent-backends-oc-38"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A binary 2xx response body is decoded with Jason.decode!, so invalid JSON raises.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/api_client.ex",
+        "line": 130,
+        "source_text": "defp normalize_body(body) when is_binary(body), do: Jason.decode!(body)"
+      },
+      "current_head_caveat": "A non-JSON success response and caller recovery need a focused test.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 65,
+      "finding_id": "agent-backends-oc-39",
+      "source_ids": [
+        "agent-backends-oc-39"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "The cited with_slot helper exists, but this finding combines several unrelated naming and performance claims.",
+      "evidence": {
+        "path": "src/lib/aiur/open_ai_compat/concurrency.ex",
+        "line": 8,
+        "source_text": "def with_slot(backend, fun) when is_binary(backend) and is_function(fun, 0) do"
+      },
+      "current_head_caveat": "Split into independently evidenced subclaims before any action.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 66,
+      "finding_id": "agent-runtime-03",
+      "source_ids": [
+        "agent-runtime-03"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "TurnLoop records a lifecycle start in the pipeline, while the cited QueueDrain path is parallel but not identical.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+        "line": 122,
+        "source_text": "Lifecycle.record(issue.identifier, lifecycle_attempt_id, :implement, :start, %{"
+      },
+      "current_head_caveat": "Characterize both dispatch modes before consolidating.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 67,
+      "finding_id": "agent-runtime-06",
+      "source_ids": [
+        "agent-runtime-06",
+        "loose-1-22"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "Tmux documentation says commands shell out; the claim that protocol notifications are unreachable relies on negative producer search.",
+      "evidence": {
+        "path": "src/lib/aiur/tmux.ex",
+        "line": 5,
+        "source_text": "Phase 1 keeps things simple: each command shells out via `System.cmd/3` to"
+      },
+      "current_head_caveat": "Confirm runtime tmux mode and dynamic event sends before deleting.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 68,
+      "finding_id": "agent-runtime-09",
+      "source_ids": [
+        "agent-runtime-09",
+        "dup-by-constant-04"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Generic turn handling branches directly on the Codex backend.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+        "line": 211,
+        "source_text": "if backend == \"codex\" and SessionRecovery.recoverable?(reason) do"
+      },
+      "current_head_caveat": "Check concrete adapter boundaries before moving backend-specific policy.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 69,
+      "finding_id": "agent-runtime-11",
+      "source_ids": [
+        "agent-runtime-11"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "MessageHandler calls QueueDrain while the cited turn loop also imports MessageHandler, a source-level cycle.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/message_handler.ex",
+        "line": 182,
+        "source_text": "text = QueueDrain.queue_item_text(item)"
+      },
+      "current_head_caveat": "A module graph and behavior tests should precede untangling.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 70,
+      "finding_id": "agent-runtime-12",
+      "source_ids": [
+        "agent-runtime-12"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Worker-to-orchestrator protocol emits dispatch_committed here and other event tuples across cited modules.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/message_handler.ex",
+        "line": 618,
+        "source_text": "send(recipient, {:dispatch_committed, issue_id})"
+      },
+      "current_head_caveat": "Name a shared contract only after all senders and receivers are inventoried.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 71,
+      "finding_id": "agent-runtime-13",
+      "source_ids": [
+        "agent-runtime-13"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "A live-conversation projection failure is handled here, but the claimed every-message warning rate for non-GitHub tickets is not measured.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/message_handler.ex",
+        "line": 479,
+        "source_text": "{:error, reason} ->"
+      },
+      "current_head_caveat": "Reproduce non-GitHub traffic before severity or behavior change.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 72,
+      "finding_id": "agent-runtime-14",
+      "source_ids": [
+        "agent-runtime-14"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Agent event writes take a global log lock and append NDJSON plus Markdown in the cited function.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_event_log.ex",
+        "line": 27,
+        "source_text": "Reconstruction.with_log_lock(workspace, fn ->"
+      },
+      "current_head_caveat": "Measure actual delta volume and lock wait before a performance saving claim.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 73,
+      "finding_id": "agent-runtime-15",
+      "source_ids": [
+        "agent-runtime-15"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Generic control failure uses resume_failed logging and max-agent alert state even for pause errors.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_list/controls.ex",
+        "line": 81,
+        "source_text": "defp handle_control_result(state, _action, {:error, reason}) do"
+      },
+      "current_head_caveat": "Test rendered alert and failed max-agent adjustment paths.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 74,
+      "finding_id": "agent-runtime-16",
+      "source_ids": [
+        "agent-runtime-16"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "PerfIntake exists, but claiming its state is never rendered requires a complete renderer/dataflow search.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_list/perf_intake.ex",
+        "line": 1,
+        "source_text": "defmodule Aiur.AgentList.PerfIntake do"
+      },
+      "current_head_caveat": "Check all AgentList presentation paths before removing state.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 75,
+      "finding_id": "agent-runtime-17",
+      "source_ids": [
+        "agent-runtime-17"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Activity evidence stores an observed timestamp; cited renderers use stale labels but do not show this age.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_list/activity_intake.ex",
+        "line": 142,
+        "source_text": "timestamp: evidence[:observed_at],"
+      },
+      "current_head_caveat": "Verify rendered output and unknown attention count path in a real TUI.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 76,
+      "finding_id": "agent-runtime-18",
+      "source_ids": [
+        "agent-runtime-18"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "AgentList render state synchronously reads ProviderMeterProjection.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_list/render_state.ex",
+        "line": 102,
+        "source_text": "case safe_call(&ProviderMeterProjection.snapshot/0) do"
+      },
+      "current_head_caveat": "Measure blocking under a delayed provider and preserve age on fallback.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 77,
+      "finding_id": "agent-runtime-19",
+      "source_ids": [
+        "agent-runtime-19"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Pane-open success bookkeeping appears in multiple cited paths with differing layout calls.",
+      "evidence": {
+        "path": "src/lib/aiur/pane_manager/opencode_open.ex",
+        "line": 127,
+        "source_text": "new_state ="
+      },
+      "current_head_caveat": "Merge only after pane focus and layout tests.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 78,
+      "finding_id": "agent-runtime-20",
+      "source_ids": [
+        "agent-runtime-20"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "GenericOpen interpolates an Erlang cookie into an ERL_AFLAGS command string.",
+      "evidence": {
+        "path": "src/lib/aiur/pane_manager/generic_open.ex",
+        "line": 51,
+        "source_text": "cookie when is_binary(cookie) and cookie != \"\" -> \" -setcookie #{cookie}\""
+      },
+      "current_head_caveat": "Production reachability is unverified; remove command-line exposure if path retained.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 79,
+      "finding_id": "agent-runtime-21",
+      "source_ids": [
+        "agent-runtime-21"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "A regression test splits production source text with a regex rather than exercising a pane.",
+      "evidence": {
+        "path": "src/test/aiur/regression/enter_opens_new_pane_test.exs",
+        "line": 45,
+        "source_text": "|> String.split(~r/def handle_cast\\(:/, parts: 2)"
+      },
+      "current_head_caveat": "Retain a behavior test before removing source-assertion guards.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 80,
+      "finding_id": "agent-runtime-24",
+      "source_ids": [
+        "agent-runtime-24"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Queue claim errors collapse to :empty, hiding a failed claim from the wake path.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+        "line": 552,
+        "source_text": "{:error, _reason} -> :empty"
+      },
+      "current_head_caveat": "A failed-claim wake test must prove whether pending work is stranded.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 81,
+      "finding_id": "agent-runtime-25",
+      "source_ids": [
+        "agent-runtime-25"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Decision attention projection failure is logged after the tool path proceeds.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+        "line": 836,
+        "source_text": "defp log_decision_projection_failure({:error, reason}, topic) do"
+      },
+      "current_head_caveat": "Test what pending state the agent and Executor each see on failure.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 82,
+      "finding_id": "agent-runtime-26",
+      "source_ids": [
+        "agent-runtime-26"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Turn stream registration precedes work; cited closure occurs later without an enclosing after.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+        "line": 115,
+        "source_text": "aiur_turn_id = TurnStreams.open(issue)"
+      },
+      "current_head_caveat": "Force a raised turn and verify cleanup against ActiveTurns.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 83,
+      "finding_id": "agent-runtime-27",
+      "source_ids": [
+        "agent-runtime-27"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "SessionLifecycle is a 1,095-line tracked module in the frozen census, with several broad responsibilities.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+        "line": 1,
+        "source_text": "defmodule Aiur.AgentRunner.SessionLifecycle do"
+      },
+      "current_head_caveat": "Choose cohesive seams and measure moved versus removed lines; size alone is not a bug.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 84,
+      "finding_id": "agent-runtime-28",
+      "source_ids": [
+        "agent-runtime-28"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Turn alert cause detection lowercases inspect output before substring matching.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/turn_alerts.ex",
+        "line": 130,
+        "source_text": "|> String.downcase()"
+      },
+      "current_head_caveat": "Parse structured causes and retain the actual session backend in a test.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 85,
+      "finding_id": "agent-runtime-29",
+      "source_ids": [
+        "agent-runtime-29"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "The tmux shell transport splits a command string on whitespace, losing argument boundaries.",
+      "evidence": {
+        "path": "src/lib/aiur/tmux/exec.ex",
+        "line": 133,
+        "source_text": "|> String.split(~r/\\s+/, trim: true)"
+      },
+      "current_head_caveat": "Migrate with command-shape and quoting tests; avoid a broad untested transport rewrite.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 86,
+      "finding_id": "agent-runtime-31",
+      "source_ids": [
+        "agent-runtime-31"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Retention serializes a public snapshot while trimming messages, within a recursive path.",
+      "evidence": {
+        "path": "src/lib/aiur/live_conversation/retention.ex",
+        "line": 65,
+        "source_text": "|> public_fun.()"
+      },
+      "current_head_caveat": "Measure real message/eviction size before a performance saving claim.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 87,
+      "finding_id": "agent-runtime-32",
+      "source_ids": [
+        "agent-runtime-32"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "AgentList has a local safe_call helper duplicated in cited renderer and activation files.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_list/app.ex",
+        "line": 334,
+        "source_text": "defp safe_call(function) do"
+      },
+      "current_head_caveat": "Unify helpers only if their error semantics match.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 88,
+      "finding_id": "agent-runtime-33",
+      "source_ids": [
+        "agent-runtime-33"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Paste input uses a shared-temp filename built from a positive integer.",
+      "evidence": {
+        "path": "src/lib/aiur/tmux/input.ex",
+        "line": 32,
+        "source_text": "buffer = \"aiur-paste-#{System.unique_integer([:positive])}\""
+      },
+      "current_head_caveat": "Check actual permissions and lifetime before asserting exposure.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 89,
+      "finding_id": "agent-runtime-34",
+      "source_ids": [
+        "agent-runtime-34"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Close path looks up a pane by scanning slot snapshots; cited state keeps several parallel indexes.",
+      "evidence": {
+        "path": "src/lib/aiur/pane_manager/close.ex",
+        "line": 93,
+        "source_text": "defp slot_for_pane(_state, pane_id) do"
+      },
+      "current_head_caveat": "Characterize pane close and concurrent slot changes before refactoring.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 90,
+      "finding_id": "agent-runtime-35",
+      "source_ids": [
+        "agent-runtime-35"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "A pass-through activate_new_pane handler exists, but reachability of all listed branches is not proven.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_list/app.ex",
+        "line": 131,
+        "source_text": "def handle_cast(:activate_new_pane, state), do: handle_cast(:activate, state)"
+      },
+      "current_head_caveat": "Use caller search and real TUI paths before deleting.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 91,
+      "finding_id": "agent-runtime-36",
+      "source_ids": [
+        "agent-runtime-36"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A cross-process test assertion uses the default receive timeout beside longer explicit waits.",
+      "evidence": {
+        "path": "src/test/aiur/tmux_test.exs",
+        "line": 53,
+        "source_text": "assert_receive :ready"
+      },
+      "current_head_caveat": "Use a timeout justified by the async path and prove failure without the guarded behavior.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 92,
+      "finding_id": "agent-runtime-37",
+      "source_ids": [
+        "agent-runtime-37"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "A width comment is stale, but the 54-of-70 typespec claim needs a fresh counted census.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_list/renderer/layout.ex",
+        "line": 35,
+        "source_text": "# Layout: `<bar 10> <eta 5>` = 10 + 1 + 5 = 16 cols. The bar"
+      },
+      "current_head_caveat": "Split style debt from renderer behavior; no functional severity established.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 93,
+      "finding_id": "agent-runtime-38",
+      "source_ids": [
+        "agent-runtime-38"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "TUI issue URL construction embeds GitHub directly; model/color coupling is cited separately.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_list/renderer/links.ex",
+        "line": 11,
+        "source_text": "{n, \"\"} when n > 0 -> \"https://github.com/\" <> project <> \"/issues/\" <> Integer.to_string(n)"
+      },
+      "current_head_caveat": "Preserve tracker-specific link behavior when extracting presentation.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 94,
+      "finding_id": "agent-runtime-39",
+      "source_ids": [
+        "agent-runtime-39"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "No-op detection pattern is coupled to continuation prompt text.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/turn_progress.ex",
+        "line": 61,
+        "source_text": "@turn_counter_pattern ~r/continuation turn #\\d+( of \\d+)?/"
+      },
+      "current_head_caveat": "Test prompt wording and timeout behavior before changing progress detection.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 95,
+      "finding_id": "agent-runtime-40",
+      "source_ids": [
+        "agent-runtime-40"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "One PID parser accepts an integer prefix; another cited path requires full positive parse.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+        "line": 89,
+        "source_text": "case Integer.parse(pid) do"
+      },
+      "current_head_caveat": "Choose an explicit PID contract and test both metadata shapes.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 96,
+      "finding_id": "agent-runtime-41",
+      "source_ids": [
+        "agent-runtime-41"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Event publication failure logging is repeated in the cited branches.",
+      "evidence": {
+        "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+        "line": 514,
+        "source_text": "Logger.warning("
+      },
+      "current_head_caveat": "Reduce duplication only with error identity and log parity.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 97,
+      "finding_id": "build-order-05",
+      "source_ids": [
+        "build-order-05"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "CatalogStore truncates member numbers before deriving metrics; cited normalizer/planning paths differ.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/catalog_store.ex",
+        "line": 126,
+        "source_text": "members = Enum.take(member_numbers, @member_limit)"
+      },
+      "current_head_caveat": "Define one metric completeness contract before consolidation.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 98,
+      "finding_id": "build-order-06",
+      "source_ids": [
+        "build-order-06"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "PlanningSource parses ticket number to an ok tuple while PackStatus returns a list.",
+      "evidence": {
+        "path": "src/lib/aiur_web/build_order/planning_source.ex",
+        "line": 872,
+        "source_text": "defp ticket_number(%{\"ticket\" => ticket}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}"
+      },
+      "current_head_caveat": "Different consumers may need different shapes; centralize only pure parsing.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 99,
+      "finding_id": "build-order-07",
+      "source_ids": [
+        "build-order-07"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Graph policy recognizes auth/forbidden, while the cited GitHub error classifier emits permission for a non-rate-limited 403.",
+      "evidence": {
+        "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+        "line": 185,
+        "source_text": "def failure_class({:github, classification, _detail}) when classification in [:auth, :forbidden], do: :permission"
+      },
+      "current_head_caveat": "Test the emitted tuple through the policy before changing classification.",
       "runtime_incidence": "not_tested"
     }
   ]
