@@ -557,6 +557,11 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:ok, lease} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, [])
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
 
+    assert %{generation: generation, proof: :not_recorded} =
+             HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store)
+
+    assert generation == receipt.generation
+
     Process.exit(lease.guardian, :kill)
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
     assert :ok = Store.delete(ticket)

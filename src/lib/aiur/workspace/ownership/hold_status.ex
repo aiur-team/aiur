@@ -20,7 +20,8 @@ defmodule Aiur.Workspace.Ownership.HoldStatus do
     end
   end
 
-  defp proof(%{provider: provider}, _boot_id_fun) when is_map(provider), do: :tracked_provider
+  defp proof(%{provider: provider}, _boot_id_fun) when is_map(provider) and map_size(provider) > 0,
+    do: :tracked_provider
 
   defp proof(%{provider_expected?: true, provider_scope: :local, provider_boot_id: previous}, boot_id_fun)
        when is_binary(previous) and previous != "" do
