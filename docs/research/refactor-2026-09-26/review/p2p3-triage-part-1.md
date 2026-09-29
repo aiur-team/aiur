@@ -7,7 +7,7 @@ source IDs, reviewed severity, verdict, proposed action and a direct public
 source line for each completed item. The same frozen source commit remains
 `origin/main` at the time of this check.
 
-**Checkpoint:** 20 of 297 reviewed; 277 remain. This is incomplete.
+**Checkpoint:** 40 of 297 reviewed; 257 remain. This is incomplete.
 
 `source-supported` means the claimed static mechanism is visible in the
 cited source. `unknown` means a negative call-site claim or behavior requires
@@ -15,7 +15,8 @@ more evidence; it is not an adverse verdict. `fix` is a proposed behavioral
 repair, and `defer` asks for further characterization or a measured reason
 before extraction or deletion. No item is marked as having demonstrated
 runtime incidence. Source excerpts are short and come from the frozen public
-Git tree; no private source was imported.
+Git tree; an instance-specific literal is redacted in one excerpt. No private
+source was imported.
 
 Next: continue in ID order, preserve source IDs, and record the exact
 residual at each checkpoint. Recheck all decisions against merged main before

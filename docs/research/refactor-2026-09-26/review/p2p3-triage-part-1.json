@@ -4,9 +4,9 @@
   "checked_main_revision": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "method": "Manual claim and cited-source inspection; direct source line copied from pinned frozen/public tree; verdict scopes static mechanism only.",
   "partition_total": 297,
-  "completed_count": 20,
-  "residual_count": 277,
-  "next_index": 20,
+  "completed_count": 40,
+  "residual_count": 257,
+  "next_index": 40,
   "items": [
     {
       "index": 0,
@@ -366,6 +366,367 @@
         "source_text": "Logger.info("
       },
       "current_head_caveat": "Check whether the operator already sees the log before choosing an alert surface.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 20,
+      "finding_id": "agent-backends-cc-27",
+      "source_ids": [
+        "agent-backends-cc-27"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A backend account path drops a nonmatching result to nil; other cited paths also suppress failures.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/session_lifecycle.ex",
+        "line": 45,
+        "source_text": "_ -> nil"
+      },
+      "current_head_caveat": "Reachable failure frequency and operator visibility need a focused test.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 21,
+      "finding_id": "agent-backends-cc-28",
+      "source_ids": [
+        "agent-backends-cc-28"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Transcript discovery reads the whole file; backfill uses a requested remainder length.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/remote_control.ex",
+        "line": 200,
+        "source_text": "case File.read(path) do"
+      },
+      "current_head_caveat": "Count real transcript sizes before claiming latency or memory savings.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 22,
+      "finding_id": "agent-backends-cc-29",
+      "source_ids": [
+        "agent-backends-cc-29"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A 429 refreshes the cache deadline while retaining the previous reading, without a new observed-at field.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/usage_api.ex",
+        "line": 122,
+        "source_text": ":persistent_term.put(@cache_key, %{reading: reading, fresh_until: now_ms + @rate_limited_backoff_ms})"
+      },
+      "current_head_caveat": "Reproduce repeated rate limits and assert stale age is shown.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 23,
+      "finding_id": "agent-backends-cc-30",
+      "source_ids": [
+        "agent-backends-cc-30"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Provider process group metadata is normalized here, with distinct helpers in the cited runner and Claude paths.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/app_server_port.ex",
+        "line": 269,
+        "source_text": "defp maybe_put_provider_group(provider, pid) when is_binary(pid) do"
+      },
+      "current_head_caveat": "Merge only after process identity and remote-session tests.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 24,
+      "finding_id": "agent-backends-cc-31",
+      "source_ids": [
+        "agent-backends-cc-31"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "The false branch exists, but its reachability and the claim about other dead error payloads need complete caller analysis.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/dynamic_tool/emit_event.ex",
+        "line": 95,
+        "source_text": "false ->"
+      },
+      "current_head_caveat": "Do not delete on a single source excerpt.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 25,
+      "finding_id": "agent-backends-cc-33",
+      "source_ids": [
+        "agent-backends-cc-33"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Reaper uses kill -0 directly; RemoteControl has another probe with different missing-binary fallback.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/repl/reaper.ex",
+        "line": 179,
+        "source_text": "match?({_, 0}, System.cmd(\"kill\", [\"-0\", pid], stderr_to_stdout: true))"
+      },
+      "current_head_caveat": "Different failure semantics may be intentional; choose one contract before unifying.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 26,
+      "finding_id": "agent-backends-cc-34",
+      "source_ids": [
+        "agent-backends-cc-34"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "The module documentation says CodingAgent spawns one-shot claude --print turns, conflicting with the current REPL path.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/repl_agent.ex",
+        "line": 6,
+        "source_text": "Where `Aiur.Claude.CodingAgent` spawns `claude --print` one-shot per turn"
+      },
+      "current_head_caveat": "Verify all described modes before editing user-facing docs.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 27,
+      "finding_id": "agent-backends-cc-35",
+      "source_ids": [
+        "agent-backends-cc-35"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "HookSettings writes a unique temp path per call; no deletion is visible in this module.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/hook_settings.ex",
+        "line": 56,
+        "source_text": "path = Path.join(dir, \"#{slug(identifier)}-#{System.unique_integer([:positive])}.json\"),"
+      },
+      "current_head_caveat": "Lifetime cleanup outside this module and actual file accumulation were not checked.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 28,
+      "finding_id": "agent-backends-cc-36",
+      "source_ids": [
+        "agent-backends-cc-36"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Session ID validation appears here and in later value validation and usage normalization.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/telemetry/event.ex",
+        "line": 199,
+        "source_text": "not Contract.valid_session_id?(attributes[\"session.id\"]) ->"
+      },
+      "current_head_caveat": "Consolidation must preserve rejection reasons and accepted provider shapes.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 29,
+      "finding_id": "agent-backends-cc-37",
+      "source_ids": [
+        "agent-backends-cc-37"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Launcher encodes hooks-enabled state as nil versus identifier in session metadata.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/repl/launcher.ex",
+        "line": 313,
+        "source_text": "identifier: if(Map.get(ctx, :hooks?, false), do: ctx.identifier, else: nil),"
+      },
+      "current_head_caveat": "Confirm HookTurn selection and resume behavior before replacing the flag.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 30,
+      "finding_id": "agent-backends-cc-38",
+      "source_ids": [
+        "agent-backends-cc-38"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Tool state vocabulary is an inline list; other cited modules carry overlapping but nonidentical lists.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/dynamic_tool/ticket_state.ex",
+        "line": 32,
+        "source_text": "@agent_settable_states ~w(in-progress ci-wait human-review rework error done)"
+      },
+      "current_head_caveat": "Those lists may reflect different authorities; unify only a shared subset.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 31,
+      "finding_id": "agent-backends-cc-39",
+      "source_ids": [
+        "agent-backends-cc-39"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "All handlers provide specs without tracker filtering; LinearGraphQL is in the fixed handler list.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/dynamic_tool.ex",
+        "line": 37,
+        "source_text": "Enum.flat_map(@handlers, & &1.specs())"
+      },
+      "current_head_caveat": "Check whether the exposed tool can still fail safely for GitHub runs.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 32,
+      "finding_id": "agent-backends-cc-40",
+      "source_ids": [
+        "agent-backends-cc-40"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Approval matching accepts any normalized label beginning approve or allow.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/user_input_answers.ex",
+        "line": 91,
+        "source_text": "String.starts_with?(normalized_label, \"approve\") or String.starts_with?(normalized_label, \"allow\")"
+      },
+      "current_head_caveat": "Characterize actual requestUserInput option schemas and mutation-test ambiguous choices.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 33,
+      "finding_id": "agent-backends-cc-41",
+      "source_ids": [
+        "agent-backends-cc-41"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "An unparseable transcript timestamp falls back to current UTC time.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/transcript.ex",
+        "line": 229,
+        "source_text": "_ -> DateTime.utc_now()"
+      },
+      "current_head_caveat": "A missing timestamp should retain unknown age; prove renderer path with test.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 34,
+      "finding_id": "agent-backends-cc-42",
+      "source_ids": [
+        "agent-backends-cc-42"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "The error catalog uses many payload clauses and cited handlers repeat dispatch envelopes.",
+      "evidence": {
+        "path": "src/lib/aiur/codex/dynamic_tool/errors.ex",
+        "line": 10,
+        "source_text": "def payload(:missing_query) do"
+      },
+      "current_head_caveat": "Clause count is structure, not a demonstrated bug or net reduction.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 35,
+      "finding_id": "agent-backends-cc-43",
+      "source_ids": [
+        "agent-backends-cc-43"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Claude has a section-value reader parallel to the Codex reader in the cited source.",
+      "evidence": {
+        "path": "src/lib/aiur/claude/config.ex",
+        "line": 62,
+        "source_text": "defp section_value(key) do"
+      },
+      "current_head_caveat": "Confirm provider defaults and error policy before extraction.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 36,
+      "finding_id": "agent-backends-oc-04",
+      "source_ids": [
+        "agent-backends-oc-04"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Hidden geometry targets a literal tmux session identity in source.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/attach_pool.ex",
+        "line": 904,
+        "source_text": "display-message -p -t <instance-specific-literal>:0 ...",
+        "redacted": true
+      },
+      "current_head_caveat": "Test with an instance-keyed session and ensure the intended pane is targeted.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 37,
+      "finding_id": "agent-backends-oc-05",
+      "source_ids": [
+        "agent-backends-oc-05"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A retained sensitive request makes an otherwise unmatched line count as a sensitive response for its port.",
+      "evidence": {
+        "path": "src/lib/aiur/app_server/rpc/sensitive_responses.ex",
+        "line": 100,
+        "source_text": "retained_for_port?(port)"
+      },
+      "current_head_caveat": "The permanent discard sequence needs a timed-out RPC regression test.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 38,
+      "finding_id": "agent-backends-oc-12",
+      "source_ids": [
+        "agent-backends-oc-12"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "An apparently unused protocol constant exists, but the broad public-surface deletion claim needs full dynamic-caller and package checks.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/protocol.ex",
+        "line": 8,
+        "source_text": "@verified_min \"0.7.0\""
+      },
+      "current_head_caveat": "Do not remove exports solely from static grep counts.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 39,
+      "finding_id": "agent-backends-oc-13",
+      "source_ids": [
+        "agent-backends-oc-13"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "AttachPool initializes in_flight state, but lack of all dynamic uses is not proven by this excerpt.",
+      "evidence": {
+        "path": "src/lib/aiur/opencode/attach_pool.ex",
+        "line": 51,
+        "source_text": "in_flight: MapSet.new(),"
+      },
+      "current_head_caveat": "Inspect full state flow and tests before deleting fields and messages.",
       "runtime_incidence": "not_tested"
     }
   ]
