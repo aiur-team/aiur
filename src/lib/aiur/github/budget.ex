@@ -326,8 +326,12 @@ defmodule Aiur.GitHub.Budget do
 
   defp do_acquire(request, key, python, opts, deadline_at) do
     command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at)
+    started_at = System.monotonic_time(:millisecond)
+    result = command(acquire_args(request, opts), key, command_opts)
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
+    opts = Keyword.put(opts, :broker_round_trip_ms, max(elapsed_ms, Keyword.get(opts, :broker_round_trip_ms, 0)))
 
-    case command(acquire_args(request, opts), key, command_opts) do
+    case result do
       {:ok, "granted " <> id} ->
         grant_or_hold(String.trim(id), request, key)
 
@@ -362,7 +366,7 @@ defmodule Aiur.GitHub.Budget do
          true <- reset_at_ms > System.system_time(:millisecond) do
       delay_ms = reset_at_ms - System.system_time(:millisecond)
 
-      if System.monotonic_time(:millisecond) + delay_ms >= deadline_at do
+      if not retry_fits?(opts, deadline_at, delay_ms) do
         {:hold, %{reason: :shared_budget, resource: resource, reset_at: reset_at}}
       else
         Process.sleep(max(delay_ms, @retry_floor_ms))
@@ -392,13 +396,22 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp retry_or_hold(request, key, python, opts, deadline_at, delay, reason) do
-    if System.monotonic_time(:millisecond) + delay >= deadline_at do
+    if not retry_fits?(opts, deadline_at, delay) do
       maybe_alert_meter_disagreement(request, key, reason, opts)
       {:hold, hold(request, delay, reason)}
     else
       Process.sleep(max(delay, @retry_floor_ms))
       do_acquire(request, key, python, opts, deadline_at)
     end
+  end
+
+  # A known admission wait is not a broker fault. Reserve the observed cost
+  # of another broker round trip as well as the actual sleep floor, otherwise
+  # a near-deadline retry turns that known hold into a subprocess timeout.
+  defp retry_fits?(opts, deadline_at, delay_ms) do
+    remaining_ms = deadline_at - System.monotonic_time(:millisecond)
+    round_trip_ms = max(Keyword.get(opts, :broker_round_trip_ms, 0), @retry_floor_ms)
+    max(delay_ms, @retry_floor_ms) + round_trip_ms < remaining_ms
   end
 
   defp maybe_alert_meter_disagreement(request, key, :actor_budget, opts) do
