@@ -271,9 +271,10 @@ defmodule Aiur.AgentControlCLI do
       timeout_ms = control_query_timeout(opts, :snapshot_timeout_ms, @agents_timeout_ms)
 
       case fleet_view(opts, timeout_ms) do
-        {:ok, %{running: running, retrying: retrying}, freshness} when is_list(running) and is_list(retrying) ->
+        {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
           print_snapshot_freshness(freshness)
-          print_agents_table(running ++ retrying)
+          retrying = Map.get(snapshot, :retrying, [])
+          print_agents_table(running ++ if(is_list(retrying), do: retrying, else: []))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->
