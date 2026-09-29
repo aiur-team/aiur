@@ -10,7 +10,10 @@ defmodule Aiur.Workspace.DirtyGuard do
   @dirty_status 75
 
   @spec check(Path.t(), String.t() | nil) :: :ok | {:error, {:workspace_not_safe_to_delete, Path.t(), term()}}
-  def check(workspace, nil) do
+  @spec check(Path.t(), String.t() | nil, keyword()) :: :ok | {:error, {:workspace_not_safe_to_delete, Path.t(), term()}}
+  def check(workspace, worker_host, opts \\ [])
+
+  def check(workspace, nil, opts) do
     if File.exists?(Path.join(workspace, ".git")) do
       task =
         Task.async(fn ->
@@ -26,24 +29,24 @@ defmodule Aiur.Workspace.DirtyGuard do
 
       case Task.yield(task, @timeout_ms) || Task.shutdown(task, :brutal_kill) do
         {:ok, {"", 0}} -> :ok
-        {:ok, {:error, reason}} -> refuse(workspace, reason)
-        {:ok, {_output, 0}} -> refuse(workspace, :dirty)
-        {:ok, {_output, status}} -> refuse(workspace, {:git_status_failed, status})
-        _ -> refuse(workspace, :git_status_timeout)
+        {:ok, {:error, reason}} -> refuse(workspace, reason, opts)
+        {:ok, {_output, 0}} -> refuse(workspace, :dirty, opts)
+        {:ok, {_output, status}} -> refuse(workspace, {:git_status_failed, status}, opts)
+        _ -> refuse(workspace, :git_status_timeout, opts)
       end
     else
       :ok
     end
   end
 
-  def check(workspace, worker_host) when is_binary(worker_host) do
+  def check(workspace, worker_host, opts) when is_binary(worker_host) do
     script = Remote.remote_shell_assign("workspace", workspace) <> "\n" <> remote_check_script()
 
     case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
       {:ok, {_output, 0}} -> :ok
-      {:ok, {_output, @dirty_status}} -> refuse(workspace, :dirty)
-      {:ok, {_output, status}} -> refuse(workspace, {:git_status_failed, status})
-      {:error, reason} -> refuse(workspace, reason)
+      {:ok, {_output, @dirty_status}} -> refuse(workspace, :dirty, opts)
+      {:ok, {_output, status}} -> refuse(workspace, {:git_status_failed, status}, opts)
+      {:error, reason} -> refuse(workspace, reason, opts)
     end
   end
 
@@ -58,15 +61,18 @@ defmodule Aiur.Workspace.DirtyGuard do
   end
 
   @spec refuse(Path.t(), term()) :: {:error, {:workspace_not_safe_to_delete, Path.t(), term()}}
-  def refuse(workspace, reason) do
+  @spec refuse(Path.t(), term(), keyword()) :: {:error, {:workspace_not_safe_to_delete, Path.t(), term()}}
+  def refuse(workspace, reason, opts \\ []) do
     Logger.warning("Keeping workspace instead of deleting unpreserved work workspace=#{workspace} reason=#{inspect(reason)}")
     ticket = Path.basename(workspace)
 
-    Alerts.emit_system("ticket.#{ticket}.workspace.dirty_kept",
-      message: "Aiur kept #{workspace} because its work could not be safely deleted (#{inspect(reason)}). Commit, stash, or copy the work before retrying the ticket.",
-      needs_attention: true,
-      workspace: workspace
-    )
+    if Keyword.get(opts, :alert?, true) do
+      Alerts.emit_system("ticket.#{ticket}.workspace.dirty_kept",
+        message: "Aiur kept #{workspace} because its work could not be safely deleted (#{inspect(reason)}). Commit, stash, or copy the work before retrying the ticket.",
+        needs_attention: true,
+        workspace: workspace
+      )
+    end
 
     {:error, {:workspace_not_safe_to_delete, workspace, reason}}
   end
