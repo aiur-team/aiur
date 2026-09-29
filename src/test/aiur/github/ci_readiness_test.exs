@@ -179,7 +179,11 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "accepts the unconfigured pull request trigger emitted by the scaffold" do
-    assert CiReadiness.evaluate("main", [{".github/workflows/ci.yml", CiReadiness.scaffold()}], ["ci / required"]).ready?
+    workflow = CiReadiness.scaffold()
+    assert CiReadiness.evaluate("main", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
+    assert workflow =~ "fetch-depth: 0"
+    assert workflow =~ "bash .github/scripts/aiur-check-pr-deletions.sh"
+    assert CiReadiness.deletion_guard_scaffold() =~ "deleted_count > deletion_threshold"
   end
 
   test "does not treat a workflow excluded from the base branch as a PR workflow" do

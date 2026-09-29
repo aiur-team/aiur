@@ -88,6 +88,12 @@ The keyring lookup (`gh auth token`) is bounded at boot, so a `gh` that stalls â
 
 The lookup logs before the shell-out and treats an unanswered lookup as "no keyring credential" (never a fatal error), naming `gh auth login` on timeout. The default bound is 5 seconds; set `AIUR_GH_KEYRING_TIMEOUT_MS` to a larger positive integer when a slow-but-succeeding unlock legitimately needs more time, or a smaller one to fail faster.
 
+### Bulk deletion guard
+
+The worker's `aiur guard-pr-deletions` command refuses excessive untouched deletions locally, but a shell pipeline can hide its nonzero exit status. A required CI status check is the merge backstop. Aiur runs `scripts/check-pr-deletions.sh` in its required `workflow security` job; new consumer GitHub CI scaffolds run an embedded copy in `ci / required`. CI compares the pull request base and head commits and refuses more than 50 net deleted files. Because CI cannot trust a worker-local branch-start ref, its threshold is intentionally more conservative than the local guard's untouched-file rule.
+
+For an existing consumer repository, copy `scripts/check-pr-deletions.sh` to `.github/scripts/aiur-check-pr-deletions.sh`, add a full-history checkout and a step invoking it with `github.event.pull_request.base.sha` and `github.event.pull_request.head.sha` to an always-running PR job, then require that job's status check on the target branch. A workflow file alone does not enforce the merge gate. An administrator must configure branch protection or a ruleset requiring the check; for Khala, require `ci / required` (or the existing job containing the step) on its main branch and verify that a deliberately blocked PR cannot merge. Protect workflow changes with the repository's normal human review policy.
+
 ### Organization repository access during init
 
 `aiur init` verifies that it can read the configured repository before it offers CI or label setup. GitHub deliberately returns `404 Not Found`, rather than `403 Forbidden`, for an inaccessible private repository, so a repository 404 is not proof that the repository or its base branch is missing.

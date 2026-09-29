@@ -21,6 +21,9 @@ defmodule Aiur.GitHub.CiReadiness do
   @operator_token_env "AIUR_CI_READINESS_TOKEN"
   @plan_limit_message "Upgrade to GitHub Pro or make this repository public"
   @matrix_ref_regex ~r/\$\{\{\s*matrix\.([A-Za-z0-9_.-]+)\s*\}\}/
+  @deletion_guard_path Path.expand("../../../../scripts/check-pr-deletions.sh", __DIR__)
+  @external_resource @deletion_guard_path
+  @deletion_guard_scaffold File.read!(@deletion_guard_path)
 
   @type issue ::
           :base_branch_missing
@@ -546,9 +549,20 @@ defmodule Aiur.GitHub.CiReadiness do
         name: #{required_check_name}
         runs-on: ubuntu-latest
         steps:
+          - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            with:
+              fetch-depth: 0
+          - name: Refuse bulk file deletions
+            env:
+              BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+            run: bash .github/scripts/aiur-check-pr-deletions.sh "$BASE_SHA" "$HEAD_SHA"
           - run: echo 'Replace this with your project test command.'
     """
   end
+
+  @spec deletion_guard_scaffold() :: String.t()
+  def deletion_guard_scaffold, do: @deletion_guard_scaffold
 
   defp branch_exists?(request_fun, token, url) do
     case request(request_fun, %{method: :get, url: url, token: token, caller: "ci_readiness"}) do

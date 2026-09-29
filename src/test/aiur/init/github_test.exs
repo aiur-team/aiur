@@ -1,6 +1,7 @@
 defmodule Aiur.Init.GitHubTest do
   use ExUnit.Case
 
+  alias Aiur.GitHub.CiReadiness
   alias Aiur.Init.GitHub
 
   describe "parse_repo/1" do
@@ -193,13 +194,17 @@ defmodule Aiur.Init.GitHubTest do
 
       assert {:error, message} = GitHub.ensure_ci_readiness(io, deps, tracker)
       assert message =~ "Repository CI readiness is incomplete"
-      assert File.exists?(Path.join([root, ".github", "workflows", "ci.yml"]))
+      workflow_path = Path.join([root, ".github", "workflows", "ci.yml"])
+      guard_path = Path.join([root, ".github", "scripts", "aiur-check-pr-deletions.sh"])
+      assert File.read!(workflow_path) =~ "bash .github/scripts/aiur-check-pr-deletions.sh"
+      assert File.read!(guard_path) == CiReadiness.deletion_guard_scaffold()
 
       assert_received {:io_puts, setup_msg}
       assert setup_msg =~ "CI readiness setup error"
 
       assert_received {:io_puts, created_msg}
       assert created_msg =~ "Created"
+      assert created_msg =~ "aiur-check-pr-deletions.sh"
     end
 
     test "explains the operator token gap when a PR workflow needs privileged inspection" do

@@ -134,12 +134,28 @@ defmodule Aiur.Init.GitHub do
     end
   end
 
-  defp report_scaffold_write(io, path, :ok), do: io.puts.("Created #{path}. Add required check `ci / required` to branch protection or a ruleset before rerunning init.")
+  defp report_scaffold_write(io, path, :ok) do
+    io.puts.("Created #{path} and .github/scripts/aiur-check-pr-deletions.sh. Add required check `ci / required` to branch protection or a ruleset before rerunning init.")
+  end
+
   defp report_scaffold_write(io, _path, {:error, reason}), do: io.puts.("CI scaffold could not be written: #{inspect(reason)}")
 
   defp write_scaffold(path) do
-    case File.mkdir_p(Path.dirname(path)) do
-      :ok -> File.write(path, CiReadiness.scaffold())
+    guard_path = Path.join([Path.dirname(Path.dirname(path)), "scripts", "aiur-check-pr-deletions.sh"])
+    guard = CiReadiness.deletion_guard_scaffold()
+
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- File.mkdir_p(Path.dirname(guard_path)),
+         :ok <- write_deletion_guard(guard_path, guard) do
+      File.write(path, CiReadiness.scaffold())
+    end
+  end
+
+  defp write_deletion_guard(path, content) do
+    case File.read(path) do
+      {:ok, ^content} -> :ok
+      {:ok, _different} -> {:error, :existing_deletion_guard_differs}
+      {:error, :enoent} -> File.write(path, content)
       {:error, reason} -> {:error, reason}
     end
   end
