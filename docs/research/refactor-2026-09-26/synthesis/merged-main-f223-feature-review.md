@@ -1,6 +1,6 @@
 # Merged-main feature review: deletion and watchdog boundary
 
-Reviewed twelve of the 156 queued feature entries against `f223f30ead855c1f88ea188fb8f9cf74414ffb90` source. The other 144 entries remain a review queue. This records source reachability and decision effect, not live usage or an implementation approval.
+Reviewed 23 of the 156 queued feature entries against `f223f30ead855c1f88ea188fb8f9cf74414ffb90` source. The other 133 entries remain a review queue. This records source reachability and decision effect, not live usage or an implementation approval.
 
 | Feature | Merged-main observation | Decision effect / remaining gate |
 | --- | --- | --- |
@@ -15,6 +15,19 @@ Reviewed twelve of the 156 queued feature entries against `f223f30ead855c1f88ea1
 | `integrations-09` | Claude REPL and Remote Control modules remain, and `model:remote`/`+remote` are documented operator routes. | Frozen `cut` is still only a proposal. Require operator-use evidence, a replacement interaction path, and live Remote Control/TUI tests before changing routing or hooks. |
 | `integrations-46` | The `aiur-build` skill and its publication scripts remain tracked and dispatched. | Frozen `externalize` is still only a proposal. Prove the distribution/update path, source authority, and offline workspace/release behavior first. |
 | `cli-44` | `scripts/aiurdev` still implements `--test`/`--test3`/`--allow-remote`; the timer and phase scripts remain. | Frozen `externalize` is still only a proposal. Preserve the Executor manual-testing entry point and sandbox-ticket protections, or demonstrate equivalent behavior before extraction. |
+
+## Other provisional cuts and externalizations
+
+| Feature(s) | Merged-main source and decision gate |
+| --- | --- |
+| `cli-36`, `integrations-40` | `aiur findings` parsing, `Aiur.Findings` and `FindingsCLI` remain. Frozen evidence records 73 ledger entries and regular use, so externalization requires a working replacement, ledger migration and CLI parity; source retention is intentional meanwhile. |
+| `config-10` | Linear schema and adapter remain. The frozen local config sample found no active Linear configuration, but that does not establish outside-repository usage or replacement. Resolve with `integrations-03`; preserve the example workflow until a migration is documented. |
+| `config-23` | The three broker degraded-alert tuning keys and `BrokerTimeout` accessors remain. Frozen evidence found defaults in use; removing tuning must preserve degraded/retry/resolution alerts, including the recently observed shared-host broker saturation. |
+| `config-24`, `integrations-52`, `subsystems-41` | `Rtk` admission, config and savings reader remain opt-in. The frozen config sample found none enabled; that is a sampled population, not global nonuse. Any cut must remove all three surfaces and the documented key together, with a current population count and no claimed saving from unused paths. |
+| `integrations-31` | `pr_watch` schema, comment polling target selection, PR anchoring and command scanner remain. It defaults off in frozen configs. Verify current operator use and `/aiur` command compatibility before removal; do not confuse this opt-in PR feature with `aiur watch`, the active status-board CLI. |
+| `subsystems-20` | `SaturationSentinel` remains a supervised child; frozen logs show record failures and zero captured records. A cut requires a retained diagnostic path for overload/crash evidence and a current failure check, rather than assuming the historical failure still holds. |
+| `ui-29` | The named dashboard component files remain. Static source search finds no production caller of `FleetTable`, `DecisionLatency`, `LifecycleComponents` or `BuildOrderIcon`; `FleetFilters` is also referenced by `Overview.fleet_overview`, whose reachability needs a template/caller check. Do not delete `Overview`: other functions in that module are used by dashboard, Stream Deck, analytics and Build Order views. |
+| `ui-33` | The ANSI recorder has no tracked implementation, while documentation still describes it. Resolve as a docs correction after confirming the supported `--debug` behavior; there is no production code saving to count. |
 
 The three explicit page/guard cuts are already merged release changes and are excluded from the future refactor savings ledger. `config-08`, `integrations-18`, and `integrations-19` are partial path changes, not feature deletions. The watchdog changes make two previously static citations behaviorally relevant; foreground crash cleanup must be tested with the real launcher before splitting it.
 
