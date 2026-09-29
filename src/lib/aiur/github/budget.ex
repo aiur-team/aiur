@@ -410,8 +410,17 @@ defmodule Aiur.GitHub.Budget do
   # a near-deadline retry turns that known hold into a subprocess timeout.
   defp retry_fits?(opts, deadline_at, delay_ms) do
     remaining_ms = deadline_at - System.monotonic_time(:millisecond)
-    round_trip_ms = max(Keyword.get(opts, :broker_round_trip_ms, 0), @retry_floor_ms)
-    max(delay_ms, @retry_floor_ms) + round_trip_ms < remaining_ms
+    admission_retry_fits?(remaining_ms, delay_ms, Keyword.get(opts, :broker_round_trip_ms, 0))
+  end
+
+  @doc false
+  @spec admission_retry_fits?(integer(), non_neg_integer(), non_neg_integer()) :: boolean()
+  def admission_retry_fits?(remaining_ms, delay_ms, observed_round_trip_ms) do
+    round_trip_ms = max(observed_round_trip_ms, @retry_floor_ms)
+    # await_port reserves cleanup before the deadline; leave a scheduling
+    # cushion too, even when the observed subprocess returned almost instantly.
+    reserved_ms = round_trip_ms + @command_cleanup_ms + @retry_floor_ms
+    max(delay_ms, @retry_floor_ms) + reserved_ms < remaining_ms
   end
 
   defp maybe_alert_meter_disagreement(request, key, :actor_budget, opts) do

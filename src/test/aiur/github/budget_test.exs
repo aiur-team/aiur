@@ -298,6 +298,14 @@ defmodule Aiur.GitHub.BudgetTest do
              )
   end
 
+  test "fast broker retry cannot spend the command cleanup window" do
+    # A 1ms observed broker and 5ms pacing wait appear to fit 20ms, but the
+    # command guardian reserves 25ms before the deadline to reap its child.
+    refute Budget.admission_retry_fits?(20, 5, 1)
+    refute Budget.admission_retry_fits?(40, 5, 1)
+    assert Budget.admission_retry_fits?(41, 5, 1)
+  end
+
   for {kind, reply, expected_reason} <- [{:pacing, "wait 600", :shared_budget}, {:actor, "wait actor 600", :actor_budget}] do
     test "known #{kind} wait preserves its hold when another broker round trip cannot fit", %{root: root} do
       fake_python = Path.join(root, "slow-wait-broker")
