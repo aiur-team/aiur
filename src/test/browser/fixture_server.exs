@@ -803,7 +803,7 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
     %{
       issue: %{available?: true, destination: issue_url(identity), identity: identity},
       pull_request: %{available?: false, identity: identity, reason: :not_opened},
-      chat: %{available?: true, destination: "/chat/#{identity.identifier}", identity: identity, active?: true, readable?: true},
+      chat: %{available?: true, destination: "/chat/#{identity.owner}/#{identity.repository}/#{identity.identifier}", identity: identity, active?: true, readable?: true},
       commands: %{available?: true, destination: "/commands/#{identity.identifier}", identity: identity, readable?: true}
     }
   end
