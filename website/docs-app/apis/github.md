@@ -531,17 +531,9 @@ wrapper reconciles the lease as free rather than billing it full-price.
 The free share a TTL body cache cannot recover is GraphQL's — which no cache on
 either side can recover.
 
-The GitHub cache page reports whether this sharing is effective. Its **Agent gh
-exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,
-alongside the raw hit and miss counts.
-
-It reads the durable `agent-cache.tsv` counters from agent workspaces on the
-daemon host; workspaces on remote SSH workers are not included.
-
-If no readable counter exists, or the readable files contain no hit or miss in
-that window, the page says **Not measured** instead of presenting zero as a
-measurement. Malformed or unreadable sources are retained as partial coverage
-rather than hiding the valid samples.
+The wrapper records hit and miss events in durable `agent-cache.tsv` files in
+each agent workspace. These counters describe the agent `gh` cache on that
+workspace's host; they do not include remote SSH workers in a local census.
 
 The cache key intentionally includes the exact requested output shape. Two
 reads of one pull request that request different JSON fields, templates, or

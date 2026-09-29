@@ -3,6 +3,16 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
 
   alias AiurWeb.OperatorControlCenter.{DecisionPath, RouteRegistry}
 
+  test "GitHub cache page and navigation are removed" do
+    paths = Enum.map(AiurWeb.Router.__routes__(), & &1.path)
+
+    refute "/github-cache" in paths
+    refute "/github-cache/:resource_type" in paths
+    refute "/github-cache/:resource_type/:identity" in paths
+    assert RouteRegistry.route(:github_cache, %{}) == :error
+    refute Enum.any?(RouteRegistry.routes(%{}), &(&1.path == "/github-cache"))
+  end
+
   test "declares live routes with one active-match policy each" do
     analytics = %{available?: true, path: "/analytics", message: "Open analytics."}
 
@@ -11,7 +21,6 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistryTest do
              :commands,
              :build_order,
              :analytics,
-             :github_cache,
              :streamdeck
            ]
 
