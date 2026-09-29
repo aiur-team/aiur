@@ -41,9 +41,11 @@
       "title": "Pull request topic grammar repeats in poll and webhook normalization",
       "locations": [
         {"path": "src/lib/aiur/events/github_firehose.ex", "lines": "420-423"},
-        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "645-648"}
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "645-648"},
+        {"path": "src/lib/aiur/events/github_firehose.ex", "lines": "427-429"},
+        {"path": "src/lib/aiur/recent_merge.ex", "lines": "540-542"}
       ],
-      "description": "The two pr_topic/3 clause sets map opened, ready_for_review and merged to the same ticket topic strings. Their surrounding merge-event recognizers also cover both merged-action and closed-plus-merged shapes. A shared topic constructor should retain source-specific event admission and replay compatibility.",
+      "description": "The two pr_topic/3 clause sets map opened, ready_for_review and merged to the same ticket topic strings. Firehose and RecentMerge also copy the merged-action and closed-plus-merged recognition clauses. A shared event grammar should retain source-specific admission, ticket identity, topic deduplication and replay compatibility. This overlaps existing topic and webhook findings and is not an independent saving.",
       "recommendation": "Put PR topic construction under an event grammar owner; keep source parsing in each adapter.",
       "effort": "S",
       "refactor_hint": "events/github"
@@ -75,6 +77,34 @@
       "recommendation": "Own bounded percentage normalization below runtime and presentation adapters, retaining the nil branch and explicit round policy.",
       "effort": "S",
       "refactor_hint": "measurement/percent"
+    },
+    {
+      "id": "dup-by-name-06",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Build Order dependency direction defaults repeat in domain and presentation",
+      "locations": [
+        {"path": "src/lib/aiur/build_order/dependency.ex", "lines": "127-128"},
+        {"path": "src/lib/aiur_web/build_order_presenter.ex", "lines": "316-317"}
+      ],
+      "description": "Both source_connection/1 functions preserve blocked_by or blocking and default any other input to blocked_by. The domain adapter uses the result to direct graph endpoints; the presenter copies it into a public projection. A shared typed direction policy prevents drift, while input validation and error/public envelopes stay at each boundary.",
+      "recommendation": "Expose the direction normalization from the Build Order dependency domain and call it from the presenter.",
+      "effort": "S",
+      "refactor_hint": "build-order/dependency"
+    },
+    {
+      "id": "dup-by-name-07",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Codex workspace-write sandbox policy is recognized twice",
+      "locations": [
+        {"path": "src/lib/aiur/config.ex", "lines": "1284-1286"},
+        {"path": "src/lib/aiur/config/codex_sandbox_policy.ex", "lines": "286-288"}
+      ],
+      "description": "Both predicates read string or atom type keys and compare with workspaceWrite. Config and CodexSandboxPolicy use this result at separate validation stages. They should share the same policy recognizer while preserving writable-root validation and local versus remote workspace handling. This source match does not prove sandbox escape or grant equivalence.",
+      "recommendation": "Own sandbox policy type normalization in CodexSandboxPolicy and use it from Config after checking dependency direction.",
+      "effort": "S",
+      "refactor_hint": "config/codex-sandbox"
     }
   ]
 }

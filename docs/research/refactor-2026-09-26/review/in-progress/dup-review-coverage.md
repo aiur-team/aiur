@@ -93,6 +93,23 @@ and StreamdeckAuth each pass a local version of 1 into their shared proof
 configuration; the proof generation contract links them, but a common global
 `1` constant would also couple unrelated versioned formats.
 
+The follow-up parse-only inline census now visits scalar leaves in every one
+of the 1,032 frozen `src/lib` Elixir files. File hashes match the function
+census. It records 32,745 actual literal leaves (22,929 strings and 9,816
+numbers), excluding module attributes and quoted generated code. A reproducible
+high-fanout screen selects 142 strings of at least eight characters and 49
+nonzero/nonone numeric values occurring in at least five modules. The
+`inline-literal-audit.md` source-role audit shows that identical values
+frequently have different owners; a five-module threshold is a review aid,
+not a semantic completeness claim. Lower-fanout inline values and dynamic
+values remain outside that screen, so the constant raw unit remains open.
+
+The name/body overlap index accounts for all 118 A/B leads and maps 27 name
+families to 22 previously recorded body findings by source-span overlap. This
+is navigation evidence only: broad spans can overmatch and locations can
+understate a finding. It prevents those leads from being counted additively;
+their contract still needs source-level reconciliation.
+
 ## Reproduction
 
 `python tooling/name_remaining_index.py <research-root> <frozen-snapshot>`
@@ -102,3 +119,9 @@ tooling/test_duplication_overlap.py` verifies overlap-index behavior.
 tooling/test_regex_census.py` exercise the bounded parser fixtures when the
 recorded Elixir toolchain is available. No daemon or CLI run was needed for
 this read-only research checkpoint.
+
+`elixir tooling/inline_literal_census.exs <frozen-snapshot>` generates the
+private full inline census. `python tooling/inline_literal_summary.py
+<full-census.json>` reproduces the tracked screen; `python
+tooling/test_inline_literal_census.py` guards against counting AST metadata
+as source numbers.
