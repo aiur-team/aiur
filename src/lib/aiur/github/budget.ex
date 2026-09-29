@@ -366,11 +366,11 @@ defmodule Aiur.GitHub.Budget do
          true <- reset_at_ms > System.system_time(:millisecond) do
       delay_ms = reset_at_ms - System.system_time(:millisecond)
 
-      if not retry_fits?(opts, deadline_at, delay_ms) do
-        {:hold, %{reason: :shared_budget, resource: resource, reset_at: reset_at}}
-      else
+      if retry_fits?(opts, deadline_at, delay_ms) do
         Process.sleep(max(delay_ms, @retry_floor_ms))
         do_acquire(request, key, python, opts, deadline_at)
+      else
+        {:hold, %{reason: :shared_budget, resource: resource, reset_at: reset_at}}
       end
     else
       _invalid -> {:error, :github_budget_broker_unavailable}
@@ -396,12 +396,12 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp retry_or_hold(request, key, python, opts, deadline_at, delay, reason) do
-    if not retry_fits?(opts, deadline_at, delay) do
-      maybe_alert_meter_disagreement(request, key, reason, opts)
-      {:hold, hold(request, delay, reason)}
-    else
+    if retry_fits?(opts, deadline_at, delay) do
       Process.sleep(max(delay, @retry_floor_ms))
       do_acquire(request, key, python, opts, deadline_at)
+    else
+      maybe_alert_meter_disagreement(request, key, reason, opts)
+      {:hold, hold(request, delay, reason)}
     end
   end
 
