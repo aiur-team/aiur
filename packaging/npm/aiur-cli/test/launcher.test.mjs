@@ -525,8 +525,8 @@ test("background start reclaims stale tmux session state before creating a new s
   expect(capture).toContain("new-session");
 });
 
-test("background start still creates a fresh session when no tmux session exists", () => {
-  const { result } = runBackgroundLauncher({ existingSession: false, controlReady: true });
+test("background start records its headless surface when no tmux session exists", () => {
+  const { result, stateDir } = runBackgroundLauncher({ existingSession: false, controlReady: true });
 
   expect(result.status).toBe(0);
   expect(result.stderr).toContain("aiur started in the background");
@@ -535,6 +535,10 @@ test("background start still creates a fresh session when no tmux session exists
   expect(capture).toContain("has-session");
   expect(capture).toContain("new-session");
   expect(capture).not.toContain("found stale tmux session");
+
+  const [recordName] = readdirSync(path.join(stateDir, "instances"));
+  const record = readFileSync(path.join(stateDir, "instances", recordName), "utf8");
+  expect(record).toContain("AIUR_RECORD_SURFACE_MODE=headless");
 });
 
 // --- Control RPC error reporting -------------------------------------------
