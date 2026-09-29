@@ -2250,3 +2250,10 @@ recommendations have continuing-researcher challenges in
 91 and leaving 54. The requirements-only unified refactor plan is
 `docs/plans/2026-09-29-001-refactor-production-readiness-plan.md` in the
 research branch; implementation readiness awaits full reconciliation.
+
+The latest challenge pass also checked the exceptional Executor wake and
+ownership commands against the run skill and CLI reference. Challenge artifact
+coverage is now 40 of 91, with 51 remaining. `features/usage-matrix.md`
+indexes all 216 frozen feature entries in five short surface tables, keeping
+raw and challenged recommendations separate. It supplies navigation and
+coverage, not a final keep/cut verdict or line-reduction case.

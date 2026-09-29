@@ -12,6 +12,24 @@
     "note": "A search that finds no `.aiurconfig` on the research host cannot measure installed users who still have one. The documented behavior deliberately rejects a legacy file with an actionable migration error, while config discovery otherwise falls through to `~/.aiur/config`. Removing that guard risks silently running a different workflow for a user who expected the local legacy file to apply. The 134-line gross estimate is too small to justify a compatibility break without a measured installed population and an equivalent fail-closed detection path. Keep the migration guard or replace it with a smaller equivalent; test local and global discovery precedence. This is a continuing-researcher challenge, not an independent reviewer result."
   },
   {
+    "id": "cli-32",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "`executor-fast-forward` is an exceptional repair for a wake prefix already covered by another complete means. `.claude/skills/aiur-run/SKILL.md` and the CLI reference specify owner-lease checks, exact-prefix acknowledgement and preservation of newer wakes. Zero normal invocations is expected for an emergency recovery command and does not prove the recovery path is redundant with `executor-wait`, which acknowledges only its own successful consumption. Keep the capability unless an equivalent bounded recovery route is designed and tested. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-34",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "Automatic claims and lease expiry do not replace all manual authority transitions. `.claude/skills/aiur-run/SKILL.md` treats `executor-revoke` as an operator decision after roster evidence and expressly forbids an agent from revoking a live peer itself. `executor-release` permits immediate handoff instead of waiting for TTL; claim refusal makes ownership visible. The zero-use sample is not a safe reason to remove these incident controls. Preserve them behind explicit owner/authority checks, or design and prove an equivalent takeover contract before removing a verb. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-35",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The five commands combine an optional raw stream with persistent event-bus administration. `.claude/skills/aiur-run/SKILL.md` says `executor-listen` is optional, not obsolete, and describes `executor-emit` plus binding management for general Executor coordination; the CLI reference defines validated topic patterns. The zero invocation window does not measure all external operators or incident use. Consolidate the admin surface if the same event authority, replay, scope validation and observable receipts survive; do not delete the entire group based on a normal-loop usage count. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
     "id": "integrations-11",
     "holds": false,
     "recommendation": "simplify",
