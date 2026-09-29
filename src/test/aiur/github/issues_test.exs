@@ -63,6 +63,8 @@ defmodule Aiur.GitHub.IssuesTest do
         }
       end
 
+      parent = self()
+
       request_fun = fn
         %{url: url, etag: _etag} ->
           assert url =~ "/issues?labels="
@@ -70,6 +72,7 @@ defmodule Aiur.GitHub.IssuesTest do
 
         %{url: url} ->
           if url =~ "/timeline" do
+            send(parent, {:timeline_requested, url})
             {:ok, %{status: 200, headers: [], body: []}}
           else
             {:ok, %{status: 200, headers: [{"etag", "list-v1"}], body: [issue.(99), issue.(2413)]}}
@@ -78,6 +81,9 @@ defmodule Aiur.GitHub.IssuesTest do
 
       assert {:ok, [%Issue{identifier: "99"}], cache} =
                Client.fetch_issues_by_states_conditional(["ci-wait"], %{}, request_fun: request_fun)
+
+      assert_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/99/timeline?per_page=50"}
+      refute_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/2413/timeline?per_page=50"}
 
       assert {:ok, [%Issue{identifier: "99"}], _cache} =
                Client.fetch_issues_by_states_conditional(["ci-wait"], cache, request_fun: request_fun)
@@ -274,6 +280,72 @@ defmodule Aiur.GitHub.IssuesTest do
   end
 
   describe "fetch_candidate_issues/1" do
+    test "pinned test scope skips out-of-scope provenance before dispatch authorization" do
+      previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+      on_exit(fn -> restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope) end)
+      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["todo"]
+      )
+
+      issue = fn number ->
+        %{
+          "number" => number,
+          "title" => "Issue #{number}",
+          "body" => nil,
+          "html_url" => "https://github.com/owner/repo/issues/#{number}",
+          "labels" => [%{"name" => "sym:todo"}],
+          "assignee" => nil,
+          "created_at" => "2026-01-01T00:00:00Z",
+          "updated_at" => "2026-01-02T00:00:00Z"
+        }
+      end
+
+      parent = self()
+
+      request_fun = fn %{url: url} ->
+        if String.contains?(url, "/timeline") do
+          send(parent, {:timeline_requested, url})
+
+          {:ok,
+           %{
+             status: 200,
+             headers: [],
+             body: [
+               %{
+                 "id" => 1,
+                 "event" => "labeled",
+                 "label" => %{"name" => "sym:todo"},
+                 "actor" => %{"login" => "its-everdred"},
+                 "created_at" => "2026-01-01T00:00:00Z"
+               }
+             ]
+           }}
+        else
+          assert url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+          {:ok, %{status: 200, headers: [], body: [issue.(2413), issue.(99)]}}
+        end
+      end
+
+      assert {:ok, [%Issue{identifier: "99", dispatch_authorized?: true}]} =
+               Client.fetch_candidate_issues(request_fun: request_fun)
+
+      assert_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/99/timeline?per_page=50"}
+      refute_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/2413/timeline?per_page=50"}
+
+      Aiur.GitHub.DispatchAuthorization.clear_cache()
+
+      assert {:ok, [%Issue{identifier: "99", dispatch_authorized?: true}], _cache} =
+               Client.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+
+      assert_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/99/timeline?per_page=50"}
+      refute_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/2413/timeline?per_page=50"}
+    end
+
     # Guards the too-large clause in `conditional_get/4`: with it reverted the
     # collector's empty-bodied 200 falls through to `github_status_error/1` and
     # this returns the bare `%{status: 200}` detail with no `:reason`.

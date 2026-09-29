@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.Issues do
   """
 
   require Logger
-  alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
+  alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
     BoundedBlockedBy,
@@ -461,7 +461,7 @@ defmodule Aiur.GitHub.Issues do
       end)
 
     authorized = authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
-    healable = Enum.filter(rest, &degenerate_state_labels?/1)
+    healable = rest |> Enum.filter(&degenerate_state_labels?/1) |> TestTicketScope.filter_issues()
     authorized ++ healable
   end
 
@@ -1215,7 +1215,9 @@ defmodule Aiur.GitHub.Issues do
   defp header_value(_value), do: nil
 
   defp authorize_dispatches(issues, request_fun, token, owner, repo, prefix) do
-    Enum.map(issues, fn issue ->
+    issues
+    |> TestTicketScope.filter_issues()
+    |> Enum.map(fn issue ->
       authorize_issue(issue, request_fun, token, owner, repo, prefix)
     end)
   end
