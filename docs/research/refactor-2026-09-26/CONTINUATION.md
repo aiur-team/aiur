@@ -69,6 +69,14 @@ interruption. It leaves the 78.18% waiting model share and the 151-hour
 historical gap unassigned because the retained data cannot prove per-minute
 causes. See `synthesis/causal-gap-attribution.md`; no causal saving is claimed.
 
+The CE brainstorm and phased plan are integrated under `docs/brainstorms/`
+and `docs/plans/`. The plan remains `requirements-only`: current-head
+incidence, a complete oversized-file owner map, CODEOWNERS degraded-trust
+policy, store-specific durability choices and the first package seam still
+need resolution before affected implementation units can launch. The privacy
+and gap evidence above are reflected in its open questions; historical gap
+hours remain causally unallocated.
+
 ## Authoritative sources
 
 - Research branch: `research/refactor-2026-09-26`.

@@ -16,7 +16,7 @@ origin: docs/brainstorms/2026-09-29-aiur-refactor-requirements.md
 
 **Authority:** User directions and AGENTS.md govern implementation; this plan uses the corrected 60-claim audit, all 32 review units, the 216-feature inventory and the frozen `3339b887` source census as evidence. The guard and GitHub cache dashboard removals are pending release PRs #2840/#2841, not savings from this future refactor. Finding IDs below resolve to `docs/research/refactor-2026-09-26/review/findings.json`.
 
-**Readiness:** This is a detailed proposed program, still `requirements-only`. Contextual private-source provenance, current-head incidence checks, a complete >500-file owner map, degraded CODEOWNERS trust policy and first package seam require resolution before the affected code units can be launched. The causal reading of historical idle gaps remains open; the plan measures progress prospectively rather than assigning unsupported historical causes.
+**Readiness:** This is a detailed proposed program, still `requirements-only`. The branch-tip contextual privacy audit is complete; new evidence must be checked before publication. Current-head incidence checks, a complete >500-file owner map, degraded CODEOWNERS trust policy and first package seam require resolution before the affected code units can be launched. The causal timeline identifies local prewarm/dependency point causes, while historical duration shares remain unassigned; the plan measures progress prospectively.
 
 ## Product Contract
 
@@ -73,7 +73,7 @@ The corrected retained model contains 108 gaps of at least 30 minutes totaling 7
 
 The program begins after the 0.0.6 guard/dashboard removal release and refreshes the census on merged main. It does not re-add deletion gates or the GitHub cache page. Gemini CLI support is a separately queued post-release implementation. Package extraction is conditional on behavior-preserving seams; a count of packages is not a success measure.
 
-Blocking before code work on the affected boundary: contextual private-source audit; current-head source and exposure validation; all oversized-file owner/disposition assignments; degraded CODEOWNERS trust behavior; which durable journal failures stop writes versus permit a retry; and the first package seam's startup/failure contract. Historical gap causality is an open research limit, not permission to guess a causal saving.
+Blocking before code work on the affected boundary: current-head source and exposure validation; all oversized-file owner/disposition assignments; degraded CODEOWNERS trust behavior; which durable journal failures stop writes versus permit a retry; and the first package seam's startup/failure contract. The completed branch-tip privacy audit must be repeated for new public evidence. Historical gap duration causality is unresolved, not permission to guess a causal saving; use `docs/research/refactor-2026-09-26/synthesis/causal-gap-attribution.md` for measured point cases and limits.
 
 ## Planning Contract
 
@@ -102,7 +102,7 @@ Possible eventual package seams are GitHub access, agent/backend runtime, lifecy
 | A cut erases indirect use. | Challenge `none-found` against configs, dynamic references, packaging, docs and real CLI/TUI behavior before deleting. |
 | New helper modules raise LOC and cycle count. | Require one owner, deleted duplicate path, dependency edge diff and before/after physical LOC. |
 | A new line gate strands legacy files. | Transitional debt ledger blocks new/increased >500 files; universal gate only after zero debt; no permanent exceptions. |
-| A privacy-sensitive corpus leaks into public artifacts. | Complete the contextual private-source review before promoting corpus-derived evidence into public implementation tickets; this plan carries aggregate counts and source IDs only. |
+| A privacy-sensitive corpus leaks into public artifacts. | The branch-tip contextual audit is complete; repeat source-level review for each new public ticket or evidence artifact. This plan carries aggregate counts and source IDs only. |
 | A merged fix never runs. | Compare source HEAD, assembled release stamp and running process; use foreground CLI/TUI acceptance on latest main. |
 
 ## Implementation Units
@@ -124,7 +124,7 @@ These are proposed units. Readiness remains blocked by the Goal Capsule gates; n
 
 ### U0. Refresh evidence and establish the size gate
 
-**Goal:** Run contextual privacy review, inspect current main after release, map every >500 path to a component and chosen disposition, and publish a fresh text-file census. **Files:** `docs/research/refactor-2026-09-26/synthesis/`, `scripts/`, `.github/workflows/ci.yml`. **Approach:** Recheck P0/P1 source and reachable population; re-count every tracked path; install a transitional CI gate that fails new or enlarged >500 text files. **Tests:** 500/501, 200/201, blank and unterminated lines, generated/vendor, binary/symlink, and edited baseline debt. **Exit:** owner ledger complete; privacy review passes; counts and CLI/release identity recorded.
+**Goal:** Recheck privacy for any new public evidence, inspect current main after release, map every >500 path to a component and chosen disposition, and publish a fresh text-file census. **Files:** `docs/research/refactor-2026-09-26/synthesis/`, `scripts/`, `.github/workflows/ci.yml`. **Approach:** Recheck P0/P1 source and reachable population; re-count every tracked path; install a transitional CI gate that fails new or enlarged >500 text files. **Tests:** 500/501, 200/201, blank and unterminated lines, generated/vendor, binary/symlink, and edited baseline debt. **Exit:** owner ledger complete; new evidence passes privacy review; counts and CLI/release identity recorded.
 
 ### U1. Close current P0 paths without a new deletion policy
 
