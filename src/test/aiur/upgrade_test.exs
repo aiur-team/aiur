@@ -434,8 +434,10 @@ defmodule Aiur.UpgradeTest do
     end
 
     test "installed version falls back to the mix version when the launcher did not set it" do
-      # AIUR_CLI_VERSION is unset in setup; mix.exs is 0.0.5.
-      assert Upgrade.installed_version() == "0.0.5"
+      # AIUR_CLI_VERSION is unset in setup, so the fallback is whatever mix.exs
+      # names (always the next unreleased version, so it moves with each bump).
+      assert Upgrade.installed_version() == Mix.Project.config()[:version]
+      assert Upgrade.installed_version() =~ ~r/^\d+\.\d+\.\d+$/
     end
   end
 end
