@@ -150,6 +150,18 @@ defmodule Aiur.Gemini.NativeSessionTest do
     refute File.exists?(Path.join(dir, "frames.ndjson"))
   end
 
+  test "two configured API keys require an explicit supported auth choice" do
+    assert {:error, {:gemini_auth_ambiguous, message}} =
+             Session.resolve_auth(%{"GEMINI_API_KEY" => "developer", "GOOGLE_API_KEY" => "vertex"})
+
+    assert message =~ "Set only one"
+
+    assert {:ok, %{method: "vertex-ai", api_key: "vertex"}} =
+             Session.resolve_auth(%{"GEMINI_API_KEY" => "developer", "GOOGLE_API_KEY" => "vertex"},
+               auth: %{method: "vertex-ai", api_key: "vertex"}
+             )
+  end
+
   @tag :tmp_dir
   test "trusted workspace settings cannot override API-key auth", %{tmp_dir: dir} do
     settings = Path.join([dir, ".gemini", "settings.json"])
@@ -157,6 +169,36 @@ defmodule Aiur.Gemini.NativeSessionTest do
     File.write!(settings, ~s({"security":{"auth":{"selectedType":"oauth-personal"}}}))
 
     assert {:error, :gemini_workspace_auth_override} =
+             Session.start(dir, auth: @fixture_auth, command: fixture(dir, "normal"))
+
+    refute File.exists?(Path.join(dir, "frames.ndjson"))
+  end
+
+  for {label, content} <- [
+        {"escaped selectedType", ~S({"security":{"auth":{"\u0073electedType":"oauth-personal"}}})},
+        {"enforcedType", ~S({"security":{"auth":{"enforcedType":"oauth-personal"}}})},
+        {"escaped enforcedType", ~S({"security":{"auth":{"\u0065nforcedType":"oauth-personal"}}})}
+      ] do
+    @tag :tmp_dir
+    test "#{label} in workspace settings cannot select personal OAuth", %{tmp_dir: dir} do
+      settings = Path.join([dir, ".gemini", "settings.json"])
+      File.mkdir_p!(Path.dirname(settings))
+      File.write!(settings, unquote(content))
+
+      assert {:error, :gemini_workspace_auth_override} =
+               Session.start(dir, auth: @fixture_auth, command: fixture(dir, "normal"))
+
+      refute File.exists?(Path.join(dir, "frames.ndjson"))
+    end
+  end
+
+  @tag :tmp_dir
+  test "malformed workspace settings fail closed before launch", %{tmp_dir: dir} do
+    settings = Path.join([dir, ".gemini", "settings.json"])
+    File.mkdir_p!(Path.dirname(settings))
+    File.write!(settings, "{not valid json")
+
+    assert {:error, :gemini_workspace_settings_invalid_json} =
              Session.start(dir, auth: @fixture_auth, command: fixture(dir, "normal"))
 
     refute File.exists?(Path.join(dir, "frames.ndjson"))

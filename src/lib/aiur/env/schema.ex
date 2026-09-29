@@ -172,6 +172,9 @@ defmodule Aiur.Env.Schema do
 
     # --- Provider API keys ---
     {"DEEPSEEK_API_KEY", type: :secret, group: :provider_keys, purpose: "DeepSeek backend key; used when a backend config names this env var.", fetch: "platform.deepseek.com -> API Keys"},
+    {"GEMINI_API_KEY", type: :secret, group: :provider_keys, purpose: "Gemini Developer API key for the native Gemini CLI backend.", fetch: "aistudio.google.com -> Get API key"},
+    {"GOOGLE_API_KEY",
+     type: :secret, group: :provider_keys, purpose: "Vertex AI API key for the native Gemini CLI backend; use instead of GEMINI_API_KEY.", fetch: "Google Cloud -> Vertex AI API key"},
     {"MOONSHOT_API_KEY", type: :secret, group: :provider_keys, purpose: "Moonshot backend key; used when a backend config names this env var."},
     {"OPENROUTER_API_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter backend key; used when a backend config names this env var.", fetch: "openrouter.ai -> Keys -> Create key"},
     {"OPENROUTER_MANAGEMENT_KEY", type: :secret, group: :provider_keys, purpose: "OpenRouter usage-management key; used when a backend config names this env var."},

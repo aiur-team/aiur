@@ -111,19 +111,28 @@ defmodule Aiur.Gemini.Session do
   end
 
   defp supported_auth(opts) do
+    resolve_auth(System.get_env(), opts)
+  end
+
+  @doc false
+  @spec resolve_auth(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def resolve_auth(environment, opts \\ []) do
     case Keyword.get(opts, :auth) do
-      nil -> auth_from_environment()
+      nil -> auth_from_environment(environment)
       auth -> validate_auth(auth)
     end
   end
 
-  defp auth_from_environment do
-    gemini_key = System.get_env("GEMINI_API_KEY")
-    vertex_key = System.get_env("GOOGLE_API_KEY")
+  defp auth_from_environment(environment) do
+    gemini_key = Map.get(environment, "GEMINI_API_KEY")
+    vertex_key = Map.get(environment, "GOOGLE_API_KEY")
+    gemini? = is_binary(gemini_key) and gemini_key != ""
+    vertex? = is_binary(vertex_key) and vertex_key != ""
 
     cond do
-      is_binary(gemini_key) and gemini_key != "" -> validate_auth(%{method: "gemini-api-key", api_key: gemini_key})
-      is_binary(vertex_key) and vertex_key != "" -> validate_auth(%{method: "vertex-ai", api_key: vertex_key})
+      gemini? and vertex? -> {:error, {:gemini_auth_ambiguous, "Set only one of GEMINI_API_KEY or GOOGLE_API_KEY"}}
+      gemini? -> validate_auth(%{method: "gemini-api-key", api_key: gemini_key})
+      vertex? -> validate_auth(%{method: "vertex-ai", api_key: vertex_key})
       true -> {:error, {:gemini_auth_required, "Set GEMINI_API_KEY or GOOGLE_API_KEY in the Aiur daemon environment"}}
     end
   end
@@ -141,15 +150,28 @@ defmodule Aiur.Gemini.Session do
 
     case File.read(path) do
       {:ok, content} ->
-        if Regex.match?(~r/"selectedType"\s*:/, content),
-          do: {:error, :gemini_workspace_auth_override},
-          else: :ok
+        validate_workspace_auth_settings(content)
 
       {:error, :enoent} ->
         :ok
 
       {:error, reason} ->
         {:error, {:gemini_workspace_settings_unreadable, reason}}
+    end
+  end
+
+  defp validate_workspace_auth_settings(content) do
+    case Jason.decode(content) do
+      {:ok, %{"security" => %{"auth" => auth}}} when is_map(auth) ->
+        if Map.has_key?(auth, "selectedType") or Map.has_key?(auth, "enforcedType"),
+          do: {:error, :gemini_workspace_auth_override},
+          else: :ok
+
+      {:ok, _} ->
+        :ok
+
+      {:error, _} ->
+        {:error, :gemini_workspace_settings_invalid_json}
     end
   end
 

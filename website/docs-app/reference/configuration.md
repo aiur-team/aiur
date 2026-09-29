@@ -370,11 +370,13 @@ Remote workers and Claude Remote Control are unsupported for Muse.
 
 #### `agent.backend_configs.gemini`
 
-Select `gemini` in `agent.priority` to run the installed Gemini CLI through its native ACP session. Set `GEMINI_API_KEY` for the Gemini Developer API or `GOOGLE_API_KEY` for Vertex AI in the Aiur daemon environment. Aiur passes the key through ACP authentication without copying it into the Gemini child environment or storing it in a ticket workspace.
+Select `gemini` in `agent.priority` to run the installed Gemini CLI through its native ACP session. Set `GEMINI_API_KEY` for the Gemini Developer API or `GOOGLE_API_KEY` for Vertex AI in the Aiur daemon environment. Set only one; dispatch stops if both are present.
+
+Aiur passes the key through ACP authentication without copying it into the Gemini child environment or storing it in a ticket workspace.
 
 Aiur gives each workspace an isolated Gemini settings home, permits only its ticket-scoped MCP server, and rejects personal OAuth. A missing supported key stops dispatch with an auth diagnostic.
 
-A workspace `.gemini/settings.json` must not set `security.auth.selectedType`, since trusted workspace settings override the isolated home.
+A workspace `.gemini/settings.json` must not set `security.auth.selectedType` or `security.auth.enforcedType`, since trusted workspace settings override the isolated home. Aiur rejects malformed JSON settings before launch.
 
 Native approval choices appear in chat as `/approve <token> <choice>` commands. Aiur returns only the selected choice and sets Gemini's default approval mode at session start.
 
