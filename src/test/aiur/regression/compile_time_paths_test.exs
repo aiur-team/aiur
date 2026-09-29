@@ -45,6 +45,12 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @git_script_path",
       "@external_resource @broker_path"
     ],
+    # `aiur init` writes the embedded checker bytes; the source path is only
+    # read during compilation, never from an installed release.
+    "aiur/github/ci_readiness.ex" => [
+      "@deletion_guard_path Path.expand(\"../../../../scripts/check-pr-deletions.sh\", __DIR__)",
+      "@external_resource @deletion_guard_path"
+    ],
     "aiur/github/budget.ex" => [
       "@broker_source_path Path.expand(\"../../../priv/github_budget.py\", __DIR__)",
       "@external_resource @broker_source_path"
