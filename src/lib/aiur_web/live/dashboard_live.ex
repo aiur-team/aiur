@@ -210,12 +210,7 @@ defmodule AiurWeb.DashboardLive do
     catalog = Map.get(socket.assigns.payload, :units, %{})
     rows = get_in(catalog, [:snapshot, :rows]) || []
 
-    case Enum.find(rows, fn row ->
-           case Map.get(row, :identity) do
-             %TrackerIdentity{owner: ^owner, repository: ^repository, identifier: ^identifier} -> true
-             _identity -> false
-           end
-         end) do
+    case Enum.find(rows, &conversation_route_row?(&1, owner, repository, identifier)) do
       nil ->
         assign(socket, :conversation_notice, "Chat is unavailable for this ticket.")
 
@@ -232,6 +227,12 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp maybe_open_conversation_route(socket, _params), do: assign(socket, :conversation_notice, nil)
+
+  defp conversation_route_row?(%{identity: %TrackerIdentity{} = identity}, owner, repository, identifier) do
+    identity.owner == owner and identity.repository == repository and identity.identifier == identifier
+  end
+
+  defp conversation_route_row?(_row, _owner, _repository, _identifier), do: false
 
   @impl true
   def handle_info(:runtime_tick, socket) do
