@@ -23,6 +23,13 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
   The exact names `decision.acknowledged` and `decision.resolved` are durable
   target-agent lifecycle events; their payload must carry `decision_id`,
   `action_id`, and `expected_version` from the delivered answer envelope.
+
+  For an Executor answer, including a factual observation, emit
+  `decision.requested` with a structured payload. Set `authority` to
+  `supervisor_allowed` and `reversibility` to `reversible` when the requested
+  answer is an observed fact. `attention.<slug>` only raises visibility; its
+  legacy Command is human-required and cannot be answered by the Executor.
+  Keep genuine human policy choices `human_required`.
   """
   @emit_event_input_schema %{
     "type" => "object",
