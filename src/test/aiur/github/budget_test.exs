@@ -298,22 +298,24 @@ defmodule Aiur.GitHub.BudgetTest do
              )
   end
 
-  test "known pacing wait preserves its hold when another broker round trip cannot fit", %{root: root} do
-    fake_python = Path.join(root, "slow-wait-broker")
-    calls = Path.join(root, "broker-calls")
-    File.write!(fake_python, "#!/bin/sh\nprintf 'call\\n' >> '#{calls}'\nsleep 0.6\nprintf 'wait 600\\n'\n")
-    File.chmod!(fake_python, 0o755)
+  for {kind, reply, expected_reason} <- [{:pacing, "wait 600", :shared_budget}, {:actor, "wait actor 600", :actor_budget}] do
+    test "known #{kind} wait preserves its hold when another broker round trip cannot fit", %{root: root} do
+      fake_python = Path.join(root, "slow-wait-broker")
+      calls = Path.join(root, "broker-calls")
+      File.write!(fake_python, "#!/bin/sh\nprintf 'call\\n' >> '#{calls}'\nsleep 0.6\nprintf '#{unquote(reply)}\\n'\n")
+      File.chmod!(fake_python, 0o755)
 
-    assert {:hold, %{reason: :shared_budget, resource: "core", reset_at: reset_at}} =
-             Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"),
-               state_dir: root,
-               enabled?: true,
-               python: fake_python,
-               timeout_ms: 1_500
-             )
+      assert {:hold, %{reason: unquote(expected_reason), resource: "core", reset_at: reset_at}} =
+               Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"),
+                 state_dir: root,
+                 enabled?: true,
+                 python: fake_python,
+                 timeout_ms: 1_500
+               )
 
-    assert DateTime.compare(reset_at, DateTime.utc_now()) == :gt
-    assert File.read!(calls) == "call\n"
+      assert DateTime.compare(reset_at, DateTime.utc_now()) == :gt
+      assert File.read!(calls) == "call\n"
+    end
   end
 
   test "a typed shared hold preserves resource and absolute reset", %{root: root} do
