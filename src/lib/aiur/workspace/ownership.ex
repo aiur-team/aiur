@@ -76,10 +76,14 @@ defmodule Aiur.Workspace.Ownership do
   def activate(_lease, _registry), do: {:error, :workspace_ownership_lost}
 
   @doc false
-  @spec expect_provider(lease() | nil) :: :ok | {:error, :workspace_ownership_lost}
-  def expect_provider(%{guardian: guardian, generation: generation}) when is_pid(guardian), do: call(guardian, {:expect_provider, generation})
-  def expect_provider(nil), do: {:error, :workspace_ownership_lost}
-  def expect_provider(_lease), do: {:error, :workspace_ownership_lost}
+  @spec expect_provider(lease() | nil, :local | :remote | :unknown) :: :ok | {:error, :workspace_ownership_lost}
+  def expect_provider(lease, scope \\ :unknown)
+
+  def expect_provider(%{guardian: guardian, generation: generation}, scope)
+      when is_pid(guardian) and scope in [:local, :remote, :unknown],
+      do: call(guardian, {:expect_provider, generation, scope})
+
+  def expect_provider(_lease, _scope), do: {:error, :workspace_ownership_lost}
 
   @doc false
   @spec cancel_provider_expectation(lease() | nil) :: :ok | {:error, :workspace_ownership_lost}
@@ -220,6 +224,7 @@ defmodule Aiur.Workspace.Ownership do
   end
 
   defp timeout_result({:track_host_lock, _generation, _lock}), do: {:error, :workspace_ownership_lost}
+  defp timeout_result({:expect_provider, _generation, _scope}), do: {:error, :workspace_ownership_lost}
 
   defp timeout_result({operation, _generation})
        when operation in [
