@@ -259,6 +259,14 @@ When a ticket is dispatched, Aiur provisions a workspace and creates an agent.
 Two things are handed to that agent: the **`aiur-agent` skill** and a
 **four-part composed prompt**.
 
+If an old workspace contains uncommitted or untracked Git work, Aiur keeps it
+instead of removing or recreating it. The needs-attention alert names the
+workspace. Commit, stash, or copy the work, then retry the ticket; Aiur does
+not automatically carry those files into a new checkout.
+
+If a failed reconstruction leaves work in its separate staging checkout, the
+alert identifies that path so the operator can recover it too.
+
 ### How the skill arrives
 
 Not a CLI flag — there is no `--append-system-prompt` or `--system-prompt`
