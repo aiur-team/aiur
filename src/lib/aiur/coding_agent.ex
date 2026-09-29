@@ -771,9 +771,18 @@ defmodule Aiur.CodingAgent do
         candidates = eligible_routes(opts)
 
         cond do
-          candidates == [] -> {:ok, issue}
-          route = ModelAvailability.first_available(candidates, opts) -> {:ok, select_route(issue, route)}
-          true -> {:all_limited, candidates}
+          candidates == [] ->
+            backend = Keyword.get_lazy(opts, :default_backend, &Config.agent_kind/0)
+
+            if ModelAvailability.available?(backend, opts),
+              do: {:ok, issue},
+              else: {:all_limited, [backend]}
+
+          route = ModelAvailability.first_available(candidates, opts) ->
+            {:ok, select_route(issue, route)}
+
+          true ->
+            {:all_limited, candidates}
         end
     end
   end
