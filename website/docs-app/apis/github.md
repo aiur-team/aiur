@@ -173,6 +173,7 @@ restart does not force a full-price re-read.
 When a worker starts or restarts, its bootstrap digest also re-reads the open
 PR's formal review submissions. This strict read revalidates the held review
 list with `If-None-Match`; a missing body or changed list is fetched from GitHub.
+
 The digest includes body-only `CHANGES_REQUESTED` reviews and substantive
 `COMMENTED` reviews submitted after the latest Agent Workpad, subject to the
 same author trust filter as other GitHub feedback. A later approval or
