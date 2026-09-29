@@ -2649,10 +2649,12 @@ defmodule Aiur.AgentGitHubGuardTest do
              )
 
     assert output =~ "HTTP 403"
+
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
     assert %{"admissions" => admissions} = Jason.decode!(snapshot)
+
     assert Enum.map(admissions, &{&1["endpoint_family"], &1["resource"], &1["billable"]}) ==
              [{"issues", "core", true}, {"rate_limit", "none", false}]
   end

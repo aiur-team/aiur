@@ -5,8 +5,7 @@ defmodule Aiur.AgentRunner.BudgetHoldExitTest do
     hold = %{reason: :actor_budget, resource: "none", reset_at: ~U[2026-09-29 10:51:12Z]}
 
     reason =
-      {:workspace_github_connectivity_failed, "/unused/workspace",
-       {:github_auth_preflight_failed, %{classification: :local_hold, detail: %{hold: hold}}}}
+      {:workspace_github_connectivity_failed, "/unused/workspace", {:github_auth_preflight_failed, %{classification: :local_hold, detail: %{hold: hold}}}}
 
     {pid, ref} = spawn_monitor(fn -> Aiur.AgentRunner.fail_run(reason, "diagnostic") end)
 
