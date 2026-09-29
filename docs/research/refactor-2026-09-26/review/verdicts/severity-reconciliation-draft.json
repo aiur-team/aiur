@@ -1,0 +1,2569 @@
+{
+  "status": "draft_complete_for_25_severity_disagreements",
+  "snapshot_commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "scope": "Severity reconciliation only for 25 disagreements among 182 inherited P0/P1 findings; no raw finding edits, cross-unit dedup closure, or completion of remaining duplication units.",
+  "method": "Compared both independent verdicts by source ID. Checked every reviewer-A cited path and cited line number against git show at the frozen commit; recorded the frozen blob SHA-256. Decision reasons use the cited source contracts and retain both reviewers' complete original evidence and limitations. This is a source-level review, not live failure reproduction.",
+  "counts": {
+    "reviewed_pairs": 182,
+    "severity_disagreements": 25,
+    "source_locations_checked": 154,
+    "decisions": {
+      "P0": 0,
+      "P1": 6,
+      "P2": 19,
+      "P3": 0
+    }
+  },
+  "disagreements": [
+    {
+      "source_id": "agent-backends-oc-05",
+      "decision_severity": "P2",
+      "decision_reason": "Malformed sensitive-port output is suppressed while a timed-out ID is retained. The downstream quota effect requires such output and retained state; this is a bounded diagnostics failure.",
+      "reviewer_a": {
+        "id": "agent-backends-oc-05",
+        "unit": "agent-backends-oc",
+        "raw_severity": "P1",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "A retained sensitive id makes malformed lines on that port discardable until cleanup, before diagnostics receive them. The downstream quota consequence is conditional.",
+        "limits": "Frozen source review only; no live-provider or daemon incidence measurement.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/app_server/rpc/sensitive_responses.ex",
+            "lines": "83-102",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/app_server/rpc/sensitive_responses.ex",
+            "lines": "119",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/app_server/rpc/await.ex",
+            "lines": "34-36",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/app_server/turn_loop.ex",
+            "lines": "57-70",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/codex/session_lifecycle.ex",
+            "lines": "51-56",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "agent-backends-oc-05",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "sensitive_responses.ex:87-100 falls back to retained_for_port? for any unmatched binary and does not remove retained IDs; await.ex:34-36 retains a timed-out sensitive request. This can suppress later malformed lines until cleanup.",
+        "limitations": "The downstream quota-misclassification consequence requires a qualifying provider banner and was not reproduced; severity is lower than the inherited P1 absent occurrence evidence."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/app_server/rpc/sensitive_responses.ex",
+          "cited_lines": "83-102",
+          "frozen_blob_sha256": "c099100ee78d9e7b5158aeb4955a094421a79d203500b5d3504992d0629cc378",
+          "line_count": 132,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/app_server/rpc/sensitive_responses.ex",
+          "cited_lines": "119",
+          "frozen_blob_sha256": "c099100ee78d9e7b5158aeb4955a094421a79d203500b5d3504992d0629cc378",
+          "line_count": 132,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/app_server/rpc/await.ex",
+          "cited_lines": "34-36",
+          "frozen_blob_sha256": "b8d0a3a519f99c449555786df89e315216af3c5fb89a493a937284b2dd9283f2",
+          "line_count": 70,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/app_server/turn_loop.ex",
+          "cited_lines": "57-70",
+          "frozen_blob_sha256": "281e22f15071cb2845be7f510fd3463a0774b0e44836a1983915f3430ca7bc1e",
+          "line_count": 152,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/codex/session_lifecycle.ex",
+          "cited_lines": "51-56",
+          "frozen_blob_sha256": "df6516681b7bf1938961137e7def15339c12fbbb5415d510ff271cb89d2dc8e3",
+          "line_count": 79,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "agent-runtime-01",
+      "decision_severity": "P1",
+      "decision_reason": "The queue pause paths omit the confirmation that disarms the armed five-second containment fallback. A deliberately paused worker can be reaped; the trigger is queue-turn pause, with no demonstrated irreversible loss.",
+      "reviewer_a": {
+        "id": "agent-runtime-01",
+        "unit": "agent-runtime",
+        "raw_severity": "P0",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "PauseContainment is armed for accepted pause, but queue drain's paused branch lacks the sole confirmation call, allowing fallback reaping after grace. This is severe but conditional on queue-turn pause.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+            "lines": "715-731",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+            "lines": "40-70",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+            "lines": "171-191",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/pause_containment.ex",
+            "lines": "11,182-192,246-254,288-310,361-370",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+            "lines": "1810-1823",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "agent-runtime-01",
+        "holds": true,
+        "severity": "P0",
+        "evidence": "QueueDrain paused branches and pause-agent receives omit PauseContainment.confirm while TurnLoop confirms; the containment fallback is armed for paused Codex sessions. The five-second timer can reap a deliberately paused process group.",
+        "limitations": "Applies to the queue-drain pause paths, not every pause; exact timer execution was not reproduced."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "cited_lines": "715-731",
+          "frozen_blob_sha256": "0331a16b5100176742e0c8f9d85185b34cfed8f9a478f242ac7c60bbfa5d2e5a",
+          "line_count": 821,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "cited_lines": "40-70",
+          "frozen_blob_sha256": "0331a16b5100176742e0c8f9d85185b34cfed8f9a478f242ac7c60bbfa5d2e5a",
+          "line_count": 821,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "cited_lines": "171-191",
+          "frozen_blob_sha256": "6e7d70208a927517a6499d4aa51180e30c7fee4a8f3e6c190977177602bb8d67",
+          "line_count": 579,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/pause_containment.ex",
+          "cited_lines": "11,182-192,246-254,288-310,361-370",
+          "frozen_blob_sha256": "98a300c46832436bd5bb39373f446b70939c17f52a3b3320639fa8dfa66b5273",
+          "line_count": 404,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "cited_lines": "1810-1823",
+          "frozen_blob_sha256": "ab2fd73d16d8b800a02f24d51559f5656eac4700da61635b799cb867f3e9695a",
+          "line_count": 2471,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "agent-runtime-03",
+      "decision_severity": "P2",
+      "decision_reason": "The parallel turn pipelines are real, and their pause divergence is independently captured by agent-runtime-01. Duplication is a contributing maintenance defect, not a second high-severity incident.",
+      "reviewer_a": {
+        "id": "agent-runtime-03",
+        "unit": "agent-runtime",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P2",
+        "reason": "Two execution pipelines repeat the same stages and demonstrably diverge on pause containment and bookkeeping. The duplicate itself is a maintenance cause, with concrete bugs tracked separately.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+            "lines": "83-225",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+            "lines": "618-791",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "agent-runtime-03",
+        "holds": true,
+        "severity": "P1",
+        "evidence": "turn_loop.ex:83-225 and queue_drain.ex:618-791 implement parallel turn pipelines; the missing containment confirmation and differing queue error handling are concrete divergent safety behavior.",
+        "limitations": "Sharing the whole pipeline is a design choice; this verdict confirms the drift, not a particular extraction strategy."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "cited_lines": "83-225",
+          "frozen_blob_sha256": "6e7d70208a927517a6499d4aa51180e30c7fee4a8f3e6c190977177602bb8d67",
+          "line_count": 579,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "cited_lines": "618-791",
+          "frozen_blob_sha256": "0331a16b5100176742e0c8f9d85185b34cfed8f9a478f242ac7c60bbfa5d2e5a",
+          "line_count": 821,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "build-order-01",
+      "decision_severity": "P1",
+      "decision_reason": "Failure is nonfresh, so failed detail requests can restart after completion broadcasts while the drawer remains open. This can create repeated work under a provider failure; rate and user impact are unmeasured.",
+      "reviewer_a": {
+        "id": "build-order-01",
+        "unit": "build-order",
+        "raw_severity": "P0",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "Failed detail is always stale, completion broadcasts and the drawer requests again; no failure backoff is consulted. Sustained failure can loop, but P0 requires measured rate/impact.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/build_order/ticket_detail_coordinator.ex",
+            "lines": "145-153",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/build_order/ticket_detail_coordinator_policy.ex",
+            "lines": "73-77",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/build_order/ticket_detail_coordinator_task_lifecycle.ex",
+            "lines": "132-159",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+            "lines": "58-68",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+            "lines": "113-161",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur_web/live/build_order_live.ex",
+            "lines": "135-138",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/build_order/ticket_detail.ex",
+            "lines": "24-39",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "build-order-01",
+        "holds": true,
+        "severity": "P0",
+        "evidence": "ticket_detail_coordinator.ex:145-153 refreshes any nonfresh, noninflight entry; policy.ex:73-77 deems failures nonfresh. Failure completion broadcasts and the open LiveView requests again, closing an unbacked feedback loop.",
+        "limitations": "Requires an open drawer and a persistent failed read; call rate was not measured."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator.ex",
+          "cited_lines": "145-153",
+          "frozen_blob_sha256": "9afb8c415cc6764223726959d6460446d87bdd66b152ee551b4f039f9c0f366b",
+          "line_count": 224,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_policy.ex",
+          "cited_lines": "73-77",
+          "frozen_blob_sha256": "a1829ba1f0e040899f7a6271ca717fe75d8deef325ace0e26ee43dda5a1fc9c1",
+          "line_count": 119,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_task_lifecycle.ex",
+          "cited_lines": "132-159",
+          "frozen_blob_sha256": "65ab6030e137a11dbd2a4185ee0b4f2837216790d92bb19eb143ac3dff21c263",
+          "line_count": 243,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+          "cited_lines": "58-68",
+          "frozen_blob_sha256": "f220fcd25212f796726b5e9c9a7d02b19b5813c8165b9ca3f95089a497606bbb",
+          "line_count": 263,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/context_runtime.ex",
+          "cited_lines": "113-161",
+          "frozen_blob_sha256": "f220fcd25212f796726b5e9c9a7d02b19b5813c8165b9ca3f95089a497606bbb",
+          "line_count": 263,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur_web/live/build_order_live.ex",
+          "cited_lines": "135-138",
+          "frozen_blob_sha256": "689e294b1ca66376e54e8a00d00ce08057cf689dce60ffe00a541d5175a91030",
+          "line_count": 310,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail.ex",
+          "cited_lines": "24-39",
+          "frozen_blob_sha256": "a235e7252fcb439d7d7428ae305a51af00359902db681ee2376a7802bf39b4e5",
+          "line_count": 54,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "build-order-07",
+      "decision_severity": "P2",
+      "decision_reason": "A normal 403 maps to :permission, while the projection classifier recognizes :forbidden and :auth. The resulting error classification misleads diagnosis but does not establish blocked work or data loss.",
+      "reviewer_a": {
+        "id": "build-order-07",
+        "unit": "build-order",
+        "raw_severity": "P1",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "Failure classifier handles :forbidden while transport emits :permission; permission errors fall into provider-unavailable fallback and mislead recovery.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+            "lines": "184-244",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/github/errors.ex",
+            "lines": "137-141",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/github/graphql_errors.ex",
+            "lines": "124",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+            "lines": "111-129",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/build_order/pack_status.ex",
+            "lines": "217-224",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/build_order/graph_projection.ex",
+            "lines": "1148-1171",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "build-order-07",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "graph_projection_policy.ex:185 maps :auth and :forbidden, but github/errors.ex:137-139 emits :permission for ordinary 403. The fallback labels a permission failure as provider unavailable.",
+        "limitations": "This is a misleading diagnostic with potentially material troubleshooting cost, but no P1 outage follows from the classifier alone."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_policy.ex",
+          "cited_lines": "184-244",
+          "frozen_blob_sha256": "e79c593e9c05b008cb33d8abab51585b173e0872a0ba67a9fa71afaf4772c3a9",
+          "line_count": 348,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "cited_lines": "137-141",
+          "frozen_blob_sha256": "235468cf766dd7118ae3ae1acc9c0343ee0bae7c299784b8990fb25369ffdf7a",
+          "line_count": 281,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/github/graphql_errors.ex",
+          "cited_lines": "124",
+          "frozen_blob_sha256": "535b9d5ffcf7607426e52437a4ade866f218238b15ef863c1f5e67d243e90ba7",
+          "line_count": 169,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "cited_lines": "111-129",
+          "frozen_blob_sha256": "a2cd506a1ead4996ee4cd18c9188e25a1743b84117f69ba6ea3a293248141a30",
+          "line_count": 196,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/build_order/pack_status.ex",
+          "cited_lines": "217-224",
+          "frozen_blob_sha256": "5107e870d4fe2a454bb06a48edec20ca033597188eca6204c30560c7296f82a2",
+          "line_count": 515,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "cited_lines": "1148-1171",
+          "frozen_blob_sha256": "5adf783e8f0b359bf011ea0edf360d299401338d1c08a0af036156eda75603a2",
+          "line_count": 1825,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "events-webhooks-executor-01",
+      "decision_severity": "P1",
+      "decision_reason": "The stalled buffer is re-sent to the same mailbox only after the stalled cursor advances. A newer event already in that mailbox can advance the cursor first, then the older buffered event is discarded. This is a real event-loss path; the required transient stall plus interleaving and unknown downstream recovery keep the P0 impact claim unproven.",
+      "reviewer_a": {
+        "id": "events-webhooks-executor-01",
+        "unit": "events-webhooks-executor",
+        "raw_severity": "P0",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "Buffered events are re-sent behind already queued mailbox events after cursor advance; a newer queued event can advance the cursor and cause buffered older events to be dropped. No live frequency measured.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/events/subscription_store.ex",
+            "lines": "375-393",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/events/subscription_store.ex",
+            "lines": "398-421",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/events/subscription_store.ex",
+            "lines": "465-473",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/events/subscription_store.ex",
+            "lines": "575-591",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/events/subscription_store_test.exs",
+            "lines": "336-370",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "events-webhooks-executor-01",
+        "holds": true,
+        "severity": "P0",
+        "evidence": "subscription_store.ex:375-393 drops IDs at/below cursor; retry_stalled at 398 onward resolves by re-sending buffered events to its own mailbox. Newer already-queued messages precede those sends and can move the cursor, silently discarding buffered events.",
+        "limitations": "Requires a transient stall and a newer event already queued; no live event-loss count was measured."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/events/subscription_store.ex",
+          "cited_lines": "375-393",
+          "frozen_blob_sha256": "8624c77b42920798c7f63fbedea9329714d4754b302ef771bfad3b08ce0cb945",
+          "line_count": 729,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/events/subscription_store.ex",
+          "cited_lines": "398-421",
+          "frozen_blob_sha256": "8624c77b42920798c7f63fbedea9329714d4754b302ef771bfad3b08ce0cb945",
+          "line_count": 729,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/events/subscription_store.ex",
+          "cited_lines": "465-473",
+          "frozen_blob_sha256": "8624c77b42920798c7f63fbedea9329714d4754b302ef771bfad3b08ce0cb945",
+          "line_count": 729,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/events/subscription_store.ex",
+          "cited_lines": "575-591",
+          "frozen_blob_sha256": "8624c77b42920798c7f63fbedea9329714d4754b302ef771bfad3b08ce0cb945",
+          "line_count": 729,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/events/subscription_store_test.exs",
+          "cited_lines": "336-370",
+          "frozen_blob_sha256": "ea318bd1a6540627d44208325d715b7c724c0d2d305873273dff8d8bf0238a76",
+          "line_count": 582,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "github-a-05",
+      "decision_severity": "P2",
+      "decision_reason": "The Remote Control descendant parser converts each merged pgrep output line with String.to_integer; nonnumeric stderr can raise. This needs that abnormal output, and other cleanup layers narrow the blast radius.",
+      "reviewer_a": {
+        "id": "github-a-05",
+        "unit": "github-a",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P1",
+        "reason": "RemoteControl descendant parser uses String.to_integer on stderr-merged pgrep output, matching a documented failure mode. Trigger requires nonnumeric output; other cleanup may mitigate.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/github/config.ex",
+            "lines": "841-989",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/claude/remote_control.ex",
+            "lines": "427-440",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/agent_resource_guard.ex",
+            "lines": "136-160",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/github/budget.ex",
+            "lines": "606-622",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "github-a-05",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "github/config.ex:841 onward documents hardened pgrep parsing; claude/remote_control.ex:427-436 still String.to_integer parses stderr-merged pgrep output and can raise on nonnumeric output.",
+        "limitations": "A pgrep success status with malformed output is required; duplicate process-tree code itself is maintainability debt."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/github/config.ex",
+          "cited_lines": "841-989",
+          "frozen_blob_sha256": "1d3d2c59f4ca83181a29544634cc2cc181370f570dd6e335615ce322c12a2352",
+          "line_count": 1090,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "cited_lines": "427-440",
+          "frozen_blob_sha256": "dc74c852a1ca2f42be3c8e6f4e8311586357aa5333b98241d3474aa1828dcd83",
+          "line_count": 726,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/agent_resource_guard.ex",
+          "cited_lines": "136-160",
+          "frozen_blob_sha256": "f1bb4d44e7019ff6d4010bb3e0c5ee160fc34fc2eec1e82d10086800a8505021",
+          "line_count": 192,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/github/budget.ex",
+          "cited_lines": "606-622",
+          "frozen_blob_sha256": "0d7b760a65fe3b70d1f69d8414b8c959f26f1923348636a7d33d7168e8693e77",
+          "line_count": 915,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "loose-2-06",
+      "decision_severity": "P2",
+      "decision_reason": "The content hash depends on an external-term representation of struct-derived content. Schema or encoding change can reject a persisted record, but no actual upgrade mismatch or unrecoverable data loss is shown.",
+      "reviewer_a": {
+        "id": "loose-2-06",
+        "unit": "loose-2",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P2",
+        "reason": "Persisted hashes depend on external-term encoding and struct shape, which is not a stable cross-version serialization contract. No upgrade failure was reproduced.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/recent_merge.ex",
+            "lines": "309-329",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/decision_answer.ex",
+            "lines": "66-88",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/decision_answer.ex",
+            "lines": "96-124",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/decision_validation.ex",
+            "lines": "161-168",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/decision_revision.ex",
+            "lines": "108",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/decision_event.ex",
+            "lines": "1054",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/decision_projection.ex",
+            "lines": "88",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/recent_merge_store.ex",
+            "lines": "160-170",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "loose-2-06",
+        "holds": true,
+        "severity": "P1",
+        "evidence": "recent_merge.ex:309-313 checks persisted content hash after decoding; hash construction uses deterministic Erlang external term format of struct-derived maps. Adding a serialized field or changing encoding can invalidate old records.",
+        "limitations": "OTP upgrade instability requires a cross-version test; new-field mismatch is deterministic unless decoder supplies backward-compatible field normalization."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/recent_merge.ex",
+          "cited_lines": "309-329",
+          "frozen_blob_sha256": "b435edd95ba805c8c8344c3bc6297bab02ee835982bd0920f5004e45cb8e2c03",
+          "line_count": 558,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/decision_answer.ex",
+          "cited_lines": "66-88",
+          "frozen_blob_sha256": "ca3f19bcb3e0570e2581675baa0489727bdc47ddc0da72b9f08cda43bdd54dd4",
+          "line_count": 321,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/decision_answer.ex",
+          "cited_lines": "96-124",
+          "frozen_blob_sha256": "ca3f19bcb3e0570e2581675baa0489727bdc47ddc0da72b9f08cda43bdd54dd4",
+          "line_count": 321,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/decision_validation.ex",
+          "cited_lines": "161-168",
+          "frozen_blob_sha256": "b0ea422b4293f92c004b5a0c066416cda4ce2b1e0264f3fb3cf0f11b74cbd03e",
+          "line_count": 494,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/decision_revision.ex",
+          "cited_lines": "108",
+          "frozen_blob_sha256": "15e645bb403f644501747905077031370f3cb553260bcf1e8e466eaf6c8c8eb1",
+          "line_count": 373,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/decision_event.ex",
+          "cited_lines": "1054",
+          "frozen_blob_sha256": "447d8ac1631573352a2ec0faab055243aff1ee7fa4eaabaac0c1e89d359eb414",
+          "line_count": 1057,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "cited_lines": "88",
+          "frozen_blob_sha256": "f7c374f481212809775943946672e0671e4d05f5f72406e7d71a71a31a541a01",
+          "line_count": 1039,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/recent_merge_store.ex",
+          "cited_lines": "160-170",
+          "frozen_blob_sha256": "44b4c17452be6d4a2e282d780bf75e63886f702610c53197437a2b5c3b282d47",
+          "line_count": 387,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "loose-4-01",
+      "decision_severity": "P1",
+      "decision_reason": "The disabled monitor returns {:ignore, state}, which is not a valid GenServer init return; its unconditional child start makes the documented opt-out fail startup. It affects an explicit nondefault setting and is reversible.",
+      "reviewer_a": {
+        "id": "loose-4-01",
+        "unit": "loose-4",
+        "raw_severity": "P0",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "The disabled init branch returns an invalid GenServer tuple and the child is unconditionally started. This crashes startup only for documented build-gate opt-out.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/build_gate_hold_monitor.ex",
+            "lines": "77-94",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/saturation_sentinel.ex",
+            "lines": "161-164",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur.ex",
+            "lines": "312-313",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/build_gate.ex",
+            "lines": "118-127",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "loose-4-01",
+        "holds": true,
+        "severity": "P0",
+        "evidence": "build_gate_hold_monitor.ex:77 onward returns {:ignore, %State{}} when disabled; GenServer init accepts bare :ignore, not a two-tuple. A documented zero-capacity opt-out therefore fails child startup.",
+        "limitations": "Conditional on the disabled configuration; the OTP return mismatch is direct."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/build_gate_hold_monitor.ex",
+          "cited_lines": "77-94",
+          "frozen_blob_sha256": "1e3d08906323bc09de6150ba2d3077e3919698144c1b16a89bdc3d0f1849befb",
+          "line_count": 223,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/saturation_sentinel.ex",
+          "cited_lines": "161-164",
+          "frozen_blob_sha256": "f64ea3b103e6ff1e73069e2c107eea0999b8769478773a5ecd1a3de82dca2b1c",
+          "line_count": 245,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur.ex",
+          "cited_lines": "312-313",
+          "frozen_blob_sha256": "8d1a9312277ec9622fd0ee1d9ba73e2f6d30472226be33bc1b557b8e79cb98dd",
+          "line_count": 610,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/build_gate.ex",
+          "cited_lines": "118-127",
+          "frozen_blob_sha256": "5d599ebd07b44b7608f471e7bf5a08ebf95bf0921499e4954742cc1f2d698df3",
+          "line_count": 797,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "loose-4-02",
+      "decision_severity": "P1",
+      "decision_reason": "Both same-file read-modify-write paths use the shared path as the global transaction requester ID. Concurrent callers can share a lock and lose an update; a concrete collision requires overlap and production impact is unmeasured.",
+      "reviewer_a": {
+        "id": "loose-4-02",
+        "unit": "loose-4",
+        "raw_severity": "P0",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "Both read-modify-write locks pass path as the shared requester ID, allowing same-file callers to share the lock. Lost updates require overlap.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/model_availability.ex",
+            "lines": "48-69",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/ci_approval_store.ex",
+            "lines": "99-128",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/open_ai_compat/balance_baseline.ex",
+            "lines": "199-208",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/model_discovery.ex",
+            "lines": "633-637",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/provider_account_generation/continuity.ex",
+            "lines": "52-53",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/open_ai_compat/concurrency.ex",
+            "lines": "35-36",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "loose-4-02",
+        "holds": true,
+        "severity": "P0",
+        "evidence": "model_availability.ex:54 and ci_approval_store.ex use :global.trans({Module, path}, fun). In global lock protocol the second tuple element identifies the requester; all callers on one path present the same requester ID and can enter concurrently.",
+        "limitations": "A concurrent write collision is required for data loss; verify with a controlled two-process lock test before changing lock design."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "cited_lines": "48-69",
+          "frozen_blob_sha256": "6ea7dc9fef0653e00591819161b167f8a6c047cc2e9e7c2a6677693e26975d17",
+          "line_count": 421,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "cited_lines": "99-128",
+          "frozen_blob_sha256": "54e49c0f27cadb0ad9c40f4838930de59d513a1ccf14b367add9117a4b236a57",
+          "line_count": 349,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/balance_baseline.ex",
+          "cited_lines": "199-208",
+          "frozen_blob_sha256": "679cb36253f03bbc702d8e69468624168c839553d812f6a0ef2601ff469e9145",
+          "line_count": 291,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "cited_lines": "633-637",
+          "frozen_blob_sha256": "1df07d491e9a05327fe1ce0b6b62db86cc65f2fcdcf845ce9e2c9f7a4d7e07f8",
+          "line_count": 827,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/provider_account_generation/continuity.ex",
+          "cited_lines": "52-53",
+          "frozen_blob_sha256": "b0d247e8e9aa0a2be99cf94580daefc41c9652af7e647a16acd94fdd9f1db7dd",
+          "line_count": 72,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/concurrency.ex",
+          "cited_lines": "35-36",
+          "frozen_blob_sha256": "fbedae241514981e857b794ee0f5b39aabef542f52984574606b22cab700f88c",
+          "line_count": 50,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "orch-a-03",
+      "decision_severity": "P2",
+      "decision_reason": "Attention keys require matching resolution publications, and cited emitters lack explicit corresponding resolvers. Whether the alert is meant to persist until operator action is not established, so classify as a lifecycle consistency risk.",
+      "reviewer_a": {
+        "id": "orch-a-03",
+        "unit": "orch-a",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P1",
+        "reason": "Some emitted attention keys have no matching resolved publication path. Permanent feed retention depends on alert lifecycle and operator clear controls.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/alert_topic.ex",
+            "lines": "6-44",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/merged_ticket_reconciler.ex",
+            "lines": "444-470",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+            "lines": "315-325",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+            "lines": "876-899",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+            "lines": "1554-1568",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+            "lines": "995-1000",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+            "lines": "1370-1383",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+            "lines": "382-458",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+            "lines": "2369-2402",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+            "lines": "2462-2483",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+            "lines": "247-267",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+            "lines": "490-526",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+            "lines": "1466-1485",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+            "lines": "2276-2294",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+            "lines": "199-213",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+            "lines": "134-152",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+            "lines": "1052-1065",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+            "lines": "201-227",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "orch-a-03",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "AlertTopic keys attention until a matching resolved topic appears; cited needs_attention producers have no corresponding explicit resolver in source search. Some attentions can remain active indefinitely.",
+        "limitations": "Intentional durable attention may require human acknowledgement rather than automatic resolution; cannot call every unmatched producer a bug."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/alert_topic.ex",
+          "cited_lines": "6-44",
+          "frozen_blob_sha256": "dc2c98e0e50af41cf8d1ea7a0dce1d30f547ea2940a800f7bf1e2f8564d36a90",
+          "line_count": 45,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/merged_ticket_reconciler.ex",
+          "cited_lines": "444-470",
+          "frozen_blob_sha256": "c20733fcf9677b7644b17a9c080135abd4a6ff3c60a6eb842d92e8e594e57d81",
+          "line_count": 477,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "cited_lines": "315-325",
+          "frozen_blob_sha256": "5a5f20ad2a5acca2ae62ab8237a0e89e83b0f4155967cfac133bdd43cd9e1ebe",
+          "line_count": 1584,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "cited_lines": "876-899",
+          "frozen_blob_sha256": "5a5f20ad2a5acca2ae62ab8237a0e89e83b0f4155967cfac133bdd43cd9e1ebe",
+          "line_count": 1584,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "cited_lines": "1554-1568",
+          "frozen_blob_sha256": "5a5f20ad2a5acca2ae62ab8237a0e89e83b0f4155967cfac133bdd43cd9e1ebe",
+          "line_count": 1584,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "cited_lines": "995-1000",
+          "frozen_blob_sha256": "de28f2b0863a0435e2a2852273c48507154840b0cc24fd1f5dcb60ab4f28ab4e",
+          "line_count": 2670,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "cited_lines": "1370-1383",
+          "frozen_blob_sha256": "de28f2b0863a0435e2a2852273c48507154840b0cc24fd1f5dcb60ab4f28ab4e",
+          "line_count": 2670,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "cited_lines": "382-458",
+          "frozen_blob_sha256": "de28f2b0863a0435e2a2852273c48507154840b0cc24fd1f5dcb60ab4f28ab4e",
+          "line_count": 2670,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "cited_lines": "2369-2402",
+          "frozen_blob_sha256": "de28f2b0863a0435e2a2852273c48507154840b0cc24fd1f5dcb60ab4f28ab4e",
+          "line_count": 2670,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "cited_lines": "2462-2483",
+          "frozen_blob_sha256": "de28f2b0863a0435e2a2852273c48507154840b0cc24fd1f5dcb60ab4f28ab4e",
+          "line_count": 2670,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "cited_lines": "247-267",
+          "frozen_blob_sha256": "7a7ea223e33b76a72c02713c3d0dd5655823ccc0bcf3f024fde9ce53c7f75904",
+          "line_count": 2295,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "cited_lines": "490-526",
+          "frozen_blob_sha256": "7a7ea223e33b76a72c02713c3d0dd5655823ccc0bcf3f024fde9ce53c7f75904",
+          "line_count": 2295,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "cited_lines": "1466-1485",
+          "frozen_blob_sha256": "7a7ea223e33b76a72c02713c3d0dd5655823ccc0bcf3f024fde9ce53c7f75904",
+          "line_count": 2295,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "cited_lines": "2276-2294",
+          "frozen_blob_sha256": "7a7ea223e33b76a72c02713c3d0dd5655823ccc0bcf3f024fde9ce53c7f75904",
+          "line_count": 2295,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+          "cited_lines": "199-213",
+          "frozen_blob_sha256": "c60f5a26261bdf11a21a89be322f239f9b6a41a24f05a13543137784c5de9697",
+          "line_count": 384,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "cited_lines": "134-152",
+          "frozen_blob_sha256": "15479fabbae8214ebb46144062ea4f15ac462139850ce628d394dad9e39b8767",
+          "line_count": 265,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "cited_lines": "1052-1065",
+          "frozen_blob_sha256": "f8093d4e946d394a651e9c29dee40c9dc6ef97970f6f9494e860d60564ae09e3",
+          "line_count": 1148,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "cited_lines": "201-227",
+          "frozen_blob_sha256": "fe73ebc08fd979c601a9400f6f4ec01cae829f68aadb25940748e1abb08ab1d6",
+          "line_count": 1057,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "orch-b-02",
+      "decision_severity": "P1",
+      "decision_reason": "The fallback can park a running map without started_at and teardown completion accounting uses strict running_entry.started_at. The specific parked-entry teardown raises inside orchestration; it is conditional and no sustained fleet outage is shown.",
+      "reviewer_a": {
+        "id": "orch-b-02",
+        "unit": "orch-b",
+        "raw_severity": "P0",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "Fallback creates a parked running map without started_at, while teardown uses strict dot access. Parked-entry teardown raises under that path.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+            "lines": "179-199",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+            "lines": "428-493",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/reconciler.ex",
+            "lines": "678-704",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+            "lines": "1278-1286",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+            "lines": "1326-1343",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+            "lines": "1409-1437",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+            "lines": "40-48",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+            "lines": "105-117",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "orch-b-02",
+        "holds": true,
+        "severity": "P0",
+        "evidence": "rate-limit fallback safety entry omits started_at; token_accounting.ex:179-183 directly accesses running_entry.started_at during teardown. A parked entry can therefore raise KeyError in the Orchestrator.",
+        "limitations": "Requires a failed replacement that retains parked entry and later teardown; direct missing-key path is credible."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+          "cited_lines": "179-199",
+          "frozen_blob_sha256": "47d2e13b2674b980769c586203a40e2a1077919f7e3b06c74d9de75cb663ef99",
+          "line_count": 297,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "cited_lines": "428-493",
+          "frozen_blob_sha256": "f85a249709b5fccf8e4ad7938dd5ca9c2d6fe29381ce69d04d9928a6c652feea",
+          "line_count": 650,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "cited_lines": "678-704",
+          "frozen_blob_sha256": "cc47258bedda9cedccb7e3b235c837c7305e26ede8d8367272a4fdfb1dd0cbf4",
+          "line_count": 845,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "cited_lines": "1278-1286",
+          "frozen_blob_sha256": "ab2fd73d16d8b800a02f24d51559f5656eac4700da61635b799cb867f3e9695a",
+          "line_count": 2471,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "cited_lines": "1326-1343",
+          "frozen_blob_sha256": "ab2fd73d16d8b800a02f24d51559f5656eac4700da61635b799cb867f3e9695a",
+          "line_count": 2471,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "cited_lines": "1409-1437",
+          "frozen_blob_sha256": "ab2fd73d16d8b800a02f24d51559f5656eac4700da61635b799cb867f3e9695a",
+          "line_count": 2471,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "cited_lines": "40-48",
+          "frozen_blob_sha256": "59a6dd4f9a641f957014b0350c86a676e1f61918bb7e24a6a43fc4e48dc9dd23",
+          "line_count": 233,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "cited_lines": "105-117",
+          "frozen_blob_sha256": "59a6dd4f9a641f957014b0350c86a676e1f61918bb7e24a6a43fc4e48dc9dd23",
+          "line_count": 233,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "orch-b-03",
+      "decision_severity": "P2",
+      "decision_reason": "Resume clears only enumerated pause reasons. A later working entry can retain another stale reason, giving incorrect status/attribution after a specific reason sequence.",
+      "reviewer_a": {
+        "id": "orch-b-03",
+        "unit": "orch-b",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P1",
+        "reason": "Resume clears pause reason only from a fixed list; other emitted reasons can linger and misclassify later pause. Requires specific reason sequence.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+            "lines": "1005-1040",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+            "lines": "1186-1204",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+            "lines": "1969-1976",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+            "lines": "1042-1045",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+            "lines": "156-183",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "orch-b-03",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "pause_resume.ex:1005 onward clears paused_reason only for enumerated cases, leaving other reasons on a resumed working entry. Status can retain a stale cause.",
+        "limitations": "Consequences are attribution/display unless another policy consumes stale reason; P1 not shown."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "cited_lines": "1005-1040",
+          "frozen_blob_sha256": "ab2fd73d16d8b800a02f24d51559f5656eac4700da61635b799cb867f3e9695a",
+          "line_count": 2471,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "cited_lines": "1186-1204",
+          "frozen_blob_sha256": "ab2fd73d16d8b800a02f24d51559f5656eac4700da61635b799cb867f3e9695a",
+          "line_count": 2471,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "cited_lines": "1969-1976",
+          "frozen_blob_sha256": "ab2fd73d16d8b800a02f24d51559f5656eac4700da61635b799cb867f3e9695a",
+          "line_count": 2471,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "cited_lines": "1042-1045",
+          "frozen_blob_sha256": "ab2fd73d16d8b800a02f24d51559f5656eac4700da61635b799cb867f3e9695a",
+          "line_count": 2471,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "cited_lines": "156-183",
+          "frozen_blob_sha256": "f85a249709b5fccf8e4ad7938dd5ca9c2d6fe29381ce69d04d9928a6c652feea",
+          "line_count": 650,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "orch-b-10",
+      "decision_severity": "P2",
+      "decision_reason": "Backend replacement paths use different teardown and redispatch logic, and failed fallback replacement can retain a parked lifecycle-fenced entry. The high-severity consequence is not independent of the targeted fallback/teardown defects already tracked.",
+      "reviewer_a": {
+        "id": "orch-b-10",
+        "unit": "orch-b",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P2",
+        "reason": "Redispatch paths differ in lifecycle-fence handling. Treat the missing fence as a targeted behavior check, not P1 for duplication alone.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+            "lines": "427-537",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+            "lines": "120-230",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+            "lines": "1318-1447",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+            "lines": "1353-1404",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "orch-b-10",
+        "holds": true,
+        "severity": "P1",
+        "evidence": "RateLimitFallback.redispatch at 427 onward retains a parked lifecycle-fenced entry on failed replacement, while other backend-swap paths have independent teardown/re-admit logic. The safety contract is not shared.",
+        "limitations": "Specific failure in each alternative flow needs mutation/state tests; duplication alone would be P2."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "cited_lines": "427-537",
+          "frozen_blob_sha256": "f85a249709b5fccf8e4ad7938dd5ca9c2d6fe29381ce69d04d9928a6c652feea",
+          "line_count": 650,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "cited_lines": "120-230",
+          "frozen_blob_sha256": "4866de523c8fa94ece7ab5cd3a957a7f98ec21b8e0d20d131ac17fc54f81ed2e",
+          "line_count": 340,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "cited_lines": "1318-1447",
+          "frozen_blob_sha256": "ab2fd73d16d8b800a02f24d51559f5656eac4700da61635b799cb867f3e9695a",
+          "line_count": 2471,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "cited_lines": "1353-1404",
+          "frozen_blob_sha256": "9668ea3ba137df299df3b0f4a47033a698f96da97a0553f72f1c685e9ebaaa5f",
+          "line_count": 1540,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "orch-b-13",
+      "decision_severity": "P2",
+      "decision_reason": "Each streamed Codex update invokes dashboard notification from the orchestrator. The cost grows with update and fleet rate, but neither a measured bottleneck nor a normal-use failure threshold is established.",
+      "reviewer_a": {
+        "id": "orch-b-13",
+        "unit": "orch-b",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P1",
+        "reason": "Codex update triggers dashboard projection and broadcast synchronously inside Orchestrator. Per-update cost needs measurement to establish production bottleneck.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+            "lines": "18-41",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/status_report.ex",
+            "lines": "158-236",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/status_report.ex",
+            "lines": "268-297",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/status_report.ex",
+            "lines": "866-883",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+            "lines": "45-56",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+            "lines": "112-124",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "orch-b-13",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "TokenAccounting handles streamed Codex updates inside Orchestrator and calls StatusReport dashboard notification for each; projection copies state and broadcasts. Work scales with update rate and fleet size.",
+        "limitations": "No measured CPU or mailbox delay is provided, so inherited P1 performance severity is unverified."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+          "cited_lines": "18-41",
+          "frozen_blob_sha256": "47d2e13b2674b980769c586203a40e2a1077919f7e3b06c74d9de75cb663ef99",
+          "line_count": 297,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "cited_lines": "158-236",
+          "frozen_blob_sha256": "dd5069346f4ceba3c769c756bdf476e0b9bab7030840ee9c70eba83196024327",
+          "line_count": 1462,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "cited_lines": "268-297",
+          "frozen_blob_sha256": "dd5069346f4ceba3c769c756bdf476e0b9bab7030840ee9c70eba83196024327",
+          "line_count": 1462,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "cited_lines": "866-883",
+          "frozen_blob_sha256": "dd5069346f4ceba3c769c756bdf476e0b9bab7030840ee9c70eba83196024327",
+          "line_count": 1462,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+          "cited_lines": "45-56",
+          "frozen_blob_sha256": "427e1af6b229e64ae2896bd5edc3837f3543cba652ffbad68ef3fc502c468388",
+          "line_count": 140,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+          "cited_lines": "112-124",
+          "frozen_blob_sha256": "427e1af6b229e64ae2896bd5edc3837f3543cba652ffbad68ef3fc502c468388",
+          "line_count": 140,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "platform-misc-10",
+      "decision_severity": "P2",
+      "decision_reason": "State normalizers differ across tracker and dispatch boundaries. The sources establish contract drift but no concrete configured state that takes a wrong branch in normal operation.",
+      "reviewer_a": {
+        "id": "platform-misc-10",
+        "unit": "platform-misc",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P1",
+        "reason": "Multiple state normalizers accept different spellings, including defaults. Exact wrong route requires a concrete tracker/config pair.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+            "lines": "1079-1098",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+            "lines": "1187-1212",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/github/state_policy.ex",
+            "lines": "6-12",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/config/schema/agent_validation.ex",
+            "lines": "10-23",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/linear/tracker.ex",
+            "lines": "184-196",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/memory/tracker.ex",
+            "lines": "180-192",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/workspace/context.ex",
+            "lines": "6-10",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/workspace/context.ex",
+            "lines": "78-84",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/current_run_membership/reconciler/snapshot.ex",
+            "lines": "105-107",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/current_run_summary/facts.ex",
+            "lines": "137-143",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+            "lines": "572-576",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/test_reset.ex",
+            "lines": "421-426",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/config/schema/tracker.ex",
+            "lines": "214-216",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "platform-misc-10",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "dispatch_policy.ex:1079-1082 normalizes trim/downcase while other tracker and summary modules use different slug substitutions. State matching can disagree at cross-boundary inputs.",
+        "limitations": "The claimed twelve sites and five semantics need a complete census; a concrete default-state misroute should be tested before P1."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "cited_lines": "1079-1098",
+          "frozen_blob_sha256": "766ee6c194f71b7176f5ebaa1a0005ff113fa5139cfedefffc60a333eba00185",
+          "line_count": 1213,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "cited_lines": "1187-1212",
+          "frozen_blob_sha256": "766ee6c194f71b7176f5ebaa1a0005ff113fa5139cfedefffc60a333eba00185",
+          "line_count": 1213,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/github/state_policy.ex",
+          "cited_lines": "6-12",
+          "frozen_blob_sha256": "a3f6c03e91a29c610edc63452ce3bc0009d06f96caea9144a6bad76b7097603f",
+          "line_count": 36,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/config/schema/agent_validation.ex",
+          "cited_lines": "10-23",
+          "frozen_blob_sha256": "b4a4d8163fc34d394cc23107d6093eb979f2518a3be41af948d5ce3ca4b30038",
+          "line_count": 272,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "cited_lines": "184-196",
+          "frozen_blob_sha256": "0b288dbbb69e4d30076d949daaaee05d7aee8349014a7c69a9a179e720077cfc",
+          "line_count": 197,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "cited_lines": "180-192",
+          "frozen_blob_sha256": "ba250ac0c501899b710527804cb9ad702435ff8deac7e70356c704cf0a1ad6e7",
+          "line_count": 193,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/workspace/context.ex",
+          "cited_lines": "6-10",
+          "frozen_blob_sha256": "e61fa9d2ef769aed74e67c344df45d4dc67af3cb8b23d9f15aa21d3270d35bc8",
+          "line_count": 85,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/workspace/context.ex",
+          "cited_lines": "78-84",
+          "frozen_blob_sha256": "e61fa9d2ef769aed74e67c344df45d4dc67af3cb8b23d9f15aa21d3270d35bc8",
+          "line_count": 85,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/current_run_membership/reconciler/snapshot.ex",
+          "cited_lines": "105-107",
+          "frozen_blob_sha256": "e2766a25ad89cb5fe79f1120f318506a667692a840cceb7de6db0f8a184cfdd2",
+          "line_count": 108,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/current_run_summary/facts.ex",
+          "cited_lines": "137-143",
+          "frozen_blob_sha256": "93ae54a8312d17c58264da18dab61f47b1c72a8da36fa37d03e45029923bf3c1",
+          "line_count": 189,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "cited_lines": "572-576",
+          "frozen_blob_sha256": "6e7d70208a927517a6499d4aa51180e30c7fee4a8f3e6c190977177602bb8d67",
+          "line_count": 579,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/test_reset.ex",
+          "cited_lines": "421-426",
+          "frozen_blob_sha256": "60a6366b55c5d0bfa533cd2c4dd23c8dda9a73b3f4c8f73aa42bddfc5a8247f3",
+          "line_count": 832,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/config/schema/tracker.ex",
+          "cited_lines": "214-216",
+          "frozen_blob_sha256": "491db3ce61569d9e304656777b6b6534d3d8bc4a0130e47b78f6c81b545604d8",
+          "line_count": 240,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "platform-misc-11",
+      "decision_severity": "P2",
+      "decision_reason": "The registry sends timeout: to Req.get and rescues a request error, so an unsupported option can suppress upgrade notices. The dependency option contract was not executed at this snapshot, and the impact is confined to notices.",
+      "reviewer_a": {
+        "id": "platform-misc-11",
+        "unit": "platform-misc",
+        "raw_severity": "P1",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "Registry passes timeout to Req.get although frozen Req rejects that option; rescue returns an error that notice logic treats as unavailable.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/upgrade/registry.ex",
+            "lines": "13-30",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "platform-misc-11",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "upgrade/registry.ex:13-15 passes timeout: to Req.get; Req 0.7 option validation does not register that name, so fetch returns rescued error and suppresses notice.",
+        "limitations": "Needs a dependency-version-specific execution check; impact is an upgrade notice, below P1."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/upgrade/registry.ex",
+          "cited_lines": "13-30",
+          "frozen_blob_sha256": "20c765b99d8e91c931b054c110c1f4a5d90d4ed86f322e3f15c781aa21f426ba",
+          "line_count": 77,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "tests-2-02",
+      "decision_severity": "P2",
+      "decision_reason": "The test mutates the shared webhook mode for owner/repo and does not restore it; related cache tests explicitly reset mode. Order-dependent test contamination is plausible, with no observed suite failure here.",
+      "reviewer_a": {
+        "id": "tests-2-02",
+        "unit": "tests-2",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P2",
+        "reason": "One test configures global webhook mode without cleanup and another defensively resets it; cross-test leakage is possible under ordering.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/test/aiur/github/view_state_sweep_test.exs",
+            "lines": "509-533",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/github/read_cache_test.exs",
+            "lines": "30-39",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/github/transport_read_cache_test.exs",
+            "lines": "108-119",
+            "readable": true
+          },
+          {
+            "path": "src/test/support/test_support.exs",
+            "lines": "207-217",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "tests-2-02",
+        "holds": true,
+        "severity": "P1",
+        "evidence": "view_state_sweep_test.exs:509-514 records delivery on the global ModeRegistry for owner/repo and does not restore it; cache TTL tests reuse owner/repo. Cross-test state can alter expected cache freshness.",
+        "limitations": "Order-dependent failure requires affected reader tests run afterward in same VM."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/test/aiur/github/view_state_sweep_test.exs",
+          "cited_lines": "509-533",
+          "frozen_blob_sha256": "ae8f7f8b9c0297fcaa12af43f8d4302989035a59e2331fbac1b4c05ef395dbe9",
+          "line_count": 616,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/github/read_cache_test.exs",
+          "cited_lines": "30-39",
+          "frozen_blob_sha256": "8c3316bcd25f18c845a656011659c9ceb44e608eb20f8b360fce2cb501a2a177",
+          "line_count": 1437,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/github/transport_read_cache_test.exs",
+          "cited_lines": "108-119",
+          "frozen_blob_sha256": "fb56cb19becbd7a73e7802ef4fb4b988d50c4ba578e07e26f832a7f7767fc7be",
+          "line_count": 196,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "cited_lines": "207-217",
+          "frozen_blob_sha256": "4417122f587929382a2096658974c0a88a6035b766e390738eac9fd4ddfc6482",
+          "line_count": 1663,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "tests-2-04",
+      "decision_severity": "P2",
+      "decision_reason": "The production helper returns a literal test token only when a caller injects request_fun without a token. Normal network-auth calls do not use that seam, so the defect is a risky test affordance rather than demonstrated credential bypass.",
+      "reviewer_a": {
+        "id": "tests-2-04",
+        "unit": "tests-2",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P1",
+        "reason": "Production require_token returns a fixed test token when request_fun is injected. Risk is limited to callers injecting that seam, not normal network auth.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur/github/transport.ex",
+            "lines": "79-92",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/github/transport_test.exs",
+            "lines": "49-57",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "tests-2-04",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "github/transport.ex:79-92 returns literal test-gh-token when request_fun option is present and token absent, in production code.",
+        "limitations": "Raw review itself found no production caller taking this combination today; latent seam merits removal but not P1."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur/github/transport.ex",
+          "cited_lines": "79-92",
+          "frozen_blob_sha256": "de377b8d6a9a25ca049c961b3c80c31bf61d711c3a1d620dfb00be3109d612cc",
+          "line_count": 860,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/github/transport_test.exs",
+          "cited_lines": "49-57",
+          "frozen_blob_sha256": "ffd51b7f595e4da66ef13c5e234044ebca254292b3182783c8dc7a670856adf3",
+          "line_count": 418,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "tests-5-03",
+      "decision_severity": "P2",
+      "decision_reason": "Named application processes and singleton state are mutated in tests. The failure mode overlaps other shared-state findings and does not independently establish a broad production failure.",
+      "reviewer_a": {
+        "id": "tests-5-03",
+        "unit": "tests-5",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P2",
+        "reason": "Tests mutate shared singletons and registered names. This overlaps tests-2-01 and tests-3-01; deduplicate in synthesis.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+            "lines": "45-67, 131-165, 238-277, 393-421, 617-651, 845-853, 918-945",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/regression/orchestrator_lifecycle_test.exs",
+            "lines": "1-120",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/regression/orchestrator_dispatch_retry_test.exs",
+            "lines": "1-60",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+            "lines": "45-60, 1506-1520",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/events/webhook_poll_reconciliation_test.exs",
+            "lines": "36-47, 696-710",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/events/subscription_store_test.exs",
+            "lines": "60-70",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/events/github_webhook_test.exs",
+            "lines": "586-639, 964-1001",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/regression/github_ingestion_test.exs",
+            "lines": "728-757",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/events/github_comments_poller_test.exs",
+            "lines": "1371-1440",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "tests-5-03",
+        "holds": true,
+        "severity": "P1",
+        "evidence": "This unit calls :sys.replace_state on named application processes and restarts Aiur.Supervisor children. Global mutable fixture state can leak into unrelated tests.",
+        "limitations": "The cited 117-site count is unverified; specific contamination depends on test ordering and cleanup."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+          "cited_lines": "45-67, 131-165, 238-277, 393-421, 617-651, 845-853, 918-945",
+          "frozen_blob_sha256": "8c0143e1d247ce2c4966882939dd07b27ec6e08afbfdd51f7599f7d635f34ba5",
+          "line_count": 1162,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/regression/orchestrator_lifecycle_test.exs",
+          "cited_lines": "1-120",
+          "frozen_blob_sha256": "7d6585b0fca62743c8c65a5e7ff55d67bfd3cd3c32e209bb0ee8db81df1eda02",
+          "line_count": 767,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/regression/orchestrator_dispatch_retry_test.exs",
+          "cited_lines": "1-60",
+          "frozen_blob_sha256": "25b7f940f18373ac87bdfeb8cc50ef61fbf45f05ee946824f34dc09a474fe8b2",
+          "line_count": 372,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+          "cited_lines": "45-60, 1506-1520",
+          "frozen_blob_sha256": "e8706a431c9af7dadb2206b001bd6189831dab339ec3c6417af0781adacbcde1",
+          "line_count": 1530,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/events/webhook_poll_reconciliation_test.exs",
+          "cited_lines": "36-47, 696-710",
+          "frozen_blob_sha256": "e82ee9fd3319d390552357f0057d224b2b9a99f0d516b47372f5ca6ce6ab30e3",
+          "line_count": 727,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/events/subscription_store_test.exs",
+          "cited_lines": "60-70",
+          "frozen_blob_sha256": "ea318bd1a6540627d44208325d715b7c724c0d2d305873273dff8d8bf0238a76",
+          "line_count": 582,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/events/github_webhook_test.exs",
+          "cited_lines": "586-639, 964-1001",
+          "frozen_blob_sha256": "05eef053b1509643788724d3b83ea47ddf2250428cd9be4375c3bcd6b60c3af9",
+          "line_count": 1002,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/regression/github_ingestion_test.exs",
+          "cited_lines": "728-757",
+          "frozen_blob_sha256": "f97b37f742260be1e5158e92e7a098b8e8aa651da77b0f0e2227eef7f3dbcd26",
+          "line_count": 790,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/events/github_comments_poller_test.exs",
+          "cited_lines": "1371-1440",
+          "frozen_blob_sha256": "4ede2150e7c1bf9318bd03addad4c026fb532b41894d515d502d91569effc0e0",
+          "line_count": 1508,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "tests-6-01",
+      "decision_severity": "P2",
+      "decision_reason": "TestSupport discards a child recovery result before resetting the resource store, so setup can silently continue without that store. The effect is confined to test reliability and diagnosis.",
+      "reviewer_a": {
+        "id": "tests-6-01",
+        "unit": "tests-6",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P2",
+        "reason": "TestSupport discards child-recovery results before further setup, so missing child failure may surface later. Scope limited to test diagnostics.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/test/support/test_support.exs",
+            "lines": "207-217",
+            "readable": true
+          },
+          {
+            "path": "src/test/support/test_support.exs",
+            "lines": "340-348",
+            "readable": true
+          },
+          {
+            "path": "src/test/support/test_support.exs",
+            "lines": "363-373",
+            "readable": true
+          },
+          {
+            "path": "src/test/support/test_support.exs",
+            "lines": "788-797",
+            "readable": true
+          },
+          {
+            "path": "src/test/support/test_support.exs",
+            "lines": "813-826",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "tests-6-01",
+        "holds": true,
+        "severity": "P1",
+        "evidence": "TestSupport.reset_global_state! at 207-215 ignores ensure_resource_store_running result then calls ResourceStore.reset, which is a no-op if missing. Setup can appear successful while global state is absent.",
+        "limitations": "Requires a failed child recovery; later failure attribution is the primary cost."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/test/support/test_support.exs",
+          "cited_lines": "207-217",
+          "frozen_blob_sha256": "4417122f587929382a2096658974c0a88a6035b766e390738eac9fd4ddfc6482",
+          "line_count": 1663,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "cited_lines": "340-348",
+          "frozen_blob_sha256": "4417122f587929382a2096658974c0a88a6035b766e390738eac9fd4ddfc6482",
+          "line_count": 1663,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "cited_lines": "363-373",
+          "frozen_blob_sha256": "4417122f587929382a2096658974c0a88a6035b766e390738eac9fd4ddfc6482",
+          "line_count": 1663,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "cited_lines": "788-797",
+          "frozen_blob_sha256": "4417122f587929382a2096658974c0a88a6035b766e390738eac9fd4ddfc6482",
+          "line_count": 1663,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "cited_lines": "813-826",
+          "frozen_blob_sha256": "4417122f587929382a2096658974c0a88a6035b766e390738eac9fd4ddfc6482",
+          "line_count": 1663,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "tests-6-03",
+      "decision_severity": "P2",
+      "decision_reason": "Tests can start a shared named PubSub under temporary ExUnit supervision. If application ownership is absent, that bus dies after the test; this conditional singleton failure overlaps other test-isolation findings.",
+      "reviewer_a": {
+        "id": "tests-6-03",
+        "unit": "tests-6",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P2",
+        "reason": "Several tests start temporary PubSub under ExUnit while app uses a shared name; a known race pattern persists. Deduplicate with other singleton findings.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/test/aiur/build_order/graph_projection_test.exs",
+            "lines": "14-22",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/build_order/graph_projection_recovery_test.exs",
+            "lines": "12-20",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/build_order/graph_projection_pubsub_test.exs",
+            "lines": "28",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/build_order/graph_projection_structural_test.exs",
+            "lines": "16",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs",
+            "lines": "35",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/build_order/graph_projection_idle_cadence_test.exs",
+            "lines": "22",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+            "lines": "22-30",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/build_order/ticket_history_provider_test.exs",
+            "lines": "8-14",
+            "readable": true
+          },
+          {
+            "path": "src/test/support/claude_meter_test_support.exs",
+            "lines": "14-20",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
+            "lines": "33",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/open_ticket_source_test.exs",
+            "lines": "511",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/provider_meter_projection_integration_test.exs",
+            "lines": "18",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/provider_account_generation_test.exs",
+            "lines": "10",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/provider_meters_test.exs",
+            "lines": "474",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/codex/account_generation_test.exs",
+            "lines": "10",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/github/view_state_sweep_test.exs",
+            "lines": "598",
+            "readable": true
+          },
+          {
+            "path": "src/test/aiur/webhooks/mode_registry_test.exs",
+            "lines": "33",
+            "readable": true
+          },
+          {
+            "path": "src/test/support/test_support.exs",
+            "lines": "844-879",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "tests-6-03",
+        "holds": true,
+        "severity": "P1",
+        "evidence": "graph_projection_test.exs:14-19 starts named Aiur.PubSub under a temporary ExUnit supervisor if absent. That process dies with the test/module, leaving later tests without the shared bus.",
+        "limitations": "Only triggers when the application child is absent; count of 17 sites requires census."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "cited_lines": "14-22",
+          "frozen_blob_sha256": "e942fdfe1700be2345357bc883f08c7e462a889fdb3d1275bf939f563e07226c",
+          "line_count": 1433,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_recovery_test.exs",
+          "cited_lines": "12-20",
+          "frozen_blob_sha256": "07e528be6925ff6229cf951f34f76c24802aafdeba6f66bb3fce9951aa9c7422",
+          "line_count": 387,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_pubsub_test.exs",
+          "cited_lines": "28",
+          "frozen_blob_sha256": "e100a6ddf16fcbea2b04383e8aeacba699cc8fbdd78bfc91d4e8f44864b8bb75",
+          "line_count": 273,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_structural_test.exs",
+          "cited_lines": "16",
+          "frozen_blob_sha256": "1d0ec1c2ea9a705fb5aabf50d23290846a5e98a95315c5f16cd785193b1976ac",
+          "line_count": 270,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs",
+          "cited_lines": "35",
+          "frozen_blob_sha256": "6753b2a38dd0128463f05b67638b9cbbba6de7e6137d2fe42ab22df385f3b3c6",
+          "line_count": 239,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_idle_cadence_test.exs",
+          "cited_lines": "22",
+          "frozen_blob_sha256": "9b120d7ceee1a8d1504a52aabd137590f184f56a141dc3c029aae76e981f21ea",
+          "line_count": 160,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+          "cited_lines": "22-30",
+          "frozen_blob_sha256": "6ad9ffc4d40a1ec8b39bba774de931f15fbfbe51cae0c91e2e1de328f138f264",
+          "line_count": 1339,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_history_provider_test.exs",
+          "cited_lines": "8-14",
+          "frozen_blob_sha256": "70da0553ab6882c7a2e183824cc4f3a3c3a9ac83cf9a21d4c97e7a495dcbdb57",
+          "line_count": 566,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/support/claude_meter_test_support.exs",
+          "cited_lines": "14-20",
+          "frozen_blob_sha256": "4d440f9c740d1bebf08187c687492845ab0b79139d15d5331b7f5df3646d7ae1",
+          "line_count": 63,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
+          "cited_lines": "33",
+          "frozen_blob_sha256": "5644983b4221781a576ca6f882d33fef529ec5fe566054d36dffa92e956539e5",
+          "line_count": 228,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/open_ticket_source_test.exs",
+          "cited_lines": "511",
+          "frozen_blob_sha256": "98f0e74c18e3c246c6123f78273492f9b5d9b16787423a58b10fbef81b9bc793",
+          "line_count": 524,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/provider_meter_projection_integration_test.exs",
+          "cited_lines": "18",
+          "frozen_blob_sha256": "8163f51dbfba30782ef8db953d9a55d87237f71696cc51d2fb1bbe251cffd2e1",
+          "line_count": 132,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/provider_account_generation_test.exs",
+          "cited_lines": "10",
+          "frozen_blob_sha256": "68458412edeff6bd1001f5ce4767409a9c69a293aac1abd8356c996099d5526b",
+          "line_count": 663,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/provider_meters_test.exs",
+          "cited_lines": "474",
+          "frozen_blob_sha256": "18701c3a3ed3361cd4dbcef5e872546de80d5eaeac522076030397320b87e903",
+          "line_count": 486,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/codex/account_generation_test.exs",
+          "cited_lines": "10",
+          "frozen_blob_sha256": "03a01dc7da5eced69dc9b39501e417aa229044b45fe669730e89087912aab0ec",
+          "line_count": 760,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/github/view_state_sweep_test.exs",
+          "cited_lines": "598",
+          "frozen_blob_sha256": "ae8f7f8b9c0297fcaa12af43f8d4302989035a59e2331fbac1b4c05ef395dbe9",
+          "line_count": 616,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/aiur/webhooks/mode_registry_test.exs",
+          "cited_lines": "33",
+          "frozen_blob_sha256": "89b9499d493d1ed7095ef6776da72ba40abb432ab3dbf96d163adabeca7cb824",
+          "line_count": 427,
+          "range_exists": true
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "cited_lines": "844-879",
+          "frozen_blob_sha256": "4417122f587929382a2096658974c0a88a6035b766e390738eac9fd4ddfc6482",
+          "line_count": 1663,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "web-occ-02",
+      "decision_severity": "P2",
+      "decision_reason": "The row classifiers maintain different pause and queue reason lists. A mismatched UI state is possible, but the reviews do not identify a reachable row fixture that proves a normal-use misclassification.",
+      "reviewer_a": {
+        "id": "web-occ-02",
+        "unit": "web-occ",
+        "raw_severity": "P1",
+        "verdict": "qualified_static",
+        "reviewed_severity": "P1",
+        "reason": "Several row classifiers use different reason lists for the same state fields. A wrong displayed classification needs a concrete row fixture.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+            "lines": "11-12,107-125,129-143",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+            "lines": "273-308",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur_web/components/operator_control_center/fleet_filters.ex",
+            "lines": "4-8,47-56,75-84",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+            "lines": "6-12,181-195",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur_web/operator_control_center/units_presenter.ex",
+            "lines": "454",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "web-occ-02",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "units_control_policy.ex:273 onward defines paused/queued predicates separately from UnitsPolicy and FleetFilters. Divergent conditions can display mismatched filters and control buttons.",
+        "limitations": "Need a single reachable row fixture and observed UI divergence before calling P1."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_policy.ex",
+          "cited_lines": "11-12,107-125,129-143",
+          "frozen_blob_sha256": "f7bcc756ca7f531ee8fd9f705bbc748b4015fa13c919aeffa12447bc26237450",
+          "line_count": 191,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_control_policy.ex",
+          "cited_lines": "273-308",
+          "frozen_blob_sha256": "63467469d61b98d23823f117ce06b1e8bb7d053eed58aa4b4776eb0ea97de802",
+          "line_count": 309,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_filters.ex",
+          "cited_lines": "4-8,47-56,75-84",
+          "frozen_blob_sha256": "07feb380e67958b614467613cb09ed08093d639c92f750376e54ef68ac672e54",
+          "line_count": 85,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "cited_lines": "6-12,181-195",
+          "frozen_blob_sha256": "62bc3eb7d91e4019d4c1112ae3adf89c05c50e9ed73087c2087d8ad1e462d2ea",
+          "line_count": 198,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presenter.ex",
+          "cited_lines": "454",
+          "frozen_blob_sha256": "bcc7b6c382a5ffe00aa7f85b5003a37fc40cddcc7fcca25a477aaf9ed5177ba5",
+          "line_count": 461,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "web-occ-03",
+      "decision_severity": "P2",
+      "decision_reason": "The same eight-term cap is used for indexed ticket words and query words. Later unique words in ticket text cannot be found; this is a concrete but scoped search usability bug.",
+      "reviewer_a": {
+        "id": "web-occ-03",
+        "unit": "web-occ",
+        "raw_severity": "P1",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "Indexing calls the same eight-term limiter as queries, so words after the eighth in ticket text are unsearchable.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur_web/operator_control_center/ticket_search.ex",
+            "lines": "33,57-69,75-81,237-246",
+            "readable": true
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "web-occ-03",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "Ticket search shares an eight-term limit between query parser and indexed title/body words; words after the eighth unique term cannot match.",
+        "limitations": "Scoped to Tickets panel search; source defect is clear but P1 priority is high without usage impact."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur_web/operator_control_center/ticket_search.ex",
+          "cited_lines": "33,57-69,75-81,237-246",
+          "frozen_blob_sha256": "4b5fe3d2fd07a5289abc020b2d840eb5cb9d9172f5efe4675d5dbfaa259a58dd",
+          "line_count": 247,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    },
+    {
+      "source_id": "web-rest-09",
+      "decision_severity": "P2",
+      "decision_reason": "The presenter idle fallback joins root and identifier, while workspace layout inserts a repository segment. Idle GitHub issue API paths can be wrong; active running/retry paths carry their explicit workspace path.",
+      "reviewer_a": {
+        "id": "web-rest-09",
+        "unit": "web-rest",
+        "raw_severity": "P1",
+        "verdict": "supported_static",
+        "reviewed_severity": "P1",
+        "reason": "Presenter fallback joins root and identifier, ignoring repository segment that Workspace.Layout adds for GitHub. Idle issue API path can be wrong.",
+        "limits": "Frozen source review only; reachability and incidence are not established beyond the stated code path.",
+        "source_checks": [
+          {
+            "path": "src/lib/aiur_web/presenter.ex",
+            "lines": "543-547",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/workspace/layout.ex",
+            "lines": "33-47",
+            "readable": true
+          },
+          {
+            "path": "src/lib/aiur/workspace/layout.ex",
+            "lines": "33-46",
+            "readable": true,
+            "raw_lines": "100-130",
+            "correction": "review/citation-corrections.json"
+          }
+        ],
+        "citation_status": "all_readable"
+      },
+      "reviewer_b": {
+        "id": "web-rest-09",
+        "holds": true,
+        "severity": "P2",
+        "evidence": "presenter.ex:543-547 falls back to <workspace.root>/<identifier>; workspace/layout.ex:33-47 inserts a repo segment and sanitizes identity when configured. Idle issue API can advertise a non-existent path.",
+        "limitations": "Running/retry rows with an actual workspace path are unaffected; CLI consumers of idle path should be checked for impact."
+      },
+      "frozen_source_checks": [
+        {
+          "path": "src/lib/aiur_web/presenter.ex",
+          "cited_lines": "543-547",
+          "frozen_blob_sha256": "c8be4c9263882424f134423cc58ab43671c25b663d112a737039104aa074d054",
+          "line_count": 594,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/workspace/layout.ex",
+          "cited_lines": "33-47",
+          "frozen_blob_sha256": "9eb4cd8869466fd898a1d154de0605355e6c1fb9527dc6891e13191a78067d14",
+          "line_count": 128,
+          "range_exists": true
+        },
+        {
+          "path": "src/lib/aiur/workspace/layout.ex",
+          "cited_lines": "33-46",
+          "frozen_blob_sha256": "9eb4cd8869466fd898a1d154de0605355e6c1fb9527dc6891e13191a78067d14",
+          "line_count": 128,
+          "range_exists": true
+        }
+      ],
+      "dissent_preserved": true,
+      "limits": "No live incident frequency, affected population, or post-snapshot fix is inferred. Original reviewer limitations remain attached verbatim."
+    }
+  ]
+}
