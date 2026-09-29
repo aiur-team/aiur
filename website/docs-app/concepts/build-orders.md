@@ -29,6 +29,14 @@ The canonical state-node copy lives at `~/.aiur/repo/<owner>/<repo>/builds/<slug
 | `aiur build-orders [<root>]` | The same projection in a terminal. |
 | `--json` | Machine-readable Build Order rows. |
 
+The catalog's **Tickets completed** percentage counts accepted completions among tickets whose lifecycle is resolved. Partial coverage appears alongside the percentage.
+
+In a selected Build Order, **Estimated work progress** combines reported work estimates using member complexity weights. It can advance before any ticket is complete. Last-known estimates show their age; unavailable measurements remain unknown.
+
+Open a member's context to use **Read chat** when that member has a readable conversation in the current run. This opens the same conversation drawer as Units and does not resume the worker.
+
+A draft says chat has not started. A member without readable current-run history shows chat as unavailable. Completed workers normally have no current-run chat handle after leaving the running roster, so their context shows chat as unavailable.
+
 On the catalog, ticket, epic and wave counts remain numeric when resolution succeeds, including a real `0`. A count that could not be resolved never renders as `0` or as a bare dash—it names its cause instead:
 
 A local planning pack remains readable when a run starts globally paused before its first membership snapshot. The selected page and `aiur build-orders` identify unavailable current-run membership or ticket status separately from plan readability; any unobserved ticket state or completion remains unresolved. Draft members carry local ticket document paths and no invented GitHub issue URL; draft blockers cannot claim a live blocking state.
