@@ -1545,7 +1545,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert retry_result["decision_id"] == first_result["decision_id"]
     end
 
-    test "a structured request enriches its legacy attention instead of duplicating it" do
+    test "a factual Command can enrich an attention and receive an Executor answer (future regression guard)" do
       identifier = "TE-decision-attention-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier, title: "Adapter ticket"}
       coordination = Module.concat(__MODULE__, "DecisionCorrelation#{System.unique_integer([:positive])}")
@@ -1573,7 +1573,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           "emit_event",
           %{
             "name" => "attention.scope-question",
-            "message" => "Which scope owns this?"
+            "message" => "Did discovery consent open on the retry?"
           },
           "call-legacy"
         )
@@ -1584,7 +1584,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       structured_arguments = %{
         "name" => "decision.requested",
-        "message" => "Which scope owns this?",
+        "message" => "Did discovery consent open on the retry?",
         "payload" => %{
           "attention_slug" => "scope-question",
           "decision_id" => "dec_attacker",
@@ -1594,9 +1594,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
             "topic" => "ticket.attacker.agent.attention.other"
           },
           "blocking" => true,
-          "kind" => "architecture",
-          "context" => %{"short_summary" => "Two owners are viable."},
-          "options" => [%{"id" => "runtime", "label" => "Runtime"}]
+          "kind" => "factual_observation",
+          "authority" => "supervisor_allowed",
+          "reversibility" => "reversible",
+          "context" => %{"short_summary" => "Report the redacted outcome of the owner's retry."}
         }
       }
 
@@ -1628,7 +1629,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       {:ok, history} = DecisionStore.history(legacy_decision.decision_id)
       assert Enum.map(history, & &1.version) == [1, 2]
-      assert List.last(history).options != []
+      assert hd(history).authority == :human_required
+      assert hd(history).reversibility == :irreversible
+      assert List.last(history).authority == :supervisor_allowed
+      assert List.last(history).reversibility == :reversible
 
       assert [current] =
                DecisionStore.list()
@@ -1637,6 +1641,19 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert current.decision_id == legacy_decision.decision_id
       assert current.source_id == "legacy_attention:scope-question"
       assert current.legacy_attention.topic == "ticket.#{identifier}.agent.attention.scope-question"
+
+      assert {:ok, %{status: :accepted, action: answer}} =
+               DecisionStore.answer(
+                 current.decision_id,
+                 %{
+                   "idempotency_key" => "executor-factual-observation",
+                   "expected_version" => 2,
+                   "custom_response" => "No; consent did not open on the retry."
+                 },
+                 actor: %{kind: :executor, id: "executor-1"}
+               )
+
+      assert answer.actor == %{kind: :executor, id: "executor-1"}
     end
 
     test "an unknown attention slug cannot create a correlated structured Decision" do

@@ -8,6 +8,18 @@ defmodule Aiur.Codex.DynamicTool.EmitEventTest do
     :ok
   end
 
+  test "tool guidance routes factual Executor answers through durable Commands" do
+    [spec] = EmitEvent.specs()
+    description = spec["description"]
+
+    assert description =~ "factual observation"
+    assert description =~ "decision.requested"
+    assert description =~ "supervisor_allowed"
+    assert description =~ "reversible"
+    assert description =~ "legacy Command is human-required"
+    assert description =~ "Keep genuine human policy choices `human_required`"
+  end
+
   defp publisher do
     test_pid = self()
 

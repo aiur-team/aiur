@@ -30,10 +30,14 @@ background failure is written to the daemon run log and does not rewrite
 the already-returned tool response.
 
 Legacy `attention.<slug>` events use the same pending admission. If the
-attention needs a durable Decision contract, immediately follow it with
+attention needs an answer, immediately follow it with
 `decision.requested` carrying that `attention_slug`; Aiur serializes the
 structured request behind the projection and returns its terminal
-`decision_id`, `version`, and status.
+`decision_id`, `version`, and status. An attention by itself projects a
+`human_required` legacy Command, so `executor-answer` cannot answer it. For a
+redacted factual observation, set `kind: "factual_observation"`,
+`authority: "supervisor_allowed"`, and `reversibility: "reversible"` on the
+structured request. Reserve `human_required` for an actual human policy choice.
 
 ### Requesting an operator decision
 
