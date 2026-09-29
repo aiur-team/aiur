@@ -1,0 +1,156 @@
+{
+  "reviewer": "independent_a",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "verdicts": [
+    {
+      "id": "integrations-10",
+      "holds": false,
+      "recommendation": "retain, then consider an optional backend package",
+      "note": "DeepSeek has observed run and ledger use in the raw census, and src/lib/aiur/coding_agent.ex:797-840 embeds price-aware routing while open_ai_compat/registry.ex:10-102 carries three providers. A plugin SDK and parity contract are not demonstrated; moving 2,383 lib LOC is relocation, and the proposed 800 deletion has no file-by-file proof. Independently consider pruning unexercised Kimi/OpenRouter entries after confirming no configured users."
+    },
+    {
+      "id": "integrations-16",
+      "holds": true,
+      "recommendation": "cut the unused OTLP intake after preserving coverage requirements",
+      "note": "claude/telemetry.ex:15-42 defines event and usage PubSub topics, and :603-630 broadcasts to them; source search found no production subscribe_usage caller. session_lifecycle.ex:330-373 still arms it. The raw census finds zero OTLP ledger rows. This supports a cut of the unused intake, but a successful provider payload and all possible historical consumers were not reproduced; 1,745 estimated lines include launch wiring and tests and need exact deletion accounting."
+    },
+    {
+      "id": "integrations-20",
+      "holds": false,
+      "recommendation": "retain diagnostic capability while measuring use",
+      "note": "website/docs-app/apis/github.md:531-562 explicitly directs operators to the GitHub cache page for byte-exact agent-read sharing and cold-cache diagnosis. github/cache_inspector.ex and github_cache_live.ex expose resource-level state that aiur github-cost caller totals do not replace. Sixteen observed Bash visits are positive use, not evidence of no value. A cut needs an equivalent cache/body/age diagnostic contract; moving counters to CLI is new code, so 3,403 LOC is not net saving."
+    },
+    {
+      "id": "integrations-49",
+      "holds": false,
+      "recommendation": "merge only overlapping commit and push wording after command-by-command parity",
+      "note": "The raw census records commit 119, push 89, pull 46, land 35 reads, so these skills are exercised. .codex/skills/land/SKILL.md and land_watch.py carry a long-running merge workflow distinct from ce-commit; pull has merge policy and linear has a raw GraphQL role. Removing them wholesale would drop behavior. Deduplicate shared prose only after mapping command, guard and lifecycle parity; the 700 LOC estimate is unverified."
+    },
+    {
+      "id": "integrations-50",
+      "holds": false,
+      "recommendation": "keep versioned Executor contracts with the repo and modularize aiur-run",
+      "note": "The Executor skills govern operations against the corresponding daemon and are documented at website/docs-app/skills.md. The large aiur-run file may contain reducible incident prose, but externalizing 6,562 LOC moves it and can separate instructions from the version they operate. No line-level demonstration shows 1,500 incident rules obsolete. Split stable contract, runbook examples and historical notes while retaining repo-versioned distribution."
+    },
+    {
+      "id": "integrations-51",
+      "holds": false,
+      "recommendation": "keep server-held ElevenLabs credential boundary until voice decisions are made",
+      "note": "eleven_labs/realtime.ex and eleven_labs/tts.ex serve both browser and deck paths; website/docs-app/apis/elevenlabs.md:3-22 specifies restricted server-held credentials. Moving provider calls into the sidecar would alter that boundary and does not remove code. If all voice is deliberately retired, cut the provider; otherwise package extraction needs a protected service contract. The original estimate already says zero net LOC saving."
+    },
+    {
+      "id": "integrations-52",
+      "holds": true,
+      "recommendation": "cut dormant rtk gate and its documented config surface",
+      "note": "The raw config census found agent.rtk.enabled in 0 of 68 configs and defaults false; src/lib/aiur/rtk.ex is an optional admission path. Removing it is a plausible small deletion, but verify no transient environment activation and delete schema/docs/tests together. The 241 estimate is lib only and should not be presented as measured total repository reduction."
+    },
+    {
+      "id": "subsystems-34",
+      "holds": false,
+      "recommendation": "defer remote-worker removal pending explicit product scope decision",
+      "note": "src/lib/aiur/agent_runner/turn_progress.ex:189-197 has a distinct remote workspace probe, and worker_host is threaded through many runtime paths. Seven local configs with no ssh_hosts show lack of current use, not absence of remote-worker contract. Deleting roughly 550 distributed clauses from 57 files is a prediction with high regression risk; true net deletion needs per-file diff and acceptance of losing distributed execution."
+    },
+    {
+      "id": "subsystems-36",
+      "holds": false,
+      "recommendation": "retain real --test CLI entry and isolate reset internals if useful",
+      "note": "AGENTS.md Manual testing explicitly requires scripts/aiurdev --test through real CLI and TUI; src/lib/aiur/test_reset.ex:1-102 provides reset and agent-workspace guard. Moving it to scripts while removing product flags would break the mandated acceptance workflow. A dev-tools package could own reset logic while the CLI retains safe dispatch, but 900 LOC moved is not net removal."
+    },
+    {
+      "id": "subsystems-42",
+      "holds": true,
+      "recommendation": "move developer-only Mix tasks out of release with stable aliases",
+      "note": "The raw census shows affected_tests in 288 agent sessions and specs check in CI, so commands must remain callable in this repo. Their source under src/lib/aiur and src/lib/mix/tasks is build/release coupling; a dev-only Mix package can reduce release payload while preserving task names and CI. This externalization saves approximately zero repository LOC unless specific code is deleted, so the 1,226 estimate is release footprint, not code reduction."
+    },
+    {
+      "id": "ui-06",
+      "holds": false,
+      "recommendation": "retain drawer and composer; design a proven feed migration separately",
+      "note": "src/lib/aiur/live_conversation.ex:59-139 handles generation, trusted event classes, stale/unavailable states and subscriptions. agent_event_feed.ex is a different feed, while opencode SessionWriter persists chat-pane SQL. A generic event feed alone does not prove parity for live order, replay, generation isolation, retention and TUI rendering. The 2,100 LOC saving counts projected replacement before new adapters, so reject unconditional merge."
+    },
+    {
+      "id": "ui-07",
+      "holds": false,
+      "recommendation": "retain browser dictation until use is measured or product direction changes",
+      "note": "website/docs-app/concepts/units.md:39-54 documents browser spoken conversation, and voice_channel.ex has successful paths that need not log; zero boot error lines cannot establish zero dictation. eleven_labs/tts.ex:25 requires voice_id, so spoken replies are disabled in sampled configs, but STT can still run with the env key. Cutting both based on absent failure logs is unsupported; measure successful sessions and decide explicitly."
+    },
+    {
+      "id": "ui-08",
+      "holds": false,
+      "recommendation": "couple STT decision to both active voice surfaces",
+      "note": "src/lib/aiur_web/streamdeck_channel.ex:193-230 accepts authenticated voice_start/audio/stop and dashboard voice uses the same realtime provider. ElevenLabs env keys exist; 11 logged deck mic holds are positive, limited evidence. No config key does not prove unused env fallback. Cutting 1,401 LOC before ui-07/ui-17 decisions would remove a documented provider path."
+    },
+    {
+      "id": "ui-09",
+      "holds": false,
+      "recommendation": "correct meter scope or remove only if credit data has no user value",
+      "note": "website/docs-app/apis/elevenlabs.md:39-44 explicitly says the meter reports character credit quota, not STT audio-minute spend. The raw inventory says it polls and renders when a key is present, so it is active, not inert. The mismatch is a labeling/context question; deleting it alongside voice is conditional on voice retirement, and 547 lines must not be double-counted with integrations-51."
+    },
+    {
+      "id": "ui-13",
+      "holds": false,
+      "recommendation": "retain the cache inspector until equivalent diagnostics exist",
+      "note": "website/docs-app/apis/github.md:531-562 explains cache-page evidence for exact-shape reads and TTL misses. The raw use census finds 34 URL mentions and 16 Bash visits; no visits after one date is weak because incidents are episodic. github_cache_live.ex and CacheInspector expose state absent from caller totals. CacheHistory may be moved to on-demand sampling, but replacing the page with CLI JSON adds code; 7,400 LOC cannot be claimed as net deletion."
+    },
+    {
+      "id": "ui-14",
+      "holds": false,
+      "recommendation": "retain browser emulator as product and QA surface pending operator decision",
+      "note": "website/docs-app/guide/stream-deck.md:3 makes /streamdeck a first-class browser alternative to hardware. src/lib/aiur_web/live/streamdeck_live.ex:181-249 exercises controls and mic, while browser specs depend on it. URL text searches are not page-view telemetry. Removing it would erase a no-hardware testing and accessibility path; a headless renderer is not equivalent without browser control tests. The 6,293 estimate includes tests that would need replacement."
+    },
+    {
+      "id": "ui-15",
+      "holds": false,
+      "recommendation": "fix connection ownership and retain typed channel until migration contract exists",
+      "note": "src/lib/aiur_web/streamdeck_channel.ex:45-230 handles focus, controls, Command answers, operator text and voice with auth; a proposed generic fleet websocket is a new product and security design, not a proven 4,181-line deletion. The single-daemon URL problem can be solved by stable discovery or multi-instance routing without moving all projections. If extraction proceeds, preserve receipt, identity, voice and Command semantics and count relocation separately."
+    },
+    {
+      "id": "ui-16",
+      "holds": false,
+      "recommendation": "keep separate sidecar package in monorepo until versioned protocol proves independent release",
+      "note": "packages/streamdeck already has its own TypeScript source, scripts and CI workflow. Moving its 20,769 lines to another repository is relocation, not net LOC reduction; it may add protocol and release coordination. Journal outages explain much of low press activity, so usage decline is confounded by connectivity. An independent release may later make sense after ui-15 establishes a stable versioned contract."
+    },
+    {
+      "id": "ui-17",
+      "holds": false,
+      "recommendation": "retain deck mic/settings until functioning-use study and product choice",
+      "note": "website/docs-app/guide/stream-deck.md:130-158 documents Mic, TestMic and persisted mic choice. The raw journal has 11 held-mic observations and later operator requests about TestMic layout, which are positive interest. Missing log lines may reflect disconnected sidecar, not no demand. If retired, measure full supported period and coordinate ui-08/channel removal; 5,411 includes tests and may overlap ui-15."
+    },
+    {
+      "id": "ui-18",
+      "holds": false,
+      "recommendation": "keep authoritative deck Command answering while fixing receipts",
+      "note": "src/lib/aiur_web/streamdeck_channel.ex:140-167 records operator-attributed, versioned answers for the focused ticket; website/docs-app/guide/stream-deck.md:272 describes this contract. One exact mode=commands line conflicts with broader mode-transition counts and outage evidence; it is too weak for deletion. CLI and dashboard are alternate surfaces, not proof deck control has no value. No net saving until protocol/tests are reconciled."
+    },
+    {
+      "id": "ui-19",
+      "holds": true,
+      "recommendation": "remove production demo toggle but preserve deterministic render fixtures",
+      "note": "packages/streamdeck/src/demo.ts and scripts/render-demo.mjs provide synthetic input; journal shows only build-week toggles. A production toggle can be cut if demo fixtures remain in dev/test tooling for raster regression and docs screenshots. The 762-line estimate overstates net deletion if renderer fixture remains."
+    },
+    {
+      "id": "ui-24",
+      "holds": false,
+      "recommendation": "measure actual audible use before replacing alert sounds",
+      "note": "src/lib/aiur/config/schema/alerts.ex:10-25 defaults enabled and supports mapped or OS sounds; alerts.ex:540-567 resolves explicit ~/ paths and sound_dir. Two private configs are uninspected, and absence of ~/alerts on one host does not establish fleet-wide zero use. A generic command hook changes UX/security and may require similar code. Retain or request explicit product decision; 1,224 predicted LOC is unproven."
+    },
+    {
+      "id": "ui-26",
+      "holds": true,
+      "recommendation": "retire unused HTML report after preserving offline export requirement explicitly",
+      "note": "The raw census found no generated HTML artifacts or invocations; src/lib/aiur/run_telemetry/dashboard.ex is a separate offline renderer beside live analytics. Cutting it can delete implementation and tests if no operator needs self-contained reports. Live /analytics is not an exact offline replacement, so document that lost capability before deletion; 1,531 LOC is candidate deletion, not measured."
+    },
+    {
+      "id": "ui-29",
+      "holds": true,
+      "recommendation": "delete unreachable components and their dedicated tests",
+      "note": "Frozen src/lib search shows FleetTable only references FleetFilters and Overview.fleet_overview, with no live page calling FleetTable; other named components have no production references. This is a defensible dead-code cut. Preserve Overview.decisions_banner, which live pages do call, and re-run compile plus browser flows. The 250 test-line share is an estimate; measure the actual diff."
+    },
+    {
+      "id": "ui-31",
+      "holds": false,
+      "recommendation": "retain TUI Remote Control affordance while backend mode remains supported",
+      "note": "src/lib/aiur/agent_list/input.ex:108 exposes r without config, and rc_pane_borders.ex:5 treats session URL as a capability token with in-memory display. website/docs-app/guide/tui.md:47 documents the key. Zero configured default RC does not measure on-demand activation. Removing the pane URL or moving it into aiur agents could expose the capability in a broader surface; decide together with the Claude RC backend, not separately for 124 lines."
+    }
+  ]
+}

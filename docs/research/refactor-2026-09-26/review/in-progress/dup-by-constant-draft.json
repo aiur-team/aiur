@@ -1,0 +1,40 @@
+{
+  "unit_id": "dup-by-constant",
+  "status": "in-progress-not-a-raw-unit",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "coverage_notes": "All 162 cross-module module-attribute candidate groups and all 28 cross-module regex sigil groups have source-consumer assessments. Inline numbers, string keys, dynamic Regex.compile, generated code and values not represented by literal attribute expressions still need bounded coverage and semantic reconciliation. Equal values are not counted as independent extraction opportunities or savings.",
+  "evidence_artifacts": ["in-progress/constant-census-summary.json", "in-progress/constant-triage.json", "in-progress/regex-census.json", "in-progress/regex-triage.json", "in-progress/dup-review-coverage.md"],
+  "findings": [
+    {
+      "id": "dup-by-constant-01",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Ordered priced token dimensions repeat across usage owners",
+      "locations": [
+        {"path": "src/lib/aiur/usage/price_table/data.ex", "lines": "17"},
+        {"path": "src/lib/aiur/usage/price_table/validator.ex", "lines": "8"},
+        {"path": "src/lib/aiur/usage/pricing/components.ex", "lines": "4"},
+        {"path": "src/lib/aiur/usage_envelope/relationship_registry.ex", "lines": "13"}
+      ],
+      "description": "Four identical five-element lists define the priced/reconciled dimension order. UsageEnvelope derives that subset from six raw fields, and Pricing.Components uses order in zero-value selection. A single low-dependency owner is plausible. This corroborates telemetry-usage-34; it is not a separate estimated saving and must preserve provider-specific admission.",
+      "recommendation": "Share the ordered priced-dimension vocabulary below the envelope and pricing layers; keep raw-total and provider/component policies separate.",
+      "effort": "S",
+      "refactor_hint": "usage/dimensions",
+      "overlaps": ["telemetry-usage-34"]
+    },
+    {
+      "id": "dup-by-constant-02",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Model catalog refresh budget mirrors the CLI probe budget",
+      "locations": [
+        {"path": "src/lib/aiur/model_catalog.ex", "lines": "21-27"},
+        {"path": "src/lib/aiur/model_discovery.ex", "lines": "82-87"}
+      ],
+      "description": "Both attributes use 20,000 ms and ModelDiscovery comments that refresh_now matches the CLI probe timeout. Since the refresh wraps the probe, equal numeric values leave no explicit allowance for setup/cleanup overhead. Source alone does not demonstrate a timeout incident.",
+      "recommendation": "Define the nested budget relationship explicitly and test boundary timing with an injected slow probe before choosing one owner or changing the values.",
+      "effort": "S",
+      "refactor_hint": "model catalog/probe"
+    }
+  ]
+}

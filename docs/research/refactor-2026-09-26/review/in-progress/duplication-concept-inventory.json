@@ -1,0 +1,423 @@
+{
+  "status": "index-only",
+  "raw_units": 29,
+  "duplication_findings": 275,
+  "units": [
+    {
+      "unit_id": "agent-backends-cc",
+      "finding_ids": [
+        "agent-backends-cc-04",
+        "agent-backends-cc-11",
+        "agent-backends-cc-13",
+        "agent-backends-cc-14",
+        "agent-backends-cc-20",
+        "agent-backends-cc-30",
+        "agent-backends-cc-32",
+        "agent-backends-cc-33",
+        "agent-backends-cc-38",
+        "agent-backends-cc-43"
+      ]
+    },
+    {
+      "unit_id": "agent-backends-oc",
+      "finding_ids": [
+        "agent-backends-oc-16",
+        "agent-backends-oc-20",
+        "agent-backends-oc-31",
+        "agent-backends-oc-33",
+        "agent-backends-oc-36"
+      ]
+    },
+    {
+      "unit_id": "agent-runtime",
+      "finding_ids": [
+        "agent-runtime-03",
+        "agent-runtime-19",
+        "agent-runtime-22",
+        "agent-runtime-23",
+        "agent-runtime-32",
+        "agent-runtime-40"
+      ]
+    },
+    {
+      "unit_id": "build-order",
+      "finding_ids": [
+        "build-order-05",
+        "build-order-06",
+        "build-order-12",
+        "build-order-16",
+        "build-order-17",
+        "build-order-18",
+        "build-order-20",
+        "build-order-35"
+      ]
+    },
+    {
+      "unit_id": "dup-by-body",
+      "finding_ids": [
+        "dup-by-body-01",
+        "dup-by-body-02",
+        "dup-by-body-03",
+        "dup-by-body-04",
+        "dup-by-body-05",
+        "dup-by-body-06",
+        "dup-by-body-07",
+        "dup-by-body-08",
+        "dup-by-body-09",
+        "dup-by-body-10",
+        "dup-by-body-11",
+        "dup-by-body-12",
+        "dup-by-body-13",
+        "dup-by-body-14",
+        "dup-by-body-15",
+        "dup-by-body-16",
+        "dup-by-body-17",
+        "dup-by-body-18",
+        "dup-by-body-19",
+        "dup-by-body-20",
+        "dup-by-body-21",
+        "dup-by-body-22",
+        "dup-by-body-23",
+        "dup-by-body-24",
+        "dup-by-body-25",
+        "dup-by-body-26",
+        "dup-by-body-27",
+        "dup-by-body-28",
+        "dup-by-body-29",
+        "dup-by-body-30",
+        "dup-by-body-31",
+        "dup-by-body-32",
+        "dup-by-body-33",
+        "dup-by-body-34",
+        "dup-by-body-35",
+        "dup-by-body-36",
+        "dup-by-body-37",
+        "dup-by-body-38",
+        "dup-by-body-39",
+        "dup-by-body-40",
+        "dup-by-body-41",
+        "dup-by-body-42",
+        "dup-by-body-43",
+        "dup-by-body-44",
+        "dup-by-body-45",
+        "dup-by-body-46",
+        "dup-by-body-47",
+        "dup-by-body-48",
+        "dup-by-body-49",
+        "dup-by-body-50",
+        "dup-by-body-51",
+        "dup-by-body-52",
+        "dup-by-body-53",
+        "dup-by-body-54",
+        "dup-by-body-55",
+        "dup-by-body-56",
+        "dup-by-body-57",
+        "dup-by-body-58",
+        "dup-by-body-59",
+        "dup-by-body-60"
+      ]
+    },
+    {
+      "unit_id": "events-webhooks-executor",
+      "finding_ids": [
+        "events-webhooks-executor-07",
+        "events-webhooks-executor-08",
+        "events-webhooks-executor-09",
+        "events-webhooks-executor-10",
+        "events-webhooks-executor-15",
+        "events-webhooks-executor-17",
+        "events-webhooks-executor-18",
+        "events-webhooks-executor-28",
+        "events-webhooks-executor-29",
+        "events-webhooks-executor-32"
+      ]
+    },
+    {
+      "unit_id": "github-a",
+      "finding_ids": [
+        "github-a-03",
+        "github-a-05",
+        "github-a-07",
+        "github-a-08",
+        "github-a-09",
+        "github-a-16",
+        "github-a-17",
+        "github-a-18",
+        "github-a-25"
+      ]
+    },
+    {
+      "unit_id": "github-b",
+      "finding_ids": [
+        "github-b-05",
+        "github-b-07",
+        "github-b-12",
+        "github-b-13",
+        "github-b-30",
+        "github-b-32",
+        "github-b-35"
+      ]
+    },
+    {
+      "unit_id": "loose-1",
+      "finding_ids": [
+        "loose-1-08",
+        "loose-1-09",
+        "loose-1-13",
+        "loose-1-16",
+        "loose-1-17",
+        "loose-1-18",
+        "loose-1-20",
+        "loose-1-33",
+        "loose-1-34"
+      ]
+    },
+    {
+      "unit_id": "loose-2",
+      "finding_ids": [
+        "loose-2-11",
+        "loose-2-12",
+        "loose-2-13",
+        "loose-2-14",
+        "loose-2-15",
+        "loose-2-16",
+        "loose-2-23",
+        "loose-2-28",
+        "loose-2-29",
+        "loose-2-33",
+        "loose-2-37",
+        "loose-2-39"
+      ]
+    },
+    {
+      "unit_id": "loose-3",
+      "finding_ids": [
+        "loose-3-06",
+        "loose-3-11",
+        "loose-3-13",
+        "loose-3-14",
+        "loose-3-15",
+        "loose-3-18",
+        "loose-3-24",
+        "loose-3-28",
+        "loose-3-29",
+        "loose-3-30",
+        "loose-3-31",
+        "loose-3-34",
+        "loose-3-38",
+        "loose-3-39",
+        "loose-3-40",
+        "loose-3-42"
+      ]
+    },
+    {
+      "unit_id": "loose-4",
+      "finding_ids": [
+        "loose-4-12",
+        "loose-4-13",
+        "loose-4-14",
+        "loose-4-16",
+        "loose-4-19",
+        "loose-4-26",
+        "loose-4-30"
+      ]
+    },
+    {
+      "unit_id": "nonelixir-shell",
+      "finding_ids": [
+        "nonelixir-shell-03",
+        "nonelixir-shell-04",
+        "nonelixir-shell-06",
+        "nonelixir-shell-08",
+        "nonelixir-shell-10",
+        "nonelixir-shell-11",
+        "nonelixir-shell-16",
+        "nonelixir-shell-17",
+        "nonelixir-shell-19",
+        "nonelixir-shell-23",
+        "nonelixir-shell-24",
+        "nonelixir-shell-28",
+        "nonelixir-shell-33"
+      ]
+    },
+    {
+      "unit_id": "nonelixir-web",
+      "finding_ids": []
+    },
+    {
+      "unit_id": "orch-a",
+      "finding_ids": [
+        "orch-a-02",
+        "orch-a-09",
+        "orch-a-13",
+        "orch-a-14",
+        "orch-a-15",
+        "orch-a-16",
+        "orch-a-20",
+        "orch-a-25",
+        "orch-a-28",
+        "orch-a-30"
+      ]
+    },
+    {
+      "unit_id": "orch-b",
+      "finding_ids": [
+        "orch-b-04",
+        "orch-b-05",
+        "orch-b-06",
+        "orch-b-10",
+        "orch-b-20",
+        "orch-b-21",
+        "orch-b-22",
+        "orch-b-24",
+        "orch-b-27",
+        "orch-b-28",
+        "orch-b-29",
+        "orch-b-38",
+        "orch-b-39"
+      ]
+    },
+    {
+      "unit_id": "platform-misc",
+      "finding_ids": [
+        "platform-misc-10",
+        "platform-misc-14",
+        "platform-misc-15",
+        "platform-misc-16",
+        "platform-misc-17",
+        "platform-misc-20",
+        "platform-misc-21",
+        "platform-misc-22",
+        "platform-misc-24",
+        "platform-misc-28",
+        "platform-misc-30",
+        "platform-misc-33",
+        "platform-misc-36"
+      ]
+    },
+    {
+      "unit_id": "skills-prompts",
+      "finding_ids": []
+    },
+    {
+      "unit_id": "telemetry-usage",
+      "finding_ids": [
+        "telemetry-usage-07",
+        "telemetry-usage-18",
+        "telemetry-usage-19",
+        "telemetry-usage-22",
+        "telemetry-usage-32",
+        "telemetry-usage-34"
+      ]
+    },
+    {
+      "unit_id": "tests-1a",
+      "finding_ids": []
+    },
+    {
+      "unit_id": "tests-1b",
+      "finding_ids": []
+    },
+    {
+      "unit_id": "tests-1c",
+      "finding_ids": [
+        "tests-1c-06",
+        "tests-1c-14",
+        "tests-1c-15",
+        "tests-1c-16",
+        "tests-1c-22",
+        "tests-1c-24"
+      ]
+    },
+    {
+      "unit_id": "tests-2",
+      "finding_ids": [
+        "tests-2-03",
+        "tests-2-05",
+        "tests-2-08",
+        "tests-2-16",
+        "tests-2-17",
+        "tests-2-18",
+        "tests-2-19",
+        "tests-2-20",
+        "tests-2-21",
+        "tests-2-22",
+        "tests-2-26",
+        "tests-2-32"
+      ]
+    },
+    {
+      "unit_id": "tests-3",
+      "finding_ids": [
+        "tests-3-08",
+        "tests-3-09",
+        "tests-3-10",
+        "tests-3-11",
+        "tests-3-12",
+        "tests-3-21"
+      ]
+    },
+    {
+      "unit_id": "tests-4",
+      "finding_ids": []
+    },
+    {
+      "unit_id": "tests-5",
+      "finding_ids": [
+        "tests-5-08",
+        "tests-5-09",
+        "tests-5-10",
+        "tests-5-11",
+        "tests-5-12",
+        "tests-5-19",
+        "tests-5-25",
+        "tests-5-29"
+      ]
+    },
+    {
+      "unit_id": "tests-6",
+      "finding_ids": [
+        "tests-6-04",
+        "tests-6-13",
+        "tests-6-14",
+        "tests-6-15",
+        "tests-6-16",
+        "tests-6-24",
+        "tests-6-31"
+      ]
+    },
+    {
+      "unit_id": "web-occ",
+      "finding_ids": [
+        "web-occ-02",
+        "web-occ-04",
+        "web-occ-11",
+        "web-occ-16",
+        "web-occ-17",
+        "web-occ-18",
+        "web-occ-19",
+        "web-occ-20",
+        "web-occ-21",
+        "web-occ-30"
+      ]
+    },
+    {
+      "unit_id": "web-rest",
+      "finding_ids": [
+        "web-rest-03",
+        "web-rest-07",
+        "web-rest-09",
+        "web-rest-10",
+        "web-rest-11",
+        "web-rest-15",
+        "web-rest-17",
+        "web-rest-18",
+        "web-rest-20",
+        "web-rest-21",
+        "web-rest-29",
+        "web-rest-33"
+      ]
+    }
+  ],
+  "limits": "Counts only findings explicitly categorized duplication in raw review files. It does not detect additional concepts, verify source assertions, deduplicate overlapping IDs, assess severity, or imply removable LOC."
+}

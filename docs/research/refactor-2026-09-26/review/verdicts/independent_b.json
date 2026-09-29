@@ -1,0 +1,1281 @@
+{
+  "reviewer": "independent_b",
+  "snapshot_commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "scope": "Independent skeptical source review of inherited P0/P1 findings; source-level evidence, not live incident frequency",
+  "verdicts": [
+    {
+      "id": "agent-backends-cc-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "turn_events.ex:9-10 calls port_metadata on each event; turn_loop.ex:156 calls it in the notification path; app_server_port.ex:212-218 invokes process_group_for_pid; remote_control.ex:283-294 and 448-466 run ps with retries. This is synchronous work in a streamed hot path.",
+      "limitations": "The per-turn delta count and observed CPU/latency cost were not measured; the remote worker-host assertion needs separate route-specific confirmation."
+    },
+    {
+      "id": "agent-backends-cc-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "claude/config.ex:33-37 maps every unrecognized permission_mode to bypassPermissions, while config/schema/agent.ex:76-83 casts an unrestricted string and Claude.Config.validate! checks only command. A typo in a configured stricter value changes effective permission policy.",
+      "limitations": "Default bypassPermissions is intentional in this revision; this finding concerns a configured invalid value, not the default itself."
+    },
+    {
+      "id": "agent-backends-cc-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "display_tailer.ex:322-325 truncates at max_body bytes with binary_part, then forwards the resulting body and output at 290-295. A multibyte codepoint straddling the byte boundary yields invalid UTF-8. issue_log.ex:993-1009 documents the same previously fixed failure at a different boundary.",
+      "limitations": "The exact downstream database and channel failure paths were source-traced, not reproduced with a live socket; the truncation defect itself is deterministic."
+    },
+    {
+      "id": "agent-backends-cc-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "claude/coding_agent.ex:143-159 checks only expanded path prefix; codex/app_server_port.ex:12-38 canonicalizes both paths and detects symlink escape. Claude stop_port at 443-462 merely closes the port whereas Codex at 144-172 reaps descendants first. These are concrete safety divergence examples, not just similar code.",
+      "limitations": "The broad claim that all duplicated session plumbing should become one abstraction is a design recommendation; affected Claude deployment prevalence is unmeasured."
+    },
+    {
+      "id": "agent-backends-cc-05",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "claude/remote_control.ex houses process-group and kill helpers and is imported by codex/app_server_port.ex:141,158 and app_server/adapter.ex:253. The ownership and dependency direction are as claimed.",
+      "limitations": "Naming/package placement alone does not establish a P1 runtime failure. The proposed split needs caller and lifecycle contracts before implementation."
+    },
+    {
+      "id": "agent-backends-cc-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "codex/dynamic_tool.ex:1-26 hosts common tool dispatch; its LinearGraphQL and ReviewThreads handlers default directly to LinearClient.graphql and GitHubClient review mutations, while Claude imports the common tool surface. This is a real package ownership conflict.",
+      "limitations": "A misplaced shared surface is architectural debt; the evidence does not show a P1 operational defect or quantify the claimed 1,400 lines as removable."
+    },
+    {
+      "id": "agent-backends-cc-07",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "notification_policy.ex:36-53 falls back to payload_text for every map; lines 184-195 recursively include both map keys and values. repl/hook_turn.ex:115-122 passes the entire stop_failure event.raw, so unrelated path or message text can contain a limit marker.",
+      "limitations": "Actual misclassification frequency is unknown, and individual transcript records may have a narrower shape than the raw hook event."
+    },
+    {
+      "id": "agent-backends-cc-08",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "remote_control.ex:73-86 reads and rewrites all of ~/.claude.json via Fs.atomic_write without preservation options. fs.ex:19-52 uses a temporary file and rename but contains no backup, cross-process lock or original-mode transfer. The documentation's backup-guarded guarantee is contradicted by the implementation.",
+      "limitations": "No concurrent-write incident or original file mode was observed; loss and mode change are reachable races/conditions, not measured rates."
+    },
+    {
+      "id": "agent-backends-oc-01",
+      "holds": true,
+      "severity": "P0",
+      "evidence": "chat_completions.ex:39-56 routes valid models into marker handling without authorization; 131-149 forwards coalesced text before stream. operator_dispatch.ex:17-25 checks Caller.authorize only in the ordinary text branch. Bridge has no outer auth plug.",
+      "limitations": "Loopback exposure is deployment-dependent; a reachable local agent process suffices. A newer Muse branch is outside this frozen verdict."
+    },
+    {
+      "id": "agent-backends-oc-02",
+      "holds": true,
+      "severity": "P0",
+      "evidence": "command_runner.ex:10 names GITHUB_TOKEN and GH_TOKEN for inheritance; 80-99 copies nonempty daemon values after clearenv; 207-215 drops scrub/unset entries. This directly violates the stated raw-token isolation contract.",
+      "limitations": "The claim requires one token in daemon environment; deployment may supply a credential file instead, but the supported dotenv path does populate it."
+    },
+    {
+      "id": "agent-backends-oc-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "session_writer.ex:190-202 and 221-255 suppress SQL writes when live_stream_active?; 261-267 defines that only as ActiveTurns IDs, not bridge subscriber presence. TurnStream closure can therefore leave an active turn with no sink.",
+      "limitations": "Window frequency and precise event loss were not measured in a live chat pane; the state predicate is demonstrably insufficient."
+    },
+    {
+      "id": "agent-backends-oc-04",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "attach_pool.ex:899-916, hidden_window.ex:104-120 and slot/attach_pane.ex:48-62 hard-code aiur-orangekid-default and swallow command failures. Other users and instance keys cannot hit that target.",
+      "limitations": "AttachPool.ensure_hidden_geometry may be dead; the other call sites establish a current resize defect. Claimed 5-7 second cost was not measured here."
+    },
+    {
+      "id": "agent-backends-oc-05",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "sensitive_responses.ex:87-100 falls back to retained_for_port? for any unmatched binary and does not remove retained IDs; await.ex:34-36 retains a timed-out sensitive request. This can suppress later malformed lines until cleanup.",
+      "limitations": "The downstream quota-misclassification consequence requires a qualifying provider banner and was not reproduced; severity is lower than the inherited P1 absent occurrence evidence."
+    },
+    {
+      "id": "agent-backends-oc-06",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "attach_pool.ex:106-110 uses the 5-second GenServer.call default and converts exits to :miss; handle_call at 203-208 enters synchronous consume_via_slot, which invokes Slot.set_visible. Other readers have 1-second calls and fallback values.",
+      "limitations": "A concrete slow slot move is required; the claimed duplicate pane and stale mailbox reply were source-inferred, not witnessed."
+    },
+    {
+      "id": "agent-backends-oc-07",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "slot.ex:192-198, 213-229 and 403-405 keep the Slot process alive with status :failed; no restart follows from a supervisor while the child remains alive. The documented restart behavior is therefore false.",
+      "limitations": "An actual boot or serve failure is required. Recovery may occur through an external restart not represented in these state transitions."
+    },
+    {
+      "id": "agent-backends-oc-08",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "slot_policy.ex:236-270 has no termination handler; grow_slot at 303-320 increments highest_started and keeps live_slots, and start_slots at 376-393 uses next_missing_slot. A dead registered slot is not removed from policy state.",
+      "limitations": "A supervisor restart with the same slot index may mask some failures; the policy itself does not reconcile the count."
+    },
+    {
+      "id": "agent-backends-oc-09",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "db.ex:66-78 commits regardless of a returned {:error, reason} and discards COMMIT result. session_writer.ex:352-355 discards root insert result, and replay_events at 404-412 counts only successes. Transaction reporting can therefore contradict persistence.",
+      "limitations": "The exact SQLite error condition was not induced; the control-flow defect is visible without one."
+    },
+    {
+      "id": "agent-backends-oc-10",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "tool_call_ledger.ex:43-51 loads all durable entries; 109-126 writes a running entry on claim and the completion path retains done result. No retention or deletion path was found in the module, so memory and store grow with lifetime calls.",
+      "limitations": "The 2 GB DETS endpoint and fsync throughput were not measured; classify these as predicted consequences, not observed impact."
+    },
+    {
+      "id": "agent-backends-oc-11",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "active_turns.ex:171-176 and token_registry.ex ensure_table create named public ETS tables in whichever process calls first. An owner restart followed by a short-lived caller can erase fresh tokens/turn state; concurrent creation can race.",
+      "limitations": "The initial supervised boot path may normally make the intended owner first. This concerns restart/race windows, not ordinary steady state."
+    },
+    {
+      "id": "agent-runtime-01",
+      "holds": true,
+      "severity": "P0",
+      "evidence": "QueueDrain paused branches and pause-agent receives omit PauseContainment.confirm while TurnLoop confirms; the containment fallback is armed for paused Codex sessions. The five-second timer can reap a deliberately paused process group.",
+      "limitations": "Applies to the queue-drain pause paths, not every pause; exact timer execution was not reproduced."
+    },
+    {
+      "id": "agent-runtime-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "QueueDrain hard-matches :ok on fallible Orchestrator restore/consume calls; TurnLoop explicitly uses best-effort bookkeeping for these replies. A transient {:error, :unavailable} becomes a MatchError on queue turns.",
+      "limitations": "How often the Orchestrator returns the transient error is not measured."
+    },
+    {
+      "id": "agent-runtime-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "turn_loop.ex:83-225 and queue_drain.ex:618-791 implement parallel turn pipelines; the missing containment confirmation and differing queue error handling are concrete divergent safety behavior.",
+      "limitations": "Sharing the whole pipeline is a design choice; this verdict confirms the drift, not a particular extraction strategy."
+    },
+    {
+      "id": "agent-runtime-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "claude/repl/operator_inject.ex:74-87 invokes on_failure after send failure without checking its result; CheckpointDelivery callback restores queue state through a fallible Orchestrator call. If restore fails, delivered state can survive to the normal consume sweep.",
+      "limitations": "Requires both send failure and restore failure; no live frequency or replay outcome was observed."
+    },
+    {
+      "id": "agent-runtime-05",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "ToolExecutor chooses issue.id before issue.identifier for coordination keys, while bootstrap_digest.ex:53-55 and the runner use identifier. A tracker whose opaque id differs from its visible identifier can route tool events to another key.",
+      "limitations": "GitHub id and identifier coincide in the cited normalizer, so impact is confined to trackers with distinct IDs."
+    },
+    {
+      "id": "agent-runtime-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "Tmux.Protocol is a control-mode parser but production Tmux shells out per command and has no producer for {:tmux_event, _}; PaneManager subscription cannot receive pane-died in ordinary operation.",
+      "limitations": "Lazy pane reconciliation may limit user impact; dead code alone is below P1 severity."
+    },
+    {
+      "id": "agent-runtime-07",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "agent_list/input.ex:110-111 sends ? to help toggle and q unconditionally to App.quit; the overlay text says q leaves help. App.quit enters full shutdown, so the displayed instruction can stop the daemon.",
+      "limitations": "The user must follow the help instruction; whether a launcher restarts after shutdown is deployment-dependent."
+    },
+    {
+      "id": "agent-runtime-08",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "bootstrap_digest.ex:140 onward logs and returns :ok after enqueue failure, and CommentContext converts fetch failures to empty collections. First-turn context can omit missed events/review comments without retry.",
+      "limitations": "A later poll or operator message may eventually deliver some information; permanent loss is not established for every event."
+    },
+    {
+      "id": "agent-runtime-09",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "Generic AgentRunner references Codex/Claude-specific modules and Orchestrator internals directly. This is a real dependency direction obstacle for package extraction.",
+      "limitations": "The source claim is architectural; it does not demonstrate a P1 production defect."
+    },
+    {
+      "id": "build-order-01",
+      "holds": true,
+      "severity": "P0",
+      "evidence": "ticket_detail_coordinator.ex:145-153 refreshes any nonfresh, noninflight entry; policy.ex:73-77 deems failures nonfresh. Failure completion broadcasts and the open LiveView requests again, closing an unbacked feedback loop.",
+      "limitations": "Requires an open drawer and a persistent failed read; call rate was not measured."
+    },
+    {
+      "id": "build-order-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "ticket_detail_sanitizer.ex:158-169 rejects body byte_size over limit before sanitizing; the normalizer propagates that error to the whole detail snapshot, with an effective 16 KiB cap.",
+      "limitations": "The prevalence of >16 KiB issue bodies is uncounted; the claim is conditional on one."
+    },
+    {
+      "id": "build-order-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "graph_projection.ex:318-329 ignores the reconciliation result but stamps last_reconciliation_ms; 341-349 also clears crashed task state without retry. A failed boot reconciliation is therefore treated as complete until another trigger.",
+      "limitations": "Delivery-mode and later refresh triggers determine duration of staleness; absence of all recovery is configuration-dependent."
+    },
+    {
+      "id": "build-order-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "github_graph/reconciliation.ex:66-72 clears every sub_issue edge before redeposit; queries.ex:38-40 explicitly acknowledges first-100 member limit. Membership beyond page one can disappear at each reconciliation.",
+      "limitations": "Requires a root with >100 members or invalid connection; actual current root population should be counted before sizing remediation."
+    },
+    {
+      "id": "build-order-05",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "catalog_store.ex:118 onward explicitly mirrors GitHubGraph.Normalizer; its first-100 member cap differs from normalizer treatment of incomplete connections. Shared metric rules have diverged.",
+      "limitations": "The affected >100-member population is not counted, so P1 impact is not established by duplication alone."
+    },
+    {
+      "id": "build-order-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "planning_source.ex:872-875 accepts github.number while pack_status.ex:372-373 recognizes only ticket. Equivalent manifest ticket references can receive different materialization/status treatment.",
+      "limitations": "Need a census of real manifests using github.number alone before calling this P1."
+    },
+    {
+      "id": "build-order-07",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "graph_projection_policy.ex:185 maps :auth and :forbidden, but github/errors.ex:137-139 emits :permission for ordinary 403. The fallback labels a permission failure as provider unavailable.",
+      "limitations": "This is a misleading diagnostic with potentially material troubleshooting cost, but no P1 outage follows from the classifier alone."
+    },
+    {
+      "id": "build-order-08",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "graph_projection.ex:823-829 computes member_labels? and passes reader options, while the configured CatalogStore reader ignores that flag. The separate label-read cadence has no effect on its reads.",
+      "limitations": "Dead machinery is a deletion candidate; no P1 runtime regression is shown. Verify alternate reader injection before removing."
+    },
+    {
+      "id": "build-order-09",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "graph_projection.ex is 1,825 lines with catalog, selected scopes, reconciliation and subscriptions in one GenServer; Options constructs a wide state map. The responsibility count is supportable from source.",
+      "limitations": "Size and cohesion are maintainability findings, not P1 failures; extracting modules should retain atomic projection behavior."
+    },
+    {
+      "id": "build-order-10",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "graph_projection.ex:381-389 reschedules through reconcile before request_scope; request_scope defers at max_inflight (794-795) while due retry state can re-arm a 0 ms timer. The control flow permits repeated immediate messages under saturation.",
+      "limitations": "Static trace only; a bounded scheduler reproduction is still needed to establish rate and CPU impact."
+    },
+    {
+      "id": "build-order-11",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "graph_projection.ex:1513-1525 rescues subscription failures as :ok; options.ex:193-199 suppresses resource subscription failure. No retry is visible, so an event-sourced projection can miss all future resource changes after boot race.",
+      "limitations": "Requires subscription failure at startup; supervisor ordering may make it rare."
+    },
+    {
+      "id": "build-order-12",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "AdHocSource and OpenTicketSource duplicate overlay lifecycle functions; ad_hoc_source.ex:274-282 follows unlimited Link pages, while OpenTicketSource caps them. The paging difference is concrete.",
+      "limitations": "The uncontrolled page count depends on real labelled issue volume; no P1 measured cost is supplied."
+    },
+    {
+      "id": "build-order-27",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "github/issues.ex imports BuildOrder.Bounded for repository validation, demonstrating upward dependency from GitHub infrastructure into the proposed Build Order boundary; other cited imports show the same pattern.",
+      "limitations": "Dependency direction is planning-relevant, not a P1 operational defect."
+    },
+    {
+      "id": "events-webhooks-executor-01",
+      "holds": true,
+      "severity": "P0",
+      "evidence": "subscription_store.ex:375-393 drops IDs at/below cursor; retry_stalled at 398 onward resolves by re-sending buffered events to its own mailbox. Newer already-queued messages precede those sends and can move the cursor, silently discarding buffered events.",
+      "limitations": "Requires a transient stall and a newer event already queued; no live event-loss count was measured."
+    },
+    {
+      "id": "events-webhooks-executor-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "claims.ex:256-260 permits B to claim when A is expired; do_renew at 265 onward touches A by ID without checking that a newer owner exists. Two live owner roles can result.",
+      "limitations": "Requires A to renew after lease lapse and B takeover; effect on actual acknowledgement order should be covered by a state test."
+    },
+    {
+      "id": "events-webhooks-executor-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "github_ci_poller.ex:23-33 fans targets with 60-second task deadlines; the Orchestrator lifecycle calls poll synchronously. Slow GitHub calls can block the one Orchestrator mailbox.",
+      "limitations": "Fleet size and actual poll duration were not measured; worst-case formula is a bound, not an observed stall."
+    },
+    {
+      "id": "events-webhooks-executor-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "delivery_mode.ex:218-225 emits never_delivered for configured_unproven with any activity and zero deliveries, without comparing threshold_ms. mode_registry.ex:186-196 resets observed activity on restart.",
+      "limitations": "False alert needs a newly observed activity before a delivery; a post-restart delivery before sweep avoids it."
+    },
+    {
+      "id": "events-webhooks-executor-05",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "github_webhook/normalizer.ex:579-589 states REST webhook PR context lacks reviewDecision/head date and emits nil; github_comments_poller.ex:487-495 supplies them only from GraphQL. First-publisher dedup can make rework routing depend on arrival order.",
+      "limitations": "The word always is too broad if a future payload carries fields; current source path and webhook-shaped REST payload support the conditional defect."
+    },
+    {
+      "id": "events-webhooks-executor-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "events/publisher.ex:41-46 imports GitHub.Config, AgentMarker, ResourceStore and Webhooks, then calls Webhooks.record_activity at 171-179; SubscriptionStore reaches Orchestrator. The proposed generic Events boundary has upward dependencies.",
+      "limitations": "Architectural blocker, not a demonstrated P1 failure."
+    },
+    {
+      "id": "github-a-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "code_owners.ex:36-42 promises preserving previous allowlist, but do_refresh at 181-191 rebuilds allowlist from fresh resolution; failed team expansion returns empty. Trusted team members can disappear on refresh.",
+      "limitations": "Revocation of already-running agents depends on dispatch policy and active-state reevaluation; source path supports it but incident frequency is unknown."
+    },
+    {
+      "id": "github-a-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "github/config.ex:604-612 converts missing or timed-out CodeOwners GenServer into []; code_owners.ex:110-112 serves snapshot synchronously. A slow refresh can make unknown trust look like explicit denial.",
+      "limitations": "Requires allowed_users fallback to CODEOWNERS and a busy or absent server."
+    },
+    {
+      "id": "github-a-03",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "budget_map.ex:291-301 reports unavailable when glob finds no agent-cache files; its default glob omits match_dot while the runtime directory is hidden. Parser at 455 onward assumes a narrower row shape than the writer.",
+      "limitations": "The glob claim was not exercised in this review environment; regardless, this is a diagnostic panel defect rather than P1 dispatch risk."
+    },
+    {
+      "id": "github-a-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "github/comments.ex:124-134 makes one per_page=100 read via fetch_json_list, whereas fetch_issue_comments_conditional at 89 onward uses its pagination-aware path. For oldest-first issues comments, comments beyond 100 are absent from classified context.",
+      "limitations": "Requires >100 issue/PR conversation comments; current ticket prevalence was not counted."
+    },
+    {
+      "id": "github-a-05",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "github/config.ex:841 onward documents hardened pgrep parsing; claude/remote_control.ex:427-436 still String.to_integer parses stderr-merged pgrep output and can raise on nonnumeric output.",
+      "limitations": "A pgrep success status with malformed output is required; duplicate process-tree code itself is maintainability debt."
+    },
+    {
+      "id": "github-a-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "github/client.ex:6 aliases BuildOrder.GitHubGraph and ProviderResult; 89-97 delegates catalog and selected-root reads back into Build Order, establishing a package cycle with GitHub transport.",
+      "limitations": "The count of unused delegates needs whole-repo call analysis; cycle alone is planning debt, not a P1 runtime defect."
+    },
+    {
+      "id": "github-a-07",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "CodeOwners.parse_codeowners token validation treats inline comment tokens as malformed, while Aiur.Codeowners strips trailing # comments. The same CODEOWNERS text can therefore classify comments but collapse dispatch allowlist to trusted accounts.",
+      "limitations": "Affected repository CODEOWNERS syntax should be counted; if no inline comments, impact is latent."
+    },
+    {
+      "id": "github-a-08",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "github/config.ex:413-417 preserves input case while 446-451 explicitly validates bot suffix case-insensitively; BotIdentity and Codeowners agent_login? use different comparisons.",
+      "limitations": "The exact 11-site count is not independently recounted; operational effect needs a mixed-case configured login."
+    },
+    {
+      "id": "github-b-01",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "github/resource_store.ex:1-254 owns lifecycle and checkpoint contract; 295 onward defines consumer resource types in one shared module. It is a broad mutable cross-package boundary.",
+      "limitations": "Size and coupling are confirmed architectural concerns but not a P1 defect by themselves; do not treat line count as removable LOC."
+    },
+    {
+      "id": "github-b-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "github/issues.ex:296-305 checks regression before put; resource_fetch.ex:206-216 writes directly. The store supports atomic update, but several order-sensitive writers bypass it, allowing a newer webhook value to be overwritten as fresh.",
+      "limitations": "Requires overlapping reads/writes to the same key; the five-writer and three-policy counts need a full caller census."
+    },
+    {
+      "id": "github-b-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "github/review_threads/reply.ex:55 onward retries an addPullRequestReviewThreadReply mutation after retryable error. A timeout or 5xx can mean the mutation succeeded but the response was lost, so retry can duplicate it.",
+      "limitations": "No idempotency key is available in the cited path; exact GitHub ambiguous-failure frequency is unknown."
+    },
+    {
+      "id": "github-b-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "github/quota.ex:136-140 makes preflight a synchronous 5-second call and catches exit as :ok. Heavy filesystem snapshot/alert work shares that GenServer, so a queued timeout fails budget admission open.",
+      "limitations": "The precise max snapshot duration and request rate need measurement; the fail-open branch makes the risk concrete."
+    },
+    {
+      "id": "github-b-05",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "quota.ex:1234-1244 classifies GraphQL direction by a leading mutation regex, while other listed modules use different recognizers. Cost and attribution labels can diverge for the same request.",
+      "limitations": "The individual examples should be verified against actual production queries before severity exceeds P2."
+    },
+    {
+      "id": "github-b-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "github/transport.ex:466-474 knows the Orchestrator process; github/quota.ex:36-45 imports Workspace.Layout and other nontransport state. Together with Client/BuildOrder references this blocks a clean GitHub package boundary.",
+      "limitations": "Architectural coupling, not directly a P1 operator-visible defect."
+    },
+    {
+      "id": "loose-1-01",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "decision_store.ex is 4,826 lines and combines durable event writer, projection repair, command lifecycle, delivery, dispatch scheduling and alerts in one GenServer. These responsibilities have different change reasons.",
+      "limitations": "Size alone is not P1; extraction must preserve persist-before-notify ordering."
+    },
+    {
+      "id": "loose-1-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "decision_store.ex:4365-4368 sets writable?: false on lifecycle append failure with Logger.error only; dispatch reads blocked_ticket_ids and fails closed when store health is unreadable. No in-process recovery branch was found.",
+      "limitations": "A durable append failure is required; restart recovery is available but operator visibility is poor without debug."
+    },
+    {
+      "id": "loose-1-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "decision_store.ex:733-764 treats derived projection write failure as store read-only. Mutations append first and some publication paths test next_state.writable?, so durable accepted events can remain unannounced.",
+      "limitations": "Exact caller path matters for each lifecycle event; the broad every-event wording should not be inferred."
+    },
+    {
+      "id": "loose-1-11",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "decision_store.ex:3256-3261 directly calls Tracker and Orchestrator.DispatchPolicy from a default terminal resolver, confirming upward dependency from decisions state to tracking/dispatch.",
+      "limitations": "This obstructs a proposed package boundary but is not itself a P1 runtime failure."
+    },
+    {
+      "id": "loose-1-26",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "commands_cli.ex:4-5 imports AiurWeb.OperatorControlCenter.DecisionProvider and calls it at 107-113. The core CLI currently requires a web presenter dependency.",
+      "limitations": "The cited 15 other core imports were not individually counted in this verdict; architectural coupling is P2."
+    },
+    {
+      "id": "loose-2-01",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "agent_control_cli.ex is 3,408 lines, imports numerous independent subsystems and renders many distinct control commands. The source supports the responsibility concentration.",
+      "limitations": "Neither module length nor number of commands alone establishes a P1 failure."
+    },
+    {
+      "id": "loose-2-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "agent_control_cli.ex:187 onward prints several subsystem statuses serially after fleet sample; multiple GenServer reads have independent timeouts and BuildGate/Asks work can exceed launcher response budget.",
+      "limitations": "The sum of worst cases is a bound; typical latency and exact 10-second cut behavior require execution evidence."
+    },
+    {
+      "id": "loose-2-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "build_gate.ex:152 onward runs lock scans; 227 onward invokes external python without a bounded call. Dispatch admission synchronously reads this status in the Orchestrator process, so a hung scan can block its mailbox.",
+      "limitations": "Only when BuildGate is enabled and status reaches that path; no observed hang duration supplied."
+    },
+    {
+      "id": "loose-2-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "executor_events.ex:454 onward maps any JsonStore.read failure to empty subscribed_to/cursor; subscribe at 77-82 writes the derived state back. A transient unreadable file can be overwritten, and writers have no shared transaction.",
+      "limitations": "Requires read failure or overlapping writers; subscription-loss frequency is unknown."
+    },
+    {
+      "id": "loose-2-05",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "executor_events.ex:38-55 dedupes deferred events by searching journal; ensure_requested at 342-349 does likewise. The append-only journal is read in the DecisionStore notification path and corruption fails subsequent lookups.",
+      "limitations": "O(journal) cost should be measured over actual journal size; one corrupt line is a conditional hard stop."
+    },
+    {
+      "id": "loose-2-06",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "recent_merge.ex:309-313 checks persisted content hash after decoding; hash construction uses deterministic Erlang external term format of struct-derived maps. Adding a serialized field or changing encoding can invalidate old records.",
+      "limitations": "OTP upgrade instability requires a cross-version test; new-field mismatch is deterministic unless decoder supplies backward-compatible field normalization."
+    },
+    {
+      "id": "loose-2-07",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "log_file.ex:115-127 removes Logger handler when debug is off; operationally actionable boot and state degradation paths log only via Logger. The default release can therefore suppress their only signal.",
+      "limitations": "Some individual conditions may surface through status or alerts; do not generalize silence beyond listed call sites."
+    },
+    {
+      "id": "loose-4-01",
+      "holds": true,
+      "severity": "P0",
+      "evidence": "build_gate_hold_monitor.ex:77 onward returns {:ignore, %State{}} when disabled; GenServer init accepts bare :ignore, not a two-tuple. A documented zero-capacity opt-out therefore fails child startup.",
+      "limitations": "Conditional on the disabled configuration; the OTP return mismatch is direct."
+    },
+    {
+      "id": "loose-4-02",
+      "holds": true,
+      "severity": "P0",
+      "evidence": "model_availability.ex:54 and ci_approval_store.ex use :global.trans({Module, path}, fun). In global lock protocol the second tuple element identifies the requester; all callers on one path present the same requester ID and can enter concurrently.",
+      "limitations": "A concurrent write collision is required for data loss; verify with a controlled two-process lock test before changing lock design."
+    },
+    {
+      "id": "loose-4-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "ci_approval_store.ex:67-88 saves all sections from a supplied map without lock/re-read; journal_base_repair at 90-128 performs a separate locked update. A later stale save can erase a persisted repairing marker.",
+      "limitations": "Requires concurrency or stale caller state; actual repair volume not measured."
+    },
+    {
+      "id": "loose-4-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "executor_wake_inbox.ex:100-132 replays strict journal on init and fails child startup on corruption; flush_pending at 275 onward retries append without surfacing corruption. One bad line can prevent boot/recovery.",
+      "limitations": "Corrupt line is prerequisite; no prevalence census or recovery probe is supplied."
+    },
+    {
+      "id": "loose-4-05",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "executor_wake_inbox.ex:23-24 uses default 5-second enqueue call, while acknowledge_as at 58-71 holds the same GenServer through a claims lock potentially near that budget. Listener catches enqueue timeout and logs, losing a wake until replay.",
+      "limitations": "Requires overlapping slow acknowledgement and wake delivery; executor-topic replay differs from other topics."
+    },
+    {
+      "id": "loose-4-07",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "agent_resource_guard.ex:18 ticks every second and recursively collects children at 66-71; AgentProcessLog separately samples ps. Independent observers duplicate host process walks.",
+      "limitations": "The cited hundreds-of-processes-per-second rate is a hypothetical workload, not a measured baseline or saving claim."
+    },
+    {
+      "id": "loose-4-08",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "config.ex is 1,462 lines and imports BuildGate and other runtime modules; accessors mix settings reads with filesystem preparation. This is a genuine cohesion and ownership problem.",
+      "limitations": "The 114-public-function and 147-dependent-file counts were not independently reproduced; architectural severity P2."
+    },
+    {
+      "id": "loose-4-10",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "coding_agent.ex:81-268 returns backend runtime adapters alongside presentation, price and telemetry data; it imports Config while Config also reaches CodingAgent. This creates package extraction cycles.",
+      "limitations": "No direct P1 runtime defect follows from registry breadth alone."
+    },
+    {
+      "id": "loose-4-12",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "coding_agent.ex:39 and 1145 onward parse any complexity integer and take maximum, while BuildOrder and dashboard use narrower/first-label rules. The same ticket can display and route differently.",
+      "limitations": "Multiple/invalid complexity labels are prerequisite; current ticket population is unknown."
+    },
+    {
+      "id": "loose-4-21",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "aiur.ex:112-116 starts a flat :rest_for_one supervisor; early child failure restarts all later children, and start/2 performs host effects before supervisor. The cascade is inherent in the topology.",
+      "limitations": "Whether the topology is excessive depends on child dependencies and real failure behavior; broad risk without incident evidence remains P2."
+    },
+    {
+      "id": "loose-3-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "repo_base.ex:413-420 retains any error phase on dispatch refresh; default poll_seconds=0 and no production refresh_async caller leave the prewarm path latched until restart or manual trigger.",
+      "limitations": "Requires a prewarm failure under default polling; whether dispatch can still use an older base depends on failure phase."
+    },
+    {
+      "id": "loose-3-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "alert_ledger.ex caps at 8 MiB and compacts when an append would overflow; compaction fills near the cap with retained history and performs a full read/decode/fsync rewrite under the append lock.",
+      "limitations": "Steady-state every-append compaction depends on retained active/history sizes and entry size; no live latency or alert-drop count was measured."
+    },
+    {
+      "id": "loose-3-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "workflow_store.ex:279-285 retains old state on reload error; 302-311 logs it only. log_file.ex removes the default handler without debug, so a rejected config edit has no operator-facing notification.",
+      "limitations": "Initial config load may fail visibly; this finding concerns reload after a previously valid workflow."
+    },
+    {
+      "id": "loose-3-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "issue_log.ex:535-543 promises async record_event; writer_for_path at 616-620 calls writer_path synchronously per event. A timeout maps to no writer, so the marker is skipped although record_event returns :ok.",
+      "limitations": "Requires a busy per-ticket writer; event payload may remain in another durable source, so do not call this total event loss."
+    },
+    {
+      "id": "loose-3-05",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "process_reaper.ex:295-305 kills comm-guarded PIDs only if cmdline_guard permits; 323-333 treats unreadable /proc as gone. On Darwin, /proc is normally absent, so this layer skips those PIDs.",
+      "limitations": "Other backend and launcher reapers may still clean children; the claim is about this correctness-critical layer, not guaranteed orphan survival."
+    },
+    {
+      "id": "loose-3-06",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "test_reset.ex:582 onward derives <workspace_root>/<id>, while Workspace.Layout uses repository/project segments. A reset can report success while leaving the actual nested ticket worktree.",
+      "limitations": "Configuration whose root already includes the segment may avoid the mismatch; standard GitHub layout is affected."
+    },
+    {
+      "id": "loose-3-07",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "analytics_cli.ex:5 imports AiurWeb.OperatorControlCenter analytics modules and uses ScopeResolver at 69-72; Alerts/RecentMergeStore likewise reference web PubSub. This inverts proposed core/web package direction.",
+      "limitations": "Architectural extraction constraint, not P1 runtime failure."
+    },
+    {
+      "id": "loose-3-08",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "decision_dispatch.ex:19-20 imports Orchestrator.OperatorMessages and defaults to its send function at 36-40; OperatorMessages records outcomes back in DecisionStore. The runtime dependency cycle is real.",
+      "limitations": "The source does not show a P1 defect; adapters/injection may break the cycle during extraction."
+    },
+    {
+      "id": "loose-3-09",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "repo_base.ex:58 onward exports common path helpers while 258 onward starts prewarm GenServer; later sections perform migration and ledger transfer. Multiple change reasons share one 1,539-line module.",
+      "limitations": "The claimed 18 dependent modules were not independently counted; this is maintainability/packaging debt."
+    },
+    {
+      "id": "nonelixir-shell-01",
+      "holds": true,
+      "severity": "P0",
+      "evidence": "aiur-engine.sh:3520-3528 loops over every aiur-*-agents pidfile in the shared runtime root and reaps each, without instance-key filtering. Stopping one instance can terminate live agents owned by another.",
+      "limitations": "Requires two concurrent instances under the same runtime root; PID comm guard prevents reuse mistakes, not cross-instance killing."
+    },
+    {
+      "id": "nonelixir-shell-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "aiur-engine.sh:415-418 writes argv as newline-delimited records; CLI splits on newline and rejects empty strings. Multiline bodies and empty arguments cannot round-trip.",
+      "limitations": "Affected commands need arguments containing newline or empty text; an alternative direct RPC path may avoid it."
+    },
+    {
+      "id": "nonelixir-shell-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "The shipped share/aiur.tmux.conf contains the brittle Ctrl+C helper expansion and differs from the test harness copy; the engine resolves the shipped file. Tests of the other copy cannot validate production binding.",
+      "limitations": "A live tmux keypress reproduction is needed to confirm exact fallback on installed tmux versions."
+    },
+    {
+      "id": "nonelixir-shell-04",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "aiur-engine.sh:3987 onward dispatches commands from a separate list than usage and shim/npm classification. Listed omissions show documentation and build-selection drift.",
+      "limitations": "Six-list count and all runtime effects were not independently exercised; maintainability/UX severity P2."
+    },
+    {
+      "id": "nonelixir-shell-05",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "aiur-engine.sh is 4,179 lines and combines shell command parsing, daemon launch, tmux, process cleanup, distribution identity and upgrade logic. run_session is a large multipurpose function.",
+      "limitations": "Large script is a refactor candidate; length alone does not establish a P1 defect."
+    },
+    {
+      "id": "nonelixir-shell-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "aiur-engine.sh:2525 onward validates control arguments and emits Elixir RPC source while corresponding CLI modules validate decoded requests. The two surfaces duplicate command schemas.",
+      "limitations": "The exact 28/107/11 static counts need reproduction; no single behavioral failure is established by duplication alone."
+    },
+    {
+      "id": "nonelixir-shell-08",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "Launcher project-root discovery walks parents while Workflow config discovery checks cwd then user home. Starting from a nested directory can name one instance but load a different configuration.",
+      "limitations": "Requires invocation below the project root; typical root invocation is unaffected."
+    },
+    {
+      "id": "nonelixir-shell-09",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "resolve-version.mjs:71-77 makes nightly suffix a SHA. Lexicographic or SemVer comparison of SHA is unrelated to publication order, so same-base nightlies can be misordered.",
+      "limitations": "This is a release-channel upgrade defect; impact depends on installed nightly and comparison path, below P1 for daemon refactor priority."
+    },
+    {
+      "id": "nonelixir-shell-10",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "analytics/reduce.py declares the same dataset contract as RunTelemetry.Dataset and implements parallel reducers; daemon materialization refers to checkout-local script discovery.",
+      "limitations": "Need a direct outside-checkout execution before asserting universal no-op; duplication is architectural."
+    },
+    {
+      "id": "orch-a-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "IssueSync terminal pending wrapper lacks the joinable TrackerIdentity guard present in sibling wrappers; nil or unjoinable identities can be retained/re-fetched by the terminal verification path.",
+      "limitations": "P0 is overstated without prevalence or fleet-wide failure; conditional per-ticket retry churn is P1."
+    },
+    {
+      "id": "orch-a-02",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "Dispatcher and IssueSync repeat lifetime-latch configuration checks, including one active-trip path that reinterprets persisted state against current config.",
+      "limitations": "Potential stale semantics need a state-transition test; duplication alone is P2."
+    },
+    {
+      "id": "orch-a-03",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "AlertTopic keys attention until a matching resolved topic appears; cited needs_attention producers have no corresponding explicit resolver in source search. Some attentions can remain active indefinitely.",
+      "limitations": "Intentional durable attention may require human acknowledgement rather than automatic resolution; cannot call every unmatched producer a bug."
+    },
+    {
+      "id": "orch-a-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "CommentWake deactivated-entry path logs failures rather than scheduling the retry used for active/idle trusted feedback. A transient read failure can drop one review wake.",
+      "limitations": "The poller may later rediscover the comment; permanent feedback loss depends on cursor/dedup state."
+    },
+    {
+      "id": "orch-a-05",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "dispatcher.ex:2520 onward builds a wide untyped running map and other modules add keys ad hoc. The type boundary is weak and has produced missing-key hazards elsewhere.",
+      "limitations": "Exact 33-reader/16-writer counts not reproduced; map width itself is not P1."
+    },
+    {
+      "id": "orch-a-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "CommentWake defaults to Orchestrator facade functions at several points even though the facade delegates to siblings. This creates internal package dependency cycles.",
+      "limitations": "A call cycle in the dependency graph is not necessarily a runtime recursion; extraction concern P2."
+    },
+    {
+      "id": "orch-a-07",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "Dispatcher.run_poll_cycle at 53 onward combines scheduling, admission, CI probe, retry and latch policy across 2,670 lines. Multiple change reasons share a hot-path module.",
+      "limitations": "Module size and responsibility count are planning evidence, not P1 incident evidence."
+    },
+    {
+      "id": "orch-a-08",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "IssueSync spans 2,295 lines across terminal verification, label healing, alerts and dependency changes; cited source sections support broad responsibility split.",
+      "limitations": "Treat LOC as reorganization scope, not removable LOC or P1 failure."
+    },
+    {
+      "id": "orch-a-09",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "Several Orchestrator alert producers hand-roll debounce and active/resolved state with divergent lists. Reuse could reduce policy drift.",
+      "limitations": "Ten-copy count and behavioral divergence need targeted state tests; architecture severity P2."
+    },
+    {
+      "id": "orch-a-10",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "AgentQueueStore appends items without deletion while OperatorMessages.reject_already_queued_events scans historical digest items at enqueue. Both memory and enqueue work grow with daemon lifetime.",
+      "limitations": "Growth rate and actual daemon uptime population were not measured; this is a structural unboundedness finding."
+    },
+    {
+      "id": "orch-b-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "status_report.ex:200-236 constructs a projected State by allow-list, but subsequent status renderers access omitted fields and receive struct defaults. User-facing counters can be falsely zero.",
+      "limitations": "The raw P0 grade is high for reporting errors; confirm each omitted field against renderer access before final list."
+    },
+    {
+      "id": "orch-b-02",
+      "holds": true,
+      "severity": "P0",
+      "evidence": "rate-limit fallback safety entry omits started_at; token_accounting.ex:179-183 directly accesses running_entry.started_at during teardown. A parked entry can therefore raise KeyError in the Orchestrator.",
+      "limitations": "Requires a failed replacement that retains parked entry and later teardown; direct missing-key path is credible."
+    },
+    {
+      "id": "orch-b-03",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "pause_resume.ex:1005 onward clears paused_reason only for enumerated cases, leaving other reasons on a resumed working entry. Status can retain a stale cause.",
+      "limitations": "Consequences are attribution/display unless another policy consumes stale reason; P1 not shown."
+    },
+    {
+      "id": "orch-b-04",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "PauseResume defines reason-specific lists such as input_pause_reasons at 35-40, while other lifecycle/renderers maintain separate sets. The observed omitted reason in orch-b-03 shows drift.",
+      "limitations": "Central taxonomy is a design remedy, not a P1 failure on its own."
+    },
+    {
+      "id": "orch-b-05",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "pause_resume.ex:2438 onward distinguishes unavailable server from failed live call; other control wrappers reportedly collapse exits. The resulting diagnostic can mislead an operator.",
+      "limitations": "Seven-copy count and each exit shape require full caller audit; no service outage follows solely from mislabeling."
+    },
+    {
+      "id": "orch-b-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "retry_engine.ex:1056 onward enumerates local budget hold shapes, while other Orchestrator consumers repeat subsets. Error routing may diverge across recovery paths.",
+      "limitations": "Need specific reachable producer/consumer mismatch before retaining P1 severity."
+    },
+    {
+      "id": "orch-b-07",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "RetryEngine claim release on agent retry exhaustion funnels through tracker-specific reason/text. Operators can see the wrong cause.",
+      "limitations": "Misclassification is real but no P1 operational consequence demonstrated."
+    },
+    {
+      "id": "orch-b-08",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "rate_limit_fallback.ex:34-36 limits one transition per tick; failed label writes count toward that limit while entries are sorted. A persistently failing first ticket can starve all later fallback/revert transitions.",
+      "limitations": "Requires repeatable label failure on the first eligible ticket; no observed fleet instance supplied."
+    },
+    {
+      "id": "orch-b-09",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "push_routing.ex:543 onward drains pending auto-resume on each tick and retains hints after any error without distinguishing capacity from non-capacity refusal. A permanent refusal can spin durable control attempts.",
+      "limitations": "Actual request rate is bounded by reconcile cadence; repeated persistence should be reproduced for each refusal class."
+    },
+    {
+      "id": "orch-b-10",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "RateLimitFallback.redispatch at 427 onward retains a parked lifecycle-fenced entry on failed replacement, while other backend-swap paths have independent teardown/re-admit logic. The safety contract is not shared.",
+      "limitations": "Specific failure in each alternative flow needs mutation/state tests; duplication alone would be P2."
+    },
+    {
+      "id": "orch-b-11",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "reconciler.ex:29-36 calls the Orchestrator facade for sibling work, while facade delegates back to submodules. Dependency direction complicates extraction.",
+      "limitations": "Architectural cycle, not a demonstrated runtime recursion or P1 failure."
+    },
+    {
+      "id": "orch-b-12",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "orchestrator/state.ex:15 onward defines a roughly 100-field state struct while running entries remain wide maps. Field/type drift is plausible and missing-key defect has a concrete example in orch-b-02.",
+      "limitations": "The struct size itself is not P1; exact 16-writer count not independently reproduced."
+    },
+    {
+      "id": "orch-b-13",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "TokenAccounting handles streamed Codex updates inside Orchestrator and calls StatusReport dashboard notification for each; projection copies state and broadcasts. Work scales with update rate and fleet size.",
+      "limitations": "No measured CPU or mailbox delay is provided, so inherited P1 performance severity is unverified."
+    },
+    {
+      "id": "orch-b-14",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "status_report.ex:716-723 maps unavailable decision count to {0, :unavailable}; downstream waiting classifiers consume the 0 and can mark a still-waiting ticket resolved.",
+      "limitations": "Requires DecisionStore/SubscriptionStore unavailability; health bit exists but is not used in the classifier."
+    },
+    {
+      "id": "platform-misc-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "config/schema/agent.ex:185-191 declares max_consecutive_noop_turns, but explicit cast list at 277-323 omits it. Ecto ignores operator-supplied values and the default always wins.",
+      "limitations": "P0 is overstated for a ignored safety tuning key absent demonstrated runaway turn; config behavior is deterministic."
+    },
+    {
+      "id": "platform-misc-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "schema.ex:72-80 normalizes and casts maps, while embedded changesets use permitted fields without unknown-key validation. Misspelled settings can be accepted with defaults, as platform-misc-01 demonstrates.",
+      "limitations": "Some obsolete keys receive explicit rejection; the claim must distinguish those from generally silent unknown keys."
+    },
+    {
+      "id": "platform-misc-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "guardian.ex:383-390 loops in :reaping with nil provider and provider_expected true; release at 186-191 re-enters that path. Persisted phase can survive restart without a timer to resolve it.",
+      "limitations": "Requires owner death before provider identity is tracked or remote cleanup shape; manual receipt removal may recover but is unsafe."
+    },
+    {
+      "id": "platform-misc-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "workspace/ownership/store.ex:292-299 performs fsync atomic write then sync_fun on each persist; default sync_fun is Fs.sync_filesystem at 97-104. All lease transitions serialize through the Store GenServer.",
+      "limitations": "Host-wide sync latency and actual transition rate were not measured; the 5-second timeout risk is conditional."
+    },
+    {
+      "id": "platform-misc-05",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "workspace/reconstruction.ex:24-29 holds with_log_lock across prepare hook; 48 onward implements global spin acquisition. Event/alert writes for same workspace take this lock, so long hook stalls publication.",
+      "limitations": "Claimed ten-minute block is a configured timeout upper bound, not observed latency."
+    },
+    {
+      "id": "platform-misc-06",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "workspace/hooks.ex:125-132 runs shell in a Task; timeout kills the BEAM Task, not necessarily shell descendants. remote.ex:35-43 similarly brutal-kills task without remote process cancellation.",
+      "limitations": "Whether a specific shell/SSH child survives Port closure depends on process topology; test with a child that ignores SIGHUP before quantifying."
+    },
+    {
+      "id": "platform-misc-07",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "host_lock.ex:178-181 uses exclusive create; conflict recovery reads stale holder and removes path without comparing the inode/content before deletion. Two reclaimers can remove one another's newly created lock.",
+      "limitations": "Requires two contenders and a stale holder; PID reuse is a separate conditional liveness defect."
+    },
+    {
+      "id": "platform-misc-08",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "logs/retention.ex:102-132 sorts all shared session directories and excludes only current from deletion. Another live daemon's older directory can be removed under cap pressure.",
+      "limitations": "Requires multiple live daemons sharing log root and cap pressure; deletion of open-file data varies by OS semantics."
+    },
+    {
+      "id": "platform-misc-09",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "current_run_membership/store/runtime.ex:150-154 sets writable?: false on append error; store.ex:98-105 refuses future observations. A transient I/O error can latch terminal membership updates for the run.",
+      "limitations": "Persistent corruption marker may warrant continued fail-closed behavior; recovery should distinguish transient from integrity failure."
+    },
+    {
+      "id": "platform-misc-10",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "dispatch_policy.ex:1079-1082 normalizes trim/downcase while other tracker and summary modules use different slug substitutions. State matching can disagree at cross-boundary inputs.",
+      "limitations": "The claimed twelve sites and five semantics need a complete census; a concrete default-state misroute should be tested before P1."
+    },
+    {
+      "id": "platform-misc-11",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "upgrade/registry.ex:13-15 passes timeout: to Req.get; Req 0.7 option validation does not register that name, so fetch returns rescued error and suppresses notice.",
+      "limitations": "Needs a dependency-version-specific execution check; impact is an upgrade notice, below P1."
+    },
+    {
+      "id": "platform-misc-12",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "current_run_projections.ex:163 subscribes to AiurWeb.ObservabilityPubSub, and its state.ex:9 imports web UnitsRow. Core current-run projections depend on the web namespace.",
+      "limitations": "Architectural extraction constraint, not P1 runtime failure."
+    },
+    {
+      "id": "telemetry-usage-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "usage_ledger/counter_policy.ex:8-11 retains idempotency MapSet and dump at 43-46 serializes all keys; capacity eventually refuses appends while raw compaction does not prune policy.",
+      "limitations": "P0 severity requires evidence of approach to 50,000 keys or 1 MiB in current runs; permanent latch is conditional on volume."
+    },
+    {
+      "id": "telemetry-usage-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "normalizer.ex:18-23 runs every registered adapter; Codex ThreadUsage and TurnUsage extract absolute and delta views of the same token payload. Aggregate queries sum both relationship streams.",
+      "limitations": "Double counting depends on both envelopes being accepted for the same payload; a fixture-level end-to-end aggregate test should pin the exact factor."
+    },
+    {
+      "id": "telemetry-usage-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "price_table/data.ex:19-21 and 40-42 tag price rows with relationship revisions that differ from headless adapter revisions; exact lookup cannot price those cells. Required tiers also lack partition propagation.",
+      "limitations": "Impact is absent API-equivalent estimate, not real billing; price-table/config version may change later."
+    },
+    {
+      "id": "telemetry-usage-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "usage_aggregate/store.ex:67-69 catches up only on ledger-delta messages; subscription happens in bootstrap at 73 onward, while restarted ledger Store loses in-memory subscribers. Aggregate can remain stale indefinitely.",
+      "limitations": "Requires isolated ledger child restart while aggregate remains alive; top-level rest_for_one restart may recreate both in other failure paths."
+    },
+    {
+      "id": "telemetry-usage-05",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "usage_compaction/coordinator.ex:153-154 skips cycles whenever health != :ok; retire/finalize failures at 217-224 call halt. No in-process retry clears degraded health.",
+      "limitations": "Requires transient error; destructive-phase manifest implications depend on where failure happens."
+    },
+    {
+      "id": "telemetry-usage-06",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "headless/emitter.ex:20-28 returns outcome with coverage facts but only publishes envelopes; 64 onward launches append task whose result is not propagated. Source drift or ledger append failure can silently stop accounting.",
+      "limitations": "Actual protocol drift and append-failure occurrence are unknown; this is observability and accounting coverage risk."
+    },
+    {
+      "id": "telemetry-usage-07",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "run_telemetry/dataset.ex:146-154 merge dedupes only by record_id, while build at 601 onward also dedupes lifecycle event keys; Python reducer is a third rule set. Equivalent records can reduce differently.",
+      "limitations": "Need a shared fixture proving a user-visible discrepancy before P1; duplication itself is P2."
+    },
+    {
+      "id": "telemetry-usage-08",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "usage_aggregate/key.ex:17-19 evaluates CodingAgent provider/backends at compile time; CodingAgent registry references usage and meter modules in return. Proposed packages have compile and runtime cycles.",
+      "limitations": "Architectural dependency finding, not direct P1 operation."
+    },
+    {
+      "id": "telemetry-usage-09",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "provider_account_generation/continuity.ex:21-25 updates session binding state on each retain; Context at 12-17 uses process dictionary. Mutable global/process-local state complicates package ownership.",
+      "limitations": "Persistent-term churn cost was not measured; do not claim fleet performance regression from source alone."
+    },
+    {
+      "id": "tests-1a-cont-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "test_reset_test.exs:153-179 creates a fixture inside shared System.tmp_dir!/aiur-workspaces but cleanup recursively removes the parent. A sibling process's workspace can be deleted.",
+      "limitations": "Requires a concurrent workspace under that shared parent; ExUnit seriality within one VM does not protect other processes."
+    },
+    {
+      "id": "tests-1c-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "Named Orchestrator defaults to an immediate poll; TestSupport default Linear workflow points at api.linear.app. Tests starting it without poll disable or request fake can make real HTTPS calls.",
+      "limitations": "About-44 count needs rerun of start-link census; network restrictions may cause quick failures rather than long waits."
+    },
+    {
+      "id": "tests-1c-02",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "orchestrator_status_test.exs is 4,880 lines and tests status, workspace cleanup, queue, CI, telemetry and pause paths in one module.",
+      "limitations": "Large heterogeneous test file slows ownership/refactor work but is not a P1 defect."
+    },
+    {
+      "id": "tests-1c-03",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "workspace_and_config_test.exs is 3,640 lines and imports workspace, config, tracker and dispatch modules in one suite.",
+      "limitations": "Line count and test count are review navigation facts, not P1 risk."
+    },
+    {
+      "id": "tests-1c-13",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "This unit rewrites WorkflowStore files and application-supervised singleton state to configure tests; package tests therefore inherit global app setup.",
+      "limitations": "The universal claim no package can be tested independently is too broad; pure modules already have isolated tests. P2 architecture concern."
+    },
+    {
+      "id": "tests-2-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "read_cache_test.exs:826-834 directly deletes live named ETS tables and stops their owner while the application rest_for_one supervisor is running. Restart can affect later children and cases.",
+      "limitations": "Exact restart count depends on supervisor order and concurrent test scheduling."
+    },
+    {
+      "id": "tests-2-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "view_state_sweep_test.exs:509-514 records delivery on the global ModeRegistry for owner/repo and does not restore it; cache TTL tests reuse owner/repo. Cross-test state can alter expected cache freshness.",
+      "limitations": "Order-dependent failure requires affected reader tests run afterward in same VM."
+    },
+    {
+      "id": "tests-2-03",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "read_cache_test.exs:41 onward maintains its own readiness polling and temporary fallback, unlike shared TestSupport recovery. A test-owned named cache can disappear at case teardown.",
+      "limitations": "The fallback must actually execute for the failure; class as P2 until recurrence demonstrated."
+    },
+    {
+      "id": "tests-2-04",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "github/transport.ex:79-92 returns literal test-gh-token when request_fun option is present and token absent, in production code.",
+      "limitations": "Raw review itself found no production caller taking this combination today; latent seam merits removal but not P1."
+    },
+    {
+      "id": "tests-2-05",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "issues_test.exs:20-28 manually saves/erases global token cache and environment, while other GitHub suites have differing setup. Duplicated global fixtures invite order dependence.",
+      "limitations": "The 22-file/three-variant count was not recounted; no one reproducible failure follows from the pattern alone."
+    },
+    {
+      "id": "tests-2-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "Architecture tests read production files through hard-coded lib-relative paths or scan only current package. A package carve can silently narrow the source scanned.",
+      "limitations": "The carve has not happened; migrate tests with changed ownership, not as an emergency P1 fix."
+    },
+    {
+      "id": "tests-3-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "self_pause_answer_test.exs:10 onward captures live Orchestrator state, cancels its tick, then restores stale timer refs in on_exit. Restoring a reference cannot restore a cancelled timer message.",
+      "limitations": "A later wake path might reschedule in some cases; test suite order and singleton lifetime determine impact."
+    },
+    {
+      "id": "tests-3-02",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "dispatcher_test.exs:63-91 reads/writes many :aiur application env test seams. Shared VM globals can leak across async processes and require hand restoration.",
+      "limitations": "The 41/40/197 census needs reproducible script; no individual failing interleaving demonstrated here."
+    },
+    {
+      "id": "tests-3-03",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "TestSupport.__using__ at 228 onward imposes broad global setup and aliases on all users, including pure tests. Splitting helpers would reduce fixture work.",
+      "limitations": "The exact 37-user/four-unneeded count should be checked before using as LOC or speed claim."
+    },
+    {
+      "id": "tests-5-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "session_lifecycle_test.exs:934-941 registers literal OS pid 424242 through real guardian paths. If that PID belongs to an unrelated live process when the test runs, identity capture and cleanup may signal it.",
+      "limitations": "PID coincidence is unlikely but avoidable; use a controlled child PID or injectable killer to eliminate host risk."
+    },
+    {
+      "id": "tests-5-02",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "Several tests assert production source strings and repo-relative paths; moving files in the carve will break or narrow these checks.",
+      "limitations": "The 24-file/43-test count was not independently reproduced; refactor migration concern, not P1 runtime defect."
+    },
+    {
+      "id": "tests-5-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "This unit calls :sys.replace_state on named application processes and restarts Aiur.Supervisor children. Global mutable fixture state can leak into unrelated tests.",
+      "limitations": "The cited 117-site count is unverified; specific contamination depends on test ordering and cleanup."
+    },
+    {
+      "id": "tests-6-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "TestSupport.reset_global_state! at 207-215 ignores ensure_resource_store_running result then calls ResourceStore.reset, which is a no-op if missing. Setup can appear successful while global state is absent.",
+      "limitations": "Requires a failed child recovery; later failure attribution is the primary cost."
+    },
+    {
+      "id": "tests-6-02",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "TestSupport.__using__ expands use ExUnit.Case without forwarding opts; all users become synchronous and inherit the full 1,663-line global fixture.",
+      "limitations": "The 194-user count was not independently recounted; synchronous suite cost needs timing to rank above P2."
+    },
+    {
+      "id": "tests-6-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "graph_projection_test.exs:14-19 starts named Aiur.PubSub under a temporary ExUnit supervisor if absent. That process dies with the test/module, leaving later tests without the shared bus.",
+      "limitations": "Only triggers when the application child is absent; count of 17 sites requires census."
+    },
+    {
+      "id": "web-occ-01",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "Core CurrentRunSummary and multiple CLI surfaces import AiurWeb.OperatorControlCenter policy and presenter modules. Proposed web package split would require moving the domain rules or introducing a lower shared boundary.",
+      "limitations": "Architectural inversion, not a P1 runtime failure; claimed five CLIs should be counted in final synthesis."
+    },
+    {
+      "id": "web-occ-02",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "units_control_policy.ex:273 onward defines paused/queued predicates separately from UnitsPolicy and FleetFilters. Divergent conditions can display mismatched filters and control buttons.",
+      "limitations": "Need a single reachable row fixture and observed UI divergence before calling P1."
+    },
+    {
+      "id": "web-occ-03",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "Ticket search shares an eight-term limit between query parser and indexed title/body words; words after the eighth unique term cannot match.",
+      "limitations": "Scoped to Tickets panel search; source defect is clear but P1 priority is high without usage impact."
+    },
+    {
+      "id": "web-occ-04",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "decision_card.ex:92-98 renders a DecisionAction for dismissed decisions, while DecisionCommands selected-open guard excludes dismissed selected decision. The offered Change choice action returns a misleading not-loaded error.",
+      "limitations": "Requires a selected dismissed Command; no durable write occurs, but direct UI affordance is broken."
+    },
+    {
+      "id": "web-occ-05",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "DecisionCommands safe wrappers collapse GenServer call exits, including ambiguous timeouts, into store_unavailable and put_error discards idempotency key. A committed-but-unanswered write can be retried under a new key.",
+      "limitations": "Duplicate action outcome depends on server completion after caller timeout and action semantics; needs a timeout fixture."
+    },
+    {
+      "id": "web-occ-06",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "decision_presenter.ex:20-27 rescues/catches any presentation error and returns [], so a retained blocking Command can vanish from the list while counts still include it. This is stronger evidence than a blanket rescue count.",
+      "limitations": "The 46/zero logging census was not rerun; final finding should cite concrete disappearance path, not just style."
+    },
+    {
+      "id": "web-occ-07",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "analytics/charts.ex:113-121 unconditionally uses model.cap for a drawn cap line. The model falls back to local config/default 10 when effective cap is unknown, while other labels acknowledge unknown.",
+      "limitations": "Requires unavailable effective cap; line is visual inference, not a measured capacity."
+    },
+    {
+      "id": "web-rest-01",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "streamdeck_channel.ex:78-90 and 107-113 execute pause/resume/implement for authenticated deck socket without checking observability.dashboard_writable, while router and emulator enforce the read-only setting.",
+      "limitations": "Authentication still applies; this is a policy bypass for an already-authorized device, not an unauthenticated external write."
+    },
+    {
+      "id": "web-rest-02",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "control_center_cache.ex:27-35 uses infinite GenServer.call and executes provided loaders inside the one cache server; aiur.ex:115 uses rest_for_one. Slow or crashing presentation blocks clients or cascades later children.",
+      "limitations": "Need actual loader duration and supervisor ordering to quantify blast radius; structural risk is clear."
+    },
+    {
+      "id": "web-rest-03",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "StreamdeckProjection and RunSummaryStrip copy durable meter mapping with a single-clause Enum.map guard; ModelAvailability can persist reset/window without a nonzero percent. The reader then raises FunctionClauseError on an accepted record.",
+      "limitations": "Requires a sparse provider bucket or zero limit; source shape should be fixture-tested across both surfaces."
+    },
+    {
+      "id": "web-rest-04",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "dashboard_live.ex is 2,858 lines and handles decisions, units, tickets, drawers, controls and multiple subscriptions in one LiveView. Responsibility split is supported by source.",
+      "limitations": "Module size is a maintainability concern; no P1 runtime defect follows from length."
+    },
+    {
+      "id": "web-rest-05",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "AiurWeb.ObservabilityPubSub defines a domain update topic consumed/published by Aiur.* modules; BuildOrderPresenter is called from core CLI. This inverts the proposed web package boundary.",
+      "limitations": "Architectural issue only; overlaps web-occ-01 and loose-3-07 for deduplication."
+    },
+    {
+      "id": "web-rest-06",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "streamdeck_key_face_contract.ex:142-185 embeds JSON by fixed relative path into packages/streamdeck at compile time; moving the sidecar independently would break Elixir compilation.",
+      "limitations": "Current monorepo includes the file, so this is an extraction constraint, not current P1 failure."
+    },
+    {
+      "id": "web-rest-07",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "observability_api_controller.ex:245 onward maps control error atoms to HTTP classes independently of agent_control_cli.ex:3355 onward. Some user conflicts fall into generic 503.",
+      "limitations": "Mislabelled HTTP status can affect clients, but no P1 outage or security consequence is demonstrated."
+    },
+    {
+      "id": "web-rest-08",
+      "holds": true,
+      "severity": "P1",
+      "evidence": "decision_api_controller.ex broad rescue converts unexpected exceptions to 503 with no log; other web paths also catch and return stale socket/state. This can hide functional bugs and misstate cause.",
+      "limitations": "The 83 rescue/2 Logger aggregate was not independently reproduced; report concrete call sites rather than treating all catches as faults."
+    },
+    {
+      "id": "web-rest-09",
+      "holds": true,
+      "severity": "P2",
+      "evidence": "presenter.ex:543-547 falls back to <workspace.root>/<identifier>; workspace/layout.ex:33-47 inserts a repo segment and sanitizes identity when configured. Idle issue API can advertise a non-existent path.",
+      "limitations": "Running/retry rows with an actual workspace path are unaffected; CLI consumers of idle path should be checked for impact."
+    }
+  ]
+}
