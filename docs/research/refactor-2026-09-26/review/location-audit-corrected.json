@@ -1,0 +1,7 @@
+{
+  "scope": "P0/P1 location existence only; no semantic or severity verdict",
+  "findings": 182,
+  "all_locations_exist": 182,
+  "corrections_applied": 8,
+  "exceptions": []
+}

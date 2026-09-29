@@ -35,7 +35,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("raw", type=Path)
     parser.add_argument("snapshot", type=Path)
+    parser.add_argument("--corrections", type=Path)
     args = parser.parse_args()
+
+    corrections = {}
+    if args.corrections:
+        data = json.loads(args.corrections.read_text())
+        for item in data["corrections"]:
+            key = (item["id"], item["path"], item["old"])
+            if key in corrections:
+                raise SystemExit(f"duplicate correction: {key}")
+            corrections[key] = item["new"]
+    used_corrections = set()
 
     findings = []
     for path in sorted(args.raw.glob("*.json")):
@@ -43,7 +54,13 @@ def main() -> None:
         for finding in unit.get("findings", []):
             if finding.get("severity") not in {"P0", "P1"}:
                 continue
-            locations = [check_location(args.snapshot, item) for item in finding.get("locations", [])]
+            locations = []
+            for item in finding.get("locations", []):
+                key = (finding["id"], item.get("path"), item.get("lines"))
+                if key in corrections:
+                    used_corrections.add(key)
+                    item = {**item, "lines": corrections[key], "original_lines": item["lines"]}
+                locations.append(check_location(args.snapshot, item))
             findings.append(
                 {
                     "id": finding["id"],
@@ -56,8 +73,11 @@ def main() -> None:
         "scope": "P0/P1 location existence only; no semantic or severity verdict",
         "findings": len(findings),
         "all_locations_exist": sum(item["all_locations_exist"] for item in findings),
+        "corrections_applied": len(used_corrections),
         "exceptions": [item for item in findings if not item["all_locations_exist"]],
     }
+    if used_corrections != corrections.keys():
+        raise SystemExit(f"unused corrections: {sorted(corrections.keys() - used_corrections)}")
     print(json.dumps(report, indent=2))
 
 
