@@ -44,8 +44,20 @@ defmodule Aiur.AgentRunner do
         else
           message = "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}#{failure_detail(reason)}"
           Logger.error(message)
-          raise RuntimeError, message
+          fail_run(reason, message)
         end
+    end
+  end
+
+  @doc false
+  @spec fail_run(term(), String.t()) :: no_return()
+  def fail_run(reason, message) do
+    # Preserve the typed hold across Task's DOWN boundary. Turning it into a
+    # RuntimeError string hides reset_at from RetryEngine and consumes retries.
+    if Aiur.Orchestrator.AutoResume.classify(reason) == :local_budget_hold do
+      exit(reason)
+    else
+      raise RuntimeError, message
     end
   end
 
