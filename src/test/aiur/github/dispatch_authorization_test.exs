@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentPubSub, Issue}
-  alias Aiur.GitHub.DispatchAuthorization
+  alias Aiur.GitHub.{DispatchAuthorization, ReadCache}
 
   setup do
     DispatchAuthorization.clear_cache()
@@ -252,6 +252,51 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert Agent.get(counter, & &1) == 1
   end
 
+  test "a label event indexed after issue creation authorizes on the next poll without an issue update" do
+    ReadCache.reset()
+    on_exit(&ReadCache.reset/0)
+    counter = start_supervised!({Agent, fn -> 0 end})
+    parent = self()
+
+    request_fun = fn request ->
+      ReadCache.through(request, fn ->
+        poll = Agent.get_and_update(counter, fn count -> {count, count + 1} end)
+        send(parent, {:timeline_poll, poll})
+
+        events =
+          if poll == 0,
+            do: [],
+            else: [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:01Z")]
+
+        {:ok, %{status: 200, body: events}}
+      end)
+    end
+
+    created_with_label = issue(creator_login: "trusted")
+
+    first =
+      DispatchAuthorization.authorize(created_with_label, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun
+      )
+
+    refute first.dispatch_authorized?
+    assert first.dispatch_authorization == :deferred
+    assert_receive {:timeline_poll, 0}
+
+    second =
+      DispatchAuthorization.authorize(created_with_label, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: request_fun
+      )
+
+    assert second.dispatch_authorized?
+    assert second.dispatch_authorization == :authorized
+    assert_receive {:timeline_poll, 1}
+  end
+
   test "does not reuse a cached decision after an issue update" do
     counter = start_supervised!({Agent, fn -> 0 end})
 
@@ -499,6 +544,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     denied = authorize_with_events(issue(), [labeled_event(10, "agent:rework", "trusted", "2026-01-01T00:00:00Z")], ["trusted"])
 
     refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization == :deferred
   end
 
   test "fails closed when the timeline request errors" do
@@ -649,6 +695,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       )
 
     refute denied.dispatch_authorized?
+    assert denied.dispatch_authorization == :deferred
   end
 
   test "fails closed before timeline lookup when the issue has no trigger label" do
