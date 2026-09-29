@@ -4,7 +4,7 @@ type: feat
 date: 2026-09-29
 topic: native-antigravity-acp
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: probe-gated
+artifact_readiness: superseded
 product_contract_source: ce-brainstorm
 execution: code
 ---
@@ -29,6 +29,16 @@ third-party software. Do not use `oauth-personal` or implement a personal-login
 Antigravity backend. Research whether a permitted API-key or enterprise ACP
 route meets the same approval and MCP contract, then revise this plan before
 implementation resumes.
+
+**Disposition:** close this Antigravity-specific route. Continue the user's
+original Gemini CLI support goal through its paid API-key/enterprise ACP path
+in issue #2829 and draft PR #2870. Gemini CLI 0.61.0 locally advertises ACP
+key/Vertex authentication, HTTP/SSE MCP and permission requests, but an
+authenticated approval and tool round-trip remain unproved without a supported
+credential. The native Gemini plan must require per-worker settings isolation
+and a server allowlist because `session/new` MCP servers merge with global
+Gemini settings. This document remains a record of the rejected option and
+is not an implementation contract.
 
 ## Product Contract
 
