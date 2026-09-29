@@ -188,9 +188,9 @@ do not equate transitively loaded probe dependencies with reviewed files.
       status. Deduplicate without losing any source ID.
 - [x] Produce `review/code-review.md`, `review/findings.json`, and
       `review/by-boundary.md`, then audit source-ID coverage and counts.
-- [ ] Challenge every cut/merge/externalize recommendation and account for
-      features omitted from the five inventories.
-- [ ] Produce `features/feature-inventory.md`, `features/usage-matrix.md`,
+- [x] Challenge every cut/merge/externalize recommendation and account for
+      the five inventories' bounded feature coverage in `feature-inventory.md`.
+- [x] Produce `features/feature-inventory.md`, `features/usage-matrix.md`,
       `features/loc-reduction.md`, and `features/features.json`; measure physical
       LOC without double counting shared modules. Distinguish predicted savings
       from measured change and moving code from removing it.

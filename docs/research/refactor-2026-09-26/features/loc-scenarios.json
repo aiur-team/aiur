@@ -1,0 +1,413 @@
+{
+  "revision": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "scope": "explicit candidate-owned whole files only; shared/partial edits and tests/docs excluded",
+  "scenarios": [
+    {
+      "scenario": "linear",
+      "feature_ids": [
+        "config-10",
+        "integrations-03"
+      ],
+      "files": [
+        {
+          "path": "src/lib/aiur/codex/dynamic_tool/linear_graphql.ex",
+          "physical_lines": 122,
+          "sha256": "f05cbbe14d97095d522d50d45c7dcc1461394c8446fb18e75ddc22199c35f4ed"
+        },
+        {
+          "path": "src/lib/aiur/linear/client.ex",
+          "physical_lines": 599,
+          "sha256": "43bbbb6acca390de0d3459d0d7f6e117def1eaf00dd2b978ae7d5660c46e1e8c"
+        },
+        {
+          "path": "src/lib/aiur/linear/config.ex",
+          "physical_lines": 63,
+          "sha256": "042cde78f56b5c0327f4536ab145972f3d7bf607d10cf9a7ce6e6f8317ad0064"
+        },
+        {
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "physical_lines": 197,
+          "sha256": "0b288dbbb69e4d30076d949daaaee05d7aee8349014a7c69a9a179e720077cfc"
+        }
+      ],
+      "file_count": 4,
+      "gross_file_lines": 981,
+      "oversized_files": 1,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "rtk",
+      "feature_ids": [
+        "config-24",
+        "integrations-52",
+        "subsystems-41"
+      ],
+      "files": [
+        {
+          "path": "src/lib/aiur/rtk.ex",
+          "physical_lines": 241,
+          "sha256": "23d3209e10591634be1d743c3903457eb4f2cee65bd124864e8ef27ff7a6b2ed"
+        }
+      ],
+      "file_count": 1,
+      "gross_file_lines": 241,
+      "oversized_files": 0,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "pr-watch",
+      "feature_ids": [
+        "config-32",
+        "integrations-31"
+      ],
+      "files": [
+        {
+          "path": "src/lib/aiur/config/schema/pr_watch.ex",
+          "physical_lines": 28,
+          "sha256": "f74e9d8adc981f8f6b0f5771712a56e67fcef750d97a9428524f5a6ab6808a90"
+        },
+        {
+          "path": "src/lib/aiur/events/pr_command_scanner.ex",
+          "physical_lines": 159,
+          "sha256": "afe972c0b7dfb35225a7ffd830606087bdf882326485af5c19ab587d3fa80daa"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/command_scan.ex",
+          "physical_lines": 417,
+          "sha256": "8769980b90ca86aae200d6413d7a87c0d2e25c20fdb2dad3e149d09a186bdd8a"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pr_anchored.ex",
+          "physical_lines": 314,
+          "sha256": "58375275dbeacfd6634bbfa2296910303d9baecefcab925a13ff4af7afd53293"
+        }
+      ],
+      "file_count": 4,
+      "gross_file_lines": 918,
+      "oversized_files": 0,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "otlp-intake",
+      "feature_ids": [
+        "integrations-16"
+      ],
+      "files": [
+        {
+          "path": "src/lib/aiur/claude/telemetry/contract.ex",
+          "physical_lines": 83,
+          "sha256": "c74e3d155897c6025c7d23a55da08f56e02b4825957723f4c562ec87f8d8088a"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/event.ex",
+          "physical_lines": 453,
+          "sha256": "1154592a4f18d2d5fed30b3bcda9a7b725490b60adcb6b2be4f780ff1d820cef"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/receiver.ex",
+          "physical_lines": 119,
+          "sha256": "d66a59f4c62b521c42bc6f044621633aa45befad02071ce4a2896624d11820db"
+        },
+        {
+          "path": "src/lib/aiur/claude/telemetry/usage_adapter.ex",
+          "physical_lines": 198,
+          "sha256": "810458443b03ad09ea0bd01f4a8eb6d1d3e4dd38c7bb5c4fd357b99bfe236c84"
+        }
+      ],
+      "file_count": 4,
+      "gross_file_lines": 853,
+      "oversized_files": 0,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "usage-compaction",
+      "feature_ids": [
+        "subsystems-07"
+      ],
+      "files": [
+        {
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "physical_lines": 312,
+          "sha256": "91042720080c1fca34af15db75d8be08839350c4da946cc960f846e0f5c69b0c"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "physical_lines": 364,
+          "sha256": "e4f2b49e59014cd1090e0e06d0d0f39d15793372c54eb960d6508daa6777c204"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/floor.ex",
+          "physical_lines": 118,
+          "sha256": "a759ff934ba83c59e10783cd2aefc9a64bcab040c040cba3964b9381190f9390"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "physical_lines": 326,
+          "sha256": "2543ed1347e9901e54a101fc744a545d0f7723ab63335199f4f03579ba90f155"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/paths.ex",
+          "physical_lines": 46,
+          "sha256": "704292294066611c02be3d27f97c3b45ed1041231e624cd9d1269cc8a0ceff9f"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/policy.ex",
+          "physical_lines": 131,
+          "sha256": "22e4a006867e0ef60b6d1c6559510cd8996f36aa7b2ada69ec86ba94ad67b845"
+        }
+      ],
+      "file_count": 6,
+      "gross_file_lines": 1297,
+      "oversized_files": 0,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "operator-wait-log",
+      "feature_ids": [
+        "subsystems-14"
+      ],
+      "files": [
+        {
+          "path": "src/lib/aiur/operator_wait_log.ex",
+          "physical_lines": 116,
+          "sha256": "cbe342a42a14823fad5f4209f0b650f3eebbd7e3d361a2b730a18cfd54fd5af1"
+        }
+      ],
+      "file_count": 1,
+      "gross_file_lines": 116,
+      "oversized_files": 0,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "saturation-sentinel",
+      "feature_ids": [
+        "subsystems-20"
+      ],
+      "files": [
+        {
+          "path": "src/lib/aiur/saturation_sentinel.ex",
+          "physical_lines": 245,
+          "sha256": "f64ea3b103e6ff1e73069e2c107eea0999b8769478773a5ecd1a3de82dca2b1c"
+        }
+      ],
+      "file_count": 1,
+      "gross_file_lines": 245,
+      "oversized_files": 0,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "agent-process-log",
+      "feature_ids": [
+        "subsystems-26"
+      ],
+      "files": [
+        {
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "physical_lines": 576,
+          "sha256": "97339b89406ee555ceec27824204576ce8127d7b415aab27fb50f2097560eb5e"
+        }
+      ],
+      "file_count": 1,
+      "gross_file_lines": 576,
+      "oversized_files": 1,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "planning-source",
+      "feature_ids": [
+        "ui-12"
+      ],
+      "files": [
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "physical_lines": 926,
+          "sha256": "b1e32f940ccea95384d008108a0e14ecc50c6331f7548c349de4c07d1c5fed8e"
+        }
+      ],
+      "file_count": 1,
+      "gross_file_lines": 926,
+      "oversized_files": 1,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "offline-telemetry-report",
+      "feature_ids": [
+        "ui-26"
+      ],
+      "files": [
+        {
+          "path": "scripts/aiur-telemetry-dashboard",
+          "physical_lines": 10,
+          "sha256": "4e02a87de75e8410c1ad4a5373c4e2af83ff54f5c6361c21d8bee29d6c0e4463"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dashboard.ex",
+          "physical_lines": 619,
+          "sha256": "592ebc8e05363eb519788d418b8d02576709ee64978e623a46409376de0d3b5b"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/github_enricher.ex",
+          "physical_lines": 335,
+          "sha256": "80c4fe20a6f0bcbde3d2dfe1f90cc13059944d06da790a4963ca181fae852a76"
+        },
+        {
+          "path": "src/lib/mix/tasks/aiur.telemetry.dashboard.ex",
+          "physical_lines": 150,
+          "sha256": "93392a27937de4a771687bd79e26a14deab0e061caaffab60896c284b9001b62"
+        }
+      ],
+      "file_count": 4,
+      "gross_file_lines": 1114,
+      "oversized_files": 1,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "unreachable-dashboard-components",
+      "feature_ids": [
+        "ui-29"
+      ],
+      "files": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_icon.ex",
+          "physical_lines": 58,
+          "sha256": "1c0ebf4baf6fb05d795176c4fec9d7864e1bab5b092727bdd051825d4e35f9c8"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/capacity_control.ex",
+          "physical_lines": 144,
+          "sha256": "0a323269471afdf3dbc6f28516335e27a4a31ccf7510e07cf61442709404d064"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_latency.ex",
+          "physical_lines": 102,
+          "sha256": "868eed91a9f43950452a65ffd60f2ebb988485e23736b8fcd44ef001bafb719c"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_filters.ex",
+          "physical_lines": 85,
+          "sha256": "07feb380e67958b614467613cb09ed08093d639c92f750376e54ef68ac672e54"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "physical_lines": 191,
+          "sha256": "a1239071a5dad73532b14f191abfaf7131d425002d3dbb76281e3899397c4bd2"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/lifecycle_components.ex",
+          "physical_lines": 102,
+          "sha256": "b93570f8d21418f0822c69e2653a0c07a9fb35f128c4b0e1c09539e2d1640ca6"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "physical_lines": 86,
+          "sha256": "a2cf8e5d69f0f23b9edd02087590cafd994bbda5f03f2acc74751ff39fd2e9ec"
+        }
+      ],
+      "file_count": 7,
+      "gross_file_lines": 768,
+      "oversized_files": 0,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    },
+    {
+      "scenario": "dom-svg-layout",
+      "feature_ids": [
+        "ui-30"
+      ],
+      "files": [
+        {
+          "path": "src/browser/layout/aiur-layout-client.js",
+          "physical_lines": 436,
+          "sha256": "4155d2fbcc266debbd0bd4328ba483f5c79c109b53802b6fb739b0e3c1255698"
+        },
+        {
+          "path": "src/browser/layout/aiur-layout-worker.js",
+          "physical_lines": 507,
+          "sha256": "aba380b8d8851d6493054cbb0d0320a3fff5d6f532663f6b15a9fcb6a105c704"
+        },
+        {
+          "path": "src/priv/static/aiur-dom-svg-layout-adapter.js",
+          "physical_lines": 25,
+          "sha256": "920bdc54326e94178d8d93153457c93d5418c7a8858e8616d1973688af588641"
+        },
+        {
+          "path": "src/priv/static/aiur-dom-svg-layout-loader.js",
+          "physical_lines": 56,
+          "sha256": "f888b03b3d73033b931f5f35b444b46933d152065d649efecc48514e8e9e7268"
+        },
+        {
+          "path": "src/priv/static/aiur-dom-svg-layout/interaction-policy.js",
+          "physical_lines": 74,
+          "sha256": "5d363a2e8d40e62413e074b0a62fd2a1a222f11be9636de1bbe980b93e946b85"
+        },
+        {
+          "path": "src/priv/static/aiur-dom-svg-layout/interaction.js",
+          "physical_lines": 411,
+          "sha256": "d75c009dc0d28e8c9a2ec55fc26891978f2be81f72361c2d03d6f3f3d2444290"
+        },
+        {
+          "path": "src/priv/static/aiur-dom-svg-layout/lifecycle.js",
+          "physical_lines": 329,
+          "sha256": "79dcf07c49a4e2f13ae301f3f9c64d932687b6a2bd212938cf907e950da822dd"
+        },
+        {
+          "path": "src/priv/static/aiur-dom-svg-layout/measurement.js",
+          "physical_lines": 164,
+          "sha256": "6a9b8a0c1efa432e70ee8d45e7cf732b55b9e6db066e6b6738d454592b9a85a9"
+        },
+        {
+          "path": "src/priv/static/aiur-dom-svg-layout/protocol.js",
+          "physical_lines": 168,
+          "sha256": "6acb9512dfc1d70b62e7c9c8444d0f7ae0eae6bdb49fae2923888d3a9352d320"
+        },
+        {
+          "path": "src/priv/static/aiur-dom-svg-layout/renderer.js",
+          "physical_lines": 157,
+          "sha256": "847b8105f70f2a7a9c58b5ddeb933be7592e2bb1640b461e9791a624d53980a8"
+        },
+        {
+          "path": "src/priv/static/vendor/elk/0.11.1/LICENSE.md",
+          "physical_lines": 264,
+          "sha256": "89591d4578fb1ebd91501312a3d25f021bd865a2e436641c1cf7b1bc7e3c1617"
+        },
+        {
+          "path": "src/priv/static/vendor/elk/0.11.1/PROVENANCE.md",
+          "physical_lines": 19,
+          "sha256": "150f5936e91a0d3d007baa7add9ade28a7d4413c9d4462175518c9d8b045fe69"
+        },
+        {
+          "path": "src/priv/static/vendor/elk/0.11.1/SOURCE.md",
+          "physical_lines": 10,
+          "sha256": "5bdafc8596a6d9e51369c242036cf3f42394bf6dda6784ac23794220d780d120"
+        },
+        {
+          "path": "src/priv/static/vendor/elk/0.11.1/aiur-layout-client.js",
+          "physical_lines": 436,
+          "sha256": "4155d2fbcc266debbd0bd4328ba483f5c79c109b53802b6fb739b0e3c1255698"
+        },
+        {
+          "path": "src/priv/static/vendor/elk/0.11.1/aiur-layout-worker.js",
+          "physical_lines": 507,
+          "sha256": "aba380b8d8851d6493054cbb0d0320a3fff5d6f532663f6b15a9fcb6a105c704"
+        },
+        {
+          "path": "src/priv/static/vendor/elk/0.11.1/elk-worker.min.js",
+          "physical_lines": 6312,
+          "sha256": "458fbe927f19d11d8d054e34b7587011b9a4d1ecbdfb688b60e491fbdfb2a8d7"
+        },
+        {
+          "path": "src/priv/static/vendor/elk/0.11.1/manifest.json",
+          "physical_lines": 34,
+          "sha256": "41cb0c5a9203d4190e71c109cfc84fde52cc1a744e5cb8ba221d34a287f97b70"
+        }
+      ],
+      "file_count": 17,
+      "gross_file_lines": 9909,
+      "oversized_files": 3,
+      "measurement_status": "conditional gross whole-file deletion footprint, not net LOC saved"
+    }
+  ],
+  "unique_file_count": 51,
+  "unique_gross_file_lines": 17944,
+  "unique_oversized_files": 7,
+  "warning": "Conditional upper footprint of removed files before replacements and dependency migrations. No implemented or measured saving."
+}
