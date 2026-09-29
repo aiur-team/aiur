@@ -24,7 +24,7 @@ Khala's current Aiur run reproduced tickets that do not dispatch, formal review 
 
 - R1. A dispatchable `agent:todo` ticket must enter the tracked set and dispatch or show a truthful, actionable decline without repeated `resume` calls. Cover creation with the label, later labeling, and recovery from an orphaned claim. [#2818](https://github.com/aiur-team/aiur/issues/2818)
 - R2. A formal `CHANGES_REQUESTED` review on an `agent:human-review` ticket must move it to rework or leave one durable refusal with a reason. Its body must remain available after a cold restart. [#2817](https://github.com/aiur-team/aiur/issues/2817), [#2794](https://github.com/aiur-team/aiur/issues/2794)
-- R3. A mandatory deletion guard must run as an enforced pre-push/PR gate, and workers must use the CLI from the daemon's own build. A worker piping or masking a guard exit must not bypass it. [#2803](https://github.com/aiur-team/aiur/issues/2803), [#2802](https://github.com/aiur-team/aiur/issues/2802)
+- R3. Workers must run the mandatory deletion guard from the daemon's own build. If a shell pipeline masks its refusal and pushes the branch, a trusted required check must still block merging excessive deletions. [#2803](https://github.com/aiur-team/aiur/issues/2803), [#2802](https://github.com/aiur-team/aiur/issues/2802)
 - R4. Consumer workers must select focused tests from their own repository. Aiur workers retain their Aiur-specific commands and the destructive `aiurdev --test` workspace prohibition. [#2824](https://github.com/aiur-team/aiur/issues/2824)
 - R5. A ticket without a complexity label must pass the same backend availability check as labeled tickets. [#2814](https://github.com/aiur-team/aiur/issues/2814)
 - R6. Provider rate-limit recovery must not generate routine false `needs_attention` alerts or serialize each ticket behind an avoidable refusal. [#2811](https://github.com/aiur-team/aiur/issues/2811)
@@ -35,7 +35,7 @@ The user has authorized fixing reported bugs before release, but has not chosen 
 
 - AE1. A newly created labeled ticket appears in status, dispatches once when a slot is free, and needs no repeated operator resume; a denied dispatch gives a stable reason.
 - AE2. A body-only request-changes review wakes rework, and the worker can recover the review body after its queued event is gone.
-- AE3. A guard returning nonzero blocks a push even if the worker has piped output through `tail` or used a stale global `aiur` binary.
+- AE3. A worker invokes the daemon-build guard despite an older global `aiur`; if `guard | tail` masks refusal and permits a push, a trusted required check fails on that PR and ordinary actors cannot merge it.
 - AE4. A Khala/TypeScript worker runs a repository-specific focused test; an Aiur worker runs the scoped ExUnit workflow; both understand that only the destructive sandbox command is prohibited in ticket workspaces.
 - AE5. Unlabeled tickets wait for an exhausted backend, and normal provider recovery raises no false operator warning.
 
@@ -47,7 +47,7 @@ The stopped-daemon detection work in [#2764](https://github.com/aiur-team/aiur/i
 
 ### Technical decisions and dependencies
 
-Each existing issue should be implemented in its own isolated worktree and PR. R1 and R2 touch dispatch/rework orchestration and should not be merged without an integration rerun against their combined head. R3 has two linked fixes: first bind worker PATH/tooling to the daemon build (#2802), then enforce the guard at the operation boundary (#2803); neither makes the other redundant. R4 is independent and can run in parallel. R5 uses the established `model_fallback_waiting` path. R6 follows ownership and wake observations from its ticket rather than introducing a new alert state.
+Each existing issue should be implemented in its own isolated worktree and PR. R1 and R2 touch dispatch/rework orchestration and should not be merged without an integration rerun against their combined head. R3 has three stages: bind worker PATH to the daemon build (#2802), catch masked exits in ordinary PR CI (#2835), then require a trusted-base status whose code the PR cannot change (#2803). The first two do not close #2803. R4 is independent and can run in parallel. R5 uses the established `model_fallback_waiting` path. R6 follows ownership and wake observations from its ticket rather than introducing a new alert state.
 
 ### Work units
 
@@ -56,7 +56,7 @@ Each existing issue should be implemented in its own isolated worktree and PR. R
 | U1 | [#2818](https://github.com/aiur-team/aiur/issues/2818): diagnose created-with-label, later-label, and orphaned-claim cases; repair each proven boundary | None | Deterministic event/claim tests, then real `aiurdev` todo dispatch without resume loops. The first PR fixes the create-with-label timeline-cache subtype only; #390 and the broader resume loop remain unproven, so keep the issue open pending latest-main judgment. |
 | U2 | [#2817](https://github.com/aiur-team/aiur/issues/2817) and [#2794](https://github.com/aiur-team/aiur/issues/2794): accept/retry formal review, persist refusal, cold-rederive body | U1 integration review | Formal body-only review test, restart/rework test, TUI-visible worker feedback |
 | U3 | [#2802](https://github.com/aiur-team/aiur/issues/2802): bind worker CLI to the daemon build | None | Worker PATH from a stale global install resolves the daemon command and preserves unrelated tools |
-| U4 | [#2803](https://github.com/aiur-team/aiur/issues/2803): enforce deletion guard at push/PR operation | U3 | Guard exit 1 under a piped command prevents push; ordinary safe push succeeds |
+| U4 | [#2803](https://github.com/aiur-team/aiur/issues/2803): catch masked guard exits in PR CI, then add a trusted required merge gate | U3 | Piped refusal can push but fails the trusted check; stale branches with only base-side additions pass; a non-bypass actor cannot merge a blocked PR |
 | U5 | [#2824](https://github.com/aiur-team/aiur/issues/2824): repository-aware worker validation guidance | None | Installed non-Elixir fixture has no unconditional `mix` gate; Aiur fixture retains scoped ExUnit guidance |
 | U6 | [#2814](https://github.com/aiur-team/aiur/issues/2814): check unlabeled fallback backend | None | Fixed-time exhausted/available backend cases |
 | U7 | [#2811](https://github.com/aiur-team/aiur/issues/2811): remove normal recovery refusal/false alert | U1 ownership context | Multi-ticket limit-clear test, real alert ledger and dispatch timing census |
@@ -78,4 +78,4 @@ Each existing issue should be implemented in its own isolated worktree and PR. R
 
 ## Definition of Done
 
-U1–U5 fixes are merged with current-head review, mutation-sensitive tests, and green required CI; U6/U7 are either merged or explicitly judged against latest-main evidence before release. The real multi-agent TUI test passes on latest `main`, publication succeeds for all intended packages, and install checks resolve those published versions. Outstanding unrelated bugs remain accurately tracked rather than silently folded into a release claim.
+U1–U5 fixes are merged with current-head review, mutation-sensitive tests, and green required CI; U4's trusted status is pinned in the Aiur and Khala target rulesets and shown to block a real over-threshold PR for non-bypass actors. U6/U7 are either merged or explicitly judged against latest-main evidence before release. The real multi-agent TUI test passes on latest `main`, publication succeeds for all intended packages, and install checks resolve those published versions. Outstanding unrelated bugs remain accurately tracked rather than silently folded into a release claim.
