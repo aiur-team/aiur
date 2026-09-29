@@ -232,8 +232,14 @@ current state and denies `:missing_trigger_label` when there is none
   `agent:*` label to that issue (`dispatch_authorization.ex:88-126`).
 - A relabel by anyone else **revokes** authorization, and `Orchestrator.Reconciler`
   terminates the running agent on the next poll.
-- Verification failures emit the needs-attention alert
-  `github.dispatch_authorization.ambiguous`.
+- A label applied when an issue is created can appear in the issue response
+  before GitHub indexes its timeline event. For a `todo` ticket, Aiur defers
+  dispatch and rechecks incomplete timeline evidence on the next poll, even
+  when the issue's `updated_at` is unchanged. The ticket does not need a label
+  reset or repeated `resume` calls. Missing or malformed current-label evidence
+  for an active or rework ticket remains a denial, so it cannot preserve an
+  agent after an unverified relabel. Other ambiguous provenance failures emit
+  the needs-attention alert `github.dispatch_authorization.ambiguous`.
 - A timeline Aiur cannot *read* is a different thing from a timeline that denies.
   The provenance fetch is requested in `per_page=50` pages and refetched in
   smaller ones when a page exceeds the response cap, so an unusually noisy
