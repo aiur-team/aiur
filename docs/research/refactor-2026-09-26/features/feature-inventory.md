@@ -89,4 +89,7 @@ dead code or that a named feature owns every line in its listed modules.
 
 The frozen inventory predates later Muse and release changes. Revalidate
 candidate callsites, operator use, config compatibility and the file-size
-census on the implementation base before removing code.
+census on the implementation base before removing code. The
+[cross-report contradiction audit](../synthesis/report-wide-contradictions.md)
+records ownership conflicts that the rewrite must settle before merging or
+splitting adjacent features.

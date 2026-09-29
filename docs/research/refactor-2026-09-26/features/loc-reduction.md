@@ -76,4 +76,7 @@ gate replaces the transitional rule only when the >500 population is zero.
 Gate tests must cover 500/501, 200/201, blank lines and unterminated final
 lines, generated/vendor paths, binary and symlink treatment, and an edited
 baseline file. See [file-size analysis](../synthesis/file-size-analysis.md)
-for the area distribution and largest seams.
+for the area distribution and largest seams. The
+[cross-report contradiction audit](../synthesis/report-wide-contradictions.md)
+lists ownership decisions needed to ensure decomposition removes competing
+paths instead of adding adapters above them.

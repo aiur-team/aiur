@@ -27,8 +27,29 @@ audit's separate branch was cherry-picked before publication;
 `tooling/privacy_check.py` scans the merged tree, but the
 contextual private-source audit remains open as described in
 `synthesis/privacy-review.md`. Next research work is report-wide synthesis,
-feature/LOC decisions and the CE plan. Before implementation, recheck
+the CE plan. Before implementation, recheck
 findings against current source and test their actual failure conditions.
+
+## Feature and contradiction checkpoint — 2026-09-28
+
+The five surface inventories have 216 stable feature IDs. All 91 raw
+cut/merge/externalize candidates received skeptical challenges; the
+reconciled working mix is 67 keep, 110 simplify, 10 merge, 24 cut and 5
+externalize. `features/features.json` retains original use evidence and exact
+challenge notes. The feature matrix, inventory and LOC report are complete for
+the frozen source boundary. Twelve conditional whole-file deletion scenarios
+cover 51 unique files and 17,944 physical lines, including seven files above
+500 lines; this is a gross candidate footprint, not measured net saving.
+`features/loc-scenarios.json` records each frozen path and SHA256.
+
+The independent `synthesis/current-head-validation-2026-09-28.md` and
+`synthesis/report-wide-contradictions.md` are integrated. The requested
+deletion-guard and GitHub cache dashboard removals remain pending PR #2840
+and #2841 until merge and publication, and their lines are excluded from
+future refactor savings. The automated privacy scan passes; the contextual
+private-source provenance audit described in `synthesis/privacy-review.md`
+is still open. No production change or actual LOC saving is asserted by this
+research checkpoint.
 
 ## Authoritative sources
 
