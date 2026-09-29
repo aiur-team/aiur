@@ -3618,6 +3618,8 @@ html[data-theme="light"] .toggle-icon .moon {
 .ut-latest-meta {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
   margin-top: 0.28rem;
   font-size: 0.72rem;
   color: var(--muted);
