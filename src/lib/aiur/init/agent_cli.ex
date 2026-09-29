@@ -21,6 +21,10 @@ defmodule Aiur.Init.AgentCli do
                   "(or npm install -g github:aiur-team/aiur-claude until " <>
                   "#{@min_claude_version} is published)"
 
+  @sandbox_docs "https://aiur.team/docs/guide/quick-start#codex-on-linux"
+  @sandbox_probe_timeout_ms 10_000
+  @sandbox_probe_output_bytes 4_096
+
   @spec check_agent_clis(Aiur.Init.io(), Aiur.Init.deps(), [String.t()]) :: :ok
   def check_agent_clis(io, deps, agents) do
     agents
@@ -39,6 +43,13 @@ defmodule Aiur.Init.AgentCli do
     case deps.check_agent_auth.("claude") do
       :ok -> warn_on_stale_claude(io, deps)
       {:error, _missing} -> install_claude_then_check(io, deps)
+    end
+  end
+
+  defp ensure_agent_cli(io, deps, "codex") do
+    case run_auth_check(io, "codex agent", fn -> deps.check_agent_auth.("codex") end) do
+      :ok -> run_auth_check(io, "codex sandbox", deps.check_codex_sandbox)
+      {:error, _message} -> :ok
     end
   end
 
@@ -77,7 +88,7 @@ defmodule Aiur.Init.AgentCli do
         if io.confirm.("Retry #{label}?", false) do
           run_auth_check(io, label, check)
         else
-          :ok
+          {:error, message}
         end
     end
   end
@@ -95,6 +106,71 @@ defmodule Aiur.Init.AgentCli do
           {:error, "#{exe} not found on PATH — #{install_hint(kind, exe)}"}
         end
     end
+  end
+
+  @doc false
+  @spec check_codex_sandbox() :: :ok | {:error, String.t()}
+  def check_codex_sandbox do
+    if :os.type() == {:unix, :linux} do
+      with exe when is_binary(exe) <- agent_executable("codex") || {:error, "codex command is not configured"},
+           path when is_binary(path) <- System.find_executable(exe) || {:error, "#{exe} not found on PATH"} do
+        run_codex_sandbox_probe(path)
+      end
+    else
+      :ok
+    end
+  end
+
+  @doc false
+  @spec run_codex_sandbox_probe(Path.t(), non_neg_integer()) :: :ok | {:error, String.t()}
+  def run_codex_sandbox_probe(path, timeout_ms \\ @sandbox_probe_timeout_ms) do
+    port =
+      Port.open({:spawn_executable, String.to_charlist(path)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        :hide,
+        args: ["sandbox", "--", "/bin/pwd"]
+      ])
+
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    collect_codex_sandbox_probe(port, deadline, timeout_ms, "")
+  rescue
+    error in [ArgumentError, ErlangError] ->
+      {:error, "could not start Codex sandbox probe: #{Exception.message(error)}. See #{@sandbox_docs}"}
+  end
+
+  defp collect_codex_sandbox_probe(port, deadline, timeout_ms, output) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {^port, {:data, chunk}} ->
+        available = max(@sandbox_probe_output_bytes - byte_size(output), 0)
+        collect_codex_sandbox_probe(port, deadline, timeout_ms, output <> binary_part(chunk, 0, min(byte_size(chunk), available)))
+
+      {^port, {:exit_status, 0}} ->
+        :ok
+
+      {^port, {:exit_status, status}} ->
+        detail = if String.trim(output) == "", do: "no diagnostic output", else: String.trim(output)
+        {:error, "codex sandbox -- /bin/pwd exited #{status}: #{detail}. See #{@sandbox_docs}"}
+    after
+      remaining ->
+        close_codex_sandbox_probe(port)
+        {:error, "codex sandbox -- /bin/pwd timed out after #{timeout_ms}ms. See #{@sandbox_docs}"}
+    end
+  end
+
+  defp close_codex_sandbox_probe(port) do
+    if Port.info(port), do: Port.close(port)
+
+    receive do
+      {^port, _message} -> close_codex_sandbox_probe(port)
+    after
+      0 -> :ok
+    end
+  rescue
+    ArgumentError -> :ok
   end
 
   # Names the exact command that provisions a missing backend so the warning is
