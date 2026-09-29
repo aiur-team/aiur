@@ -39,7 +39,7 @@ defmodule Aiur.Orchestrator.StatusReason do
   def render(:prewarm_blocked), do: "prewarm-blocked"
   def render(:orphaned_claim), do: "orphaned claim: no live agent"
   def render(:stale_claim), do: "stale in-progress claim: no live agent"
-  def render(:workspace_ownership_waiting), do: "reclaiming workspace: redispatch queued"
+  def render(:workspace_ownership_waiting), do: "workspace ownership held; awaiting safe release"
 
   def render({:workspace_ownership_waiting, generation, proof}) do
     detail =

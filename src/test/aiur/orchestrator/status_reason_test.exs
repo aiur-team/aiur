@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.StatusReasonTest do
     assert StatusReason.render(:prewarm_blocked) == "prewarm-blocked"
     assert StatusReason.render(:orphaned_claim) == "orphaned claim: no live agent"
     assert StatusReason.render(:stale_claim) == "stale in-progress claim: no live agent"
+    assert StatusReason.render(:workspace_ownership_waiting) == "workspace ownership held; awaiting safe release"
 
     assert StatusReason.render({:workspace_ownership_waiting, 9012, :not_recorded}) ==
              "workspace ownership held (generation 9012): unknown provider; exit proof not recorded"
