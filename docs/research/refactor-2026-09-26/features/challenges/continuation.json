@@ -142,5 +142,17 @@
     "holds": false,
     "recommendation": "simplify",
     "note": "The three dotenv parsers can drift, and the GitHub credential group precedence is subtle (#2638), but moving all resolution into the daemon does not preserve the frozen launcher contract. `run_aiur` calls `load_dotenv` before it chooses `AIUR_DEFAULT_DASHBOARD_HOST`, starts the release, and scrubs the run-only CI readiness token; the launcher needs some credential presence before BEAM boot, and `aiur init` has its own pre-daemon use. Consolidate a shared parser or generated contract only after specifying this preboot boundary, preserving shell-export precedence, blank handling, GitHub-group isolation and child scrubbing. The raw 70-line saving is speculative until the replacement code and tests are counted. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-22",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The proposed `npm i -g aiur-cli@<channel>` does not do everything the frozen command does. `cmd_upgrade` detects dev/Brew/unknown installs, refuses a live daemon unless --force, derives latest/next/nightly from installed version and registry tags, avoids downgrade, and explains restart behavior. Zero observed invocations and a stale global npm install support low priority, not equivalence of a raw npm command; installed-user use is not measured by Executor transcripts. Simplify or remove only with an explicit package-manager replacement and documented stop/channel/restart safety contract, then count actual removed lines. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-24",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "`aiur units` is a filtered catalog over current-run membership, including non-running tickets; the launcher and UnitsCLI share the Dashboard Units projection with scope, condition, format, source freshness and a versioned JSON envelope. `agents` and `watch` are active-agent fleet views and cannot express the non-running catalog. Thirteen observed Executor calls are a real population, not zero. A common CLI umbrella could reuse presentation code, but replacing Units with `agents --json` would need its own catalog query and schema, likely moving rather than deleting most lines. Retain the distinct query contract until equivalent output and net physical deletion are demonstrated. This is a continuing-researcher challenge, not an independent reviewer result."
   }
 ]

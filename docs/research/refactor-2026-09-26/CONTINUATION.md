@@ -2312,3 +2312,11 @@ stopped, shared daemon untouched. Private acceptance detail is in
 `~/.cache/aiur-muse-planning/requirements-audit.md`. Research continues;
 independent reviewers A and B are now authorized and recording separate
 P0/P1 assessments.
+
+CLI cut review now challenges `aiur upgrade`'s supposed equivalence to a raw
+npm install (which omits live-daemon and channel guards) and `aiur units`'s
+proposed replacement by the active-agent view (which omits non-running
+catalog members). Challenge artifact coverage is 59 of 91, leaving 32.
+Independent reviewers' checkpoint counts are recomputed by
+`tooling/research_inventory.py`; pending or single-review entries do not
+satisfy the two-review acceptance condition.
