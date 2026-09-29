@@ -7,7 +7,7 @@ source IDs, reviewed severity, verdict, proposed action and a direct public
 source line for each completed item. The same frozen source commit remains
 `origin/main` at the time of this check.
 
-**Checkpoint:** 193 of 297 reviewed; 104 remain. This is incomplete.
+**Complete at the pinned static boundary:** 297 of 297 reviewed; 0 remain.
 
 `source-supported` means the claimed static mechanism is visible in the
 cited source. `unknown` means a negative call-site claim or behavior requires
@@ -18,6 +18,6 @@ runtime incidence. Source excerpts are short and come from the frozen public
 Git tree; an instance-specific literal is redacted in one excerpt. No private
 source was imported.
 
-Next: continue in ID order, preserve source IDs, and record the exact
-residual at each checkpoint. Recheck all decisions against merged main before
-implementation tickets, including dynamic callers and current traffic.
+Next: reconcile this partition with the other two, then recheck proposed fixes
+against a later main before implementation tickets, including dynamic callers
+and current traffic. The verdicts do not establish runtime incidence or cost.

@@ -4,9 +4,9 @@
   "checked_main_revision": "3339b887196d5e9aefb273117a14bf33391ee41f",
   "method": "Manual claim and cited-source inspection; direct source line copied from pinned frozen/public tree; verdict scopes static mechanism only.",
   "partition_total": 297,
-  "completed_count": 193,
-  "residual_count": 104,
-  "next_index": 193,
+  "completed_count": 297,
+  "residual_count": 0,
+  "next_index": 297,
   "items": [
     {
       "index": 0,
@@ -3921,6 +3921,1884 @@
         "redacted_literals": true
       },
       "current_head_caveat": "Repeated names, constants or body shapes do not establish one safe abstraction. Compare callers and policy at both sites before merging; no runtime impact or net LOC saving was measured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 193,
+      "finding_id": "events-webhooks-executor-06",
+      "source_ids": [
+        "events-webhooks-executor-06"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "The generic Publisher imports GitHub-specific marker policy, and cited SubscriptionStore calls Orchestrator.",
+      "evidence": {
+        "path": "src/lib/aiur/events/publisher.ex",
+        "line": 42,
+        "source_text": "alias Aiur.GitHub.AgentMarker"
+      },
+      "current_head_caveat": "Choose one in-process boundary before package extraction; runtime coupling cost unmeasured.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 194,
+      "finding_id": "events-webhooks-executor-07",
+      "source_ids": [
+        "events-webhooks-executor-07"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Normalizer explicitly says its triple builders must stay byte-identical to poller twins.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+        "line": 371,
+        "source_text": "# Triple builders \u2014 these must stay byte-identical to their poller twins."
+      },
+      "current_head_caveat": "Unify only after webhook/poller payload parity tests.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 195,
+      "finding_id": "events-webhooks-executor-08",
+      "source_ids": [
+        "events-webhooks-executor-08"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Deposit defines one positive-number parser and another later in the same file.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+        "line": 509,
+        "source_text": "defp parse_number(number) when is_integer(number) and number > 0, do: number"
+      },
+      "current_head_caveat": "Preserve strict positivity and malformed-input behavior when merging.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 196,
+      "finding_id": "events-webhooks-executor-09",
+      "source_ids": [
+        "events-webhooks-executor-09"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Webhook closing-keyword regex is loose; RecentMerge uses a narrower line/clause grammar.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+        "line": 60,
+        "source_text": "@closing_keyword ~r/\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+#(\\d+)\\b/i"
+      },
+      "current_head_caveat": "Test false ticket closure matches on representative PR bodies.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 197,
+      "finding_id": "events-webhooks-executor-10",
+      "source_ids": [
+        "events-webhooks-executor-10"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Poll batch takes checkSuite.id while webhook deposit uses check_suite.id from a different payload shape.",
+      "evidence": {
+        "path": "src/lib/aiur/github/ci_poll_batch.ex",
+        "line": 442,
+        "source_text": "\"check_suite_id\" => get_in(check_run, [\"checkSuite\", \"id\"]),"
+      },
+      "current_head_caveat": "Test normalized type/identity parity at both ingestion paths.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 198,
+      "finding_id": "events-webhooks-executor-11",
+      "source_ids": [
+        "events-webhooks-executor-11"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Source comment confirms a malformed pull_requests element could abort delivery before cache invalidation.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+        "line": 361,
+        "source_text": "# delivery \u2014 including `invalidate_read_cache/3`, silently leaving the cache"
+      },
+      "current_head_caveat": "Move failure containment around the whole invalidation boundary and test it.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 199,
+      "finding_id": "events-webhooks-executor-12",
+      "source_ids": [
+        "events-webhooks-executor-12"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Review dedup identity uses id, action and state without an update version.",
+      "evidence": {
+        "path": "src/lib/aiur/webhooks/event_key.ex",
+        "line": 65,
+        "source_text": "else"
+      },
+      "current_head_caveat": "Reproduce edited review/check-suite rerun collisions before assigning a drop rate.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 200,
+      "finding_id": "events-webhooks-executor-13",
+      "source_ids": [
+        "events-webhooks-executor-13"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Webhook wake window is read from persistent_term and later written; a spawned delay task is cited.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_webhook.ex",
+        "line": 417,
+        "source_text": "case :persistent_term.get({__MODULE__, :reconcile_window}, nil) do"
+      },
+      "current_head_caveat": "Test concurrency and restart before replacing the coalescer.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 201,
+      "finding_id": "events-webhooks-executor-14",
+      "source_ids": [
+        "events-webhooks-executor-14"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Replay dedup checks seen? before insert from the caller, contrary to the GenServer mutation comment.",
+      "evidence": {
+        "path": "src/lib/aiur/events/publisher.ex",
+        "line": 509,
+        "source_text": "if seen?(key) do"
+      },
+      "current_head_caveat": "Race two publishers on one key and assert one admission.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 202,
+      "finding_id": "events-webhooks-executor-15",
+      "source_ids": [
+        "events-webhooks-executor-15"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "TakeoverAlert has its own CI failure list divergent from GithubCIPoller.",
+      "evidence": {
+        "path": "src/lib/aiur/executor/takeover_alert/snapshot.ex",
+        "line": 168,
+        "source_text": "failures = [\"failure\", \"error\", \"timed_out\", \"action_required\"]"
+      },
+      "current_head_caveat": "Centralize classification only after tri-state and workflow-name parity tests.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 203,
+      "finding_id": "events-webhooks-executor-16",
+      "source_ids": [
+        "events-webhooks-executor-16"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "GithubCIPoller contains separate poll/base-repair branches in a large module.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_ci_poller.ex",
+        "line": 126,
+        "source_text": "defp poll_batched_target(target, %{pull_request: pr, check_runs: check_runs, commit_status: commit_status}, opts)"
+      },
+      "current_head_caveat": "Split by responsibility with CI and repair-journal behavior tests; size alone is not incidence.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 204,
+      "finding_id": "events-webhooks-executor-17",
+      "source_ids": [
+        "events-webhooks-executor-17"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "The held-body conditional-list path is repeated across poller targets and CommandScan.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_comments_poller.ex",
+        "line": 283,
+        "source_text": "defp unchanged_issue_comments(target, resource, provenance, next_etag, repo) do"
+      },
+      "current_head_caveat": "One reader contract needs ETag, provenance and incomplete-page tests.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 205,
+      "finding_id": "events-webhooks-executor-18",
+      "source_ids": [
+        "events-webhooks-executor-18"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Comments poller normalizes target lists locally; CI poller repeats the fan-out with distinct supervision.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_comments_poller.ex",
+        "line": 143,
+        "source_text": "defp normalize_targets(targets) do"
+      },
+      "current_head_caveat": "Do not merge execution loops until timeout/trap-exit behavior matches.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 206,
+      "finding_id": "events-webhooks-executor-19",
+      "source_ids": [
+        "events-webhooks-executor-19"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Publisher parses ticket topic strings inline; cited consumers reparse the same grammar.",
+      "evidence": {
+        "path": "src/lib/aiur/events/publisher.ex",
+        "line": 359,
+        "source_text": "defp extract_ticket_id(\"ticket.\" <> rest) do"
+      },
+      "current_head_caveat": "Define a shared parser only after validating existing event names and wildcard rules.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 207,
+      "finding_id": "events-webhooks-executor-20",
+      "source_ids": [
+        "events-webhooks-executor-20"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Attach logs a failure yet returns :ok, while cited persistence paths vary in failure handling.",
+      "evidence": {
+        "path": "src/lib/aiur/events/subscription_store.ex",
+        "line": 115,
+        "source_text": "Logger.warning(\"SubscriptionStore.attach(#{identifier}) failed: #{inspect(reason)}\")"
+      },
+      "current_head_caveat": "Test operator-visible outcome and durable cursor behavior under write failure.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 208,
+      "finding_id": "events-webhooks-executor-21",
+      "source_ids": [
+        "events-webhooks-executor-21"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Every cursor advance constructs a new state and persists it; storage path uses fsync atomic rewrite.",
+      "evidence": {
+        "path": "src/lib/aiur/events/subscription_store.ex",
+        "line": 497,
+        "source_text": "defp advance_cursor_inline(state, event_id) when is_integer(event_id) do"
+      },
+      "current_head_caveat": "Count real consumed-event volume and write time before claiming cost savings.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 209,
+      "finding_id": "events-webhooks-executor-22",
+      "source_ids": [
+        "events-webhooks-executor-22"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A released or revoked claim returns without scheduling another renewal in this branch.",
+      "evidence": {
+        "path": "src/lib/aiur/executor/principal.ex",
+        "line": 44,
+        "source_text": "{:ok, _released_or_revoked} ->"
+      },
+      "current_head_caveat": "Test lease loss and explicit recovery/alert behavior.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 210,
+      "finding_id": "events-webhooks-executor-23",
+      "source_ids": [
+        "events-webhooks-executor-23"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Routine ref replacement updates refs without pruning pending_unblocks; explicit reset does clear it.",
+      "evidence": {
+        "path": "src/lib/aiur/events/branch_ref_store.ex",
+        "line": 197,
+        "source_text": "def handle_call({:replace, refs}, _from, state) do"
+      },
+      "current_head_caveat": "Test superseded SHA retention and prune only entries proven obsolete.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 211,
+      "finding_id": "events-webhooks-executor-24",
+      "source_ids": [
+        "events-webhooks-executor-24"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "LsRemoteTicker starts with empty in-memory refs rather than loading BranchRefStore baseline.",
+      "evidence": {
+        "path": "src/lib/aiur/events/ls_remote_ticker.ex",
+        "line": 73,
+        "source_text": "bootstrapped?: false,"
+      },
+      "current_head_caveat": "Reproduce daemon-downtime push and boot publish behavior before changing first poll.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 212,
+      "finding_id": "events-webhooks-executor-25",
+      "source_ids": [
+        "events-webhooks-executor-25"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "EventSource module exists, but the claim of zero dynamic production callers needs package and runtime review.",
+      "evidence": {
+        "path": "src/lib/aiur/webhooks/event_source.ex",
+        "line": 1,
+        "source_text": "defmodule Aiur.Webhooks.EventSource do"
+      },
+      "current_head_caveat": "Do not remove this path based only on static grep.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 213,
+      "finding_id": "events-webhooks-executor-26",
+      "source_ids": [
+        "events-webhooks-executor-26"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "Label state is populated, but the asserted absence of downstream consumers needs a complete caller audit.",
+      "evidence": {
+        "path": "src/lib/aiur/webhooks/ingest.ex",
+        "line": 41,
+        "source_text": "label_state: nil | %{issue_number: pos_integer(), labels: [String.t()], refresh_required?: boolean()}"
+      },
+      "current_head_caveat": "Confirm consumers before removal. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 214,
+      "finding_id": "events-webhooks-executor-27",
+      "source_ids": [
+        "events-webhooks-executor-27"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Inbox failure is converted to zero pending; this can make state appear idle.",
+      "evidence": {
+        "path": "src/lib/aiur/executor/roster.ex",
+        "line": 184,
+        "source_text": "_kind, _reason -> 0"
+      },
+      "current_head_caveat": "Exercise an unavailable inbox and assert unknown presentation. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 215,
+      "finding_id": "events-webhooks-executor-28",
+      "source_ids": [
+        "events-webhooks-executor-28"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "The degraded and recovered publication functions repeat broadcast and exception handling.",
+      "evidence": {
+        "path": "src/lib/aiur/webhooks/mode_registry.ex",
+        "line": 95,
+        "source_text": "Records one observed, verified webhook delivery for `repo`."
+      },
+      "current_head_caveat": "Check topic-specific semantics before extracting a helper. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 216,
+      "finding_id": "events-webhooks-executor-29",
+      "source_ids": [
+        "events-webhooks-executor-29"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Exchange validates topic segments separately from subscription policy.",
+      "evidence": {
+        "path": "src/lib/aiur/events/exchange.ex",
+        "line": 211,
+        "source_text": "String.ends_with?(pattern, \".\") ->"
+      },
+      "current_head_caveat": "Align accepted syntax before centralizing. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 217,
+      "finding_id": "events-webhooks-executor-30",
+      "source_ids": [
+        "events-webhooks-executor-30"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "The page events flow directly to process_events without an ordering reversal.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_firehose.ex",
+        "line": 127,
+        "source_text": "processed = pages |> events_since_watermark(last_event_id) |> process_events(opts)"
+      },
+      "current_head_caveat": "Reproduce chronological delivery across a multi-event poll before altering order. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 218,
+      "finding_id": "events-webhooks-executor-31",
+      "source_ids": [
+        "events-webhooks-executor-31"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Webhook handling resolves orchestration context again in the nudge path.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_webhook.ex",
+        "line": 250,
+        "source_text": "case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do"
+      },
+      "current_head_caveat": "Profile lookup frequency and preserve stale-repo protection. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 219,
+      "finding_id": "events-webhooks-executor-32",
+      "source_ids": [
+        "events-webhooks-executor-32"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Persistence uses a temp write and rename but treats a failed write as logged success.",
+      "evidence": {
+        "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+        "line": 169,
+        "source_text": "state"
+      },
+      "current_head_caveat": "Fault-inject write and crash boundaries; define durability requirements. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 220,
+      "finding_id": "events-webhooks-executor-33",
+      "source_ids": [
+        "events-webhooks-executor-33"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "The sanitizer runs HTML escaping on every pass despite an idempotence claim.",
+      "evidence": {
+        "path": "src/lib/aiur/events/sanitizer.ex",
+        "line": 303,
+        "source_text": "|> html_escape()"
+      },
+      "current_head_caveat": "Check repeated-scrub output and documented contract. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 221,
+      "finding_id": "events-webhooks-executor-34",
+      "source_ids": [
+        "events-webhooks-executor-34"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Overflow selection sorts the complete entry map.",
+      "evidence": {
+        "path": "src/lib/aiur/webhooks/delivery_log.ex",
+        "line": 417,
+        "source_text": "state.entries"
+      },
+      "current_head_caveat": "Measure map size and overflow frequency before changing eviction. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 222,
+      "finding_id": "events-webhooks-executor-35",
+      "source_ids": [
+        "events-webhooks-executor-35"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Publishing folds over every ETS binding and calls pattern matching per binding.",
+      "evidence": {
+        "path": "src/lib/aiur/events/exchange.ex",
+        "line": 97,
+        "source_text": "fn {pattern, pid, _ref}, acc ->"
+      },
+      "current_head_caveat": "Measure binding count and publish rate before indexing. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 223,
+      "finding_id": "events-webhooks-executor-36",
+      "source_ids": [
+        "events-webhooks-executor-36"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Production module exposes a public test helper.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_ci_poller.ex",
+        "line": 79,
+        "source_text": "def evaluate_for_test(check_runs, commit_status) when is_list(check_runs) and is_map(commit_status) do"
+      },
+      "current_head_caveat": "Review actual tests and external callers before narrowing API. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 224,
+      "finding_id": "events-webhooks-executor-37",
+      "source_ids": [
+        "events-webhooks-executor-37"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Absent Orchestrator returns success while the targeted reconcile message is not sent.",
+      "evidence": {
+        "path": "src/lib/aiur/events/github_webhook.ex",
+        "line": 252,
+        "source_text": "nil -> :ok"
+      },
+      "current_head_caveat": "Test unavailable process and define retry or explicit deferred status. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 225,
+      "finding_id": "github-a-03",
+      "source_ids": [
+        "github-a-03"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "The workspace glob descends through a dot directory without enabling dot matching.",
+      "evidence": {
+        "path": "src/lib/aiur/github/budget_map.ex",
+        "line": 315,
+        "source_text": "|> Path.join(\"*/.aiur-runtime/github-quota/agent-cache.tsv\")"
+      },
+      "current_head_caveat": "Compare discovered cache files with a real workspace census. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 226,
+      "finding_id": "github-a-05",
+      "source_ids": [
+        "github-a-05"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "One process-tree parser tolerates nonnumeric tokens; parallel tree-kill implementations exist.",
+      "evidence": {
+        "path": "src/lib/aiur/github/config.ex",
+        "line": 982,
+        "source_text": "case Integer.parse(token) do"
+      },
+      "current_head_caveat": "Compare failure handling and signal scope before consolidation. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 227,
+      "finding_id": "github-a-06",
+      "source_ids": [
+        "github-a-06"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "The GitHub facade directly aliases BuildOrder modules, creating an upward dependency.",
+      "evidence": {
+        "path": "src/lib/aiur/github/client.ex",
+        "line": 6,
+        "source_text": "alias Aiur.{BuildOrder.GitHubGraph, BuildOrder.ProviderResult, Issue, TrackerIdentity}"
+      },
+      "current_head_caveat": "Verify which delegates are used before pruning the facade. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 228,
+      "finding_id": "github-a-08",
+      "source_ids": [
+        "github-a-08"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "This membership test is case-sensitive while other login normalization lowercases names.",
+      "evidence": {
+        "path": "src/lib/aiur/github/bot_identity.ex",
+        "line": 112,
+        "source_text": "|> Enum.member?(login)"
+      },
+      "current_head_caveat": "Use mixed-case fixtures to establish intended identity policy. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 229,
+      "finding_id": "github-a-09",
+      "source_ids": [
+        "github-a-09",
+        "dup-by-body-19"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Batch pollers carry duplicate branch candidate logic.",
+      "evidence": {
+        "path": "src/lib/aiur/github/comment_poll_batch.ex",
+        "line": 204,
+        "source_text": "defp guessed_branches(target, opts) do"
+      },
+      "current_head_caveat": "Compare pagination and overflow policy before sharing code. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 230,
+      "finding_id": "github-a-10",
+      "source_ids": [
+        "github-a-10"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Budget commands spawn an external broker process on the request path.",
+      "evidence": {
+        "path": "src/lib/aiur/github/budget.ex",
+        "line": 529,
+        "source_text": "case port_command(python, command_args, command_deadline(opts)) do"
+      },
+      "current_head_caveat": "Count actual metered calls and process overhead before a performance claim. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 231,
+      "finding_id": "github-a-11",
+      "source_ids": [
+        "github-a-11"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Budget carries local defaults also represented in tracker schema.",
+      "evidence": {
+        "path": "src/lib/aiur/github/budget.ex",
+        "line": 44,
+        "source_text": "@default_daemon_graphql_limit_per_hour 4500"
+      },
+      "current_head_caveat": "Verify precedence and tests before establishing one config owner. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 232,
+      "finding_id": "github-a-12",
+      "source_ids": [
+        "github-a-12"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Config combines repository resolution and other distinct credential/process concerns in one module.",
+      "evidence": {
+        "path": "src/lib/aiur/github/config.ex",
+        "line": 17,
+        "source_text": "The `owner/name` this daemon operates on."
+      },
+      "current_head_caveat": "Hot-path frequency and split boundaries require measurement. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 233,
+      "finding_id": "github-a-13",
+      "source_ids": [
+        "github-a-13"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "CiReadiness wraps requests in monitored child processes despite transport timeout support.",
+      "evidence": {
+        "path": "src/lib/aiur/github/ci_readiness.ex",
+        "line": 367,
+        "source_text": "defp await_request_result(request_fun, request, remaining_ms) do"
+      },
+      "current_head_caveat": "Confirm cancellation semantics before removing the wrapper. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 234,
+      "finding_id": "github-a-14",
+      "source_ids": [
+        "github-a-14"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Dispatch authorization writes cache maps to persistent_term.",
+      "evidence": {
+        "path": "src/lib/aiur/github/dispatch_authorization.ex",
+        "line": 574,
+        "source_text": ":persistent_term.put("
+      },
+      "current_head_caveat": "Measure write cadence and scheduler cost before changing storage. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 235,
+      "finding_id": "github-a-15",
+      "source_ids": [
+        "github-a-15"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Unrecognized deferral reasons become transient, hiding distinct causes.",
+      "evidence": {
+        "path": "src/lib/aiur/github/dispatch_authorization.ex",
+        "line": 179,
+        "source_text": "defp deferral_cause(_reason), do: \"transient\""
+      },
+      "current_head_caveat": "Exercise non-transport failures and preserve cause-neutral semantics. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 236,
+      "finding_id": "github-a-16",
+      "source_ids": [
+        "github-a-16"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Comment pagination follows parsed next-page links without a visible bound at this branch.",
+      "evidence": {
+        "path": "src/lib/aiur/github/comments.ex",
+        "line": 157,
+        "source_text": "next = Transport.parse_next_page_url(headers)"
+      },
+      "current_head_caveat": "Audit all callers and impose a policy-specific limit. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 237,
+      "finding_id": "github-a-17",
+      "source_ids": [
+        "github-a-17"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Header integer parsing accepts a prefix in this module while Budget requires full parse.",
+      "evidence": {
+        "path": "src/lib/aiur/github/config.ex",
+        "line": 1074,
+        "source_text": "case Integer.parse(value) do"
+      },
+      "current_head_caveat": "Normalize malformed-header policy before sharing a parser. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 238,
+      "finding_id": "github-a-18",
+      "source_ids": [
+        "github-a-18"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Rate-limit pool handling is encoded again in Budget.",
+      "evidence": {
+        "path": "src/lib/aiur/github/budget.ex",
+        "line": 820,
+        "source_text": "case Transport.header(headers, \"x-ratelimit-resource\") do"
+      },
+      "current_head_caveat": "Compare unknown-pool behavior before centralizing vocabulary. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 239,
+      "finding_id": "github-a-19",
+      "source_ids": [
+        "github-a-19"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "App installation token lookup uses the singleton refresher regardless of configured credential identity.",
+      "evidence": {
+        "path": "src/lib/aiur/github/credential.ex",
+        "line": 52,
+        "source_text": "def token(%__MODULE__{kind: :app_installation}), do: normalize(AppTokenRefresher.current_token())"
+      },
+      "current_head_caveat": "Check multi-installation configuration support and live token selection. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 240,
+      "finding_id": "github-a-20",
+      "source_ids": [
+        "github-a-20",
+        "web-rest-13"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Resource-change messages trigger the dashboard load path.",
+      "evidence": {
+        "path": "src/lib/aiur_web/live/github_cache_live.ex",
+        "line": 151,
+        "source_text": "def handle_info({:github_resource_changed, _change} = message, socket) do"
+      },
+      "current_head_caveat": "Dashboard removal is planned; exclude these lines from post-release savings until merged. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 241,
+      "finding_id": "github-a-21",
+      "source_ids": [
+        "github-a-21"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Static classification maps only the bare agent-shell caller while call sites add suffixes.",
+      "evidence": {
+        "path": "src/lib/aiur/github/budget_map.ex",
+        "line": 78,
+        "source_text": "\"agent-shell:gh\" => :git"
+      },
+      "current_head_caveat": "Compare actual caller census before claiming misattributed points. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 242,
+      "finding_id": "github-a-22",
+      "source_ids": [
+        "github-a-22"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Inspector reads ResourceStore ETS contents directly.",
+      "evidence": {
+        "path": "src/lib/aiur/github/cache_inspector/resource_store_source.ex",
+        "line": 53,
+        "source_text": "|> :ets.tab2list()"
+      },
+      "current_head_caveat": "Verify table visibility and replace with an owner API if inspector remains. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 243,
+      "finding_id": "github-a-23",
+      "source_ids": [
+        "github-a-23"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "CodeOwners defaults to an internal interval; lack of config-key wiring is a negative caller claim.",
+      "evidence": {
+        "path": "src/lib/aiur/github/code_owners.ex",
+        "line": 127,
+        "source_text": "refresh_seconds: Keyword.get(opts, :refresh_seconds, @default_refresh_seconds),"
+      },
+      "current_head_caveat": "Trace configuration from supervisor before declaring the key inert. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 244,
+      "finding_id": "github-a-24",
+      "source_ids": [
+        "github-a-24",
+        "github-b-29",
+        "loose-1-35"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Transport has a base URL while other modules embed the same endpoint literal.",
+      "evidence": {
+        "path": "src/lib/aiur/github/transport.ex",
+        "line": 42,
+        "source_text": "@base_url \"https://api.github.com\""
+      },
+      "current_head_caveat": "Identify deliberate non-Transport endpoints before centralization. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 245,
+      "finding_id": "github-a-25",
+      "source_ids": [
+        "github-a-25"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Domain modules build request maps and error handling locally.",
+      "evidence": {
+        "path": "src/lib/aiur/github/dependencies_api.ex",
+        "line": 71,
+        "source_text": "case request_fun.(%{"
+      },
+      "current_head_caveat": "Preserve endpoint-specific status meaning; count duplicated call sites. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 246,
+      "finding_id": "github-a-26",
+      "source_ids": [
+        "github-a-26"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "An async credential test mutates process-global environment.",
+      "evidence": {
+        "path": "src/test/aiur/github/credential_selector_test.exs",
+        "line": 22,
+        "source_text": "System.put_env(credential.token_env, token)"
+      },
+      "current_head_caveat": "Run tests concurrently to establish interference and move to scoped injection. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 247,
+      "finding_id": "github-a-27",
+      "source_ids": [
+        "github-a-27"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Auth preflight identifies hold errors by matching serialized text.",
+      "evidence": {
+        "path": "src/lib/aiur/github/auth_preflight.ex",
+        "line": 421,
+        "source_text": "do: String.contains?(error, \"{:aiur, :locally_held,\")"
+      },
+      "current_head_caveat": "Retain failure wording while moving to structured errors. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 248,
+      "finding_id": "github-a-28",
+      "source_ids": [
+        "github-a-28"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "The cited public API exists; the broad production-dead claim needs complete call and dynamic-use analysis.",
+      "evidence": {
+        "path": "src/lib/aiur/github/agent_cache.ex",
+        "line": 97,
+        "source_text": "@doc \"\"\""
+      },
+      "current_head_caveat": "Do not remove an API on text search alone. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 249,
+      "finding_id": "github-a-29",
+      "source_ids": [
+        "github-a-29"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Budget defaults are statically tuned in source.",
+      "evidence": {
+        "path": "src/lib/aiur/github/budget.ex",
+        "line": 34,
+        "source_text": "# The GraphQL defaults were raised in #2299 because the guard now books the"
+      },
+      "current_head_caveat": "Determine actual configured overrides and observed limits before changing defaults. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 250,
+      "finding_id": "github-a-30",
+      "source_ids": [
+        "github-a-30"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Endpoint family falls back to arbitrary repository path components.",
+      "evidence": {
+        "path": "src/lib/aiur/github/endpoint_policy.ex",
+        "line": 60,
+        "source_text": "\"/repos/\" <> path -> path |> String.split(\"/\", trim: true) |> Enum.at(2, \"rest\")"
+      },
+      "current_head_caveat": "Enumerate actual request URLs and align the documented endpoint table. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 251,
+      "finding_id": "github-a-31",
+      "source_ids": [
+        "github-a-31"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Workflow fingerprint reads a file during cached-result evaluation.",
+      "evidence": {
+        "path": "src/lib/aiur/github/ci_readiness.ex",
+        "line": 200,
+        "source_text": "case File.read(path) do"
+      },
+      "current_head_caveat": "Measure dispatch frequency and file-system cost before optimizing. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 252,
+      "finding_id": "github-a-32",
+      "source_ids": [
+        "github-a-32"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Budget has two distinct private hold functions with overloaded meaning.",
+      "evidence": {
+        "path": "src/lib/aiur/github/budget.ex",
+        "line": 498,
+        "source_text": "defp hold(key, scope, resource, delay_ms, opts) do"
+      },
+      "current_head_caveat": "Rename with behavior preserved and check all call sites. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 253,
+      "finding_id": "github-a-33",
+      "source_ids": [
+        "github-a-33"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Key invalidation writes an invalidation marker before invoking broader invalidation.",
+      "evidence": {
+        "path": "src/lib/aiur/github/agent_cache.ex",
+        "line": 168,
+        "source_text": "mark(Path.join(dir, \".invalidated\"))"
+      },
+      "current_head_caveat": "Trace both marker targets and count duplicate writes before removal. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 254,
+      "finding_id": "github-a-34",
+      "source_ids": [
+        "github-a-34"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "The comment says unknown cannot choose tile color while ranking includes unknown.",
+      "evidence": {
+        "path": "src/lib/aiur/github/cache_inspector.ex",
+        "line": 320,
+        "source_text": "# `:unknown` is not the worst state, it is an absent measurement, so it never"
+      },
+      "current_head_caveat": "Dashboard removal may supersede this fix; confirm release state first. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 255,
+      "finding_id": "github-a-35",
+      "source_ids": [
+        "github-a-35"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "GitHub.CodeOwners directly invokes Aiur.Codeowners, confirming confusing cross-module naming.",
+      "evidence": {
+        "path": "src/lib/aiur/github/code_owners.ex",
+        "line": 395,
+        "source_text": "Aiur.Codeowners.file_path() ||"
+      },
+      "current_head_caveat": "Rename only with caller migration and tests. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 256,
+      "finding_id": "github-a-36",
+      "source_ids": [
+        "github-a-36"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Token acquisition can occur during refresher initialization.",
+      "evidence": {
+        "path": "src/lib/aiur/github/app_token_refresher.ex",
+        "line": 117,
+        "source_text": "if current_token() do"
+      },
+      "current_head_caveat": "Test boot latency and expired-token path before restructuring. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 257,
+      "finding_id": "github-b-01",
+      "source_ids": [
+        "github-b-01"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "ResourceStore owns a public named ETS table shared across resource types.",
+      "evidence": {
+        "path": "src/lib/aiur/github/resource_store.ex",
+        "line": 1299,
+        "source_text": "table = :ets.new(@table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])"
+      },
+      "current_head_caveat": "Split by ownership only after mapping transaction and cache semantics. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 258,
+      "finding_id": "github-b-05",
+      "source_ids": [
+        "github-b-05",
+        "dup-by-body-42",
+        "dup-by-body-49"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Quota and RequestLog independently classify attribution and request costs.",
+      "evidence": {
+        "path": "src/lib/aiur/github/quota.ex",
+        "line": 638,
+        "source_text": "defp attribution_response(_result), do: {nil, %{}}"
+      },
+      "current_head_caveat": "Reconcile differing unknown-response policy before sharing classifiers. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 259,
+      "finding_id": "github-b-06",
+      "source_ids": [
+        "github-b-06"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Transport directly checks Orchestrator process identity, an upward package dependency.",
+      "evidence": {
+        "path": "src/lib/aiur/github/transport.ex",
+        "line": 477,
+        "source_text": "defp orchestrator_process?, do: self() == GenServer.whereis(Aiur.Orchestrator)"
+      },
+      "current_head_caveat": "Map dependencies and startup behavior before inversion. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 260,
+      "finding_id": "github-b-07",
+      "source_ids": [
+        "github-b-07"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Pull request readers repeat repo and token acquisition boilerplate.",
+      "evidence": {
+        "path": "src/lib/aiur/github/pull_requests.ex",
+        "line": 16,
+        "source_text": "with {:ok, {owner, repo}} <- Transport.parse_repo(),"
+      },
+      "current_head_caveat": "Preserve endpoint-specific errors and pagination policy. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 261,
+      "finding_id": "github-b-08",
+      "source_ids": [
+        "github-b-08"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Source documents per-target listing in comment polling.",
+      "evidence": {
+        "path": "src/lib/aiur/github/pull_requests.ex",
+        "line": 129,
+        "source_text": "It was not free. `Aiur.Orchestrator.CommentPolling.TargetSelection` calls this"
+      },
+      "current_head_caveat": "Count live targets and actual cache revalidation before claiming quota savings. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 262,
+      "finding_id": "github-b-09",
+      "source_ids": [
+        "github-b-09"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "The public head-ref API exists; absence of production use cannot be established from this citation alone.",
+      "evidence": {
+        "path": "src/lib/aiur/github/pull_requests.ex",
+        "line": 503,
+        "source_text": "@spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::"
+      },
+      "current_head_caveat": "Audit dynamic callers and compatibility before removal. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 263,
+      "finding_id": "github-b-10",
+      "source_ids": [
+        "github-b-10"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "ResourceStore has repeated held-body expiry logic in separate paths.",
+      "evidence": {
+        "path": "src/lib/aiur/github/resource_store.ex",
+        "line": 886,
+        "source_text": "defp held_body(entry) do"
+      },
+      "current_head_caveat": "Compare nil and expiry edge cases before extracting. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 264,
+      "finding_id": "github-b-11",
+      "source_ids": [
+        "github-b-11"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Issues implements separate fetch families with repeated context setup.",
+      "evidence": {
+        "path": "src/lib/aiur/github/issues.ex",
+        "line": 39,
+        "source_text": "@spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}"
+      },
+      "current_head_caveat": "Map conditional and unconditional cache effects before consolidation. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 265,
+      "finding_id": "github-b-12",
+      "source_ids": [
+        "github-b-12"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "State labels are parsed here with normalization while other paths use direct prefix matching.",
+      "evidence": {
+        "path": "src/lib/aiur/github/issues.ex",
+        "line": 1123,
+        "source_text": "prefix_colon = normalize_label_name(\"#{prefix}:\")"
+      },
+      "current_head_caveat": "Exercise mixed-case labels across all paths before unifying. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 266,
+      "finding_id": "github-b-13",
+      "source_ids": [
+        "github-b-13"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "IssueState label operations accept different success-status sets.",
+      "evidence": {
+        "path": "src/lib/aiur/github/issue_state.ex",
+        "line": 47,
+        "source_text": "{:ok, %{status: status, body: labels}} when status in 200..299 ->"
+      },
+      "current_head_caveat": "Test GitHub status variants and reconcile semantics. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 267,
+      "finding_id": "github-b-14",
+      "source_ids": [
+        "github-b-14"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "An injected request function activates a test token seam in production code.",
+      "evidence": {
+        "path": "src/lib/aiur/github/transport.ex",
+        "line": 86,
+        "source_text": "if Keyword.has_key?(opts, :request_fun) do"
+      },
+      "current_head_caveat": "Check test coverage and prevent unauthorized production use. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 268,
+      "finding_id": "github-b-15",
+      "source_ids": [
+        "github-b-15"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Unexpected head-read responses are swallowed without a status signal.",
+      "evidence": {
+        "path": "src/lib/aiur/github/view_state_sweep.ex",
+        "line": 258,
+        "source_text": ":ok"
+      },
+      "current_head_caveat": "Fault-inject failed reads and assert visible freshness/health. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 269,
+      "finding_id": "github-b-16",
+      "source_ids": [
+        "github-b-16"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "unknown",
+      "proposed_action": "defer",
+      "assessment": "A request-log read error resets in-memory log accounting; broader permanent latch claim needs state-transition proof.",
+      "evidence": {
+        "path": "src/lib/aiur/github/quota.ex",
+        "line": 673,
+        "source_text": "{:error, _reason} -> %{state | request_log_io: nil, request_log_bytes: 0}"
+      },
+      "current_head_caveat": "Reproduce recoveries and alert clearing before assigning cause. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 270,
+      "finding_id": "github-b-17",
+      "source_ids": [
+        "github-b-17"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A contended write failure is reported through Logger while caller behavior may continue.",
+      "evidence": {
+        "path": "src/lib/aiur/github/resource_store.ex",
+        "line": 1482,
+        "source_text": "Logger.error("
+      },
+      "current_head_caveat": "Fault-inject write contention and check caller-visible status. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 271,
+      "finding_id": "github-b-18",
+      "source_ids": [
+        "github-b-18"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "with_table rescues ArgumentError around the supplied caller function.",
+      "evidence": {
+        "path": "src/lib/aiur/github/resource_store.ex",
+        "line": 1726,
+        "source_text": "defp with_table(default, fun) do"
+      },
+      "current_head_caveat": "Inject an ArgumentError from caller code and verify it is not mistaken for missing ETS. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 272,
+      "finding_id": "github-b-19",
+      "source_ids": [
+        "github-b-19"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Marker max merge uses lookup followed by insert, permitting races.",
+      "evidence": {
+        "path": "src/lib/aiur/github/read_cache.ex",
+        "line": 512,
+        "source_text": "defp mark(identity, at_ms) do"
+      },
+      "current_head_caveat": "Run concurrent invalidations and assert monotonic marker state. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 273,
+      "finding_id": "github-b-20",
+      "source_ids": [
+        "github-b-20"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Retry classifier matches a two-element API-status tuple while Labels emits a three-element variant.",
+      "evidence": {
+        "path": "src/lib/aiur/github/errors.ex",
+        "line": 207,
+        "source_text": "def retryable_github_error?({:github_api_status, status})"
+      },
+      "current_head_caveat": "Exercise the emitted tuple through retry policy. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 274,
+      "finding_id": "github-b-21",
+      "source_ids": [
+        "github-b-21"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "All HTTP 422 dependency errors are mapped to cycle_detected.",
+      "evidence": {
+        "path": "src/lib/aiur/github/issue_dependencies.ex",
+        "line": 143,
+        "source_text": "github_http_status?(reason, 422) -> {:error, :cycle_detected}"
+      },
+      "current_head_caveat": "Preserve response detail and distinguish validation causes. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 275,
+      "finding_id": "github-b-22",
+      "source_ids": [
+        "github-b-22"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Tracker conditionally dispatches optional client functions at runtime.",
+      "evidence": {
+        "path": "src/lib/aiur/github/tracker.ex",
+        "line": 52,
+        "source_text": "function_exported?(client, :preflight_auth, 0) -> client.preflight_auth()"
+      },
+      "current_head_caveat": "Review plugin/test-client contracts before replacing dynamic dispatch. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 276,
+      "finding_id": "github-b-23",
+      "source_ids": [
+        "github-b-23"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Issues comments describe a 304 clock policy that conflicts with later freshness handling.",
+      "evidence": {
+        "path": "src/lib/aiur/github/issues.ex",
+        "line": 339,
+        "source_text": "# So the clock does not move, and the only thing written back is the validator,"
+      },
+      "current_head_caveat": "Trace 304 state updates and correct docs to current behavior. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 277,
+      "finding_id": "github-b-24",
+      "source_ids": [
+        "github-b-24"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Listing API promises fetch-shaped entries while implementation accesses raw ETS entries.",
+      "evidence": {
+        "path": "src/lib/aiur/github/resource_store.ex",
+        "line": 1116,
+        "source_text": "Returns `[{key, entry}]` with the same entry shape `fetch/1` returns, or `[]`"
+      },
+      "current_head_caveat": "Test expired entries and make listing contract explicit. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 278,
+      "finding_id": "github-b-25",
+      "source_ids": [
+        "github-b-25"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Each checkpoint materializes the entire ETS table as a document.",
+      "evidence": {
+        "path": "src/lib/aiur/github/resource_store.ex",
+        "line": 1922,
+        "source_text": "document = table |> :ets.tab2list() |> Enum.reduce(%{}, &encode_entry/2)"
+      },
+      "current_head_caveat": "Measure table size and checkpoint latency before optimization. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 279,
+      "finding_id": "github-b-26",
+      "source_ids": [
+        "github-b-26"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Quota filters the full observation list on prune.",
+      "evidence": {
+        "path": "src/lib/aiur/github/quota.ex",
+        "line": 698,
+        "source_text": "%{state | observations: Enum.filter(state.observations, &(DateTime.compare(&1.observed_at, cutoff) != :lt))}"
+      },
+      "current_head_caveat": "Measure observation count and request cadence before optimization. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 280,
+      "finding_id": "github-b-27",
+      "source_ids": [
+        "github-b-27"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Whole-type clear uses an unversioned ETS match delete.",
+      "evidence": {
+        "path": "src/lib/aiur/github/resource_store.ex",
+        "line": 1096,
+        "source_text": ":ets.match_delete(table, {{resource_type, owner, repo, :_}, :_})"
+      },
+      "current_head_caveat": "Reproduce concurrent refresh interleavings before changing API. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 281,
+      "finding_id": "github-b-28",
+      "source_ids": [
+        "github-b-28"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A request map omits caller attribution.",
+      "evidence": {
+        "path": "src/lib/aiur/github/pull_requests.ex",
+        "line": 162,
+        "source_text": "case request_fun.(%{method: :get, url: url, token: token}) do"
+      },
+      "current_head_caveat": "Count omitted callers in real request logs before stating cost impact. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 282,
+      "finding_id": "github-b-30",
+      "source_ids": [
+        "github-b-30"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Latest-comment author comparison uses exact string case.",
+      "evidence": {
+        "path": "src/lib/aiur/github/review_threads/reply.ex",
+        "line": 234,
+        "source_text": "get_in(latest, [\"author\", \"login\"]) != daemon_account ->"
+      },
+      "current_head_caveat": "Verify GitHub login case behavior and align both thread policies. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 283,
+      "finding_id": "github-b-31",
+      "source_ids": [
+        "github-b-31"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Commit read matching assigns the comments family.",
+      "evidence": {
+        "path": "src/lib/aiur/github/read_cache/policy.ex",
+        "line": 399,
+        "source_text": "{~r\"/repos/[^/?#]+/[^/?#]+/commits/[0-9a-f]{7,40}(?:$|\\?)\", :comments},"
+      },
+      "current_head_caveat": "Check actual endpoint use and correct family attribution. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 284,
+      "finding_id": "github-b-32",
+      "source_ids": [
+        "github-b-32"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Integer parsing accepts suffixes here while other parsers reject them.",
+      "evidence": {
+        "path": "src/lib/aiur/github/transport.ex",
+        "line": 851,
+        "source_text": "case Integer.parse(value) do"
+      },
+      "current_head_caveat": "Define malformed-header policy before centralizing parser. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 285,
+      "finding_id": "github-b-33",
+      "source_ids": [
+        "github-b-33"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "The comment names a module with capitalization inconsistent with its declaration.",
+      "evidence": {
+        "path": "src/lib/aiur/github/resource_store.ex",
+        "line": 183,
+        "source_text": "`Aiur.Events.GitHubWebhook.Deposit.regression?/2` refuses an out-of-order"
+      },
+      "current_head_caveat": "Correct reference and check source-line citations. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 286,
+      "finding_id": "github-b-34",
+      "source_ids": [
+        "github-b-34"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Dispatch status consults primary resource windows without a backoff check in this path.",
+      "evidence": {
+        "path": "src/lib/aiur/github/quota.ex",
+        "line": 508,
+        "source_text": "defp dispatch_status(state, now) do"
+      },
+      "current_head_caveat": "Test secondary-backoff state against dispatch and preflight gates. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 287,
+      "finding_id": "github-b-35",
+      "source_ids": [
+        "github-b-35"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Quota constructs workspace log paths directly, duplicating path policy elsewhere.",
+      "evidence": {
+        "path": "src/lib/aiur/github/quota.ex",
+        "line": 1114,
+        "source_text": "Config.workspace_root()"
+      },
+      "current_head_caveat": "Centralize only after identifying runtime root overrides. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 288,
+      "finding_id": "github-b-36",
+      "source_ids": [
+        "github-b-36"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "A transition fetches issue state before further update reads.",
+      "evidence": {
+        "path": "src/lib/aiur/github/issue_state.ex",
+        "line": 97,
+        "source_text": "case Issues.fetch_issue_raw_conditional(update_context.issue_number, issue_read_opts(update_context)) do"
+      },
+      "current_head_caveat": "Count actual reads per transition with transport instrumentation. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 289,
+      "finding_id": "github-b-37",
+      "source_ids": [
+        "github-b-37"
+      ],
+      "reviewed_severity": "P3",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "GraphQL transport checks query cost and then sends through another parsing path.",
+      "evidence": {
+        "path": "src/lib/aiur/github/transport.ex",
+        "line": 608,
+        "source_text": "case GraphQLCost.check(query, caller: Keyword.get(opts, :caller)) do"
+      },
+      "current_head_caveat": "Profile real document size and parse count before caching. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 290,
+      "finding_id": "loose-1-01",
+      "source_ids": [
+        "loose-1-01"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "DecisionStore is a very large module owning multiple decision behaviors.",
+      "evidence": {
+        "path": "src/lib/aiur/decision_store.ex",
+        "line": 1,
+        "source_text": "defmodule Aiur.DecisionStore do"
+      },
+      "current_head_caveat": "Use owner map and preserve event ordering when splitting. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 291,
+      "finding_id": "loose-1-04",
+      "source_ids": [
+        "loose-1-04"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Projection write serializes current decisions on mutation.",
+      "evidence": {
+        "path": "src/lib/aiur/decision_store.ex",
+        "line": 756,
+        "source_text": "JsonStore.write!(state.projection_path, DecisionProjection.serialize_current(state.current))"
+      },
+      "current_head_caveat": "Measure decision population and write latency before savings claim. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 292,
+      "finding_id": "loose-1-05",
+      "source_ids": [
+        "loose-1-05"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "Pending-answer redelivery can skip an action when dispatch remains active.",
+      "evidence": {
+        "path": "src/lib/aiur/decision_store.ex",
+        "line": 4574,
+        "source_text": ""
+      },
+      "current_head_caveat": "Reproduce coordinator-unavailable transition and assert retry state. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 293,
+      "finding_id": "loose-1-06",
+      "source_ids": [
+        "loose-1-06"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "fix",
+      "assessment": "A missing correlated attempt logs a warning and drops the transition fact.",
+      "evidence": {
+        "path": "src/lib/aiur/decision_store.ex",
+        "line": 3078,
+        "source_text": ""
+      },
+      "current_head_caveat": "Fault-inject missing attempts and verify durable recovery or explicit rejection. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 294,
+      "finding_id": "loose-1-07",
+      "source_ids": [
+        "loose-1-07"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "DecisionStore notification paths use different failure policies.",
+      "evidence": {
+        "path": "src/lib/aiur/decision_store.ex",
+        "line": 4603,
+        "source_text": "defp notify(decision, event_id, state) do"
+      },
+      "current_head_caveat": "Define delivery guarantees per notification before unifying policy. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 295,
+      "finding_id": "loose-1-08",
+      "source_ids": [
+        "loose-1-08"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Read-only request guards repeat status checks and return varied error shapes.",
+      "evidence": {
+        "path": "src/lib/aiur/decision_store.ex",
+        "line": 855,
+        "source_text": "def handle_call({:request, _payload, _opts}, _from, %{writable?: false} = state) do"
+      },
+      "current_head_caveat": "Compare caller contracts before consolidating guard clauses. Static main matches frozen source; runtime incidence untested.",
+      "runtime_incidence": "not_tested"
+    },
+    {
+      "index": 296,
+      "finding_id": "loose-1-09",
+      "source_ids": [
+        "loose-1-09"
+      ],
+      "reviewed_severity": "P2",
+      "verdict": "source-supported",
+      "proposed_action": "defer",
+      "assessment": "Audit history append pattern repeats and uses list concatenation.",
+      "evidence": {
+        "path": "src/lib/aiur/decision_store.ex",
+        "line": 2148,
+        "source_text": "audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event])),"
+      },
+      "current_head_caveat": "Preserve order and bound history before changing representation. Static main matches frozen source; runtime incidence untested.",
       "runtime_incidence": "not_tested"
     }
   ]
