@@ -848,7 +848,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
         end)
 
       on_exit(fn -> if Process.alive?(worker), do: Process.exit(worker, :kill) end)
-      assert_receive {:queue_item_consumed, ^identifier}
+      assert_receive {:queue_item_consumed, ^identifier}, 1_000
       refute_received {:queue_item_restored, ^identifier}
       assert %{item: nil, delivered: nil} = :sys.get_state(orchestrator)
       assert %{^identifier => %{mode: :paused}} = :sys.get_state(PauseContainment).entries

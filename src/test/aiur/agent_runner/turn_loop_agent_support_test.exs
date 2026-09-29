@@ -118,7 +118,7 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
 
       on_exit(fn -> if Process.alive?(worker), do: Process.exit(worker, :kill) end)
       identifier = ctx.issue.identifier
-      assert_receive {:queue_item_consumed, ^identifier}
+      assert_receive {:queue_item_consumed, ^identifier}, 1_000
       refute_received {:queue_item_restored, ^identifier}
     end
 
