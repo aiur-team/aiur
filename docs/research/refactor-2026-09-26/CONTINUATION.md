@@ -7,12 +7,13 @@ authorized by this research goal. The original handoff is preserved.
 The current status is in `synthesis/STATUS.md`; the requirement-by-requirement
 audit is in `synthesis/final-research-audit.md`. Checkpoints below preserve
 their historical state, including tasks subsequently completed. The frozen
-research, review and feature
-catalog are published. The literal request for a cause for every historical
-gap remains unsatisfied because retained evidence cannot support it, and the
-CE plan has a documented deepen pass but remains `requirements-only` pending
-current-head semantic disposition of 889 P2/P3 findings, owner-map validation
-and behavior tests for its decisions. The completed contextual private-source
+research, review and feature catalog are published. The literal request for a
+cause for every historical gap remains unsatisfied because retained evidence
+cannot support it. The CE plan has a documented deepen pass but remains
+`requirements-only`. All 889
+P2/P3 findings have static dispositions and all 359 oversized-file owners
+have a pre-release candidate audit; cross-partition decisions, merged-main
+validation and behavior tests remain. The completed contextual private-source
 review covers the published tip; new evidence needs another review. The complete
 `synthesis/current-head-static-triage.md` checks all 986 citation anchors
 against pinned `main`, while leaving runtime incidence unverified. Keep the
