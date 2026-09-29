@@ -44,7 +44,8 @@ defmodule Aiur.Gemini.Session do
   end
 
   defp launch(workspace, command, opts) do
-    with {:ok, auth} <- supported_auth(opts),
+    with :ok <- reject_workspace_auth_override(workspace),
+         {:ok, auth} <- supported_auth(opts),
          {:ok, home} <- isolated_home(workspace, opts),
          {:ok, gateway} <- MCP.start_link(owner: self(), transport: :gemini_mcp) do
       command = command <> " --approval-mode default --allowed-mcp-server-names aiur"
@@ -132,6 +133,25 @@ defmodule Aiur.Gemini.Session do
        do: {:ok, %{method: method, api_key: key}}
 
   defp validate_auth(_), do: {:error, :gemini_supported_auth_required}
+
+  # Trusted workspace settings outrank the isolated user home in Gemini CLI.
+  # A repository must not replace Aiur's API-key choice with personal OAuth.
+  defp reject_workspace_auth_override(workspace) do
+    path = Path.join([workspace, ".gemini", "settings.json"])
+
+    case File.read(path) do
+      {:ok, content} ->
+        if Regex.match?(~r/"selectedType"\s*:/, content),
+          do: {:error, :gemini_workspace_auth_override},
+          else: :ok
+
+      {:error, :enoent} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, {:gemini_workspace_settings_unreadable, reason}}
+    end
+  end
 
   defp isolated_home(workspace, opts) do
     root = Keyword.get_lazy(opts, :gemini_home_root, fn -> Paths.runtime_state_dir() end)

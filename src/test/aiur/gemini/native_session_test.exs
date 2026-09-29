@@ -151,6 +151,18 @@ defmodule Aiur.Gemini.NativeSessionTest do
   end
 
   @tag :tmp_dir
+  test "trusted workspace settings cannot override API-key auth", %{tmp_dir: dir} do
+    settings = Path.join([dir, ".gemini", "settings.json"])
+    File.mkdir_p!(Path.dirname(settings))
+    File.write!(settings, ~s({"security":{"auth":{"selectedType":"oauth-personal"}}}))
+
+    assert {:error, :gemini_workspace_auth_override} =
+             Session.start(dir, auth: @fixture_auth, command: fixture(dir, "normal"))
+
+    refute File.exists?(Path.join(dir, "frames.ndjson"))
+  end
+
+  @tag :tmp_dir
   test "Vertex API key selects enterprise auth without a key in the child environment", %{tmp_dir: dir} do
     auth = %{method: "vertex-ai", api_key: "fixture-enterprise-key"}
     assert {:ok, session} = Session.start(dir, auth: auth, gemini_home_root: dir, command: fixture(dir, "normal"), timeout_ms: 2_000)
