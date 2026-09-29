@@ -71,6 +71,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
       build_lane: values.build_lane,
       reasons: Fields.reasons(status_row, open_command_count),
       runtime: Fields.runtime(status_row, member),
+      turn_count: running_turn_count(status_row),
+      context_usage: running_context_usage(status_row),
       timestamps: timestamps(member, status_row),
       open_command_count: open_command_count,
       progress: Fields.activity_value(activity_row, :progress),
@@ -82,7 +84,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
           values.sources,
           activity_row,
           lifecycle_source,
-          command_count_source
+          command_count_source,
+          status_row
         ),
       sources: source_descriptors(sources, origin, member, rows)
     }
@@ -98,6 +101,18 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
 
   defp terminal?(:membership, member, _lifecycle), do: Map.get(member, :terminal?) == true
   defp terminal?(:status, _member, lifecycle), do: lifecycle in [:completed, :cancelled]
+
+  defp running_turn_count(%{bucket: :running, turn_count_observed?: true, turn_count: count})
+       when is_integer(count) and count >= 0,
+       do: count
+
+  defp running_turn_count(_status_row), do: nil
+
+  defp running_context_usage(%{bucket: :running, context_usage: %{used_tokens: used} = context})
+       when is_integer(used) and used >= 0,
+       do: context
+
+  defp running_context_usage(_status_row), do: nil
 
   defp live_conversation(%{} = status_row) do
     case Map.get(status_row, :live_conversation) do
@@ -191,7 +206,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
     }
   end
 
-  defp field_sources(values, activity_row, lifecycle_source, command_count_source) do
+  defp field_sources(values, activity_row, lifecycle_source, command_count_source, status_row) do
     %{
       title: values.title,
       url: values.url,
@@ -205,6 +220,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
       complexity: values.complexity,
       build_lane: values.build_lane,
       progress: if(is_nil(activity_row), do: :unknown, else: :activity),
+      turn_count: if(is_nil(running_turn_count(status_row)), do: :unknown, else: :status_report),
+      context_usage: if(is_nil(running_context_usage(status_row)), do: :unknown, else: :status_report),
       open_command_count: command_count_source
     }
   end
