@@ -14,6 +14,11 @@ defmodule Aiur.Gemini.Protocol do
         "clientCapabilities" => %{"fs" => %{"readTextFile" => false, "writeTextFile" => false}, "terminal" => false}
       })
 
+  @spec authenticate(integer(), %{method: String.t(), api_key: String.t()}) :: map()
+  def authenticate(id, %{method: method, api_key: api_key}) do
+    request(id, "authenticate", %{"methodId" => method, "_meta" => %{"api-key" => api_key}})
+  end
+
   @spec validate_initialize(map()) :: {:ok, map()} | {:error, term()}
   def validate_initialize(%{"protocolVersion" => 1, "agentCapabilities" => capabilities})
       when is_map(capabilities) do

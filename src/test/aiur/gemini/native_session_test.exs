@@ -4,19 +4,31 @@ defmodule Aiur.Gemini.NativeSessionTest do
   alias Aiur.Gemini.{ModelCatalog, Protocol, Session, Transcript, Turn}
   alias Aiur.PauseContainment
 
+  @fixture_auth %{method: "gemini-api-key", api_key: "fixture-key"}
+
   @tag :tmp_dir
   test "ACP handshake creates an exact session with a private HTTP MCP route", %{tmp_dir: dir} do
-    assert {:ok, session} = Session.start(dir, command: fixture(dir, "normal"), timeout_ms: 2_000)
+    assert {:ok, session} = Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "normal"), timeout_ms: 2_000)
     assert session.thread_id == "gemini-session"
     assert session.resumed == false
     assert session.model == "gemini-auto"
     assert session.model_catalog == [%{"modelId" => "gemini-auto"}, %{"modelId" => "gemini-pro"}]
 
-    [initialize, create] = read_frames(dir)
+    [initialize, authenticate, create] = read_frames(dir)
     assert initialize["method"] == "initialize"
     assert initialize["params"]["protocolVersion"] == 1
+    assert authenticate["method"] == "authenticate"
+    assert authenticate["params"]["methodId"] == "gemini-api-key"
     assert create["method"] == "session/new"
     assert create["params"]["cwd"] == dir
+
+    launch = dir |> Path.join("launch.json") |> File.read!() |> Jason.decode!()
+    assert launch["home"] == Path.join([dir, "gemini", :crypto.hash(:sha256, dir) |> Base.encode16(case: :lower)])
+    assert launch["approval_mode"] == true
+    assert launch["mcp_allowlist"] == true
+    assert launch["api_key_in_environment"] == false
+    assert launch["personal_oauth_selected"] == false
+    assert launch["vertex_selected"] == false
 
     assert [%{"type" => "http", "name" => "aiur", "url" => "http://127.0.0.1:" <> _, "headers" => [%{"name" => "Authorization", "value" => "Bearer " <> _}]}] =
              create["params"]["mcpServers"]
@@ -27,9 +39,9 @@ defmodule Aiur.Gemini.NativeSessionTest do
 
   @tag :tmp_dir
   test "only native catalog models can be selected", %{tmp_dir: dir} do
-    assert {:ok, session} = Session.start(dir, command: fixture(dir, "normal"), model: "gemini-pro", timeout_ms: 2_000)
+    assert {:ok, session} = Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "normal"), model: "gemini-pro", timeout_ms: 2_000)
     assert session.model == "gemini-pro"
-    assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize", "session/new", "session/set_model"]
+    assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize", "authenticate", "session/new", "session/set_model"]
 
     assert {:ok, ["gemini-auto", "gemini-pro"]} =
              ModelCatalog.extract(%{"models" => %{"availableModels" => session.model_catalog}})
@@ -37,46 +49,46 @@ defmodule Aiur.Gemini.NativeSessionTest do
     assert :ok = Session.stop(session)
 
     assert {:error, {:gemini_model_unavailable, "invented"}} =
-             Session.start(dir, command: fixture(dir, "normal"), model: "invented", timeout_ms: 2_000)
+             Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "normal"), model: "invented", timeout_ms: 2_000)
   end
 
   @tag :tmp_dir
   test "ambient auto approval is reset to native default before dispatch", %{tmp_dir: dir} do
-    assert {:ok, session} = Session.start(dir, command: fixture(dir, "yolo"), timeout_ms: 2_000)
-    assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize", "session/new", "session/set_mode"]
+    assert {:ok, session} = Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "yolo"), timeout_ms: 2_000)
+    assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize", "authenticate", "session/new", "session/set_mode"]
     assert List.last(read_frames(dir))["params"]["modeId"] == "default"
     assert :ok = Session.stop(session)
   end
 
   @tag :tmp_dir
   test "exact stored session is loaded without starting another conversation", %{tmp_dir: dir} do
-    assert {:ok, session} = Session.start(dir, command: fixture(dir, "normal"), resume_thread_id: "stored-session", timeout_ms: 2_000)
+    assert {:ok, session} = Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "normal"), resume_thread_id: "stored-session", timeout_ms: 2_000)
     assert session.thread_id == "stored-session"
     assert session.resumed == true
-    assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize", "session/load"]
+    assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize", "authenticate", "session/load"]
     assert :ok = Session.stop(session)
   end
 
   @tag :tmp_dir
   test "authentication failure cannot silently create a fresh session", %{tmp_dir: dir} do
     assert {:error, {:acp_error, %{"message" => "authentication required"}}} =
-             Session.start(dir, command: fixture(dir, "auth_fail"), resume_thread_id: "stored-session", timeout_ms: 2_000)
+             Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "auth_fail"), resume_thread_id: "stored-session", timeout_ms: 2_000)
 
-    assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize", "session/load"]
+    assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize", "authenticate", "session/load"]
   end
 
   @tag :tmp_dir
   test "confirmed missing exact session starts clean, without a latest-session guess", %{tmp_dir: dir} do
-    assert {:ok, session} = Session.start(dir, command: fixture(dir, "missing"), resume_thread_id: "stored-session", timeout_ms: 2_000)
+    assert {:ok, session} = Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "missing"), resume_thread_id: "stored-session", timeout_ms: 2_000)
     assert session.thread_id == "gemini-session"
     assert session.resumed == false
-    assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize", "session/load", "session/new"]
+    assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize", "authenticate", "session/load", "session/new"]
     assert :ok = Session.stop(session)
   end
 
   @tag :tmp_dir
   test "prompt streams text, shows a native permission, applies only the selected choice", %{tmp_dir: dir} do
-    assert {:ok, session} = Session.start(dir, command: fixture(dir, "normal"), timeout_ms: 2_000)
+    assert {:ok, session} = Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "normal"), timeout_ms: 2_000)
     owner = self()
 
     on_message = fn message ->
@@ -102,7 +114,7 @@ defmodule Aiur.Gemini.NativeSessionTest do
     assert_received {:gemini_message, %{payload: %{"method" => "session/prompt", "result" => %{"_meta" => %{"quota" => %{"token_count" => %{"input_tokens" => 12, "output_tokens" => 5}}}}}}}
 
     assert [%{"method" => "session/prompt"} = prompt | _] =
-             read_frames(dir) |> Enum.drop(2)
+             read_frames(dir) |> Enum.drop(3)
 
     assert prompt["params"]["sessionId"] == "gemini-session"
     assert prompt["params"]["prompt"] == [%{"type" => "text", "text" => "say hello"}]
@@ -131,9 +143,31 @@ defmodule Aiur.Gemini.NativeSessionTest do
   end
 
   @tag :tmp_dir
+  test "personal OAuth is refused before launching Gemini", %{tmp_dir: dir} do
+    assert {:error, :gemini_supported_auth_required} =
+             Session.start(dir, auth: %{method: "oauth-personal", api_key: "unused"}, command: fixture(dir, "normal"))
+
+    refute File.exists?(Path.join(dir, "frames.ndjson"))
+  end
+
+  @tag :tmp_dir
+  test "Vertex API key selects enterprise auth without a key in the child environment", %{tmp_dir: dir} do
+    auth = %{method: "vertex-ai", api_key: "fixture-enterprise-key"}
+    assert {:ok, session} = Session.start(dir, auth: auth, gemini_home_root: dir, command: fixture(dir, "normal"), timeout_ms: 2_000)
+
+    [_, authenticate | _] = read_frames(dir)
+    assert authenticate["params"]["methodId"] == "vertex-ai"
+
+    launch = dir |> Path.join("launch.json") |> File.read!() |> Jason.decode!()
+    assert launch["vertex_selected"] == true
+    assert launch["api_key_in_environment"] == false
+    assert :ok = Session.stop(session)
+  end
+
+  @tag :tmp_dir
   test "an incompatible CLI and unsupported dispatch controls fail before a prompt", %{tmp_dir: dir} do
     assert {:error, {:unsupported_acp_version, 2}} =
-             Session.start(dir, command: fixture(dir, "unsupported"), timeout_ms: 2_000)
+             Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "unsupported"), timeout_ms: 2_000)
 
     assert Enum.map(read_frames(dir), & &1["method"]) == ["initialize"]
 
@@ -144,7 +178,7 @@ defmodule Aiur.Gemini.NativeSessionTest do
 
   @tag :tmp_dir
   test "a latched pause prevents prompt admission", %{tmp_dir: dir} do
-    assert {:ok, session} = Session.start(dir, command: fixture(dir, "plain"), timeout_ms: 2_000)
+    assert {:ok, session} = Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "plain"), timeout_ms: 2_000)
     identifier = "GEMINI-#{System.unique_integer([:positive])}"
     assert {:ok, containment} = PauseContainment.register(identifier, 999_999_999, 999_999_999)
 
@@ -168,7 +202,7 @@ defmodule Aiur.Gemini.NativeSessionTest do
       ] do
     @tag :tmp_dir
     test "#{label} from delivery acknowledgement waits for the native outcome", %{tmp_dir: dir} do
-      assert {:ok, session} = Session.start(dir, command: fixture(dir, "plain"), timeout_ms: 2_000)
+      assert {:ok, session} = Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "plain"), timeout_ms: 2_000)
 
       try do
         assert {:error, {:provider_delivery_ack_failed, %{cause: unquote(Macro.escape(cause)), native_outcome: {:ok, %{result: :turn_completed}}}}} =
@@ -189,18 +223,28 @@ defmodule Aiur.Gemini.NativeSessionTest do
     script = Path.join(dir, "acp_fixture.py")
 
     File.write!(script, """
-    import json, sys
+    import json, os, sys
     from pathlib import Path
 
     mode = #{inspect(mode)}
     frames = Path(#{inspect(Path.join(dir, "frames.ndjson"))})
+    Path(#{inspect(Path.join(dir, "launch.json"))}).write_text(json.dumps({
+        'home': os.environ.get('GEMINI_CLI_HOME'),
+        'approval_mode': '--approval-mode default' in ' '.join(sys.argv),
+        'mcp_allowlist': '--allowed-mcp-server-names aiur' in ' '.join(sys.argv),
+        'api_key_in_environment': bool(os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY')),
+        'personal_oauth_selected': os.environ.get('GOOGLE_GENAI_USE_GCA') == 'true',
+        'vertex_selected': os.environ.get('GOOGLE_GENAI_USE_VERTEXAI') == 'true'
+    }))
     prompt_id = None
     for line in sys.stdin:
         frame = json.loads(line)
         with frames.open('a') as output:
             output.write(json.dumps(frame) + '\\n')
         method = frame.get('method')
-        if method == 'initialize':
+        if method == 'authenticate':
+            result = {}
+        elif method == 'initialize':
             result = {'protocolVersion': 2 if mode == 'unsupported' else 1, 'agentInfo': {'name': 'gemini-cli', 'version': '0.61.0'}, 'agentCapabilities': {'loadSession': True, 'mcpCapabilities': {'http': True}}}
         elif method == 'session/load' and mode == 'auth_fail':
             print(json.dumps({'jsonrpc': '2.0', 'id': frame['id'], 'error': {'code': -32000, 'message': 'authentication required'}}), flush=True)

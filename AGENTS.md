@@ -221,7 +221,9 @@ bearer-safe bytes with no surrounding whitespace. An absent or empty value
 disables the API, while a present non-empty unusable value aborts startup.
 Provider keys use
 `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
-`OPENROUTER_API_KEY`, and (for the credits meter) `OPENROUTER_MANAGEMENT_KEY`.
+`OPENROUTER_API_KEY`, `GEMINI_API_KEY` (Gemini Developer API),
+`GOOGLE_API_KEY` (Vertex AI API key), and (for the credits meter)
+`OPENROUTER_MANAGEMENT_KEY`.
 Keep the global per-user file outside Git trees and never commit either dotenv
 file. `aiur init` also reads `.env` for the GitHub token during setup.
 

@@ -2,6 +2,7 @@ defmodule Aiur.Gemini.Session do
   @moduledoc "Starts a ticket-scoped Gemini ACP session and owns its tool gateway."
 
   alias Aiur.AgentTools.MCP
+  alias Aiur.Config.Paths
   alias Aiur.Gemini.{Protocol, Transport}
   alias Aiur.{PauseContainment, ProcessReaper}
 
@@ -43,10 +44,22 @@ defmodule Aiur.Gemini.Session do
   end
 
   defp launch(workspace, command, opts) do
-    with {:ok, gateway} <- MCP.start_link(owner: self(), transport: :gemini_mcp) do
-      case Transport.start(workspace, command, opts) do
+    with {:ok, auth} <- supported_auth(opts),
+         {:ok, home} <- isolated_home(workspace, opts),
+         {:ok, gateway} <- MCP.start_link(owner: self(), transport: :gemini_mcp) do
+      command = command <> " --approval-mode default --allowed-mcp-server-names aiur"
+      vertex? = auth.method == "vertex-ai"
+
+      launch_opts =
+        Keyword.put(opts, :env, [
+          {"GEMINI_CLI_HOME", home},
+          {"GOOGLE_GENAI_USE_GCA", "false"},
+          {"GOOGLE_GENAI_USE_VERTEXAI", to_string(vertex?)}
+        ])
+
+      case Transport.start(workspace, command, launch_opts) do
         {:ok, port} ->
-          establish(port, gateway, workspace, opts)
+          establish(port, gateway, workspace, auth, opts)
 
         {:error, _} = error ->
           MCP.stop(gateway)
@@ -55,7 +68,7 @@ defmodule Aiur.Gemini.Session do
     end
   end
 
-  defp establish(port, gateway, workspace, opts) do
+  defp establish(port, gateway, workspace, auth, opts) do
     metadata = Transport.metadata(port)
     ProcessReaper.register(:agent, {:os_pid, metadata[:provider_pid]}, comm: "gemini", ticket: Keyword.get(opts, :identifier), backend: "gemini")
     containment = register_containment(metadata, workspace, opts)
@@ -66,6 +79,7 @@ defmodule Aiur.Gemini.Session do
     outcome =
       with {:ok, init} <- Transport.request(port, Protocol.initialize(1, version), timeout),
            {:ok, _capabilities} <- Protocol.validate_initialize(init),
+           {:ok, _} <- Transport.request(port, Protocol.authenticate(5, auth), timeout),
            {:ok, session_id, resumed, result} <- establish_session(port, workspace, server, opts, timeout),
            {:ok, model} <- select_model(port, session_id, result, Keyword.get(opts, :model), timeout),
            :ok <- ensure_approval_mode(port, session_id, result, timeout) do
@@ -94,6 +108,46 @@ defmodule Aiur.Gemini.Session do
         error
     end
   end
+
+  defp supported_auth(opts) do
+    case Keyword.get(opts, :auth) do
+      nil -> auth_from_environment()
+      auth -> validate_auth(auth)
+    end
+  end
+
+  defp auth_from_environment do
+    gemini_key = System.get_env("GEMINI_API_KEY")
+    vertex_key = System.get_env("GOOGLE_API_KEY")
+
+    cond do
+      is_binary(gemini_key) and gemini_key != "" -> validate_auth(%{method: "gemini-api-key", api_key: gemini_key})
+      is_binary(vertex_key) and vertex_key != "" -> validate_auth(%{method: "vertex-ai", api_key: vertex_key})
+      true -> {:error, {:gemini_auth_required, "Set GEMINI_API_KEY or GOOGLE_API_KEY in the Aiur daemon environment"}}
+    end
+  end
+
+  defp validate_auth(%{method: method, api_key: key})
+       when method in ["gemini-api-key", "vertex-ai"] and is_binary(key) and key != "",
+       do: {:ok, %{method: method, api_key: key}}
+
+  defp validate_auth(_), do: {:error, :gemini_supported_auth_required}
+
+  defp isolated_home(workspace, opts) do
+    root = Keyword.get_lazy(opts, :gemini_home_root, fn -> Paths.runtime_state_dir() end)
+
+    with {:ok, root} <- normalize_home_root(root),
+         digest = :crypto.hash(:sha256, workspace) |> Base.encode16(case: :lower),
+         home = Path.join([root, "gemini", digest]),
+         :ok <- File.mkdir_p(home),
+         :ok <- File.chmod(home, 0o700) do
+      {:ok, home}
+    end
+  end
+
+  defp normalize_home_root({:ok, root}), do: {:ok, root}
+  defp normalize_home_root({:error, _} = error), do: error
+  defp normalize_home_root(root) when is_binary(root), do: {:ok, root}
 
   defp establish_session(port, workspace, server, opts, timeout) do
     case Keyword.get(opts, :resume_thread_id) do
