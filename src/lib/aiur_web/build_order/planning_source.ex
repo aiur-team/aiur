@@ -198,6 +198,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp members(pack, membership) do
     ids = MapSet.new(pack.tickets, & &1.id)
+    tickets_by_id = Map.new(pack.tickets, &{&1.id, &1})
 
     identities =
       Map.new(pack.tickets, fn ticket ->
@@ -212,12 +213,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         ticket.depends_on
         |> Enum.filter(&MapSet.member?(ids, &1))
         |> Enum.map(fn dep_id ->
-          endpoint = Map.fetch!(identities, dep_id)
-
-          case Enum.find(pack.tickets, &(&1.id == dep_id)) do
-            %{number: number} when is_integer(number) -> Dependency.new(identity, endpoint, issue_url(endpoint), :blocked_by)
-            _draft -> Dependency.local(identity, endpoint)
-          end
+          planning_dependency(identity, Map.fetch!(identities, dep_id), Map.fetch!(tickets_by_id, dep_id))
         end)
 
       Member.new(%{
@@ -236,6 +232,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       })
     end)
   end
+
+  defp planning_dependency(identity, endpoint, %{number: number}) when is_integer(number),
+    do: Dependency.new(identity, endpoint, issue_url(endpoint), :blocked_by)
+
+  defp planning_dependency(identity, endpoint, _draft), do: Dependency.local(identity, endpoint)
 
   defp issue_url(%TrackerIdentity{owner: owner, repository: repo, identifier: number}),
     do: "https://github.com/#{owner}/#{repo}/issues/#{number}"

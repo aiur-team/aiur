@@ -6,12 +6,12 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.GitHub.Config
   alias Aiur.{BuildOrdersCLI, RepoBase, TrackerIdentity}
+  alias Aiur.GitHub.Config
   alias AiurWeb.BuildOrder.{PlanningSource, RouteState}
   alias AiurWeb.BuildOrderPresenter
-  alias AiurWeb.OperatorControlCenter.BuildOrderSelected
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
+  alias AiurWeb.OperatorControlCenter.BuildOrderSelected
 
   @pack """
   {
