@@ -24,7 +24,7 @@ Three H2 sections already exceed 500 lines, so a one-file-per-H2 split alone can
 
 The missed readers are concrete: row 133 is named by `src/docs/opencode-pane-brainstorm.md:4` and row 143's own plan at `:910`; row 143 is named twice by `src/docs/plans/2026-05-21-001-feat-pane-lifecycle-and-background-attach-plan.md` (`:77`, `:653`) and twice by `src/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md` (`:82`, `:648`). These are historical `elixir/docs/...` references to the same basenames now under `src/docs/...`. Count distinct reader files in the table, not mention occurrences. The implementation gate must migrate these references and verify where they land; an exact current-path `rg` check is insufficient.
 
-## Eight Compound Engineering files: upstream identity is not proved
+## Eight Compound Engineering files: source identity proved, regeneration gate open
 
 The repository records CE version `3.19.0` in `.claude/skills/compound-engineering.version`; [`website/docs-app/skills.md`](../../../../website/docs-app/skills.md) identifies `EveryInc/compound-engineering-plugin` and `scripts/update-compound-engineering-skills`. The [public tag](https://github.com/EveryInc/compound-engineering-plugin/tree/1756c0b9f3cf94493f287ea29ae766ad668fb7cf) `compound-engineering-v3.19.0` resolves to `1756c0b9f3cf94493f287ea29ae766ad668fb7cf` and declares plugin version `3.19.0`. The updater copies `skills/` into `.claude/skills/`, recreates `.codex/skills/` symlinks, and replaces all managed skills. `Aiur.AgentSkills` embeds the Claude tree at compile time and dispatches it to workspaces; a local edit therefore ships to both agent hosts, but a later refresh can overwrite it.
 
