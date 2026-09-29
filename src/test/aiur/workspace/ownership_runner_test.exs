@@ -1,8 +1,90 @@
 defmodule Aiur.Workspace.OwnershipRunnerTest do
   use Aiur.TestSupport
 
+  alias Aiur.AlertLedger
   alias Aiur.Workspace.{HostLock, Ownership}
   alias Aiur.Workspace.Ownership.Store
+
+  test "two recovering tickets claim in the same attempt after prior providers finish reaping" do
+    root = Aiur.TestSupport.tmp_root!("workspace-recovery")
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      workspace_root: Path.join(root, "workspaces"),
+      hook_after_create: """
+      git init --quiet -b main
+      git config user.email t@example.com
+      git config user.name T
+      touch initialized
+      git add initialized
+      git commit --quiet -m initial
+      """,
+      hook_before_run: "exit 7"
+    )
+
+    tickets = for index <- 1..2, do: "RECOVERY-#{System.unique_integer([:positive])}-#{index}"
+
+    reapers =
+      for ticket <- tickets do
+        parent = self()
+        group = System.unique_integer([:positive])
+        {:ok, alive} = Agent.start_link(fn -> true end)
+        on_exit(fn -> Aiur.TestSupport.safe_stop(alive) end)
+
+        owner =
+          spawn(fn ->
+            {:ok, lease} =
+              Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+                group_alive_fun: fn candidate -> candidate == group and Agent.get(alive, & &1) end,
+                process_identity_fun: fn pid -> {:ok, {:test_process, pid}} end,
+                reap_fun: fn ^group ->
+                  send(parent, {:reap_started, ticket, self()})
+
+                  receive do
+                    :finish_reap -> Agent.update(alive, fn _ -> false end)
+                  end
+
+                  {:ok, :reaped}
+                end
+              )
+
+            {:ok, lease} = Ownership.activate(lease)
+            :ok = Ownership.track_process_group(lease, group)
+            send(parent, {:lease_ready, ticket})
+            Process.sleep(:infinity)
+          end)
+
+        assert_receive {:lease_ready, ^ticket}, 2_000
+        Process.exit(owner, :kill)
+        assert_receive {:reap_started, ^ticket, reaper}, 2_000
+        on_exit(fn -> send(reaper, :finish_reap) end)
+        assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+        {ticket, reaper}
+      end
+
+    runners =
+      for ticket <- tickets do
+        issue = %Issue{id: "issue-#{ticket}", identifier: ticket, state: "todo", labels: ["agent:todo"]}
+        recipient = self()
+        task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> AgentRunner.run(issue, recipient) end)
+        on_exit(fn -> if Process.alive?(task.pid), do: Process.exit(task.pid, :kill) end)
+        {ticket, task}
+      end
+
+    refute_receive {:workspace_setup_contended, _, _, _, _}, 100
+
+    Enum.each(reapers, fn {_ticket, reaper} -> send(reaper, :finish_reap) end)
+
+    for {ticket, _task} <- runners do
+      issue_id = "issue-#{ticket}"
+      assert_receive {:worker_control_state, ^issue_id, :paused, %{kind: :before_run_failure}}, 5_000
+      refute Enum.any?(AlertLedger.read(AlertLedger.path()), &(&1["topic"] == "ticket.#{ticket}.workspace.live_session"))
+    end
+
+    refute_receive {:workspace_setup_contended, _, _, _, _}
+  end
 
   test "a competing runner cannot replace the checkout owned by a paused provisioning generation" do
     test_root = Aiur.TestSupport.tmp_root!("workspace-ownership")
@@ -52,6 +134,12 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
                      {:waiting, guardian, generation}
                    },
                    5_000
+
+    # Existing policy guard: a genuinely live provisioning owner still raises
+    # the operator warning. This is not coverage of the reaping retry itself.
+    assert Enum.any?(AlertLedger.read(AlertLedger.path()), fn alert ->
+             alert["topic"] == "ticket.#{identifier}.workspace.live_session" and alert["needs_attention"] == true
+           end)
 
     assert {:ok, :ok} = Task.yield(second, 2_000)
     assert File.read!(after_create_trace) == "created\n"

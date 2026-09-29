@@ -148,7 +148,7 @@ defmodule Aiur.AgentRunner do
       worker_host: worker_host
     }
 
-    case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun, holder: holder) do
+    case claim_after_reaping(issue.identifier, telemetry_fun, holder) do
       {:ok, ownership} ->
         try do
           with_workspace_host_lock(issue, opts, ownership, worker_host, fn ->
@@ -186,6 +186,24 @@ defmodule Aiur.AgentRunner do
       {:error, {:workspace_ownership_unavailable, reason}} ->
         record_workspace_setup_end(issue, opts, :failed, :workspace_ownership_unavailable)
         {:error, {:workspace_ownership_unavailable, reason}}
+    end
+  end
+
+  # A backend swap stops its old runner before starting the replacement, but
+  # the guardian may still be reaping that runner's provider. Waiting for that
+  # exact generation to release avoids a routine refused dispatch and alert.
+  # An active or provisioning owner remains a real competing session.
+  defp claim_after_reaping(identifier, telemetry_fun, holder, retries \\ 1) do
+    case Ownership.claim(identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun, holder: holder) do
+      {:error, {:workspace_owned, {:ok, %{phase: :reaping} = lease}}} = owned
+      when retries > 0 and is_nil(holder.worker_host) ->
+        case Ownership.release_and_wait(lease) do
+          {:ok, _released} -> claim_after_reaping(identifier, telemetry_fun, holder, retries - 1)
+          {:error, _reason} -> owned
+        end
+
+      result ->
+        result
     end
   end
 
