@@ -59,6 +59,9 @@ def inventory(root):
     reviewer_checks = defaultdict(set)
     for path in sorted((root / "review/verdicts").glob("*.json")):
         data = json.loads(path.read_text())
+        if "verdicts" not in data:
+            # Reconciliation notes are not additional independent reviews.
+            continue
         reviewer = data.get("reviewer", path.stem)
         for row in data["verdicts"]:
             if row.get("verdict") == "pending":

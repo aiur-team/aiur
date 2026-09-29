@@ -52,3 +52,23 @@ decomposition or replacement before a universal gate can pass.
 
 These counts are measured on `3339b887`; the final plan must refresh the
 census against its implementation base and include Muse-owned files.
+
+## Gate acceptance contract
+
+The eventual hard gate should use the census's physical-line rule and examine
+every tracked UTF-8 text path. At the final gate, 500 lines passes and 501
+fails regardless of directory or whether a file is generated or vendored.
+The 200-line preference is a review prompt: 201 lines requires an explicit
+cohesion reason, while 200 does not. A symlink is counted as a path but its
+target is not counted again; binary files are classified and reported rather
+than assigned an arbitrary text-line count.
+
+During migration, the gate should compare the baseline ledger to the current
+tree. A new or changed text file over 500 fails. An untouched baseline file
+may remain only while its counted debt and owner are visible, and no update
+may raise its line count. The universal gate replaces this migration rule
+only when the refreshed >500 population reaches zero. Acceptance tests should
+exercise 500/501, 200/201, an unterminated last line, generated/vendor paths,
+symlink handling and an edited baseline file. The final synthesis must refresh
+the census after Muse; these frozen counts are a planning baseline, not the
+implementation gate's input.

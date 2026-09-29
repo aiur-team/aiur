@@ -14,6 +14,9 @@
       "agent-runtime",
       "build-order",
       "dup-by-body",
+      "dup-by-concept",
+      "dup-by-constant",
+      "dup-by-name",
       "events-webhooks-executor",
       "github-a",
       "github-b",
@@ -39,17 +42,13 @@
       "web-occ",
       "web-rest"
     ],
-    "missing_units": [
-      "dup-by-concept",
-      "dup-by-constant",
-      "dup-by-name"
-    ],
-    "findings": 1019,
+    "missing_units": [],
+    "findings": 1033,
     "original_severity_counts": {
       "P0": 14,
       "P1": 168,
-      "P2": 616,
-      "P3": 221
+      "P2": 628,
+      "P3": 223
     },
     "independent_reviewer_counts": {
       "independent_a": 182,

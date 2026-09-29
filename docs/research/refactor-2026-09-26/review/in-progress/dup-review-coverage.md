@@ -4,6 +4,12 @@ Frozen revision: `3339b887196d5e9aefb273117a14bf33391ee41f`. These
 checks read only the frozen source and research artifacts. They do not change
 production or assert measured LOC savings.
 
+**Current state:** all three bounded duplication raw units are present,
+completing the 32 planned raw-unit artifacts. This file preserves the earlier
+screening history below, including statements that a unit was pending at
+that checkpoint. The later closure notes and raw-unit coverage fields govern
+current scope. Cross-unit semantic deduplication remains open.
+
 ## Name families
 
 The prior semantic ledger covers 1,029 of 1,680 cross-module literal name
@@ -136,9 +142,14 @@ all 1,514 cross-module value groups outside the high-fanout screen. Bounded
 source-context screens cover 316 long strings and 63 nontrivial numbers; a
 separate source-role ledger classifies all 709 short strings, 261 into
 existing-overlap, syntax, display/log or external-protocol categories. The
-exact unreviewed semantic boundary is 422 long strings, 448 short strings
-and four generic zero/one numeric forms. These screens do not complete the
-constant raw unit.
+previous checkpoint left 422 long strings, 448 short strings and four
+generic zero/one numeric forms without a disposition.
+
+The final static candidate role closure routes those 870 string groups by
+their indexed source context and treats zero/one forms as language
+primitives. `review/raw/dup-by-constant.json` records the bounded detector
+as reviewed pending synthesis. Role routing does not certify each caller's
+semantics; its scope and exclusions are in `constant-role-closure.md`.
 
 ## Reproduction
 

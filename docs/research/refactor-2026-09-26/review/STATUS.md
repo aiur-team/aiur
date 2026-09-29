@@ -1,5 +1,13 @@
 # Status: partial, not synthesized
 
+Current artifact checkpoint: the bounded duplication sweeps by name, concept
+and constant are now in `raw/`, bringing planned raw-unit presence to **32/32**
+and raw findings to **1,033** (14 P0, 168 P1, 628 P2, 223 P3). Both independent
+skeptic verdict files cover all 182 inherited P0/P1 IDs. This is artifact
+coverage, not final correctness: semantic deduplication, final findings and
+boundary syntheses remain open. The inherited and continuation entries below
+retain their historical counts at the time they were written.
+
 The inherited code review stopped early on 2026-09-26: first the account session limit was hit, then Claude credits ran out.
 
 - `raw/` holds 28 of 32 review units, one JSON file per unit. Each file lists its findings with severity, locations, evidence and recommendation.
