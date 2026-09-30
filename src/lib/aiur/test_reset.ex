@@ -39,8 +39,8 @@ defmodule Aiur.TestReset do
   alias Aiur.Events.SubscriptionStore
   alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
-  alias Aiur.Workspace.Layout
   alias Aiur.{JsonStore, TicketBranch}
+  alias Aiur.Workspace.Layout
 
   @tickets_file ".aiur-test-tickets.json"
 
