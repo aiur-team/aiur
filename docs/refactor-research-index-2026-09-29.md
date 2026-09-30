@@ -21,6 +21,8 @@ The first GitHub access seam stays inside the existing process hierarchy until c
 
 The [current-head U3 boundary check](research/refactor-2026-09-26/synthesis/u3-worker-boundary-current-main-2026-09-30.md) separates event subscription ordering from Executor lease ownership and leaves wake receipt/replay as an Executor follow-up. The cited source and test blobs match `origin/main@f9dabd3e`; the exact mailbox and former-owner interleavings still need behavior witnesses before either repair is worker-ready.
 
+The [U0 review of the two new oversized tests](research/refactor-2026-09-26/synthesis/u0-new-oversized-test-owners-2026-09-30.md) confirms their current owners and identifies focused test/fixture seams to validate at U8 pickup. Their test blobs are unchanged at `main@c690f9fa`; this is a proposed split, not completed size-debt removal.
+
 To reproduce the release-head assignment audit from a separate research checkout:
 
 ```sh
