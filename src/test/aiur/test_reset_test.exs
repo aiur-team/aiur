@@ -2,6 +2,8 @@ defmodule Aiur.TestResetTest do
   use ExUnit.Case, async: false
 
   alias Aiur.TestReset
+  alias ExUnit.CaptureIO
+  alias Mix.Tasks.Aiur.Test.Reset, as: ResetTask
 
   setup do
     tmp_dir = Aiur.TestSupport.tmp_root!("aiur_test_reset")
@@ -62,6 +64,47 @@ defmodule Aiur.TestResetTest do
 
     {_, 0} = System.cmd("git", ["add", "."], cd: tmp)
     {_, 0} = System.cmd("git", ["commit", "-m", "baseline"], cd: tmp)
+  end
+
+  test "Mix reset from src uses repo-local config for workspace layout", %{tmp_dir: tmp_dir} do
+    write_reset_fixture!(tmp_dir, [2897])
+    repo_config = Path.join([tmp_dir, ".aiur", "config"])
+    global_config = Path.join(tmp_dir, "global-config")
+    local_root = Path.join(tmp_dir, "local-workspaces")
+    global_root = Path.join(tmp_dir, "global-workspaces")
+    File.mkdir_p!(Path.dirname(repo_config))
+
+    Aiur.TestSupport.write_workflow_file!(repo_config,
+      tracker_kind: "github",
+      tracker_repo: "aiur-team/aiur",
+      workspace_root: local_root
+    )
+
+    Aiur.TestSupport.write_workflow_file!(global_config,
+      tracker_kind: "github",
+      tracker_repo: "other/repo",
+      workspace_root: global_root
+    )
+
+    previous_config = Aiur.Workflow.workflow_file_path()
+
+    try do
+      Aiur.Workflow.set_workflow_file_path(global_config)
+
+      output =
+        File.cd!(Path.join(tmp_dir, "src"), fn ->
+          CaptureIO.capture_io(:stderr, fn ->
+            assert :ok = ResetTask.run(["--force", "--allow-remote"])
+          end)
+        end)
+
+      assert output =~ "--test DRY-RUN"
+      assert output =~ "2897"
+      assert Aiur.Workflow.workflow_file_path() == repo_config
+      assert Aiur.Config.workspace_root() == local_root
+    after
+      Aiur.Workflow.set_workflow_file_path(previous_config)
+    end
   end
 
   test "reset removes the repo-namespaced workspace for the ticket", %{tmp_dir: tmp_dir} do
