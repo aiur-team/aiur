@@ -37,6 +37,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     "ticket.*.ci.passed",
     "ticket.*.agent.pause.request",
     "ticket.*.agent.unblocked",
+    "ticket.*.agent.decision.answered",
     "ticket.*.branch.push",
     "system.*.branch.push"
   ]
