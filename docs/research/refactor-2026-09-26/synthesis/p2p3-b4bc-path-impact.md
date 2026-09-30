@@ -21,6 +21,10 @@ one deleted path (38 deleted-path occurrences). The deleted citations chiefly
 touch the removed GitHub cache surface, budget map and local deletion guard;
 they are not automatic finding closures.
 
+For the eight provisional fixes among those 27, two independent reviewers
+completed a [surviving-behavior trace](p2p3-deleted-fix-trace-b4bc.md): three
+page-specific mechanisms were removed and five still have live examples.
+
 This is **file-level exposure, not behavior impact**. A modified file may not
 change the cited branch; a deleted file may have a replacement that preserves
 the behavior; an unchanged citation may be affected by a changed caller,
