@@ -35,4 +35,6 @@ The [eight deleted-citation fix trace](p2p3-deleted-fix-trace-b4bc.md) distingui
 
 The [analytics SVG path audit](analytics-svg-label-b4bc.md) traces provider model text into raw rendered SVG and defines a DOM-level regression. Browser execution and real-world incidence remain unproved.
 
+The [Opencode slot seed trace](opencode-slot-seed-b4bc.md) checks provisional P2 `agent-backends-oc-18`: the slot still polls Orchestrator inside startup, but `AttachPool.seed/3` has no guaranteed handoff before that callback. Its nominal three-second sleep budget can include up to 31 separate 500 ms RPC waits. Replacing the poll with the pool's current list needs an ordering and first-open test; the duration is a source bound, not a measured stall.
+
 Before promotion, refresh this checkpoint on the actual release main, run the named behavior gates, count live populations where a finding claims magnitude, and record the exact failing behavior test for each selected repair. The frozen two-review result remains valid for its snapshot; it does not automatically certify the changed main.
