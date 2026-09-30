@@ -2745,6 +2745,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp watch_state(%{tracker_paused: true}), do: "paused"
   defp watch_state(%{tracker_paused: "true"}), do: "paused"
+  defp watch_state(%{work_state: work_state}) when work_state in [:starting, :retrying], do: to_string(work_state)
   defp watch_state(status), do: to_string(status[:tracker_state] || status[:state] || "")
 
   defp watch_activity(%{tracker_paused: paused, reason: reason})

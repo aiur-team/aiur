@@ -3798,6 +3798,27 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "watch distinguishes provider startup and retry from a live turn", %{orchestrator: pid, watch_root: root} do
+      starting = watch_entry("issue-2895", "repo#2895", state: "in-progress") |> Map.put(:session_id, nil)
+
+      retry = %{
+        identifier: "repo#2896",
+        attempt: 1,
+        due_at_ms: System.monotonic_time(:millisecond) + 10_000,
+        error: "startup failed: {:port_exit, 23}"
+      }
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-2895" => starting}, retry_attempts: %{"issue-2896" => retry}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      assert output =~ ~r/#2895\s+starting\s/
+      assert output =~ "(starting provider; no live turn yet)"
+      assert output =~ ~r/#2896\s+retrying\s/
+      assert output =~ "startup failed: {:port_exit, 23}"
+    end
+
     test "status and watch surface persisted open blocking operator asks", %{watch_root: root} do
       asks_root = Aiur.TestSupport.tmp_root!("aiur-status-asks")
       previous_root = Application.get_env(:aiur, :repo_base_root)
