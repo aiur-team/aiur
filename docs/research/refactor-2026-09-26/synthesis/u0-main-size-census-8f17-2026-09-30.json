@@ -1,0 +1,1497 @@
+{
+  "revision": "8f17b91f12191031eb7be3590f2dc290a81095c0",
+  "counting_rule": "UTF-8 text counted by LF bytes; a nonempty unterminated final line counts as one; NUL-containing or non-UTF-8 files are binary; symlinks are listed but targets are not double-counted",
+  "tracked_paths": 3439,
+  "text_files": 3351,
+  "binary_files": 47,
+  "symlinks": [
+    ".agents/skills",
+    ".codex/skills/aiur-agent",
+    ".codex/skills/aiur-build",
+    ".codex/skills/aiur-debug",
+    ".codex/skills/aiur-intro",
+    ".codex/skills/aiur-monitor",
+    ".codex/skills/aiur-run",
+    ".codex/skills/ce-babysit-pr",
+    ".codex/skills/ce-brainstorm",
+    ".codex/skills/ce-code-review",
+    ".codex/skills/ce-commit",
+    ".codex/skills/ce-commit-push-pr",
+    ".codex/skills/ce-compound",
+    ".codex/skills/ce-compound-refresh",
+    ".codex/skills/ce-debug",
+    ".codex/skills/ce-doc-review",
+    ".codex/skills/ce-dogfood",
+    ".codex/skills/ce-explain",
+    ".codex/skills/ce-handoff",
+    ".codex/skills/ce-ideate",
+    ".codex/skills/ce-optimize",
+    ".codex/skills/ce-plan",
+    ".codex/skills/ce-polish",
+    ".codex/skills/ce-pov",
+    ".codex/skills/ce-product-pulse",
+    ".codex/skills/ce-promote",
+    ".codex/skills/ce-proof",
+    ".codex/skills/ce-resolve-pr-feedback",
+    ".codex/skills/ce-riffrec-feedback-analysis",
+    ".codex/skills/ce-setup",
+    ".codex/skills/ce-simplify-code",
+    ".codex/skills/ce-strategy",
+    ".codex/skills/ce-sweep",
+    ".codex/skills/ce-test-browser",
+    ".codex/skills/ce-test-xcode",
+    ".codex/skills/ce-work",
+    ".codex/skills/ce-worktree",
+    ".codex/skills/design-import",
+    ".codex/skills/lfg",
+    "scripts/aiur-pane-ctrlc",
+    "scripts/aiur.tmux.conf"
+  ],
+  "missing_paths": [],
+  "above_200": 1189,
+  "above_500": 357,
+  "above_500_by_top_level": {
+    ".claude": 28,
+    ".codex": 1,
+    ".github": 2,
+    "AGENTS.md": 1,
+    "SPEC.md": 1,
+    "analytics": 2,
+    "docs": 37,
+    "packages": 9,
+    "packaging": 2,
+    "scripts": 1,
+    "src": 266,
+    "website": 7
+  },
+  "oversized": [
+    {
+      "path": "src/priv/static/dashboard.css",
+      "lines": 10294
+    },
+    {
+      "path": "docs/build-order/build-order.json",
+      "lines": 7822
+    },
+    {
+      "path": "src/test/aiur/orchestrator_deactivate_test.exs",
+      "lines": 7653
+    },
+    {
+      "path": "src/test/aiur_web/live/dashboard_live_test.exs",
+      "lines": 6604
+    },
+    {
+      "path": "src/priv/static/vendor/elk/0.11.1/elk-worker.min.js",
+      "lines": 6312
+    },
+    {
+      "path": "src/test/aiur/agent_github_guard_test.exs",
+      "lines": 5762
+    },
+    {
+      "path": "src/test/aiur/orchestrator_status_test.exs",
+      "lines": 4941
+    },
+    {
+      "path": "src/test/aiur/decision_store_test.exs",
+      "lines": 4866
+    },
+    {
+      "path": "src/lib/aiur/decision_store.ex",
+      "lines": 4826
+    },
+    {
+      "path": "src/test/aiur_engine_test.exs",
+      "lines": 4362
+    },
+    {
+      "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+      "lines": 4224
+    },
+    {
+      "path": "src/test/aiur/agent_control_cli_test.exs",
+      "lines": 4125
+    },
+    {
+      "path": "src/test/aiur/core_test.exs",
+      "lines": 4025
+    },
+    {
+      "path": "src/test/aiur/workspace_and_config_test.exs",
+      "lines": 3641
+    },
+    {
+      "path": "docs/build-order/prototype/Aiur Operator Control Center.2026-07-13-refresh.html",
+      "lines": 3515
+    },
+    {
+      "path": "docs/build-order/EXECUTOR-HANDOFF.md",
+      "lines": 3426
+    },
+    {
+      "path": "src/priv/github_quota_guard.sh",
+      "lines": 3403
+    },
+    {
+      "path": "docs/build-order/prototype/Aiur Operator Control Center.html",
+      "lines": 3369
+    },
+    {
+      "path": "src/lib/aiur/agent_control_cli.ex",
+      "lines": 3362
+    },
+    {
+      "path": "src/test/aiur/build_gate_test.exs",
+      "lines": 3231
+    },
+    {
+      "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+      "lines": 3197
+    },
+    {
+      "path": "src/test/aiur/orchestrator/issue_sync_test.exs",
+      "lines": 3032
+    },
+    {
+      "path": "packages/streamdeck/package-lock.json",
+      "lines": 3028
+    },
+    {
+      "path": "src/lib/aiur_web/live/dashboard_live.ex",
+      "lines": 2903
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+      "lines": 2670
+    },
+    {
+      "path": "src/test/browser/fixture_server.exs",
+      "lines": 2639
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+      "lines": 2471
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+      "lines": 2295
+    },
+    {
+      "path": "SPEC.md",
+      "lines": 2292
+    },
+    {
+      "path": "src/lib/aiur/github/resource_store.ex",
+      "lines": 2261
+    },
+    {
+      "path": "src/test/aiur/github_client_test.exs",
+      "lines": 2252
+    },
+    {
+      "path": "src/test/aiur/init_test.exs",
+      "lines": 2233
+    },
+    {
+      "path": ".claude/skills/ce-babysit-pr/scripts/pr-snapshot",
+      "lines": 2096
+    },
+    {
+      "path": "src/test/scripts_aiurdev_test.exs",
+      "lines": 2048
+    },
+    {
+      "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+      "lines": 1966
+    },
+    {
+      "path": "src/test/aiur/github/resource_store_test.exs",
+      "lines": 1950
+    },
+    {
+      "path": "src/priv/build_gate.bash",
+      "lines": 1912
+    },
+    {
+      "path": "src/test/aiur/extensions_test.exs",
+      "lines": 1880
+    },
+    {
+      "path": ".claude/skills/aiur-build/scripts/publication/publication_operator.py",
+      "lines": 1867
+    },
+    {
+      "path": "src/test/aiur_web/live/build_order_live_test.exs",
+      "lines": 1866
+    },
+    {
+      "path": "docs/build-order/AGENT-CHAT.md",
+      "lines": 1854
+    },
+    {
+      "path": "src/lib/aiur/build_order/graph_projection.ex",
+      "lines": 1842
+    },
+    {
+      "path": "src/test/aiur_web/live/streamdeck_live_test.exs",
+      "lines": 1804
+    },
+    {
+      "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+      "lines": 1799
+    },
+    {
+      "path": "src/test/aiur/build_order/github_graph_test.exs",
+      "lines": 1781
+    },
+    {
+      "path": "src/test/aiur/orchestrator/retry_engine_test.exs",
+      "lines": 1781
+    },
+    {
+      "path": "src/test/aiur/orchestrator_ci_lifecycle_test.exs",
+      "lines": 1733
+    },
+    {
+      "path": "docs/plans/2026-05-24-001-feat-event-system-foundation-plan.md",
+      "lines": 1716
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+      "lines": 1708
+    },
+    {
+      "path": "src/test/aiur/github/ci_readiness_test.exs",
+      "lines": 1680
+    },
+    {
+      "path": "src/test/aiur_web/components/operator_control_center/run_summary_strip_test.exs",
+      "lines": 1667
+    },
+    {
+      "path": "src/test/support/test_support.exs",
+      "lines": 1661
+    },
+    {
+      "path": "website/package-lock.json",
+      "lines": 1657
+    },
+    {
+      "path": "src/priv/build_orders/croptracker-demo.json",
+      "lines": 1611
+    },
+    {
+      "path": "src/test/aiur/repo_base_test.exs",
+      "lines": 1599
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+      "lines": 1584
+    },
+    {
+      "path": "src/test/aiur/events/github_comments_poller_test.exs",
+      "lines": 1570
+    },
+    {
+      "path": "src/test/aiur/orchestrator/comment_wake_test.exs",
+      "lines": 1553
+    },
+    {
+      "path": "src/test/aiur_web/operator_control_center_components_test.exs",
+      "lines": 1550
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+      "lines": 1548
+    },
+    {
+      "path": "src/lib/aiur/repo_base.ex",
+      "lines": 1539
+    },
+    {
+      "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+      "lines": 1530
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/status_report.ex",
+      "lines": 1483
+    },
+    {
+      "path": "src/lib/aiur/config.ex",
+      "lines": 1462
+    },
+    {
+      "path": "src/test/aiur/github/read_cache_test.exs",
+      "lines": 1437
+    },
+    {
+      "path": "src/test/aiur/build_order/graph_projection_test.exs",
+      "lines": 1433
+    },
+    {
+      "path": "src/test/aiur/app_server_test.exs",
+      "lines": 1402
+    },
+    {
+      "path": "src/test/aiur/alerts_test.exs",
+      "lines": 1388
+    },
+    {
+      "path": "src/lib/aiur/github/quota.ex",
+      "lines": 1380
+    },
+    {
+      "path": "packages/streamdeck/test/controller.test.ts",
+      "lines": 1369
+    },
+    {
+      "path": "src/test/aiur/github/issues_test.exs",
+      "lines": 1367
+    },
+    {
+      "path": "src/test/aiur/current_run_projections_test.exs",
+      "lines": 1355
+    },
+    {
+      "path": "src/test/aiur/claude/repl_agent_test.exs",
+      "lines": 1352
+    },
+    {
+      "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+      "lines": 1339
+    },
+    {
+      "path": "src/test/aiur_web/streamdeck_channel_test.exs",
+      "lines": 1332
+    },
+    {
+      "path": "src/browser/tests/streamdeck-emulator.browser.spec.mjs",
+      "lines": 1311
+    },
+    {
+      "path": "src/lib/aiur/run_telemetry/dataset.ex",
+      "lines": 1264
+    },
+    {
+      "path": "src/test/aiur/agent_list/renderer_test.exs",
+      "lines": 1257
+    },
+    {
+      "path": ".claude/skills/aiur-run/SKILL.md",
+      "lines": 1254
+    },
+    {
+      "path": "src/test/aiur/github/budget_test.exs",
+      "lines": 1252
+    },
+    {
+      "path": "src/lib/aiur/github/issues.ex",
+      "lines": 1248
+    },
+    {
+      "path": "src/test/aiur/workspace/ownership_test.exs",
+      "lines": 1243
+    },
+    {
+      "path": "src/test/aiur/events/github_ci_poller_test.exs",
+      "lines": 1227
+    },
+    {
+      "path": "src/test/fixtures/analytics/builds/test-build/build-summary.json",
+      "lines": 1227
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+      "lines": 1213
+    },
+    {
+      "path": "src/browser/tests/layout-worker.browser.spec.mjs",
+      "lines": 1185
+    },
+    {
+      "path": "src/lib/aiur/coding_agent.ex",
+      "lines": 1179
+    },
+    {
+      "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+      "lines": 1168
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+      "lines": 1167
+    },
+    {
+      "path": "src/test/aiur_web/live/analytics_live_test.exs",
+      "lines": 1154
+    },
+    {
+      "path": "src/lib/aiur/github/ci_readiness.ex",
+      "lines": 1149
+    },
+    {
+      "path": "packages/streamdeck/src/art/segments.ts",
+      "lines": 1135
+    },
+    {
+      "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+      "lines": 1124
+    },
+    {
+      "path": ".claude/skills/ce-riffrec-feedback-analysis/scripts/analyze_riffrec_zip.py",
+      "lines": 1122
+    },
+    {
+      "path": ".claude/skills/ce-sweep/scripts/analyze_riffrec_zip.py",
+      "lines": 1122
+    },
+    {
+      "path": "packages/streamdeck/test/art/segments.test.ts",
+      "lines": 1119
+    },
+    {
+      "path": "docs/build-order/scripts/tests/test_publication_operator.py",
+      "lines": 1111
+    },
+    {
+      "path": "packages/streamdeck/src/controller.ts",
+      "lines": 1102
+    },
+    {
+      "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+      "lines": 1101
+    },
+    {
+      "path": "src/lib/aiur/github/config.ex",
+      "lines": 1090
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/push_routing.ex",
+      "lines": 1087
+    },
+    {
+      "path": "src/test/aiur/live_conversation_test.exs",
+      "lines": 1071
+    },
+    {
+      "path": "src/test/aiur_web/build_order/planning_source_test.exs",
+      "lines": 1066
+    },
+    {
+      "path": "src/test/aiur/agent_runner/session_lifecycle_test.exs",
+      "lines": 1058
+    },
+    {
+      "path": "src/lib/aiur/decision_event.ex",
+      "lines": 1057
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+      "lines": 1057
+    },
+    {
+      "path": "src/test/aiur/orchestrator/reconciler_test.exs",
+      "lines": 1057
+    },
+    {
+      "path": "src/lib/aiur/issue_log.ex",
+      "lines": 1049
+    },
+    {
+      "path": "src/lib/aiur_web/build_order_presenter.ex",
+      "lines": 1046
+    },
+    {
+      "path": "src/test/fixtures/analytics/runs/boot-a/run-summary.json",
+      "lines": 1042
+    },
+    {
+      "path": "src/test/aiur/orchestrator/dispatch_policy_test.exs",
+      "lines": 1041
+    },
+    {
+      "path": "src/lib/aiur/decision_projection.ex",
+      "lines": 1039
+    },
+    {
+      "path": "src/test/aiur/decision_projection_test.exs",
+      "lines": 1036
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/state.ex",
+      "lines": 1033
+    },
+    {
+      "path": ".claude/skills/ce-code-review/scripts/peer-job-runner.py",
+      "lines": 1030
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/scripts/peer-job-runner.py",
+      "lines": 1030
+    },
+    {
+      "path": ".claude/skills/ce-pov/scripts/peer-job-runner.py",
+      "lines": 1030
+    },
+    {
+      "path": "src/test/aiur/coding_agent_test.exs",
+      "lines": 1026
+    },
+    {
+      "path": "src/priv/build_gate_holder.py",
+      "lines": 1025
+    },
+    {
+      "path": "src/test/aiur/orchestrator_control_routing_test.exs",
+      "lines": 1012
+    },
+    {
+      "path": "src/test/aiur/dynamic_tool_test.exs",
+      "lines": 1004
+    },
+    {
+      "path": "src/lib/aiur/orchestrator.ex",
+      "lines": 1003
+    },
+    {
+      "path": "src/test/aiur/agent_runner/queue_drain_test.exs",
+      "lines": 1003
+    },
+    {
+      "path": "src/test/aiur/events/github_webhook_test.exs",
+      "lines": 1002
+    },
+    {
+      "path": "src/test/aiur/github/quota_test.exs",
+      "lines": 1002
+    },
+    {
+      "path": "docs/plans/2026-06-12-002-fix-chat-control-lifecycle-ux-plan.md",
+      "lines": 998
+    },
+    {
+      "path": "src/test/aiur/regression/engine_control_test.exs",
+      "lines": 997
+    },
+    {
+      "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+      "lines": 996
+    },
+    {
+      "path": "src/test/aiur/codex/turn_loop_test.exs",
+      "lines": 987
+    },
+    {
+      "path": "analytics/lib/analytics/reduce.py",
+      "lines": 979
+    },
+    {
+      "path": "packaging/npm/aiur-cli/test/launcher.test.mjs",
+      "lines": 976
+    },
+    {
+      "path": "src/test/aiur/events/github_webhook_equivalence_test.exs",
+      "lines": 976
+    },
+    {
+      "path": "src/lib/aiur/opencode/attach_pool.ex",
+      "lines": 969
+    },
+    {
+      "path": "src/test/aiur/decision_api_test.exs",
+      "lines": 967
+    },
+    {
+      "path": "src/docs/plans/2026-05-19-001-feat-opencode-pane-chat-plan.md",
+      "lines": 964
+    },
+    {
+      "path": "docs/build-order/scripts/tests/test_publication_rendering.py",
+      "lines": 961
+    },
+    {
+      "path": "src/lib/aiur/github/pull_requests.ex",
+      "lines": 954
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+      "lines": 950
+    },
+    {
+      "path": "src/test/aiur/agent_environment_test.exs",
+      "lines": 947
+    },
+    {
+      "path": "src/test/manual/executor_control_center_docs_fixture.exs",
+      "lines": 946
+    },
+    {
+      "path": "src/test/aiur/config/schema_test.exs",
+      "lines": 944
+    },
+    {
+      "path": "scripts/aiurdev",
+      "lines": 937
+    },
+    {
+      "path": "src/test/aiur/run_telemetry/writer_test.exs",
+      "lines": 935
+    },
+    {
+      "path": "src/lib/aiur_web/build_order/planning_source.ex",
+      "lines": 933
+    },
+    {
+      "path": "src/test/aiur/open_ai_compat/coding_agent_test.exs",
+      "lines": 933
+    },
+    {
+      "path": "src/docs/plans/2026-05-20-001-feat-opencode-prewarm-and-history-injection-plan.md",
+      "lines": 920
+    },
+    {
+      "path": "src/priv/github_budget.py",
+      "lines": 919
+    },
+    {
+      "path": "src/test/aiur/github/config_test.exs",
+      "lines": 918
+    },
+    {
+      "path": "src/test/aiur/build_order/pack_status_test.exs",
+      "lines": 917
+    },
+    {
+      "path": "src/test/aiur/github/dispatch_authorization_test.exs",
+      "lines": 916
+    },
+    {
+      "path": "src/lib/aiur/github/budget.ex",
+      "lines": 915
+    },
+    {
+      "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+      "lines": 908
+    },
+    {
+      "path": ".claude/skills/aiur-run/scripts/executor-retrospective.sh",
+      "lines": 901
+    },
+    {
+      "path": "src/test/aiur/build_order/ticket_detail_test.exs",
+      "lines": 900
+    },
+    {
+      "path": "src/browser/tests/units.browser.spec.mjs",
+      "lines": 872
+    },
+    {
+      "path": "src/lib/aiur/events/github_comments_poller.ex",
+      "lines": 863
+    },
+    {
+      "path": "src/lib/aiur/github/transport.ex",
+      "lines": 860
+    },
+    {
+      "path": "docs/plans/2026-07-12-004-feat-supervisor-decision-api-plan.md",
+      "lines": 859
+    },
+    {
+      "path": "src/README.md",
+      "lines": 854
+    },
+    {
+      "path": "website/docs-app/reference/configuration.md",
+      "lines": 853
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/reconciler.ex",
+      "lines": 845
+    },
+    {
+      "path": "docs/plans/2026-07-12-001-feat-decision-domain-persistence-plan.md",
+      "lines": 842
+    },
+    {
+      "path": "src/test/aiur/aiur_agent_skill_test.exs",
+      "lines": 842
+    },
+    {
+      "path": "src/lib/aiur/run_telemetry/sampler.ex",
+      "lines": 841
+    },
+    {
+      "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+      "lines": 837
+    },
+    {
+      "path": "src/test/aiur/regression/workspace_lifecycle_test.exs",
+      "lines": 834
+    },
+    {
+      "path": "src/lib/aiur/test_reset.ex",
+      "lines": 832
+    },
+    {
+      "path": "docs/plans/2026-07-06-001-refactor-production-readiness-planning-spike-plan.md",
+      "lines": 828
+    },
+    {
+      "path": "src/lib/aiur/model_discovery.ex",
+      "lines": 827
+    },
+    {
+      "path": "src/test/aiur/application_test.exs",
+      "lines": 825
+    },
+    {
+      "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+      "lines": 824
+    },
+    {
+      "path": "src/test/aiur/claude/telemetry_test.exs",
+      "lines": 821
+    },
+    {
+      "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+      "lines": 819
+    },
+    {
+      "path": "src/lib/aiur/opencode/session_writer.ex",
+      "lines": 817
+    },
+    {
+      "path": ".claude/skills/ce-plan/SKILL.md",
+      "lines": 816
+    },
+    {
+      "path": "src/lib/aiur/events/github_ci_poller.ex",
+      "lines": 816
+    },
+    {
+      "path": "website/src/styles.css",
+      "lines": 815
+    },
+    {
+      "path": ".claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh",
+      "lines": 811
+    },
+    {
+      "path": "docs/brainstorms/2026-05-24-aiur-event-publishing-subscriptions-requirements.md",
+      "lines": 810
+    },
+    {
+      "path": "docs/plans/2026-07-12-003-feat-decision-answer-delivery-plan.md",
+      "lines": 809
+    },
+    {
+      "path": "src/test/aiur/decision_query_test.exs",
+      "lines": 809
+    },
+    {
+      "path": "src/test/aiur/claude/coding_agent_test.exs",
+      "lines": 808
+    },
+    {
+      "path": "src/test/aiur/github/mutation_write_through_test.exs",
+      "lines": 807
+    },
+    {
+      "path": ".claude/skills/ce-doc-review/scripts/cross-model-doc-review.sh",
+      "lines": 806
+    },
+    {
+      "path": ".claude/skills/aiur-build/scripts/publication/publication_rendering.py",
+      "lines": 805
+    },
+    {
+      "path": "src/test/aiur/agent_runner_test.exs",
+      "lines": 804
+    },
+    {
+      "path": "src/test/aiur/live_e2e_test.exs",
+      "lines": 802
+    },
+    {
+      "path": "docs/build-order/scripts/publication_rendering.py",
+      "lines": 798
+    },
+    {
+      "path": "src/lib/aiur/build_gate.ex",
+      "lines": 797
+    },
+    {
+      "path": ".claude/skills/ce-sweep/scripts/sweep-state.py",
+      "lines": 793
+    },
+    {
+      "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+      "lines": 793
+    },
+    {
+      "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+      "lines": 791
+    },
+    {
+      "path": "src/test/aiur/regression/github_ingestion_test.exs",
+      "lines": 790
+    },
+    {
+      "path": "src/test/aiur/current_run_membership_store_test.exs",
+      "lines": 785
+    },
+    {
+      "path": "src/test/aiur/run_telemetry/dataset_test.exs",
+      "lines": 773
+    },
+    {
+      "path": ".claude/skills/aiur-build/scripts/publication/publication_live_graph.py",
+      "lines": 770
+    },
+    {
+      "path": "docs/build-order/scripts/publication_live_graph.py",
+      "lines": 770
+    },
+    {
+      "path": "src/test/aiur/orchestrator/rate_limit_fallback_test.exs",
+      "lines": 767
+    },
+    {
+      "path": "src/test/aiur/regression/orchestrator_lifecycle_test.exs",
+      "lines": 767
+    },
+    {
+      "path": "src/test/aiur/decision_revision_store_test.exs",
+      "lines": 766
+    },
+    {
+      "path": "docs/build-order/scripts/execution_amendment.py",
+      "lines": 764
+    },
+    {
+      "path": "src/test/aiur/codex/account_generation_test.exs",
+      "lines": 760
+    },
+    {
+      "path": "website/docs-app/apis/github.md",
+      "lines": 759
+    },
+    {
+      "path": ".claude/skills/ce-compound/SKILL.md",
+      "lines": 755
+    },
+    {
+      "path": "src/test/aiur/agent_log_test.exs",
+      "lines": 753
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "lines": 750
+    },
+    {
+      "path": "src/lib/aiur/alerts.ex",
+      "lines": 746
+    },
+    {
+      "path": "src/lib/aiur/workspace/provisioner.ex",
+      "lines": 743
+    },
+    {
+      "path": ".claude/skills/ce-code-review/scripts/cross-model-adversarial-review.sh",
+      "lines": 737
+    },
+    {
+      "path": "packages/streamdeck/src/main.ts",
+      "lines": 734
+    },
+    {
+      "path": "src/test/aiur/orchestrator/lifetime_dispatch_budget_test.exs",
+      "lines": 732
+    },
+    {
+      "path": "src/test/aiur/events/github_firehose_test.exs",
+      "lines": 730
+    },
+    {
+      "path": "docs/plans/2026-06-15-002-feat-init-wizard-rework-plan.md",
+      "lines": 729
+    },
+    {
+      "path": "src/lib/aiur/events/subscription_store.ex",
+      "lines": 729
+    },
+    {
+      "path": "src/priv/build_orders/aiur-build-order.json",
+      "lines": 729
+    },
+    {
+      "path": ".claude/skills/ce-pov/scripts/cross-model-pov.sh",
+      "lines": 728
+    },
+    {
+      "path": "src/test/aiur/events/webhook_poll_reconciliation_test.exs",
+      "lines": 727
+    },
+    {
+      "path": "src/lib/aiur/claude/remote_control.ex",
+      "lines": 726
+    },
+    {
+      "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+      "lines": 718
+    },
+    {
+      "path": "src/lib/aiur_web/live/analytics_live.ex",
+      "lines": 714
+    },
+    {
+      "path": "docs/build-order/plan-preview.html",
+      "lines": 712
+    },
+    {
+      "path": "src/test/aiur/provider_meter_probe_test.exs",
+      "lines": 699
+    },
+    {
+      "path": "src/lib/aiur/github/dispatch_authorization.ex",
+      "lines": 695
+    },
+    {
+      "path": "src/docs/plans/2026-05-31-002-feat-aiur-init-onboarding-plan.md",
+      "lines": 692
+    },
+    {
+      "path": "src/lib/aiur/live_conversation.ex",
+      "lines": 691
+    },
+    {
+      "path": "website/src/dashboard.ts",
+      "lines": 688
+    },
+    {
+      "path": "src/lib/aiur/agent_runner.ex",
+      "lines": 685
+    },
+    {
+      "path": "src/test/aiur/github/auth_preflight_test.exs",
+      "lines": 684
+    },
+    {
+      "path": "src/test/aiur_web/presenter_test.exs",
+      "lines": 684
+    },
+    {
+      "path": ".claude/skills/ce-compound-refresh/SKILL.md",
+      "lines": 679
+    },
+    {
+      "path": "docs/plans/2026-05-24-003-feat-dashboard-events-panel-and-security-plan.md",
+      "lines": 676
+    },
+    {
+      "path": "src/lib/aiur/agent_runner/message_handler.ex",
+      "lines": 671
+    },
+    {
+      "path": ".claude/skills/ce-optimize/SKILL.md",
+      "lines": 667
+    },
+    {
+      "path": "src/lib/aiur/claude/telemetry.ex",
+      "lines": 666
+    },
+    {
+      "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+      "lines": 666
+    },
+    {
+      "path": ".claude/skills/aiur-meta/scripts/capture-dashboard.mjs",
+      "lines": 664
+    },
+    {
+      "path": "docs/design/streamdeck/streamdeck.design.js",
+      "lines": 663
+    },
+    {
+      "path": "src/test/aiur/provider_account_generation_test.exs",
+      "lines": 663
+    },
+    {
+      "path": ".claude/skills/aiur-run/references/executor.md",
+      "lines": 662
+    },
+    {
+      "path": "src/lib/aiur/codeowners.ex",
+      "lines": 657
+    },
+    {
+      "path": "website/docs-app/concepts/ticket-lifecycle.md",
+      "lines": 657
+    },
+    {
+      "path": "docs/build-order/scripts/execution_amendment_live.py",
+      "lines": 656
+    },
+    {
+      "path": "src/docs/plans/2026-05-21-001-feat-pane-lifecycle-and-background-attach-plan.md",
+      "lines": 656
+    },
+    {
+      "path": "src/test/aiur/github/comment_poll_batch_test.exs",
+      "lines": 652
+    },
+    {
+      "path": "src/docs/plans/2026-05-21-002-refactor-slot-bound-opencode-instances-plan.md",
+      "lines": 650
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+      "lines": 650
+    },
+    {
+      "path": "src/test/aiur/env_test.exs",
+      "lines": 645
+    },
+    {
+      "path": "src/lib/aiur/agent_environment.ex",
+      "lines": 643
+    },
+    {
+      "path": "src/lib/aiur/usage_envelope.ex",
+      "lines": 640
+    },
+    {
+      "path": "AGENTS.md",
+      "lines": 639
+    },
+    {
+      "path": "docs/plans/2026-06-22-001-feat-repo-agnostic-prewarm-plan.md",
+      "lines": 639
+    },
+    {
+      "path": "src/test/aiur_web/build_order_presenter_test.exs",
+      "lines": 639
+    },
+    {
+      "path": "src/lib/aiur_web/streamdeck_logs.ex",
+      "lines": 637
+    },
+    {
+      "path": ".claude/skills/ce-brainstorm/references/html-rendering.md",
+      "lines": 634
+    },
+    {
+      "path": ".claude/skills/ce-ideate/references/html-rendering.md",
+      "lines": 634
+    },
+    {
+      "path": ".claude/skills/ce-plan/references/html-rendering.md",
+      "lines": 634
+    },
+    {
+      "path": "src/test/aiur/github/ci_poll_batch_test.exs",
+      "lines": 634
+    },
+    {
+      "path": "src/test/aiur/claude/remote_control_test.exs",
+      "lines": 633
+    },
+    {
+      "path": "docs/plans/2026-07-12-003-feat-operator-control-center-ui-plan.md",
+      "lines": 632
+    },
+    {
+      "path": "src/lib/aiur/run_telemetry/writer.ex",
+      "lines": 628
+    },
+    {
+      "path": "src/lib/aiur/build_order/ticket_history_provider.ex",
+      "lines": 627
+    },
+    {
+      "path": ".codex/skills/land/land_watch.py",
+      "lines": 621
+    },
+    {
+      "path": "src/lib/aiur/usage/grouped_scopes.ex",
+      "lines": 621
+    },
+    {
+      "path": "src/lib/aiur/executor_wake_inbox.ex",
+      "lines": 619
+    },
+    {
+      "path": "src/lib/aiur/run_telemetry/dashboard.ex",
+      "lines": 619
+    },
+    {
+      "path": "src/lib/aiur/opencode/slot.ex",
+      "lines": 617
+    },
+    {
+      "path": "docs/plans/2026-07-15-002-feat-canonical-usage-ledger-plan.md",
+      "lines": 616
+    },
+    {
+      "path": "src/test/aiur/github/view_state_sweep_test.exs",
+      "lines": 616
+    },
+    {
+      "path": "src/lib/aiur/cli.ex",
+      "lines": 609
+    },
+    {
+      "path": "src/lib/aiur_web/streamdeck_channel.ex",
+      "lines": 609
+    },
+    {
+      "path": "src/priv/static/streamdeck-emulator-hook.js",
+      "lines": 606
+    },
+    {
+      "path": ".claude/skills/aiur-build/scripts/publication/publication_receipt_authority.py",
+      "lines": 605
+    },
+    {
+      "path": "docs/build-order/scripts/publication_receipt_authority.py",
+      "lines": 605
+    },
+    {
+      "path": "src/lib/aiur/ticket_activity/projection.ex",
+      "lines": 605
+    },
+    {
+      "path": "src/lib/aiur.ex",
+      "lines": 600
+    },
+    {
+      "path": "src/lib/aiur/linear/client.ex",
+      "lines": 599
+    },
+    {
+      "path": "src/lib/aiur/agent_queue_store.ex",
+      "lines": 597
+    },
+    {
+      "path": "src/test/aiur_web/operator_control_center/units_row_test.exs",
+      "lines": 597
+    },
+    {
+      "path": "packages/streamdeck/src/rasterizer.ts",
+      "lines": 595
+    },
+    {
+      "path": "src/lib/aiur/github/comment_poll_batch.ex",
+      "lines": 595
+    },
+    {
+      "path": "src/lib/aiur_web/presenter.ex",
+      "lines": 595
+    },
+    {
+      "path": "src/test/aiur/decision_withdrawal_test.exs",
+      "lines": 594
+    },
+    {
+      "path": "website/docs-app/bun.lock",
+      "lines": 593
+    },
+    {
+      "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+      "lines": 591
+    },
+    {
+      "path": "src/test/aiur/build_order/shared_resource_store_test.exs",
+      "lines": 588
+    },
+    {
+      "path": "packages/streamdeck/src/channel.ts",
+      "lines": 587
+    },
+    {
+      "path": "src/test/aiur/codex/approvals_test.exs",
+      "lines": 585
+    },
+    {
+      "path": ".github/workflows/release-npm.yml",
+      "lines": 583
+    },
+    {
+      "path": "src/test/aiur/events/subscription_store_test.exs",
+      "lines": 582
+    },
+    {
+      "path": "docs/plans/2026-07-12-003-feat-decision-revisions-plan.md",
+      "lines": 579
+    },
+    {
+      "path": "src/test/aiur/cli_test.exs",
+      "lines": 578
+    },
+    {
+      "path": "src/lib/aiur/agent_process_log.ex",
+      "lines": 576
+    },
+    {
+      "path": ".claude/skills/ce-compound/scripts/session-history/extract-skeleton.py",
+      "lines": 575
+    },
+    {
+      "path": "src/test/aiur/app_server/adapter_test.exs",
+      "lines": 574
+    },
+    {
+      "path": "docs/plans/2026-07-11-003-refactor-orchestrator-dispatch-lifecycle-extraction-plan.md",
+      "lines": 572
+    },
+    {
+      "path": "src/test/aiur/decision_attention_test.exs",
+      "lines": 572
+    },
+    {
+      "path": "src/lib/aiur/tmux.ex",
+      "lines": 571
+    },
+    {
+      "path": "docs/plans/2026-06-08-002-feat-repl-dual-chat-driver-plan.md",
+      "lines": 567
+    },
+    {
+      "path": "src/test/aiur/build_order/ticket_history_provider_test.exs",
+      "lines": 566
+    },
+    {
+      "path": "src/test/aiur_web/streamdeck_logs_test.exs",
+      "lines": 565
+    },
+    {
+      "path": "src/test/aiur/model_discovery_test.exs",
+      "lines": 564
+    },
+    {
+      "path": "src/test/aiur/github/resource_fetch_test.exs",
+      "lines": 563
+    },
+    {
+      "path": "src/test/aiur/usage_ledger/recovery_test.exs",
+      "lines": 561
+    },
+    {
+      "path": "docs/build-order/scripts/capture_progress_estimates.py",
+      "lines": 560
+    },
+    {
+      "path": "src/test/aiur/opencode/session_writer_test.exs",
+      "lines": 560
+    },
+    {
+      "path": "src/lib/aiur/recent_merge.ex",
+      "lines": 558
+    },
+    {
+      "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+      "lines": 557
+    },
+    {
+      "path": "src/lib/aiur/github/read_cache.ex",
+      "lines": 555
+    },
+    {
+      "path": "src/test/aiur/usage/price_table_test.exs",
+      "lines": 553
+    },
+    {
+      "path": "src/docs/opencode-pane-brainstorm.md",
+      "lines": 551
+    },
+    {
+      "path": "packages/streamdeck/test/dial.test.ts",
+      "lines": 549
+    },
+    {
+      "path": "docs/plans/2026-05-22-001-feat-shared-prewarm-opencode-plan.md",
+      "lines": 547
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+      "lines": 546
+    },
+    {
+      "path": "docs/plans/2026-05-27-001-feat-subscriptions-and-inbox-plan.md",
+      "lines": 545
+    },
+    {
+      "path": "src/lib/aiur/github/read_cache/policy.ex",
+      "lines": 545
+    },
+    {
+      "path": "src/test/aiur/agent_list/app_test.exs",
+      "lines": 545
+    },
+    {
+      "path": "src/lib/aiur/github/auth_preflight.ex",
+      "lines": 544
+    },
+    {
+      "path": "docs/plans/2026-07-11-006-feat-daemon-run-telemetry-plan.md",
+      "lines": 542
+    },
+    {
+      "path": "src/lib/aiur/workflow_store.ex",
+      "lines": 542
+    },
+    {
+      "path": ".claude/skills/ce-code-review/SKILL.md",
+      "lines": 541
+    },
+    {
+      "path": "src/lib/aiur/agent_github_guard.ex",
+      "lines": 541
+    },
+    {
+      "path": "src/lib/aiur/decision_history.ex",
+      "lines": 540
+    },
+    {
+      "path": "src/lib/aiur_web/streamdeck_projection.ex",
+      "lines": 540
+    },
+    {
+      "path": "src/lib/aiur/events/publisher.ex",
+      "lines": 539
+    },
+    {
+      "path": "src/priv/static/conversation-voice-controller.js",
+      "lines": 539
+    },
+    {
+      "path": "src/test/aiur/agent_runner/message_handler_test.exs",
+      "lines": 539
+    },
+    {
+      "path": "src/test/aiur/agent_queue_test.exs",
+      "lines": 538
+    },
+    {
+      "path": "src/test/aiur/test_reset_test.exs",
+      "lines": 537
+    },
+    {
+      "path": "src/test/aiur/pane_manager_test.exs",
+      "lines": 535
+    },
+    {
+      "path": "src/lib/aiur/claude/coding_agent.ex",
+      "lines": 534
+    },
+    {
+      "path": "src/test/aiur/orchestrator/status_report_test.exs",
+      "lines": 533
+    },
+    {
+      "path": "src/lib/aiur/progress_retention.ex",
+      "lines": 532
+    },
+    {
+      "path": "src/test/aiur/orchestrator/merged_ticket_reconciler_test.exs",
+      "lines": 532
+    },
+    {
+      "path": "src/test/aiur/opencode/slot_policy_test.exs",
+      "lines": 527
+    },
+    {
+      "path": "src/test/aiur/orchestrator/auto_resume_test.exs",
+      "lines": 527
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/comment_polling/target_selection.ex",
+      "lines": 526
+    },
+    {
+      "path": "src/lib/aiur/executor_events.ex",
+      "lines": 525
+    },
+    {
+      "path": "src/test/aiur/open_ticket_source_test.exs",
+      "lines": 524
+    },
+    {
+      "path": "src/test/aiur/github/issue_state_test.exs",
+      "lines": 523
+    },
+    {
+      "path": "src/test/aiur/orchestrator/orphaned_workers_test.exs",
+      "lines": 523
+    },
+    {
+      "path": "src/test/aiur/orchestrator/rework_requeue_test.exs",
+      "lines": 522
+    },
+    {
+      "path": "analytics/lib/analytics/render.py",
+      "lines": 521
+    },
+    {
+      "path": "docs/plans/2026-07-15-002-feat-financial-data-authentication-plan.md",
+      "lines": 521
+    },
+    {
+      "path": "docs/plans/2026-05-28-001-feat-deactivated-state-plan.md",
+      "lines": 520
+    },
+    {
+      "path": "docs/plans/2026-07-13-003-feat-github-planning-graph-plan.md",
+      "lines": 518
+    },
+    {
+      "path": "src/lib/aiur/build_order/pack_status.ex",
+      "lines": 515
+    },
+    {
+      "path": "src/test/aiur_web/components/operator_control_center/units_table_test.exs",
+      "lines": 513
+    },
+    {
+      "path": "src/test/aiur/agent_runner/provider_lifecycle_test.exs",
+      "lines": 511
+    },
+    {
+      "path": "docs/plans/2026-07-13-003-feat-applied-unit-controls-plan.md",
+      "lines": 510
+    },
+    {
+      "path": "src/lib/aiur/codex/event_humanizer.ex",
+      "lines": 510
+    },
+    {
+      "path": "src/test/aiur/coordination_tasks_test.exs",
+      "lines": 510
+    },
+    {
+      "path": "src/lib/aiur/open_ticket_source.ex",
+      "lines": 509
+    },
+    {
+      "path": "src/priv/github_push_guard.sh",
+      "lines": 509
+    },
+    {
+      "path": "src/browser/layout/aiur-layout-worker.js",
+      "lines": 507
+    },
+    {
+      "path": "src/priv/static/vendor/elk/0.11.1/aiur-layout-worker.js",
+      "lines": 507
+    },
+    {
+      "path": "src/test/aiur_web/github_webhook_test.exs",
+      "lines": 504
+    },
+    {
+      "path": "src/lib/aiur/webhooks/mode_registry.ex",
+      "lines": 502
+    }
+  ]
+}
