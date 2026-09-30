@@ -8,4 +8,8 @@ defmodule Aiur.Sandbox.EventFlowDemoTest do
              assert EventFlowDemo.function_a() == 42
            end) == ""
   end
+
+  test "function_b adds one to function_a's result" do
+    assert EventFlowDemo.function_b() == 43
+  end
 end
