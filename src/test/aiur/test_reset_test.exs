@@ -64,6 +64,58 @@ defmodule Aiur.TestResetTest do
     {_, 0} = System.cmd("git", ["commit", "-m", "baseline"], cd: tmp)
   end
 
+  test "reset removes the repo-namespaced workspace for the ticket", %{tmp_dir: tmp_dir} do
+    root = Path.join(tmp_dir, "workspaces")
+    config_path = Path.join(tmp_dir, "config")
+    previous_config_path = Aiur.Workflow.workflow_file_path()
+
+    Aiur.TestSupport.write_workflow_file!(config_path,
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      workspace_root: root
+    )
+
+    Aiur.Workflow.set_workflow_file_path(config_path)
+
+    ticket_workspace = Path.join([root, "owner", "repo", "2897"])
+    other_workspace = Path.join([root, "owner", "repo", "2898"])
+    old_layout_workspace = Path.join(root, "2897")
+
+    try do
+      for path <- [ticket_workspace, other_workspace, old_layout_workspace] do
+        File.mkdir_p!(path)
+        File.write!(Path.join(path, "agent-edit.txt"), "uncommitted work")
+      end
+
+      TestReset.remove_workspace(2897, root)
+
+      refute File.exists?(ticket_workspace)
+      assert File.exists?(Path.join(other_workspace, "agent-edit.txt"))
+      assert File.exists?(Path.join(old_layout_workspace, "agent-edit.txt"))
+    after
+      Aiur.Workflow.set_workflow_file_path(previous_config_path)
+    end
+  end
+
+  test "reset falls back to a flat workspace path with invalid config", %{tmp_dir: tmp_dir} do
+    root = Path.join(tmp_dir, "workspaces")
+    workspace = Path.join(root, "2897")
+    invalid_config_path = Path.join(tmp_dir, "invalid-config")
+    previous_config_path = Aiur.Workflow.workflow_file_path()
+    File.mkdir_p!(workspace)
+    File.write!(Path.join(workspace, "agent-edit.txt"), "uncommitted work")
+    File.write!(invalid_config_path, "tracker: [not valid yaml")
+
+    try do
+      Aiur.Workflow.set_workflow_file_path(invalid_config_path)
+      assert_raise ArgumentError, fn -> Aiur.Config.settings!() end
+      TestReset.remove_workspace(2897, root)
+      refute File.exists?(workspace)
+    after
+      Aiur.Workflow.set_workflow_file_path(previous_config_path)
+    end
+  end
+
   describe "guards" do
     test "ABORT: tickets file missing", %{tmp_dir: tmp_dir} do
       assert {:error, :tickets_file_missing} =
