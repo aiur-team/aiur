@@ -27,4 +27,6 @@ The [GitHub access seam audit](github-access-seam-current-main-2026-09-30.md) ch
 
 The [oversized-file assignment review](owner-map-assignment-review-b4bc-2026-09-30.md) identifies owner and evidence corrections for the U0 refresh. The frozen CSV and b4bc delta remain separate; hash-pinned prototypes, release assets, canonical receipts, generated lockfiles and shared harnesses cannot be dispatched as generic splits or cuts.
 
+The [reconciled P2/P3 check](p2p3-reconciled-b4bc-2026-09-30.md) confirms source reachability for the nine changed effective decisions and preserves their behavior gates. It does not establish incidence or update the other 880 dispositions.
+
 Before promotion, refresh this checkpoint on the actual release main, run the named behavior gates, count live populations where a finding claims magnitude, and record the exact failing behavior test for each selected repair. The frozen two-review result remains valid for its snapshot; it does not automatically certify the changed main.
