@@ -25,4 +25,6 @@ The [Decision journal audit](decision-journal-current-main-2026-09-30.md) narrow
 
 The [GitHub access seam audit](github-access-seam-current-main-2026-09-30.md) checks KTD11 against startup and caller contracts. One-page list readers, unacknowledged store deposits, checkpoint windows and mutation ambiguity need failure-path proof before consolidating callers.
 
+The [oversized-file assignment review](owner-map-assignment-review-b4bc-2026-09-30.md) identifies owner and evidence corrections for the U0 refresh. The frozen CSV and b4bc delta remain separate; hash-pinned prototypes, release assets, canonical receipts, generated lockfiles and shared harnesses cannot be dispatched as generic splits or cuts.
+
 Before promotion, refresh this checkpoint on the actual release main, run the named behavior gates, count live populations where a finding claims magnitude, and record the exact failing behavior test for each selected repair. The frozen two-review result remains valid for its snapshot; it does not automatically certify the changed main.
