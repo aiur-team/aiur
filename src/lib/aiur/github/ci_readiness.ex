@@ -1086,7 +1086,8 @@ defmodule Aiur.GitHub.CiReadiness do
       |> String.replace_suffix("}}", "")
       |> String.trim()
 
-    condition == "always()" or Regex.match?(~r/^github\.event_name\s*==\s*['\"]pull_request['\"]$/, condition)
+    condition in ["always()", "!cancelled()"] or
+      Regex.match?(~r/^github\.event_name\s*==\s*['\"]pull_request['\"]$/, condition)
   end
 
   defp workflow_path?(path), do: String.ends_with?(path, ".yml") or String.ends_with?(path, ".yaml")
