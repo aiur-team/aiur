@@ -69,6 +69,12 @@ GitHub Free does not expose rulesets or classic branch protection for private re
 
 For native Muse, install and authenticate its CLI before selecting `muse` in the wizard. Workspace trust is a separate opt-in that lets Muse load the installed skills and repository rules; see [Muse configuration](/reference/configuration#agent-backend-configs-muse).
 
+For native Gemini CLI, install `gemini` and set a supported `GEMINI_API_KEY` or `GOOGLE_API_KEY` in the Aiur daemon environment. Review Gemini's folder trust for the target repository, then select `gemini` in the wizard.
+
+Aiur uses Gemini's ACP session, restricts its MCP connection to the current ticket, and shows native approval choices in the agent chat pane. Personal Google login is not used by this integration.
+
+See [Gemini configuration](/reference/configuration#agent-backend-configs-gemini) and the `src/examples/workflows/github-gemini.yaml` example.
+
 ## First run
 
 The bare `aiur` command discovers `.aiur/config`, starts a foreground run when this repository has no live session, attaches to its directory-scoped tmux session when one is already running, and leaves `aiur run` as the explicit launch form.

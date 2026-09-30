@@ -105,7 +105,11 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   # --- per-provider card ---------------------------------------------------
 
   defp card(provider, snapshot) do
-    state = card_state(snapshot)
+    state =
+      if is_nil(snapshot) and CodingAgent.provider_descriptor(provider).meter_supported == false,
+        do: :unavailable,
+        else: card_state(snapshot)
+
     known? = known_identity?(state)
 
     %{

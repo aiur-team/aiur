@@ -1,7 +1,7 @@
 defmodule Aiur.CodingAgent.Registry do
   @moduledoc "Provider-owned backend definitions behind the stable CodingAgent registry API."
 
-  alias Aiur.CodingAgent.Providers.{Claude, Codex, Muse}
+  alias Aiur.CodingAgent.Providers.{Claude, Codex, Gemini, Muse}
 
   @spec entries() :: %{String.t() => Aiur.CodingAgent.Backend.capabilities()}
   def entries do
@@ -9,7 +9,8 @@ defmodule Aiur.CodingAgent.Registry do
       "codex" => Codex.entry(),
       "claude" => Claude.headless(),
       "claude-repl" => Claude.repl(),
-      "muse" => Muse.entry()
+      "muse" => Muse.entry(),
+      "gemini" => Gemini.entry()
     }
     |> Map.merge(Aiur.OpenAICompat.Registry.entries())
     |> maybe_add_test_backend()

@@ -193,6 +193,7 @@ defmodule Aiur.CodingAgent do
           unit_background: String.t(),
           pricing: map(),
           usage: map(),
+          meter_supported: boolean(),
           meter_identity_policy: :account | :host_unverified,
           account_generation: map()
         }
@@ -216,6 +217,7 @@ defmodule Aiur.CodingAgent do
             |> Map.put(:provider, String.to_atom(entry.family))
             |> Map.put(:pricing, Map.get(entry, :pricing, %{}))
             |> Map.put(:usage, Map.get(entry, :usage, %{}))
+            |> Map.put(:meter_supported, Map.get(entry, :meter_supported, true))
             |> Map.put(:meter_identity_policy, Map.get(entry, :meter_identity_policy, :account))
             |> Map.put(:account_generation, Map.get(entry, :account_generation, %{}))
           ]

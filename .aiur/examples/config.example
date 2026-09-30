@@ -48,6 +48,7 @@ agent:
   routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]]; prefer a family alias (codex:terra:high, claude:opus) over a pinned version, which expires
   prior_work_continuation: true           # cold redispatch/backend switch continues from shared workspace context, never a cross-provider transcript
   # backend_configs:                      # optional overrides keyed by registry instance
+  #   gemini: {command: "gemini --acp"}   # Gemini CLI uses its existing login and folder trust
   #   deepseek: {balance_baseline: 100}   # prepaid-balance seed; enablement now comes from `priority` presence
   #   openrouter: {model: moonshotai/kimi-k2.7-code} # explicit underlying model required
 {{BACKEND_CONFIGS}}

@@ -291,6 +291,7 @@ defmodule Aiur.ProviderMeterProbeTest do
              %{provider: :deepseek, observed?: false, reason: :disabled},
              %{provider: :openrouter, observed?: false, reason: :missing_api_key},
              %{provider: :muse, observed?: false, reason: :unsupported},
+             %{provider: :gemini, observed?: false, reason: :unsupported},
              %{provider: :fake, observed?: false, reason: :unsupported}
            ]
   end

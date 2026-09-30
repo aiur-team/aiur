@@ -332,6 +332,8 @@ defmodule Aiur.EnvTest do
       # A secret with nothing to fetch renders as a bare, value-less key.
       assert rendered =~ ~r/^GITHUB_APP_PRIVATE_KEY=$/m
       assert rendered =~ ~r/^AIUR_DASHBOARD_PASSWORD=\s+#/m
+      assert rendered =~ ~r/^GEMINI_API_KEY=\s+#/m
+      assert rendered =~ ~r/^GOOGLE_API_KEY=\s+#/m
       # The supervisor token deliberately carries no inline fetch note: the
       # dotenv loaders do not strip inline comments, so a copied .env.example
       # must never feed the literal `# openssl ...` hint in as the token value.

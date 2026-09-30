@@ -11,7 +11,7 @@ defmodule Aiur.Muse.Transport do
     cond do
       Keyword.get(opts, :worker_host) != nil -> {:error, :remote_worker_unsupported}
       not File.dir?(workspace) -> {:error, :workspace_not_found}
-      true -> Adapter.start_port(workspace, command, &record_process(&1, opts))
+      true -> Adapter.start_port(workspace, command, &record_process(&1, opts), env: Keyword.get(opts, :env, []))
     end
   end
 

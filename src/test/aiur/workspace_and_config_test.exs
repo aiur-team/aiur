@@ -1088,9 +1088,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
       # seeds its bundled agent skills (#689) and GitHub quota guard so a
       # dispatched agent has its operating support without a filesystem search.
       assert {:ok, entries} = File.ls(workspace)
-      assert Enum.sort(entries) == [".agents", ".aiur-runtime", ".claude", ".codex", ".fake"]
+      assert Enum.sort(entries) == [".agents", ".aiur-runtime", ".claude", ".codex", ".fake", ".gemini"]
       assert File.exists?(Path.join([workspace, ".agents", "skills", "aiur-agent", "SKILL.md"]))
       assert File.exists?(Path.join([workspace, ".claude", "skills", "aiur-agent", "SKILL.md"]))
+      assert File.exists?(Path.join([workspace, ".gemini", "skills", "aiur-agent", "SKILL.md"]))
       assert File.exists?(Path.join([workspace, ".aiur-runtime", "bin", "gh"]))
     after
       File.rm_rf(workspace_root)
