@@ -326,8 +326,12 @@ defmodule Aiur.GitHub.Budget do
 
   defp do_acquire(request, key, python, opts, deadline_at) do
     command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at)
+    started_at = System.monotonic_time(:millisecond)
+    result = command(acquire_args(request, opts), key, command_opts)
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
+    opts = Keyword.put(opts, :broker_round_trip_ms, max(elapsed_ms, Keyword.get(opts, :broker_round_trip_ms, 0)))
 
-    case command(acquire_args(request, opts), key, command_opts) do
+    case result do
       {:ok, "granted " <> id} ->
         grant_or_hold(String.trim(id), request, key)
 
@@ -362,11 +366,11 @@ defmodule Aiur.GitHub.Budget do
          true <- reset_at_ms > System.system_time(:millisecond) do
       delay_ms = reset_at_ms - System.system_time(:millisecond)
 
-      if System.monotonic_time(:millisecond) + delay_ms >= deadline_at do
-        {:hold, %{reason: :shared_budget, resource: resource, reset_at: reset_at}}
-      else
+      if retry_fits?(opts, deadline_at, delay_ms) do
         Process.sleep(max(delay_ms, @retry_floor_ms))
         do_acquire(request, key, python, opts, deadline_at)
+      else
+        {:hold, %{reason: :shared_budget, resource: resource, reset_at: reset_at}}
       end
     else
       _invalid -> {:error, :github_budget_broker_unavailable}
@@ -392,13 +396,31 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp retry_or_hold(request, key, python, opts, deadline_at, delay, reason) do
-    if System.monotonic_time(:millisecond) + delay >= deadline_at do
-      maybe_alert_meter_disagreement(request, key, reason, opts)
-      {:hold, hold(request, delay, reason)}
-    else
+    if retry_fits?(opts, deadline_at, delay) do
       Process.sleep(max(delay, @retry_floor_ms))
       do_acquire(request, key, python, opts, deadline_at)
+    else
+      maybe_alert_meter_disagreement(request, key, reason, opts)
+      {:hold, hold(request, delay, reason)}
     end
+  end
+
+  # A known admission wait is not a broker fault. Reserve the observed cost
+  # of another broker round trip as well as the actual sleep floor, otherwise
+  # a near-deadline retry turns that known hold into a subprocess timeout.
+  defp retry_fits?(opts, deadline_at, delay_ms) do
+    remaining_ms = deadline_at - System.monotonic_time(:millisecond)
+    admission_retry_fits?(remaining_ms, delay_ms, Keyword.get(opts, :broker_round_trip_ms, 0))
+  end
+
+  @doc false
+  @spec admission_retry_fits?(integer(), non_neg_integer(), non_neg_integer()) :: boolean()
+  def admission_retry_fits?(remaining_ms, delay_ms, observed_round_trip_ms) do
+    round_trip_ms = max(observed_round_trip_ms, @retry_floor_ms)
+    # await_port reserves cleanup before the deadline; leave a scheduling
+    # cushion too, even when the observed subprocess returned almost instantly.
+    reserved_ms = round_trip_ms + @command_cleanup_ms + @retry_floor_ms
+    max(delay_ms, @retry_floor_ms) + reserved_ms < remaining_ms
   end
 
   defp maybe_alert_meter_disagreement(request, key, :actor_budget, opts) do
