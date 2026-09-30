@@ -4,6 +4,9 @@ defmodule Aiur.Orchestrator.StatusReportTest do
   alias Aiur.Issue
   alias Aiur.Orchestrator.{State, StatusReport}
   alias Aiur.{ProgressRetention, TrackerIdentity}
+  alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.Ownership.Store
+  alias AiurWeb.OperatorControlCenter.UnitsRow
 
   test "calculates the remaining poll interval" do
     assert StatusReport.next_poll_in_ms(nil, 10) == nil
@@ -22,6 +25,31 @@ defmodule Aiur.Orchestrator.StatusReportTest do
       })
 
     assert [%{identifier: "repo#20", state: :paused, title: nil, reason: {:transient, _, _}}] = statuses
+  end
+
+  test "startup and retry rows expose no live turn and retain failure time" do
+    issue = %Issue{id: "2895", identifier: "2895", state: "in-progress", title: "Startup"}
+    now = DateTime.utc_now()
+    entry = %{identifier: issue.identifier, issue: issue, started_at: now, session_id: nil, control: %{status: :working}}
+
+    [starting] = StatusReport.agent_statuses(%State{running: %{issue.id => entry}})
+    assert starting.work_state == :starting
+    assert starting.session_id == nil
+
+    retry = %{
+      identifier: issue.identifier,
+      attempt: 1,
+      due_at_ms: System.monotonic_time(:millisecond) + 10_000,
+      error: "startup failed: {:port_exit, 23}",
+      last_failure_at: now
+    }
+
+    [retrying] = StatusReport.agent_statuses(%State{retry_attempts: %{issue.id => retry}})
+    assert retrying.work_state == :retrying
+    assert retrying.last_failure_at == now
+    assert {:transient, "startup failed: {:port_exit, 23}", due_in_ms} = retrying.reason
+    assert due_in_ms > 0
+    assert retrying.session_id == nil
   end
 
   test "gives tracker pause precedence while retaining retry metadata" do
@@ -153,6 +181,43 @@ defmodule Aiur.Orchestrator.StatusReportTest do
 
     [snapshot_row] = StatusReport.snapshot_payload(StatusReport.snapshot_input(ready)).idle
     assert snapshot_row.waiting_reason == :workspace_ownership_waiting
+  end
+
+  test "a retained unknown provider reports its exact generation and missing exit proof" do
+    identifier = "repo#unknown-#{System.unique_integer([:positive])}"
+    issue = %Issue{id: identifier, identifier: identifier, state: "todo", title: "Retained unknown provider"}
+    parent = self()
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} = Ownership.claim(identifier)
+        :ok = Ownership.expect_provider(lease)
+        send(parent, {:unknown_provider_lease, lease})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:unknown_provider_lease, lease}, 2_000
+
+    on_exit(fn ->
+      Process.exit(lease.guardian, :kill)
+      _ = Store.delete(identifier)
+    end)
+
+    Process.exit(owner, :kill)
+    assert await_reaping(identifier, 100)
+
+    envelope = %{issue_id: issue.id, identifier: identifier, owner: :none}
+
+    state =
+      put_in(
+        %State{last_polled_issues: %{issue.id => issue}}.dispatch_recovery.workspace_ownership.waits,
+        %{identifier => envelope}
+      )
+
+    assert [%{waiting_reason: :workspace_ownership_waiting, reason: {:workspace_ownership_waiting, generation, :not_recorded}}] =
+             StatusReport.agent_statuses(state, fn _ -> {:unavailable, nil} end)
+
+    assert generation == lease.generation
   end
 
   test "after the startup pass an idle in-progress claim reads as stale, never awaiting-dispatch" do
@@ -346,6 +411,46 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert row.progress_freshness == :unknown
   end
 
+  test "Units keeps a missing running turn count unknown but preserves an observed zero" do
+    ticket = identity("turn-count-source")
+
+    issue = %Issue{
+      id: "turn-count-source",
+      identifier: "repo#turn-count-source",
+      state: "in-progress",
+      title: "Turn count source",
+      tracker_identity: ticket
+    }
+
+    entry = %{
+      identifier: issue.identifier,
+      issue: issue,
+      started_at: DateTime.utc_now(),
+      control: %{status: :working}
+    }
+
+    for {running_entry, expected_count, expected_source} <- [
+          {entry, nil, :unknown},
+          {Map.put(entry, :turn_count, 0), 0, :status_report}
+        ] do
+      [status_row] =
+        %State{running: %{issue.id => running_entry}}
+        |> StatusReport.snapshot_input()
+        |> StatusReport.snapshot_payload()
+        |> Map.fetch!(:running)
+
+      snapshot =
+        UnitsRow.snapshot(%{
+          membership: %{members: [%{identity: ticket, lifecycle: :running}]},
+          status: %{running: [status_row], retrying: [], idle: []}
+        })
+
+      assert {:ok, row} = UnitsRow.lookup(snapshot, ticket)
+      assert row.turn_count == expected_count
+      assert row.field_sources.turn_count == expected_source
+    end
+  end
+
   test "a retained reading wins over a live entry that has no progress of its own (#1963)" do
     ticket = identity("I-1963-edge")
     observed_at = DateTime.utc_now()
@@ -397,6 +502,17 @@ defmodule Aiur.Orchestrator.StatusReportTest do
       identifier: "42",
       reason: nil
     }
+  end
+
+  defp await_reaping(_identifier, 0), do: false
+
+  defp await_reaping(identifier, remaining) do
+    if match?({:ok, %{phase: :reaping}}, Ownership.current(identifier)) do
+      true
+    else
+      Process.sleep(10)
+      await_reaping(identifier, remaining - 1)
+    end
   end
 
   defp stage_only(ticket) do

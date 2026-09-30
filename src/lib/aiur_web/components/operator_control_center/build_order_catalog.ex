@@ -66,7 +66,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
         <thead>
           <tr>
             <th scope="col" data-sort-key="title">Title</th>
-            <th scope="col" data-sort-key="progress" data-sort-type="number" class="bo-catalog-progress-head">Progress</th>
+            <th scope="col" data-sort-key="progress" data-sort-type="number" class="bo-catalog-progress-head">Tickets completed</th>
             <th scope="col" data-sort-key="tickets" data-sort-type="number" class="bo-catalog-num">Tickets</th>
             <th scope="col" data-sort-key="epics" data-sort-type="number" class="bo-catalog-num">Epics</th>
             <th scope="col" data-sort-key="waves" data-sort-type="number" class="bo-catalog-num">Waves</th>

@@ -25,7 +25,7 @@ If you want your agent to be the Executor, ask it to "run aiur"; the repository 
 
 1. **Polls a tracker** (Linear, GitHub Issues, or in-memory) for candidate work.
 2. **Creates an isolated workspace** per selected item and clones your repo into it.
-3. **Launches a coding agent** (Codex or Claude) inside the workspace with your `.aiur/config`
+3. **Launches a coding agent** (such as Codex, Claude, or Muse) inside the workspace with your `.aiur/config`
    YAML config and prompt template.
 4. **Drives the run** through repeated turns until the item reaches a terminal state
    (`Done`, `Closed`, `Cancelled`, `Duplicate`), then cleans up the workspace.
@@ -729,7 +729,7 @@ the same pressure evidence. This telemetry is measurement-only; it does not adap
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
   the concurrency cap; a configured memory floor or start stagger remains active
   independently.
-  Local Codex and Claude launches prepend shell-independent `elixir`, `mix`, and
+  Local Codex, Claude, and Muse launches prepend shell-independent `elixir`, `mix`, and
   `mise` entrypoints, and local workspace lifecycle hooks run with the same admission
   environment before agent support is installed. This keeps `after_create` and
   `before_run` warm-up builds under the fleet cap as well as builds started during

@@ -45,6 +45,48 @@ defmodule Aiur.GitHub.PullRequestsTest do
     end
   end
 
+  describe "fetch_classified_pr_reviews/2" do
+    test "strictly revalidates the formal review list and classifies its author" do
+      repo_root = Aiur.TestSupport.tmp_root!("formal-reviews-codeowners")
+      codeowners = Path.join(repo_root, ".github/CODEOWNERS")
+      File.mkdir_p!(Path.dirname(codeowners))
+      File.write!(codeowners, "* @owner\n")
+      on_exit(fn -> File.rm_rf!(repo_root) end)
+
+      review = %{
+        "id" => 92_794,
+        "state" => "CHANGES_REQUESTED",
+        "body" => "Please fix the failure path",
+        "submitted_at" => "2026-09-28T12:00:00Z",
+        "user" => %{"login" => "owner"}
+      }
+
+      outsider = %{review | "id" => 92_795, "user" => %{"login" => "guest"}}
+
+      request_fun = fn req ->
+        assert req.url =~ "/repos/owner/repo/pulls/92794/reviews?per_page=100"
+        send(self(), {:review_request, Map.get(req, :etag)})
+
+        case Map.get(req, :etag) do
+          nil -> {:ok, %{status: 200, body: [review, outsider], headers: [{"etag", ~s("review-etag")}]}}
+          ~s("review-etag") -> {:ok, %{status: 304, headers: [{"etag", ~s("review-etag")}]}}
+        end
+      end
+
+      opts = [request_fun: request_fun, repo_root: repo_root]
+
+      assert {:ok, [%{authoritative: true}, %{authoritative: false}]} =
+               PullRequests.fetch_classified_pr_reviews(92_794, opts)
+
+      assert_receive {:review_request, nil}
+
+      assert {:ok, [%{authoritative: true}, %{authoritative: false}]} =
+               PullRequests.fetch_classified_pr_reviews(92_794, opts)
+
+      assert_receive {:review_request, ~s("review-etag")}
+    end
+  end
+
   describe "fetch_compare_files/3" do
     test "returns content-sensitive {filename, sha} fingerprints from the compare endpoint" do
       body = %{

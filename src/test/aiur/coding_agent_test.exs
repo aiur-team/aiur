@@ -16,7 +16,7 @@ defmodule Aiur.CodingAgentTest do
   describe "provider presentation descriptors (registry-driven rendering)" do
     test "provider_families/0 lists families in card order, deduped across a shared family" do
       # claude and claude-repl share family :claude, so it appears once.
-      assert CodingAgent.provider_families() == [:codex, :claude, :kimi, :deepseek, :openrouter, :fake]
+      assert CodingAgent.provider_families() == [:codex, :claude, :kimi, :deepseek, :openrouter, :muse, :fake]
     end
 
     test "default fallback is owned by the default backend registry entry" do
@@ -31,6 +31,7 @@ defmodule Aiur.CodingAgentTest do
                "kimi" => :kimi,
                "deepseek" => :deepseek,
                "openrouter" => :openrouter,
+               "muse" => :muse,
                "fake" => :fake
              }
     end
@@ -64,6 +65,7 @@ defmodule Aiur.CodingAgentTest do
                %{provider: :kimi, order: 2},
                %{provider: :deepseek, order: 3},
                %{provider: :openrouter, order: 4},
+               %{provider: :muse, order: 5},
                %{provider: :fake, order: 99}
              ] =
                CodingAgent.provider_descriptors()
@@ -126,6 +128,16 @@ defmodule Aiur.CodingAgentTest do
     # short-circuited with no availability check and the fleet kept dispatching
     # into its own exhausted Claude account.
     @limited %{"backends" => %{"claude" => %{"limited" => true, "reset_at" => "2999-01-01T00:00:00Z"}}}
+
+    test "an unlabelled ticket waits when its default backend is usage-limited" do
+      assert {:all_limited, ["claude"]} =
+               CodingAgent.select_for_dispatch(issue([]),
+                 backends: [],
+                 default_backend: "claude",
+                 state: @limited,
+                 now: ~U[2026-09-26 02:30:00Z]
+               )
+    end
 
     test "a usage-limited routed backend parks the claim instead of dispatching into the limit" do
       assert {:all_limited, ["claude"]} =
@@ -499,6 +511,7 @@ defmodule Aiur.CodingAgentTest do
                "deepseek",
                "fake",
                "kimi",
+               "muse",
                "openrouter"
              ]
     end

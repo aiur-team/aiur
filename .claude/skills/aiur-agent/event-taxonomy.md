@@ -26,7 +26,7 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 | `decision.resolved` | You finished the work governed by that answer. Use the same exact correlation after acknowledgement. | `ticket.<id>.agent.decision.resolved` |
 | `blocked` | A specific integration point is non-stubbably blocked after `aiur_declare_blocker`; keep unrelated prep moving | `ticket.<id>.agent.blocked` |
 | `unblocked` | You're no longer blocked (real or stubbed-then-fetch) | `ticket.<id>.agent.unblocked` |
-| `attention.<slug>` | Need the Executor to answer something (opens ❗ in the agent list) | `ticket.<id>.agent.attention.<slug>` |
+| `attention.<slug>` | Need the Executor to look at the ticket (opens ❗; projected legacy Command is human-required). Use `decision.requested` for an answer, including a factual observation. | `ticket.<id>.agent.attention.<slug>` |
 | `attention.resolved` | Closing a previously-opened attention; pass `payload: {slug: "<the-slug>"}` | `ticket.<id>.agent.attention.resolved` |
 | `pause.request` | Ask Aiur to pause your turn at the next checkpoint. A guard-reported GitHub budget hold uses payload `{reason: "github_budget_hold", resource, reset_at_ms}` and resumes automatically without an attention. | `ticket.<id>.agent.pause.request` |
 | `custom.<slug>` | Anything else — a name no other category fits | `ticket.<id>.agent.custom.<slug>` |
@@ -36,6 +36,12 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 > progress bar. They're allowed by `emit_event`, but their 1-of-10 estimation
 > protocol and check-in cadence are documented in the agent pre-prompt's
 > progress-bar guidance, not here.
+
+`decision.requested` is also accepted by `emit_event` and routed to the durable
+Command store, not the generic event publisher. Use it for any answer the worker
+needs. Classify the requested answer by its consequence: an observed fact can
+be `supervisor_allowed` and `reversible`; a genuine human policy choice stays
+`human_required`.
 
 ## System-emitted topics (subscribe-only)
 

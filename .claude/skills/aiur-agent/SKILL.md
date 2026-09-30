@@ -9,7 +9,7 @@ This skill is how an Aiur agent runs a ticket end to end. The per-turn prompt
 carries only your ticket + workspace context and a pointer here; everything
 about *how* to operate — the ticket workflow, the dev loop, complexity routing,
 conventions, and cross-ticket events — lives in the reference docs below. Read
-the one that matches what you're doing; you don't need all ten every turn.
+the one that matches what you're doing; you don't need every reference each turn.
 
 ## When to use what
 
@@ -17,6 +17,7 @@ the one that matches what you're doing; you don't need all ten every turn.
 |----------------|------|
 | Run a turn: labels, the Agent Workpad, the brainstorm→plan→work→review loop, which CE skill when, milestone alerts | `turn-workflow.md` |
 | Branch, commit, push, open + self-review the PR, docs requirement, manual CLI verification, PR description shape | `dev-loop.md` |
+| Choose focused tests and validation commands for the target repository's language and packages | `validation.md` |
 | Pick model / agent / skill depth from the `complexity:N` label | `complexity-routing.md` |
 | Know whose comments are authoritative, file out-of-scope findings, follow tooling + load-repro conventions | `conventions.md` |
 | Understand what events are and why they exist | `overview.md` |

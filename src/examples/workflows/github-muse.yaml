@@ -1,0 +1,138 @@
+tracker:
+  kind: github
+  base_branch: your-base-branch
+  active_states:
+    - todo
+    - in-progress
+    - human-review
+    - rework
+    - merging
+  terminal_states:
+    - done
+    - closed
+    - cancelled
+    - canceled
+  github:
+    repo: your-org/your-repo
+    label_prefix: agent
+    # Required for server-side dispatch authorization. When omitted, Aiur uses
+    # the currently resolved CODEOWNERS set and denies dispatch if unavailable.
+    allowed_users:
+      - your-github-login
+      - your-teammate-login
+    # Required for human-only merge attribution. Keep machine identities out.
+    human_mergers:
+      - your-github-login
+    # Optional: trusted human Executor logins whose GitHub comments reach
+    # agent event digests even when CODEOWNERS team expansion is unavailable.
+    # trusted_accounts:
+    #   - your-github-login
+    # Build Order planning graph safeguards; each must be a finite positive integer.
+    # Defaults accept exactly 100 roots/direct members across at most four pages/calls.
+    planning_root_limit: 100
+    planning_page_budget: 4
+    planning_call_budget: 4
+    # Host-local coordination for daemons and agent `gh` calls sharing one token.
+    max_inflight: 4
+    max_inflight_per_endpoint: 2
+    requests_per_minute: 120
+    stagger_ms: 75
+    # Per-actor hourly ceilings (0 disables): billable Core (REST) / GraphQL /
+    # search responses in a rolling hour. 304s reconcile as free. The GraphQL
+    # windows were raised because the guard now books the high-level GraphQL-on-
+    # the-wire reads to the GraphQL bucket; `search` is GitHub's separate, much
+    # lower pool (~30/min) and gets its own ceiling rather than folding into
+    # core or graphql.
+    daemon_core_limit_per_hour: 3000
+    daemon_graphql_limit_per_hour: 4500
+    daemon_search_limit_per_hour: 600
+    agent_core_limit_per_hour: 250
+    agent_graphql_limit_per_hour: 600
+    agent_search_limit_per_hour: 600
+build_order:
+  # Three settings are intentionally absent — graph_catalog_refresh_ms,
+  # graph_catalog_labels_refresh_ms and ticket_detail_freshness_ms. They derive
+  # from polling.interval_seconds, so they follow the tracker instead of going
+  # stale the next time it changes. Set one explicitly only to override that.
+  # A fourth and fifth, graph_selected_refresh_ms and graph_demand_refresh_ms,
+  # were deleted rather than retuned: they were how *viewing* bought GitHub
+  # reads. A selected root is now read when a writer or an explicit refresh asks
+  # for it, so holding the Build Order page open costs nothing.
+  # Supervised configured-repository detail and sanitized typed-history providers.
+  # Restart clears retained snapshots; selected tickets reload on demand.
+  graph_refresh_timeout_ms: 30000
+  graph_max_selected_roots: 32
+  graph_max_inflight: 4
+  ticket_detail_max_entries: 32
+  ticket_detail_max_description_bytes: 16384
+  ticket_history_limit: 50
+  ticket_history_max_identities: 100
+  ticket_history_stale_after_ms: 60000
+observability:
+  # Set to false to disable run telemetry recording (Analytics page will be empty).
+  # telemetry_enabled: true
+  # Retain useful cross-session telemetry without splitting an individual boot.
+  telemetry_retention_max_bytes: 67108864
+  telemetry_retention_max_age_days: 30
+polling:
+  interval_seconds: 30
+  idle_widen_factor: 5.0
+  # Per-class cadences override interval_seconds for one class (#2309). The
+  # `ci` class is deliberately not listed — it only ever slows CI detection, so
+  # keep it at the fallback. `review` widens only while a webhook proves
+  # comment coverage; `planning` is on-demand (0 = no timer). `firehose` is also
+  # not listed: its loop rides the dispatch tick and is self-regulating via
+  # X-Poll-Interval, so an entry would be a dead knob.
+  intervals:
+    dispatch: 30
+    review: 300
+    planning: 0        # on-demand: no timer
+executor_takeover_first_alert_hours: 8
+executor_takeover_continuous_alert_hours: 1
+server:
+  host: 127.0.0.1
+  port: 4000
+workspace:
+  root: ~/code/aiur-workspaces
+hooks:
+  after_create: |
+    # Aiur runs this in an empty atomic staging directory.
+    git clone "$THIS_REPOSITORY_URL" .
+    issue_id="$(basename "$PWD")"
+    git checkout -b "aiur/${issue_id}" "origin/$THIS_BASE_BRANCH"
+    git update-ref refs/aiur/branch-start HEAD
+  before_remove: |
+    git status --short
+agent:
+  # Ordered dispatch preference: presence enables a backend, the first
+  # available entry is the default, and aiur falls back to the next one when a
+  # token/usage limit hits.
+  priority: [muse]
+  max_concurrent_agents: 2
+  max_turns: 12
+  # Cold backend switches continue from workspace context; provider transcripts
+  # are never transferred across backends.
+  prior_work_continuation: true
+  # Direct OpenAI-compatible instances use keys from the environment (prefer
+  # ~/.aiur/.env) and are enabled by listing them in `priority`:
+  # priority: [deepseek, codex]
+  # backend_configs:
+  #   openrouter: {model: moonshotai/kimi-k2.7-code}
+  # max_turns_by_complexity: {1: 4, 2: 8, 3: 12}
+  # Optional: route per issue by its `complexity:N` label. Unlisted levels and
+  # unlabeled issues fall back to `priority`; a `model:<backend>` issue label
+  # overrides both. (Muse routes use the native MSP session.)
+  # routing:
+  #   1: muse:muse-spark-1.3-contributor:low
+  #   2: muse:muse-spark-1.3-contributor:medium
+  #   3: muse:muse-spark-1.3-contributor:high
+  #   4: muse:muse-spark-1.3-contributor:xhigh
+  #   5: muse:muse-spark-1.3-contributor:xhigh
+  backend_configs:
+    muse:
+      command: muse serve
+      # Set true only after reviewing workspace-local skills and rules.
+      trust_workspace: false
+      # Requests needing operator approval appear in the chat pane.
+      approval_mode: onRequest
+prompt_file: github-muse.prompt.md

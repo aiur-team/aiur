@@ -4,7 +4,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.GitHub.{Config, Errors, StatePolicy, Transport}
+  alias Aiur.GitHub.{Config, Errors, ReadCache, StatePolicy, Transport}
 
   @cache_key {__MODULE__, :timeline_cache}
   # The timeline cache holds full event lists — up to four pages of 100 raw
@@ -63,7 +63,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   #
   # Who *filed* a ticket says nothing about whether anyone decided it should
   # run. Requiring the verified label applier costs one timeline fetch per
-  # issue — already cached per `{id, label, updated_at}` — and makes "an actor
+  # issue — verified decisions are cached per `{id, label, updated_at}` — and makes "an actor
   # in `allowed_users` moved this into a dispatch state" the single, auditable
   # precondition. If you reintroduce a short-circuit, agent-filed work becomes
   # self-authorizing again.
@@ -217,10 +217,10 @@ defmodule Aiur.GitHub.DispatchAuthorization do
       case fetch_timeline_ladder(request_fun, token, owner, repo, issue, @timeline_page_sizes) do
         {:ok, events, new_etag, single_page?, per_page} ->
           store_timeline(issue.id, new_etag, events, single_page?, per_page)
-          timeline_decision(issue, label, prefix, events)
+          decide_fetched_timeline(issue, label, prefix, events, owner, repo)
 
         {:reused, events} ->
-          timeline_decision(issue, label, prefix, events)
+          decide_fetched_timeline(issue, label, prefix, events, owner, repo)
 
         # The timeline could not be fetched or parsed — a budget hold, rate
         # limit, transport failure, or pagination/truncation limit. None of
@@ -435,25 +435,54 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp timeline_decision(issue, label, prefix, events) do
     case latest_label_event(events, label) do
       %{id: event_id, actor: actor} ->
-        decision =
-          if is_binary(actor),
-            do: {:verified, actor, event_id, prefix_label_appliers(events, prefix)},
-            else: {:ambiguous, :missing_timeline_actor}
-
-        cache_decision(issue, label, event_id, decision)
-        decision
+        if is_binary(actor) do
+          decision = {:verified, actor, event_id, prefix_label_appliers(events, prefix)}
+          cache_decision(issue, label, event_id, decision)
+          decision
+        else
+          {:ambiguous, :missing_timeline_actor}
+        end
 
       :missing ->
-        decision = {:ambiguous, :missing_label_event}
-        cache_decision(issue, label, "missing", decision)
-        decision
+        incomplete_label_decision(issue, :missing_label_event)
 
       :invalid ->
-        decision = {:ambiguous, :missing_label_event_id}
-        cache_decision(issue, label, "invalid", decision)
-        decision
+        incomplete_label_decision(issue, :missing_label_event_id)
     end
   end
+
+  # A newly created todo issue can precede indexing of its creation-time
+  # label event. For an active or rework ticket, the same missing evidence may
+  # follow an untrusted relabel; keep the revocation verdict for those states.
+  defp incomplete_label_decision(%Issue{state: "todo"}, reason), do: {:deferred, reason}
+  defp incomplete_label_decision(_issue, reason), do: {:ambiguous, reason}
+
+  defp decide_fetched_timeline(issue, label, prefix, events, owner, repo) do
+    decision = timeline_decision(issue, label, prefix, events)
+
+    # GitHub may expose an issue created with its label before the corresponding
+    # timeline event is indexed. An incomplete read cannot be kept by either the
+    # decision cache or the transport read cache: updated_at need not move when
+    # that event appears, and a webhook-backed read can otherwise stay stale for
+    # an hour. Retire only this issue's cached reads so the next poll asks again.
+    if match?({:ambiguous, _reason}, decision) or match?({:deferred, _reason}, decision) do
+      invalidate_incomplete_timeline(issue.id, owner, repo)
+    end
+
+    decision
+  end
+
+  defp invalidate_incomplete_timeline(id, owner, repo) when is_binary(id) do
+    case Integer.parse(id) do
+      {number, ""} when number > 0 ->
+        ReadCache.invalidate([{:number, String.downcase(owner), String.downcase(repo), number}])
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp invalidate_incomplete_timeline(_id, _owner, _repo), do: :ok
 
   # Every actor who has ever applied a `<prefix>:*` state label to this issue.
   # This is the evidence that someone put the ticket into the agent pipeline,

@@ -193,6 +193,13 @@ When you complete `ce-plan` on a ticket that is still active, proceed directly t
 
 ### Rename and signature-change test audit
 
+Run focused tests using the target repository's documented commands, package
+manager and runner configuration. Read its AGENTS.md, manifests and CI workflow;
+use its actual test roots, including colocated tests. The destructive
+`aiurdev --test` / `--test3` reset prohibition does not prohibit focused
+repository tests. The examples below apply only to Aiur's Elixir core; use
+the target repository's equivalents elsewhere.
+
 Directory-scoped test commands are not proof that a rename or signature change
 updated every caller. Before pushing one of those changes, search the entire test
 tree for each old function name, option key, and other changed identifier:

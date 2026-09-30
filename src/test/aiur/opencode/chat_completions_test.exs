@@ -2,9 +2,20 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   use ExUnit.Case, async: false
 
   import Plug.Test
+  import Plug.Conn, only: [put_req_header: 3]
 
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Opencode.ChatCompletions
+  alias Aiur.Opencode.TokenRegistry
+
+  setup do
+    token = "test-#{System.unique_integer([:positive])}"
+    :ok = TokenRegistry.put(token, 1, 1)
+    on_exit(fn -> TokenRegistry.delete(token) end)
+    %{token: token}
+  end
+
+  defp authorized_conn(token), do: conn(:post, "/") |> put_req_header("authorization", "Bearer #{token}")
 
   # ── Wave 0: conn-path characterization ────────────────────────────────────
 
@@ -30,7 +41,7 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   end
 
   describe "stream_codex_turn: phantom and late-close conn paths" do
-    test "phantom turn (no ActiveTurns entry) closes with finish_reason stop" do
+    test "phantom turn (no ActiveTurns entry) closes with finish_reason stop", %{token: token} do
       identifier = "phantom-#{System.unique_integer()}"
 
       body = %{
@@ -39,13 +50,13 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
       }
 
       # No ActiveTurns.put → lookup returns :not_found → finalize_stream(:done) → "stop"
-      result = ChatCompletions.handle(body, conn(:post, "/"))
+      result = ChatCompletions.handle(body, authorized_conn(token))
 
       assert result.status == 200
       assert result.resp_body =~ ~s("finish_reason":"stop")
     end
 
-    test "late close ({:closed, reason}) renders the reason content then closes with stop" do
+    test "late close ({:closed, reason}) renders the reason content then closes with stop", %{token: token} do
       identifier = "late-#{System.unique_integer()}"
       turn_id = "late-turn-#{System.unique_integer()}"
 
@@ -57,7 +68,7 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
         "messages" => [%{"role" => "user", "content" => "__aiur_turn__:#{turn_id}"}]
       }
 
-      result = ChatCompletions.handle(body, conn(:post, "/"))
+      result = ChatCompletions.handle(body, authorized_conn(token))
 
       assert result.status == 200
       # finalize_stream({:failed, reason}) chunks the inspect(reason) before "stop"
@@ -67,13 +78,13 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   end
 
   describe "nudge marker" do
-    test "nudge marker returns an empty data:[DONE] SSE stream" do
+    test "nudge marker returns an empty data:[DONE] SSE stream", %{token: token} do
       body = %{
         "model" => "issue-nudge-#{System.unique_integer()}",
         "messages" => [%{"role" => "user", "content" => "__aiur_stream__:nudge:1"}]
       }
 
-      result = ChatCompletions.handle(body, conn(:post, "/"))
+      result = ChatCompletions.handle(body, authorized_conn(token))
 
       assert result.status == 200
       assert result.resp_body == "data: [DONE]\n\n"
@@ -81,26 +92,26 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   end
 
   describe "validate_body/1 taxonomy (via dispatch path)" do
-    test "body exceeding 65 536 bytes yields a 400 body-too-large response" do
+    test "body exceeding 65 536 bytes yields a 400 body-too-large response", %{token: token} do
       body = %{
         "model" => "issue-vb-#{System.unique_integer()}",
         "messages" => [%{"role" => "user", "content" => String.duplicate("x", 65_537)}]
       }
 
-      result = ChatCompletions.handle(body, conn(:post, "/"))
+      result = ChatCompletions.handle(body, authorized_conn(token))
 
       assert result.status == 400
       assert Jason.decode!(result.resp_body)["error"] =~ "body too large"
     end
 
-    test "invalid UTF-8 in the last user message yields a 400 invalid-utf8 response" do
+    test "invalid UTF-8 in the last user message yields a 400 invalid-utf8 response", %{token: token} do
       body = %{
         "model" => "issue-vb-#{System.unique_integer()}",
         # <<0xFF, 0xFE>> is not valid UTF-8
         "messages" => [%{"role" => "user", "content" => <<0xFF, 0xFE>>}]
       }
 
-      result = ChatCompletions.handle(body, conn(:post, "/"))
+      result = ChatCompletions.handle(body, authorized_conn(token))
 
       assert result.status == 400
       assert Jason.decode!(result.resp_body)["error"] =~ "invalid_utf8"
@@ -108,7 +119,7 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
   end
 
   describe "chunk/4 closed-conn tolerance" do
-    test "chunk writes on a disconnected conn return the conn unchanged without raising" do
+    test "chunk writes on a disconnected conn return the conn unchanged without raising", %{token: token} do
       # ClosedConnAdapter delegates send_chunked to the real adapter (so the
       # conn transitions to :chunked state) but returns {:error, :closed} for
       # every chunk write. The phantom-turn path calls send_chunked once then
@@ -121,7 +132,7 @@ defmodule Aiur.Opencode.ChatCompletionsTest do
         "messages" => [%{"role" => "user", "content" => "__aiur_turn__:phantom-chunk-tol"}]
       }
 
-      base_conn = conn(:post, "/")
+      base_conn = authorized_conn(token)
       {_, adapter_state} = base_conn.adapter
       stub_conn = %{base_conn | adapter: {ClosedConnAdapter, adapter_state}}
 

@@ -26,6 +26,12 @@ Label read/create failures stop startup before agents start and explain the requ
 
 Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
 
+The development `scripts/aiurdev --test` and `--test3` harnesses still read GitHub's issue lists, but pass only their pinned sandbox tickets to dispatch authorization, startup workspace cleanup, and tracker reconciliation. Ordinary runs retain full issue discovery.
+
+The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails. A review submitted during `agent:ci-wait` is still considered when the ticket returns to review.
+
+This does not recover reviews that an older daemon already skipped before this cursor existed.
+
 The repository events feed does not show a pull request going from draft to ready. Without a webhook, the polls infer it from each ticket PR's draft flag, which the comment poll and the CI poll already read.
 
 A durable per-PR ledger records what they saw:
@@ -170,6 +176,15 @@ does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
 tickets is free rather than merely cheap. Validators are kept on disk, so a
 restart does not force a full-price re-read.
 
+When a worker starts or restarts, its bootstrap digest also re-reads the open
+PR's formal review submissions. This strict read revalidates the held review
+list with `If-None-Match`; a missing body or changed list is fetched from GitHub.
+
+The digest includes body-only `CHANGES_REQUESTED` reviews and substantive
+`COMMENTED` reviews submitted after the latest Agent Workpad, subject to the
+same author trust filter as other GitHub feedback. A later approval or
+dismissal by that reviewer suppresses their earlier request.
+
 ### What a validator may answer
 
 The savings above depend on the validator being the right one for the question
@@ -192,6 +207,22 @@ page 1 *is* the list), or when the validator kept is the last page's rather
 than the first's. If neither is practical, do not make the read conditional:
 an unconditional read that is correct beats a conditional one that is quietly
 wrong.
+
+**Incomplete label provenance is retried.** A new issue can carry `agent:todo`
+before GitHub has indexed its `labeled` timeline event. Aiur does not cache a
+missing or malformed event as a final authorization decision. For a `todo`
+ticket it defers dispatch and retries on the next candidate poll.
+
+For active and rework tickets, Aiur still denies incomplete evidence. This
+preserves revocation after an unverified relabel.
+
+Either incomplete result retires the daemon's cached reads for that issue
+number, including the timeline body. A webhook backed repository's hour-long
+read TTL cannot replay the early snapshot.
+
+The invalidation covers one issue number and may add a timeline request on each
+retry until the event appears, with further requests if the timeline spans
+pages. No quota saving is claimed.
 
 **A validator belongs to the thing it describes.**
 
@@ -531,17 +562,9 @@ wrapper reconciles the lease as free rather than billing it full-price.
 The free share a TTL body cache cannot recover is GraphQL's — which no cache on
 either side can recover.
 
-The GitHub cache page reports whether this sharing is effective. Its **Agent gh
-exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,
-alongside the raw hit and miss counts.
-
-It reads the durable `agent-cache.tsv` counters from agent workspaces on the
-daemon host; workspaces on remote SSH workers are not included.
-
-If no readable counter exists, or the readable files contain no hit or miss in
-that window, the page says **Not measured** instead of presenting zero as a
-measurement. Malformed or unreadable sources are retained as partial coverage
-rather than hiding the valid samples.
+The wrapper records hit and miss events in durable `agent-cache.tsv` files in
+each agent workspace. These counters describe the agent `gh` cache on that
+workspace's host; they do not include remote SSH workers in a local census.
 
 The cache key intentionally includes the exact requested output shape. Two
 reads of one pull request that request different JSON fields, templates, or

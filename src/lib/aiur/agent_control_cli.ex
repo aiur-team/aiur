@@ -1,6 +1,8 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
+  alias Aiur.ProviderMeters.CLI
+
   alias Aiur.{
     AgentChat,
     AlertFeed,
@@ -269,9 +271,9 @@ defmodule Aiur.AgentControlCLI do
       timeout_ms = control_query_timeout(opts, :snapshot_timeout_ms, @agents_timeout_ms)
 
       case fleet_view(opts, timeout_ms) do
-        {:ok, %{running: running}, freshness} when is_list(running) ->
+        {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
           print_snapshot_freshness(freshness)
-          print_agents_table(running)
+          print_agents_table(running ++ retry_rows(snapshot))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->
@@ -282,6 +284,9 @@ defmodule Aiur.AgentControlCLI do
       end
     end)
   end
+
+  defp retry_rows(%{retrying: retrying}) when is_list(retrying), do: retrying
+  defp retry_rows(_snapshot), do: []
 
   # `aiur watch` — the server-side status board. Compiles one row per active
   # agent (state · complexity · activity-age · what it's doing) plus an
@@ -1885,7 +1890,7 @@ defmodule Aiur.AgentControlCLI do
       IO.puts([
         String.pad_trailing(display_identifier(status), 6),
         " ",
-        String.pad_trailing(to_string(status.state), 7),
+        String.pad_trailing(status_state_label(status), 7),
         " ",
         to_string(status.title || ""),
         status_reason_suffix(status)
@@ -1901,7 +1906,8 @@ defmodule Aiur.AgentControlCLI do
         waiting_reason_detail(status),
         dispatch_decline_detail(status),
         pause_reason_detail(status),
-        blocked_by_detail(status)
+        blocked_by_detail(status),
+        last_failure_detail(status)
       ]
       |> Enum.reject(&is_nil/1)
 
@@ -1913,13 +1919,22 @@ defmodule Aiur.AgentControlCLI do
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
   defp status_reason_detail(_status), do: nil
 
+  defp status_state_label(%{work_state: work_state}) when work_state in [:starting, :retrying], do: to_string(work_state)
+  defp status_state_label(status), do: to_string(status.state)
+
+  defp last_failure_detail(%{last_failure_at: %DateTime{} = at}), do: "last_failure_at=#{DateTime.to_iso8601(at)}"
+  defp last_failure_detail(_status), do: nil
+
   defp waiting_reason_detail(%{waiting_reason: reason}) when not is_nil(reason),
     do: "waiting=#{WaitingReason.render(reason)}"
 
   defp waiting_reason_detail(_status), do: nil
 
-  defp dispatch_decline_detail(%{dispatch_decline_reason: reason}) when not is_nil(reason),
+  defp dispatch_decline_detail(%{dispatch_decline_reason: reason}) when is_atom(reason) and not is_nil(reason),
     do: "dispatch_decline=#{reason}"
+
+  defp dispatch_decline_detail(%{dispatch_decline_reason: reason}) when not is_nil(reason),
+    do: "dispatch_decline=#{inspect(reason)}"
 
   defp dispatch_decline_detail(_status), do: nil
 
@@ -2164,7 +2179,7 @@ defmodule Aiur.AgentControlCLI do
       server
       |> ProviderMeterProjection.snapshot()
       |> Enum.sort_by(fn {provider, _view} -> provider end)
-      |> Enum.each(&print_provider_usage/1)
+      |> Enum.each(&CLI.print/1)
 
       opts
       |> Keyword.get_lazy(:delivery_modes, fn -> ModePresenter.rows() end)
@@ -2188,92 +2203,8 @@ defmodule Aiur.AgentControlCLI do
   defp polling_reason_suffix(%{reason_label: nil}), do: ""
   defp polling_reason_suffix(%{reason_label: label}), do: "  (#{label})"
 
-  defp print_provider_usage({provider, %{state: :unknown}}) do
-    IO.puts("#{provider_label(provider)}  no observation yet")
-  end
-
-  defp print_provider_usage({provider, view}) do
-    windows = usage_windows(view)
-
-    if windows == [] do
-      IO.puts("#{provider_label(provider)}  observed #{age_label(view.age_seconds)}, no limit windows reported")
-    else
-      Enum.each(windows, fn window ->
-        IO.puts("#{provider_label(provider)}  #{usage_window_line(window)}  (#{age_label(view.age_seconds)})")
-      end)
-    end
-  end
-
-  defp usage_windows(%{windows: windows}) when is_map(windows) do
-    windows
-    |> Enum.filter(fn {_id, window} -> Map.get(window, :kind) in [:rate_limit, :credit] end)
-    |> Enum.sort_by(fn {id, _window} -> id end)
-  end
-
-  defp usage_windows(_view), do: []
-
-  # Claude's CLI reports a standing and a reset time but no utilization, so a
-  # bar is not available for it. Name what is known rather than drawing an empty
-  # bar, which would read as "0% consumed".
-  defp usage_window_line({id, window}) do
-    case {
-      Map.get(window, :name),
-      Map.get(window, :kind),
-      Map.get(window, :used),
-      Map.get(window, :limit),
-      Map.get(window, :used_percent),
-      Map.get(window, :credits)
-    } do
-      {name, :rate_limit, used, limit, _percent, _credits}
-      when name in [:concurrency, "Local concurrency"] and is_number(used) and is_number(limit) ->
-        "#{String.pad_trailing(id, 10)} #{used}/#{limit} in flight"
-
-      {_name, :credit, _used, _limit, _percent, %{amount: amount}} when is_number(amount) ->
-        "#{String.pad_trailing(id, 10)} $#{:erlang.float_to_binary(amount / 1, decimals: 2)} remaining"
-
-      {_name, _kind, _used, _limit, percent, _credits} when is_number(percent) ->
-        "#{String.pad_trailing(id, 10)} #{usage_bar(percent)} #{round(percent)}%"
-
-      _unknown ->
-        "#{String.pad_trailing(id, 10)} #{window_standing_line(window)}"
-    end
-  end
-
-  defp window_standing_line(window) do
-    case Map.get(window, :standing) do
-      :allowed -> "allowed#{cli_reset_suffix(Map.get(window, :resets_at))}"
-      :allowed_warning -> "near limit#{cli_reset_suffix(Map.get(window, :resets_at))}"
-      :rejected -> "limited#{cli_reset_suffix(Map.get(window, :resets_at))}"
-      _unknown -> "unknown"
-    end
-  end
-
-  defp cli_reset_suffix(%DateTime{} = resets_at) do
-    case DateTime.diff(resets_at, DateTime.utc_now()) do
-      seconds when seconds <= 0 -> ""
-      seconds when seconds < 3_600 -> ", resets in #{div(seconds, 60)}m"
-      seconds when seconds < 86_400 -> ", resets in #{div(seconds, 3_600)}h"
-      seconds -> ", resets in #{div(seconds, 86_400)}d #{div(rem(seconds, 86_400), 3_600)}h"
-    end
-  end
-
-  defp cli_reset_suffix(_resets_at), do: ""
-
-  # Same 10-cell bar the TUI header draws, so the two surfaces read alike.
   @spec usage_bar(number()) :: String.t()
-  def usage_bar(percent) when is_number(percent) do
-    filled = percent |> max(0) |> min(100) |> Kernel./(10) |> round()
-    String.duplicate("█", filled) <> String.duplicate("░", 10 - filled)
-  end
-
-  defp age_label(nil), do: "age unknown"
-  defp age_label(seconds) when seconds < 60, do: "#{seconds}s ago"
-  defp age_label(seconds) when seconds < 3_600, do: "#{div(seconds, 60)}m ago"
-  defp age_label(seconds), do: "#{div(seconds, 3_600)}h ago"
-
-  defp provider_label(:codex), do: "codex "
-  defp provider_label(:claude), do: "claude"
-  defp provider_label(other), do: to_string(other)
+  defdelegate usage_bar(percent), to: Aiur.ProviderMeters.CLI
 
   # Surface the global pause switch above the status table so an operator sees
   # at a glance that the whole daemon is halted (silent otherwise).
@@ -2677,16 +2608,16 @@ defmodule Aiur.AgentControlCLI do
 
   defp agent_activity(agent) do
     case Map.get(agent, :work_state, :working) do
-      :paused ->
+      :retrying ->
+        retry_activity(agent)
+
+      :starting ->
+        "(starting provider; no live turn yet)"
+
+      paused when paused in [:paused, "paused"] ->
         paused_activity(agent)
 
-      "paused" ->
-        paused_activity(agent)
-
-      :deactivated ->
-        "(deactivated)"
-
-      "deactivated" ->
+      deactivated when deactivated in [:deactivated, "deactivated"] ->
         "(deactivated)"
 
       _ ->
@@ -2698,6 +2629,25 @@ defmodule Aiur.AgentControlCLI do
           text -> truncate(text, 80)
         end
     end
+  end
+
+  defp retry_activity(agent) do
+    reason =
+      case Map.get(agent, :error) do
+        "startup failed: {:port_exit, " <> _ = error ->
+          if String.match?(error, ~r/^startup failed: \{:port_exit, \d+\}$/), do: error, else: "previous worker failure"
+
+        _ ->
+          "previous worker failure"
+      end
+
+    time =
+      case Map.get(agent, :last_failure_at) do
+        %DateTime{} = at -> "; last failure #{DateTime.to_iso8601(at)}"
+        _ -> ""
+      end
+
+    "(retrying: #{reason}#{time})"
   end
 
   defp activity_values(agent) do
@@ -2795,6 +2745,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp watch_state(%{tracker_paused: true}), do: "paused"
   defp watch_state(%{tracker_paused: "true"}), do: "paused"
+  defp watch_state(%{work_state: work_state}) when work_state in [:starting, :retrying], do: to_string(work_state)
   defp watch_state(status), do: to_string(status[:tracker_state] || status[:state] || "")
 
   defp watch_activity(%{tracker_paused: paused, reason: reason})
@@ -2810,6 +2761,9 @@ defmodule Aiur.AgentControlCLI do
     do: "(idle: #{StatusReason.render(reason)})"
 
   defp watch_activity(%{state: :idle}), do: "(idle)"
+
+  defp watch_activity(%{work_state: :retrying, reason: reason}) when not is_nil(reason),
+    do: "(retrying: #{StatusReason.render(reason)})"
 
   defp watch_activity(%{state: :paused, reason: reason}) when not is_nil(reason),
     do: "(paused: #{StatusReason.render(reason)})"

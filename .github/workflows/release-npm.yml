@@ -290,6 +290,12 @@ jobs:
       - name: Version pre-check
         run: aiur --version
 
+      - name: Installed tmux pane controls
+        run: |
+          launcher="$(npm root -g)/aiur-cli"
+          test -x "$launcher/libexec/aiur-pane-ctrlc"
+          AIUR_TMUX_CONF_TEST="$launcher/share/aiur.tmux.conf" bash scripts/verify-ctrlc-binding.sh
+
       # Regression guard for the offline-inheritance bug: a plain install must
       # leave the interactive peer deps ready so `aiur init` works with nothing
       # else to install. tmux is installed above; opencode is provisioned by the

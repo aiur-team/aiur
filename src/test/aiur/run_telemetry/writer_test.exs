@@ -806,7 +806,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     dir_path = Path.join(root, "dir-as-path")
     File.mkdir_p!(dir_path)
     write_fun = fn _path, data -> File.write(actual_file, data, [:append]) end
-    retention = [max_bytes: 1, prune_interval_bytes: 1]
+    # Empty directories can report zero bytes. Age pruning forces the scan
+    # that exercises EISDIR instead of taking the under-size fast path.
+    retention = [max_bytes: 1, max_age_days: 1, prune_interval_bytes: 1]
 
     log =
       capture_log(fn ->

@@ -6,6 +6,12 @@ defmodule Aiur.Orchestrator.TokenAccounting.Payloads do
   @type token_kind :: :input | :output | :total
 
   @spec extract_token_usage(map()) :: map()
+  def extract_token_usage(%{accounting_usage: usage}) when is_map(usage) do
+    if integer_token_map?(usage), do: usage, else: %{}
+  end
+
+  def extract_token_usage(%{usage_source: :cumulative_only}), do: %{}
+
   def extract_token_usage(update) do
     payloads = [
       update[:usage],

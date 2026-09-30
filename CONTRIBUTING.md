@@ -10,6 +10,27 @@ code, then fix this doc in the same change. The one deliberate exception is
 [Documentation](#documentation), which is a review expectation with only a
 narrow config-key check behind it; it says so in place.
 
+## Executor issue intake
+
+The following GitHub accounts may submit issues for the Aiur Executor to
+triage and queue when they fit the active run's scope:
+
+| Issue author |
+| --- |
+| [@ben-chain](https://github.com/ben-chain) |
+
+For every new issue from an account in this table, an authorized Executor
+applies `agent:todo` immediately and pulls the issue into the active Aiur run.
+If no Aiur run is active, the label persists and makes the issue available at
+the next run's startup. Then perform normal ticket triage. If the issue needs
+clarification, is a duplicate, or must wait, use the normal pause, closure,
+or disposition flow and record the reason; do not leave it silently unqueued.
+
+This table gives an author eligibility for issue intake; it does not make
+them a code owner, grant review or command authority, or authorize them to
+apply dispatch labels. Aiur verifies the provenance of the `agent:todo` label
+independently of who opened the issue.
+
 ## Code structure
 
 - **Functions ≤ 20 logic lines.** Blank lines, `@spec`, `@doc`, and pattern
@@ -150,9 +171,9 @@ one per platform).
 
 | Channel | Trigger | Version | dist-tag |
 | --- | --- | --- | --- |
-| stable | push a `v<mix.exs version>` tag, or `channel=stable` | `0.0.5` | `latest` |
-| nightly | the 07:00 UTC schedule, or `channel=nightly` | `0.0.5-nightly.<short-sha>` | `nightly` |
-| dry run | `workflow_dispatch` default | `0.0.5-dev.<run>` | none |
+| stable | push a `v<mix.exs version>` tag, or `channel=stable` | `0.0.7` | `latest` |
+| nightly | the 07:00 UTC schedule, or `channel=nightly` | `0.0.7-nightly.<short-sha>` | `nightly` |
+| dry run | `workflow_dispatch` default | `0.0.7-dev.<run>` | none |
 
 ```bash
 # Stable cut without pushing a tag.

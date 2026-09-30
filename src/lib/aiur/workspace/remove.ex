@@ -1,8 +1,8 @@
 defmodule Aiur.Workspace.Remove do
   @moduledoc "Workspace removal: local and remote rm-rf with before_remove hook dispatch and per-issue multi-host fanout."
 
-  alias Aiur.Config
-  alias Aiur.Workspace.{Hooks, Layout, Remote}
+  alias Aiur.{Config, TestTicketScope}
+  alias Aiur.Workspace.{DirtyGuard, Hooks, Layout, Remote}
 
   @type worker_host :: String.t() | nil
 
@@ -15,8 +15,7 @@ defmodule Aiur.Workspace.Remove do
       true ->
         case Layout.validate_workspace_path(workspace, nil) do
           :ok ->
-            maybe_run_before_remove_hook(workspace, nil)
-            File.rm_rf(workspace)
+            remove_local(workspace)
 
           {:error, reason} ->
             {:error, reason, ""}
@@ -28,21 +27,40 @@ defmodule Aiur.Workspace.Remove do
   end
 
   def remove(workspace, worker_host) when is_binary(worker_host) do
-    maybe_run_before_remove_hook(workspace, worker_host)
+    with :ok <- DirtyGuard.check(workspace, worker_host) do
+      maybe_run_before_remove_hook(workspace, worker_host)
 
-    script =
-      [
-        Remote.remote_shell_assign("workspace", workspace),
-        "rm -rf \"$workspace\""
-      ]
-      |> Enum.join("\n")
+      script =
+        [
+          Remote.remote_shell_assign("workspace", workspace),
+          DirtyGuard.remote_check_script(),
+          "rm -rf \"$workspace\""
+        ]
+        |> Enum.join("\n")
 
-    case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
-      {:ok, {_output, 0}} ->
-        {:ok, []}
+      case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+        {:ok, {_output, 0}} -> {:ok, []}
+        {:ok, {_output, 75}} -> DirtyGuard.refuse(workspace, :dirty)
+        {:ok, {_output, 76}} -> DirtyGuard.refuse(workspace, :git_status_failed)
+        {:ok, {output, status}} -> {:error, {:workspace_remove_failed, worker_host, status, output}, ""}
+        {:error, reason} -> {:error, reason, ""}
+      end
+    end
+    |> case do
+      {:error, reason} -> {:error, reason, ""}
+      result -> result
+    end
+  end
 
-      {:ok, {output, status}} ->
-        {:error, {:workspace_remove_failed, worker_host, status, output}, ""}
+  defp remove_local(workspace) do
+    case DirtyGuard.check(workspace, nil) do
+      :ok ->
+        maybe_run_before_remove_hook(workspace, nil)
+
+        case DirtyGuard.check(workspace, nil) do
+          :ok -> File.rm_rf(workspace)
+          {:error, reason} -> {:error, reason, ""}
+        end
 
       {:error, reason} ->
         {:error, reason, ""}
@@ -53,8 +71,14 @@ defmodule Aiur.Workspace.Remove do
   def remove_issue_workspaces(identifier), do: remove_issue_workspaces(identifier, nil)
 
   @spec remove_issue_workspaces(term(), worker_host()) :: :ok
-  def remove_issue_workspaces(identifier, worker_host)
-      when is_binary(identifier) and is_binary(worker_host) do
+  def remove_issue_workspaces(identifier, worker_host) when is_binary(identifier) do
+    if TestTicketScope.allowed_identifier?(identifier), do: do_remove_issue_workspaces(identifier, worker_host), else: :ok
+  end
+
+  def remove_issue_workspaces(_identifier, _worker_host), do: :ok
+
+  defp do_remove_issue_workspaces(identifier, worker_host)
+       when is_binary(identifier) and is_binary(worker_host) do
     safe_id = Layout.safe_identifier(identifier)
 
     case Layout.workspace_path_for_issue(safe_id, worker_host) do
@@ -65,7 +89,7 @@ defmodule Aiur.Workspace.Remove do
     :ok
   end
 
-  def remove_issue_workspaces(identifier, nil) when is_binary(identifier) do
+  defp do_remove_issue_workspaces(identifier, nil) when is_binary(identifier) do
     safe_id = Layout.safe_identifier(identifier)
 
     case Config.settings!().worker.ssh_hosts do
@@ -82,9 +106,7 @@ defmodule Aiur.Workspace.Remove do
     :ok
   end
 
-  def remove_issue_workspaces(_identifier, _worker_host) do
-    :ok
-  end
+  defp do_remove_issue_workspaces(_identifier, _worker_host), do: :ok
 
   defp maybe_run_before_remove_hook(workspace, nil) do
     hooks = Config.settings!().hooks

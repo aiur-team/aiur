@@ -107,8 +107,13 @@ CE skills frame it.
 
 ## Docs ship in the same PR
 
+For Aiur repository changes, follow the page map below. In other repositories,
+follow that repository's documentation policy and update the pages its change
+affects; do not create a `website/docs-app/` path just because Aiur's skill
+names one.
+
 Documentation is part of the change, not a follow-up ticket. Update
-`website/docs-app/` **in this PR** when your work:
+Aiur's `website/docs-app/` **in this PR** when your Aiur work:
 
 - adds or changes a **config key** (`.aiur/config`, `Aiur.Config.Schema.*`) →
   `reference/configuration.md`, plus the `.aiur/examples/` and
@@ -136,11 +141,19 @@ blocking finding is the only enforcement they have.
 
 ## The loop
 
+**Resolve validation from the target repository first.** Read
+[`validation.md`](validation.md) before choosing commands. The Elixir examples
+below apply only to Aiur's Elixir core, not to every workspace Aiur operates.
+For other repositories, substitute their documented build/typecheck, formatter,
+focused test runner, test-tree paths and CI gate at each step.
+
 1. Implement
 2. Add / update / run tests
-3. Update `website/docs-app/` if the change crossed the threshold above
+3. Update the target repository's documentation if its change requires it;
+   for Aiur changes, use `website/docs-app/` and the threshold above
 4. Run the scoped local pre-PR verification gate before opening or finalizing
-   the PR: `mix compile --warnings-as-errors`, `mix format`, and affected tests
+   the PR using the target repository's commands. For Aiur's Elixir core:
+   `mix compile --warnings-as-errors`, `mix format`, and affected tests
    only (the test files for modules you touched plus directly related tests),
    each run with `mix test --max-cases 4`. Compute that scoped set
    deterministically instead of guessing it: from the workspace root run
@@ -169,11 +182,11 @@ blocking finding is the only enforcement they have.
    collect the sibling `test/aiur/github_client_test.exs`. A large green
    directory-scoped run does not prove those root-level files ran.
 5. Fix every verification failure from the scoped local gate before continuing.
-   Do not gate PR-opening on a clean full-suite `mix test` run or loop on
-   unrelated suite flakes; CI runs the full `make ci` on every PR and is the
-   authoritative full-suite gate.
+   Do not loop on unrelated suite flakes. Use the target repository's required
+   CI gate; do not assume it has `make ci`. For Aiur's Elixir core, do not gate
+   PR-opening on a clean full-suite `mix test` run: CI runs the full `make ci`.
 
-   **Before you diagnose a failure that looks impossible, rule out a stale test
+   **For an Elixir failure that looks impossible, rule out a stale test
    build.** `mix compile --force` rebuilds `dev`, **not** `test`, so a stale
    artifact in `_build/test` survives it. Use:
 
@@ -280,19 +293,7 @@ blocking finding is the only enforcement they have.
    hold clears. Any other broker diagnostic remains fail-closed and must not be
    relabelled as this self-clearing condition.
 
-   Immediately before pushing, run
-   `aiur guard-pr-deletions "$AIUR_BASE_BRANCH"`. The command fetches the exact
-   configured base and refuses a PR when its tree deletes more than 50 base
-   files that none of the feature commits touched. Never bypass a refusal:
-   repair the wrong or stale base, or alert the Executor.
-
-   Run it as its own command. Do not chain it through a pipe, `;`, `|| true`,
-   or anything else that discards its exit status — `guard | tail && git push`
-   tests `tail`, not the guard, and pushes anyway. A 2026-09-25 audit found 70
-   of 289 agent pushes where the guard never ran for exactly this class of
-   reason.
-
-   A repository may also enforce this server-side as a required check that
+   A repository may enforce file deletion policy as a required check that
    fails when a pull request removes files. **A red deletion check is not a CI
    failure to fix.** Do not restore files you deleted on purpose to make it
    green, and **never add an allow-deletions label, or any label that
@@ -372,10 +373,10 @@ functionality is confirmed working in the CLI.
 
 Manual CLI verification is in addition to the scoped local pre-PR verification
 gate above, not a replacement for it. A PR is not ready for human review until
-compile, format, affected tests with the four-case cap, and scoped credo strict
-have passed locally.
-The full suite is CI's job through `make ci`; do not loop locally on full-suite
-flakes before opening or finalizing the PR.
+the target repository's required local checks pass. In Aiur's Elixir core,
+use compile, format and affected tests with the four-case cap; Credo belongs
+to CI as specified above. Use the target repository's full CI gate, which is
+`make ci` for Aiur's Elixir core; do not loop locally on unrelated suite flakes.
 
 ## Closing keyword in the PR description
 
