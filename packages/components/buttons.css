@@ -1,0 +1,41 @@
+/* The primary action follows the Aiur dashboard button's measurements. */
+.aiur-action,
+:where(.aiur-actions) button:not([class]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.85rem;
+  border: 1px solid var(--aiur-accent-strong);
+  border-radius: 10px;
+  background: var(--aiur-accent-strong);
+  color: var(--aiur-on-accent);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 650;
+  text-decoration: none;
+  transition: transform 0.14s ease, box-shadow 0.14s ease;
+}
+.aiur-action:hover,
+:where(.aiur-actions) button:not([class]):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px var(--aiur-accent-soft);
+}
+.aiur-action:focus-visible,
+:where(.aiur-actions) button:not([class]):focus-visible {
+  outline: 2px solid var(--aiur-accent);
+  outline-offset: 3px;
+}
+.aiur-action:disabled,
+.aiur-action[aria-disabled="true"],
+:where(.aiur-actions) button:not([class]):disabled,
+:where(.aiur-actions) button:not([class])[aria-disabled="true"] { opacity: 0.55; cursor: default; }
+.aiur-action:disabled:hover,
+.aiur-action[aria-disabled="true"]:hover,
+:where(.aiur-actions) button:not([class]):disabled:hover,
+:where(.aiur-actions) button:not([class])[aria-disabled="true"]:hover { transform: none; box-shadow: none; }
+@media (prefers-reduced-motion: reduce) {
+  .aiur-action, :where(.aiur-actions) button:not([class]) { transition: none; }
+  .aiur-action:hover, :where(.aiur-actions) button:not([class]):hover { transform: none; }
+}

@@ -1,0 +1,47 @@
+/* Import once per page. Theme tokens are scoped to the element with data-theme,
+   so an embedded Aiur or Khala app can theme its own root independently. */
+:root,
+[data-theme="dark"] {
+  --aiur-bg: #1a1b1e;
+  --aiur-bg-soft: #161719;
+  --aiur-fg: #edeef0;
+  --aiur-muted: #8c8d93;
+  --aiur-line: rgba(221, 226, 235, 0.14);
+  --aiur-hairline: rgba(221, 226, 235, 0.10);
+  --aiur-pill-border: rgba(221, 226, 235, 0.13);
+  --aiur-pill-bg: rgba(221, 226, 235, 0.03);
+  --aiur-accent: #2f86ff;
+  --aiur-accent-strong: #0070f0;
+  --aiur-on-accent: #ffffff;
+  --aiur-accent-soft: rgba(47, 134, 255, 0.15);
+  --aiur-font-body: "Aiur Space Grotesk", system-ui, sans-serif;
+  --aiur-font-mono: "Aiur JetBrains Mono", monospace;
+  --aiur-font-display: "Aiur Bungee", sans-serif;
+  --aiur-topbar-link-size: 13px;
+  --aiur-logo-size: clamp(120px, 18vw, 224px);
+  --aiur-wordmark-size: clamp(40px, 8vw, 96px);
+  --aiur-tagline-size: clamp(16px, 2.2vw, 22px);
+  --aiur-theme-toggle-size: 42px;
+  --aiur-copy-control-size: 28px;
+  --aiur-sun-display: block;
+  --aiur-moon-display: none;
+  --aiur-toggle-rotation: none;
+}
+
+[data-theme="light"] {
+  --aiur-bg: #e7d6b2;
+  --aiur-bg-soft: #e2cfa6;
+  --aiur-fg: #2a2520;
+  --aiur-muted: #5f5645;
+  --aiur-line: rgba(42, 37, 26, 0.17);
+  --aiur-hairline: rgba(42, 37, 26, 0.12);
+  --aiur-pill-border: rgba(42, 37, 26, 0.16);
+  --aiur-pill-bg: rgba(42, 37, 26, 0.035);
+  --aiur-accent: #1f57c4;
+  --aiur-accent-strong: #1f57c4;
+  --aiur-on-accent: #ffffff;
+  --aiur-accent-soft: rgba(31, 87, 196, 0.11);
+  --aiur-sun-display: none;
+  --aiur-moon-display: block;
+  --aiur-toggle-rotation: rotate(360deg);
+}

@@ -1,26 +1,13 @@
   :root {
-    /* dark (default) */
-    --bg: #1a1b1e;
-    --bg-2: #161719;
-    --fg: #edeef0;
-    --muted: #8c8d93;
-    --line: rgba(221, 226, 235, 0.14);
-    --accent: #2f86ff;
-    --hairline: rgba(221, 226, 235, 0.10);
-    --pill-bd: rgba(221, 226, 235, 0.13);
-    --pill-bg: rgba(221, 226, 235, 0.03);
-  }
-  html[data-theme="light"] {
-    /* warm sand — pairs with the logo blue */
-    --bg: #e7d6b2;
-    --bg-2: #e2cfa6;
-    --fg: #2a2520;
-    --muted: #5f5645;
-    --line: rgba(42, 37, 26, 0.17);
-    --accent: #1f57c4;
-    --hairline: rgba(42, 37, 26, 0.12);
-    --pill-bd: rgba(42, 37, 26, 0.16);
-    --pill-bg: rgba(42, 37, 26, 0.035);
+    --bg: var(--aiur-bg);
+    --bg-2: var(--aiur-bg-soft);
+    --fg: var(--aiur-fg);
+    --muted: var(--aiur-muted);
+    --line: var(--aiur-line);
+    --accent: var(--aiur-accent);
+    --hairline: var(--aiur-hairline);
+    --pill-bd: var(--aiur-pill-border);
+    --pill-bg: var(--aiur-pill-bg);
   }
 
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -29,7 +16,7 @@
   body {
     background: var(--bg);
     color: var(--fg);
-    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-family: var(--aiur-font-body);
     -webkit-font-smoothing: antialiased;
     transition: background-color 0.5s ease, color 0.5s ease;
     overflow-x: hidden;
@@ -51,7 +38,7 @@
     padding: 10px 44px 10px 16px;
     border-bottom: 1px solid var(--hairline);
     background: var(--pill-bg);
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: clamp(11px, 1.5vw, 13px);
     letter-spacing: 0.02em;
     /* keeps the copy centred once it wraps onto a second line on narrow screens */
@@ -146,7 +133,7 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: 12px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -179,36 +166,8 @@
     align-items: center;
     gap: 18px;
   }
-  .topbar-link {
-    font-family: "JetBrains Mono", monospace;
-    font-size: 13px;
-    color: var(--muted);
-    text-decoration: none;
-    transition: color 0.2s ease;
-  }
-  .topbar-link:hover { color: var(--fg); }
-
-  .toggle {
-    pointer-events: auto;
-    width: 42px; height: 42px;
-    border-radius: 50%;
-    border: 1px solid var(--pill-bd);
-    background: var(--pill-bg);
-    color: var(--fg);
-    display: grid;
-    place-items: center;
-    cursor: pointer;
-    transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.5s cubic-bezier(.2,.9,.25,1);
-  }
-  .toggle:hover { background: color-mix(in srgb, var(--fg) 8%, transparent); }
-  .toggle svg { width: 19px; height: 19px; display: block; }
-  .toggle .icon-moon { display: none; }
-  html[data-theme="light"] .toggle .icon-sun { display: none; }
-  html[data-theme="light"] .toggle .icon-moon { display: block; }
-  html[data-theme="light"] .toggle { transform: rotate(360deg); }
+  .toggle { pointer-events: auto; }
   .brand-mini:focus-visible,
-  .topbar-link:focus-visible,
-  .toggle:focus-visible,
   .foot-links a:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 4px;
@@ -256,20 +215,6 @@
     justify-content: center;
     gap: clamp(14px, 2.4vw, 30px);
   }
-  .lockup .logo {
-    height: clamp(120px, 18vw, 224px);
-    width: auto;
-    display: block;
-  }
-  .wordmark {
-    font-family: "Bungee", sans-serif;
-    font-size: clamp(40px, 8vw, 96px);
-    line-height: 0.82;
-    letter-spacing: 0.01em;
-    color: var(--fg);
-    display: flex;
-    transition: color 0.5s ease;
-  }
   .wordmark span {
     display: inline-block;
     transform: translateY(18px);
@@ -291,14 +236,6 @@
     opacity: 0;
     animation: fadeUp 0.8s ease 0.95s forwards;
   }
-  .tagline {
-    font-family: "JetBrains Mono", monospace;
-    font-size: clamp(16px, 2.2vw, 22px);
-    color: var(--muted);
-    letter-spacing: 0.04em;
-    text-align: center;
-  }
-
   /* anchor only — holds the in-flow box + the absolutely-dropped next-steps so
      the reveal never changes layout height (hero stays centered, no drift) */
   .install-wrap { position: relative; }
@@ -324,7 +261,7 @@
   }
   .pm-tab {
     flex: 1;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: 12.5px;
     letter-spacing: 0.02em;
     color: var(--muted);
@@ -346,7 +283,7 @@
     align-items: center;
     gap: 14px;
     padding: 11px 14px 11px 18px;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: 14px;
     color: var(--fg);
   }
@@ -357,20 +294,6 @@
      pushing the page wider than the viewport */
   .install .cmd { letter-spacing: 0.01em; flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .install .copy { flex-shrink: 0; }
-  .install .copy {
-    border: 0;
-    background: transparent;
-    color: var(--muted);
-    cursor: pointer;
-    display: grid; place-items: center;
-    width: 28px; height: 28px;
-    border-radius: 7px;
-    transition: background-color .2s, color .2s;
-  }
-  .install .copy:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 9%, transparent); }
-  .install .copy svg { width: 15px; height: 15px; }
-  .install .copy.copied { color: var(--accent); }
-
   /* post-install commands — drop below the box without affecting layout.
      absolute + top:100% so the hero never re-centers when it opens. */
   .next-steps {
@@ -395,7 +318,7 @@
   }
   .next-hint {
     text-align: center;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: 11px;
     letter-spacing: 0.12em;
     color: color-mix(in srgb, var(--muted) 62%, transparent);
@@ -406,7 +329,7 @@
     align-items: center;
     gap: 14px;
     padding: 9px 14px 9px 18px;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: 14px;
     color: var(--muted);
   }
@@ -436,7 +359,7 @@
     margin-inline: auto;
     width: max-content;
     z-index: 30;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: 11px;
     letter-spacing: 0.22em;
     text-transform: uppercase;
@@ -564,7 +487,7 @@
   .term-bar .term-title {
     position: absolute;
     left: 50%; transform: translateX(-50%);
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: 12.5px;
     letter-spacing: 0.04em;
     color: var(--term-title);
@@ -586,7 +509,7 @@
     container-type: inline-size;
   }
   .term-screen {
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     color: var(--term-fg);
     width: 100%;
     height: 100%;
@@ -595,7 +518,7 @@
   }
   .tui-pre {
     margin: 0;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: clamp(6px, 1.7cqi, 16.5px);
     line-height: 1.5;
     white-space: pre;
@@ -683,7 +606,7 @@
     max-width: 880px;
     text-align: center;
     text-wrap: balance;
-    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-family: var(--aiur-font-body);
     font-weight: 500;
     font-size: clamp(25px, 3.6vw, 42px);
     line-height: 1.26;
@@ -712,13 +635,13 @@
   .feat .ic { width: 26px; height: 26px; color: var(--accent); }
   .feat .ic svg { width: 100%; height: 100%; display: block; }
   .feat .idx {
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: 12px;
     letter-spacing: 0.2em;
     color: var(--muted);
   }
   .feat h3 {
-    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-family: var(--aiur-font-body);
     font-weight: 600;
     font-size: clamp(17px, 1.55vw, 21px);
     line-height: 1.2;
@@ -756,7 +679,7 @@
   .signoff p {
     margin: 0 auto;
     max-width: 17ch;
-    font-family: "Space Grotesk", system-ui, sans-serif;
+    font-family: var(--aiur-font-body);
     font-weight: 600;
     font-size: clamp(27px, 4.4vw, 52px);
     line-height: 1.16;
@@ -788,7 +711,7 @@
     display: flex;
     align-items: center;
     gap: 9px;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: 12px;
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -805,7 +728,7 @@
     align-items: center;
     gap: 8px;
     text-decoration: none;
-    font-family: "JetBrains Mono", monospace;
+    font-family: var(--aiur-font-mono);
     font-size: 13px;
     color: var(--muted);
     transition: color 0.2s ease;

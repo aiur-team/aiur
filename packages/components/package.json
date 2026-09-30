@@ -1,0 +1,16 @@
+{
+  "name": "@aiur/components",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Shared Aiur theme and marketing controls",
+  "license": "Apache-2.0",
+  "type": "module",
+  "files": ["fonts.css", "fonts/", "theme.css", "marketing.css", "buttons.css", "README.md", "LICENSE"],
+  "exports": {
+    "./fonts.css": "./fonts.css",
+    "./theme.css": "./theme.css",
+    "./marketing.css": "./marketing.css",
+    "./buttons.css": "./buttons.css"
+  },
+  "sideEffects": ["*.css"]
+}

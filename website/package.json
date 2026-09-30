@@ -13,6 +13,9 @@
     "shot:dashboard": "node scripts/capture-dashboard.mjs",
     "test:brand": "playwright test"
   },
+  "dependencies": {
+    "@aiur/components": "file:../packages/components"
+  },
   "devDependencies": {
     "@playwright/test": "^1.54.1",
     "tsx": "^4.19.2",
