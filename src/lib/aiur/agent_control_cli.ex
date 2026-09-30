@@ -271,9 +271,9 @@ defmodule Aiur.AgentControlCLI do
       timeout_ms = control_query_timeout(opts, :snapshot_timeout_ms, @agents_timeout_ms)
 
       case fleet_view(opts, timeout_ms) do
-        {:ok, %{running: running}, freshness} when is_list(running) ->
+        {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
           print_snapshot_freshness(freshness)
-          print_agents_table(running)
+          print_agents_table(running ++ retry_rows(snapshot))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->
@@ -284,6 +284,9 @@ defmodule Aiur.AgentControlCLI do
       end
     end)
   end
+
+  defp retry_rows(%{retrying: retrying}) when is_list(retrying), do: retrying
+  defp retry_rows(_snapshot), do: []
 
   # `aiur watch` — the server-side status board. Compiles one row per active
   # agent (state · complexity · activity-age · what it's doing) plus an
@@ -1887,7 +1890,7 @@ defmodule Aiur.AgentControlCLI do
       IO.puts([
         String.pad_trailing(display_identifier(status), 6),
         " ",
-        String.pad_trailing(to_string(status.state), 7),
+        String.pad_trailing(status_state_label(status), 7),
         " ",
         to_string(status.title || ""),
         status_reason_suffix(status)
@@ -1903,7 +1906,8 @@ defmodule Aiur.AgentControlCLI do
         waiting_reason_detail(status),
         dispatch_decline_detail(status),
         pause_reason_detail(status),
-        blocked_by_detail(status)
+        blocked_by_detail(status),
+        last_failure_detail(status)
       ]
       |> Enum.reject(&is_nil/1)
 
@@ -1914,6 +1918,12 @@ defmodule Aiur.AgentControlCLI do
 
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
   defp status_reason_detail(_status), do: nil
+
+  defp status_state_label(%{work_state: work_state}) when work_state in [:starting, :retrying], do: to_string(work_state)
+  defp status_state_label(status), do: to_string(status.state)
+
+  defp last_failure_detail(%{last_failure_at: %DateTime{} = at}), do: "last_failure_at=#{DateTime.to_iso8601(at)}"
+  defp last_failure_detail(_status), do: nil
 
   defp waiting_reason_detail(%{waiting_reason: reason}) when not is_nil(reason),
     do: "waiting=#{WaitingReason.render(reason)}"
@@ -2598,16 +2608,16 @@ defmodule Aiur.AgentControlCLI do
 
   defp agent_activity(agent) do
     case Map.get(agent, :work_state, :working) do
-      :paused ->
+      :retrying ->
+        retry_activity(agent)
+
+      :starting ->
+        "(starting provider; no live turn yet)"
+
+      paused when paused in [:paused, "paused"] ->
         paused_activity(agent)
 
-      "paused" ->
-        paused_activity(agent)
-
-      :deactivated ->
-        "(deactivated)"
-
-      "deactivated" ->
+      deactivated when deactivated in [:deactivated, "deactivated"] ->
         "(deactivated)"
 
       _ ->
@@ -2619,6 +2629,25 @@ defmodule Aiur.AgentControlCLI do
           text -> truncate(text, 80)
         end
     end
+  end
+
+  defp retry_activity(agent) do
+    reason =
+      case Map.get(agent, :error) do
+        "startup failed: {:port_exit, " <> _ = error ->
+          if String.match?(error, ~r/^startup failed: \{:port_exit, \d+\}$/), do: error, else: "previous worker failure"
+
+        _ ->
+          "previous worker failure"
+      end
+
+    time =
+      case Map.get(agent, :last_failure_at) do
+        %DateTime{} = at -> "; last failure #{DateTime.to_iso8601(at)}"
+        _ -> ""
+      end
+
+    "(retrying: #{reason}#{time})"
   end
 
   defp activity_values(agent) do
@@ -2716,6 +2745,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp watch_state(%{tracker_paused: true}), do: "paused"
   defp watch_state(%{tracker_paused: "true"}), do: "paused"
+  defp watch_state(%{work_state: work_state}) when work_state in [:starting, :retrying], do: to_string(work_state)
   defp watch_state(status), do: to_string(status[:tracker_state] || status[:state] || "")
 
   defp watch_activity(%{tracker_paused: paused, reason: reason})
@@ -2731,6 +2761,9 @@ defmodule Aiur.AgentControlCLI do
     do: "(idle: #{StatusReason.render(reason)})"
 
   defp watch_activity(%{state: :idle}), do: "(idle)"
+
+  defp watch_activity(%{work_state: :retrying, reason: reason}) when not is_nil(reason),
+    do: "(retrying: #{StatusReason.render(reason)})"
 
   defp watch_activity(%{state: :paused, reason: reason}) when not is_nil(reason),
     do: "(paused: #{StatusReason.render(reason)})"

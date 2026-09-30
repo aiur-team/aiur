@@ -617,6 +617,29 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   end
 
   describe "authoritative no-provider startup failures" do
+    test "reports a pre-handshake port exit to telemetry and the retry owner" do
+      issue = %Issue{id: "2895", identifier: "2895", selected_backend: "codex"}
+      previous = Application.get_env(:aiur, :run_telemetry_lifecycle_recorder)
+
+      Application.put_env(:aiur, :run_telemetry_lifecycle_recorder, fn _kind, attributes, _opts ->
+        send(self(), {:lifecycle, attributes})
+      end)
+
+      on_exit(fn ->
+        if previous, do: Application.put_env(:aiur, :run_telemetry_lifecycle_recorder, previous), else: Application.delete_env(:aiur, :run_telemetry_lifecycle_recorder)
+      end)
+
+      opts = [
+        telemetry_attempt_id: "2895:test",
+        session_start_fun: fn _workspace, _opts -> {:error, {:port_exit, 23}} end
+      ]
+
+      assert {:error, {:port_exit, 23}} = SessionLifecycle.run_session("/workspaces/2895", issue, self(), opts, nil)
+
+      assert_received {:lifecycle, %{event: "agent_spinup", boundary: "end", attempt_id: "2895:test", reason_class: "port_exit", exit_status: 23}}
+      assert_received {:codex_worker_update, "2895", %{event: :startup_failed, reason: {:port_exit, 23}, timestamp: %DateTime{}}}
+    end
+
     test "persists local boot proof before invoking a provider start" do
       ticket = "provider-boot-before-spawn-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: ticket, selected_backend: "codex", tracker_identity: telemetry_identity()}

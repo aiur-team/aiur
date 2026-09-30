@@ -36,6 +36,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
     :backend,
     :prewarm_outcome,
     :reason_class,
+    :exit_status,
     :turn_number,
     :remote,
     :retry_attempt,
