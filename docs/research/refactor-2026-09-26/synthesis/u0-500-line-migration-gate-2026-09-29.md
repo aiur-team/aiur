@@ -9,6 +9,12 @@ Git tree**, reconcile the [359 proposed owner rows](oversized-file-owner-map.csv
 with deletions/additions, and record the base commit and each path's owner,
 blob identity, classification and physical-line count ([U0 plan](../../../../docs/plans/2026-09-29-001-refactor-production-readiness-plan.md), lines 138–140).
 
+A read-only rerun of `tooling/file_size_census.py` against clean
+`main@ec5a81c72616b1f99c8edfde647bc6e525e6c987` counted 3,437 tracked
+paths: 3,349 UTF-8 text, 47 binary, 41 symlinks and 357 text paths above
+500. This confirms the release-head debt count after the mainline plan merge;
+U0 still regenerates from its own implementation head before installing a gate.
+
 ## Source and CI observations
 
 - The existing [census script](../tooling/file_size_census.py) (lines 11–19,
@@ -26,13 +32,13 @@ blob identity, classification and physical-line count ([U0 plan](../../../../doc
   200 lines a review target and says CI does not fail on line count. U0 must
   update this statement when the hard gate is installed, preserving the
   200-line cohesion judgment.
-- The required [CI lint job](../../../../.github/workflows/ci.yml) (lines
-  227–258) already hosts repository checks, but its checkout and checks skip
-  docs-only PRs. Its path classifier (lines 71–82, 101–130) deliberately keeps
-  required job names present while short-circuiting steps. Run the new size
-  check in this existing required context with a checkout on **every** PR,
-  merge-group and main push, including docs-only changes. A separate
-  non-required job or a docs-only-skipped step would not enforce the rule.
+- The required [CI workflow security job](../../../../.github/workflows/ci.yml)
+  already checks out on every PR, merge-group and main push. By contrast, the
+  required `lint` job skips its checkout and checks for website-only PRs;
+  the path classifier keeps its required job name present while its steps
+  short-circuit. Put the size check in `workflow security` so tracked
+  `website/**` files are covered. A separate non-required job or a
+  website-only-skipped step would not enforce the rule.
 
 ## Acceptance matrix
 
