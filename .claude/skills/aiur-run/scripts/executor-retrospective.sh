@@ -347,6 +347,13 @@ due() {
   jq -nc --argjson due "$is_due" --argjson elapsed_seconds "$elapsed" \
     --argjson remaining_seconds "$remaining" --arg run_id "$run_id" \
     '{due:$due,run_id:$run_id,elapsed_seconds:$elapsed_seconds,remaining_seconds:$remaining_seconds}'
+
+  # Exit non-zero when overdue so a self-poll can gate on the command itself
+  # (`"$RETRO" due || run_the_retro`) rather than on a prompt remembering to.
+  # The JSON above is still printed either way, so existing callers that parse
+  # `.due` are unaffected.
+  [ "$is_due" = "true" ] && return 1
+  return 0
 }
 
 summary() {
