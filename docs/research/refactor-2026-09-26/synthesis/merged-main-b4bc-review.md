@@ -17,4 +17,6 @@ The current tracked-text census is in `u0-main-size-census-2026-09-29.md`: 357 f
 
 The conditional [`ui-29` dashboard component cut](ui29-current-main-2026-09-30.md) was also checked independently on this snapshot. Seven unrendered modules total 771 gross lines, with test and compile-time companion edits required; this is no net saving claim.
 
+The [usage-compaction cut](usage-compaction-current-main-2026-09-30.md) is dormant in the local instance sample but can still activate above 5,000 ledger positions. Existing retired segments require floor recovery, so the six-file 1,297-line footprint remains conditional on durable-state census and migration proof.
+
 Before promotion, refresh this checkpoint on the actual release main, run the named behavior gates, count live populations where a finding claims magnitude, and record the exact failing behavior test for each selected repair. The frozen two-review result remains valid for its snapshot; it does not automatically certify the changed main.
