@@ -30,9 +30,9 @@ requests or time out.
    cut is challenged by a skeptic. Includes the line-count reduction case.
    (`features/`)
 
-The goal: research issues, the feature list and improvements before a full
-rewrite that fixes the recurring bugs, reduces line count, and decomposes Aiur
-into smaller packages and repositories.
+The goal: research the recurring bugs, feature boundaries and code size before
+changing ownership. Package or repository splits remain conditional on a
+measured benefit and a behavior-preserving seam.
 
 ## Code review method
 
@@ -54,10 +54,12 @@ website, launcher, scripts, skills and prompts — about 650k lines in 28 chunks
 The brainstorm and plan built on this research live in `docs/brainstorms/`
 and `docs/plans/`.
 
-The [current-main checkpoint](synthesis/merged-main-b4bc-review.md) compares
-the frozen findings with `main@b4bc11f`, records two independent P1 reviews,
-and names the remaining checks before implementation. It is a dated snapshot;
-refresh it on the final release main.
+The [published 0.0.7 checkpoint](synthesis/merged-main-465aca-release-checkpoint.md)
+records a complete `main@465aca643` text census, the 357 oversized paths and
+current-source behavior gates. The [U8 package ledger](synthesis/u8-release-007/proposal.md)
+assigns every oversized path one provisional writer. The earlier [b4bc review](synthesis/merged-main-b4bc-review.md)
+records the dual P1 review. Each checkpoint is pinned; affected findings still
+need implementation-head checks before code work.
 
 ## Starting inventory (measured 2026-09-26)
 
