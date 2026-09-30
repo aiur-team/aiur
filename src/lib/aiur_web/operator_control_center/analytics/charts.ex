@@ -615,6 +615,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   end
 
   defp title(body), do: "<title>#{escape_text(body)}</title>"
+
   defp escape_text(body),
     do: body |> to_string() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 

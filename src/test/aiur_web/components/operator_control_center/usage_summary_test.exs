@@ -127,6 +127,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
           | by_model: [%{key: marker, tokens: %{input: 100}}]
         }
       })
+
     html = render(UsageSummaryPresenter.present(snap))
     document = Floki.parse_fragment!(html)
 
