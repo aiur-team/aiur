@@ -436,11 +436,17 @@ test("launcher routes init to a distribution-free foreground exec", () => {
 });
 
 test("launcher dotenv keeps shell exports and prefers repo-local provider credentials", () => {
-  const { launcher } = setupRealLauncher();
+  const { launcher, releaseDir } = setupRealLauncher();
   const home = path.join(root, "home");
   const project = path.join(root, "project");
+  const fakeBin = path.join(root, "fakebin");
   mkdirSync(path.join(home, ".aiur"), { recursive: true });
   mkdirSync(project, { recursive: true });
+  mkdirSync(fakeBin, { recursive: true });
+  writeFileSync(path.join(fakeBin, "tmux"), "#!/usr/bin/env bash\nexit 1\n");
+  chmodSync(path.join(fakeBin, "tmux"), 0o755);
+  const tmuxConf = path.join(root, "aiur.tmux.conf");
+  writeFileSync(tmuxConf, "# test conf\n");
 
   writeFileSync(
     path.join(home, ".aiur", ".env"),
@@ -451,14 +457,30 @@ test("launcher dotenv keeps shell exports and prefers repo-local provider creden
     "DEEPSEEK_API_KEY=repo-deepseek\nOPENROUTER_API_KEY=repo-openrouter\n",
   );
 
-  const env = { ...process.env, HOME: home, MOONSHOT_API_KEY: "shell-moonshot" };
+  const env = {
+    ...process.env,
+    HOME: home,
+    PATH: `${fakeBin}:${process.env.PATH}`,
+    AIUR_RELEASE_DIR: releaseDir,
+    AIUR_TMUX_CONF: tmuxConf,
+    AIUR_SESSION_PREFIX: "aiur-test",
+    MOONSHOT_API_KEY: "shell-moonshot",
+  };
   delete env.DEEPSEEK_API_KEY;
   delete env.OPENROUTER_API_KEY;
   delete env.OPENROUTER_MANAGEMENT_KEY;
 
   const result = spawnSync("bash", [
     "-c",
-    'source "$1"; load_dotenv; printf "%s\\n" "$DEEPSEEK_API_KEY" "$OPENROUTER_API_KEY" "$MOONSHOT_API_KEY" "$OPENROUTER_MANAGEMENT_KEY"',
+    [
+      'source "$1"',
+      'aiur_resolve_identity() { :; }',
+      'prepare_distribution() { :; }',
+      'aiur_launch_lock_path() { printf "%s\\n" "$HOME/launch.lock"; }',
+      'acquire_aiur_launch_lock() { :; }',
+      'scrub_run_only_env() { printf "%s\\n" "$DEEPSEEK_API_KEY" "$OPENROUTER_API_KEY" "$MOONSHOT_API_KEY" "$OPENROUTER_MANAGEMENT_KEY"; exit 0; }',
+      'run_session background',
+    ].join("\n"),
     "bash",
     launcher,
   ], {
