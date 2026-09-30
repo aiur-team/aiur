@@ -80,7 +80,7 @@ defmodule Aiur.BuildOrdersCLI do
     with {:ok, identity} <- root_identity(catalog, root),
          {:ok, %Snapshot{} = demanded} <- Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}),
          sources when is_map(sources) <- Runtime.safe_source_call(source, :load_runtime_sources, [], %{}) do
-      planning = first_read(source, identity, demanded, captured_at)
+      planning = refresh_due(source, identity, demanded, captured_at)
 
       model = BuildOrderPresenter.present(planning, Map.get(sources, :execution), Map.get(sources, :activity))
       grid = BuildOrderGridModel.build(model, nil)
@@ -115,24 +115,17 @@ defmodule Aiur.BuildOrdersCLI do
 
   defp envelope(_request, _snapshot, _source, _captured_at), do: {:error, "could not read the Build Order catalog"}
 
-  # Registering demand buys nothing (writer-driven design), so a root nobody has
-  # read since the daemon started has no graph, and a catalog completion only
-  # re-reads roots a live page is watching. A terminal read of one root is as much
-  # a stated need as opening its page, so it buys the first read the same way the
-  # LiveView does (`AiurWeb.BuildOrder.SourceRuntime`), then re-reads what is held
-  # so the reply shows the read in flight. Without this the CLI reported
-  # `provider_unavailable` until a dashboard happened to open the root (#2695).
-  #
-  # `refresh` does not consult backoff, and a read that fails lands after this
-  # process has exited, so nothing retries it on a schedule. Asking again on
-  # every poll would restart one GraphQL read per poll and ignore a provider's
-  # retry-after. So a root whose first read failed is asked for again only once
-  # the projection's own retry rule says it is due.
-  defp first_read(source, identity, %Snapshot{data: nil} = demanded, now) do
-    if GraphProjection.read_due?(demanded, now), do: refresh_held(source, identity, demanded), else: demanded
-  end
+  # Demand alone never fetches. An explicit CLI read recovers a missing or stale
+  # graph, including roots with no live dashboard watcher. Keep provider backoff
+  # and in-flight coalescing; the retained snapshot is returned without waiting
+  # for the network, and its observation time remains truthful while refreshing.
+  defp refresh_due(source, identity, %Snapshot{health: health} = demanded, now) do
+    needs_read? = is_nil(demanded.data) or health.state == :stale
 
-  defp first_read(_source, _identity, %Snapshot{} = demanded, _now), do: demanded
+    if needs_read? and not health.refreshing? and GraphProjection.read_due?(demanded, now),
+      do: refresh_held(source, identity, demanded),
+      else: demanded
+  end
 
   defp refresh_held(source, identity, demanded) do
     _ = Runtime.safe_source_call(source, :refresh, [identity], :ok)
