@@ -57,13 +57,27 @@ across a package/release boundary, so relocated lines are not LOC saved.
 
 The user separately requested removal of the local PR deletion guard
 (`cli-38`, PR #2840) and GitHub cache dashboard (`integrations-20`/`ui-13`,
-PR #2841) in 0.0.6. These are **pending release removals** until the PRs are
-merged and the published release is verified. The frozen skeptical decision
+PR #2841). Both PRs are merged on `main@b4bc11f`; the removals remain
+**pending publication in 0.0.7** until the release is verified on npm. The
+frozen skeptical decision
 for the cache inspector remains `keep` as historical research evidence; the
 later user direction is recorded separately as a release override in
-`features.json`. Do not re-plan either capability as retained after those
-removals land, and do not count either PR's removed lines as future refactor
+`features.json`. Do not re-plan either capability as retained on current main,
+and do not count either PR's removed lines as future refactor
 savings. See the independent [current-head validation](../synthesis/current-head-validation-2026-09-28.md).
+
+## Current-main cut checks
+
+At `main@b4bc11f`, independent reviews found the seven `ui-29` dashboard
+component modules unrendered, with a 771-line conditional gross footprint;
+the [reachability audit](../synthesis/ui29-current-main-2026-09-30.md) names
+the companion Overview, test and coverage edits. The 1,297-line
+`subsystems-07` usage-compaction candidate is dormant in the sampled local
+state, but its [durable-state audit](../synthesis/usage-compaction-current-main-2026-09-30.md)
+requires a census and migration or retained reader for any retired ledger
+before deletion. Neither footprint is a net saving until implemented and
+measured. Keep the frozen working classifications for their snapshot; use
+these current-main gates when preparing implementation tickets.
 
 ## Coverage boundary and omissions
 

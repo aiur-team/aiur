@@ -45,10 +45,16 @@ publish a before/after tracked-text census on its actual base and show
 Until that diff exists, **measured net saving is zero**.
 
 The local PR deletion guard (PR #2840) and GitHub cache dashboard (PR #2841)
-are separate pending 0.0.6 removals. They have no rows in this conditional
-gross-file ledger. After merge and publication, exclude their removed lines
+were removed from main; publication in 0.0.7 remains pending. They have no rows in this conditional
+gross-file ledger. After publication, exclude their removed lines
 from any *future refactor* saving claim; do not add them to 17,944 or treat
 the frozen cache-inspector `keep` verdict as current release direction.
+
+Current-main checks at `b4bc11f` put the seven `ui-29` files at 771 gross
+lines and retain a [companion-edit gate](../synthesis/ui29-current-main-2026-09-30.md).
+The `subsystems-07` six-file footprint remains 1,297 lines, but
+[retired-ledger compatibility](../synthesis/usage-compaction-current-main-2026-09-30.md)
+must be proved before removal. The table above stays the frozen baseline.
 
 ## Hard 500-line acceptance and preferred 200-line target
 
