@@ -59,12 +59,14 @@ The user separately requested removal of the local PR deletion guard
 (`cli-38`, PR #2840) and GitHub cache dashboard (`integrations-20`/`ui-13`,
 PR #2841). Both PRs are merged on `main@b4bc11f`; the removals remain
 **pending publication in 0.0.7** until the release is verified on npm. The
-frozen skeptical decision
-for the cache inspector remains `keep` as historical research evidence; the
-later user direction is recorded separately as a release override in
+frozen skeptical decision for the cache inspector remains `keep` as
+historical research evidence; the later user direction is recorded
+separately as a release override in
 `features.json`. Do not re-plan either capability as retained on current main,
-and do not count either PR's removed lines as future refactor
-savings. See the independent [current-head validation](../synthesis/current-head-validation-2026-09-28.md).
+and do not count either PR's removed lines as future refactor savings. The
+[later current-main checkpoint](../synthesis/merged-main-b4bc-review.md)
+records the merged source state; the [earlier validation](../synthesis/current-head-validation-2026-09-28.md)
+remains a dated pre-merge check.
 
 ## Current-main cut checks
 
