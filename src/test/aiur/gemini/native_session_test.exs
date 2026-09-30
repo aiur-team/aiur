@@ -102,15 +102,17 @@ defmodule Aiur.Gemini.NativeSessionTest do
 
     response = fn "/approve" ->
       token = Process.get(:permission_token)
-      {:deliver_text, "/approve #{token} reject", fn details -> send(owner, {:approved, details}) end, fn reason -> send(owner, {:approval_failed, reason}) end}
+      {:deliver_text, "/approve #{token} cancel", fn details -> send(owner, {:approved, details}) end, fn reason -> send(owner, {:approval_failed, reason}) end}
     end
 
     assert {:ok, %{result: :turn_completed, thread_id: "gemini-session"}} =
              Turn.run(session, "say hello", %{identifier: "GEMINI-TEST"}, on_message: on_message, on_operator_response: response, tool_executor: fn _, _ -> %{} end, turn_timeout_ms: 2_000)
 
-    assert_receive {:approved, %{decision: "reject", confirmation: :request_only}}
+    assert_receive {:approved, %{decision: "cancel", confirmation: :request_only}}
     assert_received {:gemini_message, %{payload: %{"method" => "session/update"}}}
-    assert_received {:gemini_message, %{payload: %{"method" => "session/request_permission"}}}
+    assert_received {:gemini_message, %{payload: %{"method" => "session/request_permission"}} = approval_message}
+    assert {:ok, %{body: approval_text}} = Transcript.extract(approval_message, nil)
+    assert approval_text =~ "/approve #{approval_message.gemini_permission_token} cancel"
     assert_received {:gemini_message, %{payload: %{"method" => "session/prompt", "result" => %{"_meta" => %{"quota" => %{"token_count" => %{"input_tokens" => 12, "output_tokens" => 5}}}}}}}
 
     assert [%{"method" => "session/prompt"} = prompt | _] =
@@ -118,7 +120,31 @@ defmodule Aiur.Gemini.NativeSessionTest do
 
     assert prompt["params"]["sessionId"] == "gemini-session"
     assert prompt["params"]["prompt"] == [%{"type" => "text", "text" => "say hello"}]
-    assert %{"result" => %{"outcome" => %{"optionId" => "reject"}}} = List.last(read_frames(dir))
+    assert %{"result" => %{"outcome" => %{"optionId" => "cancel"}}} = List.last(read_frames(dir))
+    refute File.exists?(Path.join(dir, "approved_tool_ran"))
+    assert :ok = Session.stop(session)
+  end
+
+  @tag :tmp_dir
+  test "native allow choice permits the fixture tool to run", %{tmp_dir: dir} do
+    assert {:ok, session} = Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "normal"), timeout_ms: 2_000)
+
+    on_message = fn message ->
+      if get_in(message, [:payload, "method"]) == "session/request_permission" do
+        Process.put(:permission_token, message.gemini_permission_token)
+        send(self(), {:agent_queue_updated, "GEMINI-TEST", 1, false})
+      end
+    end
+
+    response = fn "/approve" ->
+      {:deliver_text, "/approve #{Process.get(:permission_token)} proceed_once", fn _ -> :ok end, fn reason -> flunk("approval failed: #{inspect(reason)}") end}
+    end
+
+    assert {:ok, %{result: :turn_completed}} =
+             Turn.run(session, "write fixture", %{identifier: "GEMINI-TEST"}, on_message: on_message, on_operator_response: response, turn_timeout_ms: 2_000)
+
+    assert File.exists?(Path.join(dir, "approved_tool_ran"))
+    assert %{"result" => %{"outcome" => %{"optionId" => "proceed_once"}}} = List.last(read_frames(dir))
     assert :ok = Session.stop(session)
   end
 
@@ -364,9 +390,11 @@ defmodule Aiur.Gemini.NativeSessionTest do
                 print(json.dumps({'jsonrpc':'2.0','id':prompt_id,'result':{'stopReason':'end_turn'}}), flush=True)
                 continue
             print(json.dumps({'jsonrpc':'2.0','method':'session/update','params':{'sessionId':session,'update':{'sessionUpdate':'agent_message_chunk','content':{'type':'text','text':'hello'}}}}), flush=True)
-            print(json.dumps({'jsonrpc':'2.0','id':77,'method':'session/request_permission','params':{'sessionId':session,'toolCall':{'title':'write file'},'options':[{'optionId':'allow','name':'Allow'},{'optionId':'reject','name':'Reject'}]}}), flush=True)
+            print(json.dumps({'jsonrpc':'2.0','id':77,'method':'session/request_permission','params':{'sessionId':session,'toolCall':{'title':'write file'},'options':[{'optionId':'proceed_once','name':'Allow','kind':'allow_once'},{'optionId':'cancel','name':'Reject','kind':'reject_once'}]}}), flush=True)
             continue
         elif frame.get('id') == 77:
+            if frame.get('result', {}).get('outcome', {}).get('optionId') == 'proceed_once':
+                Path(#{inspect(Path.join(dir, "approved_tool_ran"))}).write_text('yes')
             print(json.dumps({'jsonrpc':'2.0','id':prompt_id,'result':{'stopReason':'end_turn','_meta':{'quota':{'token_count':{'input_tokens':12,'output_tokens':5},'model_usage':[]}}}}), flush=True)
             continue
         else:
