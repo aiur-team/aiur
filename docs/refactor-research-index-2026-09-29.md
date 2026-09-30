@@ -27,6 +27,8 @@ The [current-head U3 boundary check](research/refactor-2026-09-26/synthesis/u3-w
 
 The [U0 review of the two new oversized tests](research/refactor-2026-09-26/synthesis/u0-new-oversized-test-owners-2026-09-30.md) confirms their current owners and identifies focused test/fixture seams to validate at U8 pickup. Their test blobs are unchanged at `main@c690f9fa`; this is a proposed split, not completed size-debt removal.
 
+The [final research audit](research/refactor-2026-09-26/synthesis/final-research-audit.md) closes the retained-source analysis at its evidence limit. It records direct causes for bounded idle-gap events and leaves unobserved causal minutes explicitly unknown; historical per-minute attribution cannot be recovered from the retained sources. Current-head behavior checks, the 500-line migration gate and feature-cut proof are implementation gates in U0–U9, not missing frozen-corpus reviews.
+
 To reproduce the release-head assignment audit from a separate research checkout:
 
 ```sh

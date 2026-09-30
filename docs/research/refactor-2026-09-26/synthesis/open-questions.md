@@ -19,5 +19,4 @@ The branch-tip [privacy/provenance audit](privacy-provenance-audit.md) is
 complete under its aggregate-only rule, and the later b4bc checkpoint
 received a separate privacy and source check. New public tickets and artifacts
 still need source-level review. The deletion guard and GitHub cache dashboard
-removals have merged but await 0.0.7 publication; their lines must not enter
-future refactor savings.
+removals shipped in 0.0.7; their lines must not enter future refactor savings.

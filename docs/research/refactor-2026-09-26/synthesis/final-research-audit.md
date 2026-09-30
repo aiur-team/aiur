@@ -27,7 +27,7 @@ share of historical idle time.
 | Synthesis | [Verified claims](verified-claims.md), [problem map](problem-map.md), [contradictions](contradictions.md), [rewrite requirements](rewrite-requirements.md) and [open questions](open-questions.md) are published with detailed sources linked rather than duplicated. |
 | Unnecessary complexity | The catalog classifies 24 working cuts, 10 merges, 110 simplifies, 5 externalizations and 67 keeps. These are frozen planning judgments; the [plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) requires current use, behavior parity and actual removed-versus-moved LOC before implementation. |
 | Hard 500/preferred 200 lines | The corrected [frozen census](file-size-analysis.md) reproduces all 3,378 tracked paths, including 359 UTF-8 text files >500 and 1,192 >200. The [owner map](oversized-file-owner-map.md) covers all 359 with proposed dispositions: 344 split, eight regenerate/replace and seven conditional removals. [All 359 owner rows](oversized-file-owner-map-audit-summary.md) have a pre-release candidate audit. The later [merged-main recount](u0-main-size-census-2026-09-29.md) finds 355 >500 at `c2cbf881b`, all from the original map; four GitHub cache paths are absent. The plan requires an automated universal 500-line gate and cohesion review above 200 for docs/tests/skills/vendor/generated text. The codebase does **not** meet the cap yet. |
-| CE brainstorm → plan → deepen | [Requirements framing](../../../brainstorms/2026-09-29-aiur-refactor-requirements.md) and a [deepened phased plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) exist. The plan remains `requirements-only`: [cross-partition reconciliation](p2p3-triage-reconciliation-overlay.md) is complete at the frozen source level, while the candidate owner audit needs a merged-main refresh and degraded CODEOWNERS trust, store durability and first-seam contracts still need behavior tests before implementation tickets. |
+| CE brainstorm → plan → deepen | [Requirements framing](../../../brainstorms/2026-09-29-aiur-refactor-requirements.md) and a [deepened phased plan](../../../plans/2026-09-29-001-refactor-production-readiness-plan.md) exist. The plan remains `requirements-only`: [cross-partition reconciliation](p2p3-triage-reconciliation-overlay.md) is complete at the frozen source level, and the later [357-path release-head assignment](u8-release-007/proposal.md) has an independent boundary review. Degraded CODEOWNERS trust, store durability, first-seam contracts and current implementation-head owner checks still need behavior and caller evidence before implementation tickets. |
 
 The static triage gives all 986 findings a source-anchor status, with 26
 original citation defects; 30 of 32 defective locations have source-verified
@@ -65,10 +65,17 @@ every finding's runtime incidence unverified.
 ## Disposition
 
 The frozen research corpus, review, feature/LOC synthesis, reconciled P2/P3
-static triage and candidate owner audit are published. The goal's literal per-gap
-causal attribution and CE implementation-ready promotion remain open. The
-former cannot be inferred from silence or classifier labels; the latter needs
-merged-main validation and behavior tests for affected contracts.
-No product behavior, universal 500-line compliance or net LOC saving is
-claimed by this research branch. Keep the research goal open until those
-acceptance decisions are made or the original per-gap requirement is revised.
+static triage and candidate owner audit are published. The later
+[current-main census](u0-main-size-census-8f17-2026-09-30.json) preserves the
+357-path oversized set assigned by the release-head review; four existing
+paths grew, so a future size-gate ceiling must use the clean implementation
+head where that gate is installed.
+
+The literal request to assign a cause to every historical idle gap cannot be
+completed from retained evidence. The bounded point causes are documented and
+the remaining causal minutes are unknown; positive runnable-demand, admission,
+uptime and action receipts must be collected prospectively. This is the
+research disposition, not an inferred causal allocation. CE implementation
+readiness is separate and remains gated by current-head caller and behavior
+checks in U0–U9. No product behavior, universal 500-line compliance or net LOC
+saving is claimed by this research branch.
