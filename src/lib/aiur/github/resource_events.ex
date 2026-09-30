@@ -288,6 +288,7 @@ defmodule Aiur.GitHub.ResourceEvents do
   def publish_cleared(_type, _owner, _repo), do: :ok
 
   @doc "Publishes one scope invalidation after an atomic membership replacement."
+  @spec publish_replaced(ResourceStore.resource_type(), String.t(), String.t()) :: :ok
   def publish_replaced(type, owner, repo), do: publish_scope(type, owner, repo, false)
 
   defp publish_scope(type, owner, repo, cleared?) do

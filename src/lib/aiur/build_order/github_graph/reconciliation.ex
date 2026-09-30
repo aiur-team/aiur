@@ -52,8 +52,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
 
       case Pager.catalog(paging, state) do
         {:ok, nodes, _state} ->
-          with :ok <- deposit_catalog(repository, nodes, fence),
-               do: {:ok, :reconciled, %{roots: length(nodes)}}
+          reconcile_nodes(repository, nodes, fence)
 
         {:error, reason, _state} ->
           {:error, reason}
@@ -61,6 +60,11 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
     else
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp reconcile_nodes(repository, nodes, fence) do
+    with :ok <- deposit_catalog(repository, nodes, fence),
+         do: {:ok, :reconciled, %{roots: length(nodes)}}
   end
 
   # -- deposit --------------------------------------------------------------

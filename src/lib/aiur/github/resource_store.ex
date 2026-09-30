@@ -1212,9 +1212,7 @@ defmodule Aiur.GitHub.ResourceStore do
         # pattern wraps the key in the tuple that is actually stored.
         pattern = {{type, String.downcase(owner), String.downcase(repo), :_}, :_}
 
-        MembershipAccess.run(type, [], fn ->
-          with_table([], fn table -> list_type_entries(table, pattern) end)
-        end)
+        MembershipAccess.run(type, [], fn -> read_type_entries(pattern) end)
 
       _other ->
         []
@@ -1222,6 +1220,10 @@ defmodule Aiur.GitHub.ResourceStore do
   end
 
   def list_type(_type, _full_name), do: []
+
+  defp read_type_entries(pattern) do
+    with_table([], fn table -> list_type_entries(table, pattern) end)
+  end
 
   defp list_type_entries(table, pattern) do
     table
