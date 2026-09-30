@@ -126,6 +126,7 @@ defmodule Aiur.Gemini.NativeSessionTest do
   end
 
   @tag :tmp_dir
+  # Future regression guard for the installed CLI's allow-once option and reply shape.
   test "native allow choice permits the fixture tool to run", %{tmp_dir: dir} do
     assert {:ok, session} = Session.start(dir, auth: @fixture_auth, gemini_home_root: dir, command: fixture(dir, "normal"), timeout_ms: 2_000)
 
