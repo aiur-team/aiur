@@ -3,7 +3,21 @@ base=pathlib.Path(__file__).resolve().parents[1]
 old={r['path']:r for r in csv.DictReader(open(base/'oversized-file-owner-map.csv'))}
 cur=list(csv.DictReader(open(base/'file-size-census-release-007.csv')))
 ids={}
+overrides={
+ 'src/lib/aiur.ex':'APP_BOOT',
+ 'src/test/aiur/application_test.exs':'APP_BOOT',
+ 'src/test/aiur/app_server_test.exs':'AGENT_TURN',
+ 'src/test/aiur/app_server/adapter_test.exs':'AGENT_TURN',
+ 'docs/design/streamdeck/streamdeck.design.js':'DECK_DESIGN',
+ 'src/test/aiur_web/github_webhook_test.exs':'EVENTS',
+ 'src/test/aiur/agent_list/app_test.exs':'OPENCODE',
+ 'src/test/aiur/agent_list/renderer_test.exs':'OPENCODE',
+ 'src/test/aiur/dynamic_tool_test.exs':'CODEX',
+ 'src/test/aiur/aiur_agent_skill_test.exs':'SKILLS',
+ 'src/test/manual/executor_control_center_docs_fixture.exs':'BROWSER',
+}
 def assign(p,o):
+ if p in overrides:return overrides[p]
  if p.startswith('docs/plans/') or p.startswith('docs/brainstorms/'): return 'HIST_CE'
  if p.startswith('src/docs/'): return 'HIST_PRODUCT'
  if p.startswith('.claude/skills/ce-'): return 'CE'
@@ -54,6 +68,7 @@ assert len(cur)==357 and len(ids)==357, 'release census has missing or duplicate
 assert len(set(ids)&set(old))==355, 'frozen owner survivors changed'
 assert len(set(ids)-set(old))==2, 'new release owners changed'
 assert 'UNMAPPED' not in ids.values(), 'unassigned release path'
+assert set(overrides)<=set(ids), 'an explicit boundary owner path left the census'
 print('total',len(ids),'unique',len(set(ids)),'old survivors',len(set(ids)&set(old)),'retired',set(old)-set(ids),'new',set(ids)-set(old))
 for k,n in sorted(collections.Counter(ids.values()).items()):print(k,n)
 for p,k in ids.items():

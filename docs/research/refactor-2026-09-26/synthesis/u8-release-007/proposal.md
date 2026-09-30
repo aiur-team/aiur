@@ -13,26 +13,28 @@ Planning-only proposal for `main@465aca643527ea94a4d0d6d7c178c5d23d2aaf57` (`v0.
 
 | Package | Paths | Accountable boundary | Start prerequisite | Targeted validation |
 | --- | ---: | --- | --- | --- |
-| `AGENT_CORE` | 13 | Agent identity, model choice and process evidence | U4 contract | model/environment behavior, retained log contents, source/agent tests |
-| `AGENT_TURN` | 14 | Turn, queue and session lifecycle | U4 turn/pause contract | blocked-turn/queue delivery characterization; focused runner tests |
+| `AGENT_CORE` | 9 | Agent identity, model choice and process evidence | U4 contract | model/environment behavior, retained log contents, source/agent tests |
+| `AGENT_TURN` | 16 | Turn, queue and shared app-server lifecycle | U4 turn/pause contract | blocked-turn/queue delivery, shared port/approval protocol and focused runner tests |
 | `ANALYTICS` | 4 | Offline analytics reducer, renderer and fixtures | U6 telemetry schema | fixture equivalence, deterministic reducer/render snapshots |
+| `APP_BOOT` | 2 | Production application startup order and supervision | U0/U2 startup contract; U5 access-child order | rest-for-one restart ordering, boot/restart and release-head behavior |
 | `BO_DESIGN` | 5 | Build Order design record and offline prototypes | design-authority decision | offline openability, design-manifest hashes or approved replacement, deep links |
 | `BO_PUBLISH` | 15 | Build Order publication authority, receipt and demo packs | U0 fixture/receipt decision | published bundle equality, receipt validation, explicit demo config and offline checks |
 | `BO_RUNTIME` | 16 | Build Order graph, pack status and web projection | U2 graph contract; U6 status contract | graph/pack/provider tests and rendered Build Order page |
-| `BROWSER` | 4 | Dashboard styles, voice client and browser harness | U6 web contracts | CSS assembly parity, real browser and executable fixture-server checks |
+| `BROWSER` | 5 | Dashboard styles, voice client and browser/docs fixture server | U6 web contracts | CSS assembly parity, real browser and executable fixture-server checks |
 | `BUILD_GATE` | 4 | Build gate and holder contract | U0 transitional gate | failure and recovery cases; 500/501 census via U0 gate |
 | `CE` | 19 | Pinned Compound Engineering vendor bundle | U0 provenance overlay decision | reconstruct from public upstream pin plus overlay; manifest and license diff |
 | `CI` | 2 | Required CI and npm release workflow | U0 gate; U9 release contract | docs-only, merge-group and main required job; release-package smoke |
 | `CLAUDE` | 7 | Claude coding agent and Remote Control | U4 backend contract | remote session and telemetry tests; actual TUI when user-facing |
 | `CLI` | 10 | Shared aiur/aiurdev launcher and agent control CLI | U1 P0 check; U4/U6 controls | both entry points, packaging, stop/restart and CLI tests |
-| `CODEX` | 4 | Codex turn events and startup evidence | U4 privacy/retry decision | event rendering, ANSI-secret redaction, retry age and restart proof |
+| `CODEX` | 5 | Codex dynamic tools, turn events and startup evidence | U4 privacy/retry decision | tool scope, event rendering, ANSI-secret redaction, retry age and restart proof |
 | `CONFIG` | 4 | Config parser and init contract | U0 config key baseline | schema/init tests, examples and config docs where changed |
 | `DECISIONS` | 11 | Decision journal, projection and API | U6 authority matrix | ambiguous fsync, projection failure, restart replay, event-ID uniqueness |
-| `DECK_PKG` | 10 | Physical Stream Deck package and generated lockfile | package-manifest/lockfile decision | device tests, npm ci offline/release parity, artifact layout |
+| `DECK_DESIGN` | 1 | Verbatim upstream Stream Deck design extract | U0 design-authority/re-extract decision | upstream byte parity and both consumer interfaces before edits |
+| `DECK_PKG` | 9 | Physical Stream Deck package and generated lockfile | package-manifest/lockfile decision | device tests, npm ci offline/release parity, artifact layout |
 | `DECK_WEB` | 9 | Stream Deck web bridge, projection and emulator | U6 web contract; DECK_PKG interface | channel/live/browser emulator tests and rendered controls |
 | `DOCS` | 7 | Operator/reference docs and docs-app lockfile | owning behavior contracts; lockfile decision | links/anchors, docs build and dependency resolution |
-| `EVENTS` | 19 | Event ingestion, publication, subscriptions and wake inbox | U3 ordering contract; U5 GitHub read contract | interleaving, replay, webhook/poller equivalence and alert tests |
-| `GH_ACCESS` | 21 | GitHub transport, quota, caches and poll reads | U5 access contract | complete/held/unknown, pagination, quota ledger and cache tests |
+| `EVENTS` | 20 | Event ingestion, webhook ingress, publication, subscriptions and wake inbox | U3 ordering contract; U5 GitHub read contract | interleaving, replay, webhook admission/poller equivalence and alert tests |
+| `GH_ACCESS` | 20 | GitHub transport, quota, caches and poll reads | U5 access contract | complete/held/unknown, pagination, quota ledger and cache tests |
 | `GH_GUARD` | 6 | GitHub command/budget guards and broker | U5 access contract; GH_ACCESS API | guard and broker tests; credential and runtime broker parity |
 | `GH_TRUST` | 10 | GitHub issue authority, CODEOWNERS and dispatch | U5 trust contract | membership revocation, pagination, sanitized body and authority tests |
 | `HIST_CE` | 22 | Historical CE plans and brainstorm archives | U0 path/anchor archival policy | old Git blob links, heading fragments and inbound refs |
@@ -41,22 +43,26 @@ Planning-only proposal for `main@465aca643527ea94a4d0d6d7c178c5d23d2aaf57` (`v0.
 | `LIFECYCLE_DISPATCH` | 22 | Ticket dispatch, retries and command routing | U2 state contract | lease, label, retry and dispatch tests; live transition witness |
 | `LIFECYCLE_STATUS` | 25 | Ticket state, status, membership and reconciliation | U2/U6 state projection contract | restart/fence/age tests, CLI/web values and current-run tests |
 | `LINEAR` | 1 | Linear adapter and feature reachability | U7 integration-03 decision | active caller/config census, adapter behavior and docs before any cut |
-| `OPENCODE` | 10 | OpenCode panes, terminal slots and live conversation | U1 P0 check; U4 backend contract | slot/session tests plus foreground TUI chat-pane proof |
+| `OPENCODE` | 12 | OpenCode panes, terminal AgentList, slots and live conversation | U1 P0 check; U4 backend contract | list navigation/ANSI, slot/session tests and foreground TUI chat-pane proof |
 | `SITE` | 3 | Marketing website source and generated lockfile | website dependency decision | build, npm ci/offline resolution and rendered page |
-| `SKILLS` | 6 | Aiur operator skills and helper scripts | U0 operator contract; BO_PUBLISH API | skill contract tests, reference links and script behavior |
+| `SKILLS` | 7 | Aiur operator skills and helper scripts | U0 operator contract; BO_PUBLISH API | skill-content contract, reference links and script behavior |
 | `TELEMETRY` | 14 | Usage ledger, run telemetry and metering views | U6 aggregate/freshness contract | restart/price tests, observed age and rendered values |
-| `TEST_HARNESS` | 10 | Shared test harness, app boot and reset | U0 test isolation contract | harness boot/reset and focused use from multiple domains |
+| `TEST_HARNESS` | 5 | Shared test harness and reset | U0 test isolation contract | harness/reset and focused use from multiple domains |
 | `WEB` | 13 | Dashboard and operator control center live views | U6 status/presenter contract | rendered unknown/stale age, dashboard browser and focused live tests |
 | `WORKSPACE` | 7 | Repository checkout and workspace ownership | U2 lifecycle contract; U7 workspace decisions | retry-safe provisioning, ownership tests and bootstrap regression |
 
-**Total: 357 paths in 35 packages.** Small packages mark distinct authority or artifact boundaries; `LINEAR` is one file because cutting an external adapter requires a separate U7 reachability decision. They are assignments, not promised standalone tickets.
+**Total: 357 paths in 37 packages.** Small packages mark distinct authority or artifact boundaries; `LINEAR` is one file because cutting an external adapter requires a separate U7 reachability decision. They are assignments, not promised standalone tickets.
+
+An independent boundary review retained the 357-path census and corrected 11 provisional assignments. It separated production application boot from the shared test harness, the verbatim Stream Deck design extract from the package, and domain tests from generic agent, GitHub access, or harness buckets. These corrections change ownership only; they do not establish a behavior-preserving implementation seam or authorize file deletion.
 
 ## Conflict and sequencing notes
 
 - `BO_PUBLISH` owns both `docs/build-order/scripts/publication_*` and mirrored `.claude/skills/aiur-build/scripts/publication/*` oversized paths. Establish the canonical publication/receipt authority before changing the 7,822-line snapshot. `BO_RUNTIME` consumes the published pack; it must not redefine receipt authority.
 - `GH_ACCESS`, `GH_GUARD` and `GH_TRUST` may proceed in parallel only after U5 names the shared API. `GH_ACCESS` owns broker read semantics, `GH_GUARD` owns governed process calls, and `GH_TRUST` owns issue/CODEOWNERS command authority. Any shared `website/docs-app/apis/github.md` edits serialize through `DOCS` after the behavior PR is fixed. Read that page before GitHub work.
 - `LIFECYCLE_DISPATCH` and `LIFECYCLE_STATUS` use U2 state and transition contracts. The `state.ex` write is dispatch-owned; status consumers may read it but require an agreed interface before implementation. U6 owns status field meaning and observed age.
-- `DECK_PKG` owns device code and its lockfile; `DECK_WEB` owns the web emulator/channel and browser test. `LAYOUT` owns authored ELK worker and both copied vendor assets, subject to hash/offline/CSP parity. `BROWSER` owns the executable fixture server and browser/CSS build.
+- `APP_BOOT` owns `src/lib/aiur.ex` and its application test, including production startup and restart order. Other runtime packages request child-order changes through this owner. `AGENT_TURN` owns shared app-server tests; `CODEX` owns the Codex dynamic-tool contract. `OPENCODE` owns terminal AgentList behavior and its real TUI gate.
+- `DECK_DESIGN` owns the verbatim upstream `streamdeck.design.js` extract, which the design README forbids editing locally. Re-extract or change upstream before revising that byte-parity source. `DECK_PKG` owns device code and its lockfile; `DECK_WEB` owns the web emulator/channel and browser test. `LAYOUT` owns authored ELK worker and both copied vendor assets, subject to hash/offline/CSP parity. `BROWSER` owns the executable dashboard/docs capture fixture and browser/CSS build.
+- `EVENTS` owns the webhook HTTP ingress test; `GH_ACCESS` owns transport and reads. Coordinate admission/signature changes across U3/U5 rather than moving ingress tests into a generic access package.
 - `DOCS`, `CI`, and `SKILLS` are shared surfaces. Serialize edits to them after the corresponding behavior contract; do not reserve all runtime packages behind a global documentation barrier. `CE` regeneration must preserve the pinned public upstream plus reviewed five-file overlay; local plugin cache is not an authority.
 - `WORKSPACE` owns `workspace_and_config_test.exs` as an existing mixed suite. At pickup, move config/Linear/orchestrator cases to their owning tests without cross-package concurrent edits. `TEST_HARNESS` owns `test_support.exs`; domain workers request fixture changes through its owner.
 
