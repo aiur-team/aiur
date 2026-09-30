@@ -50,7 +50,9 @@ The CI poll drops from its batch a target a `check_run` delivery already answere
 
 Build Order catalogs normally rebuild from stored issue and membership events. A daemon-owned membership reconciliation also reads GitHub in every webhook mode, including healthy and unproven delivery, because activity in other event families does not prove that sub-issue events arrived.
 
-The safety check waits 15 minutes after a completed attempt, coalesces with in-flight reconciliation, and retains the held catalog on failure. Boot, explicit catalog refresh and delivery degradation can request earlier reconciliation. These reads use the existing planning bounds and governed GitHub transport; this recovery adds bounded reads and claims no quota saving.
+The safety check waits 15 minutes after a completed attempt, coalesces with in-flight reconciliation, and retains the held catalog on failure. Boot, explicit catalog refresh and delivery degradation can request earlier reconciliation.
+
+These reads use the existing planning bounds and governed GitHub transport. This recovery adds bounded reads and claims no quota saving.
 
 A stale single-root CLI read can separately refresh that root's graph. It respects provider retry delays and does not imply that catalog membership was refreshed at the same instant.
 
