@@ -263,9 +263,6 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
 
   defp aged_health(%{data: nil, health: health}, _now_ms, _interval_ms), do: health
 
-  defp aged_health(%{health: %ProviderHealth{refreshing?: true} = health}, _now_ms, _interval_ms),
-    do: health
-
   defp aged_health(%{health: %ProviderHealth{failure: failure} = health}, _now_ms, _interval_ms)
        when not is_nil(failure),
        do: health
