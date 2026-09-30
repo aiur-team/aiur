@@ -32,10 +32,9 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
     # after which the delivery mode degrades and the projection reconciles from
     # GitHub. Derived from config; operators never set it directly.
     delivery_staleness_ms: 900_000,
-    # How long a degraded repo waits between reconciliation attempts. A dropped
-    # delivery re-converges on the next reconciliation, so this is the real
-    # convergence bound while a tunnel is down; it defaults to the same silence
-    # threshold the degradation itself is detected on.
+    # Minimum delay after a membership reconciliation before the safety sweep.
+    # All webhook modes need this: a healthy stream can omit sub-issue events.
+    # In-flight work coalesces; failed attempts retain the previous catalog.
     reconciliation_cooldown_ms: 900_000
   ]
 
@@ -122,9 +121,9 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       resource_subscription: Keyword.get(opts, :resource_subscription, &default_resource_subscription/1),
       mode_events_subscriber: Keyword.get(opts, :mode_events_subscriber, &DeliveryModeEvents.subscribe/0),
       after_broadcast: Keyword.get(opts, :after_broadcast, fn _event -> :ok end),
-      # The rare GraphQL reconciliation (boot, degraded delivery mode) that
-      # re-converges the event-sourced store. `nil` when none is running;
-      # `last_reconciliation_ms` gates how often a degraded repo re-converges.
+      # Bounded GraphQL reconciliation, independent of webhook health.
+      # `last_reconciliation_ms` gates automatic recovery attempts.
+      reconciliation_timer: nil,
       reconciliation: nil,
       last_reconciliation_ms: nil
     }

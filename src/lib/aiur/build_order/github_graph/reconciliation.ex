@@ -6,9 +6,9 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
   every delivery and Aiur-originated mutation keeps current at zero GraphQL
   cost (#2313). Deliveries can be dropped — the webhook admission gate fails
   open on a 5 s timeout — so an event-sourced projection needs a way to
-  re-converge. This module is that way, and it runs deliberately rarely: on
-  daemon boot and when `Aiur.Webhooks.DeliveryMode` reports `degraded`, never
-  on a clock.
+  re-converge. This module runs at boot, on explicit refresh and degradation,
+  and on a bounded daemon-owned safety interval in every delivery mode. A
+  healthy stream does not prove that membership deliveries were received.
 
   It re-reads the `build_order_catalog` query (the labelled variant, so member
   labels resolve the epic/wave counts) and writes the result back into the

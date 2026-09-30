@@ -46,6 +46,14 @@ Where a webhook is proven, the comment sweep becomes a reconciliation pass rathe
 
 The CI poll drops from its batch a target a `check_run` delivery already answered since the last read — the read is not bought again. Displacement is per target: a ticket with no delivery keeps its cadence, and only the read is skipped; no verdict is served from the held body. An unmatched check-run id keeps the target polled; polling stays the fallback.
 
+## Build Order membership recovery
+
+Build Order catalogs normally rebuild from stored issue and membership events. A daemon-owned membership reconciliation also reads GitHub in every webhook mode, including healthy and unproven delivery, because activity in other event families does not prove that sub-issue events arrived.
+
+The safety check waits 15 minutes after a completed attempt, coalesces with in-flight reconciliation, and retains the held catalog on failure. Boot, explicit catalog refresh and delivery degradation can request earlier reconciliation. These reads use the existing planning bounds and governed GitHub transport; this recovery adds bounded reads and claims no quota saving.
+
+A stale single-root CLI read can separately refresh that root's graph. It respects provider retry delays and does not imply that catalog membership was refreshed at the same instant.
+
 ## Who Aiur trusts
 
 | Source | Trust rule |
