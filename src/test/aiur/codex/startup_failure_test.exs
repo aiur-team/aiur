@@ -45,6 +45,12 @@ defmodule Aiur.Codex.StartupFailureTest do
     assert byte_size(excerpt) <= 1_000
   end
 
+  test "diagnostics omit ANSI-colored protocol frames" do
+    output = "\e[31m{\"id\":1,\"result\":{\"message\":\"private\"}}\e[0m\nfatal: startup refused"
+
+    assert StartupFailure.safe_excerpt(output) == "fatal: startup refused"
+  end
+
   test "diagnostics redact a spaced API key label" do
     secret = "abc123"
     excerpt = StartupFailure.safe_excerpt("fatal: API key #{secret} was rejected")

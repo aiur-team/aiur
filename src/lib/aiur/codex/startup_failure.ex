@@ -64,7 +64,11 @@ defmodule Aiur.Codex.StartupFailure do
   end
 
   defp protocol_frame?(line) do
-    trimmed = String.trim_leading(line)
+    trimmed =
+      line
+      |> String.trim_leading()
+      |> String.replace(~r/\A(?:\e\[[0-9;]*m\s*)+/, "")
+
     String.starts_with?(trimmed, ["{", "["])
   end
 
