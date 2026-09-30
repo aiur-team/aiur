@@ -52,7 +52,9 @@ Build Order catalogs normally rebuild from stored issue and membership events. A
 
 The safety check waits 15 minutes after a completed attempt, coalesces with in-flight reconciliation, and retains the held catalog on failure. Boot, explicit catalog refresh and delivery degradation can request earlier reconciliation.
 
-Reconciliation replaces membership as one complete set. If a membership edge changes while the GitHub read is in flight, the fetched set is discarded and a later scheduled attempt retries. This preserves newer webhook additions and removals without exposing an empty or partially rebuilt membership set.
+Reconciliation replaces membership as one complete set. If GitHub returns only the first page of a root's sub-issues, Aiur reports incomplete membership and retains the held set instead of deleting unseen members.
+
+If a membership edge changes while the GitHub read is in flight, the fetched set is discarded and a later scheduled attempt retries. This preserves newer webhook additions and removals without exposing an empty or partially rebuilt membership set.
 
 If the membership store call times out or its owner exits, processing reports a membership-unavailable error instead of confirming the deposit. A timed-out call can still execute later; the error is not cancellation. HTTP admission remains separate and does not promise processing success.
 

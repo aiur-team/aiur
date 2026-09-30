@@ -63,8 +63,24 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
   end
 
   defp reconcile_nodes(repository, nodes, fence) do
-    with :ok <- deposit_catalog(repository, nodes, fence),
+    with :ok <- require_complete_membership(nodes),
+         :ok <- deposit_catalog(repository, nodes, fence),
          do: {:ok, :reconciled, %{roots: length(nodes)}}
+  end
+
+  # The catalog query fetches at most 100 members per root. A partial nested
+  # connection cannot replace the complete membership set held from webhooks.
+  defp require_complete_membership(nodes) do
+    if Enum.all?(nodes, &complete_membership?/1),
+      do: :ok,
+      else: {:error, :incomplete_membership}
+  end
+
+  defp complete_membership?(node) do
+    case Connection.parse(Map.get(node, "subIssues")) do
+      {:ok, members, total, %{has_next?: false}} -> length(members) == total
+      _partial_or_invalid -> false
+    end
   end
 
   # -- deposit --------------------------------------------------------------
