@@ -259,6 +259,10 @@ function setupRealLauncher() {
   const vsnDir = path.join(releaseDir, "releases", vsn);
   mkdirSync(vsnDir, { recursive: true });
   mkdirSync(path.join(releaseDir, "lib"), { recursive: true });
+  const binAiur = path.join(releaseDir, "bin", "aiur");
+  mkdirSync(path.dirname(binAiur), { recursive: true });
+  writeFileSync(binAiur, "#!/usr/bin/env bash\nexit 0\n");
+  chmodSync(binAiur, 0o755);
   writeFileSync(path.join(releaseDir, "releases", "start_erl.data"), `1 ${vsn}\n`);
   writeFileSync(path.join(vsnDir, "vm.args"), "");
   writeFileSync(path.join(vsnDir, "sys.config"), "");
@@ -431,8 +435,8 @@ test("launcher routes init to a distribution-free foreground exec", () => {
   expect(capture).toContain("ARGV_FILE:init");
 });
 
-test("launcher loads global provider credentials before repo-local dotenv", () => {
-  const { launcher, releaseDir } = setupRealLauncher();
+test("launcher dotenv keeps shell exports and prefers repo-local provider credentials", () => {
+  const { launcher } = setupRealLauncher();
   const home = path.join(root, "home");
   const project = path.join(root, "project");
   mkdirSync(path.join(home, ".aiur"), { recursive: true });
@@ -440,31 +444,36 @@ test("launcher loads global provider credentials before repo-local dotenv", () =
 
   writeFileSync(
     path.join(home, ".aiur", ".env"),
-    "DEEPSEEK_API_KEY=global-deepseek\nMOONSHOT_API_KEY=global-moonshot\n",
+    "DEEPSEEK_API_KEY=global-deepseek\nMOONSHOT_API_KEY=global-moonshot\nOPENROUTER_MANAGEMENT_KEY=global-management\n",
   );
   writeFileSync(
     path.join(project, ".env"),
     "DEEPSEEK_API_KEY=repo-deepseek\nOPENROUTER_API_KEY=repo-openrouter\n",
   );
 
-  const result = spawnSync(launcher, ["--todo", "1440"], {
+  const env = { ...process.env, HOME: home, MOONSHOT_API_KEY: "shell-moonshot" };
+  delete env.DEEPSEEK_API_KEY;
+  delete env.OPENROUTER_API_KEY;
+  delete env.OPENROUTER_MANAGEMENT_KEY;
+
+  const result = spawnSync("bash", [
+    "-c",
+    'source "$1"; load_dotenv; printf "%s\\n" "$DEEPSEEK_API_KEY" "$OPENROUTER_API_KEY" "$MOONSHOT_API_KEY" "$OPENROUTER_MANAGEMENT_KEY"',
+    "bash",
+    launcher,
+  ], {
     cwd: project,
     encoding: "utf8",
-    env: {
-      ...process.env,
-      HOME: home,
-      AIUR_RELEASE_DIR: releaseDir,
-      AIUR_TEST_OUT: captureFile,
-      MOONSHOT_API_KEY: "shell-moonshot",
-    },
+    env,
   });
 
   expect(result.status).toBe(0);
-  const capture = readFileSync(captureFile, "utf8");
-  expect(capture).toContain("DEEPSEEK_API_KEY:global-deepseek");
-  expect(capture).toContain("OPENROUTER_API_KEY:repo-openrouter");
-  expect(capture).toContain("MOONSHOT_API_KEY:shell-moonshot");
-  expect(capture).not.toContain("repo-deepseek");
+  expect(result.stdout.trim().split("\n")).toEqual([
+    "repo-deepseek",
+    "repo-openrouter",
+    "shell-moonshot",
+    "global-management",
+  ]);
 });
 
 test("background start is idempotent when the existing tmux session has a live control plane", () => {
@@ -834,7 +843,7 @@ test("control rpc is not silent when the exit marker and output are missing", ()
   expect(result.stderr).toContain("returned no exit marker");
 });
 
-test("control rpc timeouts terminate stuck helpers and describe the degraded stop path", () => {
+test("control rpc timeouts terminate stuck helpers and report an unknown outcome", () => {
   const { launcher, releaseDir } = setupControlRpc();
 
   for (const command of ["status", "agents", "pause"]) {
@@ -854,8 +863,8 @@ test("control rpc timeouts terminate stuck helpers and describe the degraded sto
 
     expect(result.status).toBe(124);
     expect(elapsedMs).toBeLessThan(5000);
-    expect(result.stderr).toContain("control rpc to aiur-test@127.0.0.1 timed out after 1s");
-    expect(result.stderr).toContain("for example, 'aiurdev stop'");
+    expect(result.stderr).toContain(`${command} to aiur-test@127.0.0.1 timed out after 1s`);
+    expect(result.stderr).toContain("outcome is unknown; partial output was discarded");
     expect(readFileSync(cleanup, "utf8")).toContain("cleaned");
   }
 
