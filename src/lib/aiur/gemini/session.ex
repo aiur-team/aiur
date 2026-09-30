@@ -47,17 +47,18 @@ defmodule Aiur.Gemini.Session do
   defp launch(workspace, command, opts) do
     with :ok <- reject_workspace_auth_override(workspace),
          {:ok, auth} <- supported_auth(opts),
-         {:ok, home} <- isolated_home(workspace, opts),
+         {:ok, home} <- auth_home(workspace, auth, opts),
          {:ok, gateway} <- MCP.start_link(owner: self(), transport: :gemini_mcp) do
       command = command <> " --approval-mode default --allowed-mcp-server-names aiur"
       vertex? = auth.method == "vertex-ai"
 
-      launch_opts =
-        Keyword.put(opts, :env, [
-          {"GEMINI_CLI_HOME", home},
-          {"GOOGLE_GENAI_USE_GCA", "false"},
-          {"GOOGLE_GENAI_USE_VERTEXAI", to_string(vertex?)}
-        ])
+      auth_env =
+        case auth.method do
+          "oauth-personal" -> [{"GEMINI_CLI_HOME", false}, {"GOOGLE_GENAI_USE_GCA", "true"}, {"GOOGLE_GENAI_USE_VERTEXAI", "false"}]
+          _ -> [{"GEMINI_CLI_HOME", home}, {"GOOGLE_GENAI_USE_GCA", "false"}, {"GOOGLE_GENAI_USE_VERTEXAI", to_string(vertex?)}]
+        end
+
+      launch_opts = Keyword.put(opts, :env, auth_env)
 
       case Transport.start(workspace, command, launch_opts) do
         {:ok, port} ->
@@ -119,22 +120,32 @@ defmodule Aiur.Gemini.Session do
   @spec resolve_auth(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def resolve_auth(environment, opts \\ []) do
     case Keyword.get(opts, :auth) do
-      nil -> auth_from_environment(environment)
+      nil -> auth_from_environment(environment, opts)
       auth -> validate_auth(auth)
     end
   end
 
-  defp auth_from_environment(environment) do
+  defp auth_from_environment(environment, opts) do
     gemini_key = Map.get(environment, "GEMINI_API_KEY")
     vertex_key = Map.get(environment, "GOOGLE_API_KEY")
     gemini? = is_binary(gemini_key) and gemini_key != ""
     vertex? = is_binary(vertex_key) and vertex_key != ""
 
     cond do
-      gemini? and vertex? -> {:error, {:gemini_auth_ambiguous, "Set only one of GEMINI_API_KEY or GOOGLE_API_KEY"}}
-      gemini? -> validate_auth(%{method: "gemini-api-key", api_key: gemini_key})
-      vertex? -> validate_auth(%{method: "vertex-ai", api_key: vertex_key})
-      true -> {:error, {:gemini_auth_required, "Set GEMINI_API_KEY or GOOGLE_API_KEY in the Aiur daemon environment"}}
+      gemini? and vertex? ->
+        {:error, {:gemini_auth_ambiguous, "Set only one of GEMINI_API_KEY or GOOGLE_API_KEY"}}
+
+      gemini? ->
+        validate_auth(%{method: "gemini-api-key", api_key: gemini_key})
+
+      vertex? ->
+        validate_auth(%{method: "vertex-ai", api_key: vertex_key})
+
+      cached_personal_oauth?(opts) ->
+        {:ok, %{method: "oauth-personal"}}
+
+      true ->
+        {:error, {:gemini_auth_required, "Sign in with Gemini CLI or set GEMINI_API_KEY or GOOGLE_API_KEY in the Aiur daemon environment"}}
     end
   end
 
@@ -142,7 +153,23 @@ defmodule Aiur.Gemini.Session do
        when method in ["gemini-api-key", "vertex-ai"] and is_binary(key) and key != "",
        do: {:ok, %{method: method, api_key: key}}
 
+  defp validate_auth(%{method: "oauth-personal"}), do: {:ok, %{method: "oauth-personal"}}
+
   defp validate_auth(_), do: {:error, :gemini_supported_auth_required}
+
+  defp cached_personal_oauth?(opts) do
+    cache = Keyword.get_lazy(opts, :oauth_cache_path, fn -> Path.join(System.user_home!(), ".gemini/oauth_creds.json") end)
+    settings = Keyword.get_lazy(opts, :oauth_settings_path, fn -> Path.join(System.user_home!(), ".gemini/settings.json") end)
+
+    with true <- File.regular?(cache),
+         {:ok, content} <- File.read(settings),
+         {:ok, %{"security" => %{"auth" => %{"selectedType" => "oauth-personal"}}}} <-
+           content |> strip_json_comments() |> Jason.decode() do
+      true
+    else
+      _ -> false
+    end
+  end
 
   # Trusted workspace settings outrank the isolated user home in Gemini CLI.
   # A repository must not replace Aiur's API-key choice with personal OAuth.
@@ -200,6 +227,11 @@ defmodule Aiur.Gemini.Session do
       {:ok, home}
     end
   end
+
+  # Personal OAuth is cached in the user's Gemini home. Keep that home in place;
+  # key-based auth still gets a ticket-isolated home to avoid cross-ticket state.
+  defp auth_home(_workspace, %{method: "oauth-personal"}, _opts), do: {:ok, nil}
+  defp auth_home(workspace, _auth, opts), do: isolated_home(workspace, opts)
 
   defp normalize_home_root({:ok, root}), do: {:ok, root}
   defp normalize_home_root({:error, _} = error), do: error

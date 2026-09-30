@@ -14,10 +14,13 @@ defmodule Aiur.Gemini.Protocol do
         "clientCapabilities" => %{"fs" => %{"readTextFile" => false, "writeTextFile" => false}, "terminal" => false}
       })
 
-  @spec authenticate(integer(), %{method: String.t(), api_key: String.t()}) :: map()
+  @spec authenticate(integer(), map()) :: map()
   def authenticate(id, %{method: method, api_key: api_key}) do
     request(id, "authenticate", %{"methodId" => method, "_meta" => %{"api-key" => api_key}})
   end
+
+  def authenticate(id, %{method: "oauth-personal"}),
+    do: request(id, "authenticate", %{"methodId" => "oauth-personal"})
 
   @spec validate_initialize(map()) :: {:ok, map()} | {:error, term()}
   def validate_initialize(%{"protocolVersion" => 1, "agentCapabilities" => capabilities})
