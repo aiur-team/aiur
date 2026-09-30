@@ -3,6 +3,47 @@
 These are read-only source checks. Neither is authorized as a broad subsystem
 rewrite or as a measured saving.
 
+## Pause containment after a between-turn acknowledgement (`agent-runtime-01`)
+
+`agent_runner/queue_drain.ex:40-57,130-146` has two correlated
+`{:pause_agent, request_id, generation}` receives that report `:paused`
+without confirming the armed containment. The queued-turn result path does
+confirm it. An armed entry can reach its five-second fallback and reap an
+otherwise healthy idle worker. A focused test should enter each QueueDrain
+wait path, send a correlated pause, observe the `:paused` acknowledgement,
+and assert the registered containment mode becomes `:paused`; both paths
+currently leave it `:armed`.
+
+There is also an ordering race: `OperatorMessages.send_running_control_message`
+queues the pause before `PauseResume.accept_admitted_control_request` arms
+containment (`operator_messages.ex:1137`, `pause_resume.ex:1813`). A worker-side
+confirm can run first and become a no-op on the still-active entry. The
+Orchestrator's correlated `:worker_control_state` acknowledgement path
+(`orchestrator.ex:168-170`, `pause_resume.ex:1005-1101`) applies the pause
+evidence but currently does not confirm containment. A robust fix must prove
+both orders. One possible seam is a generation-fenced confirm when the
+Orchestrator accepts the matched pause acknowledgement, after its current
+call has armed containment. Capture the containment handle from the arm;
+looking up by issue identifier at acknowledgement time could affect a
+successor worker. Test both acknowledgement-before-arm scheduling and a
+replacement worker so a stale pause cannot confirm the new containment.
+
+## Accept the documented noop-turn override (`platform-misc-01`)
+
+`config/schema/agent.ex:191` declares `max_consecutive_noop_turns` with
+default three, but `Agent.changeset/2` omits it from the cast list at
+`:280-323`. `Schema.parse/1` therefore discards an operator override and
+`Config.agent_max_consecutive_noop_turns/0` still returns three to
+`TurnLoop.noop_turn_cap/1`. None of the six shipped configs sets the key, so
+this is an opt-in configuration defect, not a default-run failure.
+
+A minimal regression test parses `%{"agent" =>
+%{"max_consecutive_noop_turns" => 0}}` and asserts the parsed value is zero;
+it fails on current main. Also reject a negative value. Existing loop tests
+pass a direct keyword override and cannot detect the config error. The
+configuration reference already documents zero as the opt-out, so restoring
+that behavior needs no new page.
+
 ## Complete classified GitHub comments (`github-a-04`)
 
 `src/lib/aiur/github/comments.ex:124-141` asks `Transport.fetch_json_list/4`
