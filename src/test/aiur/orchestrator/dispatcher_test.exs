@@ -563,12 +563,12 @@ defmodule Aiur.Orchestrator.DispatcherTest do
              ) == :dispatch
     end
 
-    test "an answer recorded a minute after the blocking run ended resumes the ticket within one poll (#2713)" do
-      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+    test "an answer recorded after a blocking run stops resumes its in-progress claim within one poll (#2713, #2818)" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4, tracker_active_states: ["todo", "in-progress"])
       restore_workflow_file_after_test()
       test_pid = self()
       ticket_id = "answer-resume-#{System.unique_integer([:positive])}"
-      candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "todo", selected_backend: "codex"}
+      candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "in-progress", selected_backend: "codex"}
 
       # `worker` is true while a worker runs the ticket. The fake dispatcher
       # stands in for `OperatorMessages`: it refuses `:no_running_agent` until
