@@ -13,7 +13,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   alias Aiur.BuildOrder.{Catalog, CatalogStore, ProviderHealth, ProviderResult}
   alias Aiur.BuildOrder.GitHubGraph.Settings
-  alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, Snapshot, TaskLifecycle}
+  alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, ReconciliationTimer, Snapshot, TaskLifecycle}
   alias Aiur.TrackerIdentity
   alias Aiur.Webhooks
 
@@ -238,7 +238,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
   # repo re-converging on every store event, and this path is not an event.
   def handle_cast(:refresh_catalog, state) do
     {state, events} = reconcile(state)
-    state = start_reconciliation(state)
+    state = state |> start_reconciliation() |> ReconciliationTimer.arm()
     {state, refresh_events} = request_scope(state, :catalog)
     broadcast_all(state, events ++ refresh_events)
     {:noreply, state}
@@ -273,16 +273,33 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
     # Boot reconcile: re-converge the event-sourced store from GitHub, then
     # rebuild the catalog from the store's own change events. This is the rare
-    # reconciliation — daemon boot and degradation — never a cadence (#2313).
+    # reconciliation; a bounded safety timer also covers missing deliveries.
     # The first catalog rebuild is requested here too, so the page has a
     # (possibly empty) snapshot before the reconciliation lands; the
     # reconciliation's deposits and `clear/3` publication then wake the rebuild
     # that replaces it.
-    state = start_reconciliation(state)
+    state = state |> start_reconciliation() |> ReconciliationTimer.arm()
     {state, refresh_events} = request_scope(state, :catalog)
     broadcast_all(state, events ++ refresh_events)
     {:noreply, state}
   end
+
+  # An otherwise healthy webhook stream can omit an entire event family.
+  # Reconcile membership on a daemon-owned bound, even without store events.
+  def handle_info({:reconcile_membership, token}, %{reconciliation_timer: %{token: token}} = state) do
+    {state, events} = reconcile(state)
+    state = %{state | reconciliation_timer: nil}
+
+    state =
+      if state.active_repository != nil and is_nil(state.reconciliation) and reconciliation_due?(state),
+        do: start_reconciliation(state),
+        else: state
+
+    broadcast_all(state, events)
+    {:noreply, ReconciliationTimer.arm(state)}
+  end
+
+  def handle_info({:reconcile_membership, _stale_token}, state), do: {:noreply, state}
 
   # A webhook-backed repo degraded: deliveries are being dropped, so the
   # event-sourced store cannot converge on its own and the rare reconciliation
@@ -325,7 +342,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
         # converged store. Nothing to do here beyond clearing the inflight
         # marker; an already-converged reconciliation changed nothing, so a
         # rebuild would be a no-op anyway.
-        state = %{state | reconciliation: nil, last_reconciliation_ms: now_ms(state)}
+        state = ReconciliationTimer.arm(%{state | reconciliation: nil, last_reconciliation_ms: now_ms(state)})
         broadcast_all(state, reconcile_events)
         {:noreply, state}
 
@@ -425,6 +442,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
   @impl true
   def terminate(_reason, state) do
     state
+    |> ReconciliationTimer.cancel()
     |> cancel_reconciliation()
     |> cancel_all_tasks()
     |> cancel_all_timers()
@@ -1733,9 +1751,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   # The rare reconciliation: re-fetch the Build Order graph from GitHub and
   # write it back into the store, whose change events then rebuild the
-  # projection. Triggered on daemon boot and when delivery mode is degraded —
-  # the two cases where the event stream may have dropped something — never on
-  # a clock (#2313).
+  # projection. Boot, explicit refresh, degradation and the bounded membership
+  # timer cover lost deliveries without depending on viewers or webhook health.
   defp start_reconciliation(state) do
     if is_nil(state.reconciliation) do
       reader_options = reader_options(state, false)

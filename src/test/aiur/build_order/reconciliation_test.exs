@@ -99,6 +99,38 @@ defmodule Aiur.BuildOrder.ReconciliationTest do
     assert {:ok, %{data: %{"present" => true}}} = ResourceStore.fetch(ResourceStore.key_for_repo(:sub_issue, @repo, "100:101"))
   end
 
+  test "an incomplete nested member page cannot replace the held membership set" do
+    tail_key = ResourceStore.key_for_repo(:sub_issue, @repo, "100:201")
+
+    ResourceStore.put_resource(
+      tail_key,
+      %{
+        "present" => true,
+        "parent_issue_number" => 100,
+        "sub_issue_number" => 201,
+        "parent_issue_repo" => @repo,
+        "sub_issue_repo" => @repo
+      },
+      source: :webhook,
+      version: "2026-06-24T12:00:00Z"
+    )
+
+    root = root_node(100, Enum.map(101..200, &member_node/1))
+
+    partial_members =
+      root["subIssues"]
+      |> Map.put("totalCount", 101)
+      |> Map.put("pageInfo", %{"hasNextPage" => true, "endCursor" => "next-page"})
+
+    assert {:error, :incomplete_membership} =
+             Reconciliation.run(
+               repository: @repository,
+               request_fun: catalog_fun([Map.put(root, "subIssues", partial_members)])
+             )
+
+    assert {:ok, %{data: %{"present" => true}}} = ResourceStore.fetch(tail_key)
+  end
+
   test "a failed reconciliation returns an error and leaves the store alone" do
     request_fun = fn _request ->
       {:ok, %{status: 200, body: %{"errors" => [%{"message" => "redacted"}]}, headers: []}}

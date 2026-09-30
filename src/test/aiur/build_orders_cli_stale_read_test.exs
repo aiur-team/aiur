@@ -2,7 +2,7 @@ defmodule Aiur.BuildOrdersCLIStaleReadTest do
   use ExUnit.Case, async: true
 
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
-  alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.BuildOrder.GraphProjection.{Policy, Snapshot}
   alias Aiur.{BuildOrdersCLI, TrackerIdentity}
 
   @now ~U[2026-09-29 03:00:00Z]
@@ -54,6 +54,17 @@ defmodule Aiur.BuildOrdersCLIStaleReadTest do
       assert {:ok, _} = read(context)
       refute_received {:refresh, _}
     end
+  end
+
+  test "starting a refresh cannot make an old observation current" do
+    context = context()
+    entry = Policy.unavailable_entry({:selected, context.root.identity}, 0)
+    entry = Policy.apply_success(entry, context.held.data, 1, @old, 0)
+    refreshing = Policy.refreshing(entry, @now)
+    snapshot = Policy.snapshot(refreshing, {"owner", "repo"}, 1, 60_001, 60_000)
+    assert snapshot.health.refreshing?
+    assert snapshot.health.state == :stale
+    assert snapshot.health.observed_at == @old
   end
 
   defp read(context, now \\ @now),

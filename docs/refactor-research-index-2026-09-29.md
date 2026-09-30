@@ -9,7 +9,7 @@ The [requirements](brainstorms/2026-09-29-aiur-refactor-requirements.md) and [pr
 - The [21-row owner action ledger](https://github.com/aiur-team/aiur/blob/13238f83fac0449e5984398c19eea631a01622c1/docs/research/refactor-2026-09-26/synthesis/u0-fc-owner-action-ledger.json) resolves the earlier frozen-map exceptions with preservation-first routes. The [feature review](https://github.com/aiur-team/aiur/blob/13238f83fac0449e5984398c19eea631a01622c1/docs/research/refactor-2026-09-26/synthesis/merged-main-f223-feature-review.md) screens all 156 changed feature citations; cuts still need live-use checks.
 - [Aiur v0.0.7](https://github.com/aiur-team/aiur/releases/tag/v0.0.7) was published from `main@465aca643527ea94a4d0d6d7c178c5d23d2aaf57` as `aiur-cli` and the three platform packages. The [stable workflow](https://github.com/aiur-team/aiur/actions/runs/36667374101) passed at that commit. The deletion guard and GitHub cache dashboard were removed in this release, so their deletion is outside the future refactor's savings.
 - The [release-head checkpoint](https://github.com/aiur-team/aiur/blob/13238f83fac0449e5984398c19eea631a01622c1/docs/research/refactor-2026-09-26/synthesis/merged-main-465aca-release-checkpoint.md) counts 357 tracked UTF-8 text paths over 500 lines: 355 frozen-map survivors, four retired paths and two newly oversized tests. A 986-finding citation comparison gives 595 identical, 38 stale and 353 changed, moved or freeform anchors. This is citation equality only; changed anchors need focused source review.
-- The [U8 proposal](https://github.com/aiur-team/aiur/blob/13238f83fac0449e5984398c19eea631a01622c1/docs/research/refactor-2026-09-26/synthesis/u8-release-007/proposal.md) assigns each of those 357 paths exactly once across 35 provisional owner packages. Its [manifest](https://github.com/aiur-team/aiur/blob/13238f83fac0449e5984398c19eea631a01622c1/docs/research/refactor-2026-09-26/synthesis/u8-release-007/assignments.csv) and [generator](https://github.com/aiur-team/aiur/blob/13238f83fac0449e5984398c19eea631a01622c1/docs/research/refactor-2026-09-26/synthesis/u8-release-007/build.py) preserve the count and flag conditional regeneration, deletion, historical anchors and shared surfaces for U0 review.
+- The [U8 proposal](https://github.com/aiur-team/aiur/blob/b693c1195c793a8becaf3a8ae704597cc23fa7da/docs/research/refactor-2026-09-26/synthesis/u8-release-007/proposal.md) assigns each of those 357 paths exactly once across 37 provisional owner packages after an independent boundary review corrected 11 assignments. Its [manifest](https://github.com/aiur-team/aiur/blob/b693c1195c793a8becaf3a8ae704597cc23fa7da/docs/research/refactor-2026-09-26/synthesis/u8-release-007/assignments.csv) and [generator](https://github.com/aiur-team/aiur/blob/b693c1195c793a8becaf3a8ae704597cc23fa7da/docs/research/refactor-2026-09-26/synthesis/u8-release-007/build.py) preserve the count and flag conditional regeneration, deletion, historical anchors and shared surfaces for U0 review.
 
 ## Current decisions and checks
 
@@ -20,8 +20,8 @@ The first GitHub access seam stays inside the existing process hierarchy until c
 To reproduce the release-head assignment audit from a separate research checkout:
 
 ```sh
-git fetch origin 13238f83fac0449e5984398c19eea631a01622c1
-git worktree add --detach ../aiur-refactor-evidence 13238f83fac0449e5984398c19eea631a01622c1
+git fetch origin b693c1195c793a8becaf3a8ae704597cc23fa7da
+git worktree add --detach ../aiur-refactor-evidence b693c1195c793a8becaf3a8ae704597cc23fa7da
 cd ../aiur-refactor-evidence
 python3 docs/research/refactor-2026-09-26/synthesis/u8-release-007/build.py
 ```

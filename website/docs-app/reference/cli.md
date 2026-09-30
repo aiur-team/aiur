@@ -174,9 +174,9 @@ Human output prints the same state as `80% (last known 12m ago)`, measured from 
 
 A member closed without completing (not planned, duplicate, cancelled) is resolved 0% regardless of any earlier reading. Catalog root completion is lifecycle-derived and does not carry these fields.
 
-`aiur build-orders <root>` starts the first GitHub read of a root that has no graph yet, the same as opening `/build-orders/<root>` does. It also requests a new read when the retained graph is stale, subject to provider backoff. You do not need the Dashboard open.
+`aiur build-orders <root>` requests a read when its graph is missing or stale, without requiring the Dashboard open. Concurrent reads coalesce and provider retry delays still apply. The command returns the held graph while refresh runs, preserving its observation time and stale status.
 
-The command returns immediately with the previous observation time while a stale graph refreshes; run it again to see the new graph. For a first read, `data.graph.status` and `sources.planning_graph.state` are `loading` while the read runs. `provider_unavailable` means that a read failed.
+For a missing graph, `data.graph.status` and `sources.planning_graph.state` are `loading`. Run the command again to get the completed read. `provider_unavailable` means that a read failed.
 
 Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`, while human output prints the same labelled state and age because a number without observation age is not actionable.
 
