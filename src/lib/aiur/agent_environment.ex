@@ -373,7 +373,8 @@ defmodule Aiur.AgentEnvironment do
     with :ok <- AgentScratch.install(workspace),
          true <- File.dir?(scratch_dir) do
       value = String.to_charlist(scratch_dir)
-      [{~c"TMPDIR", value}, {~c"TMP", value}, {~c"TEMP", value}]
+      zsh_prefix = scratch_dir |> Path.join("zsh-") |> String.to_charlist()
+      [{~c"TMPDIR", value}, {~c"TMP", value}, {~c"TEMP", value}, {~c"TMPPREFIX", zsh_prefix}]
     else
       _unavailable -> []
     end
@@ -460,8 +461,8 @@ defmodule Aiur.AgentEnvironment do
       "export AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR=#{github_budget.agent_search_limit_per_hour}\n" <>
       "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
-      ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"\n) <>
-      "  export TMPDIR TMP TEMP\nfi\nunset aiur_scratch_dir\n" <>
+      ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"; TMPPREFIX="$aiur_scratch_dir/zsh-"\n) <>
+      "  export TMPDIR TMP TEMP TMPPREFIX\nfi\nunset aiur_scratch_dir\n" <>
       "{ #{scrub_shell_prefix()}; } && " <>
       "export MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
       "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}\n}"
