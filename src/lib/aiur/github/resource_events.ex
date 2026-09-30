@@ -281,7 +281,16 @@ defmodule Aiur.GitHub.ResourceEvents do
   the store (#2313).
   """
   @spec publish_cleared(ResourceStore.resource_type(), String.t(), String.t()) :: :ok
-  def publish_cleared(type, owner, repo) when is_atom(type) and is_binary(owner) and is_binary(repo) do
+  def publish_cleared(type, owner, repo)
+      when is_atom(type) and is_binary(owner) and is_binary(repo),
+      do: publish_scope(type, owner, repo, true)
+
+  def publish_cleared(_type, _owner, _repo), do: :ok
+
+  @doc "Publishes one scope invalidation after an atomic membership replacement."
+  def publish_replaced(type, owner, repo), do: publish_scope(type, owner, repo, false)
+
+  defp publish_scope(type, owner, repo, cleared?) do
     message =
       {:github_resource_changed,
        %{
@@ -293,10 +302,10 @@ defmodule Aiur.GitHub.ResourceEvents do
          source: nil,
          version: nil,
          etag: nil,
-         data?: false,
+         data?: not cleared?,
          data_version: nil,
          recorded_at_ms: System.system_time(:millisecond),
-         cleared: true
+         cleared: cleared?
        }}
 
     broadcast(type_topic(type, "#{owner}/#{repo}"), message)
@@ -304,8 +313,6 @@ defmodule Aiur.GitHub.ResourceEvents do
 
     :ok
   end
-
-  def publish_cleared(_type, _owner, _repo), do: :ok
 
   # -- internals ------------------------------------------------------------
 

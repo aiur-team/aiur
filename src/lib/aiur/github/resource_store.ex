@@ -258,7 +258,7 @@ defmodule Aiur.GitHub.ResourceStore do
   require Logger
 
   alias Aiur.{Config, Fs, JsonStore}
-  alias Aiur.GitHub.ResourceEvents
+  alias Aiur.GitHub.{MembershipAccess, ResourceEvents}
 
   @table __MODULE__.Table
   @retention_ms 72 * 60 * 60 * 1000
@@ -1077,17 +1077,23 @@ defmodule Aiur.GitHub.ResourceStore do
   @doc """
   Removes every entry of one resource type in one repository.
 
-  This is the store operation behind a *set* reconciliation: when the Build
-  Order reconciliation re-fetches the graph from GitHub, it clears the repo's
-  `:sub_issue` edges and re-deposits the fetched membership, so an edge whose
-  `*_removed` delivery was dropped cannot linger as `present: true` (#2313).
-  Only the reconciled type is cleared — shared resources like `:issue` are left
-  alone, because other consumers read them and their events keep them fresh.
+  Clears only the selected type; shared resources are left alone. Membership
+  reconciliation uses `membership_snapshot/2` and `replace_membership/4`
+  instead, so newer deliveries survive and readers never see a partial set.
 
   Returns `:ok` even when no store is running.
   """
   @spec clear(resource_type(), String.t(), String.t()) :: :ok
-  def clear(resource_type, owner, repo) when is_atom(resource_type) and is_binary(owner) and is_binary(repo) do
+  def clear(resource_type, owner, repo)
+      when is_atom(resource_type) and is_binary(owner) and is_binary(repo),
+      do:
+        MembershipAccess.run(resource_type, :ok, fn ->
+          clear_entries(resource_type, owner, repo)
+        end)
+
+  def clear(_resource_type, _owner, _repo), do: :ok
+
+  defp clear_entries(resource_type, owner, repo) do
     if resource_type in @resource_types do
       owner = String.downcase(owner)
       repo = String.downcase(repo)
@@ -1102,7 +1108,49 @@ defmodule Aiur.GitHub.ResourceStore do
     end
   end
 
-  def clear(_resource_type, _owner, _repo), do: :ok
+  @doc "Captures a membership fence before an upstream reconciliation read."
+  @spec membership_snapshot(String.t(), String.t()) :: {:ok, list()} | {:error, :unavailable}
+  def membership_snapshot(owner, repo) do
+    MembershipAccess.run(:sub_issue, {:error, :unavailable}, fn ->
+      {:ok, list(:sub_issue, owner, repo) |> Enum.sort()}
+    end)
+  end
+
+  @doc "Replaces membership only if no edge changed since the upstream read began."
+  @spec replace_membership(String.t(), String.t(), list(), list()) :: :ok | {:error, atom()}
+  def replace_membership(owner, repo, expected, edges) do
+    MembershipAccess.run(:sub_issue, {:error, :unavailable}, fn ->
+      if Enum.sort(list(:sub_issue, owner, repo)) == expected do
+        replace_membership_entries(String.downcase(owner), String.downcase(repo), expected, edges)
+      else
+        {:error, :membership_changed}
+      end
+    end)
+  end
+
+  defp replace_membership_entries(owner, repo, previous, edges) do
+    version = DateTime.to_iso8601(DateTime.utc_now())
+    held = Map.new(previous)
+
+    entries =
+      Enum.map(edges, fn {id, data} ->
+        key = {:sub_issue, owner, repo, id}
+
+        entry =
+          deposit(Map.get(held, key, %{}), {:ok, data}, :reconciliation, version, etag: :derive)
+
+        {key, Map.put(entry, :recorded_at_ms, now_ms())}
+      end)
+
+    with_table({:error, :unavailable}, fn table ->
+      # All preparation precedes mutation; readers, writers, checkpoint and
+      # expiry run on this same owner for membership, so none see a partial set.
+      :ets.match_delete(table, {{:sub_issue, owner, repo, :_}, :_})
+      :ets.insert(table, entries)
+      ResourceEvents.publish_replaced(:sub_issue, owner, repo)
+      :ok
+    end)
+  end
 
   @doc """
   Enumerates every entry the store holds for one resource type in one
@@ -1119,10 +1167,17 @@ defmodule Aiur.GitHub.ResourceStore do
   entries.
 
   No write is performed: the store table is `:public` and this reads it from
-  the caller's process like every other reader.
+  the caller's process, except membership reads, which serialize through the
+  table owner with membership writes and replacements.
   """
   @spec list(resource_type(), String.t(), String.t()) :: [{key(), entry()}]
-  def list(resource_type, owner, repo) when is_atom(resource_type) and is_binary(owner) and is_binary(repo) do
+  def list(resource_type, owner, repo)
+      when is_atom(resource_type) and is_binary(owner) and is_binary(repo),
+      do: MembershipAccess.run(resource_type, [], fn -> list_entries(resource_type, owner, repo) end)
+
+  def list(_resource_type, _owner, _repo), do: []
+
+  defp list_entries(resource_type, owner, repo) do
     if resource_type in @resource_types do
       owner = String.downcase(owner)
       repo = String.downcase(repo)
@@ -1134,8 +1189,6 @@ defmodule Aiur.GitHub.ResourceStore do
       []
     end
   end
-
-  def list(_resource_type, _owner, _repo), do: []
 
   @doc """
   Lists every held body of `type` within one `"owner/repo"`.
@@ -1159,7 +1212,9 @@ defmodule Aiur.GitHub.ResourceStore do
         # pattern wraps the key in the tuple that is actually stored.
         pattern = {{type, String.downcase(owner), String.downcase(repo), :_}, :_}
 
-        with_table([], fn table -> list_type_entries(table, pattern) end)
+        MembershipAccess.run(type, [], fn ->
+          with_table([], fn table -> list_type_entries(table, pattern) end)
+        end)
 
       _other ->
         []
@@ -1238,7 +1293,9 @@ defmodule Aiur.GitHub.ResourceStore do
   already has, and the shared test setup clears both for the same reason.
   """
   @spec reset() :: :ok
-  def reset do
+  def reset, do: MembershipAccess.run(:sub_issue, :ok, &reset_entries/0)
+
+  defp reset_entries do
     with_table(:ok, fn table ->
       :ets.delete_all_objects(table)
       :ok
@@ -1249,7 +1306,9 @@ defmodule Aiur.GitHub.ResourceStore do
   @spec forget(key() | nil) :: :ok
   def forget(nil), do: :ok
 
-  def forget(key) do
+  def forget(key), do: MembershipAccess.run(key, :ok, fn -> forget_entry(key) end)
+
+  defp forget_entry(key) do
     with_table(:ok, fn table ->
       :ets.delete(table, key)
       :ok
@@ -1268,9 +1327,9 @@ defmodule Aiur.GitHub.ResourceStore do
   True when there is a store to read and write.
 
   Answered from the table every read and write funnels through, not from a
-  process name: writes land in ETS from the caller's own process, and the table
-  name is fixed while the process name is a start-up option. A caller that gates
-  on the wrong one would skip its work silently against a store that is running.
+  process name: the table name is fixed while the process name is a start-up
+  option. A caller that gates on the wrong one would skip its work silently
+  against a store that is running.
   """
   @spec running?() :: boolean()
   def running?, do: with_table(false, fn _table -> true end)
@@ -1322,6 +1381,8 @@ defmodule Aiur.GitHub.ResourceStore do
     {:reply, reply, state}
   end
 
+  def handle_call({:membership_access, fun}, _from, state), do: {:reply, fun.(), state}
+
   @impl true
   def handle_info(:checkpoint, state) do
     {_reply, state} = checkpoint(state)
@@ -1354,7 +1415,9 @@ defmodule Aiur.GitHub.ResourceStore do
 
   defp schedule(_message, _interval), do: :ok
 
-  defp lookup(key) do
+  defp lookup(key), do: MembershipAccess.run(key, nil, fn -> lookup_entry(key) end)
+
+  defp lookup_entry(key) do
     with_table(nil, fn table ->
       case :ets.lookup(table, key) do
         [{^key, entry}] -> entry
@@ -1421,7 +1484,9 @@ defmodule Aiur.GitHub.ResourceStore do
   @update_backoff_attempts 128
   @update_attempts @update_spin_attempts + @update_yield_attempts + @update_backoff_attempts
 
-  defp update(key, fun) do
+  defp update(key, fun), do: MembershipAccess.run(key, :ok, fn -> update_entry(key, fun) end)
+
+  defp update_entry(key, fun) do
     with_table(:ok, fn table ->
       {_reply, result} = update_cas(table, key, &{fun.(&1), :ok}, :ok, @update_attempts)
       result
@@ -1438,7 +1503,10 @@ defmodule Aiur.GitHub.ResourceStore do
   # contention, for the same reason it is the answer when no table exists: an
   # abandoned write has decided nothing, so the caller must be told the
   # fail-open thing rather than a decision that never happened.
-  defp update_reply(key, default, fun) do
+  defp update_reply(key, default, fun),
+    do: MembershipAccess.run(key, default, fn -> update_entry_reply(key, default, fun) end)
+
+  defp update_entry_reply(key, default, fun) do
     with_table(default, fn table ->
       {reply, _result} = update_cas(table, key, fun, default, @update_attempts)
       reply
