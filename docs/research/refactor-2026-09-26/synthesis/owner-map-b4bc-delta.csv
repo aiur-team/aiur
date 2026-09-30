@@ -1,0 +1,66 @@
+path,previous_main_lines,b4bc_lines,delta,proposed_owner,status
+.claude/skills/aiur-run/SKILL.md,1245,1254,9,Aiur operator skills,changed_existing
+.github/workflows/release-npm.yml,577,583,6,CI/release workflows,changed_existing
+packaging/npm/aiur-cli/libexec/aiur-engine.sh,4179,4224,45,npm CLI packaging,changed_existing
+scripts/aiurdev,912,937,25,Developer launcher,changed_existing
+src/browser/tests/units.browser.spec.mjs,861,872,11,Browser UI / tests,changed_existing
+src/lib/aiur.ex,610,600,-10,Repository support,changed_existing
+src/lib/aiur/agent_control_cli.ex,3408,3329,-79,Agent control CLI,changed_existing
+src/lib/aiur/agent_runner.ex,614,685,71,Agent runtime,changed_existing
+src/lib/aiur/agent_runner/queue_drain.ex,821,824,3,Agent runtime,changed_existing
+src/lib/aiur/agent_runner/session_lifecycle.ex,1095,1102,7,Agent runtime,changed_existing
+src/lib/aiur/agent_runner/turn_loop.ex,579,591,12,Agent runtime,changed_existing
+src/lib/aiur/coding_agent.ex,1392,1179,-213,Aiur core / coding agent,changed_existing
+src/lib/aiur/events/github_comments_poller.ex,854,863,9,Event delivery,changed_existing
+src/lib/aiur/github/dispatch_authorization.ex,666,695,29,GitHub access,changed_existing
+src/lib/aiur/github/issues.ex,1246,1248,2,GitHub access,changed_existing
+src/lib/aiur/github/pull_requests.ex,933,954,21,GitHub access,changed_existing
+src/lib/aiur/github/read_cache.ex,556,555,-1,GitHub access,changed_existing
+src/lib/aiur/orchestrator.ex,996,1003,7,Ticket lifecycle and dispatch,changed_existing
+src/lib/aiur/orchestrator/operator_messages.ex,1148,1167,19,Ticket lifecycle and dispatch,changed_existing
+src/lib/aiur/orchestrator/status_report.ex,1462,1473,11,Ticket lifecycle and dispatch,changed_existing
+src/lib/aiur/workspace/ownership/guardian.ex,759,819,60,Workspace lifecycle,changed_existing
+src/lib/aiur/workspace/provisioner.ex,733,743,10,Workspace lifecycle,changed_existing
+src/lib/aiur_web/build_order/planning_source.ex,926,933,7,Web UI / build_order,changed_existing
+src/lib/aiur_web/build_order/ticket_context_presenter.ex,791,793,2,Web UI / build_order,changed_existing
+src/lib/aiur_web/build_order_presenter.ex,1045,1046,1,Web UI / presenters and channels,changed_existing
+src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex,785,791,6,Web UI / components / operator_control_center,changed_existing
+src/lib/aiur_web/live/dashboard_live.ex,2858,2903,45,Web UI / live,changed_existing
+src/priv/static/dashboard.css,10273,10294,21,Dashboard and browser static assets,changed_existing
+src/test/aiur/agent_control_cli_test.exs,4052,4071,19,Agent control CLI tests,changed_existing
+src/test/aiur/agent_github_guard_test.exs,5764,5762,-2,GitHub access and guard tests,changed_existing
+src/test/aiur/agent_runner/queue_drain_test.exs,878,1003,125,Agent Runner tests,changed_existing
+src/test/aiur/agent_runner/session_lifecycle_test.exs,992,1035,43,Agent Runner tests,changed_existing
+src/test/aiur/agent_runner/tool_executor_test.exs,1949,1966,17,Agent Runner tests,changed_existing
+src/test/aiur/agent_runner_test.exs,794,804,10,Agent runtime tests,changed_existing
+src/test/aiur/app_server/adapter_test.exs,571,574,3,Aiur core/integration tests,changed_existing
+src/test/aiur/build_order/pack_status_test.exs,915,917,2,Build Order tests,changed_existing
+src/test/aiur/coding_agent_test.exs,1013,1026,13,Aiur core/integration tests,changed_existing
+src/test/aiur/config/schema_test.exs,918,944,26,Config tests,changed_existing
+src/test/aiur/core_test.exs,4023,4025,2,Aiur core/integration tests,changed_existing
+src/test/aiur/events/github_comments_poller_test.exs,1508,1570,62,Events tests,changed_existing
+src/test/aiur/github/dispatch_authorization_test.exs,850,916,66,Github tests,changed_existing
+src/test/aiur/github/issues_test.exs,1247,1367,120,Github tests,changed_existing
+src/test/aiur/init_test.exs,2185,2233,48,Initialization tests,changed_existing
+src/test/aiur/orchestrator/orphaned_workers_test.exs,502,523,21,Orchestrator tests,changed_existing
+src/test/aiur/orchestrator/status_report_test.exs,,508,,Ticket lifecycle and dispatch tests,newly_oversized
+src/test/aiur/orchestrator_status_test.exs,4880,4940,60,Ticket lifecycle and dispatch tests,changed_existing
+src/test/aiur/provider_meter_probe_test.exs,698,699,1,Aiur core/integration tests,changed_existing
+src/test/aiur/regression/orchestrator_blocking_http_test.exs,1162,1168,6,Regression tests,changed_existing
+src/test/aiur/regression/workspace_lifecycle_test.exs,835,834,-1,Regression tests,changed_existing
+src/test/aiur/run_telemetry/writer_test.exs,933,935,2,Run Telemetry tests,changed_existing
+src/test/aiur/workspace/ownership_test.exs,1146,1243,97,Workspace tests,changed_existing
+src/test/aiur/workspace_and_config_test.exs,3640,3641,1,Workspace lifecycle tests,changed_existing
+src/test/aiur_engine_test.exs,4245,4362,117,Aiur CLI/integration tests,changed_existing
+src/test/aiur_web/build_order/planning_source_test.exs,927,1066,139,Web UI and dashboard tests,changed_existing
+src/test/aiur_web/components/operator_control_center/run_summary_strip_test.exs,1665,1667,2,Web UI and dashboard tests,changed_existing
+src/test/aiur_web/components/operator_control_center/units_table_test.exs,,513,,Web UI and dashboard tests,newly_oversized
+src/test/aiur_web/live/build_order_live_test.exs,1779,1866,87,Web UI and dashboard tests,changed_existing
+src/test/aiur_web/live/dashboard_live_test.exs,6562,6604,42,Web UI and dashboard tests,changed_existing
+src/test/aiur_web/operator_control_center/units_row_test.exs,584,597,13,Web UI and dashboard tests,changed_existing
+src/test/browser/fixture_server.exs,2634,2639,5,Browser fixture and test harness,changed_existing
+src/test/scripts_aiurdev_test.exs,1988,2048,60,Aiur CLI/integration tests,changed_existing
+src/test/support/test_support.exs,1663,1661,-2,Aiur CLI/integration tests,changed_existing
+website/docs-app/apis/github.md,719,742,23,Operator documentation,changed_existing
+website/docs-app/concepts/ticket-lifecycle.md,639,657,18,Operator documentation,changed_existing
+website/docs-app/reference/configuration.md,834,853,19,Operator documentation,changed_existing
