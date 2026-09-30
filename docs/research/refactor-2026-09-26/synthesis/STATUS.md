@@ -1,4 +1,6 @@
-# Synthesis status — 2026-09-29
+# Synthesis status — 2026-09-30
+
+Research now lives on `research/refactor-findings`; the research-only files were removed from `main` by PR #2921. The [latest clean-main census](u0-main-size-census-2026-09-29.md#research-branch-checkpoint-after-main-cleanup) at `8f17b91f` still has 357 tracked UTF-8 paths over 500 lines, exactly matching the U8 assignment manifest. Four assigned files grew by 109 lines total. This is a source checkpoint only; U0 owner and caller gates and implementation-head behavior checks remain open. The 0.0.8 release has not been tagged or published.
 
 The later [released-main P0/P1 action ledger](high-priority-disposition-fc8270bb.md)
 now gives all 97 canonical high-priority findings a provisional action and
