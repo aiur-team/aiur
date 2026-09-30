@@ -56,6 +56,9 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
 
     %{
       catalog: Policy.unavailable_entry(:catalog, now_ms),
+      # Distinguishes a catalog read started before a store change from one
+      # started after it. The former cannot satisfy the new change signal.
+      catalog_change_seq: 0,
       # nil means "no labelled catalog read has landed under this authority", so
       # the first read after start or a configuration change buys the labels and
       # the page resolves its epic/wave counts promptly.
