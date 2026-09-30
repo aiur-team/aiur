@@ -559,7 +559,12 @@ defmodule Aiur.ExtensionsTest do
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do
-    snapshot = static_snapshot()
+    last_failure_at = ~U[2026-09-29 12:00:00Z]
+
+    snapshot =
+      static_snapshot()
+      |> update_in([:retrying], fn [retrying] -> [Map.put(retrying, :last_failure_at, last_failure_at)] end)
+
     orchestrator_name = Module.concat(__MODULE__, :ObservabilityApiOrchestrator)
 
     {:ok, _pid} =
@@ -627,6 +632,7 @@ defmodule Aiur.ExtensionsTest do
                  "attempt" => 2,
                  "due_at" => state_payload["retrying"] |> List.first() |> Map.fetch!("due_at"),
                  "error" => "boom",
+                 "last_failure_at" => DateTime.to_iso8601(last_failure_at),
                  "worker_host" => nil,
                  "workspace_path" => nil,
                  "state" => nil,

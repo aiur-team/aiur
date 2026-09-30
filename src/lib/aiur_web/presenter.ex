@@ -341,6 +341,7 @@ defmodule AiurWeb.Presenter do
       attempt: entry.attempt,
       due_at: due_at_iso8601(entry.due_in_ms),
       error: entry.error,
+      last_failure_at: iso8601(Map.get(entry, :last_failure_at)),
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path),
       state: Map.get(entry, :state),

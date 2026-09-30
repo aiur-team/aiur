@@ -408,7 +408,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "before_run recreates dirty leftover workspaces for todo dispatches" do
+  test "before_run holds dirty leftover workspaces for todo dispatches" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover")
 
     try do
@@ -422,17 +422,17 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:todo"]
       }
 
-      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+      assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
 
-      assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-      assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
       File.rm_rf(test_root)
     end
   end
 
-  test "before_run recreates dirty leftover workspaces when retry still carries todo label" do
+  test "before_run holds dirty leftover workspaces when retry still carries todo label" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover-retry")
 
     try do
@@ -446,11 +446,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:todo"]
       }
 
-      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+      assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
 
-      assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-      assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
       File.rm_rf(test_root)
     end
@@ -471,11 +471,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:todo"]
       }
 
-      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+      assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
 
-      assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-      assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
       File.rm_rf(test_root)
     end

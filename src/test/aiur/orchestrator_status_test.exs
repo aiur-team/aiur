@@ -3,7 +3,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TicketActivity, TicketObservation, TrackerIdentity}
+  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TicketActivity, TicketObservation, Tracker, TrackerIdentity}
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
@@ -84,7 +84,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   defmodule StartupCleanupGitHubClient do
     def preflight_auth, do: :ok
-    def fetch_candidate_issues, do: {:ok, []}
+    def fetch_candidate_issues, do: {:ok, Application.get_env(:aiur, :startup_cleanup_issues, [])}
 
     def fetch_issues_by_states(states), do: fetch_issues_by_states(states, [])
 
@@ -1136,6 +1136,66 @@ defmodule Aiur.OrchestratorStatusTest do
       restore_application_env(:startup_cleanup_issues, previous_issues)
       restore_application_env(:log_file, previous_log_file)
       restore_env("GITHUB_TOKEN", previous_github_token)
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "test ticket scope protects unrelated dirty todo workspace before startup cleanup and candidate polling" do
+    previous_github_client = Application.get_env(:aiur, :github_client_module)
+    previous_test_pid = Application.get_env(:aiur, :startup_cleanup_test_pid)
+    previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+    previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+    previous_log_file = Application.get_env(:aiur, :log_file)
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-scoped-startup-cleanup")
+
+    try do
+      System.put_env("GITHUB_TOKEN", "gh-test-token")
+      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+      Application.put_env(:aiur, :log_file, Path.join([workspace_root, "log", "agent.md"]))
+
+      pinned_workspace = Path.join([workspace_root, "owner", "repo", "99"])
+      unrelated_workspace = Path.join([workspace_root, "owner", "repo", "2413"])
+      File.mkdir_p!(pinned_workspace)
+      File.mkdir_p!(unrelated_workspace)
+      File.write!(Path.join(pinned_workspace, "old.txt"), "sandbox reset candidate")
+      File.write!(Path.join(unrelated_workspace, "dirty.txt"), "uncommitted bytes must survive\n")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress"],
+        tracker_terminal_states: ["done"],
+        workspace_root: workspace_root,
+        poll_interval_seconds: 60
+      )
+
+      Application.put_env(:aiur, :github_client_module, StartupCleanupGitHubClient)
+      Application.put_env(:aiur, :startup_cleanup_test_pid, self())
+
+      Application.put_env(:aiur, :startup_cleanup_issues, [
+        %Issue{id: "issue-99", identifier: "99", title: "Pinned", state: "todo"},
+        %Issue{id: "issue-2413", identifier: "2413", title: "Unrelated", state: "todo"}
+      ])
+
+      assert %Orchestrator.State{} =
+               WorkspaceCleanup.run_startup_todo_workspace_cleanup(%Orchestrator.State{})
+
+      refute File.exists?(pinned_workspace)
+      assert File.read!(Path.join(unrelated_workspace, "dirty.txt")) == "uncommitted bytes must survive\n"
+      assert :ok = WorkspaceCleanup.cleanup_issue_workspace("2413")
+      assert File.read!(Path.join(unrelated_workspace, "dirty.txt")) == "uncommitted bytes must survive\n"
+      assert {:ok, [%Issue{identifier: "99"}]} = Tracker.fetch_candidate_issues()
+      assert {:ok, [%Issue{identifier: "99"}], %{}} = Aiur.GitHub.Tracker.fetch_candidate_issues_conditional(%{})
+      assert {:ok, [%Issue{identifier: "99"}]} = Tracker.fetch_issues_by_states(["todo"])
+    after
+      restore_application_env(:github_client_module, previous_github_client)
+      restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
+      restore_application_env(:startup_cleanup_issues, previous_issues)
+      restore_application_env(:log_file, previous_log_file)
+      restore_env("GITHUB_TOKEN", previous_github_token)
+      restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope)
       File.rm_rf(workspace_root)
     end
   end
@@ -4145,7 +4205,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
   end
 
-  test "tracker poll unpause replaces a dead runner and reports running through the CLI" do
+  test "tracker poll unpause replaces a dead runner and reports startup through the CLI" do
     active_issue = completed_rework_issue("paused-provenance")
     paused_issue = %{active_issue | paused: true}
     configure_completed_revalidation!([active_issue], max_concurrent_agents: 3)
@@ -4181,6 +4241,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert replacement.control.status == :working
     assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
     assert is_reference(replacement.ref)
+    assert replacement.session_id == nil
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
 
     # The CLI reads the shared SnapshotStore read model first; fence out any
@@ -4189,7 +4250,7 @@ defmodule Aiur.OrchestratorStatusTest do
     :sys.replace_state(orchestrator_pid, fn _state -> %{next | snapshot_generation: generation} end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~
-             "#{active_issue.identifier} running #{active_issue.title}"
+             "#{active_issue.identifier} starting #{active_issue.title}"
   end
 
   test "Executor messages rearm multiple completed runners without returned workers holding slots" do

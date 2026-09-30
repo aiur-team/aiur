@@ -70,7 +70,7 @@ defmodule Aiur.BuildOrdersCLI do
        page: "build-orders",
        snapshot: %{captured_at: captured_at},
        request: %{},
-       sources: %{planning_catalog: planning_source(snapshot, captured_at)},
+       sources: Map.merge(%{planning_catalog: planning_source(snapshot, captured_at)}, planning_runtime_sources(snapshot, captured_at)),
        data: %{catalog: snapshot.data},
        auxiliary: %{}
      }}
@@ -91,11 +91,15 @@ defmodule Aiur.BuildOrdersCLI do
          page: "build-orders",
          snapshot: %{captured_at: captured_at},
          request: %{root: root},
-         sources: %{
-           planning_graph: graph_source(planning, captured_at),
-           execution: runtime_source(model.execution_health),
-           activity: runtime_source(model.activity_health)
-         },
+         sources:
+           Map.merge(
+             %{
+               planning_graph: graph_source(planning, captured_at),
+               execution: runtime_source(model.execution_health),
+               activity: runtime_source(model.activity_health)
+             },
+             planning_runtime_sources(planning, captured_at)
+           ),
          data: %{
            root: model.root,
            graph: graph(model, grid, planning),
@@ -220,6 +224,14 @@ defmodule Aiur.BuildOrdersCLI do
   end
 
   defp planning_source(_snapshot, _captured_at), do: unavailable_source(:planning_unavailable)
+
+  defp planning_runtime_sources(%Snapshot{} = snapshot, captured_at) do
+    [membership: snapshot.membership_health, ticket_status: snapshot.status_health]
+    |> Enum.reduce(%{}, fn
+      {name, %ProviderHealth{} = health}, sources -> Map.put(sources, name, source(health, captured_at, []))
+      {_name, _health}, sources -> sources
+    end)
+  end
 
   defp runtime_source(:available), do: unknown_source(:available)
   defp runtime_source(_health), do: unavailable_source(:runtime_unavailable)
