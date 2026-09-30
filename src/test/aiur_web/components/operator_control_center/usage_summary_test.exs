@@ -140,7 +140,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
            |> Enum.any?(fn node -> Floki.text(node) =~ "&lt;/title&gt;" end)
 
     assert Floki.find(document, ".usage-token-line svg text")
-           |> Enum.any?(fn node -> Floki.text(node) =~ "&lt;/title&gt;" end)
+           |> Enum.any?(fn node -> Floki.text(node) =~ "</title>" end)
   end
 
   test "authorized panel renders route costs immediately after tokens by model" do

@@ -182,7 +182,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
       assert Floki.find(document, "#aiur-marker") == []
       assert svg =~ "&lt;/text&gt;"
       assert Floki.find(document, "text")
-             |> Enum.any?(fn node -> Floki.text(node) =~ "&lt;/text&gt;" end)
+             |> Enum.any?(fn node -> Floki.text(node) =~ "</text>" end)
     end
   end
 
