@@ -1,6 +1,6 @@
 # Current-main refactor review at `b4bc11f`
 
-This read-only checkpoint compares the frozen `3339b887` findings with `b4bc11ffcb6abf693bb3c8570aca3e12d82cb24f` (`origin/main` on 2026-09-29). The two heads differ in 318 tracked paths. Two independent reviewers classified all 94 frozen P1 findings; their per-ID judgments are in `merged-main-b4bc-p1-dispositions.csv`. These are static judgments about code paths, not observed incident rates or proof of P1 impact. Twelve differing labels need an explicit behavior or population check before implementation tickets are promoted.
+This read-only checkpoint compares the frozen `3339b887` findings with `b4bc11ffcb6abf693bb3c8570aca3e12d82cb24f` (`origin/main` on 2026-09-29). The two heads differ in 318 tracked paths. Two independent reviewers classified all 94 frozen P1 findings; their per-ID judgments are in `merged-main-b4bc-p1-dispositions.csv`. These are static judgments about code paths, not observed incident rates or proof of P1 impact. Two further reviewers reconciled the 12 differing labels into [mechanisms and behavior gates](merged-main-b4bc-p1-reconciliation.md); their static agreement still does not establish P1 severity.
 
 | Review | Fixed | Narrowed | Impact unproven | Shared remediation | Source reachable |
 | --- | ---: | ---: | ---: | ---: | ---: |
