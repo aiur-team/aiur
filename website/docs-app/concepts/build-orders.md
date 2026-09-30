@@ -52,6 +52,8 @@ On the catalog, ticket, epic and wave counts remain numeric when resolution succ
 
 These states are intentionally not estimates. `aiur build-orders --json` reports the same cause as `count_resolution_failure`, with `count_resolution_reset_at` when a reset horizon is known.
 
+A local planning pack remains readable when a run starts globally paused before its first membership snapshot. The selected page and `aiur build-orders` identify unavailable current-run membership or ticket status separately from plan readability; any unobserved ticket state or completion remains unresolved. Draft members carry local ticket document paths and no invented GitHub issue URL; draft blockers cannot claim a live blocking state.
+
 <img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
 
 ## The repository state node
