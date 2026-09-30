@@ -360,8 +360,8 @@ defmodule Aiur.AgentEnvironment do
   # the same obvious path (`/tmp/wp_new.md`) silently clobber each other, and the
   # loser publishes the other ticket's workpad under its own comment id (#1763).
   # A workspace-private TMPDIR fixes that for every tool the agent launches, not
-  # just the paths someone remembered to make unique; TMP/TEMP follow it so tools
-  # reading those land in the same place.
+  # just the paths someone remembered to make unique; TMP/TEMP follow it for
+  # ordinary tools, and TMPPREFIX keeps zsh heredocs in that same directory.
   #
   # Created here as well as at provisioning time so workspaces provisioned before
   # this existed get a usable scratch dir on their next launch. If it cannot be
