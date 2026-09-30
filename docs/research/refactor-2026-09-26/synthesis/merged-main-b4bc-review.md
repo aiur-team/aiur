@@ -37,4 +37,6 @@ The [analytics SVG path audit](analytics-svg-label-b4bc.md) traces provider mode
 
 The [Opencode slot seed trace](opencode-slot-seed-b4bc.md) checks provisional P2 `agent-backends-oc-18`: the slot still polls Orchestrator inside startup, but `AttachPool.seed/3` has no guaranteed handoff before that callback. Its nominal three-second sleep budget can include up to 31 separate 500 ms RPC waits. Replacing the poll with the pool's current list needs an ordering and first-open test; the duration is a source bound, not a measured stall.
 
+The [Codex event path mirror audit](../../../refactor/humanizer-mirror-audit-b4bc.md) narrows the proposed first size reduction: `map_path/2` already handles atom and string forms at each segment, but present `nil` or `false` values in dual-key maps can make a whole-path mirror observable. Deletion needs an explicit collision contract and regression matrix; no unconditional line saving is claimed.
+
 Before promotion, refresh this checkpoint on the actual release main, run the named behavior gates, count live populations where a finding claims magnitude, and record the exact failing behavior test for each selected repair. The frozen two-review result remains valid for its snapshot; it does not automatically certify the changed main.
