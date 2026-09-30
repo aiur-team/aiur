@@ -1,6 +1,6 @@
 # U3 worker boundary: event ordering and Executor ownership
 
-**Research base:** `research/refactor-current-head-refresh-20260929@f7e40220f`; source checked against `origin/main@f9dabd3e` on 2026-09-30. The five named production/test files below have identical Git blobs at both refs. This is a read-only source finding, not a behavior test, incident count, or implementation approval.
+**Research base:** `research/refactor-current-head-refresh-20260929@f7e40220f`; source checked against `origin/main@f9dabd3e` on 2026-09-30. The six named production/test files below have identical Git blobs at both refs. This is a read-only source finding, not a behavior test, incident count, or implementation approval.
 
 ## The unresolved planning gap
 
