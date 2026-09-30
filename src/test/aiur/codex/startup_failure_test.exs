@@ -13,7 +13,7 @@ defmodule Aiur.Codex.StartupFailureTest do
 
     File.write!(
       script,
-      "#!/bin/sh\nprintf '%s\\n' 'fatal: startup refused' 'Authorization: Bearer visible-secret' '{\"id\":1,\"authorization\":\"visible-secret\"}'\nexit 23\n"
+      "#!/bin/sh\nprintf '%s\\n' 'fatal: startup refused' 'API key abc123' 'Authorization: Bearer visible-secret' '{\"id\":1,\"authorization\":\"visible-secret\"}'\nexit 23\n"
     )
 
     File.chmod!(script, 0o700)
@@ -30,6 +30,7 @@ defmodule Aiur.Codex.StartupFailureTest do
     assert record["exit_status"] == 23
     assert record["diagnostic"] =~ "fatal: startup refused"
     refute body =~ "visible-secret"
+    refute body =~ "abc123"
     refute body =~ "authorization"
     assert byte_size(record["diagnostic"]) <= 1_000
     assert Bitwise.band(File.stat!(path).mode, 0o777) == 0o600
@@ -42,6 +43,14 @@ defmodule Aiur.Codex.StartupFailureTest do
     refute excerpt =~ "hidden"
     assert String.length(excerpt) == 250
     assert byte_size(excerpt) <= 1_000
+  end
+
+  test "diagnostics redact a spaced API key label" do
+    secret = "abc123"
+    excerpt = StartupFailure.safe_excerpt("fatal: API key #{secret} was rejected")
+
+    assert excerpt == "[redacted sensitive output]"
+    refute excerpt =~ secret
   end
 
   test "diagnostic file is private before the first and subsequent append" do

@@ -71,7 +71,7 @@ defmodule Aiur.Codex.StartupFailure do
   defp redact_line(line) do
     line = String.trim(line)
 
-    if String.match?(line, ~r/(authorization|bearer|password|secret|token|invite|grant|credential|api[_-]?key|session[_-]?key|cookie)/i) do
+    if String.match?(line, ~r/(authorization|bearer|password|secret|token|invite|grant|credential|api[\s_-]*key|session[_-]?key|cookie)/i) do
       "[redacted sensitive output]"
     else
       line

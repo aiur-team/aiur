@@ -645,6 +645,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         metadata = %{
           identifier: Map.get(retry_entry, :identifier),
           error: Map.get(retry_entry, :error),
+          last_failure_at: Map.get(retry_entry, :last_failure_at),
           transient_reason: Map.get(retry_entry, :transient_reason),
           retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
           prior_work: Map.get(retry_entry, :prior_work, false),
