@@ -19,6 +19,8 @@ All three inherited P0 mechanisms are statically repaired at the published commi
 
 The first GitHub access seam stays inside the existing process hierarchy until complete/held/unknown outcomes and restart behavior are proved. Package extraction follows an ownership and release benefit, not a target package count. Feature cuts require current use, indirect caller and replacement evidence. The [plan](plans/2026-09-29-001-refactor-production-readiness-plan.md) assigns these checks to U0–U9 and requires a real foreground CLI/TUI run for user-facing acceptance.
 
+The [current-head U3 boundary check](research/refactor-2026-09-26/synthesis/u3-worker-boundary-current-main-2026-09-30.md) separates event subscription ordering from Executor lease ownership and leaves wake receipt/replay as an Executor follow-up. The cited source and test blobs match `origin/main@f9dabd3e`; the exact mailbox and former-owner interleavings still need behavior witnesses before either repair is worker-ready.
+
 To reproduce the release-head assignment audit from a separate research checkout:
 
 ```sh
