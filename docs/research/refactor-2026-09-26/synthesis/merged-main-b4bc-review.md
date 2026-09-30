@@ -19,4 +19,6 @@ The conditional [`ui-29` dashboard component cut](ui29-current-main-2026-09-30.m
 
 The [usage-compaction cut](usage-compaction-current-main-2026-09-30.md) is dormant in the local instance sample but can still activate above 5,000 ledger positions. Existing retired segments require floor recovery, so the six-file 1,297-line footprint remains conditional on durable-state census and migration proof.
 
+The [CODEOWNERS trust audit](codeowners-current-main-2026-09-30.md) narrows KTD9 to current failure paths: a team lookup error can look healthy, a second path resolver caches membership indefinitely, and one-page path reads can claim incomplete ownership. Event sanitization and digest filtering already exist; Executor rendering and age still need behavior proof.
+
 Before promotion, refresh this checkpoint on the actual release main, run the named behavior gates, count live populations where a finding claims magnitude, and record the exact failing behavior test for each selected repair. The frozen two-review result remains valid for its snapshot; it does not automatically certify the changed main.
