@@ -1043,7 +1043,6 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp requested_fingerprint(state, :catalog), do: state.catalog_change_seq
   defp requested_fingerprint(state, {:selected, identity}), do: catalog_fingerprint(state, identity)
-  defp requested_fingerprint(_state, _scope), do: nil
 
   defp inflight_satisfies?(inflight, state, scope) do
     Map.get(inflight, :catalog_fingerprint) == requested_fingerprint(state, scope)
