@@ -39,4 +39,8 @@ The [Opencode slot seed trace](opencode-slot-seed-b4bc.md) checks provisional P2
 
 The [Codex event path mirror audit](../../../refactor/humanizer-mirror-audit-b4bc.md) narrows the proposed first size reduction: `map_path/2` already handles atom and string forms at each segment, but present `nil` or `false` values in dual-key maps can make a whole-path mirror observable. Deletion needs an explicit collision contract and regression matrix; no unconditional line saving is claimed.
 
+The [between-turn pause trace](agent-runtime-01-between-turn-pause-b4bc.md) narrows residual P1 `agent-runtime-01` to two worker receive branches that acknowledge pause without confirming an armed containment handle. Its regression contract also covers the send-before-arm race and successor generation. The [window parser trace](web-rest-03-window-parser-contract-b4bc.md) shows writer-reachable reset-only and zero-limit buckets that make both Stream Deck and dashboard projections raise; it confines shared parsing to the percentage calculation because timestamp display policies differ.
+
+The [Stream Deck owner-map slice](owner-map-streamdeck-slice-b4bc-2026-09-30.md) supplies joint sidecar/server, hardware and browser-emulator validation gates for eight oversized paths before assigning generic split tickets. These are source contracts, not runtime acceptance or measured simplification.
+
 Before promotion, refresh this checkpoint on the actual release main, run the named behavior gates, count live populations where a finding claims magnitude, and record the exact failing behavior test for each selected repair. The frozen two-review result remains valid for its snapshot; it does not automatically certify the changed main.
