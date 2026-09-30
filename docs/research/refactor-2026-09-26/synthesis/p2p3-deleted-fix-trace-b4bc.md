@@ -18,3 +18,5 @@ removal is the baseline. Do not restore it to satisfy an old finding.
 Deletion is evidence about one cited path, not a finding-level verdict. These
 five surviving findings retain their original provisional `fix` action until
 their owner supplies a behavior test and current-main exposure check.
+The [focused SVG path audit](analytics-svg-label-b4bc.md) records the strongest
+data source, rendering sink and test contract for `web-occ-12`.

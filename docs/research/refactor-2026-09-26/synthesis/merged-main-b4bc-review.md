@@ -33,4 +33,6 @@ The [P2/P3 cited-path exposure](p2p3-b4bc-path-impact.md) maps 356 of 889 findin
 
 The [eight deleted-citation fix trace](p2p3-deleted-fix-trace-b4bc.md) distinguishes three page-specific removals from five surviving findings. In particular, analytics SVG escaping remains a separate repair candidate after the cache page deletion.
 
+The [analytics SVG path audit](analytics-svg-label-b4bc.md) traces provider model text into raw rendered SVG and defines a DOM-level regression. Browser execution and real-world incidence remain unproved.
+
 Before promotion, refresh this checkpoint on the actual release main, run the named behavior gates, count live populations where a finding claims magnitude, and record the exact failing behavior test for each selected repair. The frozen two-review result remains valid for its snapshot; it does not automatically certify the changed main.
