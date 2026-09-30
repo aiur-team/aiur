@@ -13,7 +13,7 @@ execution: code
 
 ## Goal Capsule
 
-Add Gemini CLI as a native, locally executed Aiur coding backend at the level of the Muse integration. Release gate satisfied: Aiur `v0.0.6` is published for all four npm packages and installable through npm, Yarn, Bun and pnpm (the latter with its build script explicitly allowed). Implement from current `main` in an isolated worktree, preserve existing backend defaults, and finish with real foreground Aiur CLI/TUI acceptance. The Executor continues refactor research while a background worker implements this ticket.
+Add Gemini CLI as a native, locally executed Aiur coding backend at the level of the Muse integration. Release gate satisfied: Aiur `v0.0.7` is published for all four npm packages and installable through npm, Yarn, Bun and pnpm (the latter with its build script explicitly allowed). Implement from current `main` in an isolated worktree, preserve existing backend defaults, and finish with real foreground Aiur CLI/TUI acceptance. The Executor continues refactor research while a background worker implements this ticket.
 
 ---
 
@@ -30,14 +30,14 @@ Muse's MSP protocol and Gemini's ACP protocol are distinct. A superficial comman
 ### Key Decisions
 
 - **Native ACP control.** Use Gemini CLI's documented `--acp` JSON-RPC stdio mode for a persistent local session. `-p --output-format stream-json` is a one-shot automation path and does not provide the same bidirectional control contract. This is a planning choice grounded in the installed CLI and official documentation; recheck the protocol against the installed implementation before coding.
-- **Existing user authentication.** Reuse Gemini CLI's cached login or documented environment-based authentication. Aiur must not store, print or copy credentials.
+- **Supported ACP authentication.** Use a Gemini Developer API key or supported Vertex key through ACP authentication. The installed CLI rejects cached personal OAuth in ACP mode; Aiur must not store, print or copy credentials into a ticket workspace.
 - **Explicit approvals.** Surface Gemini's request choices to the Executor and send only the selected answer. No blanket `yolo` default or silent approval of mutating tools.
 - **Evidence-based usage.** Show token/model/context or allowance data only when a native, attributable observation supports it. Unknown is distinct from zero; no assumed subscription price or account identity.
 
 ### Requirements
 
 - R1. `gemini` is selectable in config, initialization, routing, model labels and examples without changing other backends' default behavior.
-- R2. Launch the installed Gemini CLI under Aiur's owned local process, authenticate through Gemini's normal mechanism and reject an unavailable or incompatible CLI with an actionable error.
+- R2. Launch the installed Gemini CLI under Aiur's owned local process, authenticate through its supported ACP key method and reject missing credentials, personal OAuth or an incompatible CLI with an actionable error.
 - R3. Start and resume native sessions by a persisted session ID; deliver initial and queued operator prompts exactly once or report uncertain delivery. Support cancellation and stop with typed outcomes.
 - R4. Normalize streamed assistant text, reasoning when exposed, tool calls/results, errors and approvals into Aiur's transcript and rendered chat without inventing unsupported events.
 - R5. Send a TUI-typed follow-up through the live session and show its delivery or failure, including pause/stop races.
@@ -74,7 +74,7 @@ Local Gemini CLI only in this ticket. No Gemini API-only backend, replacement of
 
 - [Gemini CLI ACP developer guide](https://geminicli.com/docs/cli/acp-mode/): stdio JSON-RPC, initialize, authenticate, new/load session, prompt, cancel, modes, model control and MCP extension.
 - [Gemini CLI CLI reference](https://geminicli.com/docs/cli/cli-reference/): `--acp`, `--model`, `--approval-mode`, `--resume` and output formats.
-- [Gemini CLI authentication](https://geminicli.com/docs/get-started/authentication/): cached login and headless API key/Vertex alternatives.
+- [Gemini CLI authentication](https://geminicli.com/docs/get-started/authentication/): API key and Vertex alternatives. The installed 0.61.0 ACP route rejects cached personal OAuth with a migration error.
 - Local probe on 2026-09-29: installed `gemini --version` is `0.61.0`; `gemini --acp` answered ACP protocol version 1, reported `loadSession: true`, image/audio/embedded prompt capabilities and HTTP/SSE MCP capabilities. This proves initialization only, not authenticated turns or usage.
 - `docs/plans/2026-09-27-001-feat-native-muse-plan.md` and `src/lib/aiur/muse/`: provider boundary, lifecycle, MCP bridge, transcript and usage precedent.
 - `AGENTS.md`: same-PR docs, mutation-test discipline and real CLI/TUI acceptance.
@@ -114,7 +114,7 @@ Directional state model: `starting → ready → turning ↔ awaiting_permission
 
 ### Assumptions and Execution-Time Probes
 
-- Gemini 0.61.0 local initialization succeeds, but authenticated session creation, load, permission flow, tool bridge, model listing and usage have not yet been exercised. The worker runs a small live ACP probe before committing architecture. If the necessary MCP authority or approval path fails, report exact evidence to the Executor before broad implementation.
+- Gemini 0.61.0 local initialization succeeds. Cached personal OAuth failed at `session/new` with ACP error `-32000`; an API or Vertex key was unavailable on this host, so authenticated creation, load, permission flow, tool bridge, model listing and usage remain live acceptance gates. Fixture tests exercise the protocol, but only a supported local credential can complete the foreground TUI proof.
 - ACP method names and payloads must be taken from the current official protocol and observed CLI, not inferred from Muse. Standard ACP names may differ from the guide's shorthand.
 - Local Gemini auth state is user-controlled. Tests may use a fixture server; live acceptance needs an authenticated CLI and must report the exact blocker if unavailable.
 - GEMINI.md and Gemini skill directories differ from Muse's `.agents/skills`; confirm installed discovery and trust behavior before writing init templates.
