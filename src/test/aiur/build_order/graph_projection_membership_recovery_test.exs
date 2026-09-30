@@ -51,6 +51,20 @@ defmodule Aiur.BuildOrder.GraphProjectionMembershipRecoveryTest do
     end
   end
 
+  test "a reconciliation deposit is read after an older catalog read completes" do
+    {projection, _clock, upstream} = start_projection(@interval, true)
+    assert_receive {:reconciling, boot}, 1_000
+    assert_receive {:catalog_read_before_deposit, stale_reader}, 1_000
+
+    send(boot, {:finish, projection, [10]})
+    await(fn -> Agent.get(upstream, & &1.members) == [10] end)
+    # The deposit signal reaches the projection while the first reader still
+    # holds its empty snapshot. A second read must be queued for that signal.
+    await(fn -> MapSet.member?(:sys.get_state(projection).pending, :catalog) end)
+    send(stale_reader, :finish_catalog_read)
+    await(fn -> member_count(projection) == 1 end)
+  end
+
   test "failed background reconciliation is retried after the bound without a resource event" do
     {projection, clock, _upstream} = start_projection(100)
     assert_receive {:reconciling, boot}, 1_000
@@ -67,7 +81,7 @@ defmodule Aiur.BuildOrder.GraphProjectionMembershipRecoveryTest do
     await(fn -> member_count(projection) == 2 end)
   end
 
-  defp start_projection(interval \\ @interval) do
+  defp start_projection(interval \\ @interval, block_empty_catalog? \\ false) do
     parent = self()
     clock = start_supervised!({Agent, fn -> 0 end}, id: :clock)
     upstream = start_supervised!({Agent, fn -> %{members: []} end}, id: :upstream)
@@ -102,6 +116,15 @@ defmodule Aiur.BuildOrder.GraphProjectionMembershipRecoveryTest do
          reconciliation_fun: reconcile,
          catalog_reader: fn _ ->
            members = Agent.get(upstream, & &1.members)
+
+           if block_empty_catalog? and members == [] do
+             send(parent, {:catalog_read_before_deposit, self()})
+
+             receive do
+               :finish_catalog_read -> :ok
+             end
+           end
+
            {:ok, ProviderResult.complete(Catalog.new([root(members)], healthy()))}
          end,
          selected_reader: fn _, _ ->

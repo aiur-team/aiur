@@ -488,6 +488,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
     state = %{
       state
       | catalog: Policy.unavailable_entry(:catalog, now_ms),
+        catalog_change_seq: 0,
         # A new authority discards the catalog entirely, so the counts it
         # carried are gone too. Clearing the stamp makes the first read under
         # the new authority a labelled one.
@@ -1040,6 +1041,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   defp record_selected_fingerprint(state, _scope, _inflight), do: state
 
+  defp requested_fingerprint(state, :catalog), do: state.catalog_change_seq
   defp requested_fingerprint(state, {:selected, identity}), do: catalog_fingerprint(state, identity)
   defp requested_fingerprint(_state, _scope), do: nil
 
@@ -1564,6 +1566,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
   defp on_resource_change(state, %{resource_type: type} = change)
        when type in [:issue, :issue_labels, :sub_issue, :issue_dependency] do
     if repository_match?(state, change) do
+      state = %{state | catalog_change_seq: state.catalog_change_seq + 1}
       {state, catalog_events} = request_scope(state, :catalog)
       {state, selected_events} = request_affected_selected(state, type, change)
       {state, catalog_events ++ selected_events}
