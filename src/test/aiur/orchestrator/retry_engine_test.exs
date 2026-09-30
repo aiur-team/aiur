@@ -105,6 +105,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   describe "pop_retry_attempt_state/3" do
     test "returns attempt, metadata, and cleared state when token matches" do
       token = make_ref()
+      last_failure_at = DateTime.utc_now()
 
       state = %State{
         retry_attempts: %{
@@ -113,6 +114,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
             retry_token: token,
             identifier: "repo#1",
             error: "boom",
+            last_failure_at: last_failure_at,
             retry_poll_failures: 0,
             worker_host: nil,
             workspace_path: nil,
@@ -126,8 +128,13 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       assert metadata.identifier == "repo#1"
       assert metadata.error == "boom"
+      assert metadata.last_failure_at == last_failure_at
       assert metadata.tracker_identity == tracker_identity("repo#1")
       refute Map.has_key?(next_state.retry_attempts, "issue-1")
+
+      requeued = RetryEngine.schedule_issue_retry(next_state, "issue-1", 3, metadata)
+      assert requeued.retry_attempts["issue-1"].last_failure_at == last_failure_at
+      Process.cancel_timer(requeued.retry_attempts["issue-1"].timer_ref)
     end
 
     test "returns :missing when token does not match" do

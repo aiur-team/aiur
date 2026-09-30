@@ -4205,7 +4205,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
   end
 
-  test "tracker poll unpause replaces a dead runner and reports running through the CLI" do
+  test "tracker poll unpause replaces a dead runner and reports startup through the CLI" do
     active_issue = completed_rework_issue("paused-provenance")
     paused_issue = %{active_issue | paused: true}
     configure_completed_revalidation!([active_issue], max_concurrent_agents: 3)
@@ -4241,6 +4241,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert replacement.control.status == :working
     assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
     assert is_reference(replacement.ref)
+    assert replacement.session_id == nil
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
 
     # The CLI reads the shared SnapshotStore read model first; fence out any
@@ -4249,7 +4250,7 @@ defmodule Aiur.OrchestratorStatusTest do
     :sys.replace_state(orchestrator_pid, fn _state -> %{next | snapshot_generation: generation} end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~
-             "#{active_issue.identifier} running #{active_issue.title}"
+             "#{active_issue.identifier} starting #{active_issue.title}"
   end
 
   test "Executor messages rearm multiple completed runners without returned workers holding slots" do
