@@ -29,4 +29,6 @@ The [oversized-file assignment review](owner-map-assignment-review-b4bc-2026-09-
 
 The [reconciled P2/P3 check](p2p3-reconciled-b4bc-2026-09-30.md) confirms source reachability for the nine changed effective decisions and preserves their behavior gates. It does not establish incidence or update the other 880 dispositions.
 
+The [P2/P3 cited-path exposure](p2p3-b4bc-path-impact.md) maps 356 of 889 findings to a changed cited file on b4bc, including 79 provisional fixes and 27 findings with a deleted citation. It is a re-trace queue, not a behavior or severity result.
+
 Before promotion, refresh this checkpoint on the actual release main, run the named behavior gates, count live populations where a finding claims magnitude, and record the exact failing behavior test for each selected repair. The frozen two-review result remains valid for its snapshot; it does not automatically certify the changed main.
