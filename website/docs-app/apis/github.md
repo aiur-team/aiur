@@ -54,6 +54,8 @@ The safety check waits 15 minutes after a completed attempt, coalesces with in-f
 
 Reconciliation replaces membership as one complete set. If a membership edge changes while the GitHub read is in flight, the fetched set is discarded and a later scheduled attempt retries. This preserves newer webhook additions and removals without exposing an empty or partially rebuilt membership set.
 
+If the membership store call times out or its owner exits, processing reports a membership-unavailable error instead of confirming the deposit. A timed-out call can still execute later; the error is not cancellation. HTTP admission remains separate and does not promise processing success.
+
 These reads use the existing planning bounds and governed GitHub transport. This recovery adds bounded reads and claims no quota saving.
 
 A stale single-root CLI read can separately refresh that root's graph. It respects provider retry delays and does not imply that catalog membership was refreshed at the same instant.

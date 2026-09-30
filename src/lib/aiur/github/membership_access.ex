@@ -15,7 +15,10 @@ defmodule Aiur.GitHub.MembershipAccess do
       owner -> GenServer.call(owner, {:membership_access, fun}, 15_000)
     end
   catch
-    :exit, _ -> default
+    # A queued call may still execute after a timeout. Neither timeout nor
+    # owner death proves a write completed (or that a read found no members).
+    # Keep the failure distinct so webhook delivery cannot confirm old data.
+    :exit, reason -> exit({:membership_unavailable, reason})
   end
 
   def run(_other, _default, fun), do: fun.()
