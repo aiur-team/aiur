@@ -1,0 +1,246 @@
+{
+  "schema": "aiur-refactor-u0-owner-actions-v1",
+  "released_main": "fc8270bb6d30cf44a860b142b365ad10e5c906a1",
+  "status": "research recommendation only; no source edits or runtime verification",
+  "profiles": {
+    "historical-index": {
+      "preservation_action": "Keep original path as a sub-500-line historical index; link full original text at immutable main blob and map heading fragments; move any still-active contract to current owner docs first.",
+      "evidence": [
+        "u0-unresolved-owner-actions-2026-09-29.md",
+        "u0-fc-owner-and-p1-followup.md"
+      ],
+      "acceptance": [
+        "Original path and date/title/provenance remain; each old heading fragment maps to preserved text.",
+        "Scan canonical and legacy elixir/docs references; repair known readers and validate all local links in an offline checkout.",
+        "Confirm each new tracked text file is <=500 LF-delimited lines and original text is retrievable from immutable blob."
+      ],
+      "external_usage": "Unknown; preservation route does not depend on it."
+    },
+    "ce-vendor": {
+      "preservation_action": "Keep skill behavior, entrypoint, and installed paths; move oversized body into cohesive sub-500 source units through pinned upstream commit and reviewed five-file overlay; remove superseded monolith only after parity.",
+      "evidence": [
+        "u0-ce-source-provenance-2026-09-29.md",
+        "u0-fc-ce-build-order-disposition.md",
+        "scripts/update-compound-engineering-skills",
+        "src/lib/aiur/agent_skills.ex"
+      ],
+      "acceptance": [
+        "Pin upstream 4aeaf6853074efe021409e880ad27958bf07bca6 and apply five-file overlay reproducibly; fail refresh on managed-tree drift.",
+        "Regenerate 259/259 Claude files and 31/31 Codex symlinks; preserve skill names, relative references, AgentSkills embedding, workspace installation, and rebuilt release behavior.",
+        "Confirm each new tracked text file is <=500 LF-delimited lines."
+      ],
+      "external_usage": "Unknown; preservation route does not depend on it."
+    },
+    "build-order-demo": {
+      "preservation_action": "Keep explicit demo-pack contract; move 54 ticket records into semantic sub-500 tracked sources and deterministically assemble the same runtime JSON under priv before release; remove oversized tracked snapshot after parity.",
+      "evidence": [
+        "u0-fc-ce-build-order-disposition.md",
+        "src/priv/build_orders/README.md",
+        "src/lib/aiur/build_order/pack_paths.ex",
+      "src/lib/aiur_web/build_order/planning_source.ex"
+      ],
+      "acceptance": [
+        "Assembled JSON preserves all 54 tickets, IDs, edges, metadata, and source hash or justified canonical equivalence.",
+        "Test explicit build_order_planning_pack override and default discovery separately; validate packaged file and installed-package read.",
+        "Confirm every new tracked source file is <=500 LF-delimited lines; do not count generated relocation as a net line saving."
+      ],
+      "external_usage": "Unknown; delete alternative requires operator decision or evidence of no external override use."
+    },
+    "preview-assets": {
+      "preservation_action": "Keep HTML entrypoint; move inline CSS and JavaScript into sibling sub-500 files, preserving network-independent preview behavior.",
+      "evidence": [
+        "u0-unresolved-owner-actions-2026-09-29.md",
+        "docs/build-order/tickets/BO-020-render-plan-breakdowns.md"
+      ],
+      "acceptance": [
+        "Open file:// and served preview with network disabled; compare tables, graph, and theme toggle with released baseline.",
+        "Retain entrypoint path and all local asset references; each resulting tracked text file is <=500 LF-delimited lines."
+      ],
+      "external_usage": "Unknown; preservation route does not depend on it."
+    }
+  },
+  "rows": [
+    {
+      "row": 123,
+      "path": "docs/plans/2026-06-12-002-fix-chat-control-lifecycle-ux-plan.md",
+      "component_owner": "Chat control lifecycle historical plan",
+      "profile": "historical-index",
+      "released_main_blob": "c9744382fcd96d522156c7ec303ab714dfa5cb84",
+      "released_main_lines": 998,
+      "known_inbound_source_files": 0
+    },
+    {
+      "row": 133,
+      "path": "src/docs/plans/2026-05-19-001-feat-opencode-pane-chat-plan.md",
+      "component_owner": "OpenCode pane chat historical plan",
+      "profile": "historical-index",
+      "released_main_blob": "7a9d1df6d197b5c453edb80a6de38e28bf47b685",
+      "released_main_lines": 964,
+      "known_inbound_source_files": 2,
+      "row_acceptance": "Migrate historical elixir/docs path references to canonical src/docs path or equivalent redirect."
+    },
+    {
+      "row": 143,
+      "path": "src/docs/plans/2026-05-20-001-feat-opencode-prewarm-and-history-injection-plan.md",
+      "component_owner": "OpenCode prewarm/history historical plan",
+      "profile": "historical-index",
+      "released_main_blob": "a058f463446e680698c29fbe7cff623940a9f3a0",
+      "released_main_lines": 920,
+      "known_inbound_source_files": 2,
+      "row_acceptance": "Migrate historical elixir/docs path references to canonical src/docs path or equivalent redirect."
+    },
+    {
+      "row": 157,
+      "path": "docs/plans/2026-07-12-004-feat-supervisor-decision-api-plan.md",
+      "component_owner": "Supervisor Decision API historical plan",
+      "profile": "historical-index",
+      "released_main_blob": "cb55d9b527cc0ef93223ea925e41dabbd5ecd2b8",
+      "released_main_lines": 859,
+      "known_inbound_source_files": 0
+    },
+    {
+      "row": 162,
+      "path": "docs/plans/2026-07-12-001-feat-decision-domain-persistence-plan.md",
+      "component_owner": "Decision domain persistence historical plan",
+      "profile": "historical-index",
+      "released_main_blob": "9db43cc7e541d0e6111057ac962c68000b8ebd0f",
+      "released_main_lines": 842,
+      "known_inbound_source_files": 1
+    },
+    {
+      "row": 169,
+      "path": "docs/plans/2026-07-06-001-refactor-production-readiness-planning-spike-plan.md",
+      "component_owner": "Production readiness historical plan",
+      "profile": "historical-index",
+      "released_main_blob": "ea788fdbd0ebcc3b76503cc76c82f37ce785c195",
+      "released_main_lines": 828,
+      "known_inbound_source_files": 3
+    },
+    {
+      "row": 175,
+      "path": ".claude/skills/ce-plan/SKILL.md",
+      "component_owner": "CE ce-plan skill",
+      "profile": "ce-vendor",
+      "released_main_blob": "ea05aafbee9d91a2a73a48ff59f17b98a234124d",
+      "released_main_lines": 816
+    },
+    {
+      "row": 179,
+      "path": "docs/brainstorms/2026-05-24-aiur-event-publishing-subscriptions-requirements.md",
+      "component_owner": "Event publishing/subscriptions historical requirements",
+      "profile": "historical-index",
+      "released_main_blob": "ffc45a73ccd7b3af7c43a34a2d06783645e8097a",
+      "released_main_lines": 810,
+      "known_inbound_source_files": 7
+    },
+    {
+      "row": 180,
+      "path": "docs/plans/2026-07-12-003-feat-decision-answer-delivery-plan.md",
+      "component_owner": "Decision answer delivery historical plan",
+      "profile": "historical-index",
+      "released_main_blob": "23ec55cf2c3c2e333c56f96b195aa99c52758deb",
+      "released_main_lines": 809,
+      "known_inbound_source_files": 2
+    },
+    {
+      "row": 184,
+      "path": ".claude/skills/ce-doc-review/scripts/cross-model-doc-review.sh",
+      "component_owner": "CE ce-doc-review cross-model script",
+      "profile": "ce-vendor",
+      "released_main_blob": "634e0692c16a5f0e1d53e20d06b5bdafcaa92580",
+      "released_main_lines": 806
+    },
+    {
+      "row": 190,
+      "path": ".claude/skills/ce-sweep/scripts/sweep-state.py",
+      "component_owner": "CE ce-sweep state script",
+      "profile": "ce-vendor",
+      "released_main_blob": "d3e2cd833bf9229c35a72423c9269bb25b12e99c",
+      "released_main_lines": 793
+    },
+    {
+      "row": 204,
+      "path": ".claude/skills/ce-compound/SKILL.md",
+      "component_owner": "CE ce-compound skill",
+      "profile": "ce-vendor",
+      "released_main_blob": "a18e9167d46ffb5d1b1fab21e7e35c3a8aed2b8b",
+      "released_main_lines": 755
+    },
+    {
+      "row": 208,
+      "path": ".claude/skills/ce-code-review/scripts/cross-model-adversarial-review.sh",
+      "component_owner": "CE ce-code-review adversarial script",
+      "profile": "ce-vendor",
+      "released_main_blob": "8e506339ca0dbfaf61c7f90bcf7f1f3ee6f4920e",
+      "released_main_lines": 737
+    },
+    {
+      "row": 213,
+      "path": "docs/plans/2026-06-15-002-feat-init-wizard-rework-plan.md",
+      "component_owner": "Init wizard historical plan",
+      "profile": "historical-index",
+      "released_main_blob": "f3bc02dcaf582ad2a1c68db04f9ebec29bdf80aa",
+      "released_main_lines": 729,
+      "known_inbound_source_files": 2
+    },
+    {
+      "row": 215,
+      "path": "src/priv/build_orders/aiur-build-order.json",
+      "component_owner": "Build Order PlanningSource demo pack",
+      "profile": "build-order-demo",
+      "released_main_blob": "ceb1d9ee520a35b61158b4f8c052c7b470654d98",
+      "released_main_lines": 729,
+      "release_evidence": "aiur-cli-linux-x64@0.0.6 contains identical priv JSON; SHA-256 fa2087a069e4e7120d9f3fc84e23c07b990df7bf311029d638e13081ab56a4f1."
+    },
+    {
+      "row": 216,
+      "path": ".claude/skills/ce-pov/scripts/cross-model-pov.sh",
+      "component_owner": "CE ce-pov cross-model script",
+      "profile": "ce-vendor",
+      "released_main_blob": "3ddf4e5b633d77e73ef68d84fd8415e699fa56b8",
+      "released_main_lines": 728
+    },
+    {
+      "row": 222,
+      "path": "docs/build-order/plan-preview.html",
+      "component_owner": "Build Order plan preview",
+      "profile": "preview-assets",
+      "released_main_blob": "419d035cf7ec50c8066de57f9d214db11b79f98c",
+      "released_main_lines": 712
+    },
+    {
+      "row": 224,
+      "path": "src/docs/plans/2026-05-31-002-feat-aiur-init-onboarding-plan.md",
+      "component_owner": "Aiur init onboarding historical plan",
+      "profile": "historical-index",
+      "released_main_blob": "dd21205bc062ce68131834cc7d56b4c427c5f29b",
+      "released_main_lines": 692,
+      "known_inbound_source_files": 0
+    },
+    {
+      "row": 229,
+      "path": ".claude/skills/ce-compound-refresh/SKILL.md",
+      "component_owner": "CE ce-compound-refresh skill",
+      "profile": "ce-vendor",
+      "released_main_blob": "ec8be4fb0cfbd08654c9eac4c8abb0233185a5c1",
+      "released_main_lines": 679
+    },
+    {
+      "row": 230,
+      "path": "docs/plans/2026-05-24-003-feat-dashboard-events-panel-and-security-plan.md",
+      "component_owner": "Dashboard events/security historical plan",
+      "profile": "historical-index",
+      "released_main_blob": "9f96a59a9179404adb4ef04d3027935a59587607",
+      "released_main_lines": 676,
+      "known_inbound_source_files": 0
+    },
+    {
+      "row": 232,
+      "path": ".claude/skills/ce-optimize/SKILL.md",
+      "component_owner": "CE ce-optimize skill",
+      "profile": "ce-vendor",
+      "released_main_blob": "38d1ac96737290c2dee1577460dd27e3d8b3a5d1",
+      "released_main_lines": 667
+    }
+  ]
+}

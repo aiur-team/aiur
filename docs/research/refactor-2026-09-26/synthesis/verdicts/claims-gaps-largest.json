@@ -1,0 +1,26 @@
+{
+  "verdicts": [
+    {
+      "id": "gaps-04",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high for retained intervals, label replay and classifier precedence; unresolved for actual eligibility, availability and causal attribution",
+      "corrected_claim": "The largest retained gap is 151.3621 h. Three August25-starting gaps sum to 173.2840 h inside a 173.7544 h enclosing span, with 0.4704 h outside those gaps; they are not one uninterrupted no-progress interval. Label replay at the largest gap start reproduces twelve human-review issues, five rework, one paused, three ci-wait and one todo (#2394). The todo issue already had PR #2396 opened August 23. Its positive dispatch eligibility is unproved. The d classification follows the precedence of inferred dispatchability plus an unresolved infrastructure window over concurrent waiting work. Historical attendance is 0.004, rounded to 0.00, not proof of no activity or an absent human.",
+      "method": "Independent arithmetic over retained intervals and replay of cached public label/close/reopen events; cached PR linkage; direct inspection of queue, decline, infrastructure-window and classification source.",
+      "note": "Reject both a confident infrastructure-cause allocation and an automatic reassignment to human-blocked b. Event-ID groups are not guaranteed boot identities, unresolved alert lifetimes need independent confirmation, and absence of selected decline evidence is not successful admission. Preserve uncertainty and overlapping constraints in the problem map.",
+      "unresolved": [
+        "Positive scheduler eligibility and complete decline history for issue2394 and rework at each relevant time",
+        "Historical loaded prewarm repair/configuration and real daemon/host lifetime",
+        "Independent operator/Executor availability and action history",
+        "Causal allocation of the largest interval and neighboring gaps"
+      ],
+      "evidence_artifacts": [
+        "synthesis/largest-gap-attribution.json",
+        "synthesis/gap-uptime-contract.json",
+        "synthesis/prewarm-starvation-history.json"
+      ],
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher"
+    }
+  ]
+}

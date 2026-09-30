@@ -1,0 +1,1057 @@
+{
+  "unit_id": "loose-4",
+  "files_reviewed": 45,
+  "lines_reviewed_estimate": 14915,
+  "coverage_notes": "Read in full (every line): config.ex (1462), coding_agent.ex (1392), decision_projection.ex (1039), model_discovery.ex (827), live_conversation.ex (691), executor_wake_inbox.ex (619), aiur.ex (610), agent_process_log.ex (576), agent_github_guard.ex (541), open_ticket_source.ex (509), alert_feed.ex (486), agent_log.ex (444), model_availability.ex (421), agent_skills.ex (389), provider_meter_probe.ex (383), ci_approval_store.ex (349), agent_events.ex (325), decision_delegation.ex (318), http_server.ex (271), ticket_activity.ex (243), provider_meter_refresh.ex (236), build_gate_hold_monitor.ex (223), opencode_theme.ex (206), agent_resource_guard.ex (192), decision_expiry.ex (186), decision_metrics.ex (174), decision_query.ex (173), system_file_descriptors.ex, progress_tracker.ex, token_usage.ex, daemon_lifecycle.ex, issue.ex, global_config_startup.ex, decision_artifact.ex, perf.ex, periodic_worker.ex, launcher_watchdog.ex, ticket_branch.ex, usage_aggregate.ex, event_publication_log.ex, executor_bindings.ex, system_memory.ex, provider_meters.ex, supervisor_token.ex, json_safe.ex. All 45 files were read in full. Outside the unit I read targeted excerpts only to verify cross-file claims: saturation_sentinel.ex init, build_gate.ex enabled?/1, workflow.ex current_with_cache_identity/0, OTP 28.5 gen_server.erl init_it (bad_return_value handling), open_ai_compat/balance_baseline.ex lock comment, provider_account_generation/continuity.ex and open_ai_compat/concurrency.ex lock ids, executor_listener.ex delivery/error paths, executor/claims.ex timeouts, decision_log.ex replay semantics, alert_ledger.ex caps, alerts.ex emit path, json_store.ex, build_order/ad_hoc_source.ex helper list and pagination, build_order/metadata.ex and aiur_web/.../units_row/fields.ex complexity parsing, github/issues.ex authorization fields, decision.ex attempt_in_flight?, workspace/provisioner.ex + ssh.ex (remote install transport), claude/remote_control.ex and github/config.ex pgrep walkers, and grep-based call-site counts. Mix config (config/*.exs) is not present in the snapshot, so I could not verify test-env isolation of the boot-time token/host-guard writes; finding 21 states only what the code in aiur.ex shows. No code was executed (no builds or tests), so the P0 boot failure in finding 01 is established from the gen_server source, not by running it. Not reviewed: the test suites for these modules beyond grepping build_gate_hold_monitor_test.exs, and the sub-namespaced helpers (e.g. Aiur.LiveConversation.*, Aiur.DecisionMetrics.*, Aiur.DecisionQuery.*, Aiur.OpenTicketSource.Snapshot internals) that belong to other units.",
+  "findings": [
+    {
+      "id": "loose-4-01",
+      "category": "error-handling",
+      "severity": "P0",
+      "title": "BuildGateHoldMonitor.init returns {:ignore, state}; documented build-gate opt-out crashes daemon boot",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_gate_hold_monitor.ex",
+          "lines": "77-94"
+        },
+        {
+          "path": "src/lib/aiur/saturation_sentinel.ex",
+          "lines": "161-164"
+        },
+        {
+          "path": "src/lib/aiur.ex",
+          "lines": "312-313"
+        },
+        {
+          "path": "src/lib/aiur/build_gate.ex",
+          "lines": "118-127"
+        }
+      ],
+      "description": "When BuildGate.enabled?/0 is false, init/1 returns the tuple {:ignore, %State{}}. gen_server only accepts the bare atom `ignore`; any other term is exit({bad_return_value, Else}), so start_link returns an error, the child fails to start, and Aiur.Supervisor (and the whole application) fails to boot. BuildGate.enabled? is false exactly for the documented explicit opt-out (configuration.md:369: max_concurrent_builds: 0, build_start_stagger_seconds: 0, min_free_memory_mb omitted). Config is readable at this point (Workflow.current_with_cache_identity/0 falls back to Workflow.load/0 before WorkflowStore starts), so the fail-open `true` fallback does not mask it. Aiur.SaturationSentinel has the identical bug for `agent.saturation_log_enabled: false`. The test file (test/aiur/build_gate_hold_monitor_test.exs, 122 lines) only exercises evaluate/2 and never starts the process with the gate disabled.",
+      "evidence": "build_gate_hold_monitor.ex:90-92: `Logger.info(\"build_gate_hold_monitor disabled (build gate not enabled)\")` / `{:ignore, %State{}}`; saturation_sentinel.ex:162-163: `Logger.info(\"saturation_sentinel disabled by config\")` / `{:ignore, %State{}}`. OTP 28.5 gen_server.erl init_it: `{ok, ignore} -> ... proc_lib:init_fail(Starter, ignore, ...)` then `{ok, Else} -> ... exit({bad_return_value, Else})`. Both children are unconditional in child_specs (aiur.ex:312 `Aiur.SaturationSentinel`, 313 `Aiur.BuildGateHoldMonitor`).",
+      "recommendation": "Return the bare `:ignore` in both modules. Add a test per module that starts it via start_supervised with the gate/sentinel disabled and asserts `:ignore` (fails today with bad_return_value). Grep the tree for `{:ignore,` as a lint rule.",
+      "effort": "S",
+      "refactor_hint": "Belongs to the host-resource/admission package (BuildGate, SaturationSentinel). When per-package supervisors are introduced, add a boot smoke test per documented opt-out config so disabled subsystems are exercised."
+    },
+    {
+      "id": "loose-4-02",
+      "category": "anti-pattern",
+      "severity": "P0",
+      "title": ":global.trans lock id {__MODULE__, path} provides no mutual exclusion; model-usage.json and ci-approvals.json read-modify-writes race",
+      "locations": [
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "48-69"
+        },
+        {
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "lines": "99-128"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/balance_baseline.ex",
+          "lines": "199-208"
+        },
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "lines": "633-637"
+        },
+        {
+          "path": "src/lib/aiur/provider_account_generation/continuity.ex",
+          "lines": "52-53"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/concurrency.ex",
+          "lines": "35-36"
+        }
+      ],
+      "description": ":global.trans/2 takes {ResourceId, LockRequesterId} and grants the lock to every caller that presents the same requester id. ModelAvailability.observe/3 and CIApprovalStore.journal_base_repair/3 use {__MODULE__, path}: resource = the module, requester = the path, so every caller on the same file is admitted concurrently and the load->merge->write sequence is unprotected. ModelAvailability.observe is called from every agent runner process (codex/session_lifecycle.ex:63 on every rate-limit notification, agent_runner/message_handler.ex:80, agent_runner/turn_alerts.ex:24 via mark_limited), so concurrent writes are routine; a lost update drops another backend's limit entry, making an exhausted backend read as available to CodingAgent.select_for_dispatch and RateLimitFallback. The codebase already documents and fixed this exact inversion in two places, so the logic has diverged. Two more sites outside this unit use the same shape.",
+      "evidence": "model_availability.ex:54: `:global.trans({__MODULE__, path}, fn ->` ... `state = load(path)` ... `write(path, Map.put(state, \"backends\", ...))`. ci_approval_store.ex:108: `:global.trans({__MODULE__, path}, fn ->` with moduledoc 95-97 claiming 'A per-path global lock keeps concurrent CI target tasks from overwriting one another'. balance_baseline.ex:199-205: 'Keying the requester on the path (`{__MODULE__, path}`) therefore inverted the intent exactly: two probes on the same ledger both took the lock ... a lost race drops another provider's entry.' and fixed form 208: `:global.trans({{__MODULE__, path}, self()}, fn ->`. model_discovery.ex:633-637 documents the same rule. Same shape elsewhere: continuity.ex:53 `{__MODULE__, service_id}`, concurrency.ex:36 `@counter_key` = `{__MODULE__, :counters}`.",
+      "recommendation": "Introduce one helper (e.g. Aiur.FileLock.with_lock(path, fun) = :global.trans({{:aiur_file, path}, self()}, fun, [node()])) and use it at all six sites; add a concurrency test that runs two observe/3 calls for different backends in parallel with a slowed writer and asserts both entries survive (fails today). Longer term, serialize each ledger through a single owning process instead of global locks.",
+      "effort": "S",
+      "refactor_hint": "Cross-cutting persistence primitive: put the lock helper in the shared storage/utility package so every carved package uses one implementation."
+    },
+    {
+      "id": "loose-4-03",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "CIApprovalStore.save/3 overwrites the whole file without any lock and can erase a journaled :repairing marker",
+      "locations": [
+        {
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "lines": "67-88"
+        },
+        {
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "lines": "90-128"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "325"
+        },
+        {
+          "path": "src/lib/aiur/events/github_ci_poller.ex",
+          "lines": "690"
+        }
+      ],
+      "description": "journal_base_repair/3 is documented as strict ('the caller must not mutate GitHub unless the :repairing marker is on disk') and does a locked read-modify-write of all three sections. save/3, called from the Orchestrator's CI lifecycle, writes all three sections from the caller's in-memory copy with no lock and no re-read. A save that races (or simply follows with a stale in-memory map) replaces base_repair_invalidations with an older value, so the marker that justified a GitHub mutation disappears; after a restart the repair is invisible. save/3 also swallows every failure with rescue -> Logger.warning.",
+      "evidence": "ci_approval_store.ex:77-81: `JsonStore.write!(path_for(), %{\"approved_heads\" => ..., \"test_failure_heads\" => ..., \"base_repair_invalidations\" => normalize_base_repair_invalidations(base_repair_invalidations)})`; 84-87: `rescue error -> Logger.warning(...); :ok`. Callers in different processes: ci_lifecycle.ex:325 `CIApprovalStore.save(` and github_ci_poller.ex:690 `CIApprovalStore.journal_base_repair(target, marker)`.",
+      "recommendation": "Make one owner process for the file (or at minimum route save/3 through the same corrected lock and merge base_repair_invalidations from disk rather than from the caller). Give each section its own update function (update_approved_heads/1 etc.) so no caller writes fields it does not own.",
+      "effort": "S",
+      "refactor_hint": "CI lifecycle state belongs with the GitHub/CI package; a single-writer store API is a prerequisite for moving the poller and lifecycle into separate packages."
+    },
+    {
+      "id": "loose-4-04",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "ExecutorWakeInbox latches on one invalid journal line: boot stops, flush retries forever silently, trim never runs",
+      "locations": [
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "100-132"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "275-288"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "333-368"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "558-563"
+        },
+        {
+          "path": "src/lib/aiur.ex",
+          "lines": "469"
+        },
+        {
+          "path": "src/lib/aiur.ex",
+          "lines": "504"
+        }
+      ],
+      "description": "DecisionLog.replay/2 never skips past the first line the validator rejects and returns {:ok, prefix, corruption}. Every inbox path treats corruption as fatal or ignores it: init/1 returns {:stop, corruption} (ExecutorWakeInbox is an always-on child of the flat :rest_for_one tree, so the daemon does not boot); flush_pending/1 on error just re-arms the debounce timer with no log or alert, forever; trim_consumed/1 swallows the error so the #1661 size bound stops applying; wait/stats return {:error, corruption} to every consumer. validate_record/1 is strict (integer wake_id, integer-or-nil event_id, binary topic), so a projection shape change or one byte-rotted line is enough. There is no repair or quarantine path in the module, unlike DecisionProjection.reduce_checked/1.",
+      "evidence": "executor_wake_inbox.ex:129-131: `else {:error, reason} -> {:stop, reason}`; 285-287: `{:error, _reason} -> ensure_flush_timer(state)`; 336: `{:ok, _records, corruption} -> {:error, corruption}`; 559-561: `{:ok, records, nil} -> trim_records(state, records)` / `_error -> state`; 341-345 validate_record guard. recording_children(true) = `[Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]` (aiur.ex:504).",
+      "recommendation": "Adopt the reduce_checked pattern: keep the valid prefix, move the corrupt tail to a quarantine file, emit a needs-attention alert (e.g. executor.wakes.corrupt), and continue. Log and alert when a flush fails more than N times instead of re-arming silently. Never return {:stop, _} from init for data corruption.",
+      "effort": "M",
+      "refactor_hint": "Executor-recording package. Its failure must be isolated in its own supervisor so a bad journal cannot stop the orchestrator or dashboard."
+    },
+    {
+      "id": "loose-4-05",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Wake records are dropped with only Logger.error while acknowledge_as holds the inbox inside a cross-process lock",
+      "locations": [
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "23-24"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "58-71"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "174-181"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "537-545"
+        },
+        {
+          "path": "src/lib/aiur/executor_listener.ex",
+          "lines": "144-165"
+        },
+        {
+          "path": "src/lib/aiur/executor_listener.ex",
+          "lines": "180-190"
+        },
+        {
+          "path": "src/lib/aiur/executor_listener.ex",
+          "lines": "319-321"
+        }
+      ],
+      "description": "handle_call({:acknowledge_as, ...}) calls Executor.Claims.record_acknowledgement/2 (a GenServer call with a 30s call timeout and a 5s file-lock retry) inside the inbox's own callback, then replays and rewrites the journal. While that runs, ExecutorListener.deliver/2 calls ExecutorWakeInbox.enqueue/2 with the default 5s GenServer.call timeout. The exit is caught in process_event/2 and only logged; the listener advances its replay watermark only for executor.* topics, so a non-executor wake that timed out is never retried. #2600 fixed the symptom on the acknowledge path by raising its call budget (claim_call_timeout_ms = max(lock, call) + 30_000) but left enqueue at 5s: the 'fix by raising a limit' family.",
+      "evidence": "executor_wake_inbox.ex:24: `def enqueue(record, server \\\\ __MODULE__) when is_map(record), do: GenServer.call(server, {:enqueue, record})`; 71: `defp claim_call_timeout_ms, do: max(Claims.lock_retry_budget().timeout_ms, Claims.call_timeout_ms()) + 30_000`; 538: `case Claims.record_acknowledgement(consumer_id, highest) do`; claims.ex:57 `@lock_timeout_ms 5_000`, 59 `@call_timeout_ms 30_000`. executor_listener.ex:187: `{:ok, record} -> ExecutorWakeInbox.enqueue(record, inbox)`; 155-162 rescue/catch -> `log_delivery_failure(event, ...)`; 320 `Logger.error(\"aiur_executor_listener phase=delivery_failed ...\")`.",
+      "recommendation": "Do the lease check outside the inbox process (caller asks Claims, then sends a cheap advance message), or make enqueue a cast into the pending map (already persisted) so it never blocks. Any delivery failure must be retried from a durable source or raise an alert, not just a log line.",
+      "effort": "M",
+      "refactor_hint": "Executor-recording package: keep blocking I/O and cross-process locks out of the single GenServer that all producers share."
+    },
+    {
+      "id": "loose-4-06",
+      "category": "performance",
+      "severity": "P2",
+      "title": "ExecutorWakeInbox re-reads and re-validates the whole journal several times per operation; trim write failure is ignored",
+      "locations": [
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "275-288"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "309-339"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "347-368"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "429-465"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_inbox.ex",
+          "lines": "565-579"
+        }
+      ],
+      "description": "The journal is capped at @default_max_records 10_000 lines, and each DecisionLog.replay/2 reads the whole file and runs every line through the validator. One flush does durable_wake_ids/1 (replay), trim_consumed/1 (replay) and serve_waiters/1 -> unread_records/1 (replay); every wait, stats, pending and cursor call also re-reads the cursor file (current_cursor/1). All of this runs inside the GenServer, so producers queue behind it. The replay-and-case block is copied three times (durable_records, durable_wake_ids, journal_summary). trim_records/2 discards the Fs.atomic_write result, then advances the cursor and alerts that unread wakes 'were evicted' even when the file was not rewritten, so the file keeps growing past the bound.",
+      "evidence": "333-338 durable_records, 362-367 durable_wake_ids, 430-448 journal_summary: three copies of `case DecisionLog.replay(path, &validate_record/1) do {:ok, records, nil} -> ...; {:ok, _records, corruption} -> {:error, corruption}; {:error, reason} -> {:error, reason}`. 574: `_ = Fs.atomic_write(state.path, contents, fsync: true, mode: 0o600)`; 465: `defp current_cursor(state), do: max(state.cursor, read_cursor(state.cursor_path))`.",
+      "recommendation": "Replay once at init and keep an in-memory ordered index (wake_id -> record) plus the durable id set; append updates the index. Read the cursor file only on an explicit refresh or a file-change signal. Extract one replay_journal/1. Check the atomic_write result and alert on failure.",
+      "effort": "M",
+      "refactor_hint": "Executor-recording package."
+    },
+    {
+      "id": "loose-4-07",
+      "category": "performance",
+      "severity": "P1",
+      "title": "Two process-tree observers poll the host independently: one pgrep spawn per tree node per second, plus two ps snapshots every 2s even when idle",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_resource_guard.ex",
+          "lines": "18"
+        },
+        {
+          "path": "src/lib/aiur/agent_resource_guard.ex",
+          "lines": "66-71"
+        },
+        {
+          "path": "src/lib/aiur/agent_resource_guard.ex",
+          "lines": "103-149"
+        },
+        {
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "lines": "83"
+        },
+        {
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "lines": "150-203"
+        },
+        {
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "lines": "395-482"
+        },
+        {
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "lines": "551-575"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "426-440"
+        },
+        {
+          "path": "src/lib/aiur/github/config.ex",
+          "lines": "965-985"
+        },
+        {
+          "path": "src/lib/aiur.ex",
+          "lines": "310-311"
+        }
+      ],
+      "description": "AgentResourceGuard ticks every 1s and, for every registered agent root, recursively runs `pgrep -P <pid>` once per process in the tree (System.find_executable + System.cmd per node). With 20 agents running Mix builds (tens of processes each) that is hundreds of process spawns per second on the host whose load the dispatcher throttles on. AgentProcessLog separately runs `ps -eo pid=,ppid=,comm=,args=` and `ps -eo pid=,lstart=` every 2s unconditionally: observe_tree/1 snapshots the whole process table even when roots_fun returns [] and even when the log path resolved to nil at init (non-GitHub tracker or unresolvable repo), in which case append(nil, _) discards every row. Two more recursive pgrep walkers exist (Claude.RemoteControl.collect_descendants/1, GitHub.Config.child_os_pids/2). append/2 and rotate/2 also rescue everything to :ok.",
+      "evidence": "agent_resource_guard.ex:18 `@default_interval_ms 1_000`; 67-71 `children = children_fun.(pid); children ++ Enum.flat_map(children, &collect_descendants(&1, opts))`; 142 `System.cmd(pgrep, [\"-P\", Integer.to_string(pid)], stderr_to_stdout: true)`. agent_process_log.ex:83 `@default_interval_ms 2_000`; 192-195 `roots = state.roots_fun.()` ... `all = state.processes_fun.()` (no empty-roots short-circuit); 395 `defp append(nil, _row), do: :ok`; 402-403 `rescue _unavailable -> :ok`. remote_control.ex:432 and github/config.ex:975 run the same `pgrep -P` recursion.",
+      "recommendation": "Create one Aiur.ProcessTree snapshot service: a single `ps` (or /proc scan) per tick, a children index, shared read access for the resource guard, the process log, the reaper and remote-control teardown. Skip the tick entirely when there are no agent roots, and do not start the process log when its path is nil.",
+      "effort": "M",
+      "refactor_hint": "Host/process-supervision package (ProcessReaper, resource guard, process log): one owner of OS process-table observation."
+    },
+    {
+      "id": "loose-4-08",
+      "category": "large-module",
+      "severity": "P1",
+      "title": "Aiur.Config is a god accessor (1462 lines, 114 public functions, 147 dependent files) that also performs filesystem side effects",
+      "locations": [
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1-1462"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "17-22"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "213-259"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1201-1293"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1302-1461"
+        }
+      ],
+      "description": "One module owns: the memoized settings read and env-epoch hashing, ~100 one-line accessors across every domain (tracker, polling, events, workspace, build order, hooks, agent load/admission, codex, decisions, observability, telemetry retention, server), base-branch resolution with its own error formatting, Codex sandbox policy assembly, semantic validation, legacy config preparation, and error-message formatting. codex_runtime_settings/2 reaches into Budget, BuildGate and AgentEnvironment and creates directories (Budget.ensure_state_dir, BuildGate.prepare_writable_root) as a side effect of a config read. @implicit_env_vars must be hand-synchronised with every env read in the schema path or the memo goes stale. Every would-be package imports this module, so it becomes the dependency hub of the carve.",
+      "evidence": "`grep -c '^  def ' config.ex` = 114; `settings!()` appears 76 times; 147 files under src/lib reference Config accessors. 17-21: 'Anything added to those paths must be added here, or the settings memo will not expire'. 1252-1253: `with :ok <- Budget.ensure_state_dir() do Schema.add_runtime_turn_sandbox_roots(turn_sandbox_policy, [Budget.state_dir()])`.",
+      "recommendation": "Keep Aiur.Config.settings/0 (+ memo) as the only core API. Move accessors into per-domain modules that take a %Schema{} (Config.Agent, Config.Polling, Config.BuildOrder, Config.Observability ...), move codex_runtime_settings/turn-sandbox assembly into the Codex package, and validation into Config.Validation. Derive the implicit env list from the schema instead of a hand-kept attribute.",
+      "effort": "L",
+      "refactor_hint": "Carve: core config package exports settings + schema structs; each package owns an accessor module over its own schema section, removing the 147-file fan-in."
+    },
+    {
+      "id": "loose-4-09",
+      "category": "config",
+      "severity": "P2",
+      "title": "Config accessors have four different failure behaviours chosen per function",
+      "locations": [
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "438-486"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "536-544"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "898-904"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1034-1056"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1101-1124"
+        }
+      ],
+      "description": "About 70 accessors raise through settings!(). A handful fall back silently to a default on any config error, each with a different default (0, true, %{}, nil, 300, :local), and poll_intervals/0 rescues ArgumentError into %{} (all per-class cadences dropped). telemetry_enabled?/1 and upgrade_check_enabled?/1 default their argument to settings_uncached/0, so each call re-reads and re-parses the file. Three accessors use Map.get 'so a config cached before this field existed' works while every other accessor uses dot access, which is the same risk. A caller cannot tell from the name whether a read can raise or will quietly substitute a value.",
+      "evidence": "440-441 `{:ok, settings} -> Map.get(settings.agent, :max_dispatches_per_ticket) || 0; _ -> 0`; 456 `Map.get(settings.agent, :prior_work_continuation, true)`; 542-543 `rescue ArgumentError -> %{}`; 901-902 `_unavailable -> nil`; 1053-1054 `... -> seconds; _ -> 300`; 1104 `def telemetry_enabled?(settings \\\\ settings_uncached())`.",
+      "recommendation": "Pick one policy per accessor class and encode it in the name (fetch!/get_or_default), or have callers receive a settings struct once per operation instead of re-reading. Remove the 'cached before this field existed' special cases (the memo is keyed per generation).",
+      "effort": "M",
+      "refactor_hint": "Resolve while splitting Config (see the Config god-module finding) so each package's accessor module has one documented failure policy."
+    },
+    {
+      "id": "loose-4-10",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "Backend registry creates dependency cycles and mixes core dispatch capabilities with web presentation, pricing, usage and telemetry",
+      "locations": [
+        {
+          "path": "src/lib/aiur/coding_agent.ex",
+          "lines": "81-268"
+        },
+        {
+          "path": "src/lib/aiur/coding_agent.ex",
+          "lines": "16-28"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "319"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "396"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1318"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1393-1414"
+        },
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "lines": "136-158"
+        },
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "lines": "522-529"
+        },
+        {
+          "path": "src/lib/aiur/provider_meter_probe.ex",
+          "lines": "84"
+        },
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "88-96"
+        }
+      ],
+      "description": "CodingAgent.backends/0 is a 187-line function returning one map per backend that holds the adapter and transcript modules, delivery flags, CSS colours and asset paths (presentation), pricing dimension tables, usage adapters, run-telemetry decoders and meter-probe callbacks. The result is bidirectional module dependencies: CodingAgent -> Config (agent_kind, agent_backend_configs, switch_model_on_ratelimit) and Config -> CodingAgent (default_backend, rate_limit_fallback_targets, complexity_level, dispatchable_backends, configurable_backends, known_backends); CodingAgent -> ModelDiscovery (cached_models, catalogue, source_key) and ModelDiscovery -> CodingAgent (backends, seedable_models, family_for); CodingAgent -> ProviderMeterProbe (registry entries capture &ProviderMeterProbe.probe_session/3) and ProviderMeterProbe -> CodingAgent (provider_meter_probe); CodingAgent <-> ModelAvailability. These cycles prevent carving agent backends, usage/pricing, meters and the dashboard into separate packages.",
+      "evidence": "coding_agent.ex:122-133 `presentation: %{order: 0, label: \"Codex\", logo: \"/provider-assets/codex-color.svg\", ... command_color: \"#8fbcff\", ...}`; 143-145 `usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, ...]}, meter_probe: &ProviderMeterProbe.probe_session/3, run_telemetry: &Lifecycle.decode_codex_operation/1`; 266 `|> Map.merge(Aiur.OpenAICompat.Registry.entries())`. config.ex:1318 `settings.agent.kind not in Aiur.CodingAgent.dispatchable_backends(...)`; model_discovery.ex:153 `curated = CodingAgent.seedable_models(backend)`; provider_meter_probe.ex:84 `case CodingAgent.provider_meter_probe(provider) do`.",
+      "recommendation": "Split the registry: a core Backend behaviour/capability struct (adapter, transcript, delivery flags, resumable, remote transport) owned by the agent-runtime package, and facet registries (presentation in the web package, pricing/usage in the usage package, meter probes in the meters package) keyed by backend id. Pass configured backends and discovered catalogues in as arguments instead of calling Config/ModelDiscovery from CodingAgent.",
+      "effort": "L",
+      "refactor_hint": "This is the central blocker for splitting agent backends from usage, meters and web; define the backend-id + capability contract first."
+    },
+    {
+      "id": "loose-4-11",
+      "category": "performance",
+      "severity": "P2",
+      "title": "CodingAgent rebuilds the full registry on every accessor call; 11 accessors repeat the same Map.fetch/default body",
+      "locations": [
+        {
+          "path": "src/lib/aiur/coding_agent.ex",
+          "lines": "81-268"
+        },
+        {
+          "path": "src/lib/aiur/coding_agent.ex",
+          "lines": "405-412"
+        },
+        {
+          "path": "src/lib/aiur/coding_agent.ex",
+          "lines": "586-592"
+        },
+        {
+          "path": "src/lib/aiur/coding_agent.ex",
+          "lines": "1068-1103"
+        },
+        {
+          "path": "src/lib/aiur/coding_agent.ex",
+          "lines": "1193-1298"
+        },
+        {
+          "path": "src/lib/aiur/coding_agent.ex",
+          "lines": "1340-1346"
+        }
+      ],
+      "description": "backends/0 allocates every entry map and merges OpenAICompat.Registry.entries() each time; it is called at 44 sites inside the module and by 14 external call sites. The per-issue dispatch path (backend_for, select_for_dispatch, model_for, effort_for) reaches override/2, which calls dispatchable_backends(Config.agent_backend_configs()) and label_opts/1 -> known_backends() for every label, so one issue per poll rebuilds the registry many times. The capability accessors family_for, efforts, control_application_confirmation, remote_control?, remote_worker?, resumable?, remote_transport, fallback_backend, rc_display_tail?, runtime_report and immediate_delivery? are the same 6-line `case Map.fetch(backends(), backend)` body with a different key and default.",
+      "evidence": "`grep -c 'backends()' coding_agent.ex` = 44; 1071-1072 `defp override(%Issue{} = issue, opts) do known = dispatchable_backends(Config.agent_backend_configs())`; 1097-1098 `flags: ..., registered: known_backends()`; 1237-1241 `case Map.fetch(backends(), backend) do {:ok, entry} -> Map.get(entry, :resumable, false); :error -> false end` (same shape at 1195, 1211, 1220, 1251, 1264, 1278, 1293, 1341).",
+      "recommendation": "Build the registry once (compile-time module attribute: remote captures are literals, or :persistent_term at boot) and expose one `capability(backend, key, default)` helper. Parse an issue's labels once per dispatch into a struct (override, variant, effort, remote flag, complexity) instead of re-running the regex in four functions.",
+      "effort": "S",
+      "refactor_hint": "Agent-runtime package; the capability helper becomes the public registry API after the facet split."
+    },
+    {
+      "id": "loose-4-12",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "complexity:N label parsing is implemented three times and the implementations disagree",
+      "locations": [
+        {
+          "path": "src/lib/aiur/coding_agent.ex",
+          "lines": "39"
+        },
+        {
+          "path": "src/lib/aiur/coding_agent.ex",
+          "lines": "1145-1167"
+        },
+        {
+          "path": "src/lib/aiur/build_order/metadata.ex",
+          "lines": "99-100"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "lines": "137-170"
+        }
+      ],
+      "description": "CodingAgent.complexity_level/1 accepts any integer (including 0 and multi-digit values) and takes the highest of several labels; routing, max_turns_by_complexity and complexity prompts use it. BuildOrder.Metadata accepts only a single digit 1..5 and reports several labels as ambiguous. The dashboard units row accepts any positive integer and takes the first label. A ticket with complexity:2 and complexity:4 is routed as 4, shown as 2, and flagged ambiguous in the build order; complexity:7 routes (no table entry, so default) but is invalid to the build order.",
+      "evidence": "coding_agent.ex:39 `@complexity_label ~r/^complexity:(\\d+)$/`; 1163-1165 `[] -> nil; levels -> Enum.max(levels)`. metadata.ex:99 `defp parse_complexity(\"complexity:\" <> <<level>>) when level in ?1..?5, do: {:ok, level - ?0}`. fields.ex:141 `_value -> label_value(issue, \"complexity:\", &parse_positive_integer/1)` with label_value using Enum.find_value (first match).",
+      "recommendation": "Create one Aiur.Labels.Complexity module (parse/1 returning {:ok, n} | :ambiguous | :invalid | :none with the 1..5 domain) and use it in all three places; decide once whether multiple labels are an error or max-wins.",
+      "effort": "S",
+      "refactor_hint": "Label vocabulary belongs in a shared tracker-labels package consumed by dispatch, build order and web."
+    },
+    {
+      "id": "loose-4-13",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Atomic tmp+rename file writes are re-implemented at least 11 times, most without fsync, despite Aiur.Fs.atomic_write and JsonStore.write!",
+      "locations": [
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "412-420"
+        },
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "lines": "651-659"
+        },
+        {
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "lines": "199-214"
+        },
+        {
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "lines": "494-508"
+        },
+        {
+          "path": "src/lib/aiur/agent_skills.ex",
+          "lines": "252-261"
+        },
+        {
+          "path": "src/lib/aiur/github/agent_cache.ex",
+          "lines": "241"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1364"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/retention.ex",
+          "lines": "193"
+        },
+        {
+          "path": "src/lib/aiur/workspace/git_metadata.ex",
+          "lines": "161"
+        },
+        {
+          "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+          "lines": "285"
+        },
+        {
+          "path": "src/lib/aiur/current_run_membership/store/file_ops.ex",
+          "lines": "21"
+        }
+      ],
+      "description": "Aiur.Fs.atomic_write/3 (fsync + rename, mode option) and Aiur.JsonStore.write!/2 exist, yet each of these modules writes its own temp file and renames it. The copies differ: ModelAvailability and ModelDiscovery ignore the File.mkdir_p result and never fsync; AgentGitHubGuard opens with :exclusive and chmods; TakeoverAlert.Store uses a fixed `.tmp` name (two writers collide); CurrentRunMembership has its own atomic_write.",
+      "evidence": "model_availability.ex:413-418 `File.mkdir_p(Path.dirname(path)); tmp = path <> \".#{System.unique_integer([:positive])}.tmp\"; case File.write(tmp, Jason.encode!(state, pretty: true) <> \"\\n\") do :ok -> File.rename(tmp, path)`; model_discovery.ex:652-656 is the same code; agent_github_guard.ex:200 and 495 `temporary = path <> \".#{System.unique_integer([:positive])}.tmp\"`; takeover_alert/store.ex:285 `temp = state.path <> \".tmp\"`; `grep -rn 'def atomic_write' lib` finds fs.ex:19 and current_run_membership/store/file_ops.ex:21.",
+      "recommendation": "Extend Aiur.Fs.atomic_write/3 with :mode, :exclusive and :encode options and replace every hand-rolled copy; add a credo check or a grep in the lint job for `.tmp\"` outside fs.ex.",
+      "effort": "M",
+      "refactor_hint": "Shared storage utility package (Fs, JsonStore, DecisionLog) that every carved package depends on."
+    },
+    {
+      "id": "loose-4-14",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "ModelAvailability and ModelDiscovery are two hand-rolled JSON ledgers beside the workflow config with copied load/write/time helpers",
+      "locations": [
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "35-46"
+        },
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "396-420"
+        },
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "lines": "94-120"
+        },
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "lines": "603-667"
+        },
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "lines": "817-826"
+        },
+        {
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "lines": "7-9"
+        }
+      ],
+      "description": "Both modules compute a path next to `.aiur/config` (Path.dirname(Workflow.workflow_file_path())), permissively decode a whole JSON document, merge one backend entry, and write it back with identical code; ModelDiscovery's moduledoc even says its decode is the 'same as Aiur.ModelAvailability.load/1'. They each carry a private parse_time/1 with different accepted inputs. Runtime state therefore lives in the operator's config directory (with a global ~/.aiur/config it is shared across repositories), while CIApprovalStore was deliberately moved to Paths.decision_state_dir/0 for #2716. ModelDiscovery additionally memoizes through :persistent_term put/erase, which triggers a global GC on each replacement.",
+      "evidence": "model_availability.ex:36 `def path, do: Path.join(Path.dirname(Workflow.workflow_file_path()), \"model-usage.json\")`; model_discovery.ex:102 `Path.join(Path.dirname(Workflow.workflow_file_path()), @cache_file)`; model_discovery.ex:25-26 '(permissive decode, same as `Aiur.ModelAvailability.load/1`)'; model_discovery.ex:596 `:persistent_term.put({__MODULE__, :memo}, {path, stamp, state})`, 665 `:persistent_term.erase({__MODULE__, :memo})`.",
+      "recommendation": "Extract a small keyed JSON ledger (load/update-entry/write under one lock, stored under the state dir) and build both modules on it; move the files to Paths state dir with a one-time adoption like CIApprovalStore; replace the persistent_term memo with an ETS entry.",
+      "effort": "M",
+      "refactor_hint": "Model/provider catalogue package; the ledger primitive goes to shared storage."
+    },
+    {
+      "id": "loose-4-15",
+      "category": "performance",
+      "severity": "P2",
+      "title": "ModelAvailability reads model-usage.json on every call even when the caller passes :state (eager Keyword.get default)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "98-123"
+        }
+      ],
+      "description": "Keyword.get/3 evaluates its default argument before the lookup, so `Keyword.get(opts, :state, load(...))` reads and decodes the file even when :state is present. first_available/2 loads once and passes :state to available?/2 for each candidate precisely to avoid re-reading, but each available?/2 call still reads the file; recovery_confirmed?/2 reads it twice. These run on the dispatch path (CodingAgent.select_for_dispatch/2, Orchestrator.RateLimitFallback, DispatchPolicy).",
+      "evidence": "102: `entry = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path()))) |> get_in([\"backends\", backend]) || %{}`; 112: `state = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path())))`; 121-122 same, then `Enum.find(backends, &available?(&1, Keyword.put(opts, :state, state)))`.",
+      "recommendation": "Use Keyword.get_lazy/3 (or Keyword.fetch) at all three sites; add a test with a :path pointing at a missing/unreadable file plus a supplied :state and assert the state is used.",
+      "effort": "S"
+    },
+    {
+      "id": "loose-4-16",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "ISO-8601 timestamp parsing and key stringification are re-implemented per module with differing semantics",
+      "locations": [
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "lines": "817-824"
+        },
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "363-365"
+        },
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "396-410"
+        },
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "459-466"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "980-981"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "1003-1038"
+        }
+      ],
+      "description": "A private parse_time/parse_timestamp/parse_datetime/parse_iso8601 is defined in 12 lib files (alert_feed, build_order/ticket_history_normalizer, current_run_membership/projection, decision_metrics/event/fields, decision_metrics/sample, decision_query/cursor, events/github_comments_poller, executor/takeover_alert/snapshot, linear/client, model_availability, model_discovery, run_telemetry/dataset). They differ: ModelAvailability also accepts DateTime structs and unix integers, the others only binaries. stringify_keys/1 is defined in 5 files; decision_projection's is shallow and model_availability's is recursive under the same name.",
+      "evidence": "`grep -rlE 'defp (parse_time|parse_timestamp|parse_datetime|parse_iso8601)\\(' lib` -> 12 files; `grep -rl 'defp stringify_keys(' lib` -> decision_projection, model_availability, open_ai_compat/transport, run_telemetry/dataset, usage_ledger/record. model_availability.ex:405 `defp parse_time(value) when is_integer(value), do: DateTime.from_unix(value) |> unwrap_datetime()`.",
+      "recommendation": "Add Aiur.Time.parse_iso8601/1 (+ explicit parse_unix/1) and Aiur.MapKeys.stringify/2 (depth option) in a shared utility module and replace the private copies.",
+      "effort": "S",
+      "refactor_hint": "Shared utility package."
+    },
+    {
+      "id": "loose-4-17",
+      "category": "performance",
+      "severity": "P2",
+      "title": "AlertFeed answers every query by reading, decoding and sorting the full alert ledger; it is called on every resolution emit and from the Orchestrator",
+      "locations": [
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "15-25"
+        },
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "63-125"
+        },
+        {
+          "path": "src/lib/aiur/alert_ledger.ex",
+          "lines": "29"
+        },
+        {
+          "path": "src/lib/aiur/alerts.ex",
+          "lines": "121-142"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "691-695"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1861"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1333-1337"
+        }
+      ],
+      "description": "list/1 and condition_states/2 read every ledger path (each capped at 8 MiB), JSON-decode each line, sort by timestamp string and fold. Alerts.do_emit/3 calls duplicate_resolution?/2 -> condition_state/2 on every emission, so each alert write costs a full ledger scan in the emitting process. active_system_attention?/2 is called from the Orchestrator process (dispatcher.ex:695, 786; issue_sync.ex:1861, 1943, 2073; comment_polling.ex:107) and active_ticket_attention?/2 from status_report.ex:1337 before emitting waiting-for-human alerts. Sorting ISO-8601 strings lexically also mis-orders records whose timestamps differ in offset or fractional precision.",
+      "evidence": "alert_feed.ex:17-20 `opts |> AlertLedger.paths() |> Enum.flat_map(&read_alerts(&1, opts)) |> Enum.sort_by(&{is_nil(Map.get(&1, \"timestamp\")), Map.get(&1, \"timestamp\") || \"\"})`; 103-107 same scan in condition_states; alert_ledger.ex:29 `@max_bytes 8 * 1_024 * 1_024`; alerts.ex:138-139 `defp repeat_resolution?(topic) do AlertFeed.duplicate_resolution?(topic)`.",
+      "recommendation": "Maintain an ETS index of condition state and active attention keys updated by AlertLedger.append/2 (rebuilt once at boot from the ledger), and serve condition_state/active_*_attention? from it. Parse timestamps to DateTime before sorting.",
+      "effort": "M",
+      "refactor_hint": "Alerts package: the ledger owner should own the index so readers in other packages never scan files."
+    },
+    {
+      "id": "loose-4-18",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "AlertFeed turns any ledger read error into 'no alerts' with no log; two public predicates are identical",
+      "locations": [
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "297-313"
+        },
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "63-77"
+        },
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "39-50"
+        }
+      ],
+      "description": "read_alerts/2 and read_legacy_alerts/1 `rescue _ -> []`. A malformed or unreadable ledger therefore makes condition_state/2 return :unknown and active_*_attention?/2 return false, which re-arms emitters (they re-emit firing alerts and resolutions) and hides every attention from the dashboard, with nothing logged. backfill_locked/1 likewise drops {:error, _} from append_legacy_alerts silently (retried on the next boot only). active_system_attention?/2 and active_ticket_attention?/2 have byte-identical bodies (both filter agents to [\"system\"]), so the name promises a distinction the code does not make.",
+      "evidence": "alert_feed.ex:302-303 `rescue _ -> []`; 311-312 `rescue _ -> []`; 47-48 `{:error, _reason} -> :ok`; 65-69 and 73-77: `opts = Keyword.put(opts, :agents, [\"system\"])` / `Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1[\"topic\"] == topic))`.",
+      "recommendation": "Return {:error, reason} from the read layer and let callers choose fail-open vs fail-closed explicitly; log and alert on a ledger read failure. Collapse the two predicates into active_attention?(topic, agents: ...) or give the ticket variant the ticket agent filter it implies.",
+      "effort": "S",
+      "refactor_hint": "Alerts package."
+    },
+    {
+      "id": "loose-4-19",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "OpenTicketSource and BuildOrder.AdHocSource mirror 13 private helpers and have already drifted; both page GitHub synchronously inside GenServer callbacks",
+      "locations": [
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "57-61"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "78-84"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "126"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "148-158"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "191-212"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "290-332"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "373-489"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "167-187"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "260-292"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "320-410"
+        },
+        {
+          "path": "src/lib/aiur/global_config_startup.ex",
+          "lines": "95-112"
+        }
+      ],
+      "description": "The moduledoc says OpenTicketSource is 'modelled on Aiur.BuildOrder.AdHocSource'. Both define reconcile_issue, fetch_pages, apply_result, do_apply_result, rebuild_snapshot, snapshot_status (identical 3 clauses), meaningful, broadcast, now, maybe_relist, resolve_repo. They drifted: OpenTicketSource caps the listing at 10 pages and 4 MiB per response, AdHocSource paginates without a page or byte cap (acc ++ issues). Both run the whole multi-page listing inside handle_cast/handle_info, so OpenTicketSource.snapshot/1 (5s call) exits during a slow relist and returns an empty :unavailable snapshot. repo is resolved once in init: if repo_fun fails at boot, every store event is ignored by the catch-all reconcile_issue/5 and maybe_relist/2 clauses while a later successful refresh still marks the projection :available. GlobalConfigStartup has a third pagination loop (page=N, 10-page cap) instead of Transport.parse_next_page_url/1.",
+      "evidence": "open_ticket_source.ex:58 `@max_pages 10`, 61 `@max_response_bytes 4 * 1024 * 1024`, 307 `defp fetch_pages(_state, _url, _token, _owner, _repo, acc, 0), do: {:ok, flatten(acc), true}`; ad_hoc_source.ex:274-281 `defp fetch_pages(request_fun, url, token, owner, repo, prefix, acc) do ... next_url -> fetch_pages(..., acc ++ issues)` (no cap); open_ticket_source.ex:421-423 and ad_hoc_source.ex:362-364 identical snapshot_status clauses; open_ticket_source.ex:82-83 `catch :exit, _reason -> %Snapshot{}`; 126 `state = %{state | repo: resolve_repo(state.repo_fun)}`.",
+      "recommendation": "Extract an event-sourced GitHub listing behaviour (baseline listing + store-event reconcile + degraded/recovered relist + snapshot/broadcast plumbing) parameterised by a filter and a row mapper; run the listing in a Task with a generation fence so the server keeps answering; share one bounded paginator.",
+      "effort": "M",
+      "refactor_hint": "GitHub view-projection package (OpenTicketSource, AdHocSource, PackStatus, ViewStateSweep)."
+    },
+    {
+      "id": "loose-4-20",
+      "category": "performance",
+      "severity": "P2",
+      "title": "AgentLog reads the entire agent.ndjson into memory to show 80 messages, and re-parses Codex app-server protocol that three other modules also parse",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_log.ex",
+          "lines": "41-111"
+        },
+        {
+          "path": "src/lib/aiur/agent_log.ex",
+          "lines": "147-159"
+        },
+        {
+          "path": "src/lib/aiur/agent_log.ex",
+          "lines": "172-249"
+        },
+        {
+          "path": "src/lib/aiur/agent_log.ex",
+          "lines": "343-368"
+        },
+        {
+          "path": "src/lib/aiur/agent_log.ex",
+          "lines": "423-443"
+        }
+      ],
+      "description": "read_structured_messages/1 does File.read of the full transcript and decodes every line before Enum.take(-@message_window). Transcripts grow for the life of a ticket, and the dashboard agent-log modal calls it (aiur_web/components/operator_control_center/agent_log_modal.ex:148-159). parse_json_log_entry/4 is a 77-line case over Codex notification methods (item/started, item/completed, item/agentMessage/delta ...) with eight explicit `-> nil` arms that duplicate the catch-all; the same methods are interpreted in codex/transcript.ex, codex/event_humanizer.ex and agent_runner/codex_update_relay.ex. summarize_prompt/1 and issue_prompt_text?/1 couple the renderer to literal prompt-template text ('You are an agent for this repository.', '## Workspace setup').",
+      "evidence": "agent_log.ex:98 `{:ok, content} -> {:ok, content |> parse_structured_entries() |> display_messages()}`; 152 `|> Enum.take(-@message_window)`; item/* literal counts: agent_log.ex 10, codex/event_humanizer.ex 14, codex/transcript.ex 5, agent_runner/codex_update_relay.ex 4; 202-244 eight arms returning nil.",
+      "recommendation": "Read only the tail (reuse AlertLedger's Tail reader), and render from Codex.Transcript.extract/2 output instead of a parallel protocol switch. Mark prompt sections with explicit markers in the template rather than matching prose.",
+      "effort": "M",
+      "refactor_hint": "Codex protocol knowledge belongs in the Codex adapter package; web/log rendering should consume normalized transcript events only."
+    },
+    {
+      "id": "loose-4-21",
+      "category": "large-module",
+      "severity": "P1",
+      "title": "Aiur.Application starts ~90 children in one flat :rest_for_one supervisor from a 246-line child_specs/1, with unguarded host side effects before it",
+      "locations": [
+        {
+          "path": "src/lib/aiur.ex",
+          "lines": "30-110"
+        },
+        {
+          "path": "src/lib/aiur.ex",
+          "lines": "112-116"
+        },
+        {
+          "path": "src/lib/aiur.ex",
+          "lines": "240-486"
+        },
+        {
+          "path": "src/lib/aiur.ex",
+          "lines": "160-166"
+        }
+      ],
+      "description": "Every child sits in one :rest_for_one list, so a crash of any early child restarts every later child: e.g. ProcessReaper (308), AgentResourceGuard (310), BuildGateHoldMonitor (313) or any GitHub table owner restarts Orchestrator (449), DecisionStore, TicketActivity and HttpServer (475, which also regenerates secret_key_base). The comments justify rest_for_one by PubSub links, but most children do not depend on their predecessors. child_specs/1 mixes ordering rationale, feature flags read from Application env and conditional children in one 246-line function. start/2 writes the agent token file and installs host wrappers into ~/.aiur/bin (lines 60-61) with no env == :test guard, while maybe_validate_environment/0 (141) and GlobalConfigStartup.prepare/0 have one. log_base_branch/1 is named as a log helper but raises (Config.base_branch/2) and so gates boot.",
+      "evidence": "aiur.ex:115 `Supervisor.start_link(children, Keyword.put(opts, :strategy, :rest_for_one))`; 96 comment 'terminates all ~90 children'; 241-486 child_specs/1; 60 `_ = AgentGitHubGuard.ensure_agent_token_file()`; 61 `if Budget.enabled?(), do: AgentGitHubGuard.install_host()`; 164 `Logger.info(\"aiur_boot phase=config base_branch=#{inspect(AiurConfig.base_branch(settings))}\")`.",
+      "recommendation": "Group children into per-domain supervisors (Core: ModeTable/PubSub/Registries; Host; GitHub; Usage; Decisions; Executor recording; Orchestrator; Web; TUI), use :rest_for_one only inside the Core group and :one_for_one between independent groups. Move boot side effects into an explicit Boot pipeline with an env guard, and make base-branch validation an explicit validation step.",
+      "effort": "L",
+      "refactor_hint": "The supervision split is the runtime shape of the carve: each package ships its own supervisor and the application composes them."
+    },
+    {
+      "id": "loose-4-22",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "DecisionProjection (1039 lines) mixes record decoding, the lifecycle state machine and JSON serialization; three attempt constructors have diverged",
+      "locations": [
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "22-90"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "121-140"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "275-523"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "416-440"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "690-710"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "769-793"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "840-1038"
+        }
+      ],
+      "description": "transition/2 has 24 clauses over ~250 lines; decode helpers (fetch_map/fetch_string/fetch_timestamp) and a ~160-line serializer live in the same module. Dispatch-attempt maps are built in three places: the :dispatch_outcome_unknown attempt omits :handed_off_at while the queued and failed attempts include it, contradicting the dispatch_attempt type in decision.ex:79; readers compensate with Map.get (to_json_safe 926, Decision.attempt_in_flight?/1 decision.ex:262, public_lifecycle_projection.ex:82). reserve_event_identity/2 has two identical clauses for DecisionEvent and Unrecognized. History, revisions and attempts are appended with `list ++ [x]`.",
+      "evidence": "419-432 attempt map without handed_off_at; 693-706 and 771-785 with `handed_off_at: nil`; 926 `\"handed_off_at\" => timestamp(Map.get(attempt, :handed_off_at))`; 121-137 two identical `if MapSet.member?(seen_ids, event_id) do {:error, :duplicate_event_id} else {:ok, MapSet.put(seen_ids, event_id)} end` clauses; 840 `defp append(map, key, value), do: Map.update(map, key, [value], &(&1 ++ [value]))`.",
+      "recommendation": "Introduce a DispatchAttempt struct with one constructor; split into DecisionProjection.Decode, DecisionProjection.Reducer (transitions) and DecisionProjection.JSON; merge the duplicate reserve clauses.",
+      "effort": "M",
+      "refactor_hint": "Decisions package internals; splitting the serializer lets the web/API package depend on JSON shapes without the reducer."
+    },
+    {
+      "id": "loose-4-23",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "DecisionExpiry skips the whole sweep whenever the Orchestrator does not answer a GenServer.call within 1s",
+      "locations": [
+        {
+          "path": "src/lib/aiur/decision_expiry.ex",
+          "lines": "21-25"
+        },
+        {
+          "path": "src/lib/aiur/decision_expiry.ex",
+          "lines": "69-97"
+        },
+        {
+          "path": "src/lib/aiur/decision_expiry.ex",
+          "lines": "127-135"
+        },
+        {
+          "path": "src/lib/aiur/decision_expiry.ex",
+          "lines": "150-183"
+        }
+      ],
+      "description": "The sweep, and with it the stale-blocking and expired-unanswerable attention reconciliation, is abandoned when Orchestrator :list_active_identifiers takes longer than 1s. The Orchestrator is the busiest GenServer in the system, so under load expiry and attention reconciliation can starve indefinitely with only a Logger.warning per minute, which is written nowhere without --debug. A failed DecisionStore.expire result is silently not counted. sync_reconciliation_with_legacy_injections/5 keeps test-only injection branches (classification_sync_fun, attention_sync_fun) in production code.",
+      "evidence": "25 `@orchestrator_timeout 1_000`; 94 `{:ok, GenServer.call(Aiur.Orchestrator, :list_active_identifiers, @orchestrator_timeout)}`; 78-79 `{:error, reason} -> Logger.warning(\"aiur_decision_expiry sweep_skipped reason=#{inspect(reason)}\")`; 134 `match?({:ok, %{status: status}} when status in [:accepted, :duplicate], result)`.",
+      "recommendation": "Read active identifiers from the published orchestrator snapshot (Orchestrator.SnapshotStore / ETS) instead of a call; count consecutive skips and raise a system alert after N; drop the legacy injection seams and update the tests to inject attention_reconcile_fun only.",
+      "effort": "S",
+      "refactor_hint": "Decisions package should consume an orchestrator read model, not call the Orchestrator process."
+    },
+    {
+      "id": "loose-4-24",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "OpencodeTheme overwrites the user's opencode kv.json with only {theme: aiur} when the file is unparsable, using a non-atomic write",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode_theme.ex",
+          "lines": "98-147"
+        },
+        {
+          "path": "src/lib/aiur/opencode_theme.ex",
+          "lines": "171-182"
+        },
+        {
+          "path": "src/lib/aiur/opencode_theme.ex",
+          "lines": "193-201"
+        }
+      ],
+      "description": "decode_kv/1 maps invalid JSON to {:enoent, %{}}; theme_action(:enoent) is :set; write_kv writes merge_theme(%{}) = %{\"theme\" => \"aiur\"}. Any other state opencode keeps in ~/.local/state/opencode/kv.json is discarded, for example after a torn read while a running opencode serve is rewriting it. The write is a plain File.write, so a crash mid-write truncates the user's file. The module reads the real XDG/HOME paths by default.",
+      "evidence": "119-120 `{:ok, decoded} when is_map(decoded) -> {decoded, decoded}; _ -> {:enoent, %{}}`; 171 `defp theme_action(:enoent), do: :set`; 143 `case File.write(kv_path, encoded) do`.",
+      "recommendation": "Treat an unparsable kv.json as {:error, :invalid_kv} and skip activation (report :skipped); write through Aiur.Fs.atomic_write/3.",
+      "effort": "S",
+      "refactor_hint": "TUI/opencode integration package."
+    },
+    {
+      "id": "loose-4-25",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "HttpServer uses Application env as a mutable global to wire runtime dependencies and regenerates secret_key_base on every start",
+      "locations": [
+        {
+          "path": "src/lib/aiur/http_server.ex",
+          "lines": "30-41"
+        },
+        {
+          "path": "src/lib/aiur/http_server.ex",
+          "lines": "61-82"
+        },
+        {
+          "path": "src/lib/aiur/http_server.ex",
+          "lines": "268-270"
+        }
+      ],
+      "description": "start_link/1 writes :dashboard_url_fun into the :aiur app env and merges orchestrator/decision_api/decision_store modules, auth flags and a freshly generated secret_key_base into the Endpoint's app env before starting it. Other code reads these globals implicitly, so tests and a second instance share them, and every HttpServer restart (which happens whenever an earlier sibling crashes under the flat :rest_for_one tree) rotates the secret and invalidates existing signed sessions/LiveView tokens.",
+      "evidence": "32 `Application.put_env(:aiur, :dashboard_url_fun, &__MODULE__.base_url/0)`; 76-81 `endpoint_config = :aiur |> Application.get_env(Endpoint, []) |> Keyword.merge(endpoint_opts); Application.put_env(:aiur, Endpoint, endpoint_config)`; 73 `secret_key_base: secret_key_base()`; 269 `Base.encode64(:crypto.strong_rand_bytes(@secret_key_bytes), padding: false)`.",
+      "recommendation": "Pass dependencies to the Endpoint via its child spec/init config and a registry lookup rather than app env; generate secret_key_base once per boot (Aiur.Boot) or persist it in the state dir.",
+      "effort": "S",
+      "refactor_hint": "Web package boundary: the web package should receive its dependencies explicitly from the composing application."
+    },
+    {
+      "id": "loose-4-26",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Token-usage key aliases are listed three times in TokenUsage with two different integer parsers, and token normalization exists in four other modules",
+      "locations": [
+        {
+          "path": "src/lib/aiur/token_usage.ex",
+          "lines": "15-54"
+        },
+        {
+          "path": "src/lib/aiur/token_usage.ex",
+          "lines": "56-110"
+        },
+        {
+          "path": "src/lib/aiur/token_usage.ex",
+          "lines": "118-138"
+        }
+      ],
+      "description": "canonicalize/1, token_field?/1 and format_counts/1 each spell out the input/output/total alias lists (atoms and strings). canonicalize uses parse_token_value/1, which accepts trailing garbage (\"12abc\" -> 12 via `{n, _}`), while format_counts uses EventHumanizerHelpers.parse_integer, so the same payload can canonicalize and display differently. Other normalizers of the same provider fields: orchestrator/token_accounting/payloads.ex, usage/headless/claude/request_usage.ex, usage/headless/codex/tokens.ex, usage/headless/open_ai_compat/request_usage.ex.",
+      "evidence": "18-32 and 43-47 and 59-96 three copies of the alias lists; 122 `{n, _} when n >= 0 -> n`; `grep -rlF prompt_tokens lib` -> 5 files.",
+      "recommendation": "Define the alias table once (module attribute of {canonical_key, [aliases]}) and one strict parser; have the usage adapters and token accounting call it.",
+      "effort": "S",
+      "refactor_hint": "Usage package: one token-field normalizer shared by accounting and display."
+    },
+    {
+      "id": "loose-4-27",
+      "category": "complexity",
+      "severity": "P3",
+      "title": "Config.validate_kinds_and_secrets/1 cond short-circuits: GitHub-tracker configs never reach the Claude check, and the check reads the deprecated agent.kind",
+      "locations": [
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1194-1199"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1309-1336"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1384-1391"
+        }
+      ],
+      "description": "The cond returns the result of Aiur.GitHub.Config.validate!() for a GitHub tracker, so the `settings.agent.kind == \"claude\"` branch below it is reachable only for Linear/memory trackers. The agent-kind checks use settings.agent.kind, not the effective agent_kind/0 derived from agent.priority. The supported tracker list is a literal that duplicates inferred_tracker_kind/1. validate!/0 has a bang name but returns {:error, _}. A credo cyclomatic-complexity suppression marks the growing chain.",
+      "evidence": "1309 `# credo:disable-for-next-line Credo.Check.Refactor.CyclomaticComplexity`; 1327-1331 `settings.tracker.kind == \"github\" -> Aiur.GitHub.Config.validate!()` then `settings.agent.kind == \"claude\" -> Aiur.Claude.Config.validate!()`; 1315 `not in [\"linear\", \"github\", \"memory\"]`.",
+      "recommendation": "Replace the cond with a list of independent validators run with `with`/Enum.reduce_while so tracker and agent checks both run; validate the effective backends; rename to validate/0.",
+      "effort": "S"
+    },
+    {
+      "id": "loose-4-28",
+      "category": "docs-drift",
+      "severity": "P3",
+      "title": "Module docs contradict the code in four modules",
+      "locations": [
+        {
+          "path": "src/lib/aiur/progress_tracker.ex",
+          "lines": "1-24"
+        },
+        {
+          "path": "src/lib/aiur/provider_meter_refresh.ex",
+          "lines": "9-22"
+        },
+        {
+          "path": "src/lib/aiur/provider_meter_refresh.ex",
+          "lines": "179-185"
+        },
+        {
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "lines": "241-245"
+        },
+        {
+          "path": "src/lib/aiur/json_safe.ex",
+          "lines": "1-10"
+        }
+      ],
+      "description": "ProgressTracker says it is 'ETS-backed' with a store that keeps @max_samples per identifier; it is pure list functions with no ETS. ProviderMeterRefresh's rule 3 says 'Codex only while agents run', but refresh_target/1 always returns :all and the injected agents_running? function is never called (agents_running?/0 at 226-235 is dead). AgentGitHubGuard.gh_config_dir/1 says the agent 'authenticates with the bot PAT in GITHUB_TOKEN ... the token already reaches the agent through the environment', which #2356 (lines 101-107 of the same module) removed. JSONSafe claims dates get a string representation, but Date/NaiveDateTime/Time structs fall into the generic struct clause and become maps.",
+      "evidence": "progress_tracker.ex:3 'Pure helpers + ETS-backed sample store'; provider_meter_refresh.ex:18 '**Codex only while agents run.**' vs 185 `defp refresh_target(_state), do: :all`; agent_github_guard.ex:241-245 vs 101-107; json_safe.ex:10-11 `def normalize(%DateTime{} = value)` then `def normalize(%_{} = value), do: value |> Map.from_struct() |> normalize()`.",
+      "recommendation": "Correct the docs; delete agents_running?/0 and the :agents_running_fun option or use it; add Date/NaiveDateTime/Time clauses to JSONSafe.normalize/1.",
+      "effort": "S"
+    },
+    {
+      "id": "loose-4-29",
+      "category": "dead-code",
+      "severity": "P3",
+      "title": "Unused parameters, pass-through wrappers and redundant state in small modules",
+      "locations": [
+        {
+          "path": "src/lib/aiur/event_publication_log.ex",
+          "lines": "38-61"
+        },
+        {
+          "path": "src/lib/aiur/issue.ex",
+          "lines": "25-37"
+        },
+        {
+          "path": "src/lib/aiur/issue.ex",
+          "lines": "83-86"
+        },
+        {
+          "path": "src/lib/aiur/live_conversation.ex",
+          "lines": "417-436"
+        },
+        {
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "lines": "431-450"
+        }
+      ],
+      "description": "EventPublicationLog.write/2,3 keeps a workspace argument that is 'never used to resolve the destination path'. Issue.label_names/1 returns the field unchanged (8 callers). Issue carries both dispatch_authorized? (boolean) and dispatch_authorization (:authorized | :denied | :deferred); the boolean is derivable from the atom and every writer sets both (17 references each), so they can disagree. LiveConversation.activate_snapshot/4 ignores its created? argument in every clause. AgentGitHubGuard hard-codes \"$HOME/.aiur/github-budget/agent-token\" in the remote script while agent_token_path/0 honours the :github_budget_dir override, so the two paths can differ.",
+      "evidence": "event_publication_log.ex:41-42 'The workspace argument is retained for caller compatibility but is never used'; issue.ex:84-86 `def label_names(%__MODULE__{labels: labels}) do labels end`; github/dispatch_authorization.ex:145 `%{issue | dispatch_authorized?: authorized?, dispatch_authorization: authorization}`; agent_github_guard.ex:438 `printf '%s\\\\n' #{token} > \\\"$HOME/.aiur/github-budget/agent-token\\\"` vs 71 `Path.join(Budget.state_dir(), @agent_token_filename)`.",
+      "recommendation": "Drop the unused arguments; replace dispatch_authorized? with a function over dispatch_authorization; derive the remote token path from the same helper.",
+      "effort": "S"
+    },
+    {
+      "id": "loose-4-30",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Local copy-paste inside LiveConversation, DecisionDelegation, AgentEvents and AgentGitHubGuard",
+      "locations": [
+        {
+          "path": "src/lib/aiur/live_conversation.ex",
+          "lines": "178-204"
+        },
+        {
+          "path": "src/lib/aiur/live_conversation.ex",
+          "lines": "271-311"
+        },
+        {
+          "path": "src/lib/aiur/live_conversation.ex",
+          "lines": "367-415"
+        },
+        {
+          "path": "src/lib/aiur/live_conversation.ex",
+          "lines": "483-502"
+        },
+        {
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "lines": "54-91"
+        },
+        {
+          "path": "src/lib/aiur/agent_events.ex",
+          "lines": "261-276"
+        },
+        {
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "lines": "464-483"
+        }
+      ],
+      "description": "LiveConversation repeats the nested `case Source.canonical/1 -> case authorize_source/3` block in activate, observe_normalized and change_state; unavailable_snapshot/3 re-lists every field of fresh_snapshot/4; put_snapshot/3 rebuilds the whole handles map on every persisted event. DecisionDelegation.normalize/3 and normalize_revision/3 are identical except for two field lists. AgentEvents.state_emoji/1 has 14 clauses duplicating atom and string forms. AgentGitHubGuard.ensure_gh_config_dir/1 and ensure_quota_dir/1 are the same function with a different error tag.",
+      "evidence": "live_conversation.ex:179-181, 272-274, 298-300 identical `case Source.canonical(source) do {:ok, key, source} -> case authorize_source(state, key, ...) do`; 489-492 `handles = Map.new(snapshots, fn {snapshot_key, retained} -> {retained.generation_handle, snapshot_key} end)`; decision_delegation.ex:57-66 vs 78-87; agent_events.ex:262-275.",
+      "recommendation": "Use `with` + one helper for canonicalize+authorize; derive unavailable_snapshot from fresh_snapshot; maintain handles incrementally; parameterise the delegation field lists; normalise state to atom before the emoji lookup; one ensure_support_dir/2.",
+      "effort": "S"
+    }
+  ]
+}

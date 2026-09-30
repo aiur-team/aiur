@@ -1,0 +1,15 @@
+{
+  "verdicts": [
+    {
+      "id": "gaps-09",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high",
+      "corrected_claim": "The three observed shared cursors reproduce: architecture-docs 352 with 1,529 retained records above it (906 capacity.starved); archon 546 with 264; aiur 4,683 with 66 (26 pr.merged). These are cursor-relative unacknowledged records, not proof they were never read or acted on. The architecture-docs transcript contains 63 assistant session-limit responses from 2026-09-03 19:05:58Z to 22:07:45Z and a user reset message at 23:52:34Z; it does not show repeated errors continuing all the way to that reset. A later successful wake-file tool result returned wake 419 at 2026-09-04 00:04:08Z even though the observed cursor remains 352. The frozen system already implements owner acknowledgements, observer reads, bounded retention with overflow reporting, and stalled-consumer status. Research should distinguish delivery, observation, owner acknowledgement, and completion of the requested action, and evaluate escalation against existing mechanisms.",
+      "method": "Ran tooling/wake_consumption_audit.py against local repo-state and Claude projects. It counts only the three public repository streams, fingerprints journal/cursor files, clips records to the original report cutoff, counts transcript metadata and correlates a wake-file tool call with its successful result. No raw command or result content is published. Read frozen AgentControlCLI.executor_wait_result at 507-525 and acknowledge_executor_wakes at 652-659; ExecutorWakeInbox at 43-60,469-472,548-608; Executor.Roster at 1-28,114-166; aiur-run skill at 318-325. Git history shows owner/observer acknowledgement handling already in 84263f653 (2026-09-02), before the cited limit episode.",
+      "note": "The count of 65 notification-like user records is not a verified count of 65 independent wake triggers; transcript record shape can include other background notifications. Error responses stop at 22:07Z in the checked interval, so until-reset repetition is not established. The later result is positive observation evidence for wake 419, not completion evidence for its underlying action and not proof every pending wake was seen. Current cursor files match the inherited report, but are not independently timestamped historical snapshots. No ownership, acknowledgement, retention or cursor state was changed by this audit. A cursor can also advance due to overflow eviction, so movement alone is not positive work evidence. Existing stalled status does not prove an out-of-band escalation succeeded during this incident.",
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher"
+    }
+  ]
+}

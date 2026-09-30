@@ -1,0 +1,1538 @@
+{
+  "unit_id": "orch-a",
+  "files_reviewed": 28,
+  "lines_reviewed_estimate": 18042,
+  "coverage_notes": "Read in full (every line): dispatcher.ex, issue_sync.ex, ci_lifecycle.ex, comment_wake.ex, comment_polling.ex, comment_polling/target_selection.ex, dispatch_policy.ex, operator_messages.ex, control_lifecycle.ex, control_lifecycle_store.ex, global_pause.ex, global_pause_store.ex, event_topics.ex, merged_ticket_reconciler.ex, lifecycle.ex, lifecycle_fence.ex, command_scan.ex, auto_resume.ex, auto_subscriptions.ex, github_budget_pause.ex, capacity_binding.ex, agent_teardown.ex, interrupts.ex, operator_messages/delivery_policy.ex, human_review.ex, operator_messages/capabilities.ex, digest_coalescer.ex, membership_lifecycle.ex (all 28 files). Cross-checked outside the unit only where a finding depended on it: alert_feed.ex, alert_topic.ex, agent_queue_store.ex (struct and write sites), dispatch_budget_store.ex (read path), ci_approval_store.ex (save), current_run_membership/store.ex + store/runtime.ex + store/terminal_verification.ex (guard and failure path), retry_engine.ex and reconciler.ex (the other wrapper copies), executor/claims.ex and alert_ledger.ex (lock copies), orchestrator.ex facade forwards, state.ex (field counts), config.ex settings/0. Tests: grepped the 28 unit test files for known anti-patterns (bare assert_receive, Application.put_env in async cases, ~/.aiur reads, match-anything asserts) and read samples; did not read test files in full. Not verified at runtime (read-only review): orch-a-01 is traced through code only; its reach on GitHub depends on how often identities are unjoinable. PauseResume, Reconciler, RetryEngine, PushRouting and StatusReport internals were not reviewed beyond the lines cited.",
+  "findings": [
+    {
+      "id": "orch-a-01",
+      "category": "error-handling",
+      "severity": "P0",
+      "title": "IssueSync terminal-verification wrapper lost the joinable guard: nil/unjoinable-identity terminal tickets are retained and re-fetched forever",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "790-826"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "913-996"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "539-575"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "1421-1444"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "lines": "663-676"
+        },
+        {
+          "path": "src/lib/aiur/current_run_membership/store.ex",
+          "lines": "73-76"
+        },
+        {
+          "path": "src/lib/aiur/current_run_membership/store/runtime.ex",
+          "lines": "51-69"
+        },
+        {
+          "path": "src/lib/aiur/current_run_membership/store/runtime.ex",
+          "lines": "247-256"
+        }
+      ],
+      "description": "The 'safely set terminal-verification pending' wrapper exists in four copies. Three (CommentWake, RetryEngine, Reconciler) return :ok without calling the store when the identity is not a joinable %TrackerIdentity{}. The IssueSync copy calls the store for every identity. The store's public function has a guard `when is_struct(identity, TrackerIdentity)`, so a nil identity raises FunctionClauseError (rescued to :error) and an unjoinable struct takes `terminal_verification_marker_failed`, which sets health degraded and terminal_verification_pending?: true. In `record_disappearing_idle_terminals`, a disappeared idle ticket that the refresh shows terminal goes MembershipLifecycle.record (returns :ok for nil/unjoinable) -> clear_refreshed_terminal_verification -> :error -> {:error, :terminal_verification_marker_failed} -> added to failed ids -> retained in last_polled_issues and `mark_reconciled(:unavailable)`. Next poll it is 'disappearing' again, so the loop never exits. Linear issues carry no tracker_identity at all (src/lib/aiur/linear/* never sets it), so on a Linear tracker every idle ticket that reaches a terminal state is retained forever, re-fetched in 25-id batches every poll, and keeps run membership 'unavailable'. On GitHub the same path fires for any issue whose identity is unjoinable and degrades CurrentRunMembership health. Second latch in the same code: a disappeared ticket the refresh does not return at all (deleted/transferred) is also retained with no age or attempt bound.",
+      "evidence": "issue_sync.ex:987 `defp safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, pending?) do case set_terminal_verification_pending_fun.(identity, pending?) do :ok -> :ok; _ -> :error end rescue _error -> :error` (no joinable check) vs retry_engine.ex:1432 `if match?(%TrackerIdentity{}, identity) and TrackerIdentity.joinable?(identity) do ... else :ok end`; store.ex:73-74 `def set_terminal_verification_pending(identity, pending?, server ...) when is_struct(identity, TrackerIdentity)`; runtime.ex:66-67 `{:error, _reason} -> terminal_verification_marker_failed(state, :invalid_identity)`; issue_sync.ex:825 `Map.merge(current_issues, Map.take(previous_issues, pending_issue_ids))`; `rg tracker_identity src/lib/aiur/linear` -> no matches.",
+      "recommendation": "Replace the four wrappers with one function in a membership boundary module (e.g. Aiur.CurrentRunMembership.Safe.set_terminal_pending/3) that returns :ok for non-joinable identities, and use it from IssueSync, CommentWake, RetryEngine and Reconciler. Add an attempt or age bound (and a needs-attention alert) to the 'pending terminal verification' retention so a ticket the tracker never returns is released. Add a test with a nil-identity terminal issue that asserts it is dropped from last_polled_issues after one poll.",
+      "refactor_hint": "Belongs to the run-membership package boundary; the orchestrator should call one typed API, not inject raw store functions through 7-arity overloads.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-02",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Lifetime dispatch-latch check copied 8 times with diverged semantics (config-reinterpreted vs memory-authoritative)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1573-1589"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1653-1692"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1727-1742"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1806-1853"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1172-1201"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1125-1153"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+          "lines": "280-299"
+        }
+      ],
+      "description": "'Is the lifetime latch enabled/active' is written out as `case Config.agent_max_dispatches_per_ticket() do max when is_integer(max) and max > 0 -> ...` in record_dispatch_committed, active_trip?/2, lifetime_exhausted?/1, persisted_lifetime/1, dispatch_latch_status/2, plus a `max > 0` variant in dispatch_latch_statuses/2, plus IssueSync's own lifetime_latch_status/2 and persisted_latch_status/2. The copies disagree: Dispatcher.active_trip?(%{tripped: :lifetime}) re-checks `lifetime >= max` against the CURRENT config, so lowering or disabling the cap reopens dispatch; IssueSync treats an in-memory trip as authoritative ('do not reinterpret an already-recorded latch through the current cap') and refuses to resolve the error attention while it is not :inactive; AutoResume uses Dispatcher.dispatch_latch_status (config-based). After a config change the dispatcher re-dispatches a ticket while IssueSync still reports 'lifetime latch is still active; Executor action is required'. Every copy also reads the whole dispatch-budgets.json file (DispatchBudgetStore.lifetime -> JsonStore.read) per call; IssueSync reaches it for every polled issue on every poll when the latch is enabled.",
+      "evidence": "dispatcher.ex:1653 `defp active_trip?(%{tripped: :lifetime, lifetime: lifetime}, _now_ms) do case Config.agent_max_dispatches_per_ticket() do max when is_integer(max) and max > 0 -> lifetime >= max`; issue_sync.ex:1182-1188 `# ... do not reinterpret an already-recorded latch through the current cap. memory_latched? = budget[:tripped] == :lifetime; if memory_latched?, do: :active, else: persisted_latch_status(maximum, issue_id)`; issue_sync.ex:1134 `cause == :lifetime_latch and lifetime_latch_status(state, issue.id) != :inactive -> mark_observed_error_alert(...)`; dispatch_budget_store.ex:10-11 `def lifetime(issue_id) ... with {:ok, lifetimes} <- read_lifetimes()` (JsonStore.read per call).",
+      "recommendation": "Extract Aiur.Orchestrator.DispatchBudget (thrash window + lifetime latch) owning one `latch_status(state_budget, issue_id, config, persisted)` with a single, documented rule for config changes; make IssueSync, AutoResume and StatusReport call it. Read the persisted lifetimes once per poll (the batch `lifetimes/0` already exists) and pass the map in.",
+      "refactor_hint": "Natural seam: dispatcher.ex lines 1520-1853 and 2369-2487 plus IssueSync 1172-1201 become one DispatchBudget module in the dispatch package.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-03",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Needs-attention alerts with no resolution path latch in the attention feed forever",
+      "locations": [
+        {
+          "path": "src/lib/aiur/alert_topic.ex",
+          "lines": "6-44"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/merged_ticket_reconciler.ex",
+          "lines": "444-470"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "315-325"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "876-899"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "1554-1568"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "995-1000"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1370-1383"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "382-458"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "2369-2402"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "2462-2483"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "247-267"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "490-526"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1466-1485"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "2276-2294"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+          "lines": "199-213"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "lines": "134-152"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "1052-1065"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "lines": "201-227"
+        }
+      ],
+      "description": "AlertFeed keeps an attention active until a matching `<topic>.resolved` alert is written (AlertTopic.resolved_attention_key). In this unit these needs_attention topics have no resolver anywhere in src/lib: ticket.X.agent.attention.merged_pr_reconciliation_failed, .merge_terminal_write_failed, .review_rework_refused, .lifetime_latch_write_failed, .stranded-requeued, .state-label-missing, .state-label-missing-no-evidence; ticket.X.agent.model_fallback_waiting, .thrash_circuit_open, .review_feedback_delivery_deferred, .provider_delivery_failed, .auto_resume_exhausted, ticket.X.github-budget.escalation; system.ci_readiness.not_ready / .unavailable; system.dispatch.todo_capacity_exceeded (sync_todo_capacity_alert only flips the flag back); recent_merge_store.persistence_failed (outside the ticket./system. namespaces, so attention_key/1 returns nil and it can never be collapsed or resolved). Two resolvable alerts leak too: choose_issues prunes dispatch_declines with Map.take/2 without emitting the .resolved that clear_dispatch_decline would emit, so a ticket that leaves the candidate list keeps its dispatch-declined attention; and stranded-requeued is deduped against 'already active', so once it fires a second strand of the same ticket never alerts. Result: the Executor's attention list accumulates stale entries that no code path clears, and a real recurrence can be hidden behind the stale one.",
+      "evidence": "alert_topic.ex:17-20 `def resolved_attention_key(%{\"needs_attention\" => false} = alert) ... String.trim_trailing(slug_and_suffix, @resolution_suffix)`; `rg 'merged_pr_reconciliation_failed|merge_terminal_write_failed|stranded-requeued|state-label-missing|review_rework_refused|lifetime_latch_write_failed|review_feedback_delivery_deferred|provider_delivery_failed' src/lib` returns only the emit sites; dispatcher.ex:1000 `state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}`; issue_sync.ex:1477-1478 `not over_capacity? and state.todo_over_capacity_alert_active -> %{state | todo_over_capacity_alert_active: false}` (no .resolved); issue_sync.ex:253 `unless active_attention?(state, topic) do Alerts.emit_system(topic, ...`.",
+      "recommendation": "Give every needs_attention emit an owner that resolves it: a small AttentionLatch helper (emit/resolve/reconcile-against-feed) used by all sites; resolve per-ticket attentions when the ticket leaves the poll or reaches a terminal state; emit .resolved from the dispatch_declines prune; rename recent_merge_store.persistence_failed into the system. namespace and resolve it on the next successful persistence. Add a CI check that every literal topic emitted with needs_attention: true has a .resolved counterpart or an explicit allowlist entry.",
+      "refactor_hint": "An alerting/attention package should own topic construction and lifecycle; orchestration packages should call `Attention.raise/clear` with a typed key.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-04",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "CommentWake drops trusted review feedback on the deactivated-entry path with only a log line; terminal retry failures are log-only",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "1209-1272"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "1478-1494"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "901-942"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "789-846"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "91-131"
+        }
+      ],
+      "description": "Three writers handle a trusted comment: the idle writer and the active-entry writer both route `{:error, reason}` to schedule_comment_rework_retry/6, but the deactivated-entry writer (transition_and_revalidate_comment_reactivation/5) and its follow-up revalidation just log and return state. A single 5xx/429/held read while an agent's entry is :deactivated (the common 'finished turn, waiting in human-review' shape) drops the feedback with no retry and no alert. The module's own comment (lines 822-831) says a review submission is delivered once and 'returning ... abandoned it'. Separately, when the retry chain is exhausted or the failure is classified permanent, schedule_comment_rework_retry only logs a warning, so the same once-only review is lost silently (only the {:skip, _} path raises review_rework_refused). mark_pr_merged_issue_done has the same gap: the comment at 91-98 says a failed `done` write 'still fails closed and the alert below still fires', but the alert is only emitted when the target cannot be determined; a failed `done` or remaining-open write is Logger.warning only (the poll-cycle MergedTicketReconciler backstop may recover the done case).",
+      "evidence": "comment_wake.ex:1265-1270 `{{:error, reason}, state} -> ... Logger.warning(\"#{source} reactivation skipped; state update failed: ...\") state`; comment_wake.ex:1489-1492 `{:error, reason} -> Logger.warning(\"... reactivation skipped; issue refresh failed ...\") state`; comment_wake.ex:917-925 `not retryable_comment_rework_failure?(reason) -> Logger.warning(...permanently...) state; attempt >= max_attempts -> Logger.warning(...retry exhausted...) state`; comment_wake.ex:127-131 `{:error, reason} -> Logger.warning(\"PR merge terminal transition skipped: ...\") state`.",
+      "recommendation": "Route every `{:error, _}` outcome of all three writers through one retry scheduler, and make exhaustion/permanent failure raise a resolvable ticket attention (the same review_rework_refused family) carrying the review id. Emit merge_terminal_write_failed for a failed done/remaining-open write too, or fix the comment. Consider collapsing the three writers into one decision function returning {:write_rework | :wake_only | :skip | :retry, reason} with a single executor.",
+      "refactor_hint": "Comment-wake routing is a candidate for its own 'review feedback' module in the orchestration package; a single decision/executor split makes the missing branch impossible to write.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-05",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "Running entries are an untyped 30-key map read by 33 modules and written by 16",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "2520-2563"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "2621-2635"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "lines": "99-160"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle_fence.ex",
+          "lines": "183-201"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "lines": "69-79"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "758-770"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "1665-1670"
+        }
+      ],
+      "description": "Dispatcher.spawn_issue_on_worker_host builds the running entry as a 30-key map literal (pid, ref, identifier, issue, worker_host, workspace_path, session_id, repl_pane_id, repl_os_pid, headless_os_pid, token counters, control, telemetry_attempt_id, ...). Other modules add keys ad hoc: :paused_reason, :lifecycle_fence, :github_budget_pause, :github_budget_pause_timer, :github_budget_last_pause_ms, :github_budget_pause_generation, :pending_auto_resume, :resume_input_id, :redispatch_safety, :rate_limit_fallback_replacement, :completed_provenance, :blocker_pause, :pending_pause_reason. State has no @type for the entry. 33 files under orchestrator/ touch `state.running`; 16 write it (pause_resume 13 sites, reconciler 10, push_routing 6, lifecycle_fence 4, operator_messages 3, ...). Any carve that moves pause/resume, CI lifecycle, or budget handling into separate packages will share this mutable, schema-less map across package boundaries.",
+      "evidence": "dispatcher.ex:2520-2551 `running_entry = %{pid: pid, ref: ref, identifier: issue.identifier, issue: issue, worker_host: worker_host, workspace_path: nil, session_id: nil, ... agent_last_reported_total_tokens: 0, turn_count: 0, completed_turn_count: 0, control: default_running_control(...), ...}`; files under src/lib/aiur/orchestrator matching state.running -> 33; files with writes of the form running: Map.put/Map.delete or put_in/update_in(state.running) -> 16.",
+      "recommendation": "Introduce %Aiur.Orchestrator.RunningEntry{} with explicit sub-structs (process handles, control, budget pause, fence, token totals) and accessor/update functions; migrate writers module by module (start with AgentTeardown, LifecycleFence, GithubBudgetPause which own well-defined sub-state). Forbid Map.put on entries outside RunningEntry.",
+      "refactor_hint": "Prerequisite for splitting orchestrator sub-packages: the entry struct becomes the package contract between dispatch, control (pause/resume), CI lifecycle and teardown.",
+      "effort": "L"
+    },
+    {
+      "id": "orch-a-06",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "Submodules call back into the Aiur.Orchestrator facade, which only forwards to their siblings (dependency cycles)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "60-66"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "1096-1123"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "lines": "44-61"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1081-1090"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "666-678"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "729-756"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "lines": "40-41"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "lines": "155-158"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "lines": "235-246"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1876"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator.ex",
+          "lines": "384-402"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator.ex",
+          "lines": "920-987"
+        }
+      ],
+      "description": "Aiur.Orchestrator aliases and calls these modules, and they call back into Aiur.Orchestrator: CommentPolling 9 call sites (note_github_connectivity_*, note_github_poll_interval -> TrackerHealth), CommentWake 7 (clear_session_handle -> WorkspaceCleanup, terminate_running_issue -> AgentTeardown, reactivate_issue -> PauseResume, enqueue_event_digest_item -> OperatorMessages, schedule_poll_cycle_start -> Lifecycle), IssueSync 7 (running_worker_host), OperatorMessages 3 (reactivate_issue, resume_paused_issue), AgentTeardown 2 (cancel_ci_wait_rewake -> CiLifecycle, refresh_tracked_set -> TrackedSet), GithubBudgetPause 1, Dispatcher 2 (retry_candidate_issue? is a defdelegate to DispatchPolicy, which Dispatcher also calls directly at line 1896). The facade entries are one-line forwards, so every such call is a cycle through the top module. Some siblings bypass the facade for the same function (CiLifecycle calls OperatorMessages.enqueue_event_digest_item directly; CommentWake calls it through the facade).",
+      "evidence": "orchestrator.ex:384 `def cancel_ci_wait_rewake(state, issue_id), do: CiLifecycle.cancel_ci_wait_rewake(state, issue_id)`; orchestrator.ex:930 `def reactivate_issue(%State{} = state, running_entry), do: PauseResume.reactivate_issue(state, running_entry)`; orchestrator.ex:987 `defdelegate retry_candidate_issue?(issue, terminal_states), to: DispatchPolicy`; dispatcher.ex:1876 `Orchestrator.retry_candidate_issue?(refreshed_issue, terminal_states)` vs dispatcher.ex:1896 `DispatchPolicy.retry_candidate_issue?(issue, terminal_states)`.",
+      "recommendation": "Make the facade a pure GenServer boundary: callbacks delegate down, submodules never call up. Replace each back-call with a direct call to the owning sibling (TrackerHealth, WorkspaceCleanup, PauseResume, OperatorMessages, CiLifecycle, TrackedSet). Add `mix xref graph --format cycles` (or a boundary lint) to CI for lib/aiur/orchestrator.",
+      "refactor_hint": "Cycle removal is the first mechanical step of the carve; without it no orchestrator sub-package can compile independently.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-07",
+      "category": "large-module",
+      "severity": "P1",
+      "title": "Dispatcher is a 2,670-line god module on the poll hot path with at least seven responsibilities",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "53-246"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "248-458"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "460-855"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "856-1000"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "994-1360"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1362-1900"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1901-2311"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "2313-2670"
+        }
+      ],
+      "description": "Responsibility map by line range: poll-cycle orchestration (53-246); repository CI-readiness probe lifecycle with its own task, token, timeout and retry state (248-458, ~210 lines); prewarm-gate hold plus tracker-preflight alert lifecycles (460-855, ~400); host-pressure admission probes and auto-resume admission mirror (856-1000); candidate selection, decline recording, revalidation and dependency gate (994-1360); thrash window, lifetime latch, redispatch admission (1362-1900, ~540); capacity-hold reconciliation, constraint recording and aiur_perf logging (1901-2311, ~410); worker selection, spawn, running-entry construction and lifetime-latch persistence (2313-2670). Largest functions: spawn_issue_on_worker_host ~100 lines, dispatch_candidate_poll ~73, maybe_choose_under_load (3 arities) ~71, dispatch_or_hold (3 arities) ~53. The module has 27 @doc false public functions that exist only as test seams.",
+      "evidence": "`wc -l src/lib/aiur/orchestrator/dispatcher.ex` -> 2670; section boundaries as listed; aliases 9-48 pull in 30 modules.",
+      "recommendation": "Split into: Dispatch.PollCycle (53-246), Dispatch.CiReadiness (248-458), Dispatch.PrewarmGate + TrackerPreflightAlert (460-855), Dispatch.Admission (probes, capacity hold, constraints, logging: 856-1000 + 1901-2311), Dispatch.Selection (994-1360), Dispatch.Budget (1362-1900 + 2369-2487, see orch-a-02), Dispatch.Spawn (2313-2670). Keep a thin Dispatcher facade for the Orchestrator callbacks.",
+      "refactor_hint": "These seams line up with the would-be 'dispatch' package; Admission and CiReadiness have no dependency on Selection and can move first.",
+      "effort": "L"
+    },
+    {
+      "id": "orch-a-08",
+      "category": "large-module",
+      "severity": "P1",
+      "title": "IssueSync is a 2,295-line module mixing label healing, strand sweeps, terminal verification, transition alerts, dependency events and four capacity alerts",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "27-618"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "620-1005"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1007-1464"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1466-2295"
+        }
+      ],
+      "description": "Line ranges: contradictory/zero-label healing and stranded-ticket re-queue (27-618, ~590); polled-state sync and idle-terminal verification (620-1005, ~385, including sync_polled_issue_state in five arities 2/4/5/6/7 purely for test injection, ~141 lines); task-state/pause/error transition alerts and dependency subscription events (1007-1464, ~460); todo-capacity, capacity-starvation, fleet-capacity-starved, decision-store-unavailable and circular-wait alerts (1466-2295, ~830). The capacity half does not sync issues at all; it is fleet admission reporting that belongs next to Dispatcher's capacity constraints (it reads state.dispatch_capacity_constraints, capacity_hold, prewarm_blocked_alert_active and re-derives capacity_hold identities).",
+      "evidence": "`wc -l src/lib/aiur/orchestrator/issue_sync.ex` -> 2295; sync_polled_issue_state arities at lines 27, 627, 646, 675, 706.",
+      "recommendation": "Split into IssueSync.LabelHeal (27-618), IssueSync.TerminalVerification (620-1005), IssueSync.TransitionAlerts (1007-1464) and move 1466-2295 to a CapacityReporting module owned with Dispatch.Admission. Replace the 5-arity overload ladder with one function taking a deps struct.",
+      "refactor_hint": "The capacity alert half moves with the dispatch/admission package; label healing and terminal verification move with the tracker-sync package.",
+      "effort": "L"
+    },
+    {
+      "id": "orch-a-09",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Debounced/latched alert state machine hand-copied at least ten times, already drifted",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "601-736"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "738-854"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "546-602"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1643-1690"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1738-1886"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1888-1970"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1983-2102"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "lines": "97-152"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "600-958"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "76-141"
+        }
+      ],
+      "description": "Each of prewarm_blocked, tracker_preflight, contradictory_state_labels, dependency circular wait, fleet capacity starved, decision_store_unavailable, capacity_starved, firehose truncation, draft-stall and parked-ready alerts re-implements: since-timestamp debounce, `*_alert_active` flag, `*_resolution_emitted` flag, check AlertFeed for a restart-surviving attention, emit on :ok else keep state, emit .resolved. State carries ~17 fields just for these latches. Drift already exists: the firehose copy calls AlertFeed.active_system_attention? on every clean tick because it lacks the `resolution_emitted: true` short-circuit clause the others have, and it ignores the resolve emit result (`_ =`) then marks it emitted; todo_capacity never resolves; contradictory_state_labels resolves without the AlertFeed restart check; capacity_starved tracks per-identity ages while fleet_capacity_starved resets on effective_cap change.",
+      "evidence": "comment_polling.ex:104-109 `defp reconcile_firehose_truncation_alert(%State{} = state, false, _streak, opts) do resolve? = state.firehose_truncation_alert_active or AlertFeed.active_system_attention?(\"system.firehose.event_truncation\")` vs dispatcher.ex:689-690 `def clear_prewarm_blocked_alert(%State{prewarm_blocked_alert_resolution_emitted: true} = state, _phase), do: ...`; comment_polling.ex:140-147 `_ = firehose_truncation_alert_fun(opts).(\"system.firehose.event_truncation.resolved\", ...) %{state | ... resolution_emitted: true}`.",
+      "recommendation": "Extract a pure `Aiur.Alerts.Latch` value (%{since_ms, active?, resolution_emitted?, signature}) with observe(latch, condition?, now, opts) -> {latch, actions} and one executor that emits/resolves; store latches in one `alert_latches: %{key => Latch}` map in State instead of ~17 fields. Migrate the ten sites one by one with their existing tests.",
+      "refactor_hint": "The latch belongs to the alerting package; orchestration packages then depend on it instead of on AlertFeed internals.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-10",
+      "category": "performance",
+      "severity": "P1",
+      "title": "Agent queue store never evicts items, and every digest enqueue scans all of them inside the Orchestrator",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "198-290"
+        },
+        {
+          "path": "src/lib/aiur/agent_queue_store.ex",
+          "lines": "17-22"
+        },
+        {
+          "path": "src/lib/aiur/agent_queue_store.ex",
+          "lines": "526"
+        }
+      ],
+      "description": "AgentQueueStore.items is only ever added to (`Map.put(store.items, id, item)`); nothing in the module or elsewhere deletes consumed/failed/superseded items, and item_id_by_message_id / item_id_by_action grow alongside. The store lives in Orchestrator State for the life of the daemon. OperatorMessages.reject_already_queued_events/2 builds a MapSet of every event id of every events_digest item ever queued, on every enqueue_event_digest_item call (CI terminal events, dependency events, comment wakes, rewake handoffs), so enqueue cost grows linearly with daemon uptime and the GenServer state (and every status snapshot that copies queue_store) grows without bound.",
+      "evidence": "operator_messages.ex:257-262 `defp reject_already_queued_events(%AgentQueueStore{} = queue_store, events) do known_ids = queue_store.items |> Map.values() |> Enum.flat_map(&queued_event_ids/1) |> MapSet.new()`; agent_queue_store.ex:526 `%{store | items: Map.put(store.items, id, item)}` is the only write to items; `rg 'Map.delete' src/lib/aiur/agent_queue_store.ex` -> no match.",
+      "recommendation": "Add retention to AgentQueueStore (evict terminal items older than N minutes or beyond K per target, keep a bounded seen-event-id index keyed by target) and make reject_already_queued_events consult that index instead of scanning items.",
+      "refactor_hint": "The queue store is a candidate for its own package (agent inbox); retention and indexes should be its responsibility, not the orchestrator's.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-11",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Full alert-ledger reads inside the Orchestrator on every poll; read errors silently read as 'no alerts'",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "718"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "784-788"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "lines": "104-110"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "932-942"
+        },
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "15-25"
+        },
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "65-69"
+        },
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "297-304"
+        }
+      ],
+      "description": "AlertFeed.list/1 reads every ledger path from disk, parses JSONL, sorts, collapses and filters. It runs inside the Orchestrator GenServer at least twice per poll: IssueSync.sync_polled_issue_state rebuilds active_attention_topics from a full list, and the firehose truncation reconcile calls AlertFeed.active_system_attention?/1 (another full list) on every non-truncated tick. Other clear_* helpers call it on state transitions. read_alerts/2 wraps parsing in `rescue _ -> []`, so a corrupt or unreadable ledger looks like an empty feed: active_attention? turns false everywhere and dedupe-by-active-attention sites re-emit, while restart-surviving resolves are skipped.",
+      "evidence": "alert_feed.ex:16-22 `opts |> AlertLedger.paths() |> Enum.flat_map(&read_alerts(&1, opts)) |> Enum.sort_by(...) |> collapse_repeated_resolutions() |> resolve_attention_alerts()`; alert_feed.ex:302-303 `rescue _ -> []`; issue_sync.ex:718 `state = %{state | active_attention_topics: active_attention_topics()}`.",
+      "recommendation": "Keep an in-memory index of active attention topics in the alerting service (updated on emit/resolve, rebuilt once at boot) and expose active?(topic) as an ETS read. Surface ledger read failures as a system health condition instead of an empty list.",
+      "refactor_hint": "Alerting package API: `Attention.active?/1` backed by ETS; orchestrator never reads the ledger.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-12",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Per-poll recomputation: ready-issue set derived ~7 times, state sets rebuilt from Config per issue, budget file read per issue",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1487-1545"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1579-1599"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "1972-1981"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "2120-2153"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "2170-2250"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "200-207"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "1198-1212"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "818-836"
+        }
+      ],
+      "description": "Each poll the four capacity alerts call ready_dispatch_issues/2 (or its no-decision-gate variant) about seven times: sync_capacity_starvation_alert (per_state entries + budget entries + context = 3), sync_fleet_capacity_starved_alert (same 2 via capacity_constraint_entries + context = 3), decision-store alert (1). Every pass runs candidate_issue?/3 and todo_issue_blocked_by_non_terminal?/2 per issue, and active_state_set/0 / terminal_state_set/0 rebuild a MapSet from Config.settings!() on each call (legitimately_unowned?/1, routable_todo_issues/1 and blocker_terminal?/1 call terminal_state_set() per issue/blocker). A contradictory-label issue also logs `Dispatch resolved contradictory state labels` on every one of these evaluations. Config.settings/0 is memoized but still samples env vars per call (config.ex:110-124).",
+      "evidence": "issue_sync.ex:2229 `ready_dispatch_issues(state, issues) |> Enum.map(...)`; issue_sync.ex:2248 `ready_dispatch_issues(state, issues) |> Enum.flat_map(...)`; issue_sync.ex:1977 `ready_count: state |> ready_dispatch_issues(issues) |> length()`; issue_sync.ex:1582 `ready_issues = ready_dispatch_issues(state, issues)`; dispatch_policy.ex:1199-1203 `def terminal_state_set do Config.settings!().tracker.terminal_states |> Enum.map(&normalize_issue_state/1) ... |> MapSet.new()`.",
+      "recommendation": "Compute one per-poll DispatchSnapshot (active/terminal sets, ready issues, per-state counts, persisted lifetimes) at the start of dispatch_candidate_poll and pass it to Dispatcher, IssueSync and the alert syncs. Move the contradictory-label log to the heal path only.",
+      "refactor_hint": "The snapshot struct is also the natural input type for a pure dispatch-policy package.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-13",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Tracker state-label parsing and state vocabularies duplicated across modules with drift",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "1079-1102"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "1114-1196"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "35"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling/target_selection.ex",
+          "lines": "18-37"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling/target_selection.ex",
+          "lines": "345-348"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/membership_lifecycle.ex",
+          "lines": "54-61"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "25"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "269-274"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "479-488"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "27-31"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "30"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+          "lines": "278-283"
+        },
+        {
+          "path": "src/lib/aiur/current_run_summary/facts.ex",
+          "lines": "138-143"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "1190-1193"
+        }
+      ],
+      "description": "Three normalizers live in DispatchPolicy alone (normalize_issue_state: trim+downcase; normalize_state_label: also strips 'agent:'; state_slug: also maps spaces/underscores to '-'), and more copies exist elsewhere: TargetSelection.rework_issue?/1, MembershipLifecycle.terminal_lifecycle/1 (knows 'cancelled'/'canceled', which DispatchPolicy does not), WaitingReason.by_tracker_state, CurrentRunSummary.Facts.normalize_state (strips hyphens entirely, a different canonical form), GitHub.Issues.normalize_label_name, IssueSync.parked_marker_label? (needs-triage/human:todo/epic:). State vocabularies are hard-coded per module: @no_agent_work_states, @state_precedence, @provenance_promotable_states, external_wait_state?/1, @ci_poll_states, @comment_poll_review_states, @non_closing_merge_state, and literal lists in MergedTicketReconciler/CommentWake. Counts in src/lib: \"human-review\" 20 occurrences in 13 files, \"rework\" 24 in 11, \"todo\" 25 in 14, \"ci-wait\" 8 in 6.",
+      "evidence": "dispatch_policy.ex:1080-1081 `String.downcase(String.trim(state_name))`; dispatch_policy.ex:1189-1193 `label |> String.trim() |> String.replace_prefix(\"agent:\", \"\") |> String.downcase()`; target_selection.ex:345-346 `issue_state |> String.trim() |> String.downcase() == @rework_state`; membership_lifecycle.ex:56 `if String.downcase(String.trim(state)) in [\"cancelled\", \"canceled\"]`; facts.ex:141 `... then two String.replace calls that turn hyphens and spaces into nothing`.",
+      "recommendation": "Create Aiur.TicketState: one parse/1 from label or tracker state to an atom (:todo, :in_progress, :rework, :human_review, :ci_wait, :merging, :error, :done, :closed, {:unknown, raw}), one precedence table, and named sets (no_agent_work, external_wait, review_poll, provenance_promotable). Replace string comparisons with atom matches.",
+      "refactor_hint": "A shared 'ticket-model' package used by tracker adapters, orchestrator and web; the parse happens once at the tracker boundary.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-14",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Event/alert topic strings built ad hoc (106 literals) and parsed by at least 15 separate parsers; identity key drifts",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/event_topics.ex",
+          "lines": "83-175"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "951-958"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_subscriptions.ex",
+          "lines": "188-216"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_subscriptions.ex",
+          "lines": "318-372"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1357-1360"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+          "lines": "202"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "32-42"
+        },
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "384-389"
+        },
+        {
+          "path": "src/lib/aiur/alert_topic.ex",
+          "lines": "6-15"
+        }
+      ],
+      "description": "`\"ticket.#{...}...\"` appears 106 times in src/lib (dispatcher 6, issue_sync 9, comment_wake 6, operator_messages 5, ci_lifecycle 4 in this unit). Parsers of the same grammar exist in EventTopics (9 regexes run in sequence per event), CiLifecycle.active_pr_alert_target, AutoSubscriptions (2 String.split parsers), AlertFeed (2 regexes), AlertTopic, AgentEventFeed, AgentRunner.EventsDigest (2), AgentList.Renderer.EventLine (2), Events.Publisher, Events.DebugLog, Reconciler, DecisionMetrics.Event.Fields, ExecutorWakeProjection (4), RunTelemetry.Lifecycle. The ticket segment is not consistent: Dispatcher's dispatch-declined attention and AutoResume's auto_resume_exhausted use issue.id while every other ticket topic uses issue.identifier (equal on GitHub, a UUID vs 'ABC-12' on Linear, so those attentions do not group with the ticket's others). Lifecycle.@orchestrator_topics must be kept in sync by hand with EventTopics.classify_event_topic/1.",
+      "evidence": "dispatcher.ex:1357-1358 `defp dispatch_decline_topic(%Issue{id: issue_id}, true), do: \"ticket.#{issue_id}.agent.attention.dispatch-declined\"`; auto_resume.ex:202 `\"ticket.#{issue_id}.agent.auto_resume_exhausted\"`; event_topics.ex:161-169 nine chained `tag_topic(..., parse_*_topic(topic))`; count of ticket topic interpolation literals in src/lib: 106.",
+      "recommendation": "Add Aiur.Topic with constructors (Topic.ticket(identifier, :ci, :failed), Topic.attention(identifier, slug)) and one parser returning a struct; derive the orchestrator subscription list and EventTopics routing table from one declaration; always key ticket topics by identifier.",
+      "refactor_hint": "The events/alerts package should export the topic grammar; every other package depends on it rather than on string conventions.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-15",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "'Safe GenServer call' client wrapper duplicated in 10+ places with different error vocabularies",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "1069-1084"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/interrupts.ex",
+          "lines": "158-167"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "lines": "24-85"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "54-77"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "lines": "14-20"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "lines": "85-92"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/priority_control.ex",
+          "lines": "152-159"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "lines": "292-299"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "2441-2446"
+        }
+      ],
+      "description": "OperatorMessages.control_api_call/3 and Interrupts.control_api_call/2 are byte-for-byte the same logic; PriorityControl, Slots, RemoteControlMode and PauseResume carry further copies. The results differ by site: {:error, :unavailable}, bare :unavailable (Slots:20, Lifecycle), {:error, :orchestrator_unavailable} (GlobalPause), {:error, {:orchestrator_call_failed, reason}} (GlobalPause.set_global_pause/4). OperatorMessages.queue_api_call/2 skips the whereis check and maps a timeout to :unavailable, so a slow Orchestrator reads as 'down' on the queue API but as :timeout on the control API.",
+      "evidence": "operator_messages.ex:1069-1078 `if GenServer.whereis(server) do GenServer.call(server, request, timeout) else {:error, :unavailable} end catch :exit, {:timeout, _} -> {:error, :timeout}; :exit, _ -> {:error, :unavailable}`; operator_messages.ex:1080-1083 `GenServer.call(server, request, 5_000) catch :exit, _ -> {:error, :unavailable}`; global_pause.ex:30-31 `catch :exit, _ -> {:error, :orchestrator_unavailable}`.",
+      "recommendation": "Create Aiur.Orchestrator.Client.call(server, request, timeout) with one documented error set ({:error, :unavailable | :timeout}) and move every public client function (OperatorMessages, GlobalPause, Interrupts, Slots, Lifecycle, PriorityControl, RemoteControlMode) onto it.",
+      "refactor_hint": "A thin 'orchestrator-client' package is what the CLI, web and agent runner should depend on after the carve.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-16",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Three cross-process file-lock implementations with different stale-lock safety",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/control_lifecycle_store.ex",
+          "lines": "86-246"
+        },
+        {
+          "path": "src/lib/aiur/executor/claims.ex",
+          "lines": "368-417"
+        },
+        {
+          "path": "src/lib/aiur/alert_ledger.ex",
+          "lines": "354-374"
+        }
+      ],
+      "description": "ControlLifecycleStore hand-rolls a ~160-line lock: hard-link publish, owner record with host/OS pid/process identity, stale break only when the owner is dead, fingerprint re-check before removing an invalid lock. Executor.Claims has its own File.open(:exclusive) lock whose stale break removes any lock older than @lock_stale_after_seconds by mtime alone, which can remove a live but slow holder's lock. AlertLedger uses :global.register_name, which only serializes processes in one BEAM cluster. The safer algorithm exists but is private to one store.",
+      "evidence": "control_lifecycle_store.ex:154-156 `defp reclaim_stale_lock(lock, _stat, {:ok, owner}) do if lock_owner_dead?(owner), do: remove_stale_lock(...)`; claims.ex:409-413 `with {:ok, %File.Stat{mtime: mtime}} <- File.stat(lock, time: :posix), true <- System.os_time(:second) - mtime > @lock_stale_after_seconds do ... _ = File.rm(lock)`; alert_ledger.ex:359 `case :global.register_name(name, self()) do`.",
+      "recommendation": "Extract the ControlLifecycleStore algorithm into Aiur.FileLock.with_lock(path, fun, opts) and use it for Executor.Claims and any other JSON store with read-modify-write.",
+      "refactor_hint": "Shared persistence utility package (JsonStore + FileLock) consumed by all stores.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-17",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "Best-effort stores always return :ok, so `:ok =` call sites are inert and durable-state loss is log-only",
+      "locations": [
+        {
+          "path": "src/lib/aiur/ci_approval_store.ex",
+          "lines": "73-88"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "321-332"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/control_lifecycle_store.ex",
+          "lines": "28-84"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1851-1854"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "88-92"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "254"
+        }
+      ],
+      "description": "CIApprovalStore.save/3 and ControlLifecycleStore.save/1 rescue every error, log a warning and return :ok. Callers write `:ok = CIApprovalStore.save(...)` / `:ok = ControlLifecycleStore.save(...)`, which reads as a durability assertion but can never fail. A persistently unwritable state dir therefore loses CI approved heads (the human-review replay guard ci_head_approved?/3 depends on them after restart) and the control-request audit journal with no alert; without --debug the warning is written nowhere. GlobalPauseStore, by contrast, returns {:error, _} and its caller surfaces it.",
+      "evidence": "ci_approval_store.ex:84-87 `rescue error -> Logger.warning(\"CI approval store persistence failed ...\") :ok`; ci_lifecycle.ex:324 `:ok = CIApprovalStore.save(...)`; control_lifecycle_store.ex:76-83 `{:error, reason} -> Logger.warning(...) end :ok rescue error -> Logger.warning(...) :ok`.",
+      "recommendation": "Return {:error, reason} from both stores, track consecutive failures in the store, and raise a resolvable system attention (e.g. system.persistence.<store>.failed) after N failures; remove the misleading `:ok =` matches.",
+      "refactor_hint": "Persistence utility package should standardize a StoreHealth reporter so every JSON store surfaces write failures the same way.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-18",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Orchestrator init hard-matches GlobalPauseStore.save, which can fail: --pause with an unwritable state dir crashes boot",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "169-187"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "lines": "48-96"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "144-149"
+        }
+      ],
+      "description": "initial_global_pause/1 does `:ok = GlobalPauseStore.save(next)` whenever the --pause launch flag is set, in both the load-ok and load-error branches. save/1 returns {:error, {:path_unavailable, _}} when the decision state dir cannot be resolved and {:error, {:write_failed, ...}} on a write error, so a MatchError aborts Orchestrator.init and the supervisor restart loop takes the app down. Without --pause the same failure deliberately boots globally paused, which is the intended fail-safe; with --pause the operator asked for exactly that state and gets a crash instead.",
+      "evidence": "lifecycle.ex:180-183 `defp initial_global_pause({:error, _reason}) do if Slots.launch_globally_paused?() do next = %{globally_paused: true, ...} :ok = GlobalPauseStore.save(next)`; global_pause_store.ex:61-63 `{:error, reason} -> Logger.warning(...) {:error, {:path_unavailable, reason}}`.",
+      "recommendation": "Treat a failed save in init as 'paused, persistence degraded': keep the paused state, record the error, raise a system attention, and never MatchError in init.",
+      "refactor_hint": "Boot sequencing belongs in a small Orchestrator.Boot module with explicit degraded states; keep init free of hard matches on I/O.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-19",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "CommandScan drops commands beyond the per-cycle cap while advancing the cursor past them; publish results ignored",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/command_scan.ex",
+          "lines": "83-116"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/command_scan.ex",
+          "lines": "264-330"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/command_scan.ex",
+          "lines": "126-180"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/command_scan.ex",
+          "lines": "205-216"
+        },
+        {
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "lines": "270-281"
+        }
+      ],
+      "description": "do_scan_pr_commands computes `newest` over every PR comment seen and advances github_command_scan_since to newest-1s, but publish_command_hits keeps only the first @command_scan_pull_requests_per_poll (25) commanded PRs sorted by PR number and logs the rest. Commands on dropped PRs that are older than the new cursor are never read again (the next request uses a different `since`, so the held-body 304 replay described in the moduledoc does not cover them). Publisher.publish/3's result is discarded by Enum.each, so a filtered or refused publish is also lost once the cursor moves. Separately, command_scan_review_comments/3 and command_scan_issue_comments/3 are the same function with a different fetcher key and log label, and remember_list/3 is a copy of GithubCommentsPoller.remember_list/3.",
+      "evidence": "command_scan.ex:91-93 `newest = command_scan_newest_datetime(pr_comments) publish_command_hits(pr_comments, repo, command_scan_limit(opts))`; command_scan.ex:293-297 `kept = Enum.take(sorted, limit) ... Logger.warning(\"scan_pr_commands capped: kept=... dropped=...\")`; command_scan.ex:278-280 `|> Enum.each(fn {pr_number, hits} -> Enum.each(hits, &publish_command_reactivation(pr_number, &1, repo)) end)`.",
+      "recommendation": "Advance the cursor only to the newest comment that was actually published (or keep a per-PR backlog), check Publisher results, and collapse the two stream fetchers into one parameterized function. Move remember_list/unchanged_list into a shared ResourceStore helper used by both CommandScan and GithubCommentsPoller.",
+      "refactor_hint": "Belongs with the GitHub ingestion package next to GithubCommentsPoller, not in the orchestrator.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-20",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "CiLifecycle duplicates the draft-stall and parked-ready alert machinery and four tracker-transition functions",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "600-745"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "747-958"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "146-167"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "1155-1217"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "1513-1540"
+        }
+      ],
+      "description": "Draft-stall and parked-ready alerts each have their own reconcile/emit/resolve/put/log_error/ensure_seeded functions that differ only in topic suffix, message text and the classifier; about 250 lines where one parameterized PR-alert latch would do. transition_ci_ticket/3, transition_ci_pass/3, transition_ci_failure/3 and transition_ci_wait_fallback/2 each repeat 'fence check -> Tracker.update_issue_state(to_string(issue.id || issue.identifier), X, expected_state_opts(issue)) -> on error Logger.warning and keep state'. The tracker key prefers issue.id while ci_target_for_issue/1 (used for every lifecycle map key) prefers identifier, so the module mixes two identities for the same ticket.",
+      "evidence": "ci_lifecycle.ex:154 `Tracker.update_issue_state(to_string(issue_key), next_state, expected_state_opts(issue))` with `issue_key = issue.id || issue.identifier`; ci_lifecycle.ex:1160-1163 and 1192-1195 and 1518-1521 repeat the same call; ci_lifecycle.ex:138-142 `def ci_target_for_issue(%Issue{identifier: identifier}) ... do: identifier` then id.",
+      "recommendation": "Extract `transition(state, issue, to_state, on_ok)` used by all four; extract a PrAlert latch parameterized by {name, classify_fn, message_fn} (or reuse the latch from orch-a-09); pick one ticket key (identifier) for both tracker writes and lifecycle maps.",
+      "refactor_hint": "CiLifecycle is a self-contained 'CI gate' package candidate once its State coupling (orch-a-21) is removed.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-21",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "ci_lifecycle is an untyped grab-bag map that also stores the Dispatcher's candidate-list cache",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "131-138"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "545-551"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "410-421"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "1370-1415"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "1028-1056"
+        }
+      ],
+      "description": "state.ci_lifecycle holds approved_heads, test_failure_heads, base_repair_invalidations, rewakes, draft_stall_alerts, parked_ready_alerts and poll_cache. poll_cache mixes per-target projections (string keys) with two atom-keyed list caches, one of which (:candidate_list_cache) belongs to Dispatcher's candidate fetch and has nothing to do with CI. prune_ci_lifecycle_state has to special-case both atoms (keep_shared_list_caches/2) so a CI prune does not wipe the dispatcher's ETag cache. base_repair_invalidations is read in both atom-key and string-key shapes (`%{repair_state: :repairing}` and `%{\"repair_state\" => \"repairing\"}`) because the in-memory and reloaded forms differ.",
+      "evidence": "dispatcher.ex:550 `update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :candidate_list_cache, cache))`; ci_lifecycle.ex:1411-1414 `Map.merge(poll_cache, Map.take(existing_poll_cache, [:issue_list_cache, :candidate_list_cache]))`; ci_lifecycle.ex:1044-1048 both key shapes matched.",
+      "recommendation": "Define %CiLifecycle.State{} with typed fields; move :candidate_list_cache to a Dispatcher-owned field (or a per-poll cache struct); normalize base_repair_invalidations to one shape at load time in CIApprovalStore.",
+      "refactor_hint": "Required before CiLifecycle can live in its own package: it must own its state struct and nothing else may write into it.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-22",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Four dependency-injection styles, including functions smuggled inside event payloads and :persistent_term test hooks",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "726-731"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "876-881"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "1401-1422"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_subscriptions.ex",
+          "lines": "126-148"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "97-123"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/human_review.ex",
+          "lines": "65-73"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/human_review.ex",
+          "lines": "175-177"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "747-754"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "1459-1464"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "55-87"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "620-717"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+          "lines": "175-192"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "541-547"
+        }
+      ],
+      "description": "Test seams are injected four different ways: (1) keyword `*_fun` options (mark_pr_merged_issue_done reads 10 of them; sync_polled_issue_state has 5 arities to thread injected funs); (2) Application env read in production code (:build_gate_status_override, :github_quota_status_override, :human_review_ready_verifier, :github_client_module, :comment_rework_max_attempts, :comment_rework_retry_delay_ms, :operator_message_call_timeout_ms, :github_budget_wake_jitter_ms, :control_lifecycle_store_path, :global_pause_store_path), which forces the whole test suite onto non-async cases; (3) :persistent_term.put hooks in AutoSubscriptions (each put triggers a global literal-area GC scan); (4) functions carried inside the event map itself: CommentWake reads :issue_state_fetcher, :open_pr_fetcher, :unresolved_threads_fetcher and :emit_alert_fun off the incoming event, so production event payloads are part of the test API. AutoResume.schedule/4 is overloaded twice at the same arity (keyword list vs function), and OperatorMessages exports coalesce_for_test/2.",
+      "evidence": "comment_wake.ex:727-731 `fetcher = case Map.get(event, :issue_state_fetcher) do fun when is_function(fun, 1) -> fun; _ -> &Tracker.fetch_issue_states_by_ids/1 end`; auto_subscriptions.ex:131 `:persistent_term.put({__MODULE__, :add_subscription_fn}, fun)`; dispatch_policy.ex:99 `case Application.get_env(:aiur, :build_gate_status_override) do`; auto_resume.ex:181 `def schedule(%State{} = state, issue_id, cause, opts) when ... is_list(opts)` and auto_resume.ex:189 `def schedule(%State{} = state, issue_id, cause, emit_fun) when ... is_function(emit_fun, 2)`.",
+      "recommendation": "Adopt one style: a behaviour-backed deps struct (e.g. %Orchestrator.Deps{tracker:, alerts:, membership:, clock:}) held in State and replaced in tests, or Mox behaviours for Tracker/Alerts/Membership. Remove functions from event payloads and Application-env overrides from production modules.",
+      "refactor_hint": "Package boundaries become behaviours (Tracker, Alerts, Membership, Clock); the deps struct is how the orchestrator package receives them.",
+      "effort": "L"
+    },
+    {
+      "id": "orch-a-23",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Dead and test-only production functions",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "69-72"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "367-375"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1432-1447"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling/target_selection.ex",
+          "lines": "63-83"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling/target_selection.ex",
+          "lines": "234-253"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "lines": "229-248"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "198-208"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "541-547"
+        }
+      ],
+      "description": "CiLifecycle.maybe_resume_for_ci_failure/2 has no callers in src/lib or src/test. Dispatcher.check_initial_ci_readiness/5 is a synchronous variant only tests call (production uses the async start_initial_ci_readiness_check path), so its tests exercise code production never runs. Dispatcher.redispatch_ready?/4 is test-only and duplicates admit_redispatch/4. TargetSelection.github_comment_poll_targets/2 and its private human_review_comment_poll_targets/2 are test-only duplicates of the _with_cache variants. CommentPolling.poll_github_comments/2 (synchronous path) is only called from tests. enqueue_event_digest_item/4 ignores its 4th parameter (_summary_source) at every call site. coalesce_for_test/2 is a test hook in the production module.",
+      "evidence": "`rg -F 'maybe_resume_for_ci_failure' src/lib src/test` -> definition only; `rg -F 'check_initial_ci_readiness' src/lib` -> definition only, tests at dispatcher_test.exs:848-930; `rg -F 'redispatch_ready?' src/lib` -> definition only; `rg -F 'github_comment_poll_targets(' src/lib` -> definition only; operator_messages.ex:199 `def enqueue_event_digest_item(%State{} = state, identifier, events, _summary_source)`.",
+      "recommendation": "Delete maybe_resume_for_ci_failure, redispatch_ready?, github_comment_poll_targets and its helper; rewrite the tests that use check_initial_ci_readiness and poll_github_comments against the production paths; drop the unused parameter.",
+      "refactor_hint": "Remove before the carve so the moved modules carry no test-only surface.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-24",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Dispatch functions return only State; callers infer outcomes by diffing claimed/retry maps, and worker-capacity refusals are silent",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1159-1187"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+          "lines": "322-336"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "2313-2331"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "2342-2359"
+        }
+      ],
+      "description": "do_dispatch_issue/5 and dispatch_issue/5 return State. dispatch_prevalidated_issue/2 reconstructs the outcome with a 5-branch cond over next_state (claimed? latch? retry_attempts? model_fallback_waiting? thrash trip?) and falls back to :dispatch_not_started; AutoResume.do_resume/5 and the startup-todo alert repeat the claimed-before/after diff. Any new refusal branch silently maps to :dispatch_not_started. dispatch_to_worker/5 returns state unchanged for :no_worker_capacity (Logger.debug) and :preferred_worker_unavailable (Logger.warning) without recording a dispatch decline, so the status board shows no reason.",
+      "evidence": "dispatcher.ex:1165-1184 `result = cond do MapSet.member?(next_state.claimed, issue.id) -> {:ok, :started}; match?({:lifetime, _, _}, ...) -> ...; true -> {:error, :dispatch_not_started} end`; dispatcher.ex:2346-2349 `:no_worker_capacity -> Logger.debug(\"No SSH worker slots available ...\") state`.",
+      "recommendation": "Have the dispatch pipeline return {outcome, state} with an explicit outcome type ({:started, entry} | {:declined, reason} | {:deferred, reason}); record declines for worker-capacity refusals.",
+      "refactor_hint": "An explicit outcome type is the natural API of a Dispatch.Spawn module after the split in orch-a-07.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-25",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Thrash-budget gate written three times, redispatch admission twice",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1432-1465"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1477-1505"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1539-1564"
+        }
+      ],
+      "description": "check_thrash_budget/3 (+admit_next_thrash_budget/4), admit_redispatch_thrash_budget/4 and redispatch_thrash_budget/3 all compute previous entry, active_trip?, next_thrash_budget_entry and budget_trip_reason, then either record the entry, record a trip, or only report. redispatch_ready?/4 and admit_redispatch/4 are the same `with` chain except for the budget step.",
+      "evidence": "dispatcher.ex:1486-1504 `previous = Map.get(thrash_budget(state), issue.id) ... candidate = next_thrash_budget_entry(...) case budget_trip_reason(candidate) do nil -> ...; reason -> tripped = trip_budget_entry(previous, candidate, reason)` mirrors dispatcher.ex:1551-1563.",
+      "recommendation": "One `evaluate_budget(state, issue_id, now_ms) :: {:admit, entry} | {:trip, reason, entry}` plus two thin callers (commit vs peek); delete redispatch_ready?/4 (test-only, see orch-a-23).",
+      "refactor_hint": "Part of the DispatchBudget module proposed in orch-a-02.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-26",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "CommentPolling hand-rolls a ~400-line process-ownership protocol with unbounded receives in the Orchestrator",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "lines": "268-478"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "lines": "616-828"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "lines": "847-899"
+        }
+      ],
+      "description": "The async comment poll uses an owner process registered in a Registry, a poll process started on a :start message, a guard handshake ({:github_comment_poll_started, ...}, {:start_owned_poll, ...}, {:github_comment_poll_guarding, ...}, {:release_owned_poll, ...}, {:stop_owned_poll, ...}), trap_exit toggling, and reap_process_tree/2 which walks Process.info(:links) recursively and kills every linked process. terminate_poll/1 runs in the Orchestrator (via abandon_poll on the dispatch path and in terminate/2) and blocks in `receive` with no `after` clause. The protocol exists to bound a Task.async_stream fan-out, which Task.Supervisor.async_nolink + Task.shutdown(task, :brutal_kill) and a per-request timeout already provide.",
+      "evidence": "comment_polling.ex:634-653 `receive do {:owned_poll_stopped, ^stop_ref} -> ...; {:DOWN, ^owner_ref, :process, ^owner, _reason} -> ... end` (no after); comment_polling.ex:802-813 `defp linked_descendants(pid, seen) do links = case Process.info(pid, :links) ...`.",
+      "recommendation": "Run the poll under a dedicated DynamicSupervisor/Task.Supervisor with `async_nolink`, keep only {ref, pid, started_at} in State, use Task.shutdown/2 for abandonment, and add `after` bounds to any receive left in the Orchestrator.",
+      "refactor_hint": "Poll workers belong to the GitHub-ingestion package; the orchestrator should receive results as messages and never manage process trees.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-27",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Blocking I/O and synchronous calls inside Orchestrator callbacks on the poll path",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "321-332"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "557-573"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/membership_lifecycle.ex",
+          "lines": "8-51"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "828-884"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/control_lifecycle_store.ex",
+          "lines": "55-125"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "99-112"
+        }
+      ],
+      "description": "Inside the GenServer: every CI result that changes approved/test-failure/base-repair maps calls persist_ci_lifecycle_state -> JsonStore.write! (several writes per poll are possible), and each CI poll reads the whole approval store (merge_journaled_base_repairs -> CIApprovalStore.load). Idle-terminal verification calls MembershipLifecycle.observe -> CurrentRunMembership.observe with a 5,000 ms timeout for up to 25 issues per poll. Every control-request transition persists the journal through a file lock that can Process.sleep for up to 5,000 ms. The merged-PR route runs LocalHold.run around a tracker read and write, which waits out local budget holds in the Orchestrator process.",
+      "evidence": "membership_lifecycle.ex:8 `@membership_observe_timeout 5_000`; control_lifecycle_store.ex:114 `Process.sleep(min(lock_retry_ms, remaining_ms))`; ci_lifecycle.ex:562 `persisted = CIApprovalStore.load()`; comment_wake.ex:99-103 `target_state = LocalHold.run(fn -> merged_issue_target_state(identifier, opts) end, LocalHold.caller_opts(opts))`.",
+      "recommendation": "Batch CI lifecycle persistence to once per poll (dirty flag), move journal writes to a writer process (cast + periodic flush), make membership observations async casts with a reconciliation retry, and run LocalHold-waiting work in a Task that reports back.",
+      "refactor_hint": "Store packages should own async writers; the orchestrator package should only enqueue durable intents.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-28",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "ControlLifecycle keeps its own pause-reason enum that is missing live reasons, so restored rejection conditions are dropped",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "lines": "849-856"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "lines": "891-903"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "986-995"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "36"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "950-955"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "734"
+        }
+      ],
+      "description": "PauseResume records a rejection condition with `pause_reason: Map.get(running_entry, :paused_reason)`. ControlLifecycle.restore only accepts pause reasons from its private pause_reasons/0 list, which lacks :github_budget_hold, :agent_pause_request and :input_required (all set as paused_reason elsewhere: PauseResume.@input_pause_reasons, OperatorMessages.pause_clearance/1, GithubBudgetPause). After a daemon restart, restore_rejection_condition/1 returns nil for those rejections and the audit journal silently loses why the control was rejected. Pause reasons are enumerated separately in at least four places (ControlLifecycle, PauseResume, OperatorMessages.pause_clearance, State.@non_reserving_pause_reasons).",
+      "evidence": "control_lifecycle.ex:891-902 `defp pause_reasons do [:before_run_failure, :blocker_dependency, :ci_wait, :global_pause, :label_override, :max_agent_duration, :operator_pause, :rate_limit_fallback_recovery, :usage_limit_exhausted]`; pause_resume.ex:36 `@input_pause_reasons [:agent_pause_request, :input_required]`; operator_messages.ex:953 `reason in [:global_pause, :usage_limit_exhausted, :github_budget_hold]`.",
+      "recommendation": "Define one Aiur.Orchestrator.PauseReason module (list, classification: input/operator/system/reserving, clearance text) and derive the ControlLifecycle allowlist from it; add a test that every reason PauseResume can set round-trips through ControlLifecycle.dump/restore.",
+      "refactor_hint": "Pause reasons are part of the control-plane contract shared by the control package and the status/UI package.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-29",
+      "category": "naming-structure",
+      "severity": "P2",
+      "title": "Client APIs and GenServer handlers share modules whose docs claim everything runs inside the Orchestrator; digest summary lives in CommentWake",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "1-197"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "292-547"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/global_pause.ex",
+          "lines": "19-118"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/interrupts.ex",
+          "lines": "11-60"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "756-766"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/digest_coalescer.ex",
+          "lines": "53"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling/target_selection.ex",
+          "lines": "2-5"
+        }
+      ],
+      "description": "OperatorMessages' moduledoc says 'All functions execute inside the orchestrator GenServer process', but its first ~200 lines are client functions that GenServer.call the Orchestrator; calling them from inside the Orchestrator would self-call and time out. GlobalPause and Interrupts have the same client+handler mix. CommentWake.event_digest_summary/1 is used by OperatorMessages and DigestCoalescer (OperatorMessages -> CommentWake -> Orchestrator -> OperatorMessages cycle). TargetSelection's moduledoc says it runs in the GenServer, but prepare_comment_poll runs it on the poll worker.",
+      "evidence": "operator_messages.ex:3 `Queues and routes Executor messages ... All functions execute inside the orchestrator GenServer process.` vs operator_messages.ex:29-33 `def send_operator_message(server, issue_identifier, payload) do ... server |> control_api_call({:send_operator_message, ...}, timeout)`; operator_messages.ex:216 `summary: CommentWake.event_digest_summary(summary_source)`.",
+      "recommendation": "Split each into `X.Client` (public API, runs in callers) and `X.Server` (pure `*_call(state, ...)` handlers); move event_digest_summary into DigestCoalescer or an EventDigest module; fix the moduledocs.",
+      "refactor_hint": "Client modules go to the orchestrator-client package; Server modules stay with the orchestrator.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-30",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Atom/string dual-key reads repeated at every consumer instead of normalizing at the boundary",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "578-581"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "756-766"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "1386-1399"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "1442-1448"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/event_topics.ex",
+          "lines": "71-81"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_subscriptions.ex",
+          "lines": "307-316"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/digest_coalescer.ex",
+          "lines": "72-94"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/capacity_binding.ex",
+          "lines": "120-142"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "lines": "876"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/global_pause_store.ex",
+          "lines": "111-134"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "1043-1048"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "289"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "1096-1098"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/merged_ticket_reconciler.ex",
+          "lines": "236-324"
+        }
+      ],
+      "description": "Event payloads, subscriptions, persisted JSON and GitHub PR maps arrive with atom keys in-process and string keys after a JSON round trip. Instead of normalizing once, at least 14 consumers read both (`Map.get(x, :k) || Map.get(x, \"k\")`), and each new field needs another pair. The comments at comment_wake.ex:1378-1380 and auto_subscriptions.ex:307-309 acknowledge the pattern. A missed pair fails silently (nil).",
+      "evidence": "comment_wake.ex:580 `Map.get(event, :author_trusted?) == true or Map.get(event, \"author_trusted?\") == true`; digest_coalescer.ex:92-93 `comment = Map.get(event, :comment) || Map.get(event, \"comment\") || %{}; Map.get(comment, :id) || Map.get(comment, \"id\")`; control_lifecycle.ex:876 `defp persisted_value(raw, key), do: Map.get(raw, key, Map.get(raw, Atom.to_string(key)))`.",
+      "recommendation": "Decode events into structs (%Aiur.Events.Event{}, %CommentPayload{}) at the Exchange/SubscriptionStore boundary and decode persisted JSON with explicit schemas at load; consumers pattern-match on atoms only.",
+      "refactor_hint": "The events package should publish typed structs; this removes a whole class of silent nil bugs across package boundaries.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-31",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "CI terminal event 'filtered' after the tracker transition is only logged: the agent resumes without the CI verdict",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "334-377"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "1155-1217"
+        }
+      ],
+      "description": "transition_ci_pass/3 and transition_ci_failure/3 write the tracker state first, then publish_ci_terminal_event/4. If Publisher returns :filtered the digest item is never enqueued and only a Logger.warning is written; the ticket is already in in-progress or rework, so the agent is resumed/redispatched without the failing checks and excerpt. The dedup key is per head SHA, and the CI poll no longer covers the ticket after the transition, so nothing re-derives the event.",
+      "evidence": "ci_lifecycle.ex:373-375 `:filtered -> Logger.warning(\"CI terminal event unexpectedly filtered: issue=#{target} topic=#{topic}\") state`.",
+      "recommendation": "On :filtered, enqueue the digest item directly (the payload is already built) or raise a ticket attention; add a test that a filtered publish still leaves a queue item for the agent.",
+      "refactor_hint": "Part of the CI-gate package; delivery to the agent inbox should not depend on the pub/sub filter result.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-32",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "Other oversized modules and functions in the unit",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/ci_lifecycle.ex",
+          "lines": "1-1708"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "1-1584"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "351-603"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "1-1148"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "lines": "1-1057"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "55-175"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "79-167"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "855-936"
+        }
+      ],
+      "description": "CiLifecycle 1708 lines (CI poll driver + transitions + rewake timers + two PR alert latches + base-repair invalidation); CommentWake 1584 (merged-PR terminalization + merge-attribution audit + idle/active/deactivated comment writers + retry chain + reactivation); DispatchPolicy 1213, of which the AIMD load envelope (351-603, ~250 lines) is a separate algorithm; OperatorMessages 1148 (client API + queue handlers + correlated replay + pause-wake + control alerts); CommentPolling 1057 (firehose + comment poll + process ownership). Largest functions: IssueSync.sync_polled_issue_state ladder ~141 lines, CommentWake.mark_pr_merged_issue_done ~121 lines with 10 injected funs, Dispatcher.spawn_issue_on_worker_host ~100, Lifecycle.init ~88, OperatorMessages.maybe_emit_agent_control_alert ~82, IssueSync.reconcile_contradictory_state_labels ~76.",
+      "evidence": "wc -l: ci_lifecycle 1708, comment_wake 1584, dispatch_policy 1213, operator_messages 1148, comment_polling 1057; function spans measured from def to next def.",
+      "recommendation": "CiLifecycle -> CiPoll, CiTransitions, CiRewake, PrAlerts; CommentWake -> MergedPrRoute (+MergeAttributionAudit), ReviewFeedbackWake, CommentRetry; DispatchPolicy -> DispatchPolicy (eligibility) + LoadEnvelope + AdmissionGates; CommentPolling -> Firehose + CommentPoll (+ poll worker from orch-a-26).",
+      "refactor_hint": "Each split follows a boundary that already has its own State fields and tests, so they can be moved independently.",
+      "effort": "L"
+    },
+    {
+      "id": "orch-a-33",
+      "category": "naming-structure",
+      "severity": "P3",
+      "title": "DispatchPolicy is documented as 'pure' but reads /proc, Application env, Config and logs",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "1-4"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "46-123"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "818-836"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "919-929"
+        }
+      ],
+      "description": "The moduledoc says 'Pure dispatch, load-gate, and issue-candidate policy', but the module contains the host probes (SystemLoad/SystemCpu/SystemMemory/SystemFileDescriptors/BuildGate/Quota reads), Application-env overrides, Config.settings!() reads inside effective_state_limit/2 and the state sets, and a Logger.info inside the eligibility decision.",
+      "evidence": "dispatch_policy.ex:3 `Pure dispatch, load-gate, and issue-candidate policy for the orchestrator.`; dispatch_policy.ex:58 `do: SystemLoad.avg1()`; dispatch_policy.ex:830 `Logger.info(\"Dispatch resolved contradictory state labels ...\")`.",
+      "recommendation": "Move probes to Dispatch.Admission.Probes, pass config values in, and keep DispatchPolicy genuinely pure (no Config, Logger or /proc).",
+      "refactor_hint": "A pure policy module is the easiest thing to lift into its own package with fast async tests.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-34",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "Test layout does not mirror modules; some modules are effectively untested in isolation; cross-process assert_receive with 100ms default",
+      "locations": [
+        {
+          "path": "src/test/aiur/orchestrator/agent_teardown_test.exs",
+          "lines": "1-9"
+        },
+        {
+          "path": "src/test/aiur/orchestrator_ci_lifecycle_test.exs",
+          "lines": "1-1733"
+        },
+        {
+          "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+          "lines": "410-426"
+        },
+        {
+          "path": "src/test/aiur/orchestrator/dispatcher_test.exs",
+          "lines": "487-499"
+        }
+      ],
+      "description": "CiLifecycle (1708 lines) and OperatorMessages (1148) have no mirrored test file: CiLifecycle is tested by a 1733-line test/aiur/orchestrator_ci_lifecycle_test.exs outside the module path, and OperatorMessages behaviour is spread over ten files (core_test, decision_store_test, dashboard_live_test, operator_send_timeout_test, ...). AgentTeardownTest is 9 lines and asserts only terminate_task(nil) == :ok; terminate_running_issue/3 and deactivate_running_issue/2 are covered only indirectly. dispatcher_test.exs:426 and :499 use `assert_receive {:agent_runner_run, ...}` with the 100 ms default for a message sent from the runner function, which Dispatcher starts under Task.Supervisor.start_child (a different process), so the assertion races the task scheduler under load. The unit tests also cannot run async because production reads Application env (orch-a-22).",
+      "evidence": "agent_teardown_test.exs:6-8 `test \"teardown helpers tolerate absent process identifiers\" do assert AgentTeardown.terminate_task(nil) == :ok end`; dispatcher.ex:2504-2505 `Task.Supervisor.start_child(Aiur.TaskSupervisor, fn -> runner.(issue, recipient, ...)`; dispatcher_test.exs:426 `assert_receive {:agent_runner_run, dispatched, _recipient, _opts}`.",
+      "recommendation": "Mirror test files per module before the carve (tests move with their module), add direct AgentTeardown tests for terminate/deactivate, and give cross-process assert_receive an explicit timeout (e.g. 1_000).",
+      "refactor_hint": "Tests that live next to the module are what makes a package extraction mechanical.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-a-35",
+      "category": "performance",
+      "severity": "P3",
+      "title": "MergedTicketReconciler bookkeeping MapSets grow for the daemon's lifetime",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/merged_ticket_reconciler.ex",
+          "lines": "378-387"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/merged_ticket_reconciler.ex",
+          "lines": "444-470"
+        }
+      ],
+      "description": "merged_ticket_reconciliations gains {identifier, merge_id} for every reconciled merge and merged_ticket_reconciliation_failures gains {key, inspect(reason)} for every distinct failure text; neither is pruned when the merge ages past @stale_merge_after_seconds or leaves RecentMergeStore's 100-entry window. The failure key embeds inspect(reason), so a reason carrying a timestamp or retry count re-alerts every poll.",
+      "evidence": "merged_ticket_reconciler.ex:385 `merged_ticket_reconciliations: MapSet.put(state.merged_ticket_reconciliations, reconciliation_key(issue, merge))`; merged_ticket_reconciler.ex:446 `signature = {reconciliation_key(issue, merge), inspect(reason)}`.",
+      "recommendation": "Prune both sets to merges still present in RecentMergeStore.list/0 each poll, and key failure dedupe on a classified reason atom.",
+      "refactor_hint": "Minor; do it when moving the reconciler into the tracker-sync package.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-36",
+      "category": "config",
+      "severity": "P3",
+      "title": "Tuning constants hard-coded across modules",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling/target_selection.ex",
+          "lines": "15-17"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/command_scan.ex",
+          "lines": "39"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "15-20"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+          "lines": "22-33"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "24-32"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "50-51"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "465-477"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "1945"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/merged_ticket_reconciler.ex",
+          "lines": "39-48"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+          "lines": "30-31"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "30-31"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "lines": "17-33"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/membership_lifecycle.ex",
+          "lines": "8"
+        }
+      ],
+      "description": "Per-poll caps (25 human-review targets, 25 watch targets, 25 reconcile targets, 25 commanded PRs, 25 terminal verifications, 10 closing refreshes), timeouts (300 s comment-poll setup, 30 s abandon margin, 5 s CI readiness, 30 s control ack, 5 s membership observe), debounces (15 s prewarm, 30 s capacity backoff, 60 s starvation/contradictory), backoffs (auto-resume 2/5/15 min, comment rework 2 s x 2^n, GitHub budget 30 s..10 min) and staleness windows (24 h merges, 7 d drafts) are module attributes. Some are overridable through Application env or opts for tests only. The shared '25 per poll' cap appears four times independently.",
+      "evidence": "target_selection.ex:15-17 `@human_review_comment_targets_per_poll 25 @watch_comment_targets_per_poll 25 @reconcile_targets_per_poll 25`; command_scan.ex:39 `@command_scan_pull_requests_per_poll 25`; issue_sync.ex:15 `@idle_terminal_verification_batch_size 25`; comment_polling.ex:31 `@comment_poll_setup_timeout_ms 300_000`.",
+      "recommendation": "Collect operator-relevant knobs (poll caps, debounces, backoffs) into a Config.Schema section with documented defaults; keep true invariants as named constants in one Limits module.",
+      "refactor_hint": "Each package should declare its own config schema section rather than scattering attributes.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-37",
+      "category": "performance",
+      "severity": "P3",
+      "title": "Dashboard notified twice per poll cycle",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "86-88"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "191-193"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "224-236"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "243-244"
+        }
+      ],
+      "description": "A successful cycle calls StatusReport.notify_dashboard/1 in dispatch_candidate_poll (after state sync) and again at the end of run_poll_cycle; the paused/error path calls it in monitor_without_candidates and again in run_poll_cycle; handle_tick also notifies. Each notify builds and publishes a summary snapshot.",
+      "evidence": "dispatcher.ex:193 `StatusReport.notify_dashboard(state)`; dispatcher.ex:87 `StatusReport.notify_dashboard(state)`; lifecycle.ex:244 `StatusReport.notify_dashboard(state)`.",
+      "recommendation": "Notify once per state transition point (end of cycle) and coalesce intermediate notifications, or debounce inside StatusReport.",
+      "refactor_hint": "Status projection belongs to a separate projector package that subscribes to state changes.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-a-38",
+      "category": "error-handling",
+      "severity": "P3",
+      "title": "Membership observation failures log a constant message and discard the reason",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/membership_lifecycle.ex",
+          "lines": "30-51"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/membership_lifecycle.ex",
+          "lines": "63-91"
+        }
+      ],
+      "description": "Every failure path (error tuple, unexpected result, exception, throw/exit) calls log_observation_failure(reason), which ignores its argument and logs the same fixed line, so a timeout, a crashed store and a validation error are indistinguishable in logs.",
+      "evidence": "membership_lifecycle.ex:89-90 `defp log_observation_failure(_reason) do Logger.warning(\"aiur_current_run_membership phase=lifecycle_observation_failed code=membership_observation_failed\")`.",
+      "recommendation": "Include a classified reason (timeout | exit | error tag) in the log line and in the returned error.",
+      "refactor_hint": "Minor; fold into the membership boundary helper from orch-a-01.",
+      "effort": "S"
+    }
+  ]
+}

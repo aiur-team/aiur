@@ -1,0 +1,15 @@
+{
+  "verdicts": [
+    {
+      "id": "gaps-08",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high for record counts and sensitivity; approximate for baseline rates",
+      "corrected_claim": "The inherited calculation reproduces 22/108 silence-associated starts, 6/108 session-limit-associated starts, 1/108 compaction-associated starts, 4/108 handoff-associated starts and 3/108 session-start-associated starts under its original tolerance. However, the 34 compaction records are 17 boundary/summary pairs, not 34 compactions. The original test allows a boundary up to 60 seconds after the gap begins. Requiring a preceding boundary reduces silence-associated starts to 19/108, approximately 2.0x the pooled baseline, while session-limit hits remain six. Only three limit-associated starts follow a limit window recorded for that same repository. Eleven reconstructed limit windows total 25.4660 h and overlap gaps for 13.6197 h. These are descriptive associations from a small, pooled, dependent sample; they do not prove causation or establish that handoffs/compaction are harmless.",
+      "method": "Independently parsed retained exec_events.tsv, exec_api_errors.tsv and gap_rows30.jsonl with tooling/gap_boundary_audit.py. Reconstructed session minima/maxima, global >=30-minute activity silences, handoff timestamps from filenames clipped at the original cutoff, and rate-limit reset windows using America/Los_Angeles. Compared original -30min/+1min matching to strict preceding 30min matching. Matched limit windows to repository identity separately. A separate same-session ordered pairing probe confirms 17 boundary/summary pairs, with maximum timestamp difference 0.388 seconds. Baseline coverage is reconstructed from saved active bounds rounded to minutes, explicitly approximate; rates match the old rounded baselines. Did not import the original analysis code or change source records.",
+      "note": "The original pooled limit lift is approximately 6.76x using the independently recomputed approximate baseline, rather than deriving 7x from a heavily rounded 0.8%. Filtering to same-repository hits requires a corresponding new baseline before calculating a lift; no such lift is claimed here. Shared-account limits may affect multiple repositories, but that account-level link was not established by this study. Executor controls count as progress and Executor activity defines silence, so predictor and outcome share source evidence. Six matched starts do not establish a causal effect; no uncertainty model accounts for dependent gaps and repeated sessions. The lack of observed lift for handoff or compaction does not justify excluding continuity requirements. Source completeness and causal episode checks remain separate from this arithmetic audit.",
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher"
+    }
+  ]
+}

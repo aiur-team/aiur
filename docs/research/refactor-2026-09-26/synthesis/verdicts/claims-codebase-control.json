@@ -1,0 +1,28 @@
+{
+  "verdicts": [
+    {
+      "id": "codebase-08",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high",
+      "corrected_claim": "The fleet-capacity starvation predicate excludes globally paused fleets and fleets with zero ready tickets. This is a limitation of that specific alert, not proof that an idle fleet emits no wake: PR/CI/attention events have separate bindings, and ordinary running-to-paused transitions emit an allowlisted attention topic. GlobalPause persists its switch and publishes snapshot/dashboard updates but has no dedicated global-pause wake topic. Idle polling widens only after a completed, fresh candidate poll with no active runners and no dispatchable demand (or global pause). The schema default multiplier is 5.0 and its maximum is 100.0. There is no universal ten-minute ceiling in IntervalPolicy.widen or Lifecycle.schedule_tick; rate-limit floors can extend the delay further. A remote label without a delivered wake can wait for the scheduled poll, but the actual delay requires runtime evidence.",
+      "method": "Read the complete frozen snapshot at 3339b887196d5e9aefb273117a14bf33391ee41f: orchestrator/issue_sync.ex:1699-1702; orchestrator/global_pause.ex:113-131,164-177; orchestrator/global_pause_store.ex:16-65; orchestrator/pause_resume.ex:443-454; orchestrator/operator_messages.ex:896-907,938-940; executor_bindings.ex:7-34; orchestrator/tracker_health.ex:132-145,243-265,317-329; webhooks/interval_policy.ex:56-59; config/schema/polling.ex:7,35,73-76; orchestrator/lifecycle.ex:317-325. Independently traced the actual timer path and the pause side effects rather than relying on comments. Commands: rg -n \"600_000|10 \\* 60|10-minute|max_poll\" src/lib/aiur/orchestrator/{tracker_health,lifecycle,dispatcher}.ex src/lib/aiur/config/schema/polling.ex; read IntervalPolicy.widen and the callers. Compared GlobalPause and IntervalPolicy to 0972f0297 with git diff: neither changed.",
+      "note": "The ten-minute ceiling appears only in an outdated explanatory comment in TrackerHealth, not in the arithmetic or timer scheduling. A 300,000 ms base and schema-permitted factor 5 produces 1,500,000 ms (25 minutes); this is evaluation of the inspected pure expression, not a measured live delay. Persisting an explicit operator pause is a safety invariant, not itself a fault to remove. Design a dedicated attention policy for actionable idle states without treating intentional pause as authority to resume. No daemon was launched and no idle hours were attributed.",
+      "commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+      "verification_mode": "sequential reproduce and interpret checks by the continuing researcher"
+    },
+    {
+      "id": "codebase-09",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high",
+      "corrected_claim": "Synchronous control mutations can queue behind candidate fetching in the Orchestrator GenServer. The five-second set-max-agents figure is its documented control-call budget, not a measured duration or an upper bound on an entire poll cycle. Read-only status, agents and watch use Orchestrator.fleet_view -> StatusReport.fleet_view -> SnapshotStore.read and do not wait on the Orchestrator mailbox in that path. The rewrite must preserve that existing read-model isolation while isolating blocking candidate reads from control mutations. The contribution to historical idle hours remains unmeasured by this code inspection.",
+      "method": "Traced src/lib/aiur/orchestrator.ex:57 (run_poll_cycle), orchestrator/dispatcher.ex:537-542 (conditional GitHub candidate fetch), github/transport.ex:5-25,45-49 (worker deadline and caller still blocked), agent_control_cli.ex:43-52,97-146,787-802,1242-1275,1568-1617; orchestrator.ex:683-689 and orchestrator/status_report.ex:54-82. Commands: rg -n \"fleet_view|SnapshotStore|GenServer.call\" src/lib/aiur/orchestrator/status_report.ex; rg -n \"defp fleet_view|defp control_fleet_view|defp control_status_snapshot\" src/lib/aiur/agent_control_cli.ex. Read status entry, the global-pause banner input, and snapshot-read delegation. Compared report baseline 0972f0297 with 3339b887196d5e9aefb273117a14bf33391ee41f; fleet_view isolation exists in both, so this is not just a newer fix invalidating the report.",
+      "note": "The report conflates command writes with snapshot reads. Transport bounds an individual orchestrator network request at 10 seconds (plus separately bounded admission), whereas the five-second comment describes the caller-facing write timeout; summing a complete poll requires tracing all calls. The status banner consumes global_pause already in the snapshot. Existence of a legacy handle_call(:fleet_view) does not show the CLI uses it. No responsiveness or latency claim was measured here.",
+      "commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+      "verification_mode": "sequential reproduce and interpret checks by the continuing researcher"
+    }
+  ]
+}

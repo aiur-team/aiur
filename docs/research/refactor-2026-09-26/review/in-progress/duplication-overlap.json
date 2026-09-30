@@ -1,0 +1,4634 @@
+{
+  "status": "index-only",
+  "raw_findings": 869,
+  "candidate_groups": 167,
+  "groups_with_overlap": 131,
+  "groups": [
+    {
+      "mode": "exact",
+      "candidate_hash": "c7ef369a8ddb4571be2e25057507434f8d800e77acc358582ca8cd52bb77ad6e",
+      "overlaps": [
+        {
+          "finding_id": "build-order-09",
+          "source": "review/raw/build-order.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/graph_projection.ex",
+              "line": 36,
+              "end_line": 41
+            }
+          ]
+        },
+        {
+          "finding_id": "build-order-12",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 57,
+              "end_line": 62
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "9853f55513fd07f1c6d80a78aad25d2c25508b43255356506387e86160f1d114",
+      "overlaps": [
+        {
+          "finding_id": "github-a-08",
+          "source": "review/raw/github-a.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/bot_identity.ex",
+              "line": 71,
+              "end_line": 76
+            },
+            {
+              "path": "src/lib/aiur/github/config.ex",
+              "line": 413,
+              "end_line": 418
+            }
+          ]
+        },
+        {
+          "finding_id": "github-a-12",
+          "source": "review/raw/github-a.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/config.ex",
+              "line": 413,
+              "end_line": 418
+            }
+          ]
+        },
+        {
+          "finding_id": "platform-misc-20",
+          "source": "review/raw/platform-misc.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/config/env_ref.ex",
+              "line": 54,
+              "end_line": 59
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "35cfbc4b5be2bb8a9993becc36e6c8fa587bc91843dc8203e8ea15b2a857973e",
+      "overlaps": [
+        {
+          "finding_id": "agent-backends-oc-31",
+          "source": "review/raw/agent-backends-oc.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/state.ex",
+              "line": 142,
+              "end_line": 150
+            },
+            {
+              "path": "src/lib/aiur/log_file.ex",
+              "line": 151,
+              "end_line": 159
+            },
+            {
+              "path": "src/lib/aiur/pane_manager.ex",
+              "line": 436,
+              "end_line": 444
+            },
+            {
+              "path": "src/lib/aiur/pane_manager/layout.ex",
+              "line": 240,
+              "end_line": 248
+            }
+          ]
+        },
+        {
+          "finding_id": "agent-runtime-32",
+          "source": "review/raw/agent-runtime.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/state.ex",
+              "line": 142,
+              "end_line": 150
+            },
+            {
+              "path": "src/lib/aiur/pane_manager/layout.ex",
+              "line": 240,
+              "end_line": 248
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-3-28",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/state.ex",
+              "line": 142,
+              "end_line": 150
+            },
+            {
+              "path": "src/lib/aiur/log_file.ex",
+              "line": 151,
+              "end_line": 159
+            },
+            {
+              "path": "src/lib/aiur/pane_manager.ex",
+              "line": 436,
+              "end_line": 444
+            },
+            {
+              "path": "src/lib/aiur/pane_manager/layout.ex",
+              "line": 240,
+              "end_line": 248
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "3f34de0c993f959daf85810b7aea18298a81cadef7c29dd78f6b4107aa45eb98",
+      "overlaps": [
+        {
+          "finding_id": "web-occ-22",
+          "source": "review/raw/web-occ.json",
+          "category": "performance",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+              "line": 507,
+              "end_line": 512
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-26",
+          "source": "review/raw/web-occ.json",
+          "category": "error-handling",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+              "line": 507,
+              "end_line": 512
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-33",
+          "source": "review/raw/web-occ.json",
+          "category": "complexity",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+              "line": 507,
+              "end_line": 512
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-03",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+              "line": 507,
+              "end_line": 512
+            },
+            {
+              "path": "src/lib/aiur_web/streamdeck_projection.ex",
+              "line": 330,
+              "end_line": 335
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-33",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/streamdeck_projection.ex",
+              "line": 330,
+              "end_line": 335
+            },
+            {
+              "path": "src/lib/aiur_web/streamdeck_projection.ex",
+              "line": 492,
+              "end_line": 497
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "c91274f549d818e96aa790dff47521e0c1d9bd05f72d932c68e2e7785a682a01",
+      "overlaps": [
+        {
+          "finding_id": "loose-4-16",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_projection.ex",
+              "line": 1027,
+              "end_line": 1038
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-22",
+          "source": "review/raw/loose-4.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_projection.ex",
+              "line": 1027,
+              "end_line": 1038
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "f276e43e5bd1a1ee305221c2918ff48f59ae2bfc20fdcb6b061fc015b3c0828f",
+      "overlaps": [
+        {
+          "finding_id": "loose-4-07",
+          "source": "review/raw/loose-4.json",
+          "category": "performance",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_process_log.ex",
+              "line": 415,
+              "end_line": 430
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "244eea1e03173693e7fa1c57a132f886a68fd2f8959864a329c8ee06b4b834d5",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "a74f71315836993aaf5090030c69b52a1362dd52cfe6b0e071a1c941d9fdedb1",
+      "overlaps": [
+        {
+          "finding_id": "orch-a-15",
+          "source": "review/raw/orch-a.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/interrupts.ex",
+              "line": 158,
+              "end_line": 167
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/priority_control.ex",
+              "line": 151,
+              "end_line": 160
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/slots.ex",
+              "line": 84,
+              "end_line": 93
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-b-05",
+          "source": "review/raw/orch-b.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/interrupts.ex",
+              "line": 158,
+              "end_line": 167
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/priority_control.ex",
+              "line": 151,
+              "end_line": 160
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/slots.ex",
+              "line": 84,
+              "end_line": 93
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "d74cffe155041938021f5a7afcc4673120b4c9c15ff54477b71dd9ab5027a32f",
+      "overlaps": [
+        {
+          "finding_id": "loose-1-16",
+          "source": "review/raw/loose-1.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_answer.ex",
+              "line": 257,
+              "end_line": 261
+            },
+            {
+              "path": "src/lib/aiur/decision_delegation.ex",
+              "line": 292,
+              "end_line": 296
+            },
+            {
+              "path": "src/lib/aiur/decision_event.ex",
+              "line": 988,
+              "end_line": 992
+            },
+            {
+              "path": "src/lib/aiur/decision_revision.ex",
+              "line": 366,
+              "end_line": 370
+            },
+            {
+              "path": "src/lib/aiur/decision_validation.ex",
+              "line": 202,
+              "end_line": 206
+            },
+            {
+              "path": "src/lib/aiur/recent_merge.ex",
+              "line": 519,
+              "end_line": 523
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-2-11",
+          "source": "review/raw/loose-2.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_answer.ex",
+              "line": 257,
+              "end_line": 261
+            },
+            {
+              "path": "src/lib/aiur/decision_delegation.ex",
+              "line": 292,
+              "end_line": 296
+            },
+            {
+              "path": "src/lib/aiur/decision_event.ex",
+              "line": 988,
+              "end_line": 992
+            },
+            {
+              "path": "src/lib/aiur/decision_revision.ex",
+              "line": 366,
+              "end_line": 370
+            },
+            {
+              "path": "src/lib/aiur/decision_validation.ex",
+              "line": 202,
+              "end_line": 206
+            },
+            {
+              "path": "src/lib/aiur/recent_merge.ex",
+              "line": 519,
+              "end_line": 523
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-3-13",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_answer.ex",
+              "line": 257,
+              "end_line": 261
+            },
+            {
+              "path": "src/lib/aiur/decision_delegation.ex",
+              "line": 292,
+              "end_line": 296
+            },
+            {
+              "path": "src/lib/aiur/decision_event.ex",
+              "line": 988,
+              "end_line": 992
+            },
+            {
+              "path": "src/lib/aiur/decision_revision.ex",
+              "line": 366,
+              "end_line": 370
+            },
+            {
+              "path": "src/lib/aiur/decision_validation.ex",
+              "line": 202,
+              "end_line": 206
+            },
+            {
+              "path": "src/lib/aiur/recent_merge.ex",
+              "line": 519,
+              "end_line": 523
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "2f779a50f583d3d8f1d3225ab06a5d69d981ac76556a5f8bd008dfa003ce80b3",
+      "overlaps": [
+        {
+          "finding_id": "telemetry-usage-22",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+              "line": 170,
+              "end_line": 176
+            },
+            {
+              "path": "src/lib/aiur/usage_compaction/block.ex",
+              "line": 305,
+              "end_line": 311
+            },
+            {
+              "path": "src/lib/aiur/usage_compaction/manifest.ex",
+              "line": 319,
+              "end_line": 325
+            },
+            {
+              "path": "src/lib/aiur/usage_ledger/retired_floor.ex",
+              "line": 75,
+              "end_line": 81
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "c68ab33d7851db191f6f58b0de3ff7cad6476e83e8cd34150ab21bcbad419541",
+      "overlaps": [
+        {
+          "finding_id": "orch-a-01",
+          "source": "review/raw/orch-a.json",
+          "category": "error-handling",
+          "severity": "P0",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+              "line": 1421,
+              "end_line": 1429
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-a-32",
+          "source": "review/raw/orch-a.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+              "line": 519,
+              "end_line": 537
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-b-21",
+          "source": "review/raw/orch-b.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+              "line": 519,
+              "end_line": 537
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+              "line": 1421,
+              "end_line": 1429
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "31dea5e1e4473007baa0b0f12921f67885d48ba58f37f6cc226566fd076e966c",
+      "overlaps": [
+        {
+          "finding_id": "build-order-20",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+              "line": 55,
+              "end_line": 67
+            },
+            {
+              "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+              "line": 60,
+              "end_line": 72
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "d35ce9c2830460a6c435057875b18240f9f794c21a927b40a5a824f6ea6d17d1",
+      "overlaps": [
+        {
+          "finding_id": "platform-misc-25",
+          "source": "review/raw/platform-misc.json",
+          "category": "test-quality",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/memory/tracker.ex",
+              "line": 91,
+              "end_line": 103
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "5043162df2459005e267946b27cf782300f86f2a08bf034a75920826008660f9",
+      "overlaps": [
+        {
+          "finding_id": "agent-runtime-37",
+          "source": "review/raw/agent-runtime.json",
+          "category": "naming-structure",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+              "line": 261,
+              "end_line": 270
+            },
+            {
+              "path": "src/lib/aiur/agent_list/renderer/table.ex",
+              "line": 39,
+              "end_line": 53
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "43dc00e0dbc95c2e1a53f944789211a584db53e9dfc0b4faf39e89c09109b2ce",
+      "overlaps": [
+        {
+          "finding_id": "telemetry-usage-20",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "dead-code",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/usage/grouped_scopes.ex",
+              "line": 422,
+              "end_line": 433
+            },
+            {
+              "path": "src/lib/aiur/usage_aggregate/query.ex",
+              "line": 173,
+              "end_line": 184
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "5879699f3ae38c8c53cc4a8cc1496c982103fcc1dbc8ad664c5351a9166618c8",
+      "overlaps": [
+        {
+          "finding_id": "build-order-05",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/catalog_store.ex",
+              "line": 185,
+              "end_line": 196
+            },
+            {
+              "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+              "line": 205,
+              "end_line": 216
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "73701ae1a024ea189442a01631900e4fc8f8658e4f168a368aeb256853bf0eea",
+      "overlaps": [
+        {
+          "finding_id": "orch-a-01",
+          "source": "review/raw/orch-a.json",
+          "category": "error-handling",
+          "severity": "P0",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+              "line": 562,
+              "end_line": 575
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+              "line": 987,
+              "end_line": 996
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-a-08",
+          "source": "review/raw/orch-a.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+              "line": 987,
+              "end_line": 996
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-a-32",
+          "source": "review/raw/orch-a.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+              "line": 562,
+              "end_line": 575
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-b-21",
+          "source": "review/raw/orch-b.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+              "line": 562,
+              "end_line": 575
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+              "line": 987,
+              "end_line": 996
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "aab0dc3115407b6cec15b7e109a970cdb520fb7e84e7b72674fed34d4317d997",
+      "overlaps": [
+        {
+          "finding_id": "events-webhooks-executor-08",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_comments_poller.ex",
+              "line": 133,
+              "end_line": 138
+            },
+            {
+              "path": "src/lib/aiur/webhooks/delivery_log.ex",
+              "line": 199,
+              "end_line": 204
+            }
+          ]
+        },
+        {
+          "finding_id": "events-webhooks-executor-18",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_comments_poller.ex",
+              "line": 133,
+              "end_line": 138
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "dab13d55b7bc3b8f5461575cbdcbeb7f265695c5e14566baef326d352d2ad5a3",
+      "overlaps": [
+        {
+          "finding_id": "github-a-11",
+          "source": "review/raw/github-a.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/budget.ex",
+              "line": 847,
+              "end_line": 852
+            }
+          ]
+        },
+        {
+          "finding_id": "github-a-17",
+          "source": "review/raw/github-a.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/budget.ex",
+              "line": 847,
+              "end_line": 852
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "070c15b8b9fc70c0996f43fbf422a283a71b2a70c9a429cc0c157e97292ad5fc",
+      "overlaps": [
+        {
+          "finding_id": "web-occ-11",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+              "line": 636,
+              "end_line": 646
+            },
+            {
+              "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+              "line": 352,
+              "end_line": 362
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-16",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+              "line": 636,
+              "end_line": 646
+            },
+            {
+              "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+              "line": 352,
+              "end_line": 362
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "09fe9a34307d105ead8079ef2c921a6f3737a9e2ee2cd8aefddf8dca77fc41b8",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "0d8861639340a1d5eb88d51092df9b22efbb037707bd38d55c5528c2409aebe5",
+      "overlaps": [
+        {
+          "finding_id": "loose-3-13",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_event.ex",
+              "line": 970,
+              "end_line": 979
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "960195e8fc62008ea3d4abf8ca839be220df9da6f378858cdf17874e9323c834",
+      "overlaps": [
+        {
+          "finding_id": "orch-a-15",
+          "source": "review/raw/orch-a.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+              "line": 1069,
+              "end_line": 1078
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+              "line": 291,
+              "end_line": 300
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-a-32",
+          "source": "review/raw/orch-a.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+              "line": 1069,
+              "end_line": 1078
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-b-05",
+          "source": "review/raw/orch-b.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+              "line": 1069,
+              "end_line": 1078
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+              "line": 291,
+              "end_line": 300
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "a721343f208651fe24ba41ac504f481499e8b1b398d8d1cdd8bca96d0623e130",
+      "overlaps": [
+        {
+          "finding_id": "build-order-05",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/catalog_store.ex",
+              "line": 170,
+              "end_line": 179
+            },
+            {
+              "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+              "line": 250,
+              "end_line": 259
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "af0409e37bea820d822b15bdcbc552aa224c8db32e08bbc31a227113039ade4b",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "b9e38693fad0c00eaadcbeca375b92585482f57a4cc7899e124b7858f55acff3",
+      "overlaps": [
+        {
+          "finding_id": "loose-4-07",
+          "source": "review/raw/loose-4.json",
+          "category": "performance",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_process_log.ex",
+              "line": 552,
+              "end_line": 560
+            }
+          ]
+        },
+        {
+          "finding_id": "tests-2-28",
+          "source": "review/raw/tests-2.json",
+          "category": "anti-pattern",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/request_log.ex",
+              "line": 98,
+              "end_line": 107
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "022351fa1ff0863539a429707ad1f5810efde0644c9be05eeb20b771e1b3c31f",
+      "overlaps": [
+        {
+          "finding_id": "loose-3-39",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/progress_retention.ex",
+              "line": 497,
+              "end_line": 505
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "1b6eb2abbb887c2893b882e0ddb85b65e9c070da12ded79a37d78c910ffe0ffa",
+      "overlaps": [
+        {
+          "finding_id": "loose-4-16",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_projection.ex",
+              "line": 1006,
+              "end_line": 1011
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-22",
+          "source": "review/raw/loose-4.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_projection.ex",
+              "line": 1006,
+              "end_line": 1011
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "20eb9a0a3fa9fba25149c61ae19ab195b878fdaaecc7c3a6eebc95d7f77634df",
+      "overlaps": [
+        {
+          "finding_id": "events-webhooks-executor-08",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+              "line": 718,
+              "end_line": 723
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "269df324a56fccccb9694a99324cf4c725d30c0ec79246afa9dc5ed58bef26c6",
+      "overlaps": [
+        {
+          "finding_id": "orch-b-24",
+          "source": "review/raw/orch-b.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+              "line": 77,
+              "end_line": 85
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+              "line": 111,
+              "end_line": 119
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "44bf396b285ae6fcb2b9cb326b4ec405e7c1cbb5e97da9b5598eab7761377911",
+      "overlaps": [
+        {
+          "finding_id": "telemetry-usage-22",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/usage_ledger/paths.ex",
+              "line": 107,
+              "end_line": 115
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "52ac605e20a7ccfd64f83eace5f6a6cb8b45c488cbd37a2ea4ae399b23e4c1ee",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "66f330d8e9de7161947502c219005db7abaab35555a9e7ac87a91c6ab5dff4ff",
+      "overlaps": [
+        {
+          "finding_id": "web-occ-13",
+          "source": "review/raw/web-occ.json",
+          "category": "dead-code",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+              "line": 181,
+              "end_line": 186
+            },
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+              "line": 75,
+              "end_line": 80
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-18",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+              "line": 181,
+              "end_line": 186
+            },
+            {
+              "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+              "line": 315,
+              "end_line": 320
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "7cfdedecbb588a7a8b3b13b07634b7b42000ab9802ed9a958b45817b27b69b07",
+      "overlaps": [
+        {
+          "finding_id": "agent-backends-oc-32",
+          "source": "review/raw/agent-backends-oc.json",
+          "category": "anti-pattern",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/opencode/bridge_port.ex",
+              "line": 113,
+              "end_line": 121
+            },
+            {
+              "path": "src/lib/aiur/opencode/bridge_supervisor.ex",
+              "line": 57,
+              "end_line": 65
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "9e1fd475cf63e9240377769da4488ae64dd33f0b310c3ca8a420c1181c185836",
+      "overlaps": [
+        {
+          "finding_id": "build-order-16",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+              "line": 219,
+              "end_line": 224
+            },
+            {
+              "path": "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex",
+              "line": 51,
+              "end_line": 56
+            },
+            {
+              "path": "src/lib/aiur/build_order/ticket_history_provider_options.ex",
+              "line": 72,
+              "end_line": 77
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "ab29f67398b3a453908ed92cbe5653fdeac8a25aff07618d1e228cef0f31dcd4",
+      "overlaps": [
+        {
+          "finding_id": "build-order-12",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 406,
+              "end_line": 411
+            },
+            {
+              "path": "src/lib/aiur/open_ticket_source.ex",
+              "line": 484,
+              "end_line": 489
+            }
+          ]
+        },
+        {
+          "finding_id": "build-order-15",
+          "source": "review/raw/build-order.json",
+          "category": "anti-pattern",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 406,
+              "end_line": 411
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-19",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 406,
+              "end_line": 411
+            },
+            {
+              "path": "src/lib/aiur/open_ticket_source.ex",
+              "line": 484,
+              "end_line": 489
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "adfa967d1332e53aeb27ae55f7425c1861636445dfaa9d190d20008d3864f74f",
+      "overlaps": [
+        {
+          "finding_id": "loose-4-16",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_projection.ex",
+              "line": 1020,
+              "end_line": 1025
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-22",
+          "source": "review/raw/loose-4.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_projection.ex",
+              "line": 1020,
+              "end_line": 1025
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "c7475642840f983f44f44ab0d3281cfc7ce5d90a6998c53c79bf13405e418870",
+      "overlaps": [
+        {
+          "finding_id": "github-a-09",
+          "source": "review/raw/github-a.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/ci_poll_batch.ex",
+              "line": 167,
+              "end_line": 175
+            },
+            {
+              "path": "src/lib/aiur/github/comment_poll_batch.ex",
+              "line": 204,
+              "end_line": 212
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "ea8c513143c021ecd1f9ae2b05ef1a8db46f4310b7212f28b04a03b161446ea3",
+      "overlaps": [
+        {
+          "finding_id": "loose-4-16",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_projection.ex",
+              "line": 1013,
+              "end_line": 1018
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-22",
+          "source": "review/raw/loose-4.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_projection.ex",
+              "line": 1013,
+              "end_line": 1018
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "fda049e3be6dfada981165bacc2bc6536eb85c322279a641fca7d4fa76dcdc44",
+      "overlaps": [
+        {
+          "finding_id": "loose-3-29",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/run_telemetry.ex",
+              "line": 61,
+              "end_line": 69
+            },
+            {
+              "path": "src/lib/aiur/saturation_sentinel.ex",
+              "line": 63,
+              "end_line": 71
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a",
+      "overlaps": [
+        {
+          "finding_id": "web-rest-04",
+          "source": "review/raw/web-rest.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 1420,
+              "end_line": 1427
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-10",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+              "line": 406,
+              "end_line": 413
+            },
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 1420,
+              "end_line": 1427
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "21e1352d2a6a4f0dfc7e68413b19e23c719e044e5f56ba030af039d45d33382b",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "3344eed0457b6275071fecbb4f661094a317f0515a52dcf88e0725fd52bfa06d",
+      "overlaps": [
+        {
+          "finding_id": "agent-runtime-32",
+          "source": "review/raw/agent-runtime.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/activation.ex",
+              "line": 137,
+              "end_line": 144
+            },
+            {
+              "path": "src/lib/aiur/agent_list/app.ex",
+              "line": 334,
+              "end_line": 341
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "5168c0e1fb5485d23ec71cc9ba8388cdc5b542b71f4007d9c28f1ba574d0b188",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "8009e1b839cb7c7377ffd906e88ce080acd6ad5fdd19c9105687a20abd6e03db",
+      "overlaps": [
+        {
+          "finding_id": "telemetry-usage-22",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+              "line": 130,
+              "end_line": 137
+            },
+            {
+              "path": "src/lib/aiur/usage_compaction/block.ex",
+              "line": 255,
+              "end_line": 262
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "87d6ecc60de2e6e32f1f6d49418d6ffca94ec82d414459082822bcf1bd726b44",
+      "overlaps": [
+        {
+          "finding_id": "build-order-12",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 387,
+              "end_line": 394
+            },
+            {
+              "path": "src/lib/aiur/open_ticket_source.ex",
+              "line": 465,
+              "end_line": 472
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-19",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 387,
+              "end_line": 394
+            },
+            {
+              "path": "src/lib/aiur/open_ticket_source.ex",
+              "line": 465,
+              "end_line": 472
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "a0149ed4dfb614467bdeecabc67b9fddd8135d31541058fcee53480941579315",
+      "overlaps": [
+        {
+          "finding_id": "telemetry-usage-20",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "dead-code",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/usage_aggregate/query.ex",
+              "line": 58,
+              "end_line": 65
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "a9d73fb3e742030c31ba5f0edfd54f10931604c59d1e0dbe61b31323fdb2183b",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "e0c1035c8184dfdd63436724e01ac40c641631ae796f4b889c595316d68c9116",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "e23f51a796950f29a351db28b99440a214bea12d052351c39da7fd2d4dd4ae9a",
+      "overlaps": [
+        {
+          "finding_id": "events-webhooks-executor-33",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "docs-drift",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/sanitizer.ex",
+              "line": 385,
+              "end_line": 392
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "f01e92e4aa26b642da9b243519903e369f04bc0169d5611568cdb78e1f6cf1d1",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "f7fb7774306ccd36d1dc311cc7e30955369368b7f50d67f72cef25c7225a7706",
+      "overlaps": [
+        {
+          "finding_id": "loose-3-39",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/recent_merge_store.ex",
+              "line": 350,
+              "end_line": 357
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "915e5c5c7afa38bdac83e84577626bd854866e4733be1f59fe8b14f9def88316",
+      "overlaps": [
+        {
+          "finding_id": "telemetry-usage-22",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/usage_aggregate/paths.ex",
+              "line": 52,
+              "end_line": 58
+            },
+            {
+              "path": "src/lib/aiur/usage_ledger/recovery.ex",
+              "line": 394,
+              "end_line": 401
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "0653009212c49263f5234e68e28d9ab4dd39b08b4ed06c0e3ae90e172137fb73",
+      "overlaps": [
+        {
+          "finding_id": "events-webhooks-executor-18",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_ci_poller.ex",
+              "line": 586,
+              "end_line": 592
+            },
+            {
+              "path": "src/lib/aiur/events/github_comments_poller.ex",
+              "line": 143,
+              "end_line": 149
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "2dd532403b032d1f250e0050f751ff3bb4d5ec39d9ac2e6a7257786dae18f56b",
+      "overlaps": [
+        {
+          "finding_id": "web-occ-17",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+              "line": 53,
+              "end_line": 59
+            },
+            {
+              "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+              "line": 37,
+              "end_line": 43
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "2ea63889e51ad18585471a0f851cb5838978da8bd8a83f22ff64442e85f32dc4",
+      "overlaps": [
+        {
+          "finding_id": "github-a-09",
+          "source": "review/raw/github-a.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/ci_poll_batch.ex",
+              "line": 177,
+              "end_line": 183
+            },
+            {
+              "path": "src/lib/aiur/github/comment_poll_batch.ex",
+              "line": 214,
+              "end_line": 220
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "394ed68f43ab338c1f6b851338d1e679bf09ba36809ca7e1e6ba3829700a7322",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "64c805b3cc010ad08b4f92769fe92112313a4f958b39ab70a56872914712c98c",
+      "overlaps": [
+        {
+          "finding_id": "web-rest-04",
+          "source": "review/raw/web-rest.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 1616,
+              "end_line": 1622
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-10",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 1616,
+              "end_line": 1622
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "78a8c5db01aac7fba712e4203c4d6514d7da57a37043c5864f8a17f5d2e45997",
+      "overlaps": [
+        {
+          "finding_id": "loose-1-15",
+          "source": "review/raw/loose-1.json",
+          "category": "error-handling",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_api.ex",
+              "line": 308,
+              "end_line": 314
+            }
+          ]
+        },
+        {
+          "finding_id": "platform-misc-23",
+          "source": "review/raw/platform-misc.json",
+          "category": "error-handling",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_query/store_reader.ex",
+              "line": 68,
+              "end_line": 74
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "8209563d21518d0722b9f4c0fb460939ce1c8e0178a812ed4282275b7a6be88d",
+      "overlaps": [
+        {
+          "finding_id": "orch-b-24",
+          "source": "review/raw/orch-b.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+              "line": 366,
+              "end_line": 372
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+              "line": 151,
+              "end_line": 157
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "a694c3c563183795f2dbee82639417efa260f7014bbb8a61c78bec8200da12b7",
+      "overlaps": [
+        {
+          "finding_id": "build-order-17",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/github_graph/endpoint.ex",
+              "line": 98,
+              "end_line": 104
+            },
+            {
+              "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+              "line": 168,
+              "end_line": 174
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "b1e79a9604b78db3c527f14f6a73ae5141f7d85c16bfe5bf50cf637e88acc556",
+      "overlaps": [
+        {
+          "finding_id": "build-order-12",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 396,
+              "end_line": 402
+            },
+            {
+              "path": "src/lib/aiur/open_ticket_source.ex",
+              "line": 474,
+              "end_line": 480
+            }
+          ]
+        },
+        {
+          "finding_id": "build-order-15",
+          "source": "review/raw/build-order.json",
+          "category": "anti-pattern",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 396,
+              "end_line": 402
+            }
+          ]
+        },
+        {
+          "finding_id": "build-order-17",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 396,
+              "end_line": 402
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-19",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 396,
+              "end_line": 402
+            },
+            {
+              "path": "src/lib/aiur/open_ticket_source.ex",
+              "line": 474,
+              "end_line": 480
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "c01c921edc9068658da484db2dc09c68275d890d0cd68388c3f38eb0f30c2359",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "c2f133af715fa2c026f14a055d7ce3ad74133ba032ba4514136c1f147ef82722",
+      "overlaps": [
+        {
+          "finding_id": "telemetry-usage-22",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+              "line": 122,
+              "end_line": 128
+            },
+            {
+              "path": "src/lib/aiur/usage_compaction/block.ex",
+              "line": 247,
+              "end_line": 253
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "c38a768428fd1a6c4fd8d7091066056e6bab806c106a145d81627e8155efe8dc",
+      "overlaps": [
+        {
+          "finding_id": "build-order-09",
+          "source": "review/raw/build-order.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/graph_projection.ex",
+              "line": 1513,
+              "end_line": 1519
+            }
+          ]
+        },
+        {
+          "finding_id": "build-order-11",
+          "source": "review/raw/build-order.json",
+          "category": "silent-failure",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/graph_projection.ex",
+              "line": 1513,
+              "end_line": 1519
+            },
+            {
+              "path": "src/lib/aiur/build_order/ticket_detail_coordinator.ex",
+              "line": 211,
+              "end_line": 217
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "cf6121c25bca489cd372676d32446e6ab8e4f0c71c0c2249c9102fa9cd61f028",
+      "overlaps": [
+        {
+          "finding_id": "orch-b-24",
+          "source": "review/raw/orch-b.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+              "line": 104,
+              "end_line": 110
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+              "line": 136,
+              "end_line": 142
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "eb8262581436f06d6c76a78300a11181f3fc08dc908f204af752c7f74d033b29",
+      "overlaps": [
+        {
+          "finding_id": "build-order-18",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+              "line": 272,
+              "end_line": 278
+            },
+            {
+              "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+              "line": 324,
+              "end_line": 330
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-17",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+              "line": 272,
+              "end_line": 278
+            },
+            {
+              "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+              "line": 324,
+              "end_line": 330
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "7f4c01441f71af82156c6c5de40d22ea56c9062985b31551bd410698b414d09b",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "008de75dbca40c2726977a767fcf7d972d3b5d77b5b97205f6aa261053a0a0b0",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "0388b6039b9aaab635c46cec254c32a3cba9de8dba6271526b9a1ed0f25e39be",
+      "overlaps": [
+        {
+          "finding_id": "loose-3-09",
+          "source": "review/raw/loose-3.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/repo_base.ex",
+              "line": 1434,
+              "end_line": 1439
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "03ef58be2e2be4c59fa1cdbf6726bb52e5f56c745b4713f04bb5496a3b67b174",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "0b7170d970581147263f5a4f37e1046c3e44d6964b941b461180afcae31b8ceb",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "0f2da6f2c508676ee64c56d90cb1451670cec902e9482ce87c0fb3bc2d04fa3c",
+      "overlaps": [
+        {
+          "finding_id": "agent-backends-cc-30",
+          "source": "review/raw/agent-backends-cc.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+              "line": 607,
+              "end_line": 612
+            },
+            {
+              "path": "src/lib/aiur/codex/app_server_port.ex",
+              "line": 259,
+              "end_line": 264
+            }
+          ]
+        },
+        {
+          "finding_id": "agent-runtime-27",
+          "source": "review/raw/agent-runtime.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+              "line": 607,
+              "end_line": 612
+            }
+          ]
+        },
+        {
+          "finding_id": "agent-runtime-30",
+          "source": "review/raw/agent-runtime.json",
+          "category": "test-quality",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+              "line": 607,
+              "end_line": 612
+            }
+          ]
+        },
+        {
+          "finding_id": "agent-runtime-40",
+          "source": "review/raw/agent-runtime.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+              "line": 607,
+              "end_line": 612
+            }
+          ]
+        },
+        {
+          "finding_id": "tests-5-01",
+          "source": "review/raw/tests-5.json",
+          "category": "flaky-test",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+              "line": 607,
+              "end_line": 612
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "0fdd2f075e11796606d0802ea0e3199cea8b905f1bf09c7b8f0d5882e01345d8",
+      "overlaps": [
+        {
+          "finding_id": "build-order-20",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+              "line": 90,
+              "end_line": 95
+            },
+            {
+              "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+              "line": 91,
+              "end_line": 96
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "10c9ea66692d2ed9e96e019371e25280abe5c26bad030ca2d7f1b7b15d946ef6",
+      "overlaps": [
+        {
+          "finding_id": "web-occ-18",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/operator_control_center/usage_summary_presenter.ex",
+              "line": 358,
+              "end_line": 363
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "119b90a1594e9f6f64c35a4bf93601c6c272d3acfcec6005663266fa947dc627",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "17139c5b7f9db67e63bcd48181aea583cee953a5dfa4aa3c920c60e10cf73c0c",
+      "overlaps": [
+        {
+          "finding_id": "orch-b-24",
+          "source": "review/raw/orch-b.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+              "line": 344,
+              "end_line": 349
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+              "line": 453,
+              "end_line": 458
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "1e079394c713c2c52bc292e49e6fc9f20b5f987a6418f3378291be79a679b8a0",
+      "overlaps": [
+        {
+          "finding_id": "agent-backends-oc-11",
+          "source": "review/raw/agent-backends-oc.json",
+          "category": "anti-pattern",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+              "line": 134,
+              "end_line": 139
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/tracked_set.ex",
+              "line": 107,
+              "end_line": 112
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "1f0017054dd93593995b1ab53f267d77567b9d4cdd7469933efa11642da4694a",
+      "overlaps": [
+        {
+          "finding_id": "build-order-12",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 251,
+              "end_line": 256
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "2bbe9e893f8d99d014d7a3c1708e964a9c9dc8cbf2f27e87cd2b997103053044",
+      "overlaps": [
+        {
+          "finding_id": "loose-1-34",
+          "source": "review/raw/loose-1.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github_cost_cli.ex",
+              "line": 482,
+              "end_line": 487
+            },
+            {
+              "path": "src/lib/aiur/units_cli.ex",
+              "line": 291,
+              "end_line": 296
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "2bee9927bc091115cf0ebf6857c320567f23573ce6286be67c8dfa026091a7ad",
+      "overlaps": [
+        {
+          "finding_id": "web-occ-17",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+              "line": 283,
+              "end_line": 288
+            },
+            {
+              "path": "src/lib/aiur_web/operator_control_center/run_summary_presenter.ex",
+              "line": 108,
+              "end_line": 113
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "32a81bdacd6e03ae1ba955c5aeef582971128fda5ccb781920ef95d2ed098b04",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "4271a5cae63bf7d8296393b7c59704e72b77ae56044eca7f5401e7e88e396bd2",
+      "overlaps": [
+        {
+          "finding_id": "events-webhooks-executor-08",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+              "line": 511,
+              "end_line": 516
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "4a15278eab0ca4ca964370981c1e2618bc66d880602ef14a4398ae26f5eb467f",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "5189a52da9b919363c06d1aa3544817e53a9c1ba4798d179b2df412ea4db2500",
+      "overlaps": [
+        {
+          "finding_id": "platform-misc-31",
+          "source": "review/raw/platform-misc.json",
+          "category": "coupling",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/current_run_projections/checkpoint_persistence.ex",
+              "line": 105,
+              "end_line": 110
+            },
+            {
+              "path": "src/lib/aiur/current_run_projections/source_collector.ex",
+              "line": 98,
+              "end_line": 103
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "55fedfac080ae7383450211273c1b81563032828f27b91db67f21c2847875fd8",
+      "overlaps": [
+        {
+          "finding_id": "github-b-05",
+          "source": "review/raw/github-b.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/quota.ex",
+              "line": 1285,
+              "end_line": 1290
+            },
+            {
+              "path": "src/lib/aiur/github/request_log.ex",
+              "line": 315,
+              "end_line": 320
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "5a758c71fd3be366aea9b4aa9d1757843d29869773d3c84ca8bc7c3b8b84ac53",
+      "overlaps": [
+        {
+          "finding_id": "github-a-09",
+          "source": "review/raw/github-a.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/ci_poll_batch.ex",
+              "line": 155,
+              "end_line": 160
+            },
+            {
+              "path": "src/lib/aiur/github/comment_poll_batch.ex",
+              "line": 193,
+              "end_line": 198
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "5cd571eeb3b0fcbfd481aff864662fd63bee12af0c12bda8c14e3ca0e0510cf9",
+      "overlaps": [
+        {
+          "finding_id": "build-order-20",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+              "line": 202,
+              "end_line": 207
+            },
+            {
+              "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+              "line": 367,
+              "end_line": 372
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-10",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+              "line": 367,
+              "end_line": 372
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "6e609a0a90d1c4466421f96dbf28e152807184751d330bcc968a10a711325e23",
+      "overlaps": [
+        {
+          "finding_id": "agent-backends-cc-43",
+          "source": "review/raw/agent-backends-cc.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/claude/config.ex",
+              "line": 13,
+              "end_line": 18
+            },
+            {
+              "path": "src/lib/aiur/codex/config.ex",
+              "line": 21,
+              "end_line": 26
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "6ef21de37c3398c9dd4b9dc2bd16276302d6a75c488a0c99e2682310350e0481",
+      "overlaps": [
+        {
+          "finding_id": "nonelixir-shell-10",
+          "source": "review/raw/nonelixir-shell.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/run_telemetry/dataset.ex",
+              "line": 551,
+              "end_line": 556
+            }
+          ]
+        },
+        {
+          "finding_id": "telemetry-usage-15",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/run_telemetry/dataset.ex",
+              "line": 551,
+              "end_line": 556
+            }
+          ]
+        },
+        {
+          "finding_id": "telemetry-usage-16",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/run_telemetry/writer.ex",
+              "line": 594,
+              "end_line": 599
+            }
+          ]
+        },
+        {
+          "finding_id": "telemetry-usage-19",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/run_telemetry/dataset.ex",
+              "line": 551,
+              "end_line": 556
+            },
+            {
+              "path": "src/lib/aiur/run_telemetry/writer.ex",
+              "line": 594,
+              "end_line": 599
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "743c87fc1ca509b9149f84a617e2edf84b8289bcb3662bb174b2dc58137a7434",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "803743e49ef53598e7bc9fedd44b404ef8f0126968f73f3708a3f733aaa677d5",
+      "overlaps": [
+        {
+          "finding_id": "events-webhooks-executor-05",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "other",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_comments_poller.ex",
+              "line": 490,
+              "end_line": 495
+            },
+            {
+              "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+              "line": 608,
+              "end_line": 613
+            }
+          ]
+        },
+        {
+          "finding_id": "events-webhooks-executor-07",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_comments_poller.ex",
+              "line": 490,
+              "end_line": 495
+            },
+            {
+              "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+              "line": 608,
+              "end_line": 613
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "823d81e626d6bde34ac4a424f6799c47d43dbd58ba7ddec7d3f583b6dd9ca2fd",
+      "overlaps": [
+        {
+          "finding_id": "github-b-05",
+          "source": "review/raw/github-b.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/quota.ex",
+              "line": 1255,
+              "end_line": 1260
+            },
+            {
+              "path": "src/lib/aiur/github/request_log.ex",
+              "line": 283,
+              "end_line": 288
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "85af4ce8ee3aab872511387f8f8c1a9f29cfab784322792cd9e1f88dab5655f0",
+      "overlaps": [
+        {
+          "finding_id": "build-order-12",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 320,
+              "end_line": 325
+            },
+            {
+              "path": "src/lib/aiur/open_ticket_source.ex",
+              "line": 373,
+              "end_line": 378
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-19",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 320,
+              "end_line": 325
+            },
+            {
+              "path": "src/lib/aiur/open_ticket_source.ex",
+              "line": 373,
+              "end_line": 378
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "880c92757a2b6d813a22367480cd1695535247c5185145fa18b797fe3a415069",
+      "overlaps": [
+        {
+          "finding_id": "loose-3-14",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/executor_wake_projection.ex",
+              "line": 87,
+              "end_line": 92
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "8a253f8b91e88b344cd5ad2dd6b241e72e56b10b5f1f4256c8c70d370840c031",
+      "overlaps": [
+        {
+          "finding_id": "build-order-35",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/member.ex",
+              "line": 159,
+              "end_line": 164
+            },
+            {
+              "path": "src/lib/aiur/build_order/root_summary.ex",
+              "line": 120,
+              "end_line": 125
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "91d0d3ce88151d442fe455a52274223ce74b6971b9636a7fddec470bcae8200d",
+      "overlaps": [
+        {
+          "finding_id": "agent-runtime-13",
+          "source": "review/raw/agent-runtime.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_runner/message_handler.ex",
+              "line": 344,
+              "end_line": 349
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "950f1ea40e8d8762d971fb4314d1c6015f1df67d9e5242f708af8e8581127425",
+      "overlaps": [
+        {
+          "finding_id": "telemetry-usage-20",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "dead-code",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/usage_aggregate/query.ex",
+              "line": 69,
+              "end_line": 74
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "a4be0f93e8847661ae4235df69ffe9910335ea010e127bc5cce18e0fb5108620",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "a90e2af6aaa30b700434c0ee85c95b4989293dd313f41729c572c586ff5bb2da",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "abc1cb15f1920f6b3b14b9cdfaf5f39c90acea8963cd3a2b4306e05052721fc6",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "b215f7fde23cc40dc75a8b4fc586ce1af7297f1710284e84e02e648bcfee1fe4",
+      "overlaps": [
+        {
+          "finding_id": "loose-1-34",
+          "source": "review/raw/loose-1.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github_cost_cli.ex",
+              "line": 469,
+              "end_line": 474
+            },
+            {
+              "path": "src/lib/aiur/units_cli.ex",
+              "line": 271,
+              "end_line": 276
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "b3af34cad7463d2109d0f2d3a6d8b8a847bb40476fb8fabea7090b0b0302c20b",
+      "overlaps": [
+        {
+          "finding_id": "agent-backends-oc-11",
+          "source": "review/raw/agent-backends-oc.json",
+          "category": "anti-pattern",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/opencode/active_turns.ex",
+              "line": 171,
+              "end_line": 176
+            },
+            {
+              "path": "src/lib/aiur/opencode/token_registry.ex",
+              "line": 126,
+              "end_line": 131
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "b4a71a4785a7ab89801659915148c3073de12cb742c24a29753b3bb98939a30d",
+      "overlaps": [
+        {
+          "finding_id": "loose-3-38",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/executor_wake_projection.ex",
+              "line": 77,
+              "end_line": 82
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-a-14",
+          "source": "review/raw/orch-a.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/alert_feed.ex",
+              "line": 384,
+              "end_line": 389
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "ba65d3f50ec2916bf3579a6e3f289cec24c2054de838dd3e7c85bf319197ec24",
+      "overlaps": [
+        {
+          "finding_id": "web-rest-04",
+          "source": "review/raw/web-rest.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 1677,
+              "end_line": 1682
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-10",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+              "line": 395,
+              "end_line": 400
+            },
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 1677,
+              "end_line": 1682
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "c0b125af67fccae5246038a712e83f943d5e5ee7a43a49fca195ac204aa593e4",
+      "overlaps": [
+        {
+          "finding_id": "build-order-12",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 378,
+              "end_line": 383
+            },
+            {
+              "path": "src/lib/aiur/open_ticket_source.ex",
+              "line": 456,
+              "end_line": 461
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-19",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+              "line": 378,
+              "end_line": 383
+            },
+            {
+              "path": "src/lib/aiur/open_ticket_source.ex",
+              "line": 456,
+              "end_line": 461
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "c98872503f217a7a8210d0df937a04251693a293e417ccd1c9579b3fecfcd9d0",
+      "overlaps": [
+        {
+          "finding_id": "loose-4-07",
+          "source": "review/raw/loose-4.json",
+          "category": "performance",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_process_log.ex",
+              "line": 406,
+              "end_line": 411
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "cac1a8bf38e29650dee68374d9db407ec17b9e6235f75c31273abdd22fa26d4c",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "d517d1a202a17f0498f4b37d0e5964e0aaa2566baedd2fb6e8a44647218d7619",
+      "overlaps": [
+        {
+          "finding_id": "telemetry-usage-19",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_metrics/event/fields.ex",
+              "line": 104,
+              "end_line": 109
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "df0d832aae9d4b4513211c8f0932767bc037abe3be675bba09080f30710b0c64",
+      "overlaps": [
+        {
+          "finding_id": "agent-runtime-27",
+          "source": "review/raw/agent-runtime.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+              "line": 825,
+              "end_line": 830
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "e274d9f5802d40f603915bc29ba4d439347531ac86784cccb3b6cb7b593f73c0",
+      "overlaps": [
+        {
+          "finding_id": "build-order-20",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+              "line": 106,
+              "end_line": 111
+            },
+            {
+              "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+              "line": 114,
+              "end_line": 119
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "e4eb7184f8d4daa18fd06c4edfc130c5f1a6c3d635a355c89baffe534dde2e9f",
+      "overlaps": [
+        {
+          "finding_id": "github-b-05",
+          "source": "review/raw/github-b.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/quota.ex",
+              "line": 651,
+              "end_line": 656
+            },
+            {
+              "path": "src/lib/aiur/github/request_log.ex",
+              "line": 326,
+              "end_line": 331
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "e619c065f97ca25294a19c4f166ec6cdfddb8f835f7b87f6f8d644836515c6b3",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "f131dbd5f5b7aeaf4fafa91805caa9d0e61df48f222cc5498a00b337cf41bc32",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "f310f2d8bfcd630e114bafc8f0a929763eb052e7271e0eb67240354f53f9c993",
+      "overlaps": [
+        {
+          "finding_id": "build-order-16",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/graph_projection_task_lifecycle.ex",
+              "line": 38,
+              "end_line": 43
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "f4e9098df41d2e8e62114473dc63fd0a404ce61a86950ea676719b6cafec593d",
+      "overlaps": [
+        {
+          "finding_id": "agent-backends-cc-13",
+          "source": "review/raw/agent-backends-cc.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+              "line": 435,
+              "end_line": 440
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "f71ad998e9f6ad3f65dc731514393f256d96bb89b5099f93818f9347add0e303",
+      "overlaps": [
+        {
+          "finding_id": "github-a-09",
+          "source": "review/raw/github-a.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/ci_poll_batch.ex",
+              "line": 185,
+              "end_line": 190
+            },
+            {
+              "path": "src/lib/aiur/github/comment_poll_batch.ex",
+              "line": 222,
+              "end_line": 227
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "fb988c22ed4f6066aff56e3353081dff2d4b21ef0d9684dcd6d121b051cd7d3c",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "fd667e73e3f4226ec704f320a8ec76a185f8c5050340d372cd951349d5c8bea3",
+      "overlaps": [
+        {
+          "finding_id": "build-order-35",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/member.ex",
+              "line": 152,
+              "end_line": 157
+            },
+            {
+              "path": "src/lib/aiur/build_order/root_summary.ex",
+              "line": 113,
+              "end_line": 118
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "fef8c060071e09331f8848a75a4ddb96887e35801b446e15fe8688a4255969eb",
+      "overlaps": [
+        {
+          "finding_id": "github-a-03",
+          "source": "review/raw/github-a.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/budget_map.ex",
+              "line": 477,
+              "end_line": 482
+            }
+          ]
+        },
+        {
+          "finding_id": "github-b-04",
+          "source": "review/raw/github-b.json",
+          "category": "performance",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/quota.ex",
+              "line": 1010,
+              "end_line": 1015
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-13",
+          "source": "review/raw/web-rest.json",
+          "category": "performance",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/budget_map.ex",
+              "line": 477,
+              "end_line": 482
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "214ca7ea9f219236e8fdaea26362c967ff995cb6ee2952ba130cf12282f8a885",
+      "overlaps": [
+        {
+          "finding_id": "events-webhooks-executor-17",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_comments_poller.ex",
+              "line": 270,
+              "end_line": 274
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/command_scan.ex",
+              "line": 205,
+              "end_line": 209
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-a-19",
+          "source": "review/raw/orch-a.json",
+          "category": "silent-failure",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_comments_poller.ex",
+              "line": 270,
+              "end_line": 274
+            },
+            {
+              "path": "src/lib/aiur/orchestrator/command_scan.ex",
+              "line": 205,
+              "end_line": 209
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "2476b75d506d4f0c66f9ed8e46f1da9ee312e87be3ebdd5b1329e7d7e4491daf",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "39c9631fbab2a0c4468033fc4677eea453f3eb517472fc0bdf25ff9719785bf2",
+      "overlaps": []
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "b936263aaeda38bfa7868bd44f74b8b14890ff04c150e65a71d236fa581c6a36",
+      "overlaps": [
+        {
+          "finding_id": "platform-misc-31",
+          "source": "review/raw/platform-misc.json",
+          "category": "coupling",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/current_run_projections/checkpoint_persistence.ex",
+              "line": 112,
+              "end_line": 116
+            },
+            {
+              "path": "src/lib/aiur/current_run_projections/source_collector.ex",
+              "line": 105,
+              "end_line": 109
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "c441238537ec0421416bc308852c66a8082a53dd84e9edbddd3ec81ce3f0f8d0",
+      "overlaps": [
+        {
+          "finding_id": "loose-2-15",
+          "source": "review/raw/loose-2.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+              "line": 149,
+              "end_line": 153
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-13",
+          "source": "review/raw/web-occ.json",
+          "category": "dead-code",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+              "line": 149,
+              "end_line": 153
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-16",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+              "line": 149,
+              "end_line": 153
+            },
+            {
+              "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+              "line": 224,
+              "end_line": 228
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "exact",
+      "candidate_hash": "d69663e03d09f529bd811d4d5975807372a579052290c09e36359f242fe91507",
+      "overlaps": [
+        {
+          "finding_id": "agent-runtime-19",
+          "source": "review/raw/agent-runtime.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/pane_manager/generic_open.ex",
+              "line": 127,
+              "end_line": 131
+            },
+            {
+              "path": "src/lib/aiur/pane_manager/slot_attach.ex",
+              "line": 175,
+              "end_line": 179
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "052dfce463cda248677fb425219a34457ea2a70fbcef1871d9c3252d6206728c",
+      "overlaps": [
+        {
+          "finding_id": "github-a-08",
+          "source": "review/raw/github-a.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/bot_identity.ex",
+              "line": 71,
+              "end_line": 76
+            },
+            {
+              "path": "src/lib/aiur/github/config.ex",
+              "line": 413,
+              "end_line": 418
+            }
+          ]
+        },
+        {
+          "finding_id": "github-a-12",
+          "source": "review/raw/github-a.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/config.ex",
+              "line": 413,
+              "end_line": 418
+            }
+          ]
+        },
+        {
+          "finding_id": "platform-misc-20",
+          "source": "review/raw/platform-misc.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/config/env_ref.ex",
+              "line": 54,
+              "end_line": 59
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-19",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+              "line": 172,
+              "end_line": 177
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "c67425f201be77f6af5903e8b435df9226ea80c622269bf07bf30c0a2a3a9d63",
+      "overlaps": [
+        {
+          "finding_id": "loose-4-14",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/model_availability.ex",
+              "line": 398,
+              "end_line": 403
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-16",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/model_availability.ex",
+              "line": 398,
+              "end_line": 403
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-22",
+          "source": "review/raw/web-occ.json",
+          "category": "performance",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+              "line": 507,
+              "end_line": 512
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-26",
+          "source": "review/raw/web-occ.json",
+          "category": "error-handling",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+              "line": 507,
+              "end_line": 512
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-33",
+          "source": "review/raw/web-occ.json",
+          "category": "complexity",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+              "line": 507,
+              "end_line": 512
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-03",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+              "line": 507,
+              "end_line": 512
+            },
+            {
+              "path": "src/lib/aiur_web/streamdeck_projection.ex",
+              "line": 330,
+              "end_line": 335
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-33",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/streamdeck_projection.ex",
+              "line": 330,
+              "end_line": 335
+            },
+            {
+              "path": "src/lib/aiur_web/streamdeck_projection.ex",
+              "line": 492,
+              "end_line": 497
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "dff88c4232908fd4b49723f88f6fd8d5201f79433e4fdffc4361b786f4d102ce",
+      "overlaps": [
+        {
+          "finding_id": "loose-2-16",
+          "source": "review/raw/loose-2.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/units_cli.ex",
+              "line": 182,
+              "end_line": 187
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-14",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/model_discovery.ex",
+              "line": 817,
+              "end_line": 822
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-16",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/model_discovery.ex",
+              "line": 817,
+              "end_line": 822
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-a-30",
+          "source": "review/raw/orch-a.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/capacity_binding.ex",
+              "line": 137,
+              "end_line": 142
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-33",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/live/analytics_live.ex",
+              "line": 630,
+              "end_line": 635
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "2a402f975f919fcecbd69f2e986b72676b3e154c8cd5964c1a4609439e56fb6b",
+      "overlaps": [
+        {
+          "finding_id": "build-order-09",
+          "source": "review/raw/build-order.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/graph_projection.ex",
+              "line": 1686,
+              "end_line": 1691
+            },
+            {
+              "path": "src/lib/aiur/build_order/graph_projection.ex",
+              "line": 1725,
+              "end_line": 1730
+            }
+          ]
+        },
+        {
+          "finding_id": "events-webhooks-executor-08",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+              "line": 511,
+              "end_line": 516
+            },
+            {
+              "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+              "line": 718,
+              "end_line": 723
+            }
+          ]
+        },
+        {
+          "finding_id": "github-b-05",
+          "source": "review/raw/github-b.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/quota.ex",
+              "line": 1285,
+              "end_line": 1290
+            },
+            {
+              "path": "src/lib/aiur/github/request_log.ex",
+              "line": 315,
+              "end_line": 320
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-12",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+              "line": 165,
+              "end_line": 170
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-19",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+              "line": 165,
+              "end_line": 170
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "c4dcf712219f871e81458e252e796cb8dffb8d3a07aeca8d013a8c8a9b1a7a4b",
+      "overlaps": [
+        {
+          "finding_id": "events-webhooks-executor-08",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_comments_poller.ex",
+              "line": 133,
+              "end_line": 138
+            },
+            {
+              "path": "src/lib/aiur/webhooks/delivery_log.ex",
+              "line": 199,
+              "end_line": 204
+            }
+          ]
+        },
+        {
+          "finding_id": "events-webhooks-executor-18",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_comments_poller.ex",
+              "line": 133,
+              "end_line": 138
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-2-01",
+          "source": "review/raw/loose-2.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_control_cli.ex",
+              "line": 3129,
+              "end_line": 3134
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "6c09ecc7dfb31247a77764eb6e71657a3e792f8a68906d612d57ab4a089576ad",
+      "overlaps": [
+        {
+          "finding_id": "agent-backends-oc-31",
+          "source": "review/raw/agent-backends-oc.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/state.ex",
+              "line": 142,
+              "end_line": 150
+            },
+            {
+              "path": "src/lib/aiur/log_file.ex",
+              "line": 151,
+              "end_line": 159
+            },
+            {
+              "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+              "line": 165,
+              "end_line": 170
+            },
+            {
+              "path": "src/lib/aiur/pane_manager.ex",
+              "line": 436,
+              "end_line": 444
+            },
+            {
+              "path": "src/lib/aiur/pane_manager/layout.ex",
+              "line": 240,
+              "end_line": 248
+            }
+          ]
+        },
+        {
+          "finding_id": "agent-runtime-32",
+          "source": "review/raw/agent-runtime.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/state.ex",
+              "line": 142,
+              "end_line": 150
+            },
+            {
+              "path": "src/lib/aiur/pane_manager/layout.ex",
+              "line": 240,
+              "end_line": 248
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-3-28",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/state.ex",
+              "line": 142,
+              "end_line": 150
+            },
+            {
+              "path": "src/lib/aiur/log_file.ex",
+              "line": 151,
+              "end_line": 159
+            },
+            {
+              "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+              "line": 165,
+              "end_line": 170
+            },
+            {
+              "path": "src/lib/aiur/pane_manager.ex",
+              "line": 436,
+              "end_line": 444
+            },
+            {
+              "path": "src/lib/aiur/pane_manager/layout.ex",
+              "line": 240,
+              "end_line": 248
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "2e5025a31f34449931e80c2f2b10119871a5394ae60356dc3ca1638fb134d5e0",
+      "overlaps": [
+        {
+          "finding_id": "github-a-13",
+          "source": "review/raw/github-a.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/ci_readiness.ex",
+              "line": 232,
+              "end_line": 237
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "8dae1d57e6aa1f5c222c18ebdd19a5b9db4d0027e6c163f7a67a9dcd50150113",
+      "overlaps": [
+        {
+          "finding_id": "loose-4-16",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/alert_feed.ex",
+              "line": 459,
+              "end_line": 464
+            }
+          ]
+        },
+        {
+          "finding_id": "telemetry-usage-19",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_metrics/event/fields.ex",
+              "line": 104,
+              "end_line": 109
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "63511d8ca521bf53d63376d9980c8580de5ef876beefe37036be41efdefd6244",
+      "overlaps": [
+        {
+          "finding_id": "platform-misc-21",
+          "source": "review/raw/platform-misc.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/ticket_activity/projection.ex",
+              "line": 579,
+              "end_line": 584
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "6faffa715b70cf5fd7df9832fb044ebbb1c33de8fd231e5238d60112208d2032",
+      "overlaps": [
+        {
+          "finding_id": "agent-runtime-27",
+          "source": "review/raw/agent-runtime.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+              "line": 825,
+              "end_line": 830
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "86187939c70960f89b32e5542208bae6bfad892178e6b57827acf46e34aef5ae",
+      "overlaps": [
+        {
+          "finding_id": "web-rest-04",
+          "source": "review/raw/web-rest.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 1420,
+              "end_line": 1427
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-10",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+              "line": 406,
+              "end_line": 413
+            },
+            {
+              "path": "src/lib/aiur_web/live/analytics_live.ex",
+              "line": 681,
+              "end_line": 688
+            },
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 1420,
+              "end_line": 1427
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "93c80890ae1100342a2f2369fb87e55692e952ea4fda022dfdc0e531c79b5600",
+      "overlaps": [
+        {
+          "finding_id": "build-order-09",
+          "source": "review/raw/build-order.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/graph_projection.ex",
+              "line": 1561,
+              "end_line": 1565
+            }
+          ]
+        },
+        {
+          "finding_id": "build-order-17",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/github_graph/endpoint.ex",
+              "line": 98,
+              "end_line": 104
+            },
+            {
+              "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+              "line": 168,
+              "end_line": 174
+            },
+            {
+              "path": "src/lib/aiur/build_order/graph_projection.ex",
+              "line": 1561,
+              "end_line": 1565
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "9fb2649f934c771e5dbc30ccfdf118f17e9c304ba750845ba5b653e4b6966f2d",
+      "overlaps": []
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "abb58f5375f4d211ef24bc982a9d3810104802d5aec9b6fa942e766933db2fb8",
+      "overlaps": [
+        {
+          "finding_id": "build-order-35",
+          "source": "review/raw/build-order.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/build_order/progress_renderer.ex",
+              "line": 195,
+              "end_line": 200
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-3-14",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/executor_wake_projection.ex",
+              "line": 87,
+              "end_line": 92
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "c0cd9a4f6678f3349e9206c80c5a82009cd2175fe13e7d82718ec98ddd582759",
+      "overlaps": [
+        {
+          "finding_id": "agent-runtime-32",
+          "source": "review/raw/agent-runtime.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/activation.ex",
+              "line": 137,
+              "end_line": 144
+            },
+            {
+              "path": "src/lib/aiur/agent_list/app.ex",
+              "line": 334,
+              "end_line": 341
+            },
+            {
+              "path": "src/lib/aiur/agent_list/render_state.ex",
+              "line": 56,
+              "end_line": 63
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "d309939f4d264d448b05f658b4ddaf26b3f6aaaf5c78cc1fe701cab56a3511e6",
+      "overlaps": [
+        {
+          "finding_id": "web-occ-18",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+              "line": 323,
+              "end_line": 328
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "e33d4598394f1b950266df883590257f4ea699edcc8e6a60b611d7e004604006",
+      "overlaps": [
+        {
+          "finding_id": "agent-runtime-22",
+          "source": "review/raw/agent-runtime.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/renderer/event_line.ex",
+              "line": 90,
+              "end_line": 95
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-3-38",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_event_feed.ex",
+              "line": 283,
+              "end_line": 288
+            },
+            {
+              "path": "src/lib/aiur/agent_list/renderer/event_line.ex",
+              "line": 90,
+              "end_line": 95
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "f51f5a071a5c62ef123697ad7f2a593f828e38a9ff6277ee0730e18eef12874f",
+      "overlaps": [
+        {
+          "finding_id": "web-occ-11",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+              "line": 636,
+              "end_line": 646
+            },
+            {
+              "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+              "line": 352,
+              "end_line": 362
+            }
+          ]
+        },
+        {
+          "finding_id": "web-occ-16",
+          "source": "review/raw/web-occ.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+              "line": 636,
+              "end_line": 646
+            },
+            {
+              "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+              "line": 352,
+              "end_line": 362
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "1f975c30a0fa05290f83842d3db8653dd670c856018e6bf034753cc80f63e8ff",
+      "overlaps": [
+        {
+          "finding_id": "orch-a-08",
+          "source": "review/raw/orch-a.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+              "line": 998,
+              "end_line": 1005
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-b-21",
+          "source": "review/raw/orch-b.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+              "line": 998,
+              "end_line": 1005
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "3c4b80728d1d17ac8814bae60d3bedb80bf1aa86e375f1f579c4430076f9b440",
+      "overlaps": []
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "46ae71ed5bee3eeece72d32b7ecbea592d36f57611a747ea5f6cf5a1aee58c67",
+      "overlaps": []
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "47524127e21a77f0878c6b47142538711541794f6a27fdd49cb8913ba52dcf38",
+      "overlaps": [
+        {
+          "finding_id": "web-rest-04",
+          "source": "review/raw/web-rest.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 2652,
+              "end_line": 2657
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-15",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 2652,
+              "end_line": 2657
+            },
+            {
+              "path": "src/lib/aiur_web/streamdeck_channel.ex",
+              "line": 472,
+              "end_line": 477
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "5915e9ad00e098c12f2cade8c3d6d34582c1be9586a90dfeb042bfe11ce8c1c2",
+      "overlaps": []
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "5dd9f7c9628cab083fd6552e9f2f3d1fcf5294754c4856b479215e916786fd27",
+      "overlaps": []
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "64ef2ec74ffa81da248eb7b7a061d17965f0878465bf3c35e416e07388929a77",
+      "overlaps": [
+        {
+          "finding_id": "loose-4-26",
+          "source": "review/raw/loose-4.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/token_usage.ex",
+              "line": 120,
+              "end_line": 125
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "740fafc35621bcf3a2963b6dccb2f498bf699227cfbe189b1845987cf54044e0",
+      "overlaps": []
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "751e9031edeff19a21c72d9b6dff773cdc04e49e3ead35067c83cb7696cc06a1",
+      "overlaps": [
+        {
+          "finding_id": "telemetry-usage-06",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "silent-failure",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/usage/headless/emitter.ex",
+              "line": 48,
+              "end_line": 55
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "819b5bf4088e7734bbaacd9e69780ce83fcb0fb6681d043b018f65c993bea71b",
+      "overlaps": [
+        {
+          "finding_id": "orch-a-26",
+          "source": "review/raw/orch-a.json",
+          "category": "complexity",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+              "line": 815,
+              "end_line": 819
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-a-32",
+          "source": "review/raw/orch-a.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/comment_polling.ex",
+              "line": 815,
+              "end_line": 819
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "acedd311114319fbdc9bdb2638ca94c553833ab7fd469a44882ada21b0a6c8ad",
+      "overlaps": [
+        {
+          "finding_id": "github-b-18",
+          "source": "review/raw/github-b.json",
+          "category": "error-handling",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/resource_store.ex",
+              "line": 1726,
+              "end_line": 1733
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "b2ea8535d16dbdaecdd9b5d40f56bdd0bde650e0f9c207b0d95577919fe31ee7",
+      "overlaps": [
+        {
+          "finding_id": "agent-runtime-37",
+          "source": "review/raw/agent-runtime.json",
+          "category": "naming-structure",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_list/renderer/model.ex",
+              "line": 120,
+              "end_line": 125
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "bc8430eabe466ef743c7bc65df423a8075b50904165573941cacd1dde23c6dcb",
+      "overlaps": [
+        {
+          "finding_id": "loose-1-18",
+          "source": "review/raw/loose-1.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/coordination_tasks.ex",
+              "line": 296,
+              "end_line": 302
+            },
+            {
+              "path": "src/lib/aiur/decision_dispatch_tasks/queue.ex",
+              "line": 93,
+              "end_line": 99
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "c13eeda7bc1077a56ae11db8fd4193be4f2cf25c63653f8e900827ce4d460816",
+      "overlaps": [
+        {
+          "finding_id": "agent-runtime-27",
+          "source": "review/raw/agent-runtime.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+              "line": 645,
+              "end_line": 649
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-2-10",
+          "source": "review/raw/loose-2.json",
+          "category": "anti-pattern",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_attention.ex",
+              "line": 309,
+              "end_line": 313
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "cff99b114cdcef032fc3899d646745b5bb5b2541e291ff4a9e25044e485d2d46",
+      "overlaps": []
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "d3009981154cac566ab03c7fe462e85969917399b6998cc2c8cc8cbf8b0e8fea",
+      "overlaps": [
+        {
+          "finding_id": "loose-2-06",
+          "source": "review/raw/loose-2.json",
+          "category": "error-handling",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_validation.ex",
+              "line": 163,
+              "end_line": 168
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-3-39",
+          "source": "review/raw/loose-3.json",
+          "category": "duplication",
+          "severity": "P3",
+          "sites": [
+            {
+              "path": "src/lib/aiur/decision_validation.ex",
+              "line": 163,
+              "end_line": 168
+            }
+          ]
+        },
+        {
+          "finding_id": "telemetry-usage-22",
+          "source": "review/raw/telemetry-usage.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/usage_ledger/checkpoint.ex",
+              "line": 149,
+              "end_line": 154
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "dcb3479872ff7b26792c45b96c6d5c59c99b9720ebf88f8cfeabc293b83d75c4",
+      "overlaps": [
+        {
+          "finding_id": "web-rest-04",
+          "source": "review/raw/web-rest.json",
+          "category": "large-module",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 2644,
+              "end_line": 2650
+            }
+          ]
+        },
+        {
+          "finding_id": "web-rest-15",
+          "source": "review/raw/web-rest.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur_web/live/dashboard_live.ex",
+              "line": 2644,
+              "end_line": 2650
+            },
+            {
+              "path": "src/lib/aiur_web/streamdeck_channel.ex",
+              "line": 464,
+              "end_line": 470
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "e00a9079cfd7dbb5487d2d0036e8970e14f3754eb7d24a55b9525aa88ad7b671",
+      "overlaps": [
+        {
+          "finding_id": "agent-backends-cc-05",
+          "source": "review/raw/agent-backends-cc.json",
+          "category": "coupling",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/claude/remote_control.ex",
+              "line": 184,
+              "end_line": 189
+            }
+          ]
+        },
+        {
+          "finding_id": "platform-misc-08",
+          "source": "review/raw/platform-misc.json",
+          "category": "other",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/logs/retention.ex",
+              "line": 158,
+              "end_line": 163
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "e2913b9a47157ccf36b4c2376a13cb2bdde47f4bf31d50b582e7fab0a64b40ec",
+      "overlaps": []
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "e92671c796ad893d27def5fa91fb08bce76c54d90f7da4976920f3b0cf93427f",
+      "overlaps": [
+        {
+          "finding_id": "loose-1-18",
+          "source": "review/raw/loose-1.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/coordination_tasks.ex",
+              "line": 354,
+              "end_line": 364
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "ebb710fb665de694e27b40d4fcbddc6c18941d65b397d81a27564c685b5b6972",
+      "overlaps": [
+        {
+          "finding_id": "events-webhooks-executor-08",
+          "source": "review/raw/events-webhooks-executor.json",
+          "category": "duplication",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/events/github_comments_poller.ex",
+              "line": 846,
+              "end_line": 851
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "f025dd770663b9412864f9b8b67afb8faa06ff47d0df44c0ec6e22c6eb541181",
+      "overlaps": [
+        {
+          "finding_id": "github-a-05",
+          "source": "review/raw/github-a.json",
+          "category": "duplication",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/agent_resource_guard.ex",
+              "line": 151,
+              "end_line": 160
+            },
+            {
+              "path": "src/lib/aiur/github/config.ex",
+              "line": 978,
+              "end_line": 987
+            }
+          ]
+        },
+        {
+          "finding_id": "github-a-12",
+          "source": "review/raw/github-a.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/config.ex",
+              "line": 978,
+              "end_line": 987
+            }
+          ]
+        },
+        {
+          "finding_id": "loose-4-07",
+          "source": "review/raw/loose-4.json",
+          "category": "performance",
+          "severity": "P1",
+          "sites": [
+            {
+              "path": "src/lib/aiur/github/config.ex",
+              "line": 978,
+              "end_line": 987
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "mode": "renamed",
+      "candidate_hash": "fe0411eee5e3feae5fd92440b24fad73e353ba9bdb98daf736b0d6bb249bfed3",
+      "overlaps": [
+        {
+          "finding_id": "orch-a-29",
+          "source": "review/raw/orch-a.json",
+          "category": "naming-structure",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+              "line": 102,
+              "end_line": 107
+            }
+          ]
+        },
+        {
+          "finding_id": "orch-a-32",
+          "source": "review/raw/orch-a.json",
+          "category": "large-module",
+          "severity": "P2",
+          "sites": [
+            {
+              "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+              "line": 102,
+              "end_line": 107
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "unresolved_locations": [
+    {
+      "finding_id": "tests-5-11",
+      "location": {
+        "path": "src/test/aiur_web/github_webhook_delivery_test.exs",
+        "lines": "(outside unit; also clears Publisher.Dedup)"
+      }
+    },
+    {
+      "finding_id": "tests-5-12",
+      "location": {
+        "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+        "lines": "(call atoms)"
+      }
+    },
+    {
+      "finding_id": "tests-5-12",
+      "location": {
+        "path": "src/lib/aiur/orchestrator.ex",
+        "lines": "(call atoms)"
+      }
+    },
+    {
+      "finding_id": "tests-5-14",
+      "location": {
+        "path": "src/test/aiur/events/github_ci_poller_test.exs",
+        "lines": "(18 calls to evaluate_for_test)"
+      }
+    },
+    {
+      "finding_id": "tests-5-21",
+      "location": {
+        "path": "src/lib/aiur/opencode/slot_policy.ex",
+        "lines": "(no start_first_slot / slot_chain_parallel_start)"
+      }
+    },
+    {
+      "finding_id": "tests-5-26",
+      "location": {
+        "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+        "lines": "1-1949 (737-742, 781-786 duplicate publication_records/1 at 1919-1925)"
+      }
+    },
+    {
+      "finding_id": "tests-5-29",
+      "location": {
+        "path": "src/lib/aiur/tmux/mock_transport.ex",
+        "lines": "(whole file)"
+      }
+    }
+  ],
+  "limits": "Closed line-range intersection is navigation evidence only. A broad finding range can overlap unrelated code; no overlap can mean an omitted location. Exact and renamed candidates overlap each other. Original finding IDs remain authoritative; this index neither deduplicates findings nor verifies their severity, behavioral claim, counts or recommendation. Nonstandard line expressions remain explicit for manual reconciliation."
+}

@@ -1,0 +1,959 @@
+{
+  "unit_id": "tests-4",
+  "status": "reviewed_pending_synthesis",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "planned_files": 100,
+  "files": [
+    {
+      "path": "src/test/aiur/browser_harness/fixtures_test.exs",
+      "sha256": "307f3da6d6d3b58137b59f8ad85371c6ad8ec6d78d014a6cfa779c6aa2b6b28d",
+      "lines": 76,
+      "read": "full",
+      "assessment": "Exact node identities/counts, cycle/self-loop/external and missing endpoints, diagnostics and adapter results constrain synthetic fixtures. Repeated-call equality tests determinism; it is supplemented by independent expectations. These are fixture contracts, not graph UI or runtime dependency semantics."
+    },
+    {
+      "path": "src/test/aiur/claude/account_generation_test.exs",
+      "sha256": "4324d1a0df1b68b54c089567c7012ce62037d8f756cc6a0b092d0ac74ace9db2",
+      "lines": 65,
+      "read": "full",
+      "assessment": "Trusted subscription observations keep the generation; switching to API-key rotates it; unknown invalidates with untrusted_lifecycle; rebound differs from both previous values; stopped clears. Named owner is actually stopped/recreated and same-mode observation gets a new generation. This is owner restart coverage, not full daemon restart."
+    },
+    {
+      "path": "src/test/aiur/claude/account_meters_test.exs",
+      "sha256": "968d1d16cdb5e5004e7ca032b9cc56f26985bac1cb254c98165ce1d746e0888f",
+      "lines": 167,
+      "read": "full",
+      "assessment": "Private owner/store with fixed clock, via support helper. Malformed account-mode/header payload retains same-generation 83% as stale and a valid 42% update recovers. Valid mode change rotates and removes old window facts; unknown classification clears generation/windows. Cross-provider writes leave Claude snapshot unchanged. Injected rejection/failure-recorder errors are surfaced. Exact redacted-message shape excludes correlations; no live provider request."
+    },
+    {
+      "path": "src/test/aiur/claude/coding_agent_limit_test.exs",
+      "sha256": "40c53c1a43a03e2b078151dda036c3f96757527c5a4930a4294ddcace427d8a2",
+      "lines": 91,
+      "read": "full",
+      "assessment": "Actual cat ports and recorded StreamDiagnostics exercise direct turn/failed handling. Structured rate limits and diagnostic session-limit text pause; unrelated diagnostic remains error. Ports have on_exit cleanup in addition to success cleanup. This is handler classification, not scheduler pause/resume or provider execution."
+    },
+    {
+      "path": "src/test/aiur/claude/config_test.exs",
+      "sha256": "184e1baca7d30b7fd95f1506294790002b8c40d77989aa8b7bfe3b63886402ee",
+      "lines": 57,
+      "read": "full",
+      "assessment": "Workflow-backed accessor checks nil model, explicit model, default command, permission defaults, valid acceptEdits and invalid-value fallback to bypassPermissions. Preserve or explicitly reconsider permissive fallback in the package contract; tests characterize configuration, not authorization enforcement."
+    },
+    {
+      "path": "src/test/aiur/claude/display_tailer_test.exs",
+      "sha256": "b1b655c8f4c3e6b2ca6519b9a917d7285284bace166eb96497275d558dd53446",
+      "lines": 324,
+      "read": "full",
+      "assessment": "Synthetic JSONL with real supervised tailer and manual polls tests history backfill, session retargeting, missing-path recovery, killed inner-tailer health with opaque logging, malformed-line skip and explicit backfill/live ingress. Cold-start operator request IDs deduplicate then flush to exact session; unresolved buffer retains newest 32 of 40. Owner process exit is monitored to normal tailer DOWN. Body cap requires truncation marker and <2000 bytes for max_body 1000, not an exact bound. Display callbacks do not prove TUI rendering. First test says in order but assertions only check role/body membership; isolated extracted-assertion probe confirms the local gap in tests-4-cont-01."
+    },
+    {
+      "path": "src/test/aiur/claude/hook_events_test.exs",
+      "sha256": "c7d98ba01d5e061f233a75c213704a621c8c7ec0a12b1b90a755165abe610117",
+      "lines": 83,
+      "read": "full",
+      "assessment": "Lifecycle/unknown normalization, optional fields and nonbinary-to-nil cases, actual subscribed dispatch and per-identifier exclusion. Malformed dispatch returns ok. Does not exercise HTTP ingress or a running Claude hook."
+    },
+    {
+      "path": "src/test/aiur/claude/hook_settings_test.exs",
+      "sha256": "009090f1b197bce32fec78abc0ec4aeb00ec973a424fa51e7c3091378d8e41fd",
+      "lines": 87,
+      "read": "full",
+      "assessment": "Restores injected dashboard URL provider; exact set of four hook names; endpoint sampled from StopFailure. Shell-command substring checks require timeout/silencing/header/exit suffix and normalized slash; does not execute curl or prove wall-clock bound/exit behavior. Write test decodes actual JSON and cleans generated path."
+    },
+    {
+      "path": "src/test/aiur/claude/notification_policy_test.exs",
+      "sha256": "6b5069a8e578d71df346adce369e204610ad963436c6dd4f62b02c24671a4b8c",
+      "lines": 142,
+      "read": "full",
+      "assessment": "Structured and textual limit classifications have negative ordinary-crash/stack-line-429 controls. Prose reset extraction, structured reset priority, timezone-resolved provider refusal, missing reset nil, 404/529 and banner-without-provider-provenance rejection are explicit. These finite fixtures are not exhaustive language parsing or current provider protocol validation."
+    },
+    {
+      "path": "src/test/aiur/claude/rate_limit_adapter_test.exs",
+      "sha256": "b93156c77bf689a33fd89337fad956a915e318939cf3560dfdc0e957a742e5a9",
+      "lines": 118,
+      "read": "full",
+      "assessment": "Pinned fixture normalization carries provider/backend/source/version and reported quota only. Unknown status with quota/reset omitted stays unknown and absent, not zero. Reconciler refresh at reset+1 makes health/window stale. Concrete drift/range/unknown-field and legacy/OTel rejection cases, plus fixture forbidden-substring checks. Test title every non-allowlisted field is broader than finite examples; do not report exhaustive privacy proof."
+    },
+    {
+      "path": "src/test/aiur/claude/coding_agent_test.exs",
+      "sha256": "45070426e41bedaa0c0c32d73c613ab0507ae412c5585cf7ff24f3de19980681",
+      "lines": 808,
+      "read": "full",
+      "assessment": "Real adapter ports talk to scripted shell app-servers. Workspace/base/telemetry env, model override, dynamic tool advertisement, invocation identity, tool replies and 110KiB spill file round-trip are asserted. Two sessions coexist but turns run sequentially; the shared frame check sorts model values, not per-session identity. Closed port and exit-1 failures remain clean errors. Meter ingestion and redacted callbacks are injected. Provider refusal pauses preserve retry counts, record reset (including controlled atomic-rename failure), respect global/label/operator holds, and resume at reset through direct reconcile; entry lacks a generation and expects legacy two-tuple resume. Later unrelated crashes, stale/quoted/tool banners and assistant-only banner do not inherit quota classification. No actual Claude service, full controller run or rendered UI exercised."
+    },
+    {
+      "path": "src/test/aiur/claude/remote_control_test.exs",
+      "sha256": "b35b096743273bd8efe258d72fd885f0e29a97636950933db8b63afba4c824ba",
+      "lines": 633,
+      "read": "full",
+      "assessment": "Mixes real OS and injected boundaries: live BEAM procfs identity, actual sleep process-group pidfd reap, trap-installed readiness before delayed TERM wait, real distinct child found through pgrep, and group cleanup after leader exits. Identity-change barrier uses injected reaper, not a real PID-reuse race. Private trust JSON preserves sibling keys. Fake procfs with injected kill tests strict descendant cwd, protected self tree, shallow-root refusal, later-appearing process resweep and bounded exhausted warning. real_proc scenario uses real procfs and inside/outside sleepers, not launcher stop end-to-end. Its cwd wait exhausts as ok and inside sleeper lacks fallback cleanup if reap fails; retain as failure-path hygiene candidate, not proven leak. No real RC service attachment."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/command_test.exs",
+      "sha256": "e397e0a56bf5d9b5a95dfbfe234fe0d8889c6dd78dd4b386a97cca1699d123cd",
+      "lines": 181,
+      "read": "full",
+      "assessment": "Mostly shell-text construction checks: success chain, credential scrub before exec, configured base quoting, flag order and absent optional flags. Failed-workspace case actually runs bash with stub claude and requires nonzero/no launch/no token output; successful launch credential removal is not exercised here. Resume ID requires private transcript existence. Hook-settings environment-dependent case accepts nil or binary and only constrains nonraising return shape."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/launcher_test.exs",
+      "sha256": "7767f99f82011b54d902dcdda3affab8a9ddbdd0f23f26a85b5a843ed8400788",
+      "lines": 249,
+      "read": "full",
+      "assessment": "Tmux mock command/reply handshake tests readiness timeout cleanup, failure retention when pane kill fails, successful non-RC session metadata and both ProcessReaper registrations, unavailable RC attach cleanup, and missing hook listener rejected before any tmux output. Fabricated teardown PIDs have host probes/signals stubbed in failure cases. Readiness/RC remain injected pane text; no live tmux/Claude. Serial application-env override is restored by put_env (absent becomes nil). receive_barrier and Task.await infinity do not provide a local bounded failure deadline."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/hook_turn_test.exs",
+      "sha256": "d8633200a604eb147ecb83a413ae44d0003af0f5a150411872282a39464b159a",
+      "lines": 303,
+      "read": "full",
+      "assessment": "Mock paste/pane/interrupt plus actual HookEvents dispatch. Successful Ctrl+C returns correlated pause request; failed interrupt returns error, not paused. Silent timeout, repeated heartbeat extension, provider-hook-only delivery acknowledgement, raw session ID versus synthetic display fallback, structured StopFailure quota versus ordinary auth failure/assistant prose preserved. Heartbeat timing uses wall-clock sleeps; helper drain recursion has no overall local deadline. No HTTP hook transport, provider or UI verification."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/operator_inject_test.exs",
+      "sha256": "5124861178fd294176bca845d13503fa59e6d8bca077085803d98318c25f98f3",
+      "lines": 108,
+      "read": "full",
+      "assessment": "Mock literal send-keys followed by Enter; newline/control sanitization, all-control empty/no send, invalid payload/session, Ctrl+C, immediate success callback and missing-tmux failure callback, noop. A success request ID demonstrates transport command completion, not provider acceptance or persisted delivery. Sanitization sample asserts no newline and matching printable text but does not exhaustively inspect every control byte."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/prompt_submit_test.exs",
+      "sha256": "9043d421e6b8e1b67246f2df5be124ce07300a26af0c9695924629d87cb32097",
+      "lines": 182,
+      "read": "full",
+      "assessment": "Preserve distinct submission contracts: hook/RC path never clears input and sends Enter best-effort even after echo timeout; transcript path clears/retypes missing echo and returns prompt_not_delivered without Enter on timeout. Mock command response sequencing drives actual function paths; paste chip/prefix are fabricated observations. Drain rejects unexpected clear commands until completion marker; not manual TUI testing."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/rc_attach_test.exs",
+      "sha256": "71a6f792e32127114757ec91618d3cd4b8338de84bed6693e989a8866389cc99",
+      "lines": 109,
+      "read": "full",
+      "assessment": "Mock banner immediate URL and footer-driven /rc, Enter, dialog scrape then Escape. Timeout still dismisses dialog and yields nil; no evidence at zero budget nil. These characterize text/command protocol, not real service availability; fixed captured/fabricated strings may drift independently."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/turn_events_test.exs",
+      "sha256": "2afcadf260388ed9c3e4fafcfaa7c64801bdf460f98d244d7aff6ac1fdc409c5",
+      "lines": 40,
+      "read": "full",
+      "assessment": "Callback envelope preserves event/session/thread/turn details, DateTime timestamp, and nested transcript without flattening type. Title says merges event/timestamp over details but supplied details contain no colliding event/timestamp; exact overwrite precedence is not constrained by these fixtures."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/reaper_test.exs",
+      "sha256": "06f1b8620c5ca31b2196da101b73fb8954e165dbf55c29f9a97a6a1b127c16e0",
+      "lines": 249,
+      "read": "full",
+      "assessment": "Mock pane lookup plus injected group liveness/cleanup tests cleanup_proven only after group/pane absence, observed disappearance overriding raced signal error, and distinct pane_still_alive/process_group_still_alive errors. Invalid session is a no-op. High fabricated PIDs exercise already-gone path, not real kill. Own-pane test contains another-owner negative control; orphan test alone has only dead owner, supplemented by ReplAgent wrapper live-owner/unrelated-window controls. No actual tmux or provider teardown."
+    },
+    {
+      "path": "src/test/aiur/claude/repl/transcript_turn_test.exs",
+      "sha256": "6d18245a9ecf6e466ca9708be950886b2cced4b4f4ee38089a732dc6c3488f4d",
+      "lines": 269,
+      "read": "full",
+      "assessment": "Mock tmux plus actual temporary JSONL/tailer: missing cold transcript returns no_transcript; warm completion and prompt-record callback correlate turn identity; structured API error versus assistant quota prose remain distinct. Pause without appended terminal record returns pause_confirmation_timeout. Warm-from-end fixture starts empty, so its title alone does not prove historical completion exclusion (TranscriptTailer has separate explicit prehistory test). Pump/drain helpers lack an overall local deadline."
+    },
+    {
+      "path": "src/test/aiur/claude/repl_agent_test.exs",
+      "sha256": "cc2730743fbce3582cd716e2dec95fb47ce59b14c3dbee660ef5e5f8d308f4b4",
+      "lines": 1352,
+      "read": "full",
+      "assessment": "Wrapper integration over mocked tmux, private transcripts and HookEvents. Resume requires file existence and omitted handle stays clean; RC/resume flags and attach text are simulated, not live CLI acceptance. Dead/live/unrelated owner sweep controls supplement Reaper tests. Sequential turns preserve thread and change turn IDs without new-window. Cold-start materialization, missing echo/retype, timeout/gone pane, deliver-now versus checkpoint queue signals, exact control-byte sanitization and single Enter are covered. Transcript pause requires terminal evidence; failed interrupt and no terminal remain errors. Hook path emits control completion but not assistant/tool display events, and never clears/retypes. Many drains use no overall local deadline; some minimal send/interrupt/empty fixtures create transcripts without individual cleanup. Older readiness-failure helper supplies PID5050 without the newer Launcher test's explicit host cleanup stubs: inspect production containment identity before executing this test. No UI verification."
+    },
+    {
+      "path": "src/test/aiur/claude/reset_time_test.exs",
+      "sha256": "6358e4a4be97bb5f864befc80080e21b112dcc6f048417b97a083a0a87828ce2",
+      "lines": 44,
+      "read": "full",
+      "assessment": "Explicit midnight/noon next-day rollover, reset-date DST gap/overlap, timestamp normalization, invalid/zoneless unknown, and repeatedly expired explicit deadlines stay nil. These are deterministic time-policy contracts, not actual provider wake execution."
+    },
+    {
+      "path": "src/test/aiur/claude/transcript_tailer_test.exs",
+      "sha256": "34f4e942d60d6c999ea4cc7dd45c6d2733dd00d93ab90fe64c78b3eb330be019",
+      "lines": 373,
+      "read": "full",
+      "assessment": "Real private file and supervised tailer with manual polls: partial trailing line deferred, skip nonconversation, incremental non-reemit, attach cutoff including initially partial record stays backfill, shorter-file replacement restarts reading. Distinct terminal assistant/API/system/result error callbacks, retryable api_retry and tool_use do not terminate. Explicit from:end prehistory then append test constrains historical exclusion. Replacement fixture only shrinks same path; does not establish same/larger-size inode rotation. Cloud-authored test is identical synthetic local file shape, not phone transport. Selective event then turn_end receives do not prove callback order."
+    },
+    {
+      "path": "src/test/aiur/claude/transcript_test.exs",
+      "sha256": "a0bc61cc2888d314e81fc649f6f2f8274572f5c55cd8c1120829a1dd8e022a5b",
+      "lines": 419,
+      "read": "full",
+      "assessment": "Notification/disk conversion preserves roles, provider/fallback turn IDs, tool output/diff/title, skips progress/control and empty records, passes pre-extracted event unchanged. DeltaRenderer path actually generates expected diff fences and markers, but no terminal rendering. Multi-block disk fixture asserts ordered roles assistant then command; stable record/block identity distinguishes equal bodies and replays same IDs. Queued prompt attachment becomes user row while slash/control records skipped. Lower-level ordered extraction does not constrain DisplayTailer callback forwarding order."
+    },
+    {
+      "path": "src/test/aiur/claude/telemetry/usage_adapter_test.exs",
+      "sha256": "6d40e7e5ba529e9439f891633ad9b285c43710d19fbae924d50d9214b6da2109",
+      "lines": 262,
+      "read": "full",
+      "assessment": "Exact Decimal cost and additive token dimensions are reconciled against an independent sum in 50 generated cases. Request retry identity ignores source sequence changes but changes with trusted attempt/worker/producer or run; missing request uses session sequence. Missing cost/cache/time stays nil with ordered coverage reasons. Unsupported source/relationship/identity/backend fail bounded, per-request model/effort survive, prompt/capability do not. Pure adapter inputs assume trusted correlation; authentication is tested in Telemetry separately."
+    },
+    {
+      "path": "src/test/aiur/claude/usage_api_test.exs",
+      "sha256": "4d4c15f66ae39bac4bbf1da1af03f3ac0d522ba1e1981eacbc1f82f8102fa0cc",
+      "lines": 358,
+      "read": "full",
+      "assessment": "Serial persistent-term cache reset plus private credential fixtures and injected request callbacks. Worst usable allowed window, above-100 clamp, invalid/negative rejection, weekly-first ordering, absent supported weekly nil versus omitted optional window. Distinct missing/malformed/empty/expired credentials; valid token delivery to callback; HTTP 429/auth/other/transport/raising callback outcomes. Counters prove cache hit, TTL expiry, uncached other errors and reset; 429 retains prior reading during backoff without request. No actual remote HTTP and no measured production quota saving. Expired-token test calls token reader, whereas missing-credential fetch explicitly spies no request; retained reading test does not assert stale age/health presentation."
+    },
+    {
+      "path": "src/test/aiur/claude/telemetry_test.exs",
+      "sha256": "2b6edf5be25ea912088b5468fd97de9e31b0a70971936c3128b8303debcf62f1",
+      "lines": 821,
+      "read": "full",
+      "assessment": "Named supervised receiver with real listener; most submit calls invoke Receiver.call via Plug.Test, while partial-body test makes a real loopback TCP request and observes408. Pinned fixture exact Decimal/tokens, trusted correlation, bounded subagent categorization, nil optional coverage, headless/replay/stale-session/cross-ticket exclusion, version/field grammar and content allowlists, auth-before-malformed-body with log redaction, bounds and recovery all asserted. Held authorization demonstrates concurrent gate; full rate capacity rejects malformed body before decode. Replacement/revoke and late release cannot revive old capability. One acceptor-supervisor child is structural evidence, not direct maximum-socket concurrency proof. Model test suppresses unchanged model but does not supply a changed model. Deterministic capability collision refuses new launch but does not then exercise original token. Status redaction assertion searches full Bearer value, not separately bare token. No provider-generated traffic or UI."
+    },
+    {
+      "path": "src/test/aiur/codex/account_generation_test.exs",
+      "sha256": "03a01dc7da5eced69dc9b39501e417aa229044b45fe669730e89087912aab0ec",
+      "lines": 760,
+      "read": "full",
+      "assessment": "Real private owners/stores, fixed mint/clock, direct adapter calls. Unlike Claude observe same-mode continuity, Codex same-mode account update rotates absent explicit proof; token refresh/quota do not rotate. Distinct absent/logout/unsupported/untrusted/teardown reasons, canonical last-good health and recovery, keyed multi-limit protection and compatibility observer exclusion after malformed/lost continuity preserved. Separate compatibility file cannot overwrite canonical store. Copied session cannot rebind after teardown; actual owner stop/recreate retains topic and fresh generation, outage-created binding needs original authority. Finite sequence enumeration checks refresh equality and repeated-auth generation change, but generic nil-or-binary assertion alone does not constrain logout/unsupported/teardown after every prefix; individual examples cover those cases. First startup privacy test declares raw identity without supplying it; notification privacy fixture does supply it. No live account/provider or daemon restart."
+    },
+    {
+      "path": "src/test/aiur/codex/approvals_test.exs",
+      "sha256": "ac4bcae0c4fecb7775155019db8ddee079c2d89bf6492d5b3741ab18389e9601",
+      "lines": 585,
+      "read": "full",
+      "assessment": "Real cat ports inspect protocol frames, injected executors and real ToolCallLedger. Modern/legacy approval decision strings, approval-required refusal, stable callId, paused command decline/tool nonexecution/idless notification pass-through. Closed-port replay returns stored result with exactly one execution; different thread same call executes separately; conflicting payload fails with execution count unchanged. These are sequential in-process replay checks, not durable restart or concurrent execution proof. User-input approval checks exact answer; noninteractive fallback checks only map plus event, not answer content. Port cleanup uses after."
+    },
+    {
+      "path": "src/test/aiur/codex/app_server_port_test.exs",
+      "sha256": "ca48eb983ed5031cf90d8706c8f91106eb00f858ad95680c147159bfba035cf9",
+      "lines": 124,
+      "read": "full",
+      "assessment": "Actual private directories/symlinks test canonical workspace containment and root/outside/escape distinctions; remote empty/control strings rejected. Command model/effort quoting exact string; metadata cat-port presence and remote-host omission. Conditional setsid path starts real adapter process and requires group/root identity, cleans in after; absent setsid takes assert true rather than proving containment. Already-closed port stop safe. No SSH execution."
+    },
+    {
+      "path": "src/test/aiur/codex/config_test.exs",
+      "sha256": "bfff74b900249e29dcd593244cf7f62e6a9057c1384b3030536ab86133f45f49",
+      "lines": 44,
+      "read": "full",
+      "assessment": "Schema default is locally constrained to a valid string enum and legacy map rejected; explicit variants including never accepted, trimming and invalid-message hints checked. The non-never comment exceeds this local membership assertion, but schema_test.exs406-410 independently asserts the parsed default equals untrusted. Candidate03 not promoted: preserve that exact schema assertion rather than claiming a suite-wide coverage gap."
+    },
+    {
+      "path": "src/test/aiur/codex/coding_agent_test.exs",
+      "sha256": "55abd778e24bdf899ec1532dcbf97dc087760f2c68e258b81eeec6ce35ac6719",
+      "lines": 280,
+      "read": "full",
+      "assessment": "Real shell parent/child teardown with pgrep readiness and owner-outage port cleanup; not an actual Codex database-lock scenario. Pure start/resume frame policies, dynamic-tools omitted on resume, matching thread genuine versus substituted fresh, invalid response and error fallback preserved. Delayed shell response exercises startup floor past steady timeout. Real shell fixture sends pre-turn quota notification and current callback gets redacted notification; closed-port handshake yields error. Fresh-frame dynamicTools assertion only is_list, supplemented elsewhere by exact tool tests. No live Codex service or UI."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/args_test.exs",
+      "sha256": "b9738609ade14e02f5ade6f1f604c9538bb476d49b0f1eeea039ba2c82cda1bb",
+      "lines": 106,
+      "read": "full",
+      "assessment": "String trim/missing/blank/type errors, atom/string lookup and exact true/false acceptance constrain argument helpers. Presence separate from truthiness; conflicting atom/string keys and explicit nil precedence not covered here."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/blockers_test.exs",
+      "sha256": "00e0f71634d1fc26aa9cb6907a21262c188cac1d8ee5a6a4d99da7e6284f65d7",
+      "lines": 119,
+      "read": "full",
+      "assessment": "Injected declare/unblock callbacks and decoded responses constrain positive integer parsing, atom-result formatting, unavailable and cycle errors. Strict 7x rejection differs from permissive integer parsers elsewhere. No real graph/cycle computation or tracker update."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/emit_alert_test.exs",
+      "sha256": "51e2a2f1bbe61711264598887c41273cde4a3badb3b02c97ce792c82e8f9db4b",
+      "lines": 155,
+      "read": "full",
+      "assessment": "Injected five-arity and legacy two-arity emitters; reason fallback, absent false, attention-dependent severity defaults and explicit severity, invalid boolean and unavailable error. Callback argument contract only: no durable alert, reserved-topic enforcement, listener routing or delivery proof."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/emit_event_test.exs",
+      "sha256": "55abba723a1b9bf284707701f8a3291dde925fd7dda1a97312bd7068e7e22c85",
+      "lines": 259,
+      "read": "full",
+      "assessment": "Injected publisher tests accepted vocabulary including exact decision lifecycle names/correlation payloads; rejected names/required fields and missing publisher. Per-turn cap/reset tested by returns; wrapper dynamic_tool_test supplies stronger callback-count checks. Missing-payload assertion uses %{} pattern which matches any map, so it alone does not prove empty map. No Exchange, DecisionStore or publication durability."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/errors_test.exs",
+      "sha256": "984b709bf9502f42a79742c356c0be3b198871c151286076f2745eadc8e01234",
+      "lines": 93,
+      "read": "full",
+      "assessment": "Error rendering keeps ownership lookup unavailable distinct from denied, exposes bounded named status/reason examples and catch-all inspected reasons. String assertions prove these fixture messages only; catch-all tuple test does not constrain detail redaction."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/handler_test.exs",
+      "sha256": "8f8c5680a01522627c475415bf84bfda431ac70b43b4bb215ba58786f647f2ad",
+      "lines": 64,
+      "read": "full",
+      "assessment": "Six named handler families aggregate to exact nine expected names, with spec count/key/membership checks. Local list excludes TicketState; its separate registration test covers dispatch. Per-handler count plus membership does not independently prohibit duplicate specs replacing a missing tool, though aggregate tools equality constrains names returned by tools/0."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/linear_graphql_test.exs",
+      "sha256": "861947b058e6aebd0f0dce863aab6d3c35c37aa2df1b7a8e72ba359da07250f8",
+      "lines": 113,
+      "read": "full",
+      "assessment": "Injected client, raw-query trimming and default variables, object variables pass-through; atom/string nonempty errors mark failure. Invalid query/arguments/variables use flunk callbacks proving no invocation. No real Linear transport or authorization."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/response_test.exs",
+      "sha256": "af2c32ed9cef6b5629546e5f31890817fcd0380ce1508375140433612d29740b",
+      "lines": 90,
+      "read": "full",
+      "assessment": "Exact success/failure envelopes, JSON round-trip maps/lists, inspected non-JSON fallback, recursive tuple/map/list normalization preserving booleans/nil. Strong normalized-type guard complements earlier transcript boolean gap; serialization compatibility distinct from redaction."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/review_threads_test.exs",
+      "sha256": "f575449c3491d1fb45c6f20443f02eab3094344bd441f7476f96905f7a1fc9b7",
+      "lines": 148,
+      "read": "full",
+      "assessment": "Injected replier/resolver verify normalized arguments/terminal reply option and return envelopes; injected not-verified and denied errors render explicit failure, with ownership-unavailable covered separately by ErrorsTest. Here malformed inputs return errors but success callbacks do not spy noninvocation. No actual GitHub ownership lookup, mutation or post-write verification."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/subscriptions_test.exs",
+      "sha256": "f25127377558ec4a362ecc1aaab4eec72cdb1b6bfe1e57dadb7840bbc722876e",
+      "lines": 169,
+      "read": "full",
+      "assessment": "Literal ticket subscription boundary explicitly rejects global/executor/wildcard ticket patterns and spies no callback. Legacy unsafe unsubscribe allowed for cleanup. Valid patterns and malformed-dot/missing patterns covered; specs advertise restricted examples. No actual subscription persistence or delivered events."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool/ticket_state_test.exs",
+      "sha256": "6ae828cdfdb1293283eb106ab73a620872fd1808c6e2e922317a6430b7b8efe1",
+      "lines": 107,
+      "read": "full",
+      "assessment": "Desired state only, prefix/case/whitespace normalization, forbidden Executor states and malformed values rejected with flunk writer, stale tracker failure exposed, missing writer unavailable. Actual DynamicTool registration/schema and callback dispatch checked. Injected writer does not prove atomic label replacement or remote tracker race handling."
+    },
+    {
+      "path": "src/test/aiur/codex/dynamic_tool_test.exs",
+      "sha256": "eca73ee558759d1b480541e8be227b0e39ca52b2e5b912994fa5156bb95e2834",
+      "lines": 134,
+      "read": "full",
+      "assessment": "Real capture Agent with injected publisher gives exact publication counts: third bare progress rejected without callback, explicit reset allows four across simulated turns, milestones/custom independent. Stronger than return-only unit checks; explicit reset simulates turn boundary and does not prove runner invokes it. No live Exchange delivery."
+    },
+    {
+      "path": "src/test/aiur/codex/event_normalizer_test.exs",
+      "sha256": "c5f9ab6c4074ce156e316cdc14abd93cc27966b2dc8922d348ac16ee96e9516b",
+      "lines": 114,
+      "read": "full",
+      "assessment": "Nested/alternate usage and rate-limit shapes, missing nil and combined extraction covered. Most token cases inspect input only (one output), so do not infer complete counter totals/precedence/dedup coverage from these examples."
+    },
+    {
+      "path": "src/test/aiur/codex/frames_test.exs",
+      "sha256": "4977ca0b2872370526497645821d1e4705de4c2221a2892a97e3e64feb210bfa",
+      "lines": 74,
+      "read": "full",
+      "assessment": "Exact account rate-limit frame, start/resume policy and cwd/id fields, dynamicTools omitted on resume, turn/operator prompt and sandbox/approval propagation. Fresh tools only list-typed here. Pure frame shape, not provider acceptance."
+    },
+    {
+      "path": "src/test/aiur/codex/handshake_test.exs",
+      "sha256": "3cc43fd62c62a5935555012cd50f25f021b39f7783b9ebe5b693dcc696c9a349",
+      "lines": 375,
+      "read": "full",
+      "assessment": "Real scripted ports exercise rate-limit/account reads, malformed response errors, valid and malformed late sensitive responses quarantined across subsequent different request, no callback and no secret log. Account response reduced to auth mode; startup notifications dispatched while thread/turn response waits. Closed ports degrade to errors; changed resumed thread marked fresh; Codex initialization enables probe flag. Sleeps1.1s induce timeout against real clock, not explicit release barriers. No live provider; enabling flag does not itself prove later probe execution."
+    },
+    {
+      "path": "src/test/aiur/codex/interrupts_test.exs",
+      "sha256": "174210437957bffcf32217fa7166ae31a60e2feffb152de2b556e2e05559fa73",
+      "lines": 135,
+      "read": "full",
+      "assessment": "Direct handler state and real private ProviderTurnLedger preserve pause across no-active-turn before/after idle, fail pending operator callback, operator-message terminal boundary, anonymous completion guard protects next turn. Unrelated same-code failures and active-ID mismatch hard-fail without retargeting. No protocol send or controller delivery."
+    },
+    {
+      "path": "src/test/aiur/codex/operator_delivery_test.exs",
+      "sha256": "4c9e900b56d41828ad651695513da405ded91b464fea20448f2f0422d71680e9",
+      "lines": 83,
+      "read": "full",
+      "assessment": "Real cat-port frame uses positive request ID and exact session policies/thread/cwd/text; closed and invalid sessions return errors. One positive ID does not establish uniqueness across calls. Frame write success is not provider acceptance or queue settlement."
+    },
+    {
+      "path": "src/test/aiur/codex/rpc_test.exs",
+      "sha256": "7c752102af4ccdc5f4e8054a7df7a6ec074d673c178b4cf61ddd367e8f34da4c",
+      "lines": 51,
+      "read": "full",
+      "assessment": "Scripted port ignores unrelated JSON while awaiting matching result; startup floor values and real JSON line round-trip. Low-level send explicitly raises on closed port, unlike higher adapter error-tuple boundaries; preserve distinction or migrate callers deliberately."
+    },
+    {
+      "path": "src/test/aiur/codex/session_recovery_test.exs",
+      "sha256": "a65464dc15c93644294574fb6b7624c2aa1432748d00ce5495c75ed14d79e7a6",
+      "lines": 53,
+      "read": "full",
+      "assessment": "Pure classifier supports wrapped transport losses and exact unequal active-turn mismatch; same ID, trailing punctuation, no-active-turn, provider rejection, timeout and unwrapped error remain nonrecoverable. Classification only, not restart/recovery execution."
+    },
+    {
+      "path": "src/test/aiur/codex/turn_events_test.exs",
+      "sha256": "4b45d6de9359b147a9305548ca83dd86e1d5182e7af5a19dc976771e32a748dc",
+      "lines": 71,
+      "read": "full",
+      "assessment": "Real cat ports plus metadata helper: string/atom map usage retained, invalid/absent usage omitted. Non-map payload only asserts map; claims unchanged port metadata are not compared against baseline. Broader port metadata tests constrain individual fields."
+    },
+    {
+      "path": "src/test/aiur/codex/notification_policy_test.exs",
+      "sha256": "0408f66ddfdf4b522e50817224bae4de3ab2176eb37e9b891d9263f8f4b7a9c3",
+      "lines": 254,
+      "read": "full",
+      "assessment": "Pure classification fixtures distinguish input-required turn methods, retryable and terminal errors, quota refusals, no-active-turn responses and reset hints. JSON-prefix detection is only a candidate classifier. Exact error strings supplement weaker binary-only pause reason assertion; not provider acceptance, scheduling or control confirmation."
+    },
+    {
+      "path": "src/test/aiur/codex/rate_limit_adapter_test.exs",
+      "sha256": "566ccc42b6d0d0c05dd6314d52a1c2ad6edf00db25f9e8a41e917bc8a0088fdd",
+      "lines": 321,
+      "read": "full",
+      "assessment": "Pinned/compatible fixture normalization plus Input and selected Reconciler calls preserve arbitrary bounded bucket IDs, sparse patch versus full snapshot intent, API-key unknown monetary balance, reset freshness and typed drift failures. Twenty-five generated supported-ID cases compare exact key sets; hostile 33-bucket input is rejected while nine buckets produce 36 windows. Privacy sentinels cover account/capability fields and unsafe IDs. The test named full snapshot removes omitted windows only compares adapter window lists, without applying replacement through Reconciler; record that local scope rather than alleging reconciliation broken. Freshness checked reset plus one second, not equality boundary."
+    },
+    {
+      "path": "src/test/aiur/codex/reset_time_test.exs",
+      "sha256": "49298110ecb2b14691420230d76cab0bdafda97594b6397d43107e9b8f514e28",
+      "lines": 164,
+      "read": "full",
+      "assessment": "Exact timezone, minute-end rounding, recent-past clock/date handling, year rollover and DST fixtures constrain Codex text-reset policy. Numeric future exhausted-window reset wins over text; real cat-port metadata tracks independent exhausted windows, retains absent patch facts, clears recovered windows and expires at deadline. Invalid/expired explicit hints remain nil. Provider-specific policy differs from Claude and must survive shared extraction; parsing alone does not establish scheduler resume. Schema validates configured IANA zone."
+    },
+    {
+      "path": "src/test/aiur/codex/transcript_test.exs",
+      "sha256": "b26b755e42e225c3547493e56b7b835b4cf6acae478f8e812c8a899c5697f2fe",
+      "lines": 253,
+      "read": "full",
+      "assessment": "Pure notification extraction fixes roles, provider/fallback turn identity, delta markers, command action/output/workdir, nonzero exit title, parsed tool input/output and string-keyed false success. File edit output and skip rules are exact; no renderer or real-provider behavior is exercised. Non-interactive and display formatting remain separate boundaries."
+    },
+    {
+      "path": "src/test/aiur/codex/turn_loop_test.exs",
+      "sha256": "5ef498119e8c87c348778c81567d240fef352b9ac965cbce302bb2209dd5548a",
+      "lines": 987,
+      "read": "full",
+      "assessment": "Direct handlers with real cat ports and private ProviderTurnLedger stores constrain exact/idempotent terminal retirement, accepted-ID retirement before resume, pending control generation, hard error versus quota pause and paired idle/interrupted completion. Closed tool-response port returns terminal error after tool execution and suppresses completion event; oversized output round-trips through private workspace spill. Real account owner plus injected private availability observer tests reduced account/rate events, unknown lifecycle invalidation and sentinel exclusion from outcomes/logs, including paused RPC routing. Explicit unlimited clears availability without rotating account identity. Live turn defers notification checkpoint; idle pending interrupt preserves other state. First emits-before-completing test asserts callback event presence only after synchronous return, not an independently observed ordering boundary. Script-free direct tests do not establish provider/TUI behavior."
+    },
+    {
+      "path": "src/test/aiur/codex/usage_limit_backoff_test.exs",
+      "sha256": "7f01db5b5cb4a34f8d057534f55842f876aceab90f6b8c5d3174d9ec920effe3",
+      "lines": 147,
+      "read": "full",
+      "assessment": "Fixed-clock pure policy plus private ModelAvailability persistence verifies expired text receives 300-second minimum, configurable 60-second minimum, repeated refusal holds of 300/600/1200/2400/3600/3600 seconds, streak reset after long absence and unchanged future numeric reset. Exact just-before/at decisions guard timing; fresh unknown refusal does not inherit expired deadline. Real cat-port exhausted-window metadata checks bare patch clears snapshot bucket. Helper invokes policy and ledger explicitly as runner would; does not prove automatic scheduler wiring or wall-clock resume."
+    },
+    {
+      "path": "src/test/aiur/codex/usage_limit_test.exs",
+      "sha256": "2701e4c1e2b5e8e42eb575232f1c489bba7d9cd03056f1aadbf8b27c2338a9a8",
+      "lines": 256,
+      "read": "full",
+      "assessment": "Scripted app-server integration drives real CodingAgent sessions through numeric quota pause, stale completion on resumed turn, text-reset fallback after below-100 update, quoted assistant/tool refusal and bounded silent timeout. TurnAlerts persistence, direct orchestrator control handlers and fallback reconcile constrain provider-limited versus human-waiting state, unchanged retry budget and resume-message boundary at reset. Operator/global/label pauses survive both working and paused starting status and are never converted into automatic quota recovery. This is a fake provider and manually invoked reconciliation with a resume message to the test process, not proof of real provider recovery or rendered UI."
+    },
+    {
+      "path": "src/test/aiur/codex/user_input_answers_test.exs",
+      "sha256": "a816cb843178f9d665da73c537425c5ed4b759b67631faba0673c9e91b164284",
+      "lines": 129,
+      "read": "full",
+      "assessment": "Exact answer choices cover session approval preference, once fallback, allow-label fallback, multiple questions and rejection/missing shape. Returned descriptive third tuple remains session-approval text even for once/allow answers; tests intentionally expect that current contract, not actual granted authority. Unavailable answers compare helper value per question; helper separately requires non-interactive wording. No provider approval execution or transport confirmation."
+    },
+    {
+      "path": "src/test/aiur/executor/claims_test.exs",
+      "sha256": "b20acee2c2ddc1f88e73778d0a645d27957e4e8927016f25ea09f9351535c251",
+      "lines": 126,
+      "read": "full",
+      "assessment": "Private persisted claims constrain first owner, rejection naming live holder, expired-lease succession, named revoke/release and observer separation. Identity test title says never inferred from environment but actually checks supported explicit AIUR_EXECUTOR_ID fallback plus argument precedence; preserve implementation contract rather than title. Lock timeout tests constrain constants and clamping/invalid override policy, not actual lock contention or competing claimant atomicity. Environment helpers restore absent versus present values."
+    },
+    {
+      "path": "src/test/aiur/executor/principal_test.exs",
+      "sha256": "924b4e7b6566be0b4b288ff1b24321965dfacb2ef8b20022728ef21377f9ea41",
+      "lines": 93,
+      "read": "full",
+      "assessment": "Real supervised Principal renews private owner and observer entries twice through bounded polling; lease renewal is explicitly not consumption (nil acknowledgement timestamp and zero count). Observer stays observer while owner remains; stop_supervised releases ownership. This exercises component supervision, not full launcher/executor lifecycle or cross-process contention."
+    },
+    {
+      "path": "src/test/aiur/executor/handoff_test.exs",
+      "sha256": "ec7fbd43deb0167b67f5b3de8aff0018dea15b7a116c890042602f89d701c701",
+      "lines": 69,
+      "read": "full",
+      "assessment": "Private repo-state root verifies template seeding, exact current-section import without superseded text and source preservation, and non-overwrite on repeated init. Serial application override restored. No concurrent initialization or malformed legacy-file corpus exercised; durable operator context remains distinct from transient agent logs."
+    },
+    {
+      "path": "src/test/aiur/executor/recording_test.exs",
+      "sha256": "f72b4c0a20bc4ca0db50efa79722e1a5f046abd0c3f26c596707b0d2ed5508f6",
+      "lines": 237,
+      "read": "full",
+      "assessment": "Real Exchange/listener/private inbox tests record three operational topic classes without executor mode and omit free-text fields. A second inbox reads earlier writes; stopped/restarted inbox uses same ledger; successor receives exact six unacknowledged wake IDs after four acknowledgements. Observer cannot advance cursor or write owner consumption evidence. Unattended 100-enqueue fixture checks <=25 records plus exact eviction cursor75, so cursor advance cannot be equated to consumption. This is component persistence and injected publication, not daemon reboot or delivered operator action. Setup deletes rather than restores executor_state_dir/executor_mode overrides; assess enclosing TestSupport before alleging isolation defect. Ledger reader maps read errors to empty, but restart test demands two and bound test additionally demands cursor75."
+    },
+    {
+      "path": "src/test/aiur/executor/roster_test.exs",
+      "sha256": "d711494e009e7bb2e6e9f565679b1d191b6b2134c0314f2bba6b32fa37283beb",
+      "lines": 155,
+      "read": "full",
+      "assessment": "Private claims with fixed clock constrain own-acknowledgement activity versus shared cursor movement, stalled renewing owner, expired lease, idle empty queue and observer role. Removing persisted evidence yields exact unknown state, never active; direct acknowledgement by non-owner fails. Roster state and describe-line assertion supplement each other. Activity means acknowledged stream consumption here, not demonstrated task completion."
+    },
+    {
+      "path": "src/test/aiur/executor/takeover_alert_snapshot_test.exs",
+      "sha256": "a4a137eeee9555e067a0649896da7c8d490ed016de47e7045a40993def9c6c44",
+      "lines": 153,
+      "read": "full",
+      "assessment": "Injected membership/running snapshots preserve terminal rows and reject authoritative status for degraded or truncated membership. Injected HTTP responses check ticket-branch PR evidence, nil absent PR versus error unavailable tracker (despite misleading unavailable test title), and optional failing-CI enrichment. Ordinary-ticket request callback rejects check-runs calls but does not count all requests or forbid commit-status path, so no production quota saving is established. Token/cache state restored; no real GitHub request or measured population."
+    },
+    {
+      "path": "src/test/aiur/executor/takeover_alert_store_test.exs",
+      "sha256": "94c4d9184d096da85c824e3b1943aed3eaaa92d4e19ac4a4a0a7bc01a74dc3b8",
+      "lines": 147,
+      "read": "full",
+      "assessment": "Real named store with private state directory preserves initial anchor through repeated observations, counts false-to-true owner episodes, records alert and PR-check timestamps including checked nil, lists identities, and reports active-alert status when forgetting. Stop/start store reloads anchor, last alert, dispatch count and PR number; this is component restart within one VM, not whole-daemon restart. Fresh store absence stays nil."
+    },
+    {
+      "path": "src/test/aiur/executor/takeover_alert_test.exs",
+      "sha256": "e324fc1d58396aee269e6b588e237dad8b614c95289287db01bf1974baa6af92",
+      "lines": 139,
+      "read": "full",
+      "assessment": "Pure policy fixtures cover inclusive first threshold, repeat cadence, independently disabled first/repeats, invalid negative thresholds and earlier PR age floor. Advisory message assertions include numeric age, push age, owner absence, dispatch count, missing CI/PR wording, and per-ticket resolution topic. No terminal UI or automatic takeover; age_hours title says whole hours while fixture deliberately preserves fractional0.5."
+    },
+    {
+      "path": "src/test/aiur/executor/takeover_alert_monitor_test.exs",
+      "sha256": "76b0cfc048dcd55bdebfb7d73887990425269f331cd5b34649f700c029af5403",
+      "lines": 446,
+      "read": "full",
+      "assessment": "Real private store/monitor with injected clock, snapshots and emitters checks first/repeat advisory cadence, component restart persistence, terminal/disabled resolution, out-of-scope grace, non-authoritative retention, failed PR-refresh cached floor, brief absence and independent tickets. Positive effects await matching callback messages. Some negative checks wait on already-true stored values; empty-mailbox helper only proves tick dequeue, not completion. Initial Store.observe also precedes PR refresh/emission in production, so record existence is not whole-tick completion. Production captures now once near tick start, limiting the alleged clock race; retain synchronization concern as hypothesis until demonstrated. No actual alert-feed routing, automatic timer cadence or daemon reboot is proved."
+    },
+    {
+      "path": "src/test/aiur/current_run_summary/projection_test.exs",
+      "sha256": "72c6789facf8235b6376d20c492a654c5ed426ac3e6d5fcbe1997d2a3e63a17e",
+      "lines": 247,
+      "read": "full",
+      "assessment": "Pure projection tests assert exact rational weighted numerator/progress/coverage and counts excluding non-work terminals, plus ETA requiring sufficient completed-weight evidence. Stale/missing member progress, invalid run despite cached fields, unknown membership freshness, unhealthy complexity and malformed containers suppress exact progress/ETA with distinct reasons. Denominator signature is order-invariant and changes with weight or terminal eligibility. ETA formula correctness is not empirical predictive accuracy, and no rendered freshness/age surface is tested."
+    },
+    {
+      "path": "src/test/aiur/usage/grouped_scopes/scope_test.exs",
+      "sha256": "b63bacb2c5017b8add6d7baaa7c272003821aa798a83133f3da1279f5dc5756a",
+      "lines": 74,
+      "read": "full",
+      "assessment": "Typed run scope requires opaque nonempty identity; explicit ticket sets accept only joinable qualified identities and count rejects. Intersection requires run AND ticket; explicit tickets include pre-membership usage across runs. Empty ticket set has explicit empty/unselectable public state. No bare numeric ticket inference."
+    },
+    {
+      "path": "src/test/aiur/usage/grouped_scopes/price_adapter_test.exs",
+      "sha256": "3ae8cc04500cd478068b675859f60d37cf176bf0d9b3159b97f2d8a453773a33",
+      "lines": 22,
+      "read": "full",
+      "assessment": "Registry-backed fake provider lacking historic aggregate relationship produces exact unknown missing_historic_relationship_revision instead of crashing or zero money. Single direct adapter fixture, not broad provider-price validation."
+    },
+    {
+      "path": "src/test/aiur/usage/grouped_scopes/grouped_scopes_property_test.exs",
+      "sha256": "aeba106b4b0c416708a777ae763147c852f785322dcfd7943185956ff727730e",
+      "lines": 92,
+      "read": "full",
+      "assessment": "Sixty generated mixed-provider/run/dimension cases reconcile rollup against contributor sums; unknown pricing checks coverage and nonnegative rollup, not an independent monetary oracle. Forty cases independently sum generated token counts by run and demand exact scope selection. Preserve unknown money coverage separately from valid zero; tests do not prove current real provider pricing."
+    },
+    {
+      "path": "src/test/aiur/usage/headless/adapters_test.exs",
+      "sha256": "c60899c08efff65d54314b37531d90ea48a315e78099d1881922bd8feee97485",
+      "lines": 381,
+      "read": "full",
+      "assessment": "Pinned fixture adapters preserve Codex absolute-thread versus delta-turn identities, context partitions, Claude additive cache dimensions and exact Decimal from raw JSON. Missing tokens/time/account identity stay nil with reasons; mixed cache TTL or source revision drift yields coverage instead of fabricated facts. Retry identity stable, new attempt/run rotates; legacy zero-filled compatibility is explicitly separated from canonical envelope. Injected prompt/path sentinels excluded. Overlapping streams test proves distinct envelopes/epochs, not downstream avoidance of double counting."
+    },
+    {
+      "path": "src/test/aiur/usage/headless/open_ai_compat_request_usage_test.exs",
+      "sha256": "f6b09bb17aebc2341c41b104347666b8a80dbffc153d714bd0d3af8eaadead0b",
+      "lines": 143,
+      "read": "full",
+      "assessment": "Pure adapters preserve disjoint DeepSeek cache-hit/miss input, OpenRouter upstream separate from query source and case-sensitive synthesized identity, invalid upstream dropped while usage retained, direct-provider upstream absent, Kimi missing cache nil, and atom-key usage. Key round-trip fixes dimensional persistence; no real HTTP provider or current price verification."
+    },
+    {
+      "path": "src/test/aiur/usage/headless/emitter_test.exs",
+      "sha256": "1f3c2692249eaaac7a3ae600a71ae9c2243ba042f2937dbb489a915b90f3d10c",
+      "lines": 95,
+      "read": "full",
+      "assessment": "Injected publication callback receives exact normalized envelope; unsupported backend and malformed payload publish nothing; callback exception does not propagate into worker turn. Known account generation is supplied trusted context. Direct observe call has no real normal-run launcher, dashboard/debug toggle or durable sink, so title independence is narrower than end-to-end execution."
+    },
+    {
+      "path": "src/test/aiur/usage/headless/fake_registry_adapter_test.exs",
+      "sha256": "ca45fbda2d28765fa3f972a77bf68eae051962dbfa0b0d8a2a0a3a2b1a9155c3",
+      "lines": 31,
+      "read": "full",
+      "assessment": "Test-only backend discovered via registry normalizes exact input7 and relationship revision. Establishes an extension seam without provider-specific dispatch in caller; no remote provider or dynamic plugin loading."
+    },
+    {
+      "path": "src/test/aiur/usage_compaction/block_test.exs",
+      "sha256": "3b8e84319e799b1039b4f82deb43bc04130b9ce258859b28df6891d13419517e",
+      "lines": 136,
+      "read": "full",
+      "assessment": "Private files and pure blocks compare all cells to existing projection, preserve distinct relationship revisions/upstream dimensions, round-trip covered metadata and recompute checksum for legitimate legacy dimension omission. Tampered checksum rejected, missing/empty distinct, gaps/empty ranges rejected. Atomic byte-identical title only reloads cell equality; no byte comparison or interrupted-write proof. Pricing-date span fixture only asserts Date/nondecreasing endpoints, not varied endpoint exactness."
+    },
+    {
+      "path": "src/test/aiur/usage_compaction/manifest_test.exs",
+      "sha256": "c6a206136f1efa4f022cb468857b269b2bf4c8ae0a541454bd411d844b4b8b3a",
+      "lines": 133,
+      "read": "full",
+      "assessment": "Pure state-machine tests constrain contiguous prepare, phase ordering, rollback watermark and finalized cover; private file reload checks retired watermark. Round-trip loop omits source_retired despite every-phase title. Gap/path-escape fixtures lack checksum, so strict key gate rejects before decode_blocks; isolated mutation probe confirms both pass with structural validation bypassed, while correctly signed controls detect bypass. Recorded tests-4-cont-02, no production acceptance bug alleged."
+    },
+    {
+      "path": "src/test/aiur/usage_compaction/policy_test.exs",
+      "sha256": "99d55da66c827f750c55fe8bdf596c60c4aaf55da2ec9be010743ca35369eff0",
+      "lines": 70,
+      "read": "full",
+      "assessment": "Exact fixtures constrain min recovery window, max-count pressure, raw-byte pressure, batch bounds and monotonic retired watermark; finite grid validates safety for retire outcomes, but accepts any noop and is not a complete liveness oracle. Explicit examples demand retirement. Invalid configuration clamps specified defaults; pressure arithmetic not measured disk savings."
+    },
+    {
+      "path": "src/test/aiur/usage_compaction/coordinator_test.exs",
+      "sha256": "f1a947b802a282a0d1becc6ecd148b23287bb82174043cb4e2ce1b9ae0e7e367",
+      "lines": 216,
+      "read": "full",
+      "assessment": "Real private ledger/coordinator/block/manifest integrate raw-prefix retirement with floor-plus-tail exact projection reconstruction. Constructed prepared state rolls back preserving raw; source_retired rolls forward; in-flight floor and broken-floor aggregate fail closed; corrupt manifest quarantines and halts retirement. Sync callbacks stubbed and crash states authored directly, so no actual killed-process or power-loss durability proof. Content-free artifact assertion uses ordinary fixtures without injected secret-bearing inputs; preserves observed output shape, not adversarial whole-pipeline privacy."
+    },
+    {
+      "path": "src/test/aiur/usage/price_table/window_test.exs",
+      "sha256": "077fadaa610c7605dca4a5291072b18923bb8c5e1e0aa9d566db47bdfca83b14",
+      "lines": 169,
+      "read": "full",
+      "assessment": "Pinned times assert inclusive-start/exclusive-end peak windows, effective-dated weekend rules, malformed classification unknown and resolver conservative-peak fallback. Synthetic schedules make timezone offset and schedule-driven boundary scanning observable where default windows could not distinguish an omitted offset. Unknown schedule has no next boundary. Named-offset constant test does not prove its comment/documentation; behavioral synthetic fixtures supply real coverage. Historical fixture policy only, not current provider schedule verification."
+    },
+    {
+      "path": "src/test/aiur/usage/pricing_property_test.exs",
+      "sha256": "ca9e4a681467ca195fb663b2a9be2dd1c81c6abd9ffc9668f71c8171fb1f0385",
+      "lines": 53,
+      "read": "full",
+      "assessment": "Fifty generated parent/subset token cases independently assert canonical input+output and exact sum of priced component token counts. Decimal amount equals sum of returned components; this guards conservation but is not an independent rate oracle. Provider EUR remains separate from API USD. Uses fixture registry/default catalog, not measured invoices or live provider data."
+    },
+    {
+      "path": "src/test/aiur/usage/pricing_fixture.exs",
+      "sha256": "f3b385866ee1f451484b82289079f86d8f2694b5cd1dc10f656ef91237fe745f",
+      "lines": 284,
+      "read": "full",
+      "assessment": "Fixture helpers build explicit historic source revisions and contrasting Codex subset versus Claude additive relationships, DeepSeek disjoint input/cache counts, trusted/unknown account generations, occurrence/ingestion timestamps and distinct EUR provider estimate. Custom price table carries exact decimal strings and version/source metadata. Fixtures deliberately supply identity/semantics rather than validate real ingress; Map.merge overrides are shallow. No executable test in this helper file."
+    },
+    {
+      "path": "src/test/aiur/usage/pricing_test.exs",
+      "sha256": "9bc087c520e10d3dd48e25a14f73f96fad2a529224bd9d94842d76d0c0da5038",
+      "lines": 410,
+      "read": "full",
+      "assessment": "Exact expected Decimal totals and component token counts constrain additive/subset remainder pricing, context/cache-duration partitions and mutually exclusive alternatives. Provider authoritative discrepancy is retained but prevents inferred pricing; unknown relationships/model/auth/currency/time/required dimensions and invalid remainder preserve reasons and suppress totals. Missing one rate retains four priced components while total stays nil. Historic relationship does not fall forward; unknown account generation removes tier join without erasing independently supported API estimate. DeepSeek occurrence-time pricing differs from aggregate conservative fallback. Distinct provider/API currencies and subscription estimate disclosure are asserted; no actual billed-spend evidence."
+    },
+    {
+      "path": "src/test/aiur/usage/price_table_test.exs",
+      "sha256": "da86ae83f0ac4137b7e85a7fef3b4f4b2fc18d56331250151981c9105b529df0",
+      "lines": 553,
+      "read": "full",
+      "assessment": "Pinned catalog fixture counts/rate matrices and custom effective-date series constrain exact historical decimal rates, provider/model/currency/relationship/dimension/context/TTL join boundaries, flat versus peak/off-peak intervals and exclusive expiry. Unknown window fallback is conservative peak; uncovered window differs from not-yet-effective. Duplicate interval/revision conflict/float price and invalid metadata are rejected; registry fake provider accepted. Fifty generated date-series cases assert interval membership plus repeated determinism, supplemented by explicit old/new rate assertions. Source URL/review-date fields only assert catalog metadata: they do not verify linked sources or current prices. No savings claim."
+    },
+    {
+      "path": "src/test/aiur/usage/grouped_scopes/grouped_scopes_test.exs",
+      "sha256": "7d7966d4348a092e7a4fbdaa5bc1d24631be29f5eb02112a984d8d5cdcc0118e",
+      "lines": 444,
+      "read": "full",
+      "assessment": "Pure projections of supplied aggregate records constrain run/ticket intersection, qualified repository collision, cross-run explicit membership, separate currencies and provider/API bases, explicit unknown partition coverage and subset remainder. Grouped remainder is compared to individual Pricing result; positive computed overcount alone does not independently assert its subtraction. Provider-route/upstream exact values and counts supplement reconciliation flags. Aggregate missing occurrence time deliberately uses peak estimate. Unknown generation/backend omits tier keys; known-empty/unavailable/stale/partial remain distinct. Pagination proves first two pages disjoint and max limit, not full traversal/cursor invalidity. Cache-key test title claims every authority generation but only inspects scope kind, schema version and binary price revision; freshness changes all three generation fields together, not independently. Replay duplicate records preserve snapshot sans authority; no process restart or physical retention occurs."
+    },
+    {
+      "path": "src/test/aiur_web/controllers/decision_api_controller_test.exs",
+      "sha256": "580f80fddefc783345f044d65a63976a14749f501fb0b15b33c531aba819315e",
+      "lines": 161,
+      "read": "full",
+      "assessment": "Direct Plug controller calls with injected service fix exact pagination forwarding, retained partial presence as503 indeterminate not404, mutation status/identity forwarding and redacted domain HTTP errors. Trusted actor comes from conn assign while payload actor remains separately passed; test does not authenticate supervisor or prove downstream delegation enforcement. Missing/method helpers use JSON envelope. Path authority assertion removes supplied decision_id from payload but does not construct distinct conflicting body/path IDs at router boundary."
+    },
+    {
+      "path": "src/test/aiur_web/controllers/observability_api_controller_test.exs",
+      "sha256": "72b86f16b6eb8a959556876551e39f17e9ac047ef16e60d67c18930b1eb30341",
+      "lines": 475,
+      "read": "full",
+      "assessment": "Endpoint.call exercises router/plugs without socket: hook dispatch reaches real PubSub, absent request marker403, pause/resume uses mock GenServer exact202 responses, stale tracker409 versus transient503, read-only403 and wrong method405. Read-only case has no callback non-invocation assertion. Shared decision history temporarily replaced/restored and exact51entries asserted; absence of token fields over potentially empty running rows is weaker. Private transcript feed fixes bounded newest-first events, diff signed-line rendering and invalid cursor422. StreamDeck read distinguishes current empty from pre-first snapshot timeout and tests configured Basic auth401/200. No actual provider pause or TUI behavior."
+    },
+    {
+      "path": "src/test/aiur_web/live/github_cache_zero_fetch_test.exs",
+      "sha256": "ec56a727a7219465c691834aa743a1786bd286930a76296aa22e926037102f47",
+      "lines": 262,
+      "read": "full",
+      "assessment": "LiveViewTest plus intercepted GitHub transport counts zero for available cold store, inspector layers/filters/bodyless/missing entries and traced resource-change reception. Separate positive control proves warm resource hit makes zero and unique cold identity makes exact one REST fetch. Positive control is separate test, unlike per-case egress checks in ZeroFetchPageOpenTest; current fixture count is not a measured production saving. Store-change assertion checks existing ID rather than changed body, but receive trace establishes delivery and subsequent render crosses handler boundary. Budget ledger redirected away from operator database. LiveView protocol tests, not browser/manual UX."
+    },
+    {
+      "path": "src/test/aiur_web/live/zero_fetch_page_open_test.exs",
+      "sha256": "0e5cb72b9b478146ce2895ee75da1d1641eebada14fb32e1be24f343810355c4",
+      "lines": 393,
+      "read": "full",
+      "assessment": "LiveView route-specific content plus zero transport counts and in-test positive egress probes constrain six configured routes, GitHub-tracker dashboard, Build Order pages and manually driven refresh ticks. Cache reset avoids cached positive control. Held-ticket direct TicketDetail test isolates REST body read with relationship reader injected; it does not prove UI click or GraphQL-free ticket detail. One extra render is a same-sender round trip, not a universal completion barrier for separately spawned work. Some comments still describe obsolete one-request exceptions while assertions require zero. Transport fixtures are regression evidence, not host quota measurement or all-network egress proof."
+    },
+    {
+      "path": "src/test/aiur_web/live/analytics_live_test.exs",
+      "sha256": "1d5124e7a70cc441145a1b8f1e419c49c0378ccbc60536b5a047d4305e652568",
+      "lines": 1154,
+      "read": "full",
+      "assessment": "Real LiveView server rendering over private telemetry and injected aggregate/Build Order snapshots constrains live versus latest retained source, unreadable retained evidence versus empty, typed selected membership and current-run spend exclusion. Retained source renders age/past-tense, live uses present-tense; aged SnapshotStore plus live registered publisher and pinned ceiling renders stale10m cap. Effective/session/configured ceilings and paused-reservation cause preserved; unknown cap suppresses wasted-capacity number. Exact zoom ranges asserted across six chart attributes and reset; generic range/sort tests only prove rendering. Missing auth configuration503 tested; provider spend uses injected exact amounts, not actual billing. Pressure gap fixture injects nil values but broad em-dash assertion is page-wide; no independent rendered-cell mutation probe here. RTK injected command responses distinguish off/missing/guard-held/empty/unreadable and known percentage, not measured savings. Restart fixture changes files/run identity within same VM, not daemon restart; no browser JS or keyboard accessibility execution."
+    },
+    {
+      "path": "src/test/support/browser_harness/fixtures.ex",
+      "sha256": "b5961affab22260495de96ed35edd01e508daaf7e1ff29c336ba0991d2a7b4b9",
+      "lines": 128,
+      "read": "full",
+      "assessment": "Pure deterministic graph fixture generator supports bounded sizes, linear and binary DAGs, multi-root catalogs, cycle/self-loop, missing/external endpoints and explicit invalid/degraded diagnostics. Live update sequence is two supplied graphs and adapter is direct callback. Companion earlier fixture tests constrain counts/identities; this helper does not itself drive a browser, layout, large-run performance or live provider."
+    },
+    {
+      "path": "src/test/aiur_web/live/build_order_live_test.exs",
+      "sha256": "0c4dcea36247a0f0b86ab5e8f5f66400b4fd5894d80c04ae16d75e110267fc75",
+      "lines": 1779,
+      "read": "full",
+      "assessment": "LiveViewTest plus recording fake source checks catalog mount without demand, three refresh clicks coalesced to one callback, subscription-before-demand and release/unsubscribe/resubscribe ordering. call_index and call_index_after explicitly flunk on missing calls, avoiding nil-ordering false positives. Cell-specific DOM assertions distinguish unresolved, empty, partial and unknown progress; seven failure causes plus generic unresolved preserve separate explanations and zero counts. Budget reset is rendered. Source-only UI tick asserts no calls but cannot prove a removed clock rendered. Deep links reject malformed/not-found without demand, distinguish failed initial selection, and reset authority rejects old instance generation99 after new epoch generation1. Real running PubSub with injected source updates working/paused/CI-waiting; stale80percent survives card, wave, overall, epic and breakdown with last-known age. Held loader callbacks exercise single-flight coalescing, late result after close/root change, invalidation generation and context teardown; receive blocks lack local timeouts but async result waits bounded. Structural invalid member remains fault cause despite rate-limit health. Current-session telemetry excludes prior member and zoom updates five chart attributes. Analytics-pane title overclaims placement/scope because test only checks presence. No browser JS, actual tracker refresh or production command execution."
+    },
+    {
+      "path": "src/test/aiur_web/live/github_cache_live_test.exs",
+      "sha256": "06c8958e3b4e148a5eef6bcc8ccec773d5a18c7a3d1a5aab202d434333e9b927",
+      "lines": 1747,
+      "read": "full",
+      "assessment": "LiveView server rendering mostly uses source/history/read-cache doubles plus private real Quota; one real file-backed AgentCacheMetrics sampler exercises reader-to-view but is started explicitly, so it does not prove application supervision wiring. Unchanged used-meter values and hand-maintained forbidden-client text scans are weaker than companion transport counter tests: errors/no headers or unlisted indirection can escape. Real ResourceStore deposit tests subscription but renders without explicit cross-sender barrier (companion zero-fetch test traces delivery). DOM-scoped checks preserve missing versus empty store, row elision and deep-link access beyond500cap, bodyless validators, token sentinel redaction, missing-auth503 versus unauthorized401, not-measured versus zero hit ratio and partial malformed-row coverage. Exact ranking by points, separate Core/GraphQL, reported/assumed costs, cache unavailable versus none/not-observed/not-deposited/policy-refused, and mid-window unobserved spend versus full-window external attribution all have fixtures. Per-credential stale age and unknown observation time rendered. Private SQLite admissions fixture fixes5total/3billable/2free and unchanged remount/sample totals, not broker writes or real savings. Structural keyboard region attributes do not execute narrow-viewport accessibility. Generic page setups do not universally override budget-ledger path; dedicated missing-ledger tests do, so enclosing TestSupport isolation should be checked before claiming complete hermeticity."
+    },
+    {
+      "path": "src/test/aiur_web/live/streamdeck_live_test.exs",
+      "sha256": "39600cc4ae2cde229d07dfd6444ecb150b565d040963954ec840c7a9af3543f6",
+      "lines": 1804,
+      "read": "full",
+      "assessment": "Server-side LiveView tests preserve active ticket identity across fleet replacement until returning to grid, stable numeric ordering, column-major slots, raw dial value across fleet size changes, and independent meter refresh without another fleet read. Injected control callbacks settle shared snapshot; commands retain old displayed state until a fleet notification and then adopt settled pause/resume state. Read-only forged commands have non-invocation mailbox assertions; mic hold is rendered state only, not audio capture or physical hardware. Commands option selection checks displayed detail but does not spy on decision writes, so never-commits in the title is not independently demonstrated here. Real PubSub registry and normal GenServer.stop constrain relay lifetime; durable feed tests write files before broadcast and require changed content/key lists, retaining LIVE pin and exact bus-header anchoring. Old-topic rejection tests broadcast after switching subscriptions and use a20ms sleep; whether an old message reaches the LiveView guard is unproven. Production handlers268-299 reload the incoming identifier, so an actually delivered stale message with the guard bypassed would read the old durable feed; the earlier current-feed-reload speculation is withdrawn. Channel test443-451 directly injects a stale tagged message but covers a different handler. Keep LiveView guard reachability as an unverified candidate. Provider unknown readings have structural attributes and no invented percent; stale retained weekly47 explicitly has data-freshness=stale while tests prohibit visible stale/age text. Progress similarly retains stale40 without a stale class. Reconcile this intentional presentation contract with age-rendering requirements rather than claiming stale age is displayed. CSS string and SVG geometry assertions are structural, not browser/hardware verification. Config-rescue test assumes absent config without an explicit throwing seam; production-feed cleanup removes event logs while enclosing TestSupport must establish transcript isolation. No tests executed."
+    },
+    {
+      "path": "src/test/scripts_aiurdev_test.exs",
+      "sha256": "521fe523109a10b848a55c8729035deea031e2eb17d93edb21efa94fec171de1",
+      "lines": 1988,
+      "read": "full",
+      "assessment": "Real bash dev shim runs against disposable fake repos, fake mise and echo/trace engine; tests do not launch a real release or exercise TUI. Preserve complete-release control reuse despite stale sources/held build lock, missing-artifact rebuild, signaled-only retry of transient exit75, launch-time pinned tool requirement before engine stop, and failed-release removal. Two concurrent invocations expect one fake release, but overlap uses a 0.5-second sleep rather than a held barrier. Compile-generation test verifies forced compile invocation and fake generation-2 files, not actual compiler dependency semantics. Restart emits deferred checkout-pinned rebuild; exact emitted command is executed through bash with a space in shim path and produces a release receipt. Foreign checkout guards reject build/restart/run before engine/build traces, allow ready-release control/RPC with notice, and refuse foreign control without a reusable release. Explicit target, trailing slash, same checkout and partial-tree cases are covered; the trailing-slash-or-symlink title actually supplies only a trailing slash for AIUR_REPO_ROOT. Agent-workspace test/test3 refusals preserve sandbox HOME logs and prevent reset/engine invocation across marker/root/PWD detection; non-test runs receive workspace-local runtime/state and leave bridge port selection to runtime. Provenance covers unknown outside git, no borrowing enclosing repo HEAD, missing/wrong/unknown stamp rebuild, matching SHA no-op, receipt absence after failure. Unknown-to-known convergence test invokes once, so its one-rebuild title lacks a second-run count (separate matching-SHA test supplements). Lock absent at engine entry is directly checked by fake engine, and old-owner cleanup preserves a manually rewritten foreign owner. Signal cleanup tests wait for owner-file presence but ignore kill result and process exit; fake release naturally ends after1second, so normal cleanup could satisfy absent-lock checks without proving signal handling. This is an unverified oracle candidate, not a production signal bug. Helpers serialize process-global cwd changes; wait_until raises on deadline. No tests executed."
+    },
+    {
+      "path": "src/test/aiur_engine_test.exs",
+      "sha256": "2a4553c72f20d98a875e374f300947ab9f36355307db34cb3bc61c177a83ef8a",
+      "lines": 4245,
+      "read": "full",
+      "assessment": "Real shell engine plus mostly fake release/tmux/RPC/npm boundaries; source review only, no CLI/TUI execution. Identity probe tests project-keyed node, redirectable state and cookie; sourced helper pins a synthetic node, but its unique integer is VM-local rather than host-PID-qualified and does not itself redirect all state/HOME paths. File-name helper has separate host-PID assertion. Legacy config rejection precedes release startup, canonical/explicit/argument-terminator precedence and option-value disambiguation constrained. Readiness/operator resource checks include direct shell values plus lexical pane-export assertions, not actual pane inheritance. Message hostile text/base64 and stable id validation, executor version/idempotency/rationale requirements, numeric IDs and filters preserve safe RPC expression construction. Most routing tests print expressions or ignore fake-release exit status: they do not prove daemon execution or delivered decisions. Real wrapper semantics distinguish exit-marker success/failure, missing-marker failure, timeout124 unknown outcome and retryable75 only with release-change signal. Background detachment and dashboard suppression independent; configured host left unforced. Startup counter reaches readiness on third probe; alive/not-ready versus absent/crashed retained, but application-start/readiness ordering partly lexical. Init/version/findings/ask distribution-free args preserved. Dotenv fixtures enforce shell > repo > global, credentials as one group and blank placeholders ignored; run readiness-token scrub differs from init retention. Some direct helper tests source engine with ambient HOME, so do not claim universal environment isolation. Real owned sleepers exercise node-name reaping and private workspace containment, shallow-root refusal, tilde canonicalization and both-child cleanup. Sibling-survival test starts a real child but replaces kill_beams_matching with a logger; it constrains call shape, not actual sibling selection under killing. Stop sentinel/crash-marker state observed inside kill spy; grace loop exact10ticks and invalid30ticks each, not elapsed timing. Private stale-artifact fixtures assert removal/preservation by name and live PID, default3h preserved, disabled invalid/zero setting. Launch attach preserves existing session without cleanup ownership and propagates failure without leaked attach tempfile; distinct project sockets and live-not-ready no-teardown have spies. Launch-lock race uses delayed holder0.2s, fresh ownerless lock held; backfill-concurrent title tests sequential if-absent writes. Startup failure cleanup checks own generated paths and emits parsed crash alert. Real detached watchdog functions use absent unique pattern and stub reapers; seeded/no-seed distinction, ledger failure still cleanup, completed dump versus missing/incomplete/unchanged, inode replacement of identical bytes and bounded512byte escaped slogan tested. These are crash-evidence/reaping contracts, not automatic restart. Restart exact STOP/BUILD/RUN sequence, no rebuild when stop fails/still answers, malformed/missing/mismatched receipts/stamps fail closed, unknown/dirty/generic builder reported unverified, no-build plain bounce and failed-build recovery guidance depend on release availability. Receipt fixtures simulate metadata changes rather than racing a real compiler. Upgrade uses canned tags/fake npm, refuses unknown/brew/dev/live unless force, follows next/nightly without downgrade or silent channel fallback, and persistent notice suppression tested by second invocation. Registry-unreachable fake has no install logger, making empty separate log weaker than a positive recording install trap. Numeric/code, source string and fabricated release assertions are not production performance, savings, installation or end-to-end proof."
+    },
+    {
+      "path": "src/test/aiur_web/live/dashboard_live_test.exs",
+      "sha256": "de6f53f4afdd073b34afdfc5778d9300068e31d383af742308d8762bbbb49473",
+      "lines": 6562,
+      "read": "full",
+      "assessment": "Lines1-1900 reviewed continuously. Early nested doubles distinguish retained counts, detail versions, unavailable/indeterminate store, and report rejected answers/revisions; QueueOrchestrator delegates production message functions. Direct render_payload bypasses mount and seeds assigns, so distinguish those template tests from LiveView requests. Persisted global pause survives same-name publisher replacement with stale snapshot, while real click exercises injected disk-full reply; read-only desktop assertion partly generic disabled text, mobile aria scoped. DOM/CSS/nav checks are structural, not responsive browser execution. Untyped status entries do not establish healthy typed Units membership. Projection-completion test has a20ms negative receive then positive notification; its final disappearance predicate differs from the initial empty-state text and may already be true, so do not count it alone as refreshed rendering. Missing first snapshot differs from unreachable orchestrator and read-model failure; unknown cause not labeled unreachable. Escaped decision markdown, retained partial counts and indeterminate missing-detail status are distinct. Durable outcomes intentionally absent from Units route. Burst tests use injected timer/flush barriers; helper implementation later in file remains unread. Authentication missing503 and configured401 distinct. Credential rotation followed by live_redirect makes capability locked and strips financial sentinel from socket, HTML and logs, retaining nonfinancial runtime seconds; authorized socket private context excludes credentials. Authorized usage test only requires nonlocked state among five possibilities, not a known amount or exact empty state. Real retained store and DecisionMetrics events plus same-name component replacements constrain removal of old2000ms latency when only requested event exists; twelve replacements leave cache size8. This is component replacement, not daemon restart. URL filter/open/close/search patches and ticket11 versus1110 exactness covered. Human and delegated open authority preserved. Deferred Commands stay open/blocking, answering moves to history and count0/1. StaleCountsStore deliberately returns0 while retained page reports1 to require same-snapshot chips; unavailable-store reload produces cell-scoped em dash rather than stale1 or zero. All Commands hides search/pagination; invalid cursor returns unavailable without killing view. Twenty-seven retained decisions, twenty-five dismissed, two open compare DOM identifiers with CLI set and totals. Direct detail beyond50 overview test begins at end of range, not yet reviewed completely. No tests executed; no finding promoted. Lines1901-3800 reviewed continuously. Direct retained detail outside50overview remains available and answerable/revisable; stale URL filter does not suppress selected resolved record. Unavailable/indeterminate detail hides stale overview/form and forged answer/revision submits have store-spy non-invocation assertions. Nonselected open Command can be answered without changing selected one, with exact store option/rationale checked. Overview eviction tests add newer records then explicitly reload, not simultaneous race. Versioned store spies constrain expected_version and revision expected_action_id from rendered detail rather than stale overview. Initial irreversible answers intentionally need no redundant confirmation; corrective irreversible revision does require it and unchanged revision_sequence0 is checked on rejection. Revision version refresh explicitly clears checked confirmation and draft; answer refresh test title mentions confirmation but only seeds custom text, so confirmation clearing is not independently exercised there. Exact direct-route lookup count2 includes disconnected and connected parameter passes. Delivery failure/retry uses real store, counted fake dispatcher, cache disabled and lifecycle notifications; checks one answer, failed and queued audit event, same mounted view retry removal plus fresh mount. Assertions still have2second deadlines despite comments claiming no deadline. Runtime writable-gate change leaves answer nil and no dispatch; stale-version/action conflict keeps draft, passes operator actor and version/action/revision-sequence, idempotency prefix only (not replay uniqueness). Append-only revision preserves original choice and stores new active answer; unavailable target creates explicit handled follow-up without claiming rollback, resolver/projector injected. Answer capstone delegates real OperatorMessages through QueueOrchestrator and checks exact six-event audit order, but test itself claims queue item, records delivery and submits acknowledgement/resolution. Revision capstone checks new action/prior correlation, resets ack/resolution, metrics normalization/human actor, history and exact eleven-event audit order; tracker fetch supplied and lifecycle manually reported. Queue notification precedes store revision-dispatched, hence separate await helper (not yet read). Deferral persists and emits Executor event without ticket queue; dismissal of nonblocking decision sends checkpoint judgement message only to live agent; gone remains empty. Free-form closure records dismissed with no answer, not lifecycle acknowledgement. Two metrics convergence/handshake tests now assert Command latency remains absent both before and after. They exercise events and a held seed barrier but do not assert changed metrics in rendered/assigned payload; their titles exceed their observable postconditions. Later helper and remaining sections still unread. No tests executed or finding promoted. Lines3801-6562 complete the source review. Direct Supervisor DecisionApi calls exercise actor/policy and delegated enrichment, not HTTP authentication. Human-required rejection leaves answer nil. History pagination10/20/25 remains distinct from refresh totals and retains off-page detail; revised answers update the exact row. Expiration is explicit N/A plus Expired, deferral stays open. Units URL version, invalid filter canonicalization, stable typed rows and generation changes constrained. Ticket context queries begin only after explicit selection; failed subscriptions retry while unsubscribe is expected only for successful subscriptions. Alpha/beta subscription assertions establish presence, not ordering. Conversation focus pins opaque handles, ignores other handles and uses injected projection-restart notifications, not real process restart. Message callbacks receive full ticket identity; edited drafts receive new idempotency IDs, unknown-result retries reuse the ID, and success permits a new ID for repeated text. Controls distinguish requested from applied until lifecycle events; read-only, unsupported, duplicate pending, changed state, stale generation and terminal membership paths constrain owner non-invocation. Lifecycle fixture identity uses display identifier plus issue ID/generation, so it is not independently full typed lifecycle correlation. Colliding display IDs across repositories/providers disable writes and forged handlers have non-invocation assertions. Membership failure renders unavailable rather than healthy zero. Add Agent default routing fixture deliberately differs from supplied complexity; expected preview calls production resolver and proves integration, not independent routing truth. Held tracker/authorization callbacks keep submit disabled and allow Close before release; submitted form values are authoritative without change events. Waiting hint requires verified authorization, with denied/deferred paths distinct. Partial label removal survives retry without repeating it. Real DispatchAuthorization runs with injected HTTP events, but verification fixture issue ID differs from selected issue, so do not claim identity coverage from the rejection assertion. Already-labelled plans do not rewrite labels. Ticket search includes title/body, unrevealed matches, bounded reveal and explicit unavailable counts. Family alias selection preserves intent independently of concrete model resolution. Helpers use private endpoint/store/metrics paths and restore config; stores disable filesystem sync, so tests do not prove crash durability. Queue worker is unlinked but has explicit :stop handling, without a DOWN wait. Bounded reload helper uses per-view sys.get_state barriers, checks one timer per view after bursts, and asserts unchanged snapshot mailbox call count with SnapshotStore; this is not a measured production saving. reload_view is an actor barrier, not completion of every spawned task. await_dispatched_revision is bounded at200 ten-millisecond attempts, correcting earlier unread-helper uncertainty. Cache cardinality is asserted before all-element freshness. All6562 lines now reviewed; no test suite or browser execution and no new finding promoted."
+    }
+  ],
+  "scope_note": "All100 manifest files fully read and frozen hashes checked. Five bounded findings supported by extracted assertion, manifest, owned-process, monitor-barrier and selected shim-fixture probes. No full suite, live provider, real release build or manual UI verification. Supporting source excerpts are not additional whole-file coverage. Three P2 and two P3 findings still need cross-unit deduplication.",
+  "findings": [
+    {
+      "id": "tests-4-cont-01",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Display-forwarding order test accepts a reversed conversation",
+      "locations": [
+        {
+          "path": "src/test/aiur/claude/display_tailer_test.exs",
+          "lines": "65-101"
+        }
+      ],
+      "description": "The test promises a full conversation in order, but all ten content assertions check membership in the role or event lists. A reversal retains every member and passes. The poll count lower bound also cannot constrain order.",
+      "evidence": "tooling/display_tailer_order_oracle_probe.exs extracts the ten actual membership assertions from the named test AST. Both ordered and reversed six-event conversations pass; an exact-order control accepts the original and rejects its reversal. Probe exits zero with four explicit results.",
+      "recommendation": "Assert the ordered role/body sequence forwarded by DisplayTailer, then verify reversing the forwarding order makes the guard fail. Keep partial/backfill/live tests separate.",
+      "refactor_hint": "An ordered stream boundary needs ordered output assertions rather than set membership or selective receives.",
+      "limits": "Oracle-only probe with supplied events; no application, provider or production mutation. Transcript.extract_disk_record already has a two-role ordering assertion, but that lower boundary does not prove display forwarding order. No current production reordering defect is alleged. Cross-unit deduplication remains pending."
+    },
+    {
+      "id": "tests-4-cont-02",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Manifest gap and escaping-path fixtures cannot reach block validation",
+      "locations": [
+        {
+          "path": "src/test/aiur/usage_compaction/manifest_test.exs",
+          "lines": "86-117"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "lines": "195-208"
+        }
+      ],
+      "description": "Both malformed fixtures omit checksum. The exact-key guard rejects them before checksum and structural block validation, so their expected invalid_manifest result cannot guard gap or path rules.",
+      "evidence": "tooling/manifest_validation_oracle_probe.exs extracts the actual gapped and escaping assignments, compiles renamed original and a one-call mutant bypassing decode_blocks, and shows both original fixtures reject under both implementations. Adding valid deterministic checksums preserves original rejection but mutant accepts both, proving controls reach the relevant boundary. Probe exits zero with two explicit results.",
+      "recommendation": "Start from an encoded valid manifest, change gap/ref, recompute checksum, and require the intended structural rejection. Mutation-check each structural rule independently.",
+      "refactor_hint": "Validators behind envelope/checksum gates need fixtures valid through earlier gates; generic invalid errors cannot identify which boundary protected the record.",
+      "limits": "Pure from_record probe only; no Aiur application, filesystem write function or production file mutation. Compilation warns about unavailable Jason/Fs functions that are never called and unused mutant helpers. Original correctly rejects signed malformed controls. No production traversal or data-loss defect claimed; cross-unit deduplication pending."
+    },
+    {
+      "id": "tests-4-cont-03",
+      "severity": "P3",
+      "category": "testing",
+      "title": "Failed workspace-reaping test leaves its inside sleeper running",
+      "locations": [
+        {
+          "path": "src/test/aiur/claude/remote_control_test.exs",
+          "lines": "563-608"
+        }
+      ],
+      "description": "The real-process fixture starts two300-second sleepers but registers fallback process cleanup only for the outside PID. If production reaping or the following assertion fails, directory cleanup does not stop the inside sleeper. tmp_root! only constructs a unique path; this ExUnit case does not install shared process teardown.",
+      "evidence": "tooling/remote_control_fixture_cleanup_probe.exs extracts the actual two on_exit callbacks and sleeper/readiness helpers from the frozen AST. With reaping deliberately omitted to model failure, both callbacks run: outside stops, inside remains non-zombie after its directory is removed. An explicit owned-PID kill stops the inside sleeper as positive control. Four results, exit0; all owned children stopped.",
+      "recommendation": "Register cleanup for each owned process immediately after it is created, before later fixture setup can fail, and make readiness exhaustion fail explicitly. Verify failure-path cleanup with an owned-process barrier.",
+      "refactor_hint": "Test process fixtures should own teardown independently of the production cleanup behavior they are testing.",
+      "limits": "Isolated fixture failure-path probe only, not a full ExUnit or production reaper run. No live workspace sweep. Maximum ordinary leftover lifetime is the300-second sleep; no production leak alleged. Readiness exhaustion observed in source but not separately executed. Cross-unit deduplication pending."
+    },
+    {
+      "id": "tests-4-cont-04",
+      "severity": "P2",
+      "category": "testing",
+      "title": "An empty monitor mailbox does not prove tick completion",
+      "locations": [
+        {
+          "path": "src/test/aiur/executor/takeover_alert_monitor_test.exs",
+          "lines": "78-104"
+        }
+      ],
+      "description": "wait_for_mailbox_drained returns as soon as the monitor has consumed the tick message, even while its snapshot callback is still executing. Callers can advance the clock or assert absence of alerts without waiting for the prior operation to finish. Record existence and already-true last_alert predicates elsewhere also are not whole-tick barriers, although their downstream effects require separate analysis.",
+      "evidence": "tooling/takeover_monitor_barrier_probe.exs compiles the frozen production Monitor and extracts the actual wait helper. An injected snapshot callback announces entry and waits for release. With the real tick held, mailbox is empty and helper returns; a sys.get_state task remains blocked and returns only after release. Three positive results, exit0.",
+      "recommendation": "Use a completion barrier on the monitor after sending each tick before changing fixture inputs or making negative assertions. Keep checks of durable state as separate behavior assertions.",
+      "refactor_hint": "Consume, persist and complete are distinct milestones; asynchronous test helpers should name and synchronize the exact milestone.",
+      "limits": "Empty nonauthoritative snapshot path only; no store, tracker, full suite or live daemon. A minimal Issue struct enables compilation of unused emitters; warnings concern unavailable branches never executed. Monitor captures now before the held snapshot, so this does not prove that a running tick rereads an advanced clock or currently emits a wrong alert. Cross-unit barrier findings need deduplication."
+    },
+    {
+      "id": "tests-4-cont-05",
+      "severity": "P3",
+      "category": "testing",
+      "title": "Shim signal tests accept explicitly ignored interrupt and terminate signals",
+      "locations": [
+        {
+          "path": "src/test/scripts_aiurdev_test.exs",
+          "lines": "1885-1952"
+        }
+      ],
+      "description": "Both signal-cleanup tests await natural completion of a one-second fake release and inspect the final lock. They ignore signal-command status and shim exit status. These assertions also pass when the shim explicitly ignores INT and TERM while retaining ordinary EXIT and success-path lock cleanup.",
+      "evidence": "tooling/shim_signal_oracle_probe.exs extracts the actual two tests and their fixture helpers into an isolated ExUnit module. A private original shim copy passes2/2; a private mutant changes all four combined cleanup traps to EXIT-only cleanup plus ignored INT/TERM and also passes2/2. Fake compiler/release/engine come from the source fixtures; original checkout never changes.",
+      "recommendation": "Define the intended interrupted-build behavior and assert an observable signal-path effect with confirmed delivery and owned-process cleanup. Do not infer interrupted completion from a lock absent after a normally finishing build; takeover ownership should be checked separately.",
+      "refactor_hint": "A final-state cleanup assertion cannot distinguish interrupt cleanup from ordinary success cleanup.",
+      "limits": "Two selected fixture tests only, not the full suite or real release build. No held-build control establishing an immediate-unlock or nonzero-exit contract: Bash can defer traps during foreground work, and the current trap does not itself exit. This finding establishes oracle insensitivity, not a production signal-handling bug or required abort semantics. Cross-unit deduplication pending."
+    }
+  ],
+  "preserve": [
+    "Exact node identities/counts, cycle/self-loop/external and missing endpoints, diagnostics and adapter results constrain synthetic fixtures. Repeated-call equality tests determinism; it is supplemented by independent expectations. These are fixture contracts, not graph UI or runtime dependency semantics.",
+    "Trusted subscription observations keep the generation; switching to API-key rotates it; unknown invalidates with untrusted_lifecycle; rebound differs from both previous values; stopped clears. Named owner is actually stopped/recreated and same-mode observation gets a new generation. This is owner restart coverage, not full daemon restart.",
+    "Private owner/store with fixed clock, via support helper. Malformed account-mode/header payload retains same-generation 83% as stale and a valid 42% update recovers. Valid mode change rotates and removes old window facts; unknown classification clears generation/windows. Cross-provider writes leave Claude snapshot unchanged. Injected rejection/failure-recorder errors are surfaced. Exact redacted-message shape excludes correlations; no live provider request.",
+    "Actual cat ports and recorded StreamDiagnostics exercise direct turn/failed handling. Structured rate limits and diagnostic session-limit text pause; unrelated diagnostic remains error. Ports have on_exit cleanup in addition to success cleanup. This is handler classification, not scheduler pause/resume or provider execution.",
+    "Workflow-backed accessor checks nil model, explicit model, default command, permission defaults, valid acceptEdits and invalid-value fallback to bypassPermissions. Preserve or explicitly reconsider permissive fallback in the package contract; tests characterize configuration, not authorization enforcement.",
+    "Synthetic JSONL with real supervised tailer and manual polls tests history backfill, session retargeting, missing-path recovery, killed inner-tailer health with opaque logging, malformed-line skip and explicit backfill/live ingress. Cold-start operator request IDs deduplicate then flush to exact session; unresolved buffer retains newest 32 of 40. Owner process exit is monitored to normal tailer DOWN. Body cap requires truncation marker and <2000 bytes for max_body 1000, not an exact bound. Display callbacks do not prove TUI rendering. First test says in order but assertions only check role/body membership; isolated extracted-assertion probe confirms the local gap in tests-4-cont-01.",
+    "Lifecycle/unknown normalization, optional fields and nonbinary-to-nil cases, actual subscribed dispatch and per-identifier exclusion. Malformed dispatch returns ok. Does not exercise HTTP ingress or a running Claude hook.",
+    "Restores injected dashboard URL provider; exact set of four hook names; endpoint sampled from StopFailure. Shell-command substring checks require timeout/silencing/header/exit suffix and normalized slash; does not execute curl or prove wall-clock bound/exit behavior. Write test decodes actual JSON and cleans generated path.",
+    "Structured and textual limit classifications have negative ordinary-crash/stack-line-429 controls. Prose reset extraction, structured reset priority, timezone-resolved provider refusal, missing reset nil, 404/529 and banner-without-provider-provenance rejection are explicit. These finite fixtures are not exhaustive language parsing or current provider protocol validation.",
+    "Pinned fixture normalization carries provider/backend/source/version and reported quota only. Unknown status with quota/reset omitted stays unknown and absent, not zero. Reconciler refresh at reset+1 makes health/window stale. Concrete drift/range/unknown-field and legacy/OTel rejection cases, plus fixture forbidden-substring checks. Test title every non-allowlisted field is broader than finite examples; do not report exhaustive privacy proof.",
+    "Real adapter ports talk to scripted shell app-servers. Workspace/base/telemetry env, model override, dynamic tool advertisement, invocation identity, tool replies and 110KiB spill file round-trip are asserted. Two sessions coexist but turns run sequentially; the shared frame check sorts model values, not per-session identity. Closed port and exit-1 failures remain clean errors. Meter ingestion and redacted callbacks are injected. Provider refusal pauses preserve retry counts, record reset (including controlled atomic-rename failure), respect global/label/operator holds, and resume at reset through direct reconcile; entry lacks a generation and expects legacy two-tuple resume. Later unrelated crashes, stale/quoted/tool banners and assistant-only banner do not inherit quota classification. No actual Claude service, full controller run or rendered UI exercised.",
+    "Mixes real OS and injected boundaries: live BEAM procfs identity, actual sleep process-group pidfd reap, trap-installed readiness before delayed TERM wait, real distinct child found through pgrep, and group cleanup after leader exits. Identity-change barrier uses injected reaper, not a real PID-reuse race. Private trust JSON preserves sibling keys. Fake procfs with injected kill tests strict descendant cwd, protected self tree, shallow-root refusal, later-appearing process resweep and bounded exhausted warning. real_proc scenario uses real procfs and inside/outside sleepers, not launcher stop end-to-end. Its cwd wait exhausts as ok and inside sleeper lacks fallback cleanup if reap fails; retain as failure-path hygiene candidate, not proven leak. No real RC service attachment.",
+    "Mostly shell-text construction checks: success chain, credential scrub before exec, configured base quoting, flag order and absent optional flags. Failed-workspace case actually runs bash with stub claude and requires nonzero/no launch/no token output; successful launch credential removal is not exercised here. Resume ID requires private transcript existence. Hook-settings environment-dependent case accepts nil or binary and only constrains nonraising return shape.",
+    "Tmux mock command/reply handshake tests readiness timeout cleanup, failure retention when pane kill fails, successful non-RC session metadata and both ProcessReaper registrations, unavailable RC attach cleanup, and missing hook listener rejected before any tmux output. Fabricated teardown PIDs have host probes/signals stubbed in failure cases. Readiness/RC remain injected pane text; no live tmux/Claude. Serial application-env override is restored by put_env (absent becomes nil). receive_barrier and Task.await infinity do not provide a local bounded failure deadline.",
+    "Mock paste/pane/interrupt plus actual HookEvents dispatch. Successful Ctrl+C returns correlated pause request; failed interrupt returns error, not paused. Silent timeout, repeated heartbeat extension, provider-hook-only delivery acknowledgement, raw session ID versus synthetic display fallback, structured StopFailure quota versus ordinary auth failure/assistant prose preserved. Heartbeat timing uses wall-clock sleeps; helper drain recursion has no overall local deadline. No HTTP hook transport, provider or UI verification.",
+    "Mock literal send-keys followed by Enter; newline/control sanitization, all-control empty/no send, invalid payload/session, Ctrl+C, immediate success callback and missing-tmux failure callback, noop. A success request ID demonstrates transport command completion, not provider acceptance or persisted delivery. Sanitization sample asserts no newline and matching printable text but does not exhaustively inspect every control byte.",
+    "Preserve distinct submission contracts: hook/RC path never clears input and sends Enter best-effort even after echo timeout; transcript path clears/retypes missing echo and returns prompt_not_delivered without Enter on timeout. Mock command response sequencing drives actual function paths; paste chip/prefix are fabricated observations. Drain rejects unexpected clear commands until completion marker; not manual TUI testing.",
+    "Mock banner immediate URL and footer-driven /rc, Enter, dialog scrape then Escape. Timeout still dismisses dialog and yields nil; no evidence at zero budget nil. These characterize text/command protocol, not real service availability; fixed captured/fabricated strings may drift independently.",
+    "Callback envelope preserves event/session/thread/turn details, DateTime timestamp, and nested transcript without flattening type. Title says merges event/timestamp over details but supplied details contain no colliding event/timestamp; exact overwrite precedence is not constrained by these fixtures.",
+    "Mock pane lookup plus injected group liveness/cleanup tests cleanup_proven only after group/pane absence, observed disappearance overriding raced signal error, and distinct pane_still_alive/process_group_still_alive errors. Invalid session is a no-op. High fabricated PIDs exercise already-gone path, not real kill. Own-pane test contains another-owner negative control; orphan test alone has only dead owner, supplemented by ReplAgent wrapper live-owner/unrelated-window controls. No actual tmux or provider teardown.",
+    "Mock tmux plus actual temporary JSONL/tailer: missing cold transcript returns no_transcript; warm completion and prompt-record callback correlate turn identity; structured API error versus assistant quota prose remain distinct. Pause without appended terminal record returns pause_confirmation_timeout. Warm-from-end fixture starts empty, so its title alone does not prove historical completion exclusion (TranscriptTailer has separate explicit prehistory test). Pump/drain helpers lack an overall local deadline.",
+    "Wrapper integration over mocked tmux, private transcripts and HookEvents. Resume requires file existence and omitted handle stays clean; RC/resume flags and attach text are simulated, not live CLI acceptance. Dead/live/unrelated owner sweep controls supplement Reaper tests. Sequential turns preserve thread and change turn IDs without new-window. Cold-start materialization, missing echo/retype, timeout/gone pane, deliver-now versus checkpoint queue signals, exact control-byte sanitization and single Enter are covered. Transcript pause requires terminal evidence; failed interrupt and no terminal remain errors. Hook path emits control completion but not assistant/tool display events, and never clears/retypes. Many drains use no overall local deadline; some minimal send/interrupt/empty fixtures create transcripts without individual cleanup. Older readiness-failure helper supplies PID5050 without the newer Launcher test's explicit host cleanup stubs: inspect production containment identity before executing this test. No UI verification.",
+    "Explicit midnight/noon next-day rollover, reset-date DST gap/overlap, timestamp normalization, invalid/zoneless unknown, and repeatedly expired explicit deadlines stay nil. These are deterministic time-policy contracts, not actual provider wake execution.",
+    "Real private file and supervised tailer with manual polls: partial trailing line deferred, skip nonconversation, incremental non-reemit, attach cutoff including initially partial record stays backfill, shorter-file replacement restarts reading. Distinct terminal assistant/API/system/result error callbacks, retryable api_retry and tool_use do not terminate. Explicit from:end prehistory then append test constrains historical exclusion. Replacement fixture only shrinks same path; does not establish same/larger-size inode rotation. Cloud-authored test is identical synthetic local file shape, not phone transport. Selective event then turn_end receives do not prove callback order.",
+    "Notification/disk conversion preserves roles, provider/fallback turn IDs, tool output/diff/title, skips progress/control and empty records, passes pre-extracted event unchanged. DeltaRenderer path actually generates expected diff fences and markers, but no terminal rendering. Multi-block disk fixture asserts ordered roles assistant then command; stable record/block identity distinguishes equal bodies and replays same IDs. Queued prompt attachment becomes user row while slash/control records skipped. Lower-level ordered extraction does not constrain DisplayTailer callback forwarding order.",
+    "Exact Decimal cost and additive token dimensions are reconciled against an independent sum in 50 generated cases. Request retry identity ignores source sequence changes but changes with trusted attempt/worker/producer or run; missing request uses session sequence. Missing cost/cache/time stays nil with ordered coverage reasons. Unsupported source/relationship/identity/backend fail bounded, per-request model/effort survive, prompt/capability do not. Pure adapter inputs assume trusted correlation; authentication is tested in Telemetry separately.",
+    "Serial persistent-term cache reset plus private credential fixtures and injected request callbacks. Worst usable allowed window, above-100 clamp, invalid/negative rejection, weekly-first ordering, absent supported weekly nil versus omitted optional window. Distinct missing/malformed/empty/expired credentials; valid token delivery to callback; HTTP 429/auth/other/transport/raising callback outcomes. Counters prove cache hit, TTL expiry, uncached other errors and reset; 429 retains prior reading during backoff without request. No actual remote HTTP and no measured production quota saving. Expired-token test calls token reader, whereas missing-credential fetch explicitly spies no request; retained reading test does not assert stale age/health presentation.",
+    "Named supervised receiver with real listener; most submit calls invoke Receiver.call via Plug.Test, while partial-body test makes a real loopback TCP request and observes408. Pinned fixture exact Decimal/tokens, trusted correlation, bounded subagent categorization, nil optional coverage, headless/replay/stale-session/cross-ticket exclusion, version/field grammar and content allowlists, auth-before-malformed-body with log redaction, bounds and recovery all asserted. Held authorization demonstrates concurrent gate; full rate capacity rejects malformed body before decode. Replacement/revoke and late release cannot revive old capability. One acceptor-supervisor child is structural evidence, not direct maximum-socket concurrency proof. Model test suppresses unchanged model but does not supply a changed model. Deterministic capability collision refuses new launch but does not then exercise original token. Status redaction assertion searches full Bearer value, not separately bare token. No provider-generated traffic or UI.",
+    "Real private owners/stores, fixed mint/clock, direct adapter calls. Unlike Claude observe same-mode continuity, Codex same-mode account update rotates absent explicit proof; token refresh/quota do not rotate. Distinct absent/logout/unsupported/untrusted/teardown reasons, canonical last-good health and recovery, keyed multi-limit protection and compatibility observer exclusion after malformed/lost continuity preserved. Separate compatibility file cannot overwrite canonical store. Copied session cannot rebind after teardown; actual owner stop/recreate retains topic and fresh generation, outage-created binding needs original authority. Finite sequence enumeration checks refresh equality and repeated-auth generation change, but generic nil-or-binary assertion alone does not constrain logout/unsupported/teardown after every prefix; individual examples cover those cases. First startup privacy test declares raw identity without supplying it; notification privacy fixture does supply it. No live account/provider or daemon restart.",
+    "Real cat ports inspect protocol frames, injected executors and real ToolCallLedger. Modern/legacy approval decision strings, approval-required refusal, stable callId, paused command decline/tool nonexecution/idless notification pass-through. Closed-port replay returns stored result with exactly one execution; different thread same call executes separately; conflicting payload fails with execution count unchanged. These are sequential in-process replay checks, not durable restart or concurrent execution proof. User-input approval checks exact answer; noninteractive fallback checks only map plus event, not answer content. Port cleanup uses after.",
+    "Actual private directories/symlinks test canonical workspace containment and root/outside/escape distinctions; remote empty/control strings rejected. Command model/effort quoting exact string; metadata cat-port presence and remote-host omission. Conditional setsid path starts real adapter process and requires group/root identity, cleans in after; absent setsid takes assert true rather than proving containment. Already-closed port stop safe. No SSH execution.",
+    "Schema default is locally constrained to a valid string enum and legacy map rejected; explicit variants including never accepted, trimming and invalid-message hints checked. The non-never comment exceeds this local membership assertion, but schema_test.exs406-410 independently asserts the parsed default equals untrusted. Candidate03 not promoted: preserve that exact schema assertion rather than claiming a suite-wide coverage gap.",
+    "Real shell parent/child teardown with pgrep readiness and owner-outage port cleanup; not an actual Codex database-lock scenario. Pure start/resume frame policies, dynamic-tools omitted on resume, matching thread genuine versus substituted fresh, invalid response and error fallback preserved. Delayed shell response exercises startup floor past steady timeout. Real shell fixture sends pre-turn quota notification and current callback gets redacted notification; closed-port handshake yields error. Fresh-frame dynamicTools assertion only is_list, supplemented elsewhere by exact tool tests. No live Codex service or UI.",
+    "String trim/missing/blank/type errors, atom/string lookup and exact true/false acceptance constrain argument helpers. Presence separate from truthiness; conflicting atom/string keys and explicit nil precedence not covered here.",
+    "Injected declare/unblock callbacks and decoded responses constrain positive integer parsing, atom-result formatting, unavailable and cycle errors. Strict 7x rejection differs from permissive integer parsers elsewhere. No real graph/cycle computation or tracker update.",
+    "Injected five-arity and legacy two-arity emitters; reason fallback, absent false, attention-dependent severity defaults and explicit severity, invalid boolean and unavailable error. Callback argument contract only: no durable alert, reserved-topic enforcement, listener routing or delivery proof.",
+    "Injected publisher tests accepted vocabulary including exact decision lifecycle names/correlation payloads; rejected names/required fields and missing publisher. Per-turn cap/reset tested by returns; wrapper dynamic_tool_test supplies stronger callback-count checks. Missing-payload assertion uses %{} pattern which matches any map, so it alone does not prove empty map. No Exchange, DecisionStore or publication durability.",
+    "Error rendering keeps ownership lookup unavailable distinct from denied, exposes bounded named status/reason examples and catch-all inspected reasons. String assertions prove these fixture messages only; catch-all tuple test does not constrain detail redaction.",
+    "Six named handler families aggregate to exact nine expected names, with spec count/key/membership checks. Local list excludes TicketState; its separate registration test covers dispatch. Per-handler count plus membership does not independently prohibit duplicate specs replacing a missing tool, though aggregate tools equality constrains names returned by tools/0.",
+    "Injected client, raw-query trimming and default variables, object variables pass-through; atom/string nonempty errors mark failure. Invalid query/arguments/variables use flunk callbacks proving no invocation. No real Linear transport or authorization.",
+    "Exact success/failure envelopes, JSON round-trip maps/lists, inspected non-JSON fallback, recursive tuple/map/list normalization preserving booleans/nil. Strong normalized-type guard complements earlier transcript boolean gap; serialization compatibility distinct from redaction.",
+    "Injected replier/resolver verify normalized arguments/terminal reply option and return envelopes; injected not-verified and denied errors render explicit failure, with ownership-unavailable covered separately by ErrorsTest. Here malformed inputs return errors but success callbacks do not spy noninvocation. No actual GitHub ownership lookup, mutation or post-write verification.",
+    "Literal ticket subscription boundary explicitly rejects global/executor/wildcard ticket patterns and spies no callback. Legacy unsafe unsubscribe allowed for cleanup. Valid patterns and malformed-dot/missing patterns covered; specs advertise restricted examples. No actual subscription persistence or delivered events.",
+    "Desired state only, prefix/case/whitespace normalization, forbidden Executor states and malformed values rejected with flunk writer, stale tracker failure exposed, missing writer unavailable. Actual DynamicTool registration/schema and callback dispatch checked. Injected writer does not prove atomic label replacement or remote tracker race handling.",
+    "Real capture Agent with injected publisher gives exact publication counts: third bare progress rejected without callback, explicit reset allows four across simulated turns, milestones/custom independent. Stronger than return-only unit checks; explicit reset simulates turn boundary and does not prove runner invokes it. No live Exchange delivery.",
+    "Nested/alternate usage and rate-limit shapes, missing nil and combined extraction covered. Most token cases inspect input only (one output), so do not infer complete counter totals/precedence/dedup coverage from these examples.",
+    "Exact account rate-limit frame, start/resume policy and cwd/id fields, dynamicTools omitted on resume, turn/operator prompt and sandbox/approval propagation. Fresh tools only list-typed here. Pure frame shape, not provider acceptance.",
+    "Real scripted ports exercise rate-limit/account reads, malformed response errors, valid and malformed late sensitive responses quarantined across subsequent different request, no callback and no secret log. Account response reduced to auth mode; startup notifications dispatched while thread/turn response waits. Closed ports degrade to errors; changed resumed thread marked fresh; Codex initialization enables probe flag. Sleeps1.1s induce timeout against real clock, not explicit release barriers. No live provider; enabling flag does not itself prove later probe execution.",
+    "Direct handler state and real private ProviderTurnLedger preserve pause across no-active-turn before/after idle, fail pending operator callback, operator-message terminal boundary, anonymous completion guard protects next turn. Unrelated same-code failures and active-ID mismatch hard-fail without retargeting. No protocol send or controller delivery.",
+    "Real cat-port frame uses positive request ID and exact session policies/thread/cwd/text; closed and invalid sessions return errors. One positive ID does not establish uniqueness across calls. Frame write success is not provider acceptance or queue settlement.",
+    "Scripted port ignores unrelated JSON while awaiting matching result; startup floor values and real JSON line round-trip. Low-level send explicitly raises on closed port, unlike higher adapter error-tuple boundaries; preserve distinction or migrate callers deliberately.",
+    "Pure classifier supports wrapped transport losses and exact unequal active-turn mismatch; same ID, trailing punctuation, no-active-turn, provider rejection, timeout and unwrapped error remain nonrecoverable. Classification only, not restart/recovery execution.",
+    "Real cat ports plus metadata helper: string/atom map usage retained, invalid/absent usage omitted. Non-map payload only asserts map; claims unchanged port metadata are not compared against baseline. Broader port metadata tests constrain individual fields.",
+    "Pure classification fixtures distinguish input-required turn methods, retryable and terminal errors, quota refusals, no-active-turn responses and reset hints. JSON-prefix detection is only a candidate classifier. Exact error strings supplement weaker binary-only pause reason assertion; not provider acceptance, scheduling or control confirmation.",
+    "Pinned/compatible fixture normalization plus Input and selected Reconciler calls preserve arbitrary bounded bucket IDs, sparse patch versus full snapshot intent, API-key unknown monetary balance, reset freshness and typed drift failures. Twenty-five generated supported-ID cases compare exact key sets; hostile 33-bucket input is rejected while nine buckets produce 36 windows. Privacy sentinels cover account/capability fields and unsafe IDs. The test named full snapshot removes omitted windows only compares adapter window lists, without applying replacement through Reconciler; record that local scope rather than alleging reconciliation broken. Freshness checked reset plus one second, not equality boundary.",
+    "Exact timezone, minute-end rounding, recent-past clock/date handling, year rollover and DST fixtures constrain Codex text-reset policy. Numeric future exhausted-window reset wins over text; real cat-port metadata tracks independent exhausted windows, retains absent patch facts, clears recovered windows and expires at deadline. Invalid/expired explicit hints remain nil. Provider-specific policy differs from Claude and must survive shared extraction; parsing alone does not establish scheduler resume. Schema validates configured IANA zone.",
+    "Pure notification extraction fixes roles, provider/fallback turn identity, delta markers, command action/output/workdir, nonzero exit title, parsed tool input/output and string-keyed false success. File edit output and skip rules are exact; no renderer or real-provider behavior is exercised. Non-interactive and display formatting remain separate boundaries.",
+    "Direct handlers with real cat ports and private ProviderTurnLedger stores constrain exact/idempotent terminal retirement, accepted-ID retirement before resume, pending control generation, hard error versus quota pause and paired idle/interrupted completion. Closed tool-response port returns terminal error after tool execution and suppresses completion event; oversized output round-trips through private workspace spill. Real account owner plus injected private availability observer tests reduced account/rate events, unknown lifecycle invalidation and sentinel exclusion from outcomes/logs, including paused RPC routing. Explicit unlimited clears availability without rotating account identity. Live turn defers notification checkpoint; idle pending interrupt preserves other state. First emits-before-completing test asserts callback event presence only after synchronous return, not an independently observed ordering boundary. Script-free direct tests do not establish provider/TUI behavior.",
+    "Fixed-clock pure policy plus private ModelAvailability persistence verifies expired text receives 300-second minimum, configurable 60-second minimum, repeated refusal holds of 300/600/1200/2400/3600/3600 seconds, streak reset after long absence and unchanged future numeric reset. Exact just-before/at decisions guard timing; fresh unknown refusal does not inherit expired deadline. Real cat-port exhausted-window metadata checks bare patch clears snapshot bucket. Helper invokes policy and ledger explicitly as runner would; does not prove automatic scheduler wiring or wall-clock resume.",
+    "Scripted app-server integration drives real CodingAgent sessions through numeric quota pause, stale completion on resumed turn, text-reset fallback after below-100 update, quoted assistant/tool refusal and bounded silent timeout. TurnAlerts persistence, direct orchestrator control handlers and fallback reconcile constrain provider-limited versus human-waiting state, unchanged retry budget and resume-message boundary at reset. Operator/global/label pauses survive both working and paused starting status and are never converted into automatic quota recovery. This is a fake provider and manually invoked reconciliation with a resume message to the test process, not proof of real provider recovery or rendered UI.",
+    "Exact answer choices cover session approval preference, once fallback, allow-label fallback, multiple questions and rejection/missing shape. Returned descriptive third tuple remains session-approval text even for once/allow answers; tests intentionally expect that current contract, not actual granted authority. Unavailable answers compare helper value per question; helper separately requires non-interactive wording. No provider approval execution or transport confirmation.",
+    "Private persisted claims constrain first owner, rejection naming live holder, expired-lease succession, named revoke/release and observer separation. Identity test title says never inferred from environment but actually checks supported explicit AIUR_EXECUTOR_ID fallback plus argument precedence; preserve implementation contract rather than title. Lock timeout tests constrain constants and clamping/invalid override policy, not actual lock contention or competing claimant atomicity. Environment helpers restore absent versus present values.",
+    "Real supervised Principal renews private owner and observer entries twice through bounded polling; lease renewal is explicitly not consumption (nil acknowledgement timestamp and zero count). Observer stays observer while owner remains; stop_supervised releases ownership. This exercises component supervision, not full launcher/executor lifecycle or cross-process contention.",
+    "Private repo-state root verifies template seeding, exact current-section import without superseded text and source preservation, and non-overwrite on repeated init. Serial application override restored. No concurrent initialization or malformed legacy-file corpus exercised; durable operator context remains distinct from transient agent logs.",
+    "Real Exchange/listener/private inbox tests record three operational topic classes without executor mode and omit free-text fields. A second inbox reads earlier writes; stopped/restarted inbox uses same ledger; successor receives exact six unacknowledged wake IDs after four acknowledgements. Observer cannot advance cursor or write owner consumption evidence. Unattended 100-enqueue fixture checks <=25 records plus exact eviction cursor75, so cursor advance cannot be equated to consumption. This is component persistence and injected publication, not daemon reboot or delivered operator action. Setup deletes rather than restores executor_state_dir/executor_mode overrides; assess enclosing TestSupport before alleging isolation defect. Ledger reader maps read errors to empty, but restart test demands two and bound test additionally demands cursor75.",
+    "Private claims with fixed clock constrain own-acknowledgement activity versus shared cursor movement, stalled renewing owner, expired lease, idle empty queue and observer role. Removing persisted evidence yields exact unknown state, never active; direct acknowledgement by non-owner fails. Roster state and describe-line assertion supplement each other. Activity means acknowledged stream consumption here, not demonstrated task completion.",
+    "Injected membership/running snapshots preserve terminal rows and reject authoritative status for degraded or truncated membership. Injected HTTP responses check ticket-branch PR evidence, nil absent PR versus error unavailable tracker (despite misleading unavailable test title), and optional failing-CI enrichment. Ordinary-ticket request callback rejects check-runs calls but does not count all requests or forbid commit-status path, so no production quota saving is established. Token/cache state restored; no real GitHub request or measured population.",
+    "Real named store with private state directory preserves initial anchor through repeated observations, counts false-to-true owner episodes, records alert and PR-check timestamps including checked nil, lists identities, and reports active-alert status when forgetting. Stop/start store reloads anchor, last alert, dispatch count and PR number; this is component restart within one VM, not whole-daemon restart. Fresh store absence stays nil.",
+    "Pure policy fixtures cover inclusive first threshold, repeat cadence, independently disabled first/repeats, invalid negative thresholds and earlier PR age floor. Advisory message assertions include numeric age, push age, owner absence, dispatch count, missing CI/PR wording, and per-ticket resolution topic. No terminal UI or automatic takeover; age_hours title says whole hours while fixture deliberately preserves fractional0.5.",
+    "Real private store/monitor with injected clock, snapshots and emitters checks first/repeat advisory cadence, component restart persistence, terminal/disabled resolution, out-of-scope grace, non-authoritative retention, failed PR-refresh cached floor, brief absence and independent tickets. Positive effects await matching callback messages. Some negative checks wait on already-true stored values; empty-mailbox helper only proves tick dequeue, not completion. Initial Store.observe also precedes PR refresh/emission in production, so record existence is not whole-tick completion. Production captures now once near tick start, limiting the alleged clock race; retain synchronization concern as hypothesis until demonstrated. No actual alert-feed routing, automatic timer cadence or daemon reboot is proved.",
+    "Pure projection tests assert exact rational weighted numerator/progress/coverage and counts excluding non-work terminals, plus ETA requiring sufficient completed-weight evidence. Stale/missing member progress, invalid run despite cached fields, unknown membership freshness, unhealthy complexity and malformed containers suppress exact progress/ETA with distinct reasons. Denominator signature is order-invariant and changes with weight or terminal eligibility. ETA formula correctness is not empirical predictive accuracy, and no rendered freshness/age surface is tested.",
+    "Typed run scope requires opaque nonempty identity; explicit ticket sets accept only joinable qualified identities and count rejects. Intersection requires run AND ticket; explicit tickets include pre-membership usage across runs. Empty ticket set has explicit empty/unselectable public state. No bare numeric ticket inference.",
+    "Registry-backed fake provider lacking historic aggregate relationship produces exact unknown missing_historic_relationship_revision instead of crashing or zero money. Single direct adapter fixture, not broad provider-price validation.",
+    "Sixty generated mixed-provider/run/dimension cases reconcile rollup against contributor sums; unknown pricing checks coverage and nonnegative rollup, not an independent monetary oracle. Forty cases independently sum generated token counts by run and demand exact scope selection. Preserve unknown money coverage separately from valid zero; tests do not prove current real provider pricing.",
+    "Pinned fixture adapters preserve Codex absolute-thread versus delta-turn identities, context partitions, Claude additive cache dimensions and exact Decimal from raw JSON. Missing tokens/time/account identity stay nil with reasons; mixed cache TTL or source revision drift yields coverage instead of fabricated facts. Retry identity stable, new attempt/run rotates; legacy zero-filled compatibility is explicitly separated from canonical envelope. Injected prompt/path sentinels excluded. Overlapping streams test proves distinct envelopes/epochs, not downstream avoidance of double counting.",
+    "Pure adapters preserve disjoint DeepSeek cache-hit/miss input, OpenRouter upstream separate from query source and case-sensitive synthesized identity, invalid upstream dropped while usage retained, direct-provider upstream absent, Kimi missing cache nil, and atom-key usage. Key round-trip fixes dimensional persistence; no real HTTP provider or current price verification.",
+    "Injected publication callback receives exact normalized envelope; unsupported backend and malformed payload publish nothing; callback exception does not propagate into worker turn. Known account generation is supplied trusted context. Direct observe call has no real normal-run launcher, dashboard/debug toggle or durable sink, so title independence is narrower than end-to-end execution.",
+    "Test-only backend discovered via registry normalizes exact input7 and relationship revision. Establishes an extension seam without provider-specific dispatch in caller; no remote provider or dynamic plugin loading.",
+    "Private files and pure blocks compare all cells to existing projection, preserve distinct relationship revisions/upstream dimensions, round-trip covered metadata and recompute checksum for legitimate legacy dimension omission. Tampered checksum rejected, missing/empty distinct, gaps/empty ranges rejected. Atomic byte-identical title only reloads cell equality; no byte comparison or interrupted-write proof. Pricing-date span fixture only asserts Date/nondecreasing endpoints, not varied endpoint exactness.",
+    "Pure state-machine tests constrain contiguous prepare, phase ordering, rollback watermark and finalized cover; private file reload checks retired watermark. Round-trip loop omits source_retired despite every-phase title. Gap/path-escape fixtures lack checksum, so strict key gate rejects before decode_blocks; isolated mutation probe confirms both pass with structural validation bypassed, while correctly signed controls detect bypass. Recorded tests-4-cont-02, no production acceptance bug alleged.",
+    "Exact fixtures constrain min recovery window, max-count pressure, raw-byte pressure, batch bounds and monotonic retired watermark; finite grid validates safety for retire outcomes, but accepts any noop and is not a complete liveness oracle. Explicit examples demand retirement. Invalid configuration clamps specified defaults; pressure arithmetic not measured disk savings.",
+    "Real private ledger/coordinator/block/manifest integrate raw-prefix retirement with floor-plus-tail exact projection reconstruction. Constructed prepared state rolls back preserving raw; source_retired rolls forward; in-flight floor and broken-floor aggregate fail closed; corrupt manifest quarantines and halts retirement. Sync callbacks stubbed and crash states authored directly, so no actual killed-process or power-loss durability proof. Content-free artifact assertion uses ordinary fixtures without injected secret-bearing inputs; preserves observed output shape, not adversarial whole-pipeline privacy.",
+    "Pinned times assert inclusive-start/exclusive-end peak windows, effective-dated weekend rules, malformed classification unknown and resolver conservative-peak fallback. Synthetic schedules make timezone offset and schedule-driven boundary scanning observable where default windows could not distinguish an omitted offset. Unknown schedule has no next boundary. Named-offset constant test does not prove its comment/documentation; behavioral synthetic fixtures supply real coverage. Historical fixture policy only, not current provider schedule verification.",
+    "Fifty generated parent/subset token cases independently assert canonical input+output and exact sum of priced component token counts. Decimal amount equals sum of returned components; this guards conservation but is not an independent rate oracle. Provider EUR remains separate from API USD. Uses fixture registry/default catalog, not measured invoices or live provider data.",
+    "Fixture helpers build explicit historic source revisions and contrasting Codex subset versus Claude additive relationships, DeepSeek disjoint input/cache counts, trusted/unknown account generations, occurrence/ingestion timestamps and distinct EUR provider estimate. Custom price table carries exact decimal strings and version/source metadata. Fixtures deliberately supply identity/semantics rather than validate real ingress; Map.merge overrides are shallow. No executable test in this helper file.",
+    "Exact expected Decimal totals and component token counts constrain additive/subset remainder pricing, context/cache-duration partitions and mutually exclusive alternatives. Provider authoritative discrepancy is retained but prevents inferred pricing; unknown relationships/model/auth/currency/time/required dimensions and invalid remainder preserve reasons and suppress totals. Missing one rate retains four priced components while total stays nil. Historic relationship does not fall forward; unknown account generation removes tier join without erasing independently supported API estimate. DeepSeek occurrence-time pricing differs from aggregate conservative fallback. Distinct provider/API currencies and subscription estimate disclosure are asserted; no actual billed-spend evidence.",
+    "Pinned catalog fixture counts/rate matrices and custom effective-date series constrain exact historical decimal rates, provider/model/currency/relationship/dimension/context/TTL join boundaries, flat versus peak/off-peak intervals and exclusive expiry. Unknown window fallback is conservative peak; uncovered window differs from not-yet-effective. Duplicate interval/revision conflict/float price and invalid metadata are rejected; registry fake provider accepted. Fifty generated date-series cases assert interval membership plus repeated determinism, supplemented by explicit old/new rate assertions. Source URL/review-date fields only assert catalog metadata: they do not verify linked sources or current prices. No savings claim.",
+    "Pure projections of supplied aggregate records constrain run/ticket intersection, qualified repository collision, cross-run explicit membership, separate currencies and provider/API bases, explicit unknown partition coverage and subset remainder. Grouped remainder is compared to individual Pricing result; positive computed overcount alone does not independently assert its subtraction. Provider-route/upstream exact values and counts supplement reconciliation flags. Aggregate missing occurrence time deliberately uses peak estimate. Unknown generation/backend omits tier keys; known-empty/unavailable/stale/partial remain distinct. Pagination proves first two pages disjoint and max limit, not full traversal/cursor invalidity. Cache-key test title claims every authority generation but only inspects scope kind, schema version and binary price revision; freshness changes all three generation fields together, not independently. Replay duplicate records preserve snapshot sans authority; no process restart or physical retention occurs.",
+    "Direct Plug controller calls with injected service fix exact pagination forwarding, retained partial presence as503 indeterminate not404, mutation status/identity forwarding and redacted domain HTTP errors. Trusted actor comes from conn assign while payload actor remains separately passed; test does not authenticate supervisor or prove downstream delegation enforcement. Missing/method helpers use JSON envelope. Path authority assertion removes supplied decision_id from payload but does not construct distinct conflicting body/path IDs at router boundary.",
+    "Endpoint.call exercises router/plugs without socket: hook dispatch reaches real PubSub, absent request marker403, pause/resume uses mock GenServer exact202 responses, stale tracker409 versus transient503, read-only403 and wrong method405. Read-only case has no callback non-invocation assertion. Shared decision history temporarily replaced/restored and exact51entries asserted; absence of token fields over potentially empty running rows is weaker. Private transcript feed fixes bounded newest-first events, diff signed-line rendering and invalid cursor422. StreamDeck read distinguishes current empty from pre-first snapshot timeout and tests configured Basic auth401/200. No actual provider pause or TUI behavior.",
+    "LiveViewTest plus intercepted GitHub transport counts zero for available cold store, inspector layers/filters/bodyless/missing entries and traced resource-change reception. Separate positive control proves warm resource hit makes zero and unique cold identity makes exact one REST fetch. Positive control is separate test, unlike per-case egress checks in ZeroFetchPageOpenTest; current fixture count is not a measured production saving. Store-change assertion checks existing ID rather than changed body, but receive trace establishes delivery and subsequent render crosses handler boundary. Budget ledger redirected away from operator database. LiveView protocol tests, not browser/manual UX.",
+    "LiveView route-specific content plus zero transport counts and in-test positive egress probes constrain six configured routes, GitHub-tracker dashboard, Build Order pages and manually driven refresh ticks. Cache reset avoids cached positive control. Held-ticket direct TicketDetail test isolates REST body read with relationship reader injected; it does not prove UI click or GraphQL-free ticket detail. One extra render is a same-sender round trip, not a universal completion barrier for separately spawned work. Some comments still describe obsolete one-request exceptions while assertions require zero. Transport fixtures are regression evidence, not host quota measurement or all-network egress proof.",
+    "Real LiveView server rendering over private telemetry and injected aggregate/Build Order snapshots constrains live versus latest retained source, unreadable retained evidence versus empty, typed selected membership and current-run spend exclusion. Retained source renders age/past-tense, live uses present-tense; aged SnapshotStore plus live registered publisher and pinned ceiling renders stale10m cap. Effective/session/configured ceilings and paused-reservation cause preserved; unknown cap suppresses wasted-capacity number. Exact zoom ranges asserted across six chart attributes and reset; generic range/sort tests only prove rendering. Missing auth configuration503 tested; provider spend uses injected exact amounts, not actual billing. Pressure gap fixture injects nil values but broad em-dash assertion is page-wide; no independent rendered-cell mutation probe here. RTK injected command responses distinguish off/missing/guard-held/empty/unreadable and known percentage, not measured savings. Restart fixture changes files/run identity within same VM, not daemon restart; no browser JS or keyboard accessibility execution.",
+    "Pure deterministic graph fixture generator supports bounded sizes, linear and binary DAGs, multi-root catalogs, cycle/self-loop, missing/external endpoints and explicit invalid/degraded diagnostics. Live update sequence is two supplied graphs and adapter is direct callback. Companion earlier fixture tests constrain counts/identities; this helper does not itself drive a browser, layout, large-run performance or live provider.",
+    "LiveViewTest plus recording fake source checks catalog mount without demand, three refresh clicks coalesced to one callback, subscription-before-demand and release/unsubscribe/resubscribe ordering. call_index and call_index_after explicitly flunk on missing calls, avoiding nil-ordering false positives. Cell-specific DOM assertions distinguish unresolved, empty, partial and unknown progress; seven failure causes plus generic unresolved preserve separate explanations and zero counts. Budget reset is rendered. Source-only UI tick asserts no calls but cannot prove a removed clock rendered. Deep links reject malformed/not-found without demand, distinguish failed initial selection, and reset authority rejects old instance generation99 after new epoch generation1. Real running PubSub with injected source updates working/paused/CI-waiting; stale80percent survives card, wave, overall, epic and breakdown with last-known age. Held loader callbacks exercise single-flight coalescing, late result after close/root change, invalidation generation and context teardown; receive blocks lack local timeouts but async result waits bounded. Structural invalid member remains fault cause despite rate-limit health. Current-session telemetry excludes prior member and zoom updates five chart attributes. Analytics-pane title overclaims placement/scope because test only checks presence. No browser JS, actual tracker refresh or production command execution.",
+    "LiveView server rendering mostly uses source/history/read-cache doubles plus private real Quota; one real file-backed AgentCacheMetrics sampler exercises reader-to-view but is started explicitly, so it does not prove application supervision wiring. Unchanged used-meter values and hand-maintained forbidden-client text scans are weaker than companion transport counter tests: errors/no headers or unlisted indirection can escape. Real ResourceStore deposit tests subscription but renders without explicit cross-sender barrier (companion zero-fetch test traces delivery). DOM-scoped checks preserve missing versus empty store, row elision and deep-link access beyond500cap, bodyless validators, token sentinel redaction, missing-auth503 versus unauthorized401, not-measured versus zero hit ratio and partial malformed-row coverage. Exact ranking by points, separate Core/GraphQL, reported/assumed costs, cache unavailable versus none/not-observed/not-deposited/policy-refused, and mid-window unobserved spend versus full-window external attribution all have fixtures. Per-credential stale age and unknown observation time rendered. Private SQLite admissions fixture fixes5total/3billable/2free and unchanged remount/sample totals, not broker writes or real savings. Structural keyboard region attributes do not execute narrow-viewport accessibility. Generic page setups do not universally override budget-ledger path; dedicated missing-ledger tests do, so enclosing TestSupport isolation should be checked before claiming complete hermeticity.",
+    "Server-side LiveView tests preserve active ticket identity across fleet replacement until returning to grid, stable numeric ordering, column-major slots, raw dial value across fleet size changes, and independent meter refresh without another fleet read. Injected control callbacks settle shared snapshot; commands retain old displayed state until a fleet notification and then adopt settled pause/resume state. Read-only forged commands have non-invocation mailbox assertions; mic hold is rendered state only, not audio capture or physical hardware. Commands option selection checks displayed detail but does not spy on decision writes, so never-commits in the title is not independently demonstrated here. Real PubSub registry and normal GenServer.stop constrain relay lifetime; durable feed tests write files before broadcast and require changed content/key lists, retaining LIVE pin and exact bus-header anchoring. Old-topic rejection tests broadcast after switching subscriptions and use a20ms sleep; whether an old message reaches the LiveView guard is unproven. Production handlers268-299 reload the incoming identifier, so an actually delivered stale message with the guard bypassed would read the old durable feed; the earlier current-feed-reload speculation is withdrawn. Channel test443-451 directly injects a stale tagged message but covers a different handler. Keep LiveView guard reachability as an unverified candidate. Provider unknown readings have structural attributes and no invented percent; stale retained weekly47 explicitly has data-freshness=stale while tests prohibit visible stale/age text. Progress similarly retains stale40 without a stale class. Reconcile this intentional presentation contract with age-rendering requirements rather than claiming stale age is displayed. CSS string and SVG geometry assertions are structural, not browser/hardware verification. Config-rescue test assumes absent config without an explicit throwing seam; production-feed cleanup removes event logs while enclosing TestSupport must establish transcript isolation. No tests executed.",
+    "Real bash dev shim runs against disposable fake repos, fake mise and echo/trace engine; tests do not launch a real release or exercise TUI. Preserve complete-release control reuse despite stale sources/held build lock, missing-artifact rebuild, signaled-only retry of transient exit75, launch-time pinned tool requirement before engine stop, and failed-release removal. Two concurrent invocations expect one fake release, but overlap uses a 0.5-second sleep rather than a held barrier. Compile-generation test verifies forced compile invocation and fake generation-2 files, not actual compiler dependency semantics. Restart emits deferred checkout-pinned rebuild; exact emitted command is executed through bash with a space in shim path and produces a release receipt. Foreign checkout guards reject build/restart/run before engine/build traces, allow ready-release control/RPC with notice, and refuse foreign control without a reusable release. Explicit target, trailing slash, same checkout and partial-tree cases are covered; the trailing-slash-or-symlink title actually supplies only a trailing slash for AIUR_REPO_ROOT. Agent-workspace test/test3 refusals preserve sandbox HOME logs and prevent reset/engine invocation across marker/root/PWD detection; non-test runs receive workspace-local runtime/state and leave bridge port selection to runtime. Provenance covers unknown outside git, no borrowing enclosing repo HEAD, missing/wrong/unknown stamp rebuild, matching SHA no-op, receipt absence after failure. Unknown-to-known convergence test invokes once, so its one-rebuild title lacks a second-run count (separate matching-SHA test supplements). Lock absent at engine entry is directly checked by fake engine, and old-owner cleanup preserves a manually rewritten foreign owner. Signal cleanup tests wait for owner-file presence but ignore kill result and process exit; fake release naturally ends after1second, so normal cleanup could satisfy absent-lock checks without proving signal handling. This is an unverified oracle candidate, not a production signal bug. Helpers serialize process-global cwd changes; wait_until raises on deadline. No tests executed.",
+    "Real shell engine plus mostly fake release/tmux/RPC/npm boundaries; source review only, no CLI/TUI execution. Identity probe tests project-keyed node, redirectable state and cookie; sourced helper pins a synthetic node, but its unique integer is VM-local rather than host-PID-qualified and does not itself redirect all state/HOME paths. File-name helper has separate host-PID assertion. Legacy config rejection precedes release startup, canonical/explicit/argument-terminator precedence and option-value disambiguation constrained. Readiness/operator resource checks include direct shell values plus lexical pane-export assertions, not actual pane inheritance. Message hostile text/base64 and stable id validation, executor version/idempotency/rationale requirements, numeric IDs and filters preserve safe RPC expression construction. Most routing tests print expressions or ignore fake-release exit status: they do not prove daemon execution or delivered decisions. Real wrapper semantics distinguish exit-marker success/failure, missing-marker failure, timeout124 unknown outcome and retryable75 only with release-change signal. Background detachment and dashboard suppression independent; configured host left unforced. Startup counter reaches readiness on third probe; alive/not-ready versus absent/crashed retained, but application-start/readiness ordering partly lexical. Init/version/findings/ask distribution-free args preserved. Dotenv fixtures enforce shell > repo > global, credentials as one group and blank placeholders ignored; run readiness-token scrub differs from init retention. Some direct helper tests source engine with ambient HOME, so do not claim universal environment isolation. Real owned sleepers exercise node-name reaping and private workspace containment, shallow-root refusal, tilde canonicalization and both-child cleanup. Sibling-survival test starts a real child but replaces kill_beams_matching with a logger; it constrains call shape, not actual sibling selection under killing. Stop sentinel/crash-marker state observed inside kill spy; grace loop exact10ticks and invalid30ticks each, not elapsed timing. Private stale-artifact fixtures assert removal/preservation by name and live PID, default3h preserved, disabled invalid/zero setting. Launch attach preserves existing session without cleanup ownership and propagates failure without leaked attach tempfile; distinct project sockets and live-not-ready no-teardown have spies. Launch-lock race uses delayed holder0.2s, fresh ownerless lock held; backfill-concurrent title tests sequential if-absent writes. Startup failure cleanup checks own generated paths and emits parsed crash alert. Real detached watchdog functions use absent unique pattern and stub reapers; seeded/no-seed distinction, ledger failure still cleanup, completed dump versus missing/incomplete/unchanged, inode replacement of identical bytes and bounded512byte escaped slogan tested. These are crash-evidence/reaping contracts, not automatic restart. Restart exact STOP/BUILD/RUN sequence, no rebuild when stop fails/still answers, malformed/missing/mismatched receipts/stamps fail closed, unknown/dirty/generic builder reported unverified, no-build plain bounce and failed-build recovery guidance depend on release availability. Receipt fixtures simulate metadata changes rather than racing a real compiler. Upgrade uses canned tags/fake npm, refuses unknown/brew/dev/live unless force, follows next/nightly without downgrade or silent channel fallback, and persistent notice suppression tested by second invocation. Registry-unreachable fake has no install logger, making empty separate log weaker than a positive recording install trap. Numeric/code, source string and fabricated release assertions are not production performance, savings, installation or end-to-end proof.",
+    "Lines1-1900 reviewed continuously. Early nested doubles distinguish retained counts, detail versions, unavailable/indeterminate store, and report rejected answers/revisions; QueueOrchestrator delegates production message functions. Direct render_payload bypasses mount and seeds assigns, so distinguish those template tests from LiveView requests. Persisted global pause survives same-name publisher replacement with stale snapshot, while real click exercises injected disk-full reply; read-only desktop assertion partly generic disabled text, mobile aria scoped. DOM/CSS/nav checks are structural, not responsive browser execution. Untyped status entries do not establish healthy typed Units membership. Projection-completion test has a20ms negative receive then positive notification; its final disappearance predicate differs from the initial empty-state text and may already be true, so do not count it alone as refreshed rendering. Missing first snapshot differs from unreachable orchestrator and read-model failure; unknown cause not labeled unreachable. Escaped decision markdown, retained partial counts and indeterminate missing-detail status are distinct. Durable outcomes intentionally absent from Units route. Burst tests use injected timer/flush barriers; helper implementation later in file remains unread. Authentication missing503 and configured401 distinct. Credential rotation followed by live_redirect makes capability locked and strips financial sentinel from socket, HTML and logs, retaining nonfinancial runtime seconds; authorized socket private context excludes credentials. Authorized usage test only requires nonlocked state among five possibilities, not a known amount or exact empty state. Real retained store and DecisionMetrics events plus same-name component replacements constrain removal of old2000ms latency when only requested event exists; twelve replacements leave cache size8. This is component replacement, not daemon restart. URL filter/open/close/search patches and ticket11 versus1110 exactness covered. Human and delegated open authority preserved. Deferred Commands stay open/blocking, answering moves to history and count0/1. StaleCountsStore deliberately returns0 while retained page reports1 to require same-snapshot chips; unavailable-store reload produces cell-scoped em dash rather than stale1 or zero. All Commands hides search/pagination; invalid cursor returns unavailable without killing view. Twenty-seven retained decisions, twenty-five dismissed, two open compare DOM identifiers with CLI set and totals. Direct detail beyond50 overview test begins at end of range, not yet reviewed completely. No tests executed; no finding promoted. Lines1901-3800 reviewed continuously. Direct retained detail outside50overview remains available and answerable/revisable; stale URL filter does not suppress selected resolved record. Unavailable/indeterminate detail hides stale overview/form and forged answer/revision submits have store-spy non-invocation assertions. Nonselected open Command can be answered without changing selected one, with exact store option/rationale checked. Overview eviction tests add newer records then explicitly reload, not simultaneous race. Versioned store spies constrain expected_version and revision expected_action_id from rendered detail rather than stale overview. Initial irreversible answers intentionally need no redundant confirmation; corrective irreversible revision does require it and unchanged revision_sequence0 is checked on rejection. Revision version refresh explicitly clears checked confirmation and draft; answer refresh test title mentions confirmation but only seeds custom text, so confirmation clearing is not independently exercised there. Exact direct-route lookup count2 includes disconnected and connected parameter passes. Delivery failure/retry uses real store, counted fake dispatcher, cache disabled and lifecycle notifications; checks one answer, failed and queued audit event, same mounted view retry removal plus fresh mount. Assertions still have2second deadlines despite comments claiming no deadline. Runtime writable-gate change leaves answer nil and no dispatch; stale-version/action conflict keeps draft, passes operator actor and version/action/revision-sequence, idempotency prefix only (not replay uniqueness). Append-only revision preserves original choice and stores new active answer; unavailable target creates explicit handled follow-up without claiming rollback, resolver/projector injected. Answer capstone delegates real OperatorMessages through QueueOrchestrator and checks exact six-event audit order, but test itself claims queue item, records delivery and submits acknowledgement/resolution. Revision capstone checks new action/prior correlation, resets ack/resolution, metrics normalization/human actor, history and exact eleven-event audit order; tracker fetch supplied and lifecycle manually reported. Queue notification precedes store revision-dispatched, hence separate await helper (not yet read). Deferral persists and emits Executor event without ticket queue; dismissal of nonblocking decision sends checkpoint judgement message only to live agent; gone remains empty. Free-form closure records dismissed with no answer, not lifecycle acknowledgement. Two metrics convergence/handshake tests now assert Command latency remains absent both before and after. They exercise events and a held seed barrier but do not assert changed metrics in rendered/assigned payload; their titles exceed their observable postconditions. Later helper and remaining sections still unread. No tests executed or finding promoted. Lines3801-6562 complete the source review. Direct Supervisor DecisionApi calls exercise actor/policy and delegated enrichment, not HTTP authentication. Human-required rejection leaves answer nil. History pagination10/20/25 remains distinct from refresh totals and retains off-page detail; revised answers update the exact row. Expiration is explicit N/A plus Expired, deferral stays open. Units URL version, invalid filter canonicalization, stable typed rows and generation changes constrained. Ticket context queries begin only after explicit selection; failed subscriptions retry while unsubscribe is expected only for successful subscriptions. Alpha/beta subscription assertions establish presence, not ordering. Conversation focus pins opaque handles, ignores other handles and uses injected projection-restart notifications, not real process restart. Message callbacks receive full ticket identity; edited drafts receive new idempotency IDs, unknown-result retries reuse the ID, and success permits a new ID for repeated text. Controls distinguish requested from applied until lifecycle events; read-only, unsupported, duplicate pending, changed state, stale generation and terminal membership paths constrain owner non-invocation. Lifecycle fixture identity uses display identifier plus issue ID/generation, so it is not independently full typed lifecycle correlation. Colliding display IDs across repositories/providers disable writes and forged handlers have non-invocation assertions. Membership failure renders unavailable rather than healthy zero. Add Agent default routing fixture deliberately differs from supplied complexity; expected preview calls production resolver and proves integration, not independent routing truth. Held tracker/authorization callbacks keep submit disabled and allow Close before release; submitted form values are authoritative without change events. Waiting hint requires verified authorization, with denied/deferred paths distinct. Partial label removal survives retry without repeating it. Real DispatchAuthorization runs with injected HTTP events, but verification fixture issue ID differs from selected issue, so do not claim identity coverage from the rejection assertion. Already-labelled plans do not rewrite labels. Ticket search includes title/body, unrevealed matches, bounded reveal and explicit unavailable counts. Family alias selection preserves intent independently of concrete model resolution. Helpers use private endpoint/store/metrics paths and restore config; stores disable filesystem sync, so tests do not prove crash durability. Queue worker is unlinked but has explicit :stop handling, without a DOWN wait. Bounded reload helper uses per-view sys.get_state barriers, checks one timer per view after bursts, and asserts unchanged snapshot mailbox call count with SnapshotStore; this is not a measured production saving. reload_view is an actor barrier, not completion of every spawned task. await_dispatched_revision is bounded at200 ten-millisecond attempts, correcting earlier unread-helper uncertainty. Cache cardinality is asserted before all-element freshness. All6562 lines now reviewed; no test suite or browser execution and no new finding promoted."
+  ],
+  "cross_references": [
+    {
+      "path": "src/test/aiur/claude/transcript_test.exs",
+      "note": "Ordered multi-block role assertion narrows tests-4-cont-01 to display forwarding; it is not a suite-wide absence-of-ordering claim."
+    }
+  ],
+  "follow_up_candidates": [],
+  "next": "Reconcile five findings and100 preservation assessments into final reports/package contracts. Tests-4 reading and candidate dispositions complete; four raw units remain: skills-prompts and duplication by name/concept/constant.",
+  "candidate_resolutions": [
+    {
+      "id": "tests-4-candidate-03",
+      "status": "not_promoted_existing_coverage",
+      "reason": "The local enum-membership assertion permits never, but schema_test.exs406-410 parses an empty config and asserts the exact untrusted value. Schema agent.ex15 supplies that default; defaults_to_struct embeds preserve it and finalize_settings only normalizes keys (scalar strings pass through). The intended non-never default therefore has a separate exact assertion. No production defect or suite-wide missing-coverage claim is supported.",
+      "evidence": [
+        "src/test/aiur/config/schema_test.exs:406",
+        "src/lib/aiur/config/schema/agent.ex:15",
+        "src/lib/aiur/config/schema/agent.ex:272",
+        "src/lib/aiur/config/schema.ex:73",
+        "src/lib/aiur/config/schema.ex:223",
+        "src/lib/aiur/config/schema/attrs.ex:12"
+      ],
+      "validation": "Source inspection only; no suite or mutation run."
+    },
+    {
+      "id": "tests-4-candidate-02",
+      "status": "promoted",
+      "finding": "tests-4-cont-03",
+      "validation": "Actual AST fixture callbacks/helpers with isolated owned sleepers; four successful probe results, exit0. Shared tmp_root! and test_helper source do not add process teardown."
+    },
+    {
+      "id": "tests-4-candidate-04",
+      "status": "promoted_narrowed",
+      "finding": "tests-4-cont-04",
+      "validation": "Actual helper returns during held production Monitor snapshot callback; actor barrier waits. Clock reread/race claim not established."
+    },
+    {
+      "id": "tests-4-candidate-05",
+      "status": "not_promoted_scope_clarified",
+      "reason": "Both test titles concern focus/subscription replacement. focus_logs loads the new durable feed and replace_transcript_relay synchronously GenServer.stop's the old relay before starting the new subscription. A later broadcast to the old topic therefore tests stopped-subscription behavior, not necessarily the LiveView identity guard. The actual guard rejects mismatched identity and reloads the incoming identifier only on a match; there is no demonstrated production defect. Keep subscription regression coverage and recommend direct stale tagged-message injection to separately protect already-queued mailbox messages.",
+      "evidence": [
+        "src/lib/aiur_web/live/streamdeck_live.ex:268",
+        "src/lib/aiur_web/live/streamdeck_live.ex:1751",
+        "src/lib/aiur_web/streamdeck_transcript_relay.ex:13",
+        "src/test/aiur_web/live/streamdeck_live_test.exs:1197",
+        "src/test/aiur_web/channels/streamdeck_channel_test.exs:443"
+      ],
+      "validation": "Source tracing only; no LiveView mutation or browser test. Channel direct-message coverage belongs to its distinct handler. Earlier current-feed-reload speculation remains withdrawn."
+    },
+    {
+      "id": "tests-4-candidate-06",
+      "status": "promoted_narrowed",
+      "finding": "tests-4-cont-05",
+      "validation": "Actual two extracted fixture tests pass against original and explicitly ignored-signal mutant,2/2 each. No immediate-unlock/abort contract inferred."
+    }
+  ],
+  "files_reviewed": 100,
+  "lines_reviewed_estimate": 40603
+}

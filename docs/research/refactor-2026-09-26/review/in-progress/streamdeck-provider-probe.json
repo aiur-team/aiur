@@ -1,0 +1,127 @@
+{
+  "node": "v24.18.0",
+  "source_sha256": {
+    "src/touchStrip/providerSegment.ts": "0ef4d063408f89e6c8f98f738d7473002caceaeec39c507e8c3a3c33efa07516"
+  },
+  "server_source": {
+    "path": "src/lib/aiur_web/streamdeck_projection.ex",
+    "sha256": "b1eec4b2a1ccb37c75a34d91580f18bc8d7e321b93f31cd89f36c53618df77e9",
+    "normalized_window_keys": [
+      "used_percent",
+      "remaining",
+      "resets_at",
+      "observed_at",
+      "age_seconds",
+      "freshness"
+    ]
+  },
+  "cases": {
+    "normalized_pair": {
+      "input": {
+        "provider": "codex",
+        "freshness": "fresh",
+        "windows": {
+          "session": {
+            "used_percent": 42,
+            "observed_at": "2026-09-26T00:00:00Z",
+            "age_seconds": 0,
+            "freshness": "fresh"
+          },
+          "weekly": {
+            "used_percent": 71,
+            "observed_at": "2026-09-26T00:00:00Z",
+            "age_seconds": 0,
+            "freshness": "fresh"
+          }
+        }
+      },
+      "output": {
+        "provider": "codex",
+        "session": null,
+        "weekly": null,
+        "freshness": "fresh",
+        "hasData": false
+      }
+    },
+    "normalized_weekly_only": {
+      "input": {
+        "provider": "codex",
+        "freshness": "fresh",
+        "windows": {
+          "weekly": {
+            "used_percent": 71,
+            "observed_at": "2026-09-26T00:00:00Z",
+            "age_seconds": 0,
+            "freshness": "fresh"
+          }
+        }
+      },
+      "output": {
+        "provider": "codex",
+        "session": {
+          "usedPercent": 71,
+          "resetsAt": null
+        },
+        "weekly": null,
+        "freshness": "fresh",
+        "hasData": true
+      }
+    },
+    "legacy_pair": {
+      "input": {
+        "provider": "codex",
+        "freshness": "fresh",
+        "windows": {
+          "session": {
+            "used_percent": 42,
+            "observed_at": "2026-09-26T00:00:00Z",
+            "age_seconds": 0,
+            "freshness": "fresh",
+            "duration_minutes": 300
+          },
+          "weekly": {
+            "used_percent": 71,
+            "observed_at": "2026-09-26T00:00:00Z",
+            "age_seconds": 0,
+            "freshness": "fresh",
+            "duration_minutes": 10080
+          }
+        }
+      },
+      "output": {
+        "provider": "codex",
+        "session": {
+          "usedPercent": 42,
+          "resetsAt": null
+        },
+        "weekly": {
+          "usedPercent": 71,
+          "resetsAt": null
+        },
+        "freshness": "fresh",
+        "hasData": true
+      }
+    },
+    "duration_missing_percentage": {
+      "input": {
+        "provider": "codex",
+        "windows": {
+          "session": {
+            "duration_minutes": 300
+          }
+        }
+      },
+      "output": {
+        "provider": "codex",
+        "session": {
+          "usedPercent": 0,
+          "resetsAt": null
+        },
+        "weekly": null,
+        "freshness": null,
+        "hasData": true
+      }
+    }
+  },
+  "limits": "Actual client model executed; server normalize_window and semantic slot shape checked against frozen source, not executed. Fixture uses synthetic percentages in that wire shape. No live meter population, provider, rendered pixels or hardware; legacy missing-percentage case is not claimed reachable through the normalized producer."
+}

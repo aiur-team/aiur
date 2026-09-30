@@ -1,0 +1,432 @@
+{
+  "claim": "meta-07",
+  "status": "verified_with_bounded_corrections",
+  "sources": [
+    {
+      "path": "khala/executor/evidence/ci-wait-165-20260925T015708Z/status.txt",
+      "sha256": "4b53acb2a79892441904fa3a30a2c5136d62c3ac5308aee1e6ae6715ac13f7db"
+    },
+    {
+      "path": "khala/executor/evidence/ci-wait-165-20260925T015708Z/status-full.txt",
+      "sha256": "951d122cc33b2b416ccc11565e9d34caf07889a5f85deb0dc3767c66d0bd17d8"
+    },
+    {
+      "path": "khala/executor/evidence/ci-wait-165-20260925T015708Z/resume-attempt.txt",
+      "sha256": "a02105833243a8d999fea34f9a1e3e253ef46b0dcb42431721536717409a5b19"
+    },
+    {
+      "path": "khala/executor/evidence/ci-wait-165-20260925T015708Z/timeline-165.json",
+      "sha256": "84dcbda1b9e3a68c88327cb28a825c64b9f16a626d6500be1050c3fe420eb2cf"
+    }
+  ],
+  "ticket165": {
+    "resume_attempt": "aiur: failed to resume #165 (redispatch deferred because the refreshed ticket is not dispatchable (:no_agent_work_state); it clears after its state, labels, or blockers become eligible)",
+    "status_rows": 77,
+    "explicit_dependency_decline_rows": 35,
+    "ticket165_present_in_status": false,
+    "status_freshness": "Capture explicitly says last-known-good fleet snapshot is 16 seconds old.",
+    "status_full_result": "\u274c status does not accept arguments",
+    "state_events": [
+      {
+        "timestamp": "2026-09-24T22:02:05Z",
+        "event": "labeled",
+        "label": "agent:todo"
+      },
+      {
+        "timestamp": "2026-09-24T22:02:05Z",
+        "event": "labeled",
+        "label": "complexity:4"
+      },
+      {
+        "timestamp": "2026-09-24T22:02:06Z",
+        "event": "labeled",
+        "label": "model:codex"
+      },
+      {
+        "timestamp": "2026-09-24T22:04:10Z",
+        "event": "labeled",
+        "label": "agent:in-progress"
+      },
+      {
+        "timestamp": "2026-09-24T22:04:10Z",
+        "event": "unlabeled",
+        "label": "agent:todo"
+      },
+      {
+        "timestamp": "2026-09-24T22:52:04Z",
+        "event": "labeled",
+        "label": "agent:ci-wait"
+      },
+      {
+        "timestamp": "2026-09-24T22:52:04Z",
+        "event": "unlabeled",
+        "label": "agent:in-progress"
+      },
+      {
+        "timestamp": "2026-09-24T22:58:21Z",
+        "event": "labeled",
+        "label": "agent:in-progress"
+      },
+      {
+        "timestamp": "2026-09-24T22:58:22Z",
+        "event": "unlabeled",
+        "label": "agent:ci-wait"
+      },
+      {
+        "timestamp": "2026-09-24T23:00:23Z",
+        "event": "labeled",
+        "label": "agent:human-review"
+      },
+      {
+        "timestamp": "2026-09-24T23:00:45Z",
+        "event": "unlabeled",
+        "label": "agent:human-review"
+      },
+      {
+        "timestamp": "2026-09-24T23:04:22Z",
+        "event": "unlabeled",
+        "label": "model:codex"
+      },
+      {
+        "timestamp": "2026-09-24T23:04:22Z",
+        "event": "labeled",
+        "label": "model:claude"
+      },
+      {
+        "timestamp": "2026-09-24T23:07:50Z",
+        "event": "labeled",
+        "label": "agent:todo"
+      },
+      {
+        "timestamp": "2026-09-24T23:07:51Z",
+        "event": "unlabeled",
+        "label": "agent:in-progress"
+      },
+      {
+        "timestamp": "2026-09-24T23:15:02Z",
+        "event": "labeled",
+        "label": "agent:rework"
+      },
+      {
+        "timestamp": "2026-09-24T23:15:03Z",
+        "event": "unlabeled",
+        "label": "agent:todo"
+      },
+      {
+        "timestamp": "2026-09-24T23:21:33Z",
+        "event": "unlabeled",
+        "label": "agent:rework"
+      },
+      {
+        "timestamp": "2026-09-24T23:21:33Z",
+        "event": "labeled",
+        "label": "agent:ci-wait"
+      },
+      {
+        "timestamp": "2026-09-24T23:25:05Z",
+        "event": "labeled",
+        "label": "agent:in-progress"
+      },
+      {
+        "timestamp": "2026-09-24T23:25:06Z",
+        "event": "unlabeled",
+        "label": "agent:ci-wait"
+      },
+      {
+        "timestamp": "2026-09-24T23:27:55Z",
+        "event": "labeled",
+        "label": "agent:human-review"
+      },
+      {
+        "timestamp": "2026-09-24T23:27:55Z",
+        "event": "unlabeled",
+        "label": "agent:in-progress"
+      },
+      {
+        "timestamp": "2026-09-25T00:22:38Z",
+        "event": "labeled",
+        "label": "agent:rework"
+      },
+      {
+        "timestamp": "2026-09-25T00:22:38Z",
+        "event": "unlabeled",
+        "label": "agent:human-review"
+      },
+      {
+        "timestamp": "2026-09-25T00:23:51Z",
+        "event": "unlabeled",
+        "label": "agent:rework"
+      },
+      {
+        "timestamp": "2026-09-25T00:23:51Z",
+        "event": "labeled",
+        "label": "agent:in-progress"
+      },
+      {
+        "timestamp": "2026-09-25T00:52:51Z",
+        "event": "unlabeled",
+        "label": "agent:in-progress"
+      },
+      {
+        "timestamp": "2026-09-25T00:52:51Z",
+        "event": "labeled",
+        "label": "agent:ci-wait"
+      },
+      {
+        "timestamp": "2026-09-25T01:05:25Z",
+        "event": "unlabeled",
+        "label": "model:claude"
+      },
+      {
+        "timestamp": "2026-09-25T01:05:25Z",
+        "event": "labeled",
+        "label": "model:codex"
+      }
+    ],
+    "interpretation": "The recorded label interval is 00:52:51Z\u201301:57:19Z (64m28s), ending with operator intervention. Resume returns an explicit no_agent_work_state refusal. Status shows 35 dependency reasons and a stale-view warning. CI timer registration and loaded runtime cause remain unproved.",
+    "extracted_telemetry_audit": {
+      "rows": 40,
+      "exact_ticket165_rows": 0,
+      "ticket166_resource_rows": 25,
+      "limit": "Filename does not establish record membership; do not attribute these rows to ticket165."
+    },
+    "full_stream_observations": {
+      "source": "20260924T231144Z-2563251/log/telemetry.ndjson",
+      "sha256": "e909fbaf926adc2863150b1faba4fca2e4bb07c40c5f9194948b629ff75c1a81",
+      "window": "2026-09-25T00:45Z to 02:00Z",
+      "records": 103,
+      "kind_counts": {
+        "resource": 99,
+        "lifecycle": 4
+      },
+      "last_resource_timestamp": "2026-09-25T00:53:12.641628Z",
+      "lifecycle": [
+        {
+          "timestamp": "2026-09-25T00:53:16.477711Z",
+          "recorded_at": "2026-09-25T00:53:16.477752Z",
+          "event": "workspace_ownership",
+          "outcome": "released",
+          "cause": null
+        },
+        {
+          "timestamp": "2026-09-25T00:52:28Z",
+          "recorded_at": "2026-09-25T00:53:36.590873Z",
+          "event": "comment_received",
+          "outcome": null,
+          "cause": null
+        },
+        {
+          "timestamp": "2026-09-25T01:58:19.503753Z",
+          "recorded_at": "2026-09-25T01:58:19.504002Z",
+          "event": "review_pause",
+          "outcome": "accepted",
+          "cause": "human_review_ready"
+        },
+        {
+          "timestamp": "2026-09-25T01:59:26.529783Z",
+          "recorded_at": "2026-09-25T01:59:26.530024Z",
+          "event": "review_pause",
+          "outcome": "accepted",
+          "cause": "human_review_ready"
+        }
+      ]
+    },
+    "exit_transition": {
+      "source": "scratch/gaps/gh/aiur-team_khala.issue_events.jsonl",
+      "sha256": "6597f3d2d972613f511396863155f969ff756f2605662750f3fcff599f1f98f0",
+      "events": [
+        {
+          "created_at": "2026-09-25T01:57:19Z",
+          "event": "labeled",
+          "label": "agent:human-review",
+          "actor": "its-everdred"
+        },
+        {
+          "created_at": "2026-09-25T01:57:19Z",
+          "event": "unlabeled",
+          "label": "agent:ci-wait",
+          "actor": "its-everdred"
+        }
+      ],
+      "ci_wait_duration_seconds": 3868,
+      "ci_wait_duration_minutes": 64.46666666666667,
+      "interpretation": "Operator changed ci-wait to human-review. This proves a bounded label wait and intervention, not why automatic CI handling failed."
+    }
+  },
+  "ci_recovery_contract": {
+    "historical_commit": "7dd56fc",
+    "historical_source_sha256": "6517cb8813d31ac8139d6a35d36528b01f2b7ae3c3c6bab6c1a0c7caffa9195f",
+    "identical_to_frozen_source": true,
+    "findings": [
+      "ci-wait is an explicit CI poll state alongside human-review.",
+      "Paused CI entries arm a token-correlated rewake timer using configured minutes.",
+      "transition_ci_wait_fallback updates the tracker to in-progress before refreshing state, queuing a handoff and reactivation; fence or update failures rearm waiting.",
+      "The no_agent_work_state dispatch refusal by itself is not proof there is no recovery route."
+    ],
+    "limit": "Existence of code does not prove timer registration, successful tracker update or loaded build behavior in the incident."
+  },
+  "unresolved": [
+    "Historical loaded runtime/configuration, CI result/readiness and timer state for each long wait",
+    "Independent command/output and deployment evidence for each retrospective todo non-dispatch case",
+    "Deduplicated incident-to-fix mapping supporting aggregate citation/fix counts and recurrence rate",
+    "Complete current-head CI evidence for the claim that every cited wait was CI-green"
+  ],
+  "later_ci_wait_episodes": {
+    "source": "scratch/gaps/gh/aiur-team_khala.issue_events.jsonl",
+    "sha256": "6597f3d2d972613f511396863155f969ff756f2605662750f3fcff599f1f98f0",
+    "closed_label_intervals": [
+      {
+        "issue": 367,
+        "start": "2026-09-26T05:38:26Z",
+        "end": "2026-09-26T05:44:29Z",
+        "seconds": 363.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 367,
+        "start": "2026-09-26T06:08:17Z",
+        "end": "2026-09-26T06:13:36Z",
+        "seconds": 319.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 367,
+        "start": "2026-09-26T06:44:36Z",
+        "end": "2026-09-26T08:46:26Z",
+        "seconds": 7310.0,
+        "exit_actor": "its-everdred"
+      },
+      {
+        "issue": 367,
+        "start": "2026-09-26T09:00:04Z",
+        "end": "2026-09-26T09:05:07Z",
+        "seconds": 303.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 350,
+        "start": "2026-09-26T06:07:04Z",
+        "end": "2026-09-26T06:09:43Z",
+        "seconds": 159.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 350,
+        "start": "2026-09-26T06:10:08Z",
+        "end": "2026-09-26T06:12:02Z",
+        "seconds": 114.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 350,
+        "start": "2026-09-26T06:12:59Z",
+        "end": "2026-09-26T09:46:07Z",
+        "seconds": 12788.0,
+        "exit_actor": "its-everdred"
+      },
+      {
+        "issue": 350,
+        "start": "2026-09-26T10:02:43Z",
+        "end": "2026-09-26T10:07:49Z",
+        "seconds": 306.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 350,
+        "start": "2026-09-26T10:08:07Z",
+        "end": "2026-09-26T10:09:41Z",
+        "seconds": 94.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 232,
+        "start": "2026-09-26T04:08:56Z",
+        "end": "2026-09-26T04:15:06Z",
+        "seconds": 370.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 232,
+        "start": "2026-09-26T04:27:55Z",
+        "end": "2026-09-26T04:32:07Z",
+        "seconds": 252.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 232,
+        "start": "2026-09-26T05:37:26Z",
+        "end": "2026-09-26T05:41:44Z",
+        "seconds": 258.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 232,
+        "start": "2026-09-26T05:43:06Z",
+        "end": "2026-09-26T05:43:24Z",
+        "seconds": 18.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 232,
+        "start": "2026-09-26T05:44:19Z",
+        "end": "2026-09-26T05:49:07Z",
+        "seconds": 288.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 232,
+        "start": "2026-09-26T05:50:23Z",
+        "end": "2026-09-26T05:52:41Z",
+        "seconds": 138.0,
+        "exit_actor": "its-applekid"
+      },
+      {
+        "issue": 232,
+        "start": "2026-09-26T05:53:48Z",
+        "end": "2026-09-26T10:56:13Z",
+        "seconds": 18145.0,
+        "exit_actor": "its-everdred"
+      }
+    ],
+    "limit": "Label membership intervals, not measured productive-time loss or proof CI was green throughout. Agent-account label removal does not independently identify the actor process or prove automatic recovery."
+  },
+  "cited_issue_state_at_cutoff": [
+    {
+      "issue": 2366,
+      "cached_events": 54,
+      "last_closure_event": {
+        "created_at": "2026-08-24T14:45:37Z",
+        "event": "closed"
+      },
+      "interpretation": "Closure events are not merge or deployment evidence; no observed closure is bounded by cache coverage."
+    },
+    {
+      "issue": 2767,
+      "cached_events": 5,
+      "last_closure_event": {
+        "created_at": "2026-09-24T23:09:59Z",
+        "event": "closed"
+      },
+      "interpretation": "Closure events are not merge or deployment evidence; no observed closure is bounded by cache coverage."
+    },
+    {
+      "issue": 2817,
+      "cached_events": 1,
+      "last_closure_event": null,
+      "interpretation": "Closure events are not merge or deployment evidence; no observed closure is bounded by cache coverage."
+    },
+    {
+      "issue": 2818,
+      "cached_events": 1,
+      "last_closure_event": null,
+      "interpretation": "Closure events are not merge or deployment evidence; no observed closure is bounded by cache coverage."
+    },
+    {
+      "issue": 2819,
+      "cached_events": 1,
+      "last_closure_event": null,
+      "interpretation": "Closure events are not merge or deployment evidence; no observed closure is bounded by cache coverage."
+    }
+  ],
+  "recurrence_count_limits": "Rank1 combines heterogeneous failure classes and repeated citations. Approximately150 citations and at least12 fixes have not been deduplicated into independent deployed-fix/incident pairs. The E09 retro names at least10 todo cases but is retrospective testimony, not ten independent reproduced runtime diagnoses; it also explicitly records unauthorized and orphaned-claim causes. The current rolling handoff no longer retains the cited September26 text; scratch/slice-S7 preserves the prior extraction but is secondary evidence."
+}

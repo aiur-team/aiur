@@ -1,0 +1,41 @@
+{
+  "note": "Only private chronology and run/source identifiers were blanked; row counts and numerical measurements are unchanged. Full source retained in machine-local scratch for reproducibility.",
+  "corrections": [
+    {
+      "file": "census/runs.csv",
+      "private_rows": 5,
+      "redacted_cells": 20,
+      "categories": [
+        "private run identifier or source path",
+        "private event chronology"
+      ]
+    },
+    {
+      "file": "census/executor_sessions.csv",
+      "private_rows": 2,
+      "redacted_cells": 2,
+      "categories": [
+        "private run identifier or source path",
+        "private event chronology"
+      ]
+    },
+    {
+      "file": "census/github.csv",
+      "private_rows": 2,
+      "redacted_cells": 6,
+      "categories": [
+        "private run identifier or source path",
+        "private event chronology"
+      ]
+    },
+    {
+      "file": "gaps/gaps.csv",
+      "private_rows": 16,
+      "redacted_cells": 48,
+      "categories": [
+        "private run identifier or source path",
+        "private event chronology"
+      ]
+    }
+  ]
+}

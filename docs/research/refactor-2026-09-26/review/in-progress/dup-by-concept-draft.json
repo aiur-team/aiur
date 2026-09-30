@@ -1,0 +1,43 @@
+{
+  "unit_id": "dup-by-concept",
+  "status": "superseded-by-bounded-raw-unit",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "coverage_notes": "Two cross-cutting concept families (label/state and ticket-topic grammar) have source-level findings. The closure ledger assigns all 275 inherited duplication-category IDs in 29 existing raw units to one source-role family exactly once. A 14-term concept probe searched all 1032 frozen library files and source-checked seven candidate/rejection families; it is a bounded search, not an exhaustive search for differently named implementations or a semantic rereview of each inherited assertion. Existing defect IDs are retained; no new defect or LOC-saving count is inferred from source similarities.",
+  "evidence_artifacts": ["in-progress/label-state-contracts.json", "in-progress/label-state-probe.json", "in-progress/duplication-concept-inventory.json", "in-progress/duplication-concept-closure.md", "in-progress/duplication-concept-semantic-probe.md", "in-progress/dup-review-coverage.md"],
+  "findings": [
+    {
+      "id": "dup-by-concept-01",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Agent label interpretation has several incompatible contracts",
+      "locations": [
+        {"path": "src/lib/aiur/github/labels.ex", "lines": "25-35"},
+        {"path": "src/lib/aiur/codex/dynamic_tool/ticket_state.ex", "lines": "99-124"},
+        {"path": "src/lib/aiur/orchestrator/state.ex", "lines": "861-868"},
+        {"path": "src/lib/aiur/agent_list/summaries.ex", "lines": "7-27"}
+      ],
+      "description": "Seeded lifecycle labels, agent write permissions, current issue tag selection and TUI terminal-tag filtering all interpret related strings but serve different contracts. State.issue_tag chooses the first literal agent: label, including markers, while Summaries filters only three fixed terminal tags. A custom configured prefix or marker order can therefore alter synthetic helper output. The isolated probe does not establish production incidence. This overlaps agent-runtime-23 and agent-backends-cc-38; preserve those source IDs and do not count this as an additional defect.",
+      "recommendation": "Represent canonical tracker disposition, marker labels, agent write authority and TUI work state separately. Share typed parsing and vocabulary where the contracts align; keep a positive write-permission policy and source provenance.",
+      "effort": "M",
+      "refactor_hint": "lifecycle/state",
+      "overlaps": ["agent-runtime-23", "agent-backends-cc-38"]
+    },
+    {
+      "id": "dup-by-concept-02",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Ticket event topic construction and parsing lack one grammar owner",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_firehose.ex", "lines": "420-429"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "645-652"},
+        {"path": "src/lib/aiur/executor_wake_projection.ex", "lines": "42-82"},
+        {"path": "src/lib/aiur/orchestrator/event_topics.ex", "lines": "83-175"}
+      ],
+      "description": "PR poll and webhook adapters construct the same topic suffixes, while wake projection and orchestrator topics parse ticket fields and suffixes through separate regex/split/branch paths. The concept is a typed ticket-topic grammar, not a single unqualified string helper: preserve ticket identifier domain, event source and suffix-specific payload rules. This overlaps three inherited topic findings and name draft 03; retain their IDs and validate the claimed 106 producers/11+ parsers separately before using those counts.",
+      "recommendation": "Give event topics an owner for typed construction and parsing, with source adapters retaining their event admission and replay semantics.",
+      "effort": "M",
+      "refactor_hint": "events/topic grammar",
+      "overlaps": ["agent-runtime-22", "loose-3-38", "orch-a-14", "dup-by-name-03"]
+    }
+  ]
+}

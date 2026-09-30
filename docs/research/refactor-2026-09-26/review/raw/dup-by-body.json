@@ -1,0 +1,3681 @@
+{
+  "unit_id": "dup-by-body",
+  "status": "reviewed_pending_synthesis",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "files_reviewed": 242,
+  "coverage_notes": "AST census parsed all 1032 src/lib Elixir files without compiling the project: 28722 definition clauses. All 126 exact-body candidate clusters (297 sites) and 41 variable-renamed clusters (138 sites) have source-span assessments in the linked triage ledgers. Two startup clusters outside the final physical-line threshold were also assessed. Files_reviewed counts unique paths with candidate spans inspected, not files read in full. Surrounding clauses/callers were inspected as recorded in each assessment; complete transitive equivalence is not claimed. Normalization strips metadata/comments/formatting; renamed variables use first occurrence, not lexical alpha equivalence. Heads/guards, module attributes, aliases and local callees can change semantics. Threshold requires at least five physical and normalized lines. Dynamic/generated bodies and arbitrary semantic rewrites are outside this detector. This unit fulfills the requested body-candidate sweep; name, concept and constant units remain separate. Findings are bounded refactor opportunities, not independent defects or LOC savings. Cross-unit deduplication and final review synthesis remain open.",
+  "evidence_artifacts": [
+    "in-progress/function-census-summary.json",
+    "in-progress/duplication-triage.json",
+    "in-progress/renamed-census-summary.json",
+    "in-progress/renamed-duplication-triage.json",
+    "in-progress/duplication-reconciliation.json"
+  ],
+  "findings": [
+    {
+      "id": "dup-by-body-01",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Usage scope normalization repeats across query layers",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes.ex",
+          "lines": "422-433"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes/scope.ex",
+          "lines": "113-120"
+        },
+        {
+          "path": "src/lib/aiur/usage/grouped_scopes/scope.ex",
+          "lines": "122-127"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "lines": "58-65"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "lines": "69-74"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/query.ex",
+          "lines": "173-184"
+        }
+      ],
+      "description": "Both usage query layers count missing attribution dimensions with the same reducer. A usage-owned helper may prevent drift; verify bump and input-dimension semantics and existing findings before promoting. Read both ticket_key helpers: both call TrackerIdentity.github_key, deduplicate valid keys and count rejected entries. Query has non-list fallback to empty while Scope helper lacks it. Share the list normalization primitive in usage identity/scoping, preserving each public entry point input policy; avoid counting duplicates as rejected tickets. Same TrackerIdentity.github_key-to-ok/error helper previously reviewed with normalize_tickets. Group those helpers into one usage scoping proposal; do not count this as a separate extraction or saving.",
+      "evidence": "6 distinct definition spans in 3 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share attribution counting and list normalization within usage; retain public non-list policies and repository-qualified identities.",
+      "refactor_hint": "usage/scoping",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "43dc00e0dbc95c2e1a53f944789211a584db53e9dfc0b4faf39e89c09109b2ce"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "a0149ed4dfb614467bdeecabc67b9fddd8135d31541058fcee53480941579315"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "950f1ea40e8d8762d971fb4314d1c6015f1df67d9e5242f708af8e8581127425"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-02",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Decision request text and key normalization repeat",
+      "locations": [
+        {
+          "path": "src/lib/aiur/decision_answer.ex",
+          "lines": "257-261"
+        },
+        {
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "lines": "278-287"
+        },
+        {
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "lines": "292-296"
+        },
+        {
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "lines": "298-305"
+        },
+        {
+          "path": "src/lib/aiur/decision_delegation.ex",
+          "lines": "307-313"
+        },
+        {
+          "path": "src/lib/aiur/decision_enrichment.ex",
+          "lines": "178-185"
+        },
+        {
+          "path": "src/lib/aiur/decision_enrichment.ex",
+          "lines": "187-193"
+        },
+        {
+          "path": "src/lib/aiur/decision_event.ex",
+          "lines": "970-979"
+        },
+        {
+          "path": "src/lib/aiur/decision_event.ex",
+          "lines": "988-992"
+        },
+        {
+          "path": "src/lib/aiur/decision_revision.ex",
+          "lines": "366-370"
+        },
+        {
+          "path": "src/lib/aiur/decision_validation.ex",
+          "lines": "202-206"
+        },
+        {
+          "path": "src/lib/aiur/recent_merge.ex",
+          "lines": "519-523"
+        }
+      ],
+      "description": "Six control-character predicates match, five in the decision family and one in recent merges. Consolidate policy within the decision boundary first; cross-domain reuse needs explicit agreement on allowed whitespace and redaction ordering. Both full clause groups agree on missing/type/length/control-character errors and invoke the same Aiur.SecretRedactor after validation. Shared decision-owned bounded text validation is cohesive; preserve trim-before-length, grapheme length, error field attribution, and redaction order. Relates to the previously assessed unsafe_control_chars cluster, not a second package proposal. Read both normalize_key and accumulate_key implementations: atom/string keys normalize to strings; non-atom/string keys fail; collisions are rejected rather than silently overwritten. A decision-owned normalization helper can preserve this full contract. Do not replace with Map.new stringification, which would erase duplicate-field rejection. Same collision-rejecting reduce callback already inspected with normalize_keys. Preserve halt-on-duplicate after atom/string normalization; group into the decision normalization proposal, not a separately counted extraction or saving.",
+      "evidence": "12 distinct definition spans in 4 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Own bounded text, permitted controls and collision-rejecting key normalization in decision validation; retain the recent-merge adapter as a separate domain policy.",
+      "refactor_hint": "decisions/validation",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "d74cffe155041938021f5a7afcc4673120b4c9c15ff54477b71dd9ab5027a32f"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "0d8861639340a1d5eb88d51092df9b22efbb037707bd38d55c5528c2409aebe5"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "21e1352d2a6a4f0dfc7e68413b19e23c719e044e5f56ba030af039d45d33382b"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "394ed68f43ab338c1f6b851338d1e679bf09ba36809ca7e1e6ba3829700a7322"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-03",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Persisted decision readers repeat field contracts",
+      "locations": [
+        {
+          "path": "src/lib/aiur/decision_event.ex",
+          "lines": "1011-1016"
+        },
+        {
+          "path": "src/lib/aiur/decision_event.ex",
+          "lines": "1018-1023"
+        },
+        {
+          "path": "src/lib/aiur/decision_event.ex",
+          "lines": "1033-1038"
+        },
+        {
+          "path": "src/lib/aiur/decision_event.ex",
+          "lines": "1040-1051"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "1006-1011"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "1013-1018"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "1020-1025"
+        },
+        {
+          "path": "src/lib/aiur/decision_projection.ex",
+          "lines": "1027-1038"
+        },
+        {
+          "path": "src/lib/aiur/decision_revision.ex",
+          "lines": "329-334"
+        },
+        {
+          "path": "src/lib/aiur/decision_revision.ex",
+          "lines": "336-341"
+        },
+        {
+          "path": "src/lib/aiur/decision_revision.ex",
+          "lines": "343-348"
+        },
+        {
+          "path": "src/lib/aiur/decision_revision.ex",
+          "lines": "350-361"
+        }
+      ],
+      "description": "Three identical persisted timestamp readers preserve invalid_timestamp versus missing_or_invalid reasons. A decision persistence codec is a plausible owner; keep event/revision-specific validation and error envelopes. Three persisted-map readers return the same field-tagged missing_or_invalid error for absent/non-map values. Group with timestamp readers in a decision persistence codec, retaining per-record schema validation outside this shallow shape check. Accepting any map does not establish a valid nested record. Three persisted string readers agree on nonempty binary and field-tagged missing_or_invalid; whitespace-only binaries remain accepted. Group with map/timestamp readers in the decision codec, preserving this shallow persisted shape contract separately from request-time trimming/redaction. Version/positive-integer persisted readers share the same positive-integer shape check and field-tagged error. Group with decision codec helpers, but retain record-specific supported-version validation; accepting a positive version number is not proving that version is supported.",
+      "evidence": "12 distinct definition spans in 4 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share shallow persisted-field readers; retain per-record schema checks, field-tagged errors and request-time redaction separately.",
+      "refactor_hint": "decisions/persistence",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "c91274f549d818e96aa790dff47521e0c1d9bd05f72d932c68e2e7785a682a01"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "1b6eb2abbb887c2893b882e0ddb85b65e9c070da12ded79a37d78c910ffe0ffa"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "adfa967d1332e53aeb27ae55f7425c1861636445dfaa9d190d20008d3864f74f"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "ea8c513143c021ecd1f9ae2b05ef1a8db46f4310b7212f28b04a03b161446ea3"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-04",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Log rotation repeats with different retention policies",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "lines": "406-411"
+        },
+        {
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "lines": "415-430"
+        },
+        {
+          "path": "src/lib/aiur/github/request_log.ex",
+          "lines": "230-235"
+        },
+        {
+          "path": "src/lib/aiur/github/request_log.ex",
+          "lines": "239-254"
+        }
+      ],
+      "description": "Two recursive rotation implementations with the same rename/error-swallowing policy. Review append ownership, retention settings, tests and failure reporting before extracting a filesystem primitive; no rotation failure reproduced here. Threshold/retention attributes differ: agent process log 4,194,304 bytes and eight generations; request log 1,048,576 bytes and two generations. Shared rotation mechanism is plausible with explicit parameters, preserving strict greater-than threshold and distinct retention policy. No storage or cost saving measured.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Extract rotation mechanics with explicit size and generation inputs; preserve existing error behavior and separate log ownership.",
+      "refactor_hint": "runtime/logging",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "f276e43e5bd1a1ee305221c2918ff48f59ae2bfc20fdcb6b061fc015b3c0828f"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "c98872503f217a7a8210d0df937a04251693a293e417ccd1c9579b3fecfcd9d0"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-05",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Orchestrator call adapters repeat failure classification",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/interrupts.ex",
+          "lines": "158-167"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "1069-1078"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/priority_control.ex",
+          "lines": "151-160"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "lines": "291-300"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "lines": "84-93"
+        }
+      ],
+      "description": "Three orchestrator helpers share a 5000ms call and timeout/unavailable classification. Compare the separately matched timeout-parameterized helper before extracting; preserve each public operation timeout and failure contract. Two additional orchestrator helpers have the same timeout-parameterized call/error classification. They are a near-duplicate of the fixed-5000ms three-site cluster, not in that exact-body group. Preserve caller-supplied timeout semantics.",
+      "evidence": "5 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Use one control-call adapter with explicit timeout; preserve timeout versus unavailable results.",
+      "refactor_hint": "control/client",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "a74f71315836993aaf5090030c69b52a1362dd52cfe6b0e071a1c941d9fdedb1"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "960195e8fc62008ea3d4abf8ca839be220df9da6f378858cdf17874e9323c834"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-06",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Usage persistence repeats checksums and coverage codecs",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "lines": "122-128"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "lines": "130-137"
+        },
+        {
+          "path": "src/lib/aiur/usage_aggregate/checkpoint.ex",
+          "lines": "170-176"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "lines": "247-253"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "lines": "255-262"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/block.ex",
+          "lines": "305-311"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/manifest.ex",
+          "lines": "319-325"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/retired_floor.ex",
+          "lines": "75-81"
+        }
+      ],
+      "description": "Four usage storage records compute deterministic Erlang-term SHA-256 after dropping the string checksum key. A common codec is plausible, but persisted byte compatibility is an invariant: moving a function must not silently change the hash format. Read bounded and reason decoders in both modules. Successful shape and uint64 maximum agree; reasons become a set using existing atoms. Failures differ intentionally: invalid_checkpoint versus invalid_block. Share coverage validation only with explicit error adaptation at each persisted-record boundary; equal top-level bodies currently call different error-producing helpers. Checkpoint/block coverage encoders serialize counts and sorted atom-name reason sets identically. Group with coverage decoder/checksum proposals in usage persistence, retaining deterministic ordering and each record format error tag. Shared serialization does not imply checkpoint and compaction block schemas merge.",
+      "evidence": "8 distinct definition spans in 3 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share deterministic codec primitives without changing encoded bytes or record-specific failure tags.",
+      "refactor_hint": "usage/persistence",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "2f779a50f583d3d8f1d3225ab06a5d69d981ac76556a5f8bd008dfa003ce80b3"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "8009e1b839cb7c7377ffd906e88ce080acd6ad5fdd19c9105687a20abd6e03db"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "c2f133af715fa2c026f14a055d7ce3ad74133ba032ba4514136c1f147ef82722"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-07",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Debug environment parsing has five matching sites",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/state.ex",
+          "lines": "142-150"
+        },
+        {
+          "path": "src/lib/aiur/log_file.ex",
+          "lines": "151-159"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+          "lines": "165-170"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager.ex",
+          "lines": "436-444"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/layout.ex",
+          "lines": "240-248"
+        }
+      ],
+      "description": "Four AIUR_DEBUG readers agree on trim/lowercase and 1/true/yes. A single owner may be appropriate, but search the remaining variants and boot-time versus runtime reads before declaring the full policy population. All five full spans read. Renaming adds Opencode.Slot.AttachPane.debug_mode? to four exact sites: same trim/lowercase AIUR_DEBUG parsing with 1/true/yes. Group under one debug policy owner, preserving each caller boot/runtime sampling time; no independent fifth abstraction.",
+      "evidence": "5 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Own AIUR_DEBUG parsing once; preserve when each caller samples configuration.",
+      "refactor_hint": "runtime/configuration",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "35cfbc4b5be2bb8a9993becc36e6c8fa587bc91843dc8203e8ea15b2a857973e"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "6c09ecc7dfb31247a77764eb6e71657a3e792f8a68906d612d57ab4a089576ad"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-08",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Membership callbacks repeat narrow failure adapters",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "519-537"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "562-575"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "987-996"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "1421-1429"
+        }
+      ],
+      "description": "Both mark membership unavailable after attempting the terminal-pending marker, then swallow failures. Read both marker helpers: CommentWake pattern-matches identity in clauses; RetryEngine checks match? and joinable? in one function. Preserve joinability checks, call order and failure receipts in any membership-owned extraction. Do not replace these with a generic safe-call wrapper without those policy contracts. Both wrappers normalize callback :ok versus all other results and rescue/catch failures to :error. CommentWake applies identity eligibility in its caller, while IssueSync invokes directly at this helper boundary. A membership-owned callback primitive can share this narrow operation; do not silently add or remove eligibility checks when combining callers. Related to the unavailable-marker cluster, not an independent package proposal.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share membership-owned callback mechanics with explicit eligibility, call order and failure receipt policy.",
+      "refactor_hint": "membership/lifecycle",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "c68ab33d7851db191f6f58b0de3ff7cad6476e83e8cd34150ab21bcbad419541"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "73701ae1a024ea189442a01631900e4fc8f8658e4f168a368aeb256853bf0eea"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-09",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Build-order route resolution repeats across scope adapters",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/analytics_runtime.ex",
+          "lines": "202-207"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "lines": "55-67"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "lines": "90-95"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/analytics_scope.ex",
+          "lines": "106-111"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "lines": "367-372"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+          "lines": "60-72"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+          "lines": "91-96"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_scope.ex",
+          "lines": "114-119"
+        }
+      ],
+      "description": "Read both complete modules. Status attributes and route-resolution branches agree, but AnalyticsScope produces bare ticket-number telemetry keys while UsageScope produces repository-qualified Scope values. Share selected-member/health resolution within BuildOrder presentation; retain explicit telemetry and usage adapters and their different cache-key types. Matching decide bodies are not evidence that whole scopes are interchangeable. Both selected-root resolvers use the same RouteState, TrackerIdentity, Snapshot and SelectedRoot aliases previously inspected in complete modules. Group with shared route resolution from cluster 31dea5e1, preserving distinct analytics versus usage key adapters downstream. Both runtimes derive the selected TrackerIdentity GitHub key or nil through RouteState. Group with BuildOrder route-resolution support; preserve nonjoinable nil and keep analytics/usage cache key types and access gates independent. Both previously inspected scope modules extract Snapshot.authority_epoch or unknown through the same RouteState helper. Group with shared selected-root resolution; preserve authority epoch versus snapshot generation because downstream cache identity depends on the distinction.",
+      "evidence": "8 distinct definition spans in 4 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share selected-root and health resolution while preserving analytics bare keys, usage qualified keys, authority epoch and generation.",
+      "refactor_hint": "build-order/presentation",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "31dea5e1e4473007baa0b0f12921f67885d48ba58f37f6cc226566fd076e966c"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "0fdd2f075e11796606d0802ea0e3199cea8b905f1bf09c7b8f0d5882e01345d8"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "5cd571eeb3b0fcbfd481aff864662fd63bee12af0c12bda8c14e3ca0e0510cf9"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "e274d9f5802d40f603915bc29ba4d439347531ac86784cccb3b6cb7b593f73c0"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-10",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Renderer duplicates separator construction",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "lines": "261-270"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/table.ex",
+          "lines": "39-53"
+        }
+      ],
+      "description": "Verified Style and Text aliases resolve to the same renderer modules. Table separator ignores layout and reproduces Chrome.separator_row for the same width. Reuse a renderer-owned separator primitive or existing Chrome function; retain the table-facing arity if callers require it. No new cross-package formatting utility is needed; preserve ANSI-aware padding and narrow-width behavior.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Reuse the existing renderer-owned separator operation; preserve ANSI-aware width and caller arity.",
+      "refactor_hint": "terminal/rendering",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "5043162df2459005e267946b27cf782300f86f2a08bf034a75920826008660f9"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-11",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Build-order providers duplicate lifecycle metrics",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "170-179"
+        },
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "185-196"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+          "lines": "205-216"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/normalizer.ex",
+          "lines": "250-259"
+        }
+      ],
+      "description": "Verified both Lifecycle aliases resolve to Aiur.BuildOrder.Lifecycle and both empty-list clauses return nil. Both hash sorted valid state/state_reason pairs, preserving duplicates; CatalogStore explicitly documents parity with Normalizer. Own this change signal in the BuildOrder lifecycle/metrics boundary instead of maintaining two implementations. Preserve nil for unresolved data, ordering invariance and duplicate multiplicity; this is an invalidation signal, not a collision-free identity. Both count distinct projected values only when all metadata records are successful, otherwise nil. Empty input yields zero; placeholder unassigned/unphased values count as groups. Source comments explicitly require catalog/graph parity. Consolidate with lifecycle digest in a provider-neutral BuildOrder metrics boundary, preserving unavailable versus zero and placeholder semantics.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Use one provider-neutral metrics and lifecycle-digest owner; preserve nil versus zero, multiplicity and unresolved inputs.",
+      "refactor_hint": "build-order/metrics",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "5879699f3ae38c8c53cc4a8cc1496c982103fcc1dbc8ad664c5351a9166618c8"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "a721343f208651fe24ba41ac504f481499e8b1b398d8d1cdd8bca96d0623e130"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-12",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Web duration formatters repeat conversion mechanics",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "lines": "149-153"
+        },
+        {
+          "path": "src/lib/aiur_web/live/github_cache_live.ex",
+          "lines": "1327-1337"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/charts.ex",
+          "lines": "636-646"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/github_cache/charts.ex",
+          "lines": "352-362"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_presentation.ex",
+          "lines": "224-228"
+        }
+      ],
+      "description": "Read both complete fmt_elapsed clause groups: nonpositive values produce 0m; positive milliseconds round to seconds then truncate to minutes and emit h/m text identically. Candidate for a web-presentation duration formatter with explicit precision, preserving both negative/zero and hour-boundary behavior. This establishes matching source behavior, not runtime traffic or savings. Same seconds-to-hour/minute formatter in fleet and units presentation. Candidate for web duration formatting with explicit seconds units. Distinct from earlier milliseconds formatter, including hour-only output: this helper retains 0m after an exact hour. Preserve precision/output rather than selecting any similarly named formatter. GithubCacheLive adds matching positive-duration formatting body to two chart helpers. It has no separate fmt_window nonpositive clause in the source search; chart helpers explicitly return 0m for nonpositive input. Share formatted duration only with explicit units/input policy; do not silently standardize negative handling.",
+      "evidence": "5 distinct definition spans in 3 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share explicit-unit formatting primitives; preserve milliseconds versus seconds, nonpositive policy and exact-hour output.",
+      "refactor_hint": "web/presentation",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "070c15b8b9fc70c0996f43fbf422a283a71b2a70c9a429cc0c157e97292ad5fc"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "c441238537ec0421416bc308852c66a8082a53dd84e9edbddd3ec81ce3f0f8d0"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "f51f5a071a5c62ef123697ad7f2a593f828e38a9ff6277ee0730e18eef12874f"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-13",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Git origin discovery repeats across entry points",
+      "locations": [
+        {
+          "path": "src/lib/aiur/git.ex",
+          "lines": "158-167"
+        },
+        {
+          "path": "src/lib/aiur/init/github.ex",
+          "lines": "297-306"
+        }
+      ],
+      "description": "Both parse functions and their complete origin-detection callers match: git remote get-url origin, trim output, parse final two path segments, nil on command failure/exception. Reuse the existing Git origin boundary from init rather than maintain a second parser. Preserve current permissive SSH/HTTPS/path handling during extraction; this syntax does not validate the host or prove the remote is GitHub.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Reuse origin-discovery ownership while preserving current permissive parsing and command-failure behavior.",
+      "refactor_hint": "git/repository",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "09fe9a34307d105ead8079ef2c921a6f3737a9e2ee2cd8aefddf8dca77fc41b8"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-14",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Filesystem preconditions repeat with distinct contracts",
+      "locations": [
+        {
+          "path": "src/lib/aiur/current_run_membership/store/file_ops.ex",
+          "lines": "28-36"
+        },
+        {
+          "path": "src/lib/aiur/current_run_membership/store/terminal_verification.ex",
+          "lines": "87-95"
+        },
+        {
+          "path": "src/lib/aiur/progress_retention.ex",
+          "lines": "497-505"
+        },
+        {
+          "path": "src/lib/aiur/recent_merge_store.ex",
+          "lines": "350-357"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/paths.ex",
+          "lines": "107-115"
+        },
+        {
+          "path": "src/lib/aiur/webhooks/delivery_log.ex",
+          "lines": "481-488"
+        }
+      ],
+      "description": "FileOps.regular_or_missing? and ProgressRetention.ensure_regular_file perform identical lstat preconditions. FileOps also has a DIFFERENT ensure_regular_file that requires an existing regular file and reports atomic_write_not_visible. This is a concrete naming trap: share regular-or-missing policy only, preserving post-write visibility checks separately. A precheck is not an atomic no-symlink guarantee; do not strengthen that claim without inspecting the actual write operation. Both remove only a path observed as regular, accept missing as success, reject symlinks/nonregular types and propagate filesystem errors. Candidate for a narrowly named filesystem operation shared by membership markers and ledger pending files. Preserve the error taxonomy and idempotent missing behavior; lstat followed by rm is not an atomic race-proof guarantee. Both require an existing regular file and attach the path to symlink/non-file errors, propagating enoent rather than accepting absence. Cohesive durable-log precondition candidate, but distinct from regular-or-missing helpers assessed earlier. Preserve error shapes and caller ownership of file creation; lstat alone is not an atomic filesystem guarantee.",
+      "evidence": "6 distinct definition spans in 3 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Use narrowly named existing-regular, regular-or-missing and idempotent-remove primitives; do not conflate them or claim atomic race protection.",
+      "refactor_hint": "persistence/files",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "022351fa1ff0863539a429707ad1f5810efde0644c9be05eeb20b771e1b3c31f"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "44bf396b285ae6fcb2b9cb326b4ec405e7c1cbb5e97da9b5598eab7761377911"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "f7fb7774306ccd36d1dc311cc7e30955369368b7f50d67f72cef25c7225a7706"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-15",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Web outbound-link policy repeats",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/fleet_table.ex",
+          "lines": "181-186"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/recent_outcomes.ex",
+          "lines": "75-80"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/current_run_outcomes_presenter.ex",
+          "lines": "315-320"
+        }
+      ],
+      "description": "All three full clause groups permit http/https URI with binary host, else nil. Call sites are rendered hrefs or presenter URL shaping. Centralize web outbound-link policy if consistency is required, without calling it host trust or SSRF protection: it performs neither a host allowlist nor a server fetch. Preserve renderer escaping and rel protections outside this parser.",
+      "evidence": "3 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Centralize rendered-link syntax policy with explicit http/https allowance; preserve escaping and do not label this host trust.",
+      "refactor_hint": "web/presentation",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "66f330d8e9de7161947502c219005db7abaab35555a9e7ac87a91c6ab5dff4ff"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-16",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Bridge address resolution repeats before probe and bind",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/bridge_port.ex",
+          "lines": "113-121"
+        },
+        {
+          "path": "src/lib/aiur/opencode/bridge_supervisor.ex",
+          "lines": "57-65"
+        }
+      ],
+      "description": "Read BridgePort and BridgeSupervisor callers. Availability probing and actual Bandit binding parse the same host independently and both fall back to loopback on parse failure. Resolve address once in the bridge boundary so port probing and binding cannot drift. Preserve default-port scanning versus explicitly pinned port failure; changing malformed-host fallback would be a separate behavior decision.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Resolve the address in one bridge-owned operation so probing and binding share it; retain explicit-port versus scan behavior.",
+      "refactor_hint": "agent-transport/bridge",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "7cfdedecbb588a7a8b3b13b07634b7b42000ab9802ed9a958b45817b27b69b07"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-17",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Build-order options repeat bounded-positive selection",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_options.ex",
+          "lines": "219-224"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex",
+          "lines": "51-56"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_provider_options.ex",
+          "lines": "72-77"
+        }
+      ],
+      "description": "Three BuildOrder option modules implement identical bounded-positive selection with caller-supplied key/default/maximum. A BuildOrder-owned options helper could share this pure policy while each service retains its limits, runtime-config cadence and defaults. Do not generalize all positive-option helpers: the previously assessed unbounded policy lacks this upper-bound contract.",
+      "evidence": "3 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share bounded-positive mechanics within BuildOrder while callers retain defaults, limits and cadence.",
+      "refactor_hint": "build-order/options",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "9e1fd475cf63e9240377769da4488ae64dd33f0b310c3ca8a420c1181c185836"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-18",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "GitHub source support repeats subscriptions and repository resolution",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "387-394"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "396-402"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ad_hoc_source.ex",
+          "lines": "406-411"
+        },
+        {
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "lines": "164-169"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "465-472"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "474-480"
+        },
+        {
+          "path": "src/lib/aiur/open_ticket_source.ex",
+          "lines": "484-489"
+        }
+      ],
+      "description": "Three source/sweep helpers accept repo_fun {:ok,{owner,repo}} binaries and lowercase both; other returned shapes become nil. They do not rescue callback exceptions, validate nonempty values, or resolve tracker-neutral identity. Share only within the GitHub repository boundary if extracted; preserve degraded listing and source-specific behavior in callers. Verified ResourceStore, ModeRegistry and ViewStateSweep aliases resolve identically. Both issue sources subscribe to issue/labels/mode/recovery/divergence events in the same order. This is a coherent subscription-set candidate within GitHub source support; source snapshots, notifications and lifecycle remain distinct. Do not infer successful subscription from unconditional final :ok without inspecting returned errors. Both compare normalized degraded repository before module-local fetch/apply_result, with unchanged-state fallback. Related to shared subscription/repository resolution patterns, but fetch and state application remain source-specific. Prefer explicit source support policy over merging entire open-ticket and ad-hoc BuildOrder projections.",
+      "evidence": "7 distinct definition spans in 3 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share source-support mechanics only; retain source-local fetch, projection, notification and degraded-state policy.",
+      "refactor_hint": "github/sources",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "ab29f67398b3a453908ed92cbe5653fdeac8a25aff07618d1e228cef0f31dcd4"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "87d6ecc60de2e6e32f1f6d49418d6ffca94ec82d414459082822bcf1bd726b44"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "b1e79a9604b78db3c527f14f6a73ae5141f7d85c16bfe5bf50cf637e88acc556"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-19",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "CI and comment polling duplicate branch target preparation",
+      "locations": [
+        {
+          "path": "src/lib/aiur/events/github_ci_poller.ex",
+          "lines": "586-592"
+        },
+        {
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "lines": "143-149"
+        },
+        {
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "lines": "155-160"
+        },
+        {
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "lines": "167-175"
+        },
+        {
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "lines": "177-183"
+        },
+        {
+          "path": "src/lib/aiur/github/ci_poll_batch.ex",
+          "lines": "185-190"
+        },
+        {
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "lines": "193-198"
+        },
+        {
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "lines": "204-212"
+        },
+        {
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "lines": "214-220"
+        },
+        {
+          "path": "src/lib/aiur/github/comment_poll_batch.ex",
+          "lines": "222-227"
+        }
+      ],
+      "description": "Both poll batches alias Aiur.TicketBranch and generate title-derived branch first, legacy second, deduplicating when equal. Put ordered branch candidates in the existing ticket-branch boundary so CI and comment lookup evolve together. Preserve known-branch precedence outside this helper; no API saving measured from consolidation. Both GitHub pollers stringify targets, trim, reject blanks and preserve first occurrence through Enum.uniq. Candidate for poll-input normalization within GitHub events. This is neither positive-number validation nor repository identity checking; preserve supported String.Chars inputs and their failure behavior. Read both open_pull_request_head_ref helpers: same map lookup and head/ref extraction. Explicit branch map value takes precedence via || before nonempty-binary validation; an empty string is truthy and blocks fallback. Group known-branch resolution with guessed branches in polling support, preserving precedence during extraction; changing malformed/empty override handling is a separate behavior decision. Both combine known and guessed branches into the same entry shape including known_branch boolean. Helpers were inspected in earlier clusters and preserve identical ordering/precedence. Consolidate this complete poll branch-selection subroutine rather than separately extracting each tiny helper. Same head/ref lookup already inspected with known_branch. Group into the complete CI/comment branch selection subroutine, retaining malformed/non-map fallback; no separate extraction count.",
+      "evidence": "10 distinct definition spans in 5 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Own ordered branch candidates in TicketBranch and poll-input normalization in GitHub polling; preserve known-branch precedence including current empty-string behavior.",
+      "refactor_hint": "github/polling",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "c7475642840f983f44f44ab0d3281cfc7ce5d90a6998c53c79bf13405e418870"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "0653009212c49263f5234e68e28d9ab4dd39b08b4ed06c0e3ae90e172137fb73"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "2ea63889e51ad18585471a0f851cb5838978da8bd8a83f22ff64442e85f32dc4"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "5a758c71fd3be366aea9b4aa9d1757843d29869773d3c84ca8bc7c3b8b84ac53"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "f71ad998e9f6ad3f65dc731514393f256d96bb89b5099f93818f9347add0e303"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-20",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Daemon log streams repeat parent-path resolution",
+      "locations": [
+        {
+          "path": "src/lib/aiur/run_telemetry.ex",
+          "lines": "61-69"
+        },
+        {
+          "path": "src/lib/aiur/saturation_sentinel.ex",
+          "lines": "63-71"
+        }
+      ],
+      "description": "Both resolve configured daemon log or the same LogFile default, then join a DIFFERENT @filename: telemetry.ndjson versus saturation.log. Share parent-directory resolution if owned by daemon logging; never coalesce the streams based on this body hash. Attribute values are part of behavior despite identical AST bodies.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share daemon log directory resolution without merging telemetry and saturation filenames or formats.",
+      "refactor_hint": "runtime/logging",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "fda049e3be6dfada981165bacc2bc6536eb85c322279a641fca7d4fa76dcdc44"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-21",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Financial views repeat authorization and subscription adapters",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "lines": "406-413"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "lines": "435-441"
+        },
+        {
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "lines": "681-688"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "1420-1427"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "1616-1622"
+        }
+      ],
+      "description": "Verified both aliases reference AiurWeb.FinancialDataAccess. Both require authorized capability state AND a typed verified context, else locked. Candidate for a single access-module gate used by both web runtimes; preserve the conjunction rather than accepting context alone or capability alone. This body review does not establish revocation coverage at every protected call site. Both financial usage subscriptions map exceptions and exits to error unavailable while preserving normal return values. Candidate for shared FinancialData subscription adapter alongside the access gate. Do not collapse denial into authorization or omit per-connection verified context; throw handling is not present in this wrapper. All three full spans read and AnalyticsLive alias verified as AiurWeb.FinancialDataAccess. AnalyticsLive differs only in unused fallback variable name, joining UsageRuntime and DashboardLive. Preserve authorized capability AND typed context, else locked. Candidate ownership remains FinancialDataAccess; this pass does not establish every fetch/subscription has revocation coverage.",
+      "evidence": "5 distinct definition spans in 3 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Reuse FinancialDataAccess ownership for capability-and-context gating and subscription adaptation; retain per-connection authorization and revocation duties.",
+      "refactor_hint": "web/financial-access",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "64c805b3cc010ad08b4f92769fe92112313a4f958b39ab70a56872914712c98c"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "86187939c70960f89b32e5542208bae6bfad892178e6b57827acf46e34aef5ae"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-22",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "TUI failure handling duplicates an existing helper",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/activation.ex",
+          "lines": "137-144"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/app.ex",
+          "lines": "334-341"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/render_state.ex",
+          "lines": "56-63"
+        }
+      ],
+      "description": "Both AgentList safe_call wrappers collapse exceptions, exits and throws to nil. Candidate for local TUI reuse only after reviewing each caller purpose; do not promote broad failure swallowing into a repository utility. A nil result cannot distinguish unavailable from a legitimate nil return, and identical bodies do not justify extending that policy. RenderState.safe_call is a public existing helper with the same exception/exit/throw-to-nil behavior as Activation and App private copies. Prefer that TUI owner if dependencies fit, preserving its deliberately lossy failure policy rather than exporting it as a general utility.",
+      "evidence": "3 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Reuse RenderState.safe_call locally; preserve its lossy nil fallback rather than exporting a general failure-swallowing utility.",
+      "refactor_hint": "terminal/state",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "3344eed0457b6275071fecbb4f661094a317f0515a52dcf88e0725fd52bfa06d"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "c0cd9a4f6678f3349e9206c80c5a82009cd2175fe13e7d82718ec98ddd582759"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-23",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Agent support installation repeats directory checks",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_command_installer.ex",
+          "lines": "98-105"
+        },
+        {
+          "path": "src/lib/aiur/agent_github_guard.ex",
+          "lines": "485-492"
+        }
+      ],
+      "description": "Both ensure a directory with the same agent-support error tuples, create a missing path with mkdir, and reject other lstat types including symlinks. Cohesive candidate for existing agent support installation ownership. Retain explicit unsafe/unavailable distinction and nonrecursive mkdir semantics; atomic script installation and credential handling remain separate review concerns.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Use one existing installation owner for directory admission, keeping nonrecursive creation and unsafe/unavailable errors.",
+      "refactor_hint": "agent-support/install",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "a9d73fb3e742030c31ba5f0edfd54f10931604c59d1e0dbe61b31323fdb2183b"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-24",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Usage corruption markers repeat encoding mechanics",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_aggregate/paths.ex",
+          "lines": "52-58"
+        },
+        {
+          "path": "src/lib/aiur/usage_ledger/recovery.ex",
+          "lines": "394-401"
+        }
+      ],
+      "description": "Identical version-1 marker serialization and fsynced atomic write call different accepted reason domains: aggregate accepts any atom, ledger recovery only four corruption reasons. Share encoding/write mechanism with explicit reason validation at callers; do not widen ledger accepted inputs or lose sync_fun ordering. Callback exceptions are not normalized here.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share marker serialization and fsynced-write mechanics while keeping distinct accepted reason domains.",
+      "refactor_hint": "usage/persistence",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "915e5c5c7afa38bdac83e84577626bd854866e4733be1f59fe8b14f9def88316"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-25",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Decision store adapters repeat scoped failure envelopes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "lines": "645-649"
+        },
+        {
+          "path": "src/lib/aiur/decision_api.ex",
+          "lines": "308-314"
+        },
+        {
+          "path": "src/lib/aiur/decision_attention.ex",
+          "lines": "309-313"
+        },
+        {
+          "path": "src/lib/aiur/decision_query/store_reader.ex",
+          "lines": "68-74"
+        }
+      ],
+      "description": "Both decision API and query reader catch exceptions/exits into store_unavailable, while retaining normal return values and not catching arbitrary throws. Cohesive decision-store adapter candidate, but review callers before changing error transport or broadening recovery. Do not generalize to nil-returning TUI safe_call wrappers. Both two-argument callbacks map only exits to error decision_store_exit while leaving ordinary results/exceptions unchanged. Group with decision request/projector boundary adapters, preserving narrower recovery than helpers that also rescue exceptions.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share adapters only with explicit exception versus exit handling; preserve differing result envelopes.",
+      "refactor_hint": "decisions/access",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "78a8c5db01aac7fba712e4203c4d6514d7da57a37043c5864f8a17f5d2e45997"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "c13eeda7bc1077a56ae11db8fd4193be4f2cf25c63653f8e900827ce4d460816"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-26",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "PR maintenance workers repeat review support",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "lines": "104-110"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "lines": "344-349"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "lines": "366-372"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "lines": "136-142"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "lines": "151-157"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "lines": "453-458"
+        }
+      ],
+      "description": "Both aliases resolve to Aiur.GitHub.Client; both discard returned etag and adapt list success/errors identically, with not_modified mapped to empty. Rework comment explains no etag is held, so 304 is not expected. Share the review-fetch adapter within PR maintenance, but if conditional caching is later added preserve previous reviews rather than assuming 304 means none. No observed 304 incident or API saving claimed. Verified aliases resolve to the same GitHub Config/Tracker and generic Tracker facade. Both require pr_health_enabled and GitHub adapter, failing closed on exception/throw/exit. Share PR-maintenance enablement policy if these workers must remain coupled; preserve the adapter gate, not merely the config flag. Both PR maintenance workers use nonempty binary title else untitled. Group with their shared review/enablement support if extracted; a separate generic text package is unnecessary. Whitespace-only strings currently remain accepted.",
+      "evidence": "6 distinct definition spans in 3 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share review-fetch, enablement and title support locally; keep adapter gating and conditional-response semantics explicit.",
+      "refactor_hint": "github/pr-maintenance",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "8209563d21518d0722b9f4c0fb460939ce1c8e0178a812ed4282275b7a6be88d"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "cf6121c25bca489cd372676d32446e6ab8e4f0c71c0c2249c9102fa9cd61f028"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "17139c5b7f9db67e63bcd48181aea583cee953a5dfa4aa3c920c60e10cf73c0c"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-27",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Repository comparison repeats through different shapes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/github_graph/endpoint.ex",
+          "lines": "98-104"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+          "lines": "168-174"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1561-1565"
+        }
+      ],
+      "description": "Both compare downcased owner/repository strings from TrackerIdentity against expected tuple. Settings additionally has a catch-all false clause; endpoint clause is narrower. Share a typed comparison primitive only while preserving caller validation/fallback policy; repository equality is not full ticket identity equality. GraphProjection compares active_repository/change maps while graph endpoint/settings take TrackerIdentity and tuple. Case-insensitive scalar comparison agrees, but whole function contracts differ. Share typed repository comparison only after each adapter extracts validated fields.",
+      "evidence": "3 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share typed case-insensitive repository comparison after callers extract valid fields; preserve fallback and eligibility policies.",
+      "refactor_hint": "tracker/identity",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "a694c3c563183795f2dbee82639417efa260f7014bbb8a61c78bec8200da12b7"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "93c80890ae1100342a2f2369fb87e55692e952ea4fda022dfdc0e531c79b5600"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-28",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Usage persistence repeats callback failure envelopes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage_aggregate/store.ex",
+          "lines": "328-334"
+        },
+        {
+          "path": "src/lib/aiur/usage_compaction/coordinator.ex",
+          "lines": "354-360"
+        }
+      ],
+      "description": "Both wrap normal results as {:ok,result}, exceptions as {:error,exception}, and all caught terms as {:error,{kind,reason}}. Candidate inside usage persistence/compaction support; preserve nested normal error returns rather than automatically flattening them. Distinct from store_unavailable or nil failure adapters.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share the exact result-wrapping contract locally, preserving nested ordinary error returns.",
+      "refactor_hint": "usage/persistence",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "c01c921edc9068658da484db2dc09c68275d890d0cd68388c3f38eb0f30c2359"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-29",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Build-order adapters repeat joinable identity equality",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "lines": "272-278"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_selection.ex",
+          "lines": "324-330"
+        }
+      ],
+      "description": "Both compare non-nil TrackerIdentity.github_key values, explicitly rejecting two nil keys as equal. Candidate for a domain identity equivalence helper shared by BuildOrder selection/adaptation. Preserve nonjoinable rejection and full repo-qualified ticket key; do not replace with raw struct equality or repository-only equality.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share equality of non-nil repository-qualified keys; do not equate two unjoinable identities.",
+      "refactor_hint": "build-order/identity",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "eb8262581436f06d6c76a78300a11181f3fc08dc908f204af752c7f74d033b29"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-30",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Ticket evidence normalization repeats across presentation",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "lines": "210-216"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "lines": "257-262"
+        },
+        {
+          "path": "src/lib/aiur/ticket_activity/projection.ex",
+          "lines": "579-584"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "690-695"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_presenter.ex",
+          "lines": "763-768"
+        }
+      ],
+      "description": "Verified both OpaqueIdentifier aliases resolve to Aiur.OpaqueIdentifier; heads whitelist the same agent_event/agent_alert/legacy kinds and binary names; fallbacks return nil. Candidate for a core ticket-evidence source normalizer that presentation consumes, not a core dependency on web. Preserve identifier normalization and kind allowlist. Both use the same OpaqueIdentifier normalizer and omit rejected values without deleting an existing map key. Group with ticket-evidence normalization below web presentation. Preserve existing-map behavior when input is invalid; replacing it with Map.put nil would differ. Verified TicketActivity.Projection uses Aiur.OpaqueIdentifier. It adds a third normalize-then-put helper, preserving original map on invalid input. Group with ticket evidence normalization below web presentation; do not replace invalid values with nil or remove preexisting keys.",
+      "evidence": "5 distinct definition spans in 3 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Own evidence source kinds and opaque-name normalization below presentation; preserve existing map entries on invalid input.",
+      "refactor_hint": "ticket-evidence",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "7f4c01441f71af82156c6c5de40d22ea56c9062985b31551bd410698b414d09b"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "a4be0f93e8847661ae4235df69ffe9910335ea010e127bc5cce18e0fb5108620"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "63511d8ca521bf53d63376d9980c8580de5ef876beefe37036be41efdefd6244"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-31",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Durable logs repeat bounded tail-read mechanics",
+      "locations": [
+        {
+          "path": "src/lib/aiur/alert_ledger/tail.ex",
+          "lines": "37-43"
+        },
+        {
+          "path": "src/lib/aiur/alert_ledger/tail.ex",
+          "lines": "47-52"
+        },
+        {
+          "path": "src/lib/aiur/decision_metrics/log.ex",
+          "lines": "113-119"
+        },
+        {
+          "path": "src/lib/aiur/decision_metrics/log.ex",
+          "lines": "123-128"
+        }
+      ],
+      "description": "Read both callers and false clauses: skip through the first newline only when byte offset is positive, return empty if no newline, preserve contents when offset is zero. Both tail readers own descriptor cleanup. Shared bounded line-tail primitive is plausible, but alert reads collapse errors to empty whereas decision metrics propagate errors and track truncation/record limits. Preserve these consumer contracts rather than merging whole readers. Same file-read adapter already inspected with tail readers; EOF becomes ok empty while errors propagate at this level. Group with bounded-tail primitive, preserving consumer-specific error collapse and truncation/record-limit handling.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share descriptor/read and partial-line mechanics; retain consumer-specific empty-on-error versus propagated-error and truncation contracts.",
+      "refactor_hint": "persistence/log-tail",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "03ef58be2e2be4c59fa1cdbf6726bb52e5f56c745b4713f04bb5496a3b67b174"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "e2913b9a47157ccf36b4c2376a13cb2bdde47f4bf31d50b582e7fab0a64b40ec"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-32",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "GitHub usage surfaces repeat consumer labels",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/credential_usage.ex",
+          "lines": "96-101"
+        },
+        {
+          "path": "src/lib/aiur/github_usage_cli.ex",
+          "lines": "120-125"
+        }
+      ],
+      "description": "Same consumer-label fallback in credential accounting presentation and CLI: nonempty label else consumer_key else unknown when key absent. Keep explicitly nil consumer_key behavior distinct from absent-key default. Cohesive usage presentation helper candidate, not a credential identity normalization rule.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share label fallback locally, preserving absent versus explicitly nil consumer keys.",
+      "refactor_hint": "github/usage-presentation",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "0b7170d970581147263f5a4f37e1046c3e44d6964b941b461180afcae31b8ceb"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-33",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Provider adapters repeat process metadata normalization",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "lines": "607-612"
+        },
+        {
+          "path": "src/lib/aiur/codex/app_server_port.ex",
+          "lines": "259-264"
+        }
+      ],
+      "description": "Read full clause groups: both accept positive integers or fully parsed positive strings and otherwise preserve the provider map. Share root_pid normalization within provider process metadata; preserve group IDs, remote host and process discovery as separate concerns. No proof of process liveness is supplied by a valid integer.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share positive root_pid normalization while retaining provider maps and separate process ownership/liveness checks.",
+      "refactor_hint": "agent-process/metadata",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "0f2da6f2c508676ee64c56d90cb1451670cec902e9482ce87c0fb3bc2d04fa3c"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-34",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "CLI tables repeat row and width mechanics",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github_cost_cli.ex",
+          "lines": "469-474"
+        },
+        {
+          "path": "src/lib/aiur/github_cost_cli.ex",
+          "lines": "482-487"
+        },
+        {
+          "path": "src/lib/aiur/units_cli.ex",
+          "lines": "271-276"
+        },
+        {
+          "path": "src/lib/aiur/units_cli.ex",
+          "lines": "291-296"
+        }
+      ],
+      "description": "Both zip cells with widths, pad with two-space separators, and trim trailing whitespace. Candidate for local CLI tabular rendering support, preserving shortest-list zip behavior and ordinary string padding. This is not ANSI display-width-aware TUI formatting; do not substitute it for renderer Text helpers. Actual @table_min_width differs: GitHub cost 96 columns, units 120. Share terminal-width detection only with caller-owned minimum or retain the small wrappers. Identical bodies do not authorize a common threshold; nonterminal/narrow fallback to records must stay explicit.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share ordinary table rendering and terminal-width detection with caller-owned minimum widths; do not substitute for ANSI-aware TUI rendering.",
+      "refactor_hint": "cli/presentation",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "2bbe9e893f8d99d014d7a3c1708e964a9c9dc8cbf2f27e87cd2b997103053044"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "b215f7fde23cc40dc75a8b4fc586ce1af7297f1710284e84e02e648bcfee1fe4"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-35",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Transcript helpers repeat existing protocol field operations",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/message_handler.ex",
+          "lines": "344-349"
+        },
+        {
+          "path": "src/lib/aiur/claude/transcript.ex",
+          "lines": "171-176"
+        },
+        {
+          "path": "src/lib/aiur/codex/transcript.ex",
+          "lines": "121-126"
+        },
+        {
+          "path": "src/lib/aiur/protocol/map_access.ex",
+          "lines": "57-62"
+        }
+      ],
+      "description": "Both local get helpers delegate to the same Aiur.Protocol.MapAccess and both accept nonempty binary item IDs else nil. Candidate for shared protocol-field reading if ownership remains below provider transcripts. Provider event schemas and ID generation/fallback paths remain separate; do not merge entire transcript parsers. MessageHandler timestamp_for duplicates existing Protocol.MapAccess.message_timestamp exactly, including atom/string || precedence and utc_now fallback for anything except DateTime. Reuse that existing protocol owner if dependency direction permits. Preserve the difference between receive-time fallback and parsing persisted ISO timestamps; no claim that fallback proves source freshness.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Reuse existing message_timestamp and coherent item-ID reading; preserve atom/string precedence and receive-time fallback.",
+      "refactor_hint": "protocol/map-access",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "32a81bdacd6e03ae1ba955c5aeef582971128fda5ccb781920ef95d2ed098b04"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "91d0d3ce88151d442fe455a52274223ce74b6971b9636a7fddec470bcae8200d"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-36",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "GitHub adapters repeat strict positive-number parsing",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "306-311"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/reconciliation.ex",
+          "lines": "188-193"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1686-1691"
+        },
+        {
+          "path": "src/lib/aiur/build_order/graph_projection.ex",
+          "lines": "1725-1730"
+        },
+        {
+          "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+          "lines": "511-516"
+        },
+        {
+          "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+          "lines": "718-723"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1285-1290"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "lines": "534-539"
+        },
+        {
+          "path": "src/lib/aiur/github/request_log.ex",
+          "lines": "315-320"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/units_row/fields.ex",
+          "lines": "165-170"
+        }
+      ],
+      "description": "Reconciliation and webhook deposit accept positive integers plus positive fully parsed strings; CatalogStore has an unguarded string helper with binary dispatch at its issue_number caller. Matching string bodies support a narrow positive-number parser, not arbitrary identity equivalence. Preserve typed caller boundaries and repository-qualified identity outside the parser. Full deposit/read-cache parser clause groups agree: positive integer or fully consumed positive string, otherwise nil. Same behavior as earlier positive-number family modulo variable names. Group into one GitHub identifier parsing proposal, retaining repo qualification and event/cache shape classification outside it. Quota/request-log full clause groups match the positive integer/string policy in deposit/read-cache. This also demonstrates exact hashes undercount semantic duplicates because names of invalid variables differ. Deduplicate these sites with the same numeric family rather than count a separate package opportunity. All ten spans read. GraphProjection identity_number destructures TrackerIdentity while issue_number and other callers take scalar strings. Group strict positive parsing with the earlier GitHub numeric family; keep structural identity validation and repo qualification outside the primitive.",
+      "evidence": "10 distinct definition spans in 4 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share the scalar positive parser after shape extraction; preserve repository qualification and public fallback clauses.",
+      "refactor_hint": "github/identity",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "20eb9a0a3fa9fba25149c61ae19ab195b878fdaaecc7c3a6eebc95d7f77634df"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "4271a5cae63bf7d8296393b7c59704e72b77ae56044eca7f5401e7e88e396bd2"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "55fedfac080ae7383450211273c1b81563032828f27b91db67f21c2847875fd8"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "2a402f975f919fcecbd69f2e986b72676b3e154c8cd5964c1a4609439e56fb6b"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-37",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Decision kind canonicalization repeats",
+      "locations": [
+        {
+          "path": "src/lib/aiur/decision_authority.ex",
+          "lines": "122-127"
+        },
+        {
+          "path": "src/lib/aiur/decision_command_type.ex",
+          "lines": "56-61"
+        }
+      ],
+      "description": "Both trim/lowercase strings with blank to nil. Authority has a private nonbinary fallback; CommandType gates public input before calling its binary helper. Shared decision-kind canonicalization is cohesive if public invalid-input behavior stays intact; classification and authority policy tables must remain explicit.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share trim/lowercase/blank normalization without merging authority and classification policy tables.",
+      "refactor_hint": "decisions/kinds",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "4a15278eab0ca4ca964370981c1e2618bc66d880602ef14a4398ae26f5eb467f"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-38",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Current-run projections repeat task-start fallback",
+      "locations": [
+        {
+          "path": "src/lib/aiur/current_run_projections/checkpoint_persistence.ex",
+          "lines": "105-110"
+        },
+        {
+          "path": "src/lib/aiur/current_run_projections/checkpoint_persistence.ex",
+          "lines": "112-116"
+        },
+        {
+          "path": "src/lib/aiur/current_run_projections/source_collector.ex",
+          "lines": "98-103"
+        },
+        {
+          "path": "src/lib/aiur/current_run_projections/source_collector.ex",
+          "lines": "105-109"
+        }
+      ],
+      "description": "Read both nil and supervised start clauses plus safe_supervised_start: they try Task.Supervisor.start_child, map exits to supervisor_unavailable, then fall back to Task.start. Candidate for current-run projection task lifecycle support. Preserve caller monitoring/cancellation ownership and explicitly document unsupervised fallback; do not generalize as guaranteed supervised execution. Same supervised-start exit adapter already reviewed with fallback Task.start. Group into one current-run projection task policy; do not count standalone wrapper reuse separately or describe fallback execution as guaranteed supervision.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Own supervised-start and unsupervised fallback policy together; retain monitoring and cancellation responsibility.",
+      "refactor_hint": "current-run/projections",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "5189a52da9b919363c06d1aa3544817e53a9c1ba4798d179b2df412ea4db2500"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "b936263aaeda38bfa7868bd44f74b8b14890ff04c150e65a71d236fa581c6a36"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-39",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Timestamp clauses repeat with incompatible outer policies",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/comment_context.ex",
+          "lines": "190-195"
+        },
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "459-464"
+        },
+        {
+          "path": "src/lib/aiur/analytics_cli.ex",
+          "lines": "176-181"
+        },
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "297-302"
+        },
+        {
+          "path": "src/lib/aiur/build_order/progress_renderer.ex",
+          "lines": "144-149"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_destinations.ex",
+          "lines": "93-98"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_history_normalizer.ex",
+          "lines": "283-288"
+        },
+        {
+          "path": "src/lib/aiur/claude/usage_api.ex",
+          "lines": "275-280"
+        },
+        {
+          "path": "src/lib/aiur/decision_metrics/event/fields.ex",
+          "lines": "104-109"
+        },
+        {
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "lines": "813-818"
+        },
+        {
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "lines": "825-830"
+        },
+        {
+          "path": "src/lib/aiur/executor/takeover_alert/snapshot.ex",
+          "lines": "208-213"
+        },
+        {
+          "path": "src/lib/aiur/executor/takeover_alert/store.ex",
+          "lines": "271-276"
+        },
+        {
+          "path": "src/lib/aiur/github/cache_inspector/entry.ex",
+          "lines": "203-208"
+        },
+        {
+          "path": "src/lib/aiur/github/ci_readiness.ex",
+          "lines": "232-237"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "1154-1159"
+        },
+        {
+          "path": "src/lib/aiur/linear/client.ex",
+          "lines": "590-595"
+        },
+        {
+          "path": "src/lib/aiur/live_conversation/normalizer.ex",
+          "lines": "210-215"
+        },
+        {
+          "path": "src/lib/aiur/model_availability.ex",
+          "lines": "398-403"
+        },
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "lines": "817-822"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/capacity_binding.ex",
+          "lines": "137-142"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/command_scan.ex",
+          "lines": "399-404"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/command_scan.ex",
+          "lines": "411-416"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "lines": "817-822"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/review_freshness.ex",
+          "lines": "94-99"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "551-556"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/writer.ex",
+          "lines": "594-599"
+        },
+        {
+          "path": "src/lib/aiur/ticket_observation.ex",
+          "lines": "209-214"
+        },
+        {
+          "path": "src/lib/aiur/units_cli.ex",
+          "lines": "182-187"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+          "lines": "507-512"
+        },
+        {
+          "path": "src/lib/aiur_web/live/analytics_live.ex",
+          "lines": "630-635"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "lines": "343-348"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "lines": "330-335"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_projection.ex",
+          "lines": "492-497"
+        }
+      ],
+      "description": "Six binary ISO8601-to-DateTime-or-nil clauses in five modules. This only covers their binary clause, not full parser policies or nonbinary inputs. Compare typed/date/invalid fallbacks before collapsing adapters. Both datetime clauses select right only when strictly later and left on ties. Related to comment/command timestamp parsing. A narrow comment-cursor helper could share this operation, but keep nil clauses and cursor advancement policy explicit; equal timestamps may represent different record ordering elsewhere. Read all clauses: both accept DateTime directly or parsed ISO string and return error otherwise. Candidate for telemetry-owned timestamp validation shared by writer/dataset. Preserve actual DateTime values and parsing errors; not equivalent to nil-returning UI timestamp helpers. Same ISO-string-to-DateTime-or-nil clause under catalog datetime and review freshness parse. Related to earlier comment/UI timestamp cluster with renamed variables; compare full input policies before sharing. No generic date package justified by this one clause alone. GitHub Issues and Linear client match ISO parsing body but call boundaries/public visibility differ. Candidate for tracker record conversion only after full clause/caller policy review; neither this body nor matching timestamp shape makes tracker adapters equivalent. Group with timestamp near-duplicate family. Both map DateTime.from_iso8601 errors to nil; takeover helper is binary-guarded while metrics helper is internally called. Preserve input validation and caller-specific unavailable semantics. Related to other ISO parsing clauses, not an independent package opportunity. Both parse ISO strings to ok timestamp/error; group with BuildOrder evidence/date normalization only after preserving other input clauses. Different from nil-returning display helpers; do not erase success/error shape when consolidating timestamp families. All eleven spans read. Adds model availability, ticket observation and StreamdeckLogs to prior ISO-to-DateTime/nil family. Heads vary, including unguarded tracker parsers; preserve full input clauses and downstream freshness/order policy. Group with other nil-returning ISO clusters rather than treating variable-name partitions as separate savings. All eleven spans read. Same ISO conversion family, including analytics map-destructuring head versus direct string arguments. A scalar parsing primitive could be shared, but whole functions have different input shapes. Preserve map extraction and unavailable behavior; no claim that source timestamps or freshness semantics are interchangeable. Four spans parse ISO strings into ok DateTime/error, adding CI readiness and control lifecycle restoration. Share only the scalar result contract where ownership fits; retain persisted schema validation and surrounding nil/DateTime clauses. Distinct from nil-returning display parsers. Four spans use explicit DateTime error matching to return nil, adding AlertFeed and takeover store. Group with nil-returning ISO family while preserving guarded versus internally validated inputs. Matching parser bodies do not unify retention or freshness policy.",
+      "evidence": "34 distinct definition spans in 11 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Use narrow scalar parsing/formatting primitives only where cohesive; keep nil versus error results, map heads, typed inputs and cursor policy explicit.",
+      "refactor_hint": "domain codecs and presentation",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "3f34de0c993f959daf85810b7aea18298a81cadef7c29dd78f6b4107aa45eb98"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "008de75dbca40c2726977a767fcf7d972d3b5d77b5b97205f6aa261053a0a0b0"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "6ef21de37c3398c9dd4b9dc2bd16276302d6a75c488a0c99e2682310350e0481"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "abc1cb15f1920f6b3b14b9cdfaf5f39c90acea8963cd3a2b4306e05052721fc6"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "cac1a8bf38e29650dee68374d9db407ec17b9e6235f75c31273abdd22fa26d4c"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "d517d1a202a17f0498f4b37d0e5964e0aaa2566baedd2fb6e8a44647218d7619"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "f131dbd5f5b7aeaf4fafa91805caa9d0e61df48f222cc5498a00b337cf41bc32"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "c67425f201be77f6af5903e8b435df9226ea80c622269bf07bf30c0a2a3a9d63"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "dff88c4232908fd4b49723f88f6fd8d5201f79433e4fdffc4361b786f4d102ce"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "2e5025a31f34449931e80c2f2b10119871a5394ae60356dc3ca1638fb134d5e0"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "8dae1d57e6aa1f5c222c18ebdd19a5b9db4d0027e6c163f7a67a9dcd50150113"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-40",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Usage schemas repeat safe enum validation",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "lines": "200-205"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "lines": "399-404"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "lines": "243-248"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+          "lines": "428-433"
+        }
+      ],
+      "description": "Both full enum groups accept allowed atoms or strings matching allowed atom names, else caller-provided error. Candidate for usage schema validation support. Preserve explicit allowlists, case sensitivity and absence of dynamic atom creation; each price/relationship schema still owns its allowed values. Both normalize_atom helpers accept allowed atoms or exact matching atom-name strings, otherwise nil. Group with earlier price/relationship enum validation, keeping caller-owned allowlists/error values and avoiding atom creation. This is one validation family, not multiple independent package proposals.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share allowlist-based atom/string conversion with caller-owned errors; never create atoms from input.",
+      "refactor_hint": "usage/schema",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "743c87fc1ca509b9149f84a617e2edf84b8289bcb3662bb174b2dc58137a7434"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "fb988c22ed4f6066aff56e3353081dff2d4b21ef0d9684dcd6d121b051cd7d3c"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-41",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "GitHub events repeat review-context projection",
+      "locations": [
+        {
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "lines": "490-495"
+        },
+        {
+          "path": "src/lib/aiur/events/github_webhook/normalizer.ex",
+          "lines": "608-613"
+        }
+      ],
+      "description": "Both project review_decision and head_committed_at keys; webhook helper is map-guarded. Share the event context shape within GitHub review events, preserving nil when upstream lacks enrichment. Extraction does not make missing REST/webhook review data available or activate an otherwise inert gate.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share review context shape while preserving nil for absent enrichment; extraction cannot supply missing upstream data.",
+      "refactor_hint": "github/review-events",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "803743e49ef53598e7bc9fedd44b404ef8f0126968f73f3708a3f733aaa677d5"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-42",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "GitHub accounting repeats request attribution",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1255-1260"
+        },
+        {
+          "path": "src/lib/aiur/github/request_log.ex",
+          "lines": "283-288"
+        }
+      ],
+      "description": "Quota and request log derive ticket:<digits> from issues/pulls URL paths with the same regex. Candidate for shared request attribution policy with number validators; preserve path-only attribution, which does not authenticate host, repository or user identity. Do not claim this is a full ticket identity parser.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share path-based issue/pull-number attribution; retain its limitations and do not treat it as authenticated repository identity.",
+      "refactor_hint": "github/accounting",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "823d81e626d6bde34ac4a424f6799c47d43dbd58ba7ddec7d3f583b6dd9ca2fd"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-43",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Field readers repeat presence-preserving lookup",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/progress_renderer.ex",
+          "lines": "195-200"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_projection.ex",
+          "lines": "87-92"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/lifecycle.ex",
+          "lines": "548-553"
+        }
+      ],
+      "description": "Both prefer an existing atom key even when its value is nil/false, falling back to string key only when absent. Existing Protocol.MapAccess.get uses || and therefore differs. Any shared accessor must name presence-versus-truthiness semantics; do not replace these with get merely because both support atom/string keys. Lifecycle additionally guards atom key. Read all three spans and adjacent fallback clauses. ProgressRenderer.field joins wake projection and telemetry lifecycle. Each preserves explicit atom-key nil/false instead of falling back to a string key. Guards/fallbacks differ across callers. Do not replace with current MapAccess.get truthy fallback; share only an explicitly presence-preserving primitive.",
+      "evidence": "3 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Introduce or reuse an explicitly presence-preserving accessor; current truthy MapAccess.get is not equivalent.",
+      "refactor_hint": "protocol/map-access",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "880c92757a2b6d813a22367480cd1695535247c5185145fa18b797fe3a415069"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "abb58f5375f4d211ef24bc982a9d3810104802d5aec9b6fa942e766933db2fb8"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-44",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Build-order URL adapters repeat diagnostic shaping",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/member.ex",
+          "lines": "152-157"
+        },
+        {
+          "path": "src/lib/aiur/build_order/member.ex",
+          "lines": "159-164"
+        },
+        {
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "lines": "113-118"
+        },
+        {
+          "path": "src/lib/aiur/build_order/root_summary.ex",
+          "lines": "120-125"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order/ticket_context_adapter.ex",
+          "lines": "191-196"
+        },
+        {
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "lines": "305-310"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_breakdown.ex",
+          "lines": "210-215"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/build_order_ticket_context.ex",
+          "lines": "223-232"
+        },
+        {
+          "path": "src/lib/aiur_web/components/operator_control_center/units_table.ex",
+          "lines": "323-328"
+        }
+      ],
+      "description": "Verified both Bounded and Diagnostic aliases resolve to the same BuildOrder modules. Both adapt github_url into value plus optional invalid_url diagnostic. Group with identity-bound URL adapter in the same domain; do not confuse generic URL validation with matching a specific issue identity. Both adapters use the same Bounded.github_issue_url_for and Diagnostic modules, preserving identity-bound URL checking and invalid_url diagnostic. Share alongside generic URL adaptation only with explicit distinction between generic and issue-bound checks. All three spans call BuildOrder.Bounded.github_issue_url_for, but heads constrain external edges/relationships or units row maps differently. Share only identity-bound URL result adaptation; preserve eligibility guards and do not substitute generic http or GitHub URL validation. Both convert BuildOrder.Bounded.github_url result to URL/nil under different input heads. Group web URL adaptation separately from identity-bound issue URL checks; dependency map extraction remains caller-owned.",
+      "evidence": "9 distinct definition spans in 4 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share URL result adaptation with separate generic and identity-bound validation entry points; preserve input guards.",
+      "refactor_hint": "build-order/presentation",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "8a253f8b91e88b344cd5ad2dd6b241e72e56b10b5f1f4256c8c70d370840c031"
+        },
+        {
+          "kind": "exact",
+          "body_sha256": "fd667e73e3f4226ec704f320a8ec76a185f8c5050340d372cd951349d5c8bea3"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "d309939f4d264d448b05f658b4ddaf26b3f6aaaf5c78cc1fe701cab56a3511e6"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "46ae71ed5bee3eeece72d32b7ecbea592d36f57611a747ea5f6cf5a1aee58c67"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-45",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Tracker health repeats existing connectivity streak policy",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/connectivity.ex",
+          "lines": "133-138"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/tracker_health.ex",
+          "lines": "80-85"
+        }
+      ],
+      "description": "TrackerHealth privately repeats public Connectivity.streak_count behavior: valid positive stored count or default one. Candidate to reuse existing connectivity ownership; preserve guards/caller typing and the policy that absent count is one rather than zero. This is not an elapsed-time or outage-duration measurement.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Reuse Connectivity.streak_count while preserving positive-count guards and default one.",
+      "refactor_hint": "github/connectivity",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "a90e2af6aaa30b700434c0ee85c95b4989293dd313f41729c572c586ff5bb2da"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-46",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Event consumers repeat topic parsing",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_event_feed.ex",
+          "lines": "283-288"
+        },
+        {
+          "path": "src/lib/aiur/agent_event_feed.ex",
+          "lines": "290-295"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/event_line.ex",
+          "lines": "90-95"
+        },
+        {
+          "path": "src/lib/aiur/alert_feed.ex",
+          "lines": "384-389"
+        },
+        {
+          "path": "src/lib/aiur/executor_wake_projection.ex",
+          "lines": "77-82"
+        }
+      ],
+      "description": "Both parse the first ticket.<non-dot>. segment with identical regex and return nil otherwise. Candidate for a shared event-topic contract below alert/wake projections. Preserve permissive identifier syntax; this does not prove a topic is trusted or bound to a subscriber. AgentEventFeed strips ticket and system scopes while EventLine matching clause strips ticket scope. Heads matter: identical suffix extraction does not justify applying ticket policy to every system topic. Group with event topic contract and preserve nonmatching fallback clauses.",
+      "evidence": "5 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share ticket identifier/suffix mechanics with explicit ticket versus system scope and nonmatching fallbacks.",
+      "refactor_hint": "events/topics",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "b4a71a4785a7ab89801659915148c3073de12cb742c24a29753b3bb98939a30d"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "e33d4598394f1b950266df883590257f4ea699edcc8e6a60b611d7e004604006"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-47",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Usage drill views repeat cursor parsing",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/usage_runtime.ex",
+          "lines": "395-400"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "1677-1682"
+        }
+      ],
+      "description": "Read full clause groups: both accept nonnegative integer or fully parsed string, otherwise nil. Cohesive usage drill-input helper for both web runtimes, preserving zero as valid and keeping financial access checks separate.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share nonnegative cursor parsing within usage drill input; keep zero valid and authorization separate.",
+      "refactor_hint": "web/usage",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "ba65d3f50ec2916bf3579a6e3f289cec24c2054de838dd3e7c85bf319197ec24"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-48",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Display tailers repeat graceful-stop wrappers",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "lines": "825-830"
+        },
+        {
+          "path": "src/lib/aiur/claude/display_tailer.ex",
+          "lines": "280-285"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/transcript_turn.ex",
+          "lines": "298-303"
+        }
+      ],
+      "description": "Both stop a live pid normally with 1,000 ms timeout, swallowing exits. Candidate for display-tailer lifecycle ownership across runner/provider boundary. Preserve type guards at callers and distinguish graceful stop from unconditional kill; a successful return can include swallowed timeout/exit. Third stop helper in Claude REPL transcript turn shares alive check, normal GenServer stop with 1000 ms and exit swallowing. Group with existing runner/display-tailer lifecycle proposal, keeping caller process ownership and pid validation; no shutdown-success guarantee inferred from ok.",
+      "evidence": "3 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share lifecycle support only with caller-owned PIDs and preserved exit swallowing; ok does not prove stop success.",
+      "refactor_hint": "agent-process/display-tailers",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "df0d832aae9d4b4513211c8f0932767bc037abe3be675bba09080f30710b0c64"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "6faffa715b70cf5fd7df9832fb044ebbb1c33de8fd231e5238d60112208d2032"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-49",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "GitHub accounting repeats cost classification",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "651-656"
+        },
+        {
+          "path": "src/lib/aiur/github/request_log.ex",
+          "lines": "326-331"
+        }
+      ],
+      "description": "Both use the same GraphQLCost.reported nonnegative cost or assumed one. Read neighboring clauses: both special-case 304 to zero, but request-log API wraps success/error and tags failed requests assumed while quota takes separate status/response arguments. Share cost classification through an explicit normalized response contract; preserve reported/assumed provenance and error handling.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share normalized-response cost classification with reported/assumed provenance, 304 handling and error adaptation.",
+      "refactor_hint": "github/accounting",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "e4eb7184f8d4daa18fd06c4edfc130c5f1a6c3d635a355c89baffe534dde2e9f"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-50",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Comment context repeats the workpad filter",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/comment_context.ex",
+          "lines": "156-161"
+        },
+        {
+          "path": "src/lib/aiur/events/comment_filter.ex",
+          "lines": "5-10"
+        }
+      ],
+      "description": "Read both complete workpad predicates and body accessors: same string/atom body fallback, trim-leading and Agent Workpad prefix check, false for nonmaps. Candidate to reuse existing Events.CommentFilter.agent_workpad? from comment context if boundary permits. It checks a prefix, not author trust; preserve separate trusted-comment checks.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Reuse Events.CommentFilter.agent_workpad?; retain separate author trust checks.",
+      "refactor_hint": "events/comments",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "e619c065f97ca25294a19c4f166ec6cdfddb8f835f7b87f6f8d644836515c6b3"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-51",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Build-order tasks repeat termination adapters",
+      "locations": [
+        {
+          "path": "src/lib/aiur/build_order/graph_projection_task_lifecycle.ex",
+          "lines": "38-43"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_coordinator_task_lifecycle.ex",
+          "lines": "218-223"
+        }
+      ],
+      "description": "Both delegate Task.Supervisor.terminate_child and swallow exit/error catches, not arbitrary throws. Cohesive BuildOrder task-lifecycle helper candidate, preserving caller monitors/timers and supervised-task ownership. Return ok after a caught failure is not proof the child was stopped.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share supervised termination mechanics without losing monitors/timers or claiming caught errors mean successful cancellation.",
+      "refactor_hint": "build-order/tasks",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "f310f2d8bfcd630e114bafc8f0a929763eb052e7271e0eb67240354f53f9c993"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-52",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Comment ingestion duplicates validator removal",
+      "locations": [
+        {
+          "path": "src/lib/aiur/events/github_comments_poller.ex",
+          "lines": "270-274"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/command_scan.ex",
+          "lines": "205-209"
+        }
+      ],
+      "description": "Verified both ResourceStore aliases match. Both store a complete comment list with nil etag, then explicitly drop any retained validator, returning nil. Strong shared comment-list ingestion candidate: preserve explicit validator removal even when body is unchanged, preventing stale page-one validators from describing a complete multi-page list. Consolidation alone claims no saving.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share complete-comment-list cache deposit plus explicit validator removal, including unchanged-body behavior.",
+      "refactor_hint": "github/comments",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "214ca7ea9f219236e8fdaea26362c967ff995cb6ee2952ba130cf12282f8a885"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-53",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Protocol payload adapters repeat nested map traversal",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/token_accounting/payloads.ex",
+          "lines": "144-152"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/adapter.ex",
+          "lines": "288-292"
+        },
+        {
+          "path": "src/lib/aiur/usage/headless/codex/tokens.ex",
+          "lines": "102-106"
+        }
+      ],
+      "description": "Both walk map keys with has_key? and halt nil on missing/nonmap; empty path returns initial map. Adapter guards map/list while Codex helper lacks guards. Share a headless/protocol traversal only with preserved boundary validation; compare existing Protocol.MapAccess.dig empty-path and invalid-path behavior before substitution. Adds token-accounting Payloads.map_at_path to headless map traversal. Same has_key-based walk, but guards/fallbacks differ. Candidate below usage input adapters; preserve empty-path initial value and missing/nonmap handling, and compare existing Protocol.MapAccess.dig before reuse.",
+      "evidence": "3 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Compare and reuse a low-level traversal with explicit empty-path and invalid-input behavior; retain adapter guards.",
+      "refactor_hint": "protocol/map-access",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "2476b75d506d4f0c66f9ed8e46f1da9ee312e87be3ebdd5b1329e7d7e4491daf"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "9fb2649f934c771e5dbc30ccfdf118f17e9c304ba750845ba5b653e4b6966f2d"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-54",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Pane opening repeats an existing slot operation",
+      "locations": [
+        {
+          "path": "src/lib/aiur/pane_manager/generic_open.ex",
+          "lines": "127-131"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/slot_attach.ex",
+          "lines": "175-179"
+        }
+      ],
+      "description": "Read both set_pane_title helpers: same Tmux title call from updated State, return ignored then ok. GenericOpen private record_slot_pane duplicates public SlotAttach.record_slot_pane behavior. Prefer an existing cohesive pane-slot owner, preserving update-before-title order; do not pull this side effect into a pure State helper.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Reuse SlotAttach.record_slot_pane where dependencies permit; preserve update-before-title side effects.",
+      "refactor_hint": "terminal/panes",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "exact",
+          "body_sha256": "d69663e03d09f529bd811d4d5975807372a579052290c09e36359f242fe91507"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-55",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Web chat surfaces duplicate transport override dispatch",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "2644-2650"
+        },
+        {
+          "path": "src/lib/aiur_web/live/dashboard_live.ex",
+          "lines": "2652-2657"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "lines": "464-470"
+        },
+        {
+          "path": "src/lib/aiur_web/streamdeck_channel.ex",
+          "lines": "472-477"
+        }
+      ],
+      "description": "Verified both Endpoint and AgentChat aliases resolve to AiurWeb.Endpoint and Aiur.AgentChat. Dashboard and Streamdeck pause use the same configured one-argument override/default call. Candidate for shared web chat command adapter, preserving authorization and command receipts in callers. Dashboard and Streamdeck send adapters share Endpoint/AgentChat aliases and 3-argument, legacy 2-argument, then default dispatch precedence. Group with pause into web chat transport support. Preserve message_id option on modern/default path and legacy override behavior; permission and delivery receipt handling remain outside.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share pause/send transport adapters while preserving modern and legacy override precedence, message IDs, authorization and receipts.",
+      "refactor_hint": "web/agent-chat",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "renamed",
+          "body_sha256": "47524127e21a77f0878c6b47142538711541794f6a27fdd49cb8913ba52dcf38"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "dcb3479872ff7b26792c45b96c6d5c59c99b9720ebf88f8cfeabc293b83d75c4"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-56",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Dependency ingestion repeats complete-list edge merge",
+      "locations": [
+        {
+          "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+          "lines": "837-841"
+        },
+        {
+          "path": "src/lib/aiur/github/dependencies_api.ex",
+          "lines": "307-311"
+        }
+      ],
+      "description": "Read both fallback clauses and cache update context. Both preserve complete held lists, avoid duplicate IDs and return unchanged on absent/nonlist cache. Strong shared dependency-edge merge policy across webhook and mutation ingestion; retain store update ordering and do not turn one edge into a complete cached list.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share edge insertion only into already-complete cached lists; preserve absent/nonlist state and deduplication.",
+      "refactor_hint": "github/dependencies",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "renamed",
+          "body_sha256": "5915e9ad00e098c12f2cade8c3d6d34582c1be9586a90dfeb042bfe11ce8c1c2"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-57",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Token adapters repeat permissive numeric-prefix parsing",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/token_accounting/payloads.ex",
+          "lines": "245-250"
+        },
+        {
+          "path": "src/lib/aiur/token_usage.ex",
+          "lines": "120-125"
+        }
+      ],
+      "description": "Read full clause groups: both accept nonnegative integers or trimmed numeric prefixes from strings, ignoring parse remainder, else nil. This differs from strict identifier parsing: 12x parses as 12 here. Share token-input compatibility policy only deliberately; tightening remainder handling is a separate behavior change.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share the existing compatibility policy deliberately; full-consumption tightening is a separate behavior change.",
+      "refactor_hint": "usage/input",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "renamed",
+          "body_sha256": "64ef2ec74ffa81da248eb7b7a061d17965f0878465bf3c35e416e07388929a77"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-58",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Keyed task schedulers repeat start and runnable mechanics",
+      "locations": [
+        {
+          "path": "src/lib/aiur/coordination_tasks.ex",
+          "lines": "296-302"
+        },
+        {
+          "path": "src/lib/aiur/coordination_tasks.ex",
+          "lines": "354-364"
+        },
+        {
+          "path": "src/lib/aiur/decision_dispatch_tasks/queue.ex",
+          "lines": "93-99"
+        },
+        {
+          "path": "src/lib/aiur/decision_dispatch_tasks/worker.ex",
+          "lines": "10-20"
+        }
+      ],
+      "description": "Both runnable predicates require no active task for key and a nonempty queued entry. Cohesive candidate for per-key scheduling mechanics; ticket versus generic key scope and dispatch lifecycle remain distinct. This single predicate does not prove whole schedulers interchangeable. CoordinationTasks and DecisionDispatchTasks.Worker share task starter validation and exception/catch error envelopes. Candidate for keyed task scheduling support alongside runnable predicate; keep operation schemas, cancellation and completion ownership distinct. Preserve unexpected-result and start-exception/failure attribution.",
+      "evidence": "4 distinct definition spans in 2 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share explicit queue/start mechanics, preserving schemas, cancellation ownership and exception/result attribution.",
+      "refactor_hint": "runtime/keyed-tasks",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "renamed",
+          "body_sha256": "bc8430eabe466ef743c7bc65df423a8075b50904165573941cacd1dde23c6dcb"
+        },
+        {
+          "kind": "renamed",
+          "body_sha256": "e92671c796ad893d27def5fa91fb08bce76c54d90f7da4976920f3b0cf93427f"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-59",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Process adapters repeat selective port-message draining",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/budget.ex",
+          "lines": "624-630"
+        },
+        {
+          "path": "src/lib/aiur/model_catalog.ex",
+          "lines": "177-183"
+        }
+      ],
+      "description": "Both drain immediately available messages for one port until after-zero, with identical recursive structure. Candidate for process/port support, preserving selective receive and caller ownership; does not prove later messages cannot arrive or that the port has been closed.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share selective after-zero drain only under caller-owned lifecycle; later messages may still arrive.",
+      "refactor_hint": "runtime/ports",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "renamed",
+          "body_sha256": "cff99b114cdcef032fc3899d646745b5bb5b2541e291ff4a9e25044e485d2d46"
+        }
+      ]
+    },
+    {
+      "id": "dup-by-body-60",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Host integrations repeat positive PID-list parsing",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_resource_guard.ex",
+          "lines": "151-160"
+        },
+        {
+          "path": "src/lib/aiur/github/config.ex",
+          "lines": "978-987"
+        }
+      ],
+      "description": "Agent resource guard and GitHub config split whitespace, keep fully parsed positive PIDs and discard invalid tokens. Candidate for host-process parsing support if an existing owner fits; preserve order/duplicates and distinguish parsed numeric PID from a live or authorized process.",
+      "evidence": "2 distinct definition spans in 1 assessed exact/renamed candidate groups. Body hashes and every candidate site are preserved in evidence_groups and the census/triage ledgers. Group membership is syntactic evidence; the description states verified semantic differences.",
+      "recommendation": "Share whitespace PID parsing with preserved order and duplicates; parsing is not proof of liveness or authorization.",
+      "refactor_hint": "runtime/processes",
+      "effort": "M",
+      "evidence_groups": [
+        {
+          "kind": "renamed",
+          "body_sha256": "f025dd770663b9412864f9b8b67afb8faa06ff47d0df44c0ec6e22c6eb541181"
+        }
+      ]
+    }
+  ],
+  "candidate_disposition_index": [
+    {
+      "kind": "exact",
+      "body_sha256": "c7ef369a8ddb4571be2e25057507434f8d800e77acc358582ca8cd52bb77ad6e",
+      "finding_id": null,
+      "disposition": "retain_local_boilerplate",
+      "assessment": "Optional named/unnamed GenServer startup wrapper. __MODULE__ resolves differently at each site; matching text does not mean the modules should merge. No new generic process package justified by these six-line wrappers."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "523bdc7857a2ef18ba332a8593de035d41340924c1c44f4977f9b61cbe4893ef",
+      "finding_id": null,
+      "disposition": "below_physical_threshold",
+      "assessment": "Equivalent-looking optional-name startup idiom, but four physical lines: excluded from the final >=5-line candidate population. Keep separate from the case form until nil/false semantics and callers are checked."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "168f65aca73f0763b6ddf11fec119fd0a90c8c20c68c24b5f75d4d97ed9d5bec",
+      "finding_id": null,
+      "disposition": "below_physical_threshold",
+      "assessment": "Always passes name option and differs from wrappers omitting name on nil. Four physical lines, outside final candidate threshold. Defaults also differ across heads. Do not merge by body hash alone."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "9853f55513fd07f1c6d80a78aad25d2c25508b43255356506387e86160f1d114",
+      "finding_id": null,
+      "disposition": "domain_scoping_needed",
+      "assessment": "Seven trim-empty-to-nil clauses in six modules. Common string primitive, but credential, account, decision and usage policies differ outside this clause. Read sibling clauses/callers before selecting a utility owner; preserve secret-specific handling."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "43dc00e0dbc95c2e1a53f944789211a584db53e9dfc0b4faf39e89c09109b2ce",
+      "finding_id": "dup-by-body-01",
+      "disposition": "shared_usage_contract_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "3f34de0c993f959daf85810b7aea18298a81cadef7c29dd78f6b4107aa45eb98",
+      "finding_id": "dup-by-body-39",
+      "disposition": "parser_primitive_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "f276e43e5bd1a1ee305221c2918ff48f59ae2bfc20fdcb6b061fc015b3c0828f",
+      "finding_id": "dup-by-body-04",
+      "disposition": "shared_log_rotation_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "d74cffe155041938021f5a7afcc4673120b4c9c15ff54477b71dd9ab5027a32f",
+      "finding_id": "dup-by-body-02",
+      "disposition": "decision_validation_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "c91274f549d818e96aa790dff47521e0c1d9bd05f72d932c68e2e7785a682a01",
+      "finding_id": "dup-by-body-03",
+      "disposition": "persisted_decision_decoder_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "a74f71315836993aaf5090030c69b52a1362dd52cfe6b0e071a1c941d9fdedb1",
+      "finding_id": "dup-by-body-05",
+      "disposition": "control_port_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "2f779a50f583d3d8f1d3225ab06a5d69d981ac76556a5f8bd008dfa003ce80b3",
+      "finding_id": "dup-by-body-06",
+      "disposition": "usage_persistence_codec_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "35cfbc4b5be2bb8a9993becc36e6c8fa587bc91843dc8203e8ea15b2a857973e",
+      "finding_id": "dup-by-body-07",
+      "disposition": "debug_policy_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "960195e8fc62008ea3d4abf8ca839be220df9da6f378858cdf17874e9323c834",
+      "finding_id": "dup-by-body-05",
+      "disposition": "control_port_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "244eea1e03173693e7fa1c57a132f886a68fd2f8959864a329c8ee06b4b834d5",
+      "finding_id": null,
+      "disposition": "shared_sampling_pattern_not_process_merge",
+      "assessment": "Both history servers schedule again on success and unavailable, broadcast sample count only on success, and bound retained samples. Inspected both take_sample/schedule/broadcast implementations: cache uses CacheInspector.history_sample; quota uses QuotaUsage.sample over a separately protected injectable snapshot. A small history-ring policy could be shared if more consumers justify it; identical callback text alone does not justify merging process identity, topics or data sources."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "c68ab33d7851db191f6f58b0de3ff7cad6476e83e8cd34150ab21bcbad419541",
+      "finding_id": "dup-by-body-08",
+      "disposition": "membership_boundary_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "31dea5e1e4473007baa0b0f12921f67885d48ba58f37f6cc226566fd076e966c",
+      "finding_id": "dup-by-body-09",
+      "disposition": "share_route_resolution_preserve_scope_adapters",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "d35ce9c2830460a6c435057875b18240f9f794c21a927b40a5a824f6ea6d17d1",
+      "finding_id": null,
+      "disposition": "retain_adapter_boundary",
+      "assessment": "Both tracker adapters dispatch optional expected_state with the same validation. The actual update and conditional mutation remain backend-specific; this small wrapper expresses their common callback contract. Prefer a shared conformance test before introducing a generic adapter delegation layer. Conditional-update atomicity is outside the evidence from this body match."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "5043162df2459005e267946b27cf782300f86f2a08bf034a75920826008660f9",
+      "finding_id": "dup-by-body-10",
+      "disposition": "renderer_local_consolidation_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "5879699f3ae38c8c53cc4a8cc1496c982103fcc1dbc8ad664c5351a9166618c8",
+      "finding_id": "dup-by-body-11",
+      "disposition": "build_order_lifecycle_digest_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "73701ae1a024ea189442a01631900e4fc8f8658e4f168a368aeb256853bf0eea",
+      "finding_id": "dup-by-body-08",
+      "disposition": "membership_callback_primitive_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "aab0dc3115407b6cec15b7e109a970cdb520fb7e84e7b72674fed34d4317d997",
+      "finding_id": null,
+      "disposition": "retain_small_local_option_policy",
+      "assessment": "Four six-line helpers read positive integer options with caller-provided fallback. This is a genuine small policy repetition but spans decision metrics, polling, recent merges and webhook delivery. A generic options package would add coupling for a trivial expression; retain locally unless a cohesive existing config boundary takes ownership. Each caller still owns which defaults and limits are valid."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "dab13d55b7bc3b8f5461575cbdcbeb7f265695c5e14566baef326d352d2ad5a3",
+      "finding_id": null,
+      "disposition": "matching_clause_not_whole_function",
+      "assessment": "Read neighboring clauses: decision API/query accept integers and strings and return nil otherwise; analytics additionally rounds floats; budget string parser is unguarded behind typed callers. String clauses use full-consumption Integer.parse identically. Do not replace entire functions with one permissive parser: float acceptance and invalid-input policy differ. Decision API/query are a stronger same-domain normalization candidate than a repository-wide number utility."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "070c15b8b9fc70c0996f43fbf422a283a71b2a70c9a429cc0c157e97292ad5fc",
+      "finding_id": "dup-by-body-12",
+      "disposition": "web_elapsed_formatter_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "09fe9a34307d105ead8079ef2c921a6f3737a9e2ee2cd8aefddf8dca77fc41b8",
+      "finding_id": "dup-by-body-13",
+      "disposition": "git_origin_detection_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "0d8861639340a1d5eb88d51092df9b22efbb037707bd38d55c5528c2409aebe5",
+      "finding_id": "dup-by-body-02",
+      "disposition": "decision_text_validation_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "a721343f208651fe24ba41ac504f481499e8b1b398d8d1cdd8bca96d0623e130",
+      "finding_id": "dup-by-body-11",
+      "disposition": "build_order_metrics_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "af0409e37bea820d822b15bdcbc552aa224c8db32e08bbc31a227113039ade4b",
+      "finding_id": null,
+      "disposition": "shared_sampling_pattern_not_process_merge",
+      "assessment": "Synchronous sample callbacks repeat the async history policy already assessed, but do not schedule the next timer. Both return :ok even when unavailable. Keep manual sample and periodic scheduling distinct in any ring-helper extraction; do not infer current source availability from the receipt. Related to cluster 244eea1e, not another process boundary."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "b9e38693fad0c00eaadcbeca375b92585482f57a4cc7899e124b7858f55acff3",
+      "finding_id": null,
+      "disposition": "retain_test_path_suppression",
+      "assessment": "Identical test-environment gates suppress default durable logging while production calls module-local resolve_default_path functions. Retain this safety behavior; matching wrappers do not mean process logs and GitHub request logs share destinations or retention. A shared persistence boundary must continue requiring explicit test paths and must not discover real user state in tests."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "022351fa1ff0863539a429707ad1f5810efde0644c9be05eeb20b771e1b3c31f",
+      "finding_id": "dup-by-body-14",
+      "disposition": "filesystem_precondition_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "1b6eb2abbb887c2893b882e0ddb85b65e9c070da12ded79a37d78c910ffe0ffa",
+      "finding_id": "dup-by-body-03",
+      "disposition": "decision_persisted_codec_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "20eb9a0a3fa9fba25149c61ae19ab195b878fdaaecc7c3a6eebc95d7f77634df",
+      "finding_id": "dup-by-body-36",
+      "disposition": "identity_parser_clause_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "269df324a56fccccb9694a99324cf4c725d30c0ec79246afa9dc5ed58bef26c6",
+      "finding_id": null,
+      "disposition": "retain_periodic_worker_callback",
+      "assessment": "Both workers implement the same refresh-config then enabled? then scan skeleton under the existing PeriodicWorker behavior. Their refresh and scan implementations are module-local policies. Retain the explicit callback unless richer shared lifecycle evidence warrants abstraction; adding a second generic worker layer for this nine-line body is not justified."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "44bf396b285ae6fcb2b9cb326b4ec405e7c1cbb5e97da9b5598eab7761377911",
+      "finding_id": "dup-by-body-14",
+      "disposition": "filesystem_remove_policy_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "52ac605e20a7ccfd64f83eace5f6a6cb8b45c488cbd37a2ea4ae399b23e4c1ee",
+      "finding_id": null,
+      "disposition": "retain_small_text_normalization",
+      "assessment": "Full trim-to-nil clause groups match across Executor attention/CLI and provider request usage. Same implementation is real but these are separate semantic inputs. Executor-local reuse may be cohesive; avoid pulling provider accounting into a generic command utility. Related to earlier blank-string normalization cluster; not independent complexity savings."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "66f330d8e9de7161947502c219005db7abaab35555a9e7ac87a91c6ab5dff4ff",
+      "finding_id": "dup-by-body-15",
+      "disposition": "web_link_policy_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "7cfdedecbb588a7a8b3b13b07634b7b42000ab9802ed9a958b45817b27b69b07",
+      "finding_id": "dup-by-body-16",
+      "disposition": "bridge_address_resolution_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "9e1fd475cf63e9240377769da4488ae64dd33f0b310c3ca8a420c1181c185836",
+      "finding_id": "dup-by-body-17",
+      "disposition": "build_order_options_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "ab29f67398b3a453908ed92cbe5653fdeac8a25aff07618d1e228cef0f31dcd4",
+      "finding_id": "dup-by-body-18",
+      "disposition": "github_repository_resolution_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "adfa967d1332e53aeb27ae55f7425c1861636445dfaa9d190d20008d3864f74f",
+      "finding_id": "dup-by-body-03",
+      "disposition": "decision_persisted_codec_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "c7475642840f983f44f44ab0d3281cfc7ce5d90a6998c53c79bf13405e418870",
+      "finding_id": "dup-by-body-19",
+      "disposition": "ticket_branch_candidates_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "ea8c513143c021ecd1f9ae2b05ef1a8db46f4310b7212f28b04a03b161446ea3",
+      "finding_id": "dup-by-body-03",
+      "disposition": "decision_persisted_codec_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "fda049e3be6dfada981165bacc2bc6536eb85c322279a641fca7d4fa76dcdc44",
+      "finding_id": "dup-by-body-20",
+      "disposition": "daemon_log_path_policy_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a",
+      "finding_id": "dup-by-body-21",
+      "disposition": "financial_access_gate_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "21e1352d2a6a4f0dfc7e68413b19e23c719e044e5f56ba030af039d45d33382b",
+      "finding_id": "dup-by-body-02",
+      "disposition": "decision_key_normalization_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "3344eed0457b6275071fecbb4f661094a317f0515a52dcf88e0725fd52bfa06d",
+      "finding_id": "dup-by-body-22",
+      "disposition": "retain_local_failure_policy",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "5168c0e1fb5485d23ec71cc9ba8388cdc5b542b71f4007d9c28f1ba574d0b188",
+      "finding_id": null,
+      "disposition": "history_topic_specific_wrapper",
+      "assessment": "Both broadcast count best-effort but @topic and @message differ: github:cache:history/cache_history_sampled versus github:quota:history/quota_history_sampled. Related to the history-ring pattern already assessed. Preserve stream identity and failure policy; a shared helper needs explicit topic/message inputs, and this is not a duplicate notification stream."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "8009e1b839cb7c7377ffd906e88ce080acd6ad5fdd19c9105687a20abd6e03db",
+      "finding_id": "dup-by-body-06",
+      "disposition": "usage_coverage_codec_with_error_adapter",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "87d6ecc60de2e6e32f1f6d49418d6ffca94ec82d414459082822bcf1bd726b44",
+      "finding_id": "dup-by-body-18",
+      "disposition": "github_source_subscription_set_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "a0149ed4dfb614467bdeecabc67b9fddd8135d31541058fcee53480941579315",
+      "finding_id": "dup-by-body-01",
+      "disposition": "usage_ticket_normalization_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "a9d73fb3e742030c31ba5f0edfd54f10931604c59d1e0dbe61b31323fdb2183b",
+      "finding_id": "dup-by-body-23",
+      "disposition": "agent_support_installation_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "e0c1035c8184dfdd63436724e01ac40c641631ae796f4b889c595316d68c9116",
+      "finding_id": null,
+      "disposition": "history_topic_specific_wrapper",
+      "assessment": "Both best-effort unsubscribe bodies use different history @topic values. Related to the same history notification support pattern, not independently removable behavior. Preserve which process subscribes/unsubscribes and topic isolation in any extraction."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "e23f51a796950f29a351db28b99440a214bea12d052351c39da7fd2d4dd4ae9a",
+      "finding_id": null,
+      "disposition": "escape_primitive_boundary_question",
+      "assessment": "Both escape ampersand first, then angle brackets, double quote and apostrophe into identical HTML entities. Events sanitizer and web Markdown have different surrounding responsibilities; avoid making core events depend on a web module merely to reuse five replacements. Consider an existing low-level escape primitive only after checking exact entity output and double-escaping contracts; this does not make the entire sanitizers equivalent."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "f01e92e4aa26b642da9b243519903e369f04bc0169d5611568cdb78e1f6cf1d1",
+      "finding_id": null,
+      "disposition": "history_topic_specific_wrapper",
+      "assessment": "Best-effort subscribe bodies match but subscribe to separate cache/quota history topics. Group with broadcast/unsubscribe and sampling findings as one potential history-support abstraction, not five independent saving opportunities. Keep typed event ownership and unavailable behavior explicit."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "f7fb7774306ccd36d1dc311cc7e30955369368b7f50d67f72cef25c7225a7706",
+      "finding_id": "dup-by-body-14",
+      "disposition": "durable_log_file_policy_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "915e5c5c7afa38bdac83e84577626bd854866e4733be1f59fe8b14f9def88316",
+      "finding_id": "dup-by-body-24",
+      "disposition": "marker_encoding_shared_with_reason_policy",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "0653009212c49263f5234e68e28d9ab4dd39b08b4ed06c0e3ae90e172137fb73",
+      "finding_id": "dup-by-body-19",
+      "disposition": "poll_target_normalization_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "2dd532403b032d1f250e0050f751ff3bb4d5ec39d9ac2e6a7257786dae18f56b",
+      "finding_id": null,
+      "disposition": "matching_reconciliation_different_availability",
+      "assessment": "Read available? and same_run? helpers. Outcomes availability checks health healthy/partial only; RunSummary additionally requires run.valid?. Run-ID matching otherwise agrees. Thus identical reconcile bodies are NOT interchangeable predicates. A shared last-known-good policy must take explicit validity/availability rules or retain separate implementations; no defect or intended-policy equivalence inferred from the discrepancy."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "2ea63889e51ad18585471a0f851cb5838978da8bd8a83f22ff64442e85f32dc4",
+      "finding_id": "dup-by-body-19",
+      "disposition": "poll_branch_selection_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "394ed68f43ab338c1f6b851338d1e679bf09ba36809ca7e1e6ba3829700a7322",
+      "finding_id": "dup-by-body-02",
+      "disposition": "decision_key_normalization_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "64c805b3cc010ad08b4f92769fe92112313a4f958b39ab70a56872914712c98c",
+      "finding_id": "dup-by-body-21",
+      "disposition": "financial_subscription_boundary_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "78a8c5db01aac7fba712e4203c4d6514d7da57a37043c5864f8a17f5d2e45997",
+      "finding_id": "dup-by-body-25",
+      "disposition": "decision_store_failure_adapter_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "8209563d21518d0722b9f4c0fb460939ce1c8e0178a812ed4282275b7a6be88d",
+      "finding_id": "dup-by-body-26",
+      "disposition": "pr_review_fetch_adapter_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "a694c3c563183795f2dbee82639417efa260f7014bbb8a61c78bec8200da12b7",
+      "finding_id": "dup-by-body-27",
+      "disposition": "github_repository_comparison_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "b1e79a9604b78db3c527f14f6a73ae5141f7d85c16bfe5bf50cf637e88acc556",
+      "finding_id": "dup-by-body-18",
+      "disposition": "source_relist_pattern_not_whole_source_merge",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "c01c921edc9068658da484db2dc09c68275d890d0cd68388c3f38eb0f30c2359",
+      "finding_id": "dup-by-body-28",
+      "disposition": "usage_failure_envelope_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "c2f133af715fa2c026f14a055d7ce3ad74133ba032ba4514136c1f147ef82722",
+      "finding_id": "dup-by-body-06",
+      "disposition": "usage_coverage_codec_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "c38a768428fd1a6c4fd8d7091066056e6bab806c106a145d81627e8155efe8dc",
+      "finding_id": null,
+      "disposition": "retain_configuration_subscription_callback",
+      "assessment": "Both call injected configuration_subscriber with self and treat exceptions/throws/exits as ok. Small BuildOrder process initialization pattern; the receiving process identity remains different. Retain locally unless a coherent subscription helper owns this best-effort policy, and do not represent the returned ok as proof of successful subscription."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "cf6121c25bca489cd372676d32446e6ab8e4f0c71c0c2249c9102fa9cd61f028",
+      "finding_id": "dup-by-body-26",
+      "disposition": "pr_maintenance_enablement_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "eb8262581436f06d6c76a78300a11181f3fc08dc908f204af752c7f74d033b29",
+      "finding_id": "dup-by-body-29",
+      "disposition": "build_order_identity_comparison_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "7f4c01441f71af82156c6c5de40d22ea56c9062985b31551bd410698b414d09b",
+      "finding_id": "dup-by-body-30",
+      "disposition": "ticket_evidence_source_contract_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "008de75dbca40c2726977a767fcf7d972d3b5d77b5b97205f6aa261053a0a0b0",
+      "finding_id": "dup-by-body-39",
+      "disposition": "comment_cursor_datetime_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "0388b6039b9aaab635c46cec254c32a3cba9de8dba6271526b9a1ed0f25e39be",
+      "finding_id": null,
+      "disposition": "retain_small_remove_result_adapter",
+      "assessment": "Both convert File.rm_rf results to ok/error reason, discarding failing path. Different ownership: membership generations versus repository sidecars. This five-line adapter alone does not justify a common destructive lifecycle abstraction; path selection and deletion authorization must remain with domain owners."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "03ef58be2e2be4c59fa1cdbf6726bb52e5f56c745b4713f04bb5496a3b67b174",
+      "finding_id": "dup-by-body-31",
+      "disposition": "bounded_log_tail_primitive_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "0b7170d970581147263f5a4f37e1046c3e44d6964b941b461180afcae31b8ceb",
+      "finding_id": "dup-by-body-32",
+      "disposition": "github_usage_label_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "0f2da6f2c508676ee64c56d90cb1451670cec902e9482ce87c0fb3bc2d04fa3c",
+      "finding_id": "dup-by-body-33",
+      "disposition": "provider_process_metadata_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "0fdd2f075e11796606d0802ea0e3199cea8b905f1bf09c7b8f0d5882e01345d8",
+      "finding_id": "dup-by-body-09",
+      "disposition": "build_order_route_resolution_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "10c9ea66692d2ed9e96e019371e25280abe5c26bad030ca2d7f1b7b15d946ef6",
+      "finding_id": null,
+      "disposition": "matching_descriptor_lookup_different_label_fallback",
+      "assessment": "Read fallback_provider_label: web splits underscore atom names into capitalized words; cost-report task merely String.capitalize on the full atom string. Known descriptor lookup agrees but unknown-provider labels differ. Consolidate descriptor lookup only or explicitly decide fallback presentation policy; whole functions are not behaviorally identical."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "119b90a1594e9f6f64c35a4bf93601c6c272d3acfcec6005663266fa947dc627",
+      "finding_id": null,
+      "disposition": "durable_store_path_resolution_candidate",
+      "assessment": "Both accept explicit nonempty state_dir or call Config.Paths.decision_state_dir. Candidate for a shared durable-store option resolver, preserving explicit test injection. Sharing a base directory does not establish that recent merges and webhook delivery belong in the same domain package or file."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "17139c5b7f9db67e63bcd48181aea583cee953a5dfa4aa3c920c60e10cf73c0c",
+      "finding_id": "dup-by-body-26",
+      "disposition": "pr_maintenance_presentation_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "1e079394c713c2c52bc292e49e6fc9f20b5f987a6418f3378291be79a679b8a0",
+      "finding_id": null,
+      "disposition": "retain_ets_ownership_boundary",
+      "assessment": "Each @table is its own __MODULE__, so identical lookup/create bodies address distinct ETS tables. Table options and owner lifetime are part of their contracts. Do not merge snapshot publication and tracked-set state or infer race safety from this check-then-create snippet; a generic ensure_table adds little value without lifecycle ownership."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "1f0017054dd93593995b1ab53f267d77567b9d4cdd7469933efa11642da4694a",
+      "finding_id": null,
+      "disposition": "matching_change_gate_different_projection",
+      "assessment": "Read meaningful helpers: ad-hoc compares status/members; open tickets compares status/tickets after deleting body_excerpt. Both rebuild and broadcast on meaningful difference but intentionally ignore different fields. Preserve projection-specific equality and generation semantics; identical gate bodies are not interchangeable snapshots."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "2bbe9e893f8d99d014d7a3c1708e964a9c9dc8cbf2f27e87cd2b997103053044",
+      "finding_id": "dup-by-body-34",
+      "disposition": "cli_table_format_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "2bee9927bc091115cf0ebf6857c320567f23573ce6286be67c8dfa026091a7ad",
+      "finding_id": null,
+      "disposition": "web_reason_sentence_candidate",
+      "assessment": "Both emit a Reasons sentence only for a nonempty health reason list, delegating vocabulary to reasons_text. Candidate for common web health presentation only with explicit reason rendering; full reason vocabularies are not proved equivalent by this sentence wrapper."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "32a81bdacd6e03ae1ba955c5aeef582971128fda5ccb781920ef95d2ed098b04",
+      "finding_id": "dup-by-body-35",
+      "disposition": "provider_transcript_id_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "4271a5cae63bf7d8296393b7c59704e72b77ae56044eca7f5401e7e88e396bd2",
+      "finding_id": "dup-by-body-36",
+      "disposition": "github_positive_number_normalization_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "4a15278eab0ca4ca964370981c1e2618bc66d880602ef14a4398ae26f5eb467f",
+      "finding_id": "dup-by-body-37",
+      "disposition": "decision_kind_normalization_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "5189a52da9b919363c06d1aa3544817e53a9c1ba4798d179b2df412ea4db2500",
+      "finding_id": "dup-by-body-38",
+      "disposition": "projection_task_start_policy_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "55fedfac080ae7383450211273c1b81563032828f27b91db67f21c2847875fd8",
+      "finding_id": "dup-by-body-36",
+      "disposition": "github_positive_number_normalization_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "5a758c71fd3be366aea9b4aa9d1757843d29869773d3c84ca8bc7c3b8b84ac53",
+      "finding_id": "dup-by-body-19",
+      "disposition": "poll_branch_selection_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "5cd571eeb3b0fcbfd481aff864662fd63bee12af0c12bda8c14e3ca0e0510cf9",
+      "finding_id": "dup-by-body-09",
+      "disposition": "build_order_route_identity_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "6e609a0a90d1c4466421f96dbf28e152807184751d330bcc968a10a711325e23",
+      "finding_id": null,
+      "disposition": "retain_provider_config_ownership",
+      "assessment": "Body references provider-local section_value and different defaults: aiur-claude versus codex app-server. Therefore it does not represent the same command configuration. Both validate nonempty before trimming, so whitespace-only input becomes empty; any normalization change needs its own contract decision. Shared mechanics must not conflate provider sections or defaults."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "6ef21de37c3398c9dd4b9dc2bd16276302d6a75c488a0c99e2682310350e0481",
+      "finding_id": "dup-by-body-39",
+      "disposition": "telemetry_timestamp_contract_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "743c87fc1ca509b9149f84a617e2edf84b8289bcb3662bb174b2dc58137a7434",
+      "finding_id": "dup-by-body-40",
+      "disposition": "usage_enum_validation_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "803743e49ef53598e7bc9fedd44b404ef8f0126968f73f3708a3f733aaa677d5",
+      "finding_id": "dup-by-body-41",
+      "disposition": "review_context_projection_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "823d81e626d6bde34ac4a424f6799c47d43dbd58ba7ddec7d3f583b6dd9ca2fd",
+      "finding_id": "dup-by-body-42",
+      "disposition": "github_request_attribution_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "85af4ce8ee3aab872511387f8f8c1a9f29cfab784322792cd9e1f88dab5655f0",
+      "finding_id": null,
+      "disposition": "matching_change_gate_different_projection",
+      "assessment": "Same apply-result notification skeleton calls source-local do_apply_result and meaningful; the earlier review established different member/ticket shapes and excerpt exclusion. Group with source change gating, retaining projection-specific equality and recovery semantics."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "880c92757a2b6d813a22367480cd1695535247c5185145fa18b797fe3a415069",
+      "finding_id": "dup-by-body-43",
+      "disposition": "presence_preserving_map_access_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "8a253f8b91e88b344cd5ad2dd6b241e72e56b10b5f1f4256c8c70d370840c031",
+      "finding_id": "dup-by-body-44",
+      "disposition": "build_order_url_diagnostic_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "91d0d3ce88151d442fe455a52274223ce74b6971b9636a7fddec470bcae8200d",
+      "finding_id": "dup-by-body-35",
+      "disposition": "reuse_existing_protocol_timestamp_helper",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "950f1ea40e8d8762d971fb4314d1c6015f1df67d9e5242f708af8e8581127425",
+      "finding_id": "dup-by-body-01",
+      "disposition": "usage_ticket_normalization_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "a4be0f93e8847661ae4235df69ffe9910335ea010e127bc5cce18e0fb5108620",
+      "finding_id": "dup-by-body-30",
+      "disposition": "ticket_evidence_source_contract_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "a90e2af6aaa30b700434c0ee85c95b4989293dd313f41729c572c586ff5bb2da",
+      "finding_id": "dup-by-body-45",
+      "disposition": "reuse_existing_connectivity_policy",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "abc1cb15f1920f6b3b14b9cdfaf5f39c90acea8963cd3a2b4306e05052721fc6",
+      "finding_id": "dup-by-body-39",
+      "disposition": "timestamp_clause_family",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "b215f7fde23cc40dc75a8b4fc586ce1af7297f1710284e84e02e648bcfee1fe4",
+      "finding_id": "dup-by-body-34",
+      "disposition": "cli_layout_policy_with_distinct_thresholds",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "b3af34cad7463d2109d0f2d3a6d8b8a847bb40476fb8fabea7090b0b0302c20b",
+      "finding_id": null,
+      "disposition": "retain_ets_ownership_boundary",
+      "assessment": "Matching named/public ETS creation skeleton references different module-local @table values for active turns and tokens. Preserve lifecycle, ownership, access and cleanup boundaries; do not merge registries or infer concurrent creation safety from identical code."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "b4a71a4785a7ab89801659915148c3073de12cb742c24a29753b3bb98939a30d",
+      "finding_id": "dup-by-body-46",
+      "disposition": "ticket_topic_parser_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "ba65d3f50ec2916bf3579a6e3f289cec24c2054de838dd3e7c85bf319197ec24",
+      "finding_id": "dup-by-body-47",
+      "disposition": "usage_drill_cursor_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "c0b125af67fccae5246038a712e83f943d5e5ee7a43a49fca195ac204aa593e4",
+      "finding_id": null,
+      "disposition": "retain_injected_clock_adapter",
+      "assessment": "Both invoke injected now_fun and accept only DateTime, returning nil for other normal results. Small source-local contract; exceptions still propagate. Group only with coherent source support, not a global clock abstraction that silently changes failure handling."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "c98872503f217a7a8210d0df937a04251693a293e417ccd1c9579b3fecfcd9d0",
+      "finding_id": "dup-by-body-04",
+      "disposition": "log_rotation_mechanism_distinct_limits",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "cac1a8bf38e29650dee68374d9db407ec17b9e6235f75c31273abdd22fa26d4c",
+      "finding_id": "dup-by-body-39",
+      "disposition": "tracker_timestamp_clause_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "d517d1a202a17f0498f4b37d0e5964e0aaa2566baedd2fb6e8a44647218d7619",
+      "finding_id": "dup-by-body-39",
+      "disposition": "timestamp_clause_family",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "df0d832aae9d4b4513211c8f0932767bc037abe3be675bba09080f30710b0c64",
+      "finding_id": "dup-by-body-48",
+      "disposition": "display_tailer_lifecycle_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "e274d9f5802d40f603915bc29ba4d439347531ac86784cccb3b6cb7b593f73c0",
+      "finding_id": "dup-by-body-09",
+      "disposition": "build_order_route_resolution_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "e4eb7184f8d4daa18fd06c4edfc130c5f1a6c3d635a355c89baffe534dde2e9f",
+      "finding_id": "dup-by-body-49",
+      "disposition": "github_cost_classification_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "e619c065f97ca25294a19c4f166ec6cdfddb8f835f7b87f6f8d644836515c6b3",
+      "finding_id": "dup-by-body-50",
+      "disposition": "reuse_existing_workpad_filter",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "f131dbd5f5b7aeaf4fafa91805caa9d0e61df48f222cc5498a00b337cf41bc32",
+      "finding_id": "dup-by-body-39",
+      "disposition": "build_order_timestamp_clause_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "f310f2d8bfcd630e114bafc8f0a929763eb052e7271e0eb67240354f53f9c993",
+      "finding_id": "dup-by-body-51",
+      "disposition": "build_order_task_termination_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "f4e9098df41d2e8e62114473dc63fd0a404ce61a86950ea676719b6cafec593d",
+      "finding_id": null,
+      "disposition": "provider_reset_formats_differ",
+      "assessment": "Read complete optional timestamp clauses: Claude bounds seconds to 253402300799 and accepts floats via rounded milliseconds; Codex accepts nonnegative integers and nil only. Shared integer conversion may be useful, but do not merge whole adapters or silently admit fractional Codex values. Preserve provider-specific format validation."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "f71ad998e9f6ad3f65dc731514393f256d96bb89b5099f93818f9347add0e303",
+      "finding_id": "dup-by-body-19",
+      "disposition": "poll_branch_selection_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "fb988c22ed4f6066aff56e3353081dff2d4b21ef0d9684dcd6d121b051cd7d3c",
+      "finding_id": "dup-by-body-40",
+      "disposition": "usage_enum_validation_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "fd667e73e3f4226ec704f320a8ec76a185f8c5050340d372cd951349d5c8bea3",
+      "finding_id": "dup-by-body-44",
+      "disposition": "build_order_url_diagnostic_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "fef8c060071e09331f8848a75a4ddb96887e35801b446e15fe8688a4255969eb",
+      "finding_id": null,
+      "disposition": "retain_small_file_read_policy",
+      "assessment": "Both return nonempty newline-split file lines or empty on File.read error. Candidate for local GitHub shell-budget ingestion support if more context warrants it; this helper alone does not justify a general filesystem library or prove missing data equals zero measured cost."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "214ca7ea9f219236e8fdaea26362c967ff995cb6ee2952ba130cf12282f8a885",
+      "finding_id": "dup-by-body-52",
+      "disposition": "comment_cache_validator_policy_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "2476b75d506d4f0c66f9ed8e46f1da9ee312e87be3ebdd5b1329e7d7e4491daf",
+      "finding_id": "dup-by-body-53",
+      "disposition": "headless_nested_map_access_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "39c9631fbab2a0c4468033fc4677eea453f3eb517472fc0bdf25ff9719785bf2",
+      "finding_id": null,
+      "disposition": "retain_local_boilerplate",
+      "assessment": "Two Claude tailers pop optional name then start their own __MODULE__ process. Matching startup mechanics do not justify combining transcript and display tailers or adding a process abstraction. Keep module-specific initialization and ownership."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "b936263aaeda38bfa7868bd44f74b8b14890ff04c150e65a71d236fa581c6a36",
+      "finding_id": "dup-by-body-38",
+      "disposition": "projection_task_start_policy_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "c441238537ec0421416bc308852c66a8082a53dd84e9edbddd3ec81ce3f0f8d0",
+      "finding_id": "dup-by-body-12",
+      "disposition": "web_duration_formatter_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "exact",
+      "body_sha256": "d69663e03d09f529bd811d4d5975807372a579052290c09e36359f242fe91507",
+      "finding_id": "dup-by-body-54",
+      "disposition": "reuse_existing_pane_slot_operation",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "6c09ecc7dfb31247a77764eb6e71657a3e792f8a68906d612d57ab4a089576ad",
+      "finding_id": "dup-by-body-07",
+      "disposition": "debug_configuration_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "86187939c70960f89b32e5542208bae6bfad892178e6b57827acf46e34aef5ae",
+      "finding_id": "dup-by-body-21",
+      "disposition": "financial_access_gate_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "abb58f5375f4d211ef24bc982a9d3810104802d5aec9b6fa942e766933db2fb8",
+      "finding_id": "dup-by-body-43",
+      "disposition": "presence_preserving_map_access_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "052dfce463cda248677fb425219a34457ea2a70fbcef1871d9c3252d6206728c",
+      "finding_id": null,
+      "disposition": "retain_small_normalization_policy",
+      "assessment": "All eleven spans read. Adds event text, webhook delivery ID, units fields and telemetry repo normalization to prior secret/config matches. Matching trim-to-nil mechanics do not mean these inputs share validation or trust policy; prefer cohesive local reuse and preserve guarded versus caller-validated entry points."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "c67425f201be77f6af5903e8b435df9226ea80c622269bf07bf30c0a2a3a9d63",
+      "finding_id": "dup-by-body-39",
+      "disposition": "timestamp_family_with_input_adapters",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "dff88c4232908fd4b49723f88f6fd8d5201f79433e4fdffc4361b786f4d102ce",
+      "finding_id": "dup-by-body-39",
+      "disposition": "timestamp_family_with_input_adapters",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "2a402f975f919fcecbd69f2e986b72676b3e154c8cd5964c1a4609439e56fb6b",
+      "finding_id": "dup-by-body-36",
+      "disposition": "positive_identifier_parser_family",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "c4dcf712219f871e81458e252e796cb8dffb8d3a07aeca8d013a8c8a9b1a7a4b",
+      "finding_id": null,
+      "disposition": "retain_small_option_policy",
+      "assessment": "Six spans share positive-integer option/default selection. Adds control-query timeout and current-run projection options to the earlier family. Defaults, units and upper limits remain caller policy; a generic options package is not justified by this small common expression alone."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "2e5025a31f34449931e80c2f2b10119871a5394ae60356dc3ca1638fb134d5e0",
+      "finding_id": "dup-by-body-39",
+      "disposition": "timestamp_result_contract_family",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "8dae1d57e6aa1f5c222c18ebdd19a5b9db4d0027e6c163f7a67a9dcd50150113",
+      "finding_id": "dup-by-body-39",
+      "disposition": "timestamp_family_with_input_adapters",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "63511d8ca521bf53d63376d9980c8580de5ef876beefe37036be41efdefd6244",
+      "finding_id": "dup-by-body-30",
+      "disposition": "ticket_evidence_normalization_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "6faffa715b70cf5fd7df9832fb044ebbb1c33de8fd231e5238d60112208d2032",
+      "finding_id": "dup-by-body-48",
+      "disposition": "display_tailer_lifecycle_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "93c80890ae1100342a2f2369fb87e55692e952ea4fda022dfdc0e531c79b5600",
+      "finding_id": "dup-by-body-27",
+      "disposition": "repository_comparison_with_shape_adapters",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "9fb2649f934c771e5dbc30ccfdf118f17e9c304ba750845ba5b653e4b6966f2d",
+      "finding_id": "dup-by-body-53",
+      "disposition": "usage_payload_traversal_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "c0cd9a4f6678f3349e9206c80c5a82009cd2175fe13e7d82718ec98ddd582759",
+      "finding_id": "dup-by-body-22",
+      "disposition": "reuse_existing_tui_failure_helper",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "d309939f4d264d448b05f658b4ddaf26b3f6aaaf5c78cc1fe701cab56a3511e6",
+      "finding_id": "dup-by-body-44",
+      "disposition": "identity_bound_web_url_adapter",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "e33d4598394f1b950266df883590257f4ea699edcc8e6a60b611d7e004604006",
+      "finding_id": "dup-by-body-46",
+      "disposition": "event_topic_suffix_with_prefix_policy",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "f51f5a071a5c62ef123697ad7f2a593f828e38a9ff6277ee0730e18eef12874f",
+      "finding_id": "dup-by-body-12",
+      "disposition": "duration_format_with_nonpositive_policy",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "1f975c30a0fa05290f83842d3db8653dd670c856018e6bf034753cc80f63e8ff",
+      "finding_id": null,
+      "disposition": "retain_domain_failure_policy",
+      "assessment": "Membership reconciliation and provider meter observation both ignore callback results and swallow all failures. Their purposes differ; identical mechanics are insufficient for a shared domain abstraction. Preserve which operations are best-effort and do not interpret ok as persisted reconciliation or observed meter success."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "3c4b80728d1d17ac8814bae60d3bedb80bf1aa86e375f1f579c4430076f9b440",
+      "finding_id": null,
+      "disposition": "durable_log_boot_mechanism_distinct_formats",
+      "assessment": "Both prepare directory then replay or build unavailable state, but filenames are recent_merges.ndjson versus webhook_deliveries.ndjson and replay/state builders are module-local. Candidate for durable-log mechanics only with explicit format callbacks; not evidence the records or stores should merge."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "46ae71ed5bee3eeece72d32b7ecbea592d36f57611a747ea5f6cf5a1aee58c67",
+      "finding_id": "dup-by-body-44",
+      "disposition": "generic_github_url_adapter",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "47524127e21a77f0878c6b47142538711541794f6a27fdd49cb8913ba52dcf38",
+      "finding_id": "dup-by-body-55",
+      "disposition": "shared_agent_chat_transport_adapter",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "5915e9ad00e098c12f2cade8c3d6d34582c1be9586a90dfeb042bfe11ce8c1c2",
+      "finding_id": "dup-by-body-56",
+      "disposition": "dependency_edge_cache_merge_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "5dd9f7c9628cab083fd6552e9f2f3d1fcf5294754c4856b479215e916786fd27",
+      "finding_id": null,
+      "disposition": "subscription_sequence_distinct_topics",
+      "assessment": "Both subscribe to identity topic then module-local reset_topic, but service reset streams differ and one entry has a default server argument. Preserve topic ownership and partial-subscription failure behavior in any shared sequence. Matching code does not combine detail and history services."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "64ef2ec74ffa81da248eb7b7a061d17965f0878465bf3c35e416e07388929a77",
+      "finding_id": "dup-by-body-57",
+      "disposition": "token_numeric_compatibility_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "740fafc35621bcf3a2963b6dccb2f498bf699227cfbe189b1845987cf54044e0",
+      "finding_id": null,
+      "disposition": "retain_small_field_reader",
+      "assessment": "Alert string field and PR anchored field both select nonempty binary or nil. Keep local or fold into an existing typed adapter; neither trimming nor semantic field validation occurs. Same body does not establish common alert/PR ownership."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "751e9031edeff19a21c72d9b6dff773cdc04e49e3ead35067c83cb7696cc06a1",
+      "finding_id": null,
+      "disposition": "retain_domain_failure_policy",
+      "assessment": "Provider session close and headless envelope publishing both swallow failures and return ok. Cleanup versus delivery responsibilities differ; do not create one shared success-reporting abstraction that obscures lost publication. No observed delivery-loss claim from this syntax match."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "819b5bf4088e7734bbaacd9e69780ce83fcb0fb6681d043b018f65c993bea71b",
+      "finding_id": null,
+      "disposition": "monitor_wait_requires_lifecycle_contract",
+      "assessment": "Both wait for a correlated DOWN without timeout. Inspected comment cleanup: root kill followed by root/descendant waits; transport uses worker lifecycle cleanup. Share a monitor-wait primitive only with explicit ownership and guarantee of DOWN delivery; duplication alone proves neither a hang nor safe bounded cancellation."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "acedd311114319fbdc9bdb2638ca94c553833ab7fd469a44882ada21b0a6c8ad",
+      "finding_id": null,
+      "disposition": "retain_ets_owner_policy",
+      "assessment": "ResourceStore and ModeTable use distinct @table values; both fall back on missing table or ArgumentError during callback. Do not merge stores or erase the fact callback ArgumentError is also collapsed. A shared ETS access primitive would need explicit owner/fallback policy."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "b2ea8535d16dbdaecdd9b5d40f56bdd0bde650e0f9c207b0d95577919fe31ee7",
+      "finding_id": null,
+      "disposition": "provider_descriptor_lookup_with_input_policy",
+      "assessment": "TUI provider_for_family accepts binary family, units provider_or_nil matching clause accepts atoms. Same descriptor extraction does not mean full coercion/fallback behavior agrees. Share provider metadata lookup through existing CodingAgent ownership while retaining typed input adapters."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "bc8430eabe466ef743c7bc65df423a8075b50904165573941cacd1dde23c6dcb",
+      "finding_id": "dup-by-body-58",
+      "disposition": "keyed_queue_policy_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "c13eeda7bc1077a56ae11db8fd4193be4f2cf25c63653f8e900827ce4d460816",
+      "finding_id": "dup-by-body-25",
+      "disposition": "decision_store_exit_adapter_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "cff99b114cdcef032fc3899d646745b5bb5b2541e291ff4a9e25044e485d2d46",
+      "finding_id": "dup-by-body-59",
+      "disposition": "port_mailbox_cleanup_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "d3009981154cac566ab03c7fe462e85969917399b6998cc2c8cc8cbf8b0e8fea",
+      "finding_id": null,
+      "disposition": "deterministic_hash_mechanism_not_schema",
+      "assessment": "Decision content hash and ledger checkpoint checksum share deterministic Erlang term SHA256 lower-hex. Their payload schemas and checksum exclusion/preparation differ elsewhere. A low-level digest primitive is possible but not grounds to couple decision and usage domain packages or change persisted encoding."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "dcb3479872ff7b26792c45b96c6d5c59c99b9720ebf88f8cfeabc293b83d75c4",
+      "finding_id": "dup-by-body-55",
+      "disposition": "shared_agent_chat_transport_adapter",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "e00a9079cfd7dbb5487d2d0036e8970e14f3754eb7d24a55b9525aa88ad7b671",
+      "finding_id": null,
+      "disposition": "retain_domain_mtime_policy",
+      "assessment": "Remote control file and log-retention directory stat helpers both map errors to epoch zero. Same mechanism serves different decisions; retain ownership and document unavailable-as-zero at each caller before generalizing. No deletion safety or live error prevalence established by this match."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "e2913b9a47157ccf36b4c2376a13cb2bdde47f4bf31d50b582e7fab0a64b40ec",
+      "finding_id": "dup-by-body-31",
+      "disposition": "bounded_log_tail_primitive_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "e92671c796ad893d27def5fa91fb08bce76c54d90f7da4976920f3b0cf93427f",
+      "finding_id": "dup-by-body-58",
+      "disposition": "task_start_result_adapter_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "ebb710fb665de694e27b40d4fcbddc6c18941d65b397d81a27564c685b5b6972",
+      "finding_id": null,
+      "disposition": "strict_integer_clause_family",
+      "assessment": "Comment poller and dispatch authorization string clauses require full Integer.parse consumption and return nil otherwise. Group with earlier strict integer parser family, preserving caller-specific integer/fallback clauses and ordering semantics; not equivalent to token numeric-prefix compatibility."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "f025dd770663b9412864f9b8b67afb8faa06ff47d0df44c0ec6e22c6eb541181",
+      "finding_id": "dup-by-body-60",
+      "disposition": "pid_list_parser_candidate",
+      "assessment": "See linked finding and source triage."
+    },
+    {
+      "kind": "renamed",
+      "body_sha256": "fe0411eee5e3feae5fd92440b24fad73e353ba9bdb98daf736b0d6bb249bfed3",
+      "finding_id": null,
+      "disposition": "retain_small_field_reader",
+      "assessment": "Operator message payload and cache-page params both read nonempty binaries with nil fallback. Same trivial field-shape policy as alert/PR readers under different unused-variable names. Do not count hash partitions as separate extraction opportunities or infer common domain ownership."
+    }
+  ]
+}

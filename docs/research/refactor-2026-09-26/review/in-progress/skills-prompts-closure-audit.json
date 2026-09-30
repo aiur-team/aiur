@@ -1,0 +1,192 @@
+{
+  "unit_id": "skills-prompts",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "closure": "reviewed_pending_synthesis",
+  "coverage": {
+    "files": 250,
+    "lines": 36169,
+    "manifest_set_equal": true,
+    "unique_paths": true,
+    "hashes_and_line_counts_revalidated": true,
+    "full_read_assessments_present": true,
+    "note": "This audit revalidates recorded coverage; it is not a new full reread. Supporting runtime excerpts do not add whole-file coverage."
+  },
+  "candidate_reconciliation": {
+    "listed": 42,
+    "terminal": 42,
+    "unresolved": 0
+  },
+  "citation_audit": {
+    "finding_count": 73,
+    "all_paths_exist": true,
+    "all_numeric_line_references_in_range": true,
+    "note": "Range validity does not independently prove each claim; findings retain source reasoning and probe limits."
+  },
+  "within_unit_grouping": [
+    {
+      "family": "Target identity",
+      "findings": [
+        "skills-prompts-cont-07",
+        "skills-prompts-cont-10",
+        "skills-prompts-cont-34",
+        "skills-prompts-cont-35",
+        "skills-prompts-cont-36",
+        "skills-prompts-cont-37",
+        "skills-prompts-cont-40",
+        "skills-prompts-cont-41",
+        "skills-prompts-cont-58"
+      ],
+      "disposition": "Different consumers lose different parts of the target: remote repository, applied PR, diff endpoints, dirty changes, metadata SHA, mutation checkout, qualified repository, link revision or PR base. A common target descriptor may fix several; raw observations remain traceable."
+    },
+    {
+      "family": "Release contract",
+      "findings": [
+        "skills-prompts-cont-20",
+        "skills-prompts-cont-21",
+        "skills-prompts-cont-46",
+        "skills-prompts-cont-47"
+      ],
+      "disposition": "Version agreement, executable identity, publication repository and completion receipt are distinct checks."
+    },
+    {
+      "family": "Planning contract",
+      "findings": [
+        "skills-prompts-cont-14",
+        "skills-prompts-cont-28",
+        "skills-prompts-cont-32",
+        "skills-prompts-cont-33"
+      ],
+      "disposition": "Verification commands, diagram prescription, HTML issue conversion and atomic execution boundaries are separate contradictions."
+    },
+    {
+      "family": "Data processing boundaries",
+      "findings": [
+        "skills-prompts-cont-18",
+        "skills-prompts-cont-55",
+        "skills-prompts-cont-67"
+      ],
+      "disposition": "Persisted parent summary, automatic media upload and peer read-exposure rationale concern distinct data paths."
+    },
+    {
+      "family": "Server launch evidence",
+      "findings": [
+        "skills-prompts-cont-56",
+        "skills-prompts-cont-57",
+        "skills-prompts-cont-60"
+      ],
+      "disposition": "Port selection, selected Procfile and server identity remain independently falsifiable."
+    },
+    {
+      "family": "Sweep lifecycle",
+      "findings": [
+        "skills-prompts-cont-61",
+        "skills-prompts-cont-62",
+        "skills-prompts-cont-63",
+        "skills-prompts-cont-64",
+        "skills-prompts-cont-65",
+        "skills-prompts-cont-66"
+      ],
+      "disposition": "Shared ownership, terminal publication, retrieval completeness, actor identity, resolution proof and persisted retries are separate lifecycle failures."
+    },
+    {
+      "family": "Optimization lifecycle",
+      "findings": [
+        "skills-prompts-cont-48",
+        "skills-prompts-cont-49",
+        "skills-prompts-cont-50"
+      ],
+      "disposition": "Runner-up commit existence, crash reconciliation and batch budget admission need different guards."
+    },
+    {
+      "family": "Pulse configuration",
+      "findings": [
+        "skills-prompts-cont-15",
+        "skills-prompts-cont-25",
+        "skills-prompts-cont-51"
+      ],
+      "disposition": "Metric routing, calibration inference and preference persistence are distinct."
+    },
+    {
+      "family": "Operating instructions",
+      "findings": [
+        "skills-prompts-cont-68",
+        "skills-prompts-cont-69",
+        "skills-prompts-cont-70"
+      ],
+      "disposition": "Cap precedence, scheduler arithmetic and binding count are separate stale facts; cross-claim consolidation remains necessary."
+    },
+    {
+      "family": "Coordination guidance",
+      "findings": [
+        "skills-prompts-cont-71",
+        "skills-prompts-cont-72",
+        "skills-prompts-cont-73"
+      ],
+      "disposition": "Structured choices, merged readiness and dismissed-action correlation have different runtime contracts."
+    },
+    {
+      "family": "Workflow instruction consistency",
+      "findings": [
+        "skills-prompts-cont-06",
+        "skills-prompts-cont-08",
+        "skills-prompts-cont-19",
+        "skills-prompts-cont-24",
+        "skills-prompts-cont-26",
+        "skills-prompts-cont-27",
+        "skills-prompts-cont-31"
+      ],
+      "disposition": "Each contradicts a different owning workflow; do not count the generic theme itself as an additional defect."
+    },
+    {
+      "family": "Evidence quality",
+      "findings": [
+        "skills-prompts-cont-13",
+        "skills-prompts-cont-23",
+        "skills-prompts-cont-38",
+        "skills-prompts-cont-39",
+        "skills-prompts-cont-42",
+        "skills-prompts-cont-43",
+        "skills-prompts-cont-44",
+        "skills-prompts-cont-45",
+        "skills-prompts-cont-59"
+      ],
+      "disposition": "Session eligibility, absence inference, review stage order, pagination, historical grounding, residual labels, recurrence inference, release availability and resume freshness are different evidence losses."
+    },
+    {
+      "family": "Other distinct contracts",
+      "findings": [
+        "skills-prompts-cont-01",
+        "skills-prompts-cont-02",
+        "skills-prompts-cont-03",
+        "skills-prompts-cont-04",
+        "skills-prompts-cont-05",
+        "skills-prompts-cont-09",
+        "skills-prompts-cont-11",
+        "skills-prompts-cont-12",
+        "skills-prompts-cont-16",
+        "skills-prompts-cont-17",
+        "skills-prompts-cont-22",
+        "skills-prompts-cont-29",
+        "skills-prompts-cont-30",
+        "skills-prompts-cont-52",
+        "skills-prompts-cont-53",
+        "skills-prompts-cont-54"
+      ],
+      "disposition": "Retain separate observations with their own cited trigger and corrective action; broad duplication and complexity themes belong in synthesis, not additional raw findings."
+    }
+  ],
+  "dedup_status": {
+    "raw_observations_retained": 73,
+    "final_unique_problem_count": null,
+    "cross_unit_semantic_dedup": "pending",
+    "note": "Related observations remain separately traceable because their cited triggers/corrections differ; family grouping is not additional findings. Existing raw references to skill files included tests-1c-20 (cross-repo fixture coupling) and nonelixir-shell-29 (deletion guard diff semantics), neither identical to these instruction findings. Keyword/location overlap checks are not a complete cross-unit semantic review."
+  },
+  "remaining_global_work": [
+    "Cross-unit and claim deduplication",
+    "High-severity skeptic review across other units",
+    "Three duplication sweeps",
+    "Feature challenges and report reconciliation",
+    "Problem map, rewrite requirements and CE planning workflow",
+    "Final privacy and completion audit"
+  ]
+}

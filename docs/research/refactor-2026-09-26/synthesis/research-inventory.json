@@ -1,0 +1,72 @@
+{
+  "note": "Artifact coverage only. Verdict presence does not prove correctness or research completion.",
+  "claims": {
+    "expected": 60,
+    "verdict_records": 81,
+    "both_lenses_present": 60,
+    "remaining": []
+  },
+  "review": {
+    "expected_units": 32,
+    "present_units": [
+      "agent-backends-cc",
+      "agent-backends-oc",
+      "agent-runtime",
+      "build-order",
+      "dup-by-body",
+      "dup-by-concept",
+      "dup-by-constant",
+      "dup-by-name",
+      "events-webhooks-executor",
+      "github-a",
+      "github-b",
+      "loose-1",
+      "loose-2",
+      "loose-3",
+      "loose-4",
+      "nonelixir-shell",
+      "nonelixir-web",
+      "orch-a",
+      "orch-b",
+      "platform-misc",
+      "skills-prompts",
+      "telemetry-usage",
+      "tests-1a",
+      "tests-1b",
+      "tests-1c",
+      "tests-2",
+      "tests-3",
+      "tests-4",
+      "tests-5",
+      "tests-6",
+      "web-occ",
+      "web-rest"
+    ],
+    "missing_units": [],
+    "findings": 1033,
+    "original_severity_counts": {
+      "P0": 14,
+      "P1": 168,
+      "P2": 628,
+      "P3": 223
+    },
+    "independent_reviewer_counts": {
+      "independent_a": 182,
+      "independent_b": 182
+    },
+    "high_priority_verdicts_missing": []
+  },
+  "features": {
+    "count": 216,
+    "by_surface": {
+      "cli": 46,
+      "config": 39,
+      "integrations": 52,
+      "subsystems": 46,
+      "ui": 33
+    },
+    "cut_merge_externalize": 91,
+    "challenges_present": 91,
+    "remaining_challenges": []
+  }
+}

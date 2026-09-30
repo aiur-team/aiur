@@ -1,0 +1,9 @@
+# Merged-main update at `eb0761f4275cab788ca44184089874164f6b3f65`
+
+PR #2856 changes only `AgentControlCLI.dispatch_decline_detail/1` and its focused status test relative to the prior audited `f223f30e`. Tuple decline reasons now render via `inspect/1`, while atom reasons keep their prior spelling. This directly affects `cli-06` status and read-model truth; its added test asserts `{:stale_after_revalidation, :unauthorized}` appears with control exit 0. Other feature decisions do not change by the generator's path-status lens, which still queues 156/216 entries; that lens cannot detect this in-file behavioral change by itself.
+
+The full frozen-finding cited-line rerun yields 724 current, 36 stale and 226 unknown of 986 canonical findings (previously 725/36/225). The sole changed finding status is P2 `loose-2-40`, current → unknown because its cited `agent_control_cli_test.exs` lines moved after the new regression test. This is citation movement, not evidence that the underlying finding became true. All P0/P1 static statuses are unchanged.
+
+The complete tracked-tree census remains 3,423 paths: 3,337 UTF-8 text, 47 binary and 39 symlinks; 1,185 files exceed 200 lines and 355 exceed 500. No new oversized path appears and all 355 remain in the frozen owner map. Relative to v3, four surviving oversized blobs now differ: the launcher and engine test from #2849, plus `agent_control_cli.ex` (3,329 lines) and `agent_control_cli_test.exs` (4,071 lines) from #2856. Their owner assignments remain proposed until status presentation and test-discovery behavior are checked on the implementation head.
+
+The reproducible commands are the frozen citation triage and file-size census in the prior `f223` audit, substituting this full SHA and a clean checkout/snapshot at this revision. This snapshot will be refreshed again after the packaged tmux fix #2855 merges, before the concise main promotion PR opens.

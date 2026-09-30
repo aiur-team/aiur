@@ -1,0 +1,71 @@
+{
+  "scope": "Retained historical model, not a new source-completeness or causal audit. Private sources contribute aggregate counts only (private).",
+  "input_sha256": {
+    "gap_rows15.jsonl": "34e83e093e888fc75e1fdfff99ec6c25f9992d8ffab2e16fa2312d3fead07abc",
+    "exec_events.tsv": "d5a660d5790f9e759379fd5a2df1ac9de2f20579f7770362d93c5c4e58e9593f",
+    "analysis_meta.json": "4d08d5340ea67971cdd697667dda5f9e327bf7071d1d9dc080daf0aec38a8596"
+  },
+  "retained_run_count": 112,
+  "retained_active_run_hours": 963.0757906295194,
+  "denominator_note": "retained_active_run_hours is the historical sum of run spans, including same-repository overlap; gap construction uses the union within each repository.",
+  "per_repo_union_hours": 961.9396710217661,
+  "overlap_hours_in_run_sum": 1.136119607753244,
+  "union_denominator_30_min_gap_share_percent": 75.65270297779779,
+  "exact_30_min_gap_share_percent": 75.5634571260498,
+  "thresholds": [
+    {
+      "threshold_minutes": 15,
+      "gap_count": 202,
+      "exact_gap_hours": 760.2576431320111,
+      "historical_category_bin_hours": 760.25,
+      "historical_attendance_over_one_count": 67,
+      "historical_max_attendance_fraction": 1.051,
+      "historical_attended_hours": 320.1,
+      "duration_weighted_attended_hours": 320.13087788840136,
+      "duration_weighted_unattended_hours": 440.1267652436097,
+      "historical_majority_attended_gaps": 178,
+      "duration_weighted_majority_attended_gaps": 178
+    },
+    {
+      "threshold_minutes": 30,
+      "gap_count": 108,
+      "exact_gap_hours": 727.7333621437019,
+      "historical_category_bin_hours": 727.8,
+      "historical_attendance_over_one_count": 30,
+      "historical_max_attendance_fraction": 1.02,
+      "historical_attended_hours": 288.46666666666664,
+      "duration_weighted_attended_hours": 288.4312320717838,
+      "duration_weighted_unattended_hours": 439.30213007191816,
+      "historical_majority_attended_gaps": 86,
+      "duration_weighted_majority_attended_gaps": 86
+    },
+    {
+      "threshold_minutes": 1440,
+      "gap_count": 5,
+      "exact_gap_hours": 447.86449683414565,
+      "historical_category_bin_hours": 447.8833333333333,
+      "historical_attendance_over_one_count": 0,
+      "historical_max_attendance_fraction": 0.524,
+      "historical_attended_hours": 120.16666666666667,
+      "duration_weighted_attended_hours": 120.13810952027639,
+      "duration_weighted_unattended_hours": 327.7263873138693,
+      "historical_majority_attended_gaps": 1,
+      "duration_weighted_majority_attended_gaps": 1
+    }
+  ],
+  "current_public_repos_model": {
+    "note": "aiur and khala; category b and c-waiting are classification output, not independently established causes.",
+    "category_bin_hours": {
+      "a": 12.116666666666667,
+      "b": 172.56666666666666,
+      "c": 58.4,
+      "d": 6.483333333333333,
+      "f": 12.1
+    },
+    "c_waiting_hours": 32.0,
+    "b_plus_c_waiting_share_percent": 78.17834394904459,
+    "stranded_reason_hours": 38.516666666666666
+  },
+  "attendance_method": "Reproduced every original fraction using global assistant/tool/Codex/subagent activity within +/-60 minute indices. Corrected aggregate weights each qualifying minute by its intersection in seconds with the gap, including the final partial minute. Human-message-only presence is not part of this historical attendance metric.",
+  "limits": "Does not repair the minute-level category classifier or infer dispatchability, operator absence, active daemon uptime, consumed wakes or historical causal loss. Exact durations still depend on the inherited progress definition and captured sources."
+}

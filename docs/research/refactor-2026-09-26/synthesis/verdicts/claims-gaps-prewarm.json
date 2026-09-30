@@ -1,0 +1,46 @@
+{
+  "verdicts": [
+    {
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high for retained arithmetic, source contract and recorded point diagnosis; unresolved for historical causal population and deployed exposure",
+      "method": "Sequential reproduction and interpretation checks: retained gap-bin census; ordered wake pairing; historical Git diffs and cached merge timestamps; selectively inspected successful transcript tool results and separately identified assistant reports.",
+      "evidence_artifacts": [
+        "synthesis/prewarm-starvation-history.json",
+        "synthesis/gap-uptime-contract.json",
+        "synthesis/gap-measurement-audit.json"
+      ],
+      "verification_mode": "sequential checks by the continuing researcher; unsupported causal allocations retained as unresolved",
+      "id": "gaps-03",
+      "corrected_claim": "A recorded prewarm checking hold left 31 ready tickets and zero live agents on August 21; an earlier successful tool result also names prewarm checking as the starvation alert's binding cause. The classifier's 'load governor' label is hard-coded from the topic, not that recorded cause. Pre-log aiur category d totals 257.2 h (90.91% of 282.9167 h), while all-pre-log d totals 273.0667 h (86.40% of 316.0333 h). These populations must not be combined. The cited ID group contains 71 blocked and 70 resolution records, forming 70 pairs and one unclosed block with variable duration; neither the group nor unresolved-alert extension proves continuous daemon uptime or 257 hours caused by the absorbing-state defect.",
+      "note": "Retain recovery of abandoned prewarm probes and cause-preserving dispatch observability as requirements. Do not use the category total as measured impact of one bug, or a topic-derived label as a known causal diagnosis.",
+      "unresolved": [
+        "Causal allocation of pre-log d minutes to prewarm versus other holds",
+        "Loaded revision and actual daemon lifetime during each inferred group",
+        "Whether earlier similar topic sequences share the diagnosed state transition"
+      ]
+    },
+    {
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high for retained arithmetic, source contract and recorded point diagnosis; unresolved for historical causal population and deployed exposure",
+      "method": "Sequential reproduction and interpretation checks: retained gap-bin census; ordered wake pairing; historical Git diffs and cached merge timestamps; selectively inspected successful transcript tool results and separately identified assistant reports.",
+      "evidence_artifacts": [
+        "synthesis/prewarm-starvation-history.json",
+        "synthesis/gap-uptime-contract.json",
+        "synthesis/gap-measurement-audit.json"
+      ],
+      "verification_mode": "sequential checks by the continuing researcher; unsupported causal allocations retained as unresolved",
+      "id": "gaps-05",
+      "corrected_claim": "Prewarm was disabled by PR2242 on August 21 at 22:32:10Z alongside identity/sandbox changes. The #2237 repair PR2274 merged August 23 at 20:06:53Z and added probe recovery plus an idle-hold watchdog that rearms for a live worker. The claimed healthy interval starts with mitigation and contains three retained gaps totaling 1.9503 h, all before repair merge. Later alert records and separate alert-quality fixes exist, but do not identify recurrence of the same defect. Run-log d is 6.5167 of 411.7667 category-bin hours (1.5826%), a model share rather than proof that dispatch is solved.",
+      "note": "The repair is present in merged source. Its deployed exposure and incident-free operation are not established by a low category share, a mixed-intervention interval or the absence of a named report. Preserve recovery/liveness contracts and measure actual runnable demand under the deployed configuration before deprioritizing dispatch.",
+      "unresolved": [
+        "Deployment and enabled-prewarm exposure after repair",
+        "Per-incident causes of later prewarm/starvation signals",
+        "Non-recurrence of the original defect under comparable load and runnable demand"
+      ]
+    }
+  ]
+}

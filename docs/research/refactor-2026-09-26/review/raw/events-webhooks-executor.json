@@ -1,0 +1,661 @@
+{
+  "unit_id": "events-webhooks-executor",
+  "files_reviewed": 45,
+  "lines_reviewed_estimate": 12302,
+  "coverage_notes": "Read in full: github_webhook/deposit.ex, github_comments_poller.ex, github_webhook/normalizer.ex, github_ci_poller.ex, subscription_store.ex, publisher.ex, github_webhook.ex, webhooks/mode_registry.ex, webhooks/delivery_log.ex, executor/claims.ex, branch_ref_store.ex, github_firehose.ex, sanitizer.ex, id_generator.ex, takeover_alert/store.ex, takeover_alert/monitor.ex, takeover_alert/snapshot.ex, takeover_alert.ex, exchange.ex, ls_remote_ticker.ex, webhooks/delivery_mode.ex, executor/roster.ex, webhooks/event_key.ex, webhooks/ingest.ex, pr_command_scanner.ex, github_keys.ex, executor/state_paths.ex, universal_subscriptions.ex, debug_log.ex, github_webhook/thread_resolver.ex, and every file under 100 lines (label_state, mode_table, principal, mode_presenter, interval_policy, handoff, event_source + polling + webhook, delivery_mode_events, agent_subscription_policy, github_review_thread_identity, subscription_store_supervisor, comment_filter, topic). That is all 45 files. Outside the unit I read only what was needed to verify callers and duplication: orchestrator/command_scan.ex (lines 170-300), orchestrator/dispatcher.ex (125-145), orchestrator/ci_lifecycle.ex (30-50, 370-395), orchestrator/push_routing.ex (230-300), orchestrator/comment_polling.ex (900-935 plus grep), github/ci_poll_batch.ex (40-140, 415-460), github/poll_snapshots.ex (99-160), github/view_state_sweep.ex (270-300), recent_merge.ex (420-445), ticket_branch.ex (65-81), json_store.ex (write!/read), webhooks.ex (record_activity), aiur_web/controllers/github_webhook_controller.ex (80-140), and the unit tests subscription_store_test.exs (330-415) and claims_test.exs (1-80). Lib-wide duplication counts came from grep over the snapshot. I ran nothing: no build, no tests. The CI poller's blocking cost is shown from the code path (synchronous call from Orchestrator.do_maybe_dispatch), not measured. I did not deeply review the test files for this unit beyond a grep for bare assert_receive (13 hits, all after synchronous calls, so low risk and not reported) and the two test files named above.",
+  "findings": [
+    {
+      "id": "events-webhooks-executor-01",
+      "category": "error-handling",
+      "severity": "P0",
+      "title": "SubscriptionStore stall recovery reorders buffered events behind newer ones, then drops them as stale (silent event loss)",
+      "locations": [
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "375-393"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "398-421"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "465-473"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "575-591"},
+        {"path": "src/test/aiur/events/subscription_store_test.exs", "lines": "336-370"}
+      ],
+      "description": "When an enqueue fails transiently, the store holds a stall and buffers later events. resolve_stall/2 advances the cursor to the stalled id and then re-sends the buffered events to its own mailbox with send(self(), ...). Any event that was already in the mailbox behind the {:retry_stalled} message is processed before the re-sent ones. That event is newer, so it advances the cursor past the buffered ids. When the buffered events then arrive, handle_info drops them through the 'event_id <= cursor' branch with no log. The retry itself blocks for up to 1 s in GenServer.call(Aiur.Orchestrator, ..., 1_000), and a slow orchestrator is the usual cause of a stall. So new events are very likely to queue behind the retry exactly when this path runs. The cursor is persisted past the lost ids, so a restart does not replay them either.",
+      "evidence": "resolve_stall: `new_state = advance_cursor_inline(%{state | stall: nil, stalled_buffer: []}, event_id)` then `for {_buffered_id, buffered_event} <- state.stalled_buffer do send(self(), {:event, buffered_event}) end`. handle_info: `not is_integer(event_id) or event_id <= cursor -> # Stale redelivery or malformed event — drop. {:noreply, state}`. Retry path: `GenServer.call(pid, {:enqueue_event_digest, identifier, event}, 1_000)`. Scenario: stall at 100, 101 buffered, mailbox [retry_stalled, 102]. The retry succeeds, the mailbox becomes [102, 101], 102 moves the cursor to 102, and 101 is dropped. The existing test 'a later event is held behind a stalled event' never queues an event behind {:retry_stalled}, so the fixture cannot reach this case.",
+      "recommendation": "In resolve_stall/2, drain stalled_buffer inline in order: call process_new_event/4 for each buffered event, and stop and re-buffer at the first new stall. Do not round-trip through the mailbox. Add a test that sends event 102 after {:retry_stalled} while the retry enqueue blocks, and assert that 101 and 102 are both enqueued in order.",
+      "refactor_hint": "Belongs to the event-bus core package (Exchange/Publisher/SubscriptionStore). Fix it before the carve, because the per-ticket store's delivery contract is the bus's at-least-once guarantee.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-02",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "Claims.renew revives an expired owner after a successor claimed, producing two live owners",
+      "locations": [
+        {"path": "src/lib/aiur/executor/claims.ex", "lines": "37-40"},
+        {"path": "src/lib/aiur/executor/claims.ex", "lines": "256-270"},
+        {"path": "src/lib/aiur/executor/claims.ex", "lines": "286-293"},
+        {"path": "src/lib/aiur/executor/claims.ex", "lines": "309-325"},
+        {"path": "src/lib/aiur/executor/principal.ex", "lines": "38-53"},
+        {"path": "src/test/aiur/executor/claims_test.exs", "lines": "27-35"}
+      ],
+      "description": "The moduledoc says two live owners cannot happen because the takeover check runs under the lock. do_claim/3 only refuses when a *live* owner exists, and it never demotes the expired owner's entry. do_renew/3 then calls touch/5 with the entry's existing role and no liveness or ownership check. Sequence: A's lease lapses (host suspended or process stopped for more than 10 min). B claims. A resumes and renews, through the Principal timer or the executor-wait CLI. A becomes a live 'owner' next to B. do_record_acknowledgement/4 then accepts acks from whichever owner Map.values happens to list first and refuses the other. owner/1 and the roster report an arbitrary one of the two.",
+      "evidence": "Moduledoc: \"neither can produce two live owners, because the takeover check itself runs under the lock.\" do_claim: `case Enum.find(Map.values(consumers), &(&1[\"role\"] == \"owner\" and live?(&1, now) and &1[\"id\"] != id)) do nil -> {:ok, touch(consumers, id, \"owner\", now, opts)}`. do_renew: `{:ok, existing} -> {:ok, touch(consumers, id, existing[\"role\"], now(opts), opts)}`. The test 'a lapsed lease expires ... successor takes over' stops after B's claim and never renews A.",
+      "recommendation": "In do_claim, when taking over from an expired owner, demote that entry to 'expired' or 'observer' in the same write. In do_renew, refuse to renew role 'owner' when the lease has lapsed and another live owner exists, returning {:error, {:held_by, other}}. Add the renew-after-takeover test.",
+      "refactor_hint": "Executor wake-stream ownership package (Claims/Roster/Principal). This invariant must hold before the Executor surface becomes its own package.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-03",
+      "category": "performance",
+      "severity": "P1",
+      "title": "GithubCIPoller.poll runs synchronously inside the Orchestrator GenServer (the #1837 blocking pattern the comment poller was moved away from)",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "23-75"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "90-104"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "208-237"},
+        {"path": "src/lib/aiur/orchestrator/dispatcher.ex", "lines": "129-138"},
+        {"path": "src/lib/aiur/orchestrator/ci_lifecycle.ex", "lines": "34-44"}
+      ],
+      "description": "The dispatcher made the comment poll async because the Orchestrator was captured blocked in its Task.async_stream fan-out. The very next line calls CiLifecycle.poll_github_ci, which calls GithubCIPoller.poll synchronously in the Orchestrator process. The fan-out uses max_concurrency 4 and a 60 s timeout per target, so a slow GitHub can hold the Orchestrator for ceil(N/4)*60 s. On the REST fallback path each target makes up to five sequential requests: the branch PR lookup, ensure_pull_request_base (which may PATCH), two commit-status reads, and a second PR lookup for the recheck. If Aiur.TaskSupervisor is not registered, the poller toggles trap_exit on the Orchestrator itself. Unlike the comments poller, it exposes no max_duration_ms for callers to bound it. While the Orchestrator is blocked, SubscriptionStore's 1 s enqueue calls time out, which feeds finding 01.",
+      "evidence": "dispatcher.ex: `# Issued, not awaited: the Orchestrator was captured parked in this poll's Task.async_stream fan-out with 5,729 messages behind it on an idle host (#1837).` / `state = CommentPolling.start_async(state)` / `state = CiLifecycle.poll_github_ci(state)`. github_ci_poller.ex: `@default_target_timeout 60_000`, `Task.Supervisor.async_stream_nolink(targets, run_target, task_opts) |> Enum.to_list()`, and the fallback `previous_trap_exit = Process.flag(:trap_exit, true)`.",
+      "recommendation": "Run the CI poll the same way as the comment poll: spawn an owned task and deliver the result as a message ({:github_ci_polled, ...}) that the Orchestrator folds in. Add GithubCIPoller.max_duration_ms/2 as the comments poller does, and delete the trap_exit fallback.",
+      "refactor_hint": "GitHub producers package (pollers) versus Orchestrator core. The poller API should be async-by-contract (return a task or send a message) so the Orchestrator package never blocks on network I/O.",
+      "effort": "M"
+    },
+    {
+      "id": "events-webhooks-executor-04",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "Every daemon restart can raise a false 'webhook.never_delivered' needs-attention alert: mode state is memory-only and the check ignores elapsed time",
+      "locations": [
+        {"path": "src/lib/aiur/webhooks/delivery_mode.ex", "lines": "218-225"},
+        {"path": "src/lib/aiur/webhooks/mode_registry.ex", "lines": "186-208"},
+        {"path": "src/lib/aiur/webhooks/mode_registry.ex", "lines": "313-331"},
+        {"path": "src/lib/aiur/webhooks/mode_registry.ex", "lines": "421-434"},
+        {"path": "src/lib/aiur/github/view_state_sweep.ex", "lines": "283-292"}
+      ],
+      "description": "ModeRegistry keeps repo modes and the 'observed' novelty map in process memory only, so every restart reseeds configured repos as :configured_unproven with delivery_count 0. The first view-state head check after boot records the unchanged open-issue head as novel activity, because 'observed' is empty. Filtered publishes are also counted. The :configured_unproven sweep clause then alerts as soon as there is any activity and zero deliveries. It never compares against threshold_ms, even though the clause takes it as a parameter. With the 60 s default sweep, any repo that receives no delivery in its first minute after boot raises: 'This is a setup that has never worked'. The registry's own comments call false alerts the thing that makes operators stop reading.",
+      "evidence": "delivery_mode.ex: `def sweep(%__MODULE__{state: :configured_unproven, never_delivered_reported?: false} = mode, %DateTime{}, threshold_ms) ... if match?(%DateTime{}, mode.last_activity_at) and mode.delivery_count == 0 do {%{mode | never_delivered_reported?: true}, :never_delivered}`. There is no `now - x > threshold_ms` check. mode_registry init: `repos: initial_repos(opts, settings), ... observed: %{}`, with no load from disk. view_state_sweep: `Webhooks.record_activity(full_name, observation: {:issue_head, head})`. Schema default `sweep_interval_seconds, default: 60`.",
+      "recommendation": "Require the silence threshold to have elapsed since the registry booted (or since activity began) before reporting :never_delivered. Also persist per-repo delivery_count and last_delivery_at (a small JSON file under the runtime state dir, as DeliveryLog does) so a proven repo stays proven across restarts. Add a test: fresh registry, activity at t=10s, sweep at t=60s, refute the never_delivered alert.",
+      "refactor_hint": "Webhooks mode package. Durable mode state is a prerequisite for carving webhooks into their own package with a restart-stable contract.",
+      "effort": "M"
+    },
+    {
+      "id": "events-webhooks-executor-05",
+      "category": "other",
+      "severity": "P1",
+      "title": "Webhook-published comment events always carry review_decision=nil, so the rework gate is disabled whenever the webhook wins the dedup race",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "579-615"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "487-495"},
+        {"path": "src/lib/aiur/events/publisher.ex", "lines": "203-213"}
+      ],
+      "description": "The normalizer's own comment documents a live behavioural divergence. On an APPROVED PR, the poller's GraphQL batch publishes review_decision 'APPROVED' and the rework gate suppresses rework. The webhook publishes nil, which routes the ticket to rework, for the same GitHub event. The delivery is free and arrives first, and Publisher's durable resource dedup lets the first producer's shape win. So on any webhook-backed repo the ReviewFreshness gate is inert for almost every comment. The two-producer 'one shape' contract is broken, and the break is recorded only in a code comment.",
+      "evidence": "normalizer.ex: \"`review_decision` is a genuine divergence ... on an APPROVED pull request the poller's batch path publishes `\\\"APPROVED\\\"` and suppresses rework, while the webhook publishes nil and routes the ticket to rework for the same GitHub event. ... Reported on the PR rather than silently absorbed.\" Code: `\"review_decision\" => Map.get(pr, \"review_decision\")` on a REST PR object, which never has that key. publisher.ex: `resource_processed?(opts) -> :deduped` suppresses the later poller publish.",
+      "recommendation": "Enrich webhook comment events with review_decision before publishing. The delivery task already runs off the request path, so a one-field GraphQL read, or a read of the DeliveredPullRequest/PollSnapshots state, is affordable there. Alternatively, have the rework gate re-read reviewDecision when the event field is nil instead of failing open. Add an equivalence test asserting both producers yield the same routing for an APPROVED PR.",
+      "refactor_hint": "GitHub event-normalization package: the webhook and poller shapes should come from one shared projection module rather than twin code. See finding 07.",
+      "effort": "M"
+    },
+    {
+      "id": "events-webhooks-executor-06",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "The generic event bus core embeds GitHub policy and calls into the Orchestrator, which blocks carving Aiur.Events into a standalone package",
+      "locations": [
+        {"path": "src/lib/aiur/events/publisher.ex", "lines": "41-46"},
+        {"path": "src/lib/aiur/events/publisher.ex", "lines": "171-180"},
+        {"path": "src/lib/aiur/events/publisher.ex", "lines": "236-246"},
+        {"path": "src/lib/aiur/events/publisher.ex", "lines": "405-465"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "575-591"},
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "61-68"},
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "249-256"},
+        {"path": "src/lib/aiur/events/sanitizer.ex", "lines": "1-4"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "13-15"},
+        {"path": "src/lib/aiur/executor/takeover_alert/snapshot.ex", "lines": "17-19"}
+      ],
+      "description": "Publisher is documented as the shared publish boundary for every source, but it hard-codes GitHub concerns. These are bot self-loop via GitHub.Config.daemon_account and AgentMarker, single-account provenance, ResourceStore processed marks, and Webhooks.record_activity corroboration. It also depends on Aiur.IssueLog and TicketObservation. SubscriptionStore delivers by GenServer.call to the globally named Aiur.Orchestrator. The Aiur.Events namespace mixes the generic bus (Exchange, Topic, IdGenerator, Publisher, SubscriptionStore, DebugLog) with GitHub producers (firehose, comments and CI pollers, webhook normalizer and deposit, ls-remote ticker, BranchRefStore, PrCommandScanner, Sanitizer). The GitHub producers in turn reach into Orchestrator modules (ReadyForReviewTransitions, request_refresh, a named-process send). None of these can move into separate packages without cycles.",
+      "evidence": "publisher.ex aliases: `alias Aiur.GitHub.AgentMarker`, `alias Aiur.GitHub.Config, as: GitHubConfig`, `alias Aiur.GitHub.ResourceStore`, `alias Aiur.Webhooks`. subscription_store.ex: `case Process.whereis(Aiur.Orchestrator) do ... GenServer.call(pid, {:enqueue_event_digest, identifier, event}, 1_000)`. github_webhook.ex: `alias Aiur.Orchestrator` and `send(pid, {:github_webhook_reconcile, hint})`. github_comments_poller.ex: `alias Aiur.Orchestrator.ReadyForReviewTransitions`.",
+      "recommendation": "Split Publisher into a generic publish pipeline (id, envelope, dedup window, Exchange fan-out) plus a list of injected gates. Implement GitHubGates (self-loop/provenance, resource-processed suppression, webhook activity) in the GitHub package and register them at boot. Give SubscriptionStore a sink behaviour ({module, fun}) configured by the orchestrator instead of Process.whereis(Aiur.Orchestrator). Move the GitHub producers to Aiur.GitHub.Events.* (or a github_events package) that depends on the bus, not the other way round.",
+      "refactor_hint": "Define the package boundary as bus core (no GitHub deps), GitHub producers (depends on bus and GitHub client), and orchestrator (depends on both). This finding is the dependency inversion that makes that layering possible.",
+      "effort": "L"
+    },
+    {
+      "id": "events-webhooks-executor-07",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Poller and webhook 'twin' helpers are copy-pasted and kept in sync by comments ('must stay byte-identical')",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "516-518"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "764-769"},
+        {"path": "src/lib/aiur/events/github_webhook/deposit.ex", "lines": "979-984"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "490-495"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "525-526"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "608-620"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "624-626"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "827-836"},
+        {"path": "src/lib/aiur/events/github_firehose.ex", "lines": "420-429"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "645-652"},
+        {"path": "src/lib/aiur/recent_merge.ex", "lines": "540-542"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "750-778"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "461-479"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "782-787"},
+        {"path": "src/lib/aiur/events/github_webhook/deposit.ex", "lines": "632-637"},
+        {"path": "src/lib/aiur/events/github_firehose.ex", "lines": "403"}
+      ],
+      "description": "The normalizer's contract is 'the exact triple the corresponding poller builds', but it is enforced by hand-copied private functions. Sites found: (a) resource_version/version (updated_at, falling back to submitted_at) in normalizer, poller and deposit, 3 copies. (b) review_context and approval_only_context in poller and normalizer, 2 copies. (c) actionable_review? in poller and normalizer, already diverged: the poller matches uppercase literals, the normalizer upcases and also accepts non-map payloads. (d) pr_topic and the merged-PR predicate in firehose, normalizer and recent_merge.ex (merged predicate x3, pr_topic x2). (e) Review-comment dedup key plus resource selection (thread id vs comment id) in poller pr_review_comment_resource/pr_review_comment_dedup_key and normalizer review_comment_keys. (f) Head ref to ticket id, spelled three ways: TicketBranch.ticket_id_from_ref(\"refs/heads/\" <> ref), GithubKeys.ref_to_topic(\"refs/heads/\" <> head_ref), and TicketBranch.ticket_id(ref).",
+      "evidence": "normalizer.ex: `# Triple builders — these must stay byte-identical to their poller twins.` and `# Same rule as GithubCommentsPoller.actionable_review?/1.` poller: `defp actionable_review?(%{\"state\" => \"CHANGES_REQUESTED\"}), do: true` versus normalizer: `case String.upcase(state) do \"CHANGES_REQUESTED\" -> true`. poller: `# Mirrors Normalizer.resource_version/1 so both pipes agree on the marker.`",
+      "recommendation": "Extract Aiur.GitHub.EventShape (pure) with resource_version/1, review_context/1, approval_only_context/1, actionable_review?/1, pr_topic/3, merged_pull_request?/2, ticket_from_head_ref/1 and review_comment_identity/3 (returning {dedup_key, resource, generation}). Have the poller, normalizer, deposit, firehose and RecentMerge all call it. Then replace the 'byte-identical' comments with a property test over the shared module.",
+      "refactor_hint": "GitHub events package: one shared projection module that both producers depend on. This is the natural first file of that package.",
+      "effort": "M"
+    },
+    {
+      "id": "events-webhooks-executor-08",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Positive-integer parsing re-implemented in every module; two identical copies sit in the same file (Deposit)",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_webhook/deposit.ex", "lines": "509-518"},
+        {"path": "src/lib/aiur/events/github_webhook/deposit.ex", "lines": "716-725"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "801-810"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "844-853"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "790-799"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "133-138"},
+        {"path": "src/lib/aiur/webhooks/delivery_log.ex", "lines": "199-204"}
+      ],
+      "description": "Deposit defines parse_number/1 and positive_number/1 with identical bodies (int>0 or binary Integer.parse with rest \"\" and >0). The normalizer (ticket_identifier), the comments poller (parse_integer, which does not require positive) and the CI poller (positive_integer, returning ok/error tuples) each carry their own variant, with different return shapes and positivity rules. Lib-wide, grep finds 78 clause definitions named positive_integer/parse_integer/positive_number/parse_number/ticket_identifier/parse_positive_integer/positive_int across 34 files. The option-validating helpers positive_integer_option (poller) and positive (DeliveryLog) are a second duplicated family.",
+      "evidence": "deposit.ex 509: `defp parse_number(number) when is_integer(number) and number > 0, do: number` / `{parsed, \"\"} when parsed > 0 -> parsed`. deposit.ex 716: `defp positive_number(value) when is_integer(value) and value > 0, do: value` / `{number, \"\"} when number > 0 -> number`. poller 846: `{integer, \"\"} -> integer` (no positivity check).",
+      "recommendation": "Add Aiur.Parse (or extend an existing util) with positive_int/1 (value or nil), positive_int_result/1 (ok/error tuple) and keyword_positive_int/3. Replace the four copies in this unit now, and track the remaining lib-wide sites for a sweep.",
+      "refactor_hint": "Shared util package that all sub-packages depend on. Cheap to land first.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-09",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Closing-keyword ticket parsing has diverged: the webhook normalizer uses a loose first-match regex while RecentMerge deliberately uses a narrow line-anchored one",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "60"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "789-799"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "374-403"},
+        {"path": "src/lib/aiur/recent_merge.ex", "lines": "423-445"}
+      ],
+      "description": "For an issue_comment on a PR, the normalizer routes the comment to the first `\\b(close[sd]?|fix(e[sd])?|resolve[sd]?)\\s+#N` anywhere in the PR body, including quoted text and mid-sentence prose. RecentMerge documents why it deliberately accepts a keyword only where it opens a line, list item or clause, and why it skips quoted lines. A PR body such as 'This does not fix #12. Closes #34' routes the comment to ticket 12. The comment is published with bypass_contamination: true, so it can reach a ticket the PR never claimed.",
+      "evidence": "normalizer: `@closing_keyword ~r/\\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+#(\\d+)\\b/i` and `case Regex.run(@closing_keyword, body) do [_match, number] -> number`. recent_merge.ex: `# A keyword counts only where it opens a line, a list item, or a clause introduced by , ; or and ... See closing_issue_identifiers/1 for why this is narrower than GitHub in prose position.`",
+      "recommendation": "Expose RecentMerge's closing-reference parser (or move it to Aiur.GitHub.ClosingReferences) and use it in the normalizer, taking the first same-repo reference. Better still, resolve PR to ticket via the delivered PR head ref (DeliveredPullRequest store) when it is available.",
+      "refactor_hint": "GitHub events package (shared parser).",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-10",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Webhook check-run normalizer and poll-batch normalizer disagree on check_suite_id type despite the 'change one, change both' contract",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_webhook/deposit.ex", "lines": "385-400"},
+        {"path": "src/lib/aiur/github/ci_poll_batch.ex", "lines": "262"},
+        {"path": "src/lib/aiur/github/ci_poll_batch.ex", "lines": "424-445"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "387-397"}
+      ],
+      "description": "Both files say the normalized keys are the contract between delivery and poll snapshots. The GraphQL batch selects `checkSuite { id }`, a global node id string, while the REST delivery writes check_suite.id, a numeric database id. After PollSnapshots.merge_check_run replaces one run in a polled snapshot, that run's check_suite_id is a different type from its siblings in the same suite. GithubCIPoller keys 'latest run per workflow' on {:suite, check_suite_id}, so a merged run and a polled run of the same workflow would no longer collapse. The damage is latent today: CIPollBatch serves delivered snapshots as inert ('delivered: true') and they are never evaluated for a verdict. It becomes live the moment anyone evaluates a merged snapshot.",
+      "evidence": "ci_poll_batch.ex: `... on CheckRun { databaseId name status conclusion detailsUrl startedAt completedAt checkSuite { id } }` and `\"check_suite_id\" => get_in(check_run, [\"checkSuite\", \"id\"])`. deposit.ex: `\"check_suite_id\" => get_in(check_run, [\"check_suite\", \"id\"])`. ci_poll_batch comment: `The keys here are the contract between them ... Change one, change both.`",
+      "recommendation": "Select checkSuite { databaseId } in the GraphQL query so both sides are numeric. Move both normalize_check_run/1 functions into one module with two entry points (from_graphql/1, from_rest/1) and a test asserting identical key sets and value types.",
+      "refactor_hint": "GitHub CI package: a single check-run projection module.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-11",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "Deposit's function-wide rescue also skips ReadCache invalidation; fixed per raise-site instead of structurally",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_webhook/deposit.ex", "lines": "165-207"},
+        {"path": "src/lib/aiur/events/github_webhook/deposit.ex", "lines": "358-362"},
+        {"path": "src/lib/aiur/events/github_webhook/deposit.ex", "lines": "494-505"}
+      ],
+      "description": "deposit/4 computes bodies, writes them, then calls invalidate_read_cache/3, all inside one rescue/catch that logs a warning and returns []. Any raise in body extraction, for example get_in on a malformed nested field inside Normalizer.comment_shape, skips the invalidation. The ReadCache then keeps serving stale entries whose TTLs the moduledoc says were raised 'from seconds to hours' on the strength of this invalidation. Two raise sites were patched individually, and their comments name exactly this hazard.",
+      "evidence": "`defp check_run_deposits ... # A malformed pull_requests element (not a map) must not raise here: it runs inside deposit/3's bodies walk, whose rescue would abort the whole delivery — including invalidate_read_cache/3, silently leaving the cache stale.` and the same note at pull_request_numbers/1. Structure: `keys = if store_running?() do ... end; invalidate_read_cache(event_type, payload, repo); keys rescue error -> Logger.warning(...); []`.",
+      "recommendation": "Run invalidate_read_cache/3 in its own try (or in an `after`) so it happens whether or not the deposit raised. Emit a counter or alert for deposit exceptions instead of only a Logger.warning, since Logger output is dropped without --debug.",
+      "refactor_hint": "GitHub webhook ingest package.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-12",
+      "category": "other",
+      "severity": "P2",
+      "title": "EventKey semantic dedup collides for genuinely new events (review edits, check-suite re-runs), dropping them at admission for 72 h",
+      "locations": [
+        {"path": "src/lib/aiur/webhooks/event_key.ex", "lines": "12-16"},
+        {"path": "src/lib/aiur/webhooks/event_key.ex", "lines": "60-68"},
+        {"path": "src/lib/aiur/webhooks/event_key.ex", "lines": "91-100"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "351-357"},
+        {"path": "src/lib/aiur/webhooks/ingest.ex", "lines": "91-102"}
+      ],
+      "description": "The moduledoc promises that a key 'changes when the event genuinely changes'. The pull_request_review key is [id, action, state] with no timestamp, so a second 'edited' of the same review is a duplicate_event and is dropped before Deposit and record_delivery run. The check_suite/check_run/workflow_run key is [id, status, conclusion]. The CI poller documents that 'GitHub re-runs of the same workflow reuse the suite id', so a re-run that ends with the same conclusion (failure after failure) produces the same key. Its completed delivery is dropped, and the CI reconcile wake is lost until the next scheduled poll.",
+      "evidence": "event_key.ex: `[Integer.to_string(id), action, to_string(Map.get(review, \"state\", \"\"))]` and `[Integer.to_string(id), to_string(Map.get(object, \"status\", \"\")), to_string(Map.get(object, \"conclusion\", \"\"))]`. github_ci_poller.ex: `GitHub re-runs of the same workflow reuse the suite id`.",
+      "recommendation": "Include updated_at for check_suite/check_run/workflow_run (all three carry it) and run_attempt for workflow_run. For reviews, include a hash of the body plus submitted_at, or omit the semantic key for 'edited'. Add tests for a re-run with the same conclusion and for two review edits.",
+      "refactor_hint": "Webhooks ingest package.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-13",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Webhook wake coalescing window lives in :persistent_term with a non-atomic get/put and an unsupervised sleeping process per window",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "289-307"},
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "376-383"},
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "413-455"}
+      ],
+      "description": "Each delivery that wakes or first coalesces calls :persistent_term.put with a new tuple. Replacing a persistent term triggers a global GC scan of every process, which is the documented anti-pattern for frequently changing values. Up to two puts per window, and the window can be as short as 2 s. Deliveries run in concurrent Task.Supervisor children, so claim_reconcile_window/0 is a racy read-modify-write: two tasks can both claim the leading edge, and generation numbers can be lost. arm_trailing_wake/2 uses bare spawn plus Process.sleep, so the timer process is unsupervised and survives code reloads and test boundaries. The test seam reset_reconcile_window/0 is public production API.",
+      "evidence": "`:persistent_term.put({__MODULE__, :reconcile_window}, {started_at, generation, true})`, `:persistent_term.put({__MODULE__, :reconcile_window}, {now, next_generation, false})`, `spawn(fn -> Process.sleep(reconcile_debounce_ms()) if trailing_pending?(generation) do _ = request_refresh_fun.() end end)`.",
+      "recommendation": "Move coalescing into the Orchestrator's request_refresh handling (it already coalesces) or into a small GenServer or :atomics-backed module. Use Process.send_after for the trailing wake. Delete the persistent_term state.",
+      "refactor_hint": "Webhook-to-orchestrator wake seam. Belongs on the orchestrator side of the boundary, not in the webhook ingest package.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-14",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Publisher replay dedup is a non-atomic check-then-insert on a public ETS table; the moduledoc wrongly says mutations go through the GenServer",
+      "locations": [
+        {"path": "src/lib/aiur/events/publisher.ex", "lines": "23-26"},
+        {"path": "src/lib/aiur/events/publisher.ex", "lines": "48"},
+        {"path": "src/lib/aiur/events/publisher.ex", "lines": "379-393"},
+        {"path": "src/lib/aiur/events/publisher.ex", "lines": "506-534"}
+      ],
+      "description": "deduped?/1 runs seen?/1 and then record_seen/1 in the caller's process. Callers include up to four concurrent comment-poller tasks, concurrent webhook delivery tasks, the firehose and CommandScan. Two concurrent publishes of the same dedup key both observe 'not seen' and both publish. The durable resource gate has the same check-then-mark gap, since it marks only after the publish. The table is also a fixed :named_table, so the start_link :name option cannot actually support a second instance.",
+      "evidence": "Moduledoc: \"Owns the dedup ETS table so it can run a TTL sweep timer. Mutations go through the GenServer; reads are direct ETS lookups.\" Code: `if seen?(key) do true else record_seen(key); false end`, with `record_seen` doing `:ets.insert(@table, {key, System.monotonic_time(:millisecond)})` from the caller. `:ets.new(@table, [:named_table, :public, :set, read_concurrency: true])`.",
+      "recommendation": "Use :ets.insert_new/2 as the atomic claim, and for an expired entry use a match-spec compare-and-swap or :ets.select_replace. Fix the moduledoc. Derive the table name from the server name, or drop the :name option.",
+      "refactor_hint": "Event bus core.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-15",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "A third, divergent CI classifier lives in TakeoverAlert.Snapshot",
+      "locations": [
+        {"path": "src/lib/aiur/executor/takeover_alert/snapshot.ex", "lines": "156-197"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "19-22"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "317-344"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "363-417"}
+      ],
+      "description": "Snapshot.summarize_ci/2 reclassifies check runs and statuses for the takeover advisory with its own failure list. That list omits startup_failure. It also skips the non-blocking filter ('(non-blocking)' suffix) and the latest-run-per-(suite, name) collapse that GithubCIPoller.evaluate applies. The advisory can therefore say 'failing (N checks)' for a head whose gate verdict is :passed, for example after a superseded failed run or a failing non-blocking check. It can also say 'unknown' where the gate says failed (startup_failure).",
+      "evidence": "snapshot.ex: `failures = [\"failure\", \"error\", \"timed_out\", \"action_required\"]`. github_ci_poller.ex: `@failed_conclusions ~w(action_required failure startup_failure timed_out)`, `|> blocking_check_runs() |> latest_check_runs_per_workflow_and_name()`.",
+      "recommendation": "Make GithubCIPoller.evaluate/2 public (as Aiur.GitHub.CIClassifier.evaluate/2, replacing evaluate_for_test/2). Have the snapshot render its decision and failures instead of re-deriving them.",
+      "refactor_hint": "GitHub CI package: a pure classifier module used by the gate, the advisory and the dashboard.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-16",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "GithubCIPoller (816 lines) mixes CI classification, PR base-branch repair and journaling, and its 4-arm base-repair case is copied three times",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "126-156"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "181-206"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "239-287"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "427-469"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "596-704"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "77-81"}
+      ],
+      "description": "The module has 69 def clauses and three responsibilities: a pure classifier (evaluate plus helpers, about 250 lines), base-branch repair with a crash-safe journal (ensure_pull_request_base, recover/persist/journal, repair_error, base_branch_failure/repaired, about 300 lines), and the fetch/fan-out orchestration. The ensure_pull_request_base result case ({:ok,:unchanged} / {:ok,{:unchanged,rec}} / {:ok,{:repaired,inv}} / {:error,reason,inv}) is handled by three near-identical case blocks. The invalidation marker is matched in both atom-keyed and string-keyed shapes (lines 430-446 and 643-653), which is the 'duplicated parsing of a persisted shape' family. evaluate_for_test/2 is a test-only public function.",
+      "evidence": "Three copies of `{:ok, :unchanged} -> ... {:ok, {:unchanged, recovered_invalidation}} -> ... {:ok, {:repaired, invalidation}} -> base_branch_repaired(...) ; {:error, reason, invalidation} -> base_branch_failure(...)`. Dual shape: `%{repair_state: :repairing} -> ...` and `%{\"repair_state\" => \"repairing\"} -> ...`.",
+      "recommendation": "Split into CIClassifier (pure), BaseRepair (ensure, journal, recovery, returning one tagged result), and GithubCIPoller (fan-out plus one with_base_repair/3 helper consumed by the batch, REST and recheck paths). Normalise the invalidation marker to one struct at the CIApprovalStore load boundary.",
+      "refactor_hint": "GitHub CI package with three modules. BaseRepair may belong with the PR-mutation code rather than with polling.",
+      "effort": "M"
+    },
+    {
+      "id": "events-webhooks-executor-17",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "The conditional-list (ETag plus held body) read protocol is copy-pasted in GithubCommentsPoller (3 call sites) and Orchestrator.CommandScan",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "243-344"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "205-230"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "453-478"},
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "546-612"},
+        {"path": "src/lib/aiur/orchestrator/command_scan.ex", "lines": "190-253"}
+      ],
+      "description": "The correctness-critical validator/body contract with the ResourceStore is implemented twice, and CommandScan says it mirrors the poller. The contract covers where the validator came from (cycle or store), depositing the list and the ETag together only after publish, dropping the ETag on nil, and 'a 304 against a store validator with no body is unusable'. The pieces are request_etag and durable_etag, remember_list x2, unchanged_list and command_scan_unchanged_list, forget_validator and drop_validator. Inside the poller, the fetch then 200/304/error then publish then remember flow is written out three times (issue comments, PR conversation comments, reviews), with three near-identical unchanged_* functions. Their return tuples have 4 or 6 positional elements ({count, newest, result, etag} and {count, newest, results, etags, review_seen_at, draft_obs}).",
+      "evidence": "command_scan.ex: `# What a 304 is worth ... — mirrors Aiur.Events.GithubCommentsPoller.unchanged_list/2.` and `the poller's remember_list/3, applied to the repo-wide streams`. poller: unchanged_issue_comments/5, unchanged_pr_issue_comments/6 and unchanged_review_submissions/8 have the same three-arm body (`{:ok, comments} -> publish; remember_list`, `:nothing_to_recover -> {0, ...}`, `:unusable_validator -> forget_validator`).",
+      "recommendation": "Extract Aiur.GitHub.ConditionalList with read(resource, cycle_etag, fetch_fun, publish_fun) returning a result struct (count, newest, etag, error). Use it from all four sites. Replace positional tuples with a %TargetResult{} struct.",
+      "refactor_hint": "GitHub read-cache/ResourceStore package owns the protocol; producers consume it.",
+      "effort": "M"
+    },
+    {
+      "id": "events-webhooks-executor-18",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "The two pollers' per-target fan-outs are duplicated and have diverged (supervision, option validation, trap_exit)",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_comments_poller.ex", "lines": "111-149"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "49-75"},
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "586-592"}
+      ],
+      "description": "Both pollers normalise targets identically (normalize_targets/1 copied verbatim), then fan out with max_concurrency 4 and a 60 s kill_task timeout, then zip results back to targets and map {:exit, reason} to a per-target error. They differ in ways nobody chose. The comments poller uses unsupervised Task.async_stream and flips trap_exit. The CI poller prefers Task.Supervisor.async_stream_nolink and falls back to the trap_exit variant. The comments poller validates max_concurrency and timeout through positive_integer_option/3; the CI poller passes Keyword.get values through unvalidated.",
+      "evidence": "Both files define `defp normalize_targets(targets) do targets |> Enum.map(&to_string/1) |> Enum.map(&String.trim/1) |> Enum.reject(&(&1 == \"\")) |> Enum.uniq() end` and `@default_max_concurrency 4` / `@default_target_timeout 60_000`. comments: `max_concurrency: positive_integer_option(opts, :max_concurrency, ...)`. ci: `max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency)`.",
+      "recommendation": "Extract Aiur.GitHub.TargetFanout.run(targets, fun, opts) (supervised, validated options, results keyed by target, plus max_duration_ms/2) and use it from both pollers.",
+      "refactor_hint": "GitHub producers package shared helper.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-19",
+      "category": "naming-structure",
+      "severity": "P2",
+      "title": "No module owns the topic grammar: 106 hand-built 'ticket.#{id}...' strings and 23 ad-hoc parsers across lib",
+      "locations": [
+        {"path": "src/lib/aiur/events/topic.ex", "lines": "24-34"},
+        {"path": "src/lib/aiur/events/publisher.ex", "lines": "359-366"},
+        {"path": "src/lib/aiur/events/debug_log.ex", "lines": "110-120"},
+        {"path": "src/lib/aiur/events/universal_subscriptions.ex", "lines": "26-39"},
+        {"path": "src/lib/aiur/events/universal_subscriptions.ex", "lines": "56"},
+        {"path": "src/lib/aiur/events/universal_subscriptions.ex", "lines": "100"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "506-514"},
+        {"path": "src/lib/aiur/events/github_keys.ex", "lines": "23-36"}
+      ],
+      "description": "Aiur.Events.Topic only matches patterns. Building and parsing topics is scattered: grep finds 106 interpolated '\"ticket.#{' builders in 42 files, 12 hand-written '\"ticket.\" <> rest' prefix parsers (publisher, debug_log, agent_event_feed, event_line, alert_topic, decision_metrics, executor_wake_projection x3, event_row, ci_lifecycle, reconciler), and 11 '\\Aticket\\.' regex parsers (orchestrator/event_topics.ex). In this unit, the base-branch push topic string is built three times in UniversalSubscriptions, and 'system.config.base_branch.changed' is a literal in both UniversalSubscriptions and SubscriptionStore.",
+      "evidence": "publisher.ex: `defp extract_ticket_id(\"ticket.\" <> rest) do case String.split(rest, \".\", parts: 2) do [id, _] -> id`. debug_log.ex: `defp route_identifier(%{topic: \"ticket.\" <> rest}) do case String.split(rest, \".\", parts: 2) do [id, _suffix] when id != \"\" -> id`, with the comment 'Mirrors Aiur.Opencode.EventRow.matches?/2'. universal_subscriptions.ex: `\"system.\" <> base_branch <> \".branch.push\"` (line 31), `\"system.\" <> Config.base_branch() <> \".branch.push\"` (lines 56 and 100).",
+      "recommendation": "Add builders and parsers to Aiur.Events.Topic: ticket(id, verb_path), system(segment, verb_path), parse(topic) returning {:ticket, id, suffix} | {:system, seg, suffix}, and named constants for well-known topics (base_branch_push/1, config_base_branch_changed/0). Migrate this unit first, then sweep the other sites.",
+      "refactor_hint": "Event bus core package: the topic grammar is the bus's public contract and must live there before other packages can depend on it.",
+      "effort": "M"
+    },
+    {
+      "id": "events-webhooks-executor-20",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "SubscriptionStore failure handling is inconsistent: attach reports :ok on failure, base-branch reconcile swallows errors after a partial Exchange mutation, and some persist failures crash while others are ignored",
+      "locations": [
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "106-118"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "522-556"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "284"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "307"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "335"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "497-502"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "696-707"}
+      ],
+      "description": "(1) attach/1 turns {:error, reason} from DynamicSupervisor.start_child into Logger.warning plus :ok. The caller (UniversalSubscriptions.attach) proceeds, every add_subscription exits with noproc, and each exit is caught and logged. The agent receives no events and nothing surfaces to the operator. (2) reconcile_base_branch_auto/1 rescues and catches everything and returns the old state with no log. reconcile_exchange_bindings/2 may already have unsubscribed old topics before the failure, so Exchange bindings and subscribed_to diverge silently. (3) persist/1 returns :error on failure. Six handle_call sites match `:ok = persist(new_state)`, which crashes the per-ticket store on a disk error, while advance_cursor_inline, reconcile and terminate use `_ = persist(...)` and continue with durable state behind memory.",
+      "evidence": "`{:error, reason} -> Logger.warning(\"SubscriptionStore.attach(#{identifier}) failed: #{inspect(reason)}\"); :ok`. `rescue _error -> state catch _kind, _reason -> state`. `:ok = persist(new_state)` in add_subscription, remove_subscription x2, advance_cursor, add_attention and resolve_attention, versus `_ = persist(new_state)` in advance_cursor_inline and reconcile_base_branch_auto.",
+      "recommendation": "Return {:error, reason} from attach/1 and emit an alert (Aiur.Alerts) when a ticket's subscription store cannot start. In reconcile_base_branch_auto, log and alert, and recompute Exchange bindings from the retained state on failure. Choose one persist policy (retry with backoff as BranchRefStore does, plus an alert) and apply it everywhere.",
+      "refactor_hint": "Event bus core (per-ticket subscription store).",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-21",
+      "category": "performance",
+      "severity": "P2",
+      "title": "SubscriptionStore does an fsync'd atomic file rewrite for every consumed event, per subscribing ticket",
+      "locations": [
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "425-433"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "497-502"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "696-701"},
+        {"path": "src/lib/aiur/json_store.ex", "lines": "33-37"}
+      ],
+      "description": "Every successfully enqueued event calls advance_cursor_inline, which calls persist, which calls JsonStore.write!. That write is mkdir_p, encode, write a tmp file, fsync and rename. Universal topics such as system.<base>.branch.push are bound by every running ticket, so one main-branch push produces N fsync'd rewrites at once. The cursor is monotonic and replay is already at-least-once and deduped downstream, so per-event durability buys little.",
+      "evidence": "`defp advance_cursor_inline(state, event_id) ... _ = persist(new_state)`. json_store.ex: `:ok = Fs.atomic_write(path, Jason.encode!(term), fsync: true)`.",
+      "recommendation": "Debounce cursor persistence (for example, persist at most every 1 s or every N events, and always in terminate/2). Subscription and attention changes stay synchronous. Document the replay window this adds.",
+      "refactor_hint": "Event bus core.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-22",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "Executor.Principal stops renewing forever, with no log or alert, on revoke, release or a corrupt claims file",
+      "locations": [
+        {"path": "src/lib/aiur/executor/principal.ex", "lines": "38-53"},
+        {"path": "src/lib/aiur/executor/claims.ex", "lines": "419-424"}
+      ],
+      "description": "If renew returns an entry whose role is not owner or observer (revoked), or returns {:error, :unknown_consumer}, the Principal returns {:noreply, state} without rescheduling. It never re-registers and never logs. Claims.read_at/2 maps any unreadable or corrupt claims file to %{}, which makes every renew answer :unknown_consumer. One truncated write therefore permanently ends the declared Executor's lease renewal with no signal, and the lease lapses 10 minutes later. This is a latch that nothing polls.",
+      "evidence": "`{:ok, _released_or_revoked} -> {:noreply, state}` and `{:error, :unknown_consumer} -> {:noreply, state}` with no schedule_renewal. claims.ex: `case JsonStore.read(path, %{}) do {:ok, %{\"consumers\" => %{} = consumers}} -> ... _unusable -> %{} end`.",
+      "recommendation": "On :unknown_consumer, re-register (claim, then observe). On revoked, log at warning and emit an Executor alert. In read_at/2, distinguish a corrupt file (alert, and refuse to overwrite other daemons' entries) from an absent one.",
+      "refactor_hint": "Executor wake-stream ownership package.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-23",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "BranchRefStore pending final-unblocks are never pruned: an unblock for a superseded or deleted SHA is latched on disk forever",
+      "locations": [
+        {"path": "src/lib/aiur/events/branch_ref_store.ex", "lines": "161-173"},
+        {"path": "src/lib/aiur/events/branch_ref_store.ex", "lines": "185-199"},
+        {"path": "src/lib/aiur/events/branch_ref_store.ex", "lines": "418-440"},
+        {"path": "src/lib/aiur/orchestrator/push_routing.ex", "lines": "241-249"}
+      ],
+      "description": "register_unblock/3 durably retains a pending unblock until acknowledge_unblock/3 removes that exact ref:sha. It is removed only if recipients later consume it. If the agent pushes again (new SHA) or the branch is deleted, the pending entry can never match. replace/2, called with every ls-remote baseline, prunes nothing, so entries accumulate across tickets in branch_refs.json. The push_routing caller also treats the bare :error return (a persistence failure) as 'do nothing' with no log.",
+      "evidence": "`def handle_call({:replace, refs}, _from, state) do state |> desired_state() |> Map.put(:refs, validated_refs(refs)) |> persist_reply(:ok)` (pending_unblocks untouched). push_routing.ex: `case BranchRefStore.register_unblock(metadata.ref, metadata.sha) do :ready -> ... ; :pending -> state ; :error -> state end`.",
+      "recommendation": "In replace/2, drop pending unblocks whose identifier is absent from the new baseline or whose SHA differs from the baseline SHA. Add a TTL for anything older than N days. Return {:error, reason} rather than bare :error, and log or alert at the caller.",
+      "refactor_hint": "Branch-push detection package (LsRemoteTicker plus BranchRefStore).",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-24",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "LsRemoteTicker keeps its own in-memory ref map and ignores the durable BranchRefStore baseline, so pushes made while the daemon was down are never published",
+      "locations": [
+        {"path": "src/lib/aiur/events/ls_remote_ticker.ex", "lines": "64-83"},
+        {"path": "src/lib/aiur/events/ls_remote_ticker.ex", "lines": "137-156"},
+        {"path": "src/lib/aiur/events/ls_remote_ticker.ex", "lines": "169-202"},
+        {"path": "src/lib/aiur/events/branch_ref_store.ex", "lines": "1-10"}
+      ],
+      "description": "BranchRefStore exists to hold 'restart-durable validated remote refs'. The ticker starts with refs: %{} and bootstrapped?: false. On its first successful tick after boot it overwrites the durable baseline with the current refs and publishes nothing. A push that happened during downtime is never emitted as ticket.<id>.branch.push, even though the durable previous SHA needed to detect it was on disk. The same ref map exists twice (ticker.refs and BranchRefStore.refs). Separately, publish_push/4 builds the same payload map in both the :ticket and :system branches.",
+      "evidence": "init: `refs: %{}, bootstrapped?: false`. fold_refs: `if BranchRefStore.replace(current_refs) == :error do ... end; if state.bootstrapped? do ... else ... %{state | refs: current_refs, bootstrapped?: true}`. publish_push: two identical `payload = %{source: :system, ref: ref, sha: sha, actor: nil, commits: [], repo: repo}` blocks.",
+      "recommendation": "At init, seed the ticker's refs from the BranchRefStore baseline and mark bootstrapped? when one exists, so the first tick diffs against durable state. Keep the silent bootstrap only when no baseline exists. Drop the ticker's private refs and read the store's. Build the payload once.",
+      "refactor_hint": "Branch-push detection package.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-25",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Webhooks.EventSource (and its Polling/Webhook implementations) is unused in production and bypasses Publisher; its contract tests cover a path that does not exist",
+      "locations": [
+        {"path": "src/lib/aiur/webhooks/event_source.ex", "lines": "1-59"},
+        {"path": "src/lib/aiur/webhooks/event_source/polling.ex", "lines": "1-18"},
+        {"path": "src/lib/aiur/webhooks/event_source/webhook.ex", "lines": "1-25"}
+      ],
+      "description": "grep finds no reference to EventSource anywhere in src/lib outside its own three files. It is used only by test/aiur/webhooks/consumer_equivalence_test.exs, webhook_mode_contract_test.exs and test/support/webhook_mode_contract.exs. The production webhook path is Aiur.Events.GithubWebhook, which goes through Normalizer, Sanitizer and Publisher. EventSource.publish/2 calls Exchange.publish directly, with no id, no sanitizer, no dedup and no contamination filter. The moduledoc's claim that 'The equivalence contract is enforced by a shared consumer suite' therefore describes tests of dead code, and anyone who wires it in would publish unsanitized payloads onto the bus.",
+      "evidence": "event_source.ex: `_default -> Exchange.publish(topic, payload)`. grep -rn \"EventSource\" src/lib | grep -v webhooks/event_source returns nothing.",
+      "recommendation": "Delete EventSource, EventSource.Polling, EventSource.Webhook and their contract tests. Alternatively, point the equivalence suite at the real producers (GithubWebhook.handle_delivery versus GithubCommentsPoller.publish paths), which github_webhook_equivalence_test.exs partly does already.",
+      "refactor_hint": "Drop before carving the webhooks package; it would otherwise be carried as a misleading public behaviour.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-26",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Ingest's LabelState output (full label list, refresh_required?) is computed and never consumed",
+      "locations": [
+        {"path": "src/lib/aiur/webhooks/ingest.ex", "lines": "29-42"},
+        {"path": "src/lib/aiur/webhooks/ingest.ex", "lines": "115-138"},
+        {"path": "src/lib/aiur/webhooks/label_state.ex", "lines": "18-27"},
+        {"path": "src/lib/aiur_web/controllers/github_webhook_controller.ex", "lines": "95-107"},
+        {"path": "src/lib/aiur_web/controllers/github_webhook_controller.ex", "lines": "124-140"}
+      ],
+      "description": "Ingest.accept/4 returns admission.label_state = %{labels: [...], refresh_required?: bool}, and LabelState's doc says a refresh_required? result means 'the issue should be re-read from the API'. The only consumer, the webhook controller, passes only (event_type, payload, delivery_id) to GithubWebhook.handle_delivery. grep finds no reader of label_state or refresh_required? outside webhooks/. Only the {:drop, :stale_state} side effect is live. The label list derivation, the refresh flag and part of the admission type are dead complexity, and the documented 're-read' never happens (the normalizer's :reconcile does the re-read anyway).",
+      "evidence": "ingest.ex: `{:refresh, :ambiguous_timestamp} -> {:ok, label_state(incoming, true)}`. controller: `Delivery.handle_delivery(event_type, payload, delivery_id: delivery_id)`. grep 'refresh_required\\|.label_state' in lib outside webhooks/ finds only the controller's fallback literal `label_state: nil`.",
+      "recommendation": "Reduce the label watermark to a stale/ok ordering check (LabelState.position/1 plus converge/2), drop the labels and refresh_required? fields and fix the docs. Alternatively, wire refresh_required? into the reconcile hint if the re-read matters.",
+      "refactor_hint": "Webhooks ingest package: simplify before extraction.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-27",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "Executor.Roster turns an unavailable wake inbox into cursor 0 and pending 0, so a consumer reads 'idle' instead of 'unknown'",
+      "locations": [
+        {"path": "src/lib/aiur/executor/roster.ex", "lines": "116-125"},
+        {"path": "src/lib/aiur/executor/roster.ex", "lines": "175-185"},
+        {"path": "src/lib/aiur/executor/roster.ex", "lines": "62-64"}
+      ],
+      "description": "The Roster's contract is that missing evidence yields :unknown, never a healthy state. safe_cursor/1 and safe_pending_count/1 catch every failure and return 0. With pending_count 0, stalled? is false and derive_state returns :idle for any live claimed consumer, even a wedged one. The fabricated 0/0 is also written into the durable observation (record_observations), which corrupts the next build's 'grew?' and cursor_moved comparisons. This is the collapsed-cause pattern that AGENTS.md ('Computed ages and collapsed causes') calls out.",
+      "evidence": "`defp safe_pending_count(opts) do length(ExecutorWakeInbox.pending(...)) catch _kind, _reason -> 0 end`. derive_state: `entry.pending_count == 0 and is_binary(entry.claimed_at) -> :idle`. Moduledoc: \"`unknown` — the evidence needed to tell is missing. Never upgraded to `active`.\"",
+      "recommendation": "Return nil (unavailable) from both helpers. Have derive_state yield :unknown when the cursor or pending count is nil, and skip record_observations when the inputs are unavailable. Add a test that makes the inbox raise and asserts :unknown.",
+      "refactor_hint": "Executor wake-stream ownership package.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-28",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "ModeRegistry announces each transition on two PubSub channels through copy-pasted helpers, and the repo-key normaliser is copied three times",
+      "locations": [
+        {"path": "src/lib/aiur/webhooks/mode_registry.ex", "lines": "39-50"},
+        {"path": "src/lib/aiur/webhooks/mode_registry.ex", "lines": "67-92"},
+        {"path": "src/lib/aiur/webhooks/mode_registry.ex", "lines": "398-454"},
+        {"path": "src/lib/aiur/webhooks/mode_registry.ex", "lines": "476-501"},
+        {"path": "src/lib/aiur/webhooks/delivery_mode_events.ex", "lines": "33-45"},
+        {"path": "src/lib/aiur/webhooks/mode_registry.ex", "lines": "222"},
+        {"path": "src/lib/aiur/webhooks/mode_table.ex", "lines": "87-88"},
+        {"path": "src/lib/aiur/webhooks.ex", "lines": "59"}
+      ],
+      "description": "Degraded and recovered transitions are published both as {:webhook_mode_changed, ...} on DeliveryModeEvents (for Build Order) and as {:webhook_degraded, repo} / {:webhook_recovered, repo} on two more topics (for view-state sources). subscribe/0 and subscribe_recovered/0, and publish_degraded/1 and publish_recovered/1, are line-for-line copies. The repo-key canonicaliser `String.trim() |> String.downcase()` appears in ModeRegistry.normalize/1, ModeTable.normalize/1 and Aiur.Webhooks line 59.",
+      "evidence": "The publish_degraded and publish_recovered bodies differ only in topic and tuple tag: `if Process.whereis(Aiur.PubSub) do Phoenix.PubSub.broadcast(Aiur.PubSub, @degraded_topic, {:webhook_degraded, repo}) end ... rescue ... catch :exit ...`.",
+      "recommendation": "Use one transition broadcast (DeliveryModeEvents) carrying {repo, state, transition}. Migrate the view-state subscribers to it, including the 'still degraded' re-publish as transition :still_degraded. Add Aiur.Webhooks.repo_key/1 and use it in all three places.",
+      "refactor_hint": "Webhooks mode package public events API.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-29",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Topic pattern syntax validation duplicated between Exchange and AgentSubscriptionPolicy",
+      "locations": [
+        {"path": "src/lib/aiur/events/exchange.ex", "lines": "202-220"},
+        {"path": "src/lib/aiur/events/agent_subscription_policy.ex", "lines": "27-31"}
+      ],
+      "description": "Both check for an empty pattern, a leading '.', a trailing '.' and '..'. The policy also rejects surrounding whitespace, which Exchange accepts, so the rules have already drifted slightly.",
+      "evidence": "exchange.ex: `String.starts_with?(pattern, \".\") -> raise ...; String.ends_with?(pattern, \".\") -> raise ...; String.contains?(pattern, \"..\") -> raise`. policy: `pattern != \"\" and pattern == String.trim(pattern) and not String.starts_with?(pattern, \".\") and not String.ends_with?(pattern, \".\") and not String.contains?(pattern, \"..\")`.",
+      "recommendation": "Add Topic.valid_pattern?/1 and use it in both places, raising in Exchange.",
+      "refactor_hint": "Event bus core (Topic).",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-30",
+      "category": "other",
+      "severity": "P3",
+      "title": "GithubFirehose publishes each poll window newest-first, so bus subscribers see pr.merged before pr.opened within one window",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_firehose.ex", "lines": "124-141"},
+        {"path": "src/lib/aiur/events/github_firehose.ex", "lines": "212-238"}
+      ],
+      "description": "The /events API returns newest first (newest_event_id takes the head). events_since_watermark/2 keeps that order and process_events/2 publishes in it, so IdGenerator assigns later ids to older events. Topic subscribers that use id order (the Executor wake stream binds ticket.*.pr.opened, and agent feeds) receive a burst in reverse chronological order.",
+      "evidence": "`defp newest_event_id([%{\"id\" => id} | _]) when is_binary(id), do: id` and `processed = pages |> events_since_watermark(last_event_id) |> process_events(opts)`, with no Enum.reverse.",
+      "recommendation": "Enum.reverse the since-watermark list before process_events/2.",
+      "refactor_hint": "GitHub producers package.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-31",
+      "category": "complexity",
+      "severity": "P3",
+      "title": "Webhook path resolves tracked_repo up to three times per delivery; reconcile hints carry fields no production code reads",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "107-111"},
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "159-169"},
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "185-190"},
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "249-256"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "86-88"},
+        {"path": "src/lib/aiur/events/github_webhook/normalizer.ex", "lines": "664-706"}
+      ],
+      "description": "handle_delivery calls Normalizer.tracked_repo/2 in maybe_resolve_review_thread (for review comments), again in record_tracked_delivery, and again inside Normalizer.normalize/3. Each call reads Aiur.Tracker.project_identity(). For CI, nudge_orchestrator(_hint, opts) discards the hint and only wakes. The :ci hint's ticket/tickets, head_sha, conclusion and source are built but only tests read them.",
+      "evidence": "`defp nudge_orchestrator(_hint, opts), do: maybe_wake_orchestrator(opts)`. check_reconcile: `%{kind: :ci, tickets: tickets, head_sha: ..., conclusion: ..., source: event_type, action: \"completed\"}`.",
+      "recommendation": "Resolve the repo once in handle_delivery and pass it down (normalize_event/3 already takes repo). Reduce :ci hints to %{kind: :ci}, or start consuming them for a targeted CI poll.",
+      "refactor_hint": "GitHub webhook ingest package.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-32",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "TakeoverAlert.Store hand-rolls a non-fsynced atomic write, rewrites the whole file for every ticket on every tick, and only logs write failures",
+      "locations": [
+        {"path": "src/lib/aiur/executor/takeover_alert/store.ex", "lines": "114-123"},
+        {"path": "src/lib/aiur/executor/takeover_alert/store.ex", "lines": "160-170"},
+        {"path": "src/lib/aiur/executor/takeover_alert/store.ex", "lines": "280-300"},
+        {"path": "src/lib/aiur/executor/takeover_alert/monitor.ex", "lines": "168"}
+      ],
+      "description": "The rest of the unit uses JsonStore.write! (tmp file, fsync, rename). This store writes a tmp file and renames without fsync, and on failure logs a warning and returns :ok. observe/4 always sets last_seen_at = now, so `record == previous` is never true and every monitored ticket triggers a full-file rewrite on every 5-minute tick. A lost write can re-fire a 'first' alert after restart, which is exactly what the moduledoc says the store prevents.",
+      "evidence": "`with :ok <- File.write(temp, encoded), :ok <- File.rename(temp, state.path) do :ok else {:error, reason} -> Logger.warning(...); :ok end`. observe: `record = previous |> ensure_anchor(now) |> observe_owner(live_owner?) |> Map.put(:last_seen_at, now); if record == previous do ...`.",
+      "recommendation": "Use JsonStore.write!. Persist last_seen_at at most once per tick (batch all observations into one write per tick). Surface persistent write failure as an alert.",
+      "refactor_hint": "Executor advisory package; shared durable-JSON util.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-33",
+      "category": "docs-drift",
+      "severity": "P3",
+      "title": "Sanitizer.scrub/1 is documented as idempotent but double-escapes HTML entities",
+      "locations": [
+        {"path": "src/lib/aiur/events/sanitizer.ex", "lines": "71-75"},
+        {"path": "src/lib/aiur/events/sanitizer.ex", "lines": "297-304"},
+        {"path": "src/lib/aiur/events/sanitizer.ex", "lines": "385-392"}
+      ],
+      "description": "clean/2 ends with html_escape/1, which turns '&' into '&amp;'. A second scrub turns that into '&amp;amp;', and it truncates again and appends a second '…'. No double-scrub path was found today (callers scrub raw GitHub bodies once), but the 'Idempotent.' claim invites one.",
+      "evidence": "`Apply the strip-then-redact-truncate-escape pass ... Returns the sanitized payload. Idempotent.` and `|> String.replace(\"&\", \"&amp;\")`.",
+      "recommendation": "Remove the idempotency claim, or mark scrubbed payloads (for example :sanitized? true) and make scrub/1 a no-op on them.",
+      "refactor_hint": "Security/sanitization module shared by the bus and the prompt builder.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-34",
+      "category": "performance",
+      "severity": "P3",
+      "title": "DeliveryLog sorts the entire entry map on every claim once past the ceiling",
+      "locations": [
+        {"path": "src/lib/aiur/webhooks/delivery_log.ex", "lines": "405-437"}
+      ],
+      "description": "Once live entries exceed max_entries (200,000), every record/4 overflows by one and drop_oldest/2 runs Enum.sort_by over the whole map, O(n log n) on 200k entries per webhook claim, inside the GenServer call path. The alert fires only once (overflowed? latch), so after the first alert the degradation is silent.",
+      "evidence": "`defp drop_oldest(state, overflow) do dropped = state.entries |> Enum.sort_by(fn {_key, %{recorded_at: recorded_at}} -> recorded_at end) |> Enum.take(overflow) ...` and `defp alert_overflow(%{overflowed?: true} = state, _now), do: state`.",
+      "recommendation": "Keep an age-ordered index (a :gb_trees or ordered_set keyed by recorded_at) and evict in bulk, down to a low watermark such as 90% of max_entries, instead of one entry per claim.",
+      "refactor_hint": "Webhooks ingest package.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-35",
+      "category": "performance",
+      "severity": "P3",
+      "title": "Exchange.publish scans every binding and re-splits every pattern string on every publish",
+      "locations": [
+        {"path": "src/lib/aiur/events/exchange.ex", "lines": "93-108"},
+        {"path": "src/lib/aiur/events/topic.ex", "lines": "31-34"}
+      ],
+      "description": "publish/3 folds over the whole duplicate_bag and calls Topic.matches?/2 for each row, and matches? runs String.split on both pattern and topic every time. Cost is bindings times segments per publish, and bindings grow with 7 universal topics per ticket plus auto and manual subscriptions. This is acceptable at today's scale but is the hot path of the bus.",
+      "evidence": "`:ets.foldl(fn {pattern, pid, _ref}, acc -> if Topic.matches?(pattern, topic) do send(pid, {:event, event}) ...` and `match_segments(String.split(pattern, \".\"), String.split(topic, \".\"))`.",
+      "recommendation": "Store pre-split pattern segments in the binding row, split the topic once per publish, and index literal-first-segment patterns (ticket.<id>.*) so a ticket publish only scans that ticket's bindings plus wildcards.",
+      "refactor_hint": "Event bus core.",
+      "effort": "M"
+    },
+    {
+      "id": "events-webhooks-executor-36",
+      "category": "test-quality",
+      "severity": "P3",
+      "title": "Test seams shipped as public production API or global :persistent_term state",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_ci_poller.ex", "lines": "77-81"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "236-242"},
+        {"path": "src/lib/aiur/events/subscription_store.ex", "lines": "558-573"},
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "376-381"}
+      ],
+      "description": "evaluate_for_test/2 exposes a private classifier. SubscriptionStore.set_enqueue_fn/1 stores a test stub in :persistent_term, which is global for the VM, forces every SubscriptionStore test to run synchronously, and leaks between tests if on_exit is missed. GithubWebhook.reset_reconcile_window/0 exists only so tests can clear global state.",
+      "evidence": "`@doc false @spec evaluate_for_test(...)`, `:persistent_term.put({__MODULE__, :enqueue_fn}, fun)`, `def reset_reconcile_window do :persistent_term.erase({__MODULE__, :reconcile_window})`.",
+      "recommendation": "Pass the enqueue sink through child_spec or start_link opts (see finding 06). Make the CI classifier a public pure module (see finding 15). Move the reconcile window into a process (see finding 13).",
+      "refactor_hint": "Cross-cutting. Removing global seams is needed for async tests once packages have their own test suites.",
+      "effort": "S"
+    },
+    {
+      "id": "events-webhooks-executor-37",
+      "category": "silent-failure",
+      "severity": "P3",
+      "title": "Targeted review-thread reconcile is silently dropped when the Orchestrator is not registered, after the delivery was already claimed",
+      "locations": [
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "249-254"},
+        {"path": "src/lib/aiur/events/github_webhook.ex", "lines": "117-124"}
+      ],
+      "description": "nudge_orchestrator for kind :review_thread sends to Process.whereis(Aiur.Orchestrator). When nil (during a restart or boot window) it returns :ok with no log. The outcome still reports status :reconciled, and DeliveryLog has already claimed the delivery id and event key, so GitHub's retry would be dropped as a duplicate. Recovery depends on the next unresolved-thread poll. That covers 'unresolved', but for a 'resolved' transition the wake that should stop work is simply lost.",
+      "evidence": "`case resolve_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator)) do pid when is_pid(pid) -> send(pid, {:github_webhook_reconcile, hint}); nil -> :ok end` and `%{status: :reconciled, hint: hint}`.",
+      "recommendation": "Return :unavailable and report status :error or :deferred so it is visible. Log at warning, or queue the hint for delivery when the orchestrator registers.",
+      "refactor_hint": "Webhook to orchestrator seam.",
+      "effort": "S"
+    }
+  ]
+}

@@ -1,0 +1,139 @@
+{
+  "unit_id": "dup-by-constant",
+  "status": "reviewed_pending_synthesis",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "coverage_notes": "Complete for the declared bounded static detector on frozen 3339b887: all 1032 src/lib Elixir files parsed with source hashes, 32745 scalar leaves indexed, all 162 cross-module module-attribute expression groups and 28 regex-sigil groups given source-consumer assessments, and all 1705 typed cross-module inline scalar groups accounted for. The 191 high-fanout values and 640 lower-fanout groups received lexical/source-context screens; the remaining 870 lower-fanout string groups were routed by indexed source role (576 record/word, 12 identity, 101 display/log, 116 protocol/mechanic, 22 path/env, 19 topic, 23 status, one external syntax). Four zero/one numeric forms are language primitives. Role routing is candidate selection, not per-caller semantic equivalence or proof of no duplication. Five findings are source-backed provisional refactor opportunities; inherited overlapping IDs remain primary and no LOC saving is claimed. Dynamic Regex.compile, macro/generated code, non-Elixir literals and transitive call behavior are outside this detector. Final cross-unit synthesis remains open.",
+  "evidence_artifacts": [
+    "in-progress/constant-census-summary.json",
+    "in-progress/constant-triage.json",
+    "in-progress/regex-census.json",
+    "in-progress/regex-triage.json",
+    "in-progress/inline-literal-summary.json",
+    "in-progress/inline-literal-audit.md",
+    "in-progress/inline-literal-lowfanout-ledger.json",
+    "in-progress/inline-literal-long-tail.md",
+    "in-progress/short-string-source-screen.json",
+    "in-progress/short-string-source-review.md",
+    "in-progress/dup-review-coverage.md",
+    "in-progress/inline-literal-role-closure.json",
+    "in-progress/constant-role-closure.md",
+    "in-progress/constant-semantic-followup.md",
+    "tooling/final_constant_triage.py"
+  ],
+  "findings": [
+    {
+      "id": "dup-by-constant-01",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Ordered priced token dimensions repeat across usage owners",
+      "locations": [
+        {
+          "path": "src/lib/aiur/usage/price_table/data.ex",
+          "lines": "17"
+        },
+        {
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "lines": "8"
+        },
+        {
+          "path": "src/lib/aiur/usage/pricing/components.ex",
+          "lines": "4"
+        },
+        {
+          "path": "src/lib/aiur/usage_envelope/relationship_registry.ex",
+          "lines": "13"
+        }
+      ],
+      "description": "Four identical five-element lists define the priced/reconciled dimension order. UsageEnvelope derives that subset from six raw fields, and Pricing.Components uses order in zero-value selection. A single low-dependency owner is plausible. This corroborates telemetry-usage-34; it is not a separate estimated saving and must preserve provider-specific admission.",
+      "recommendation": "Share the ordered priced-dimension vocabulary below the envelope and pricing layers; keep raw-total and provider/component policies separate.",
+      "effort": "S",
+      "refactor_hint": "usage/dimensions",
+      "overlaps": [
+        "telemetry-usage-34"
+      ]
+    },
+    {
+      "id": "dup-by-constant-02",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Model catalog refresh budget mirrors the CLI probe budget",
+      "locations": [
+        {
+          "path": "src/lib/aiur/model_catalog.ex",
+          "lines": "21-27"
+        },
+        {
+          "path": "src/lib/aiur/model_discovery.ex",
+          "lines": "82-87"
+        }
+      ],
+      "description": "Both attributes use 20,000 ms and ModelDiscovery comments that refresh_now matches the CLI probe timeout. Since the refresh wraps the probe, equal numeric values leave no explicit allowance for setup/cleanup overhead. Source alone does not demonstrate a timeout incident.",
+      "recommendation": "Define the nested budget relationship explicitly and test boundary timing with an injected slow probe before choosing one owner or changing the values.",
+      "effort": "S",
+      "refactor_hint": "model catalog/probe"
+    },
+    {
+      "id": "dup-by-constant-03",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Build Order draft-body byte cap is repeated at load and record boundaries",
+      "locations": [
+        {
+          "path": "src/lib/aiur_web/build_order/planning_source.ex",
+          "lines": "807-816"
+        },
+        {
+          "path": "src/lib/aiur/build_order/member.ex",
+          "lines": "93-94"
+        }
+      ],
+      "description": "PlanningSource accepts a pack document body only when its byte size is 1..64,000; Member.new then applies the same range to draft_body. The two checks are the same Build Order draft-body contract at adjacent boundaries. The path-containment check and record validation serve separate purposes, so only the byte cap is a shared policy candidate. No production incidence or LOC saving is measured.",
+      "recommendation": "Give the Build Order draft-body bound one low-dependency owner and retain both read and record checks.",
+      "effort": "S",
+      "refactor_hint": "build-order/draft body"
+    },
+    {
+      "id": "dup-by-constant-04",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Provider active-turn error code is recognized in two queue recovery paths",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/checkpoint_delivery.ex",
+          "lines": "154-163"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "743-748"
+        }
+      ],
+      "description": "Both paths recognize JSON-RPC code -32,003 as a provider active-turn rejection and restore durable queue work, but they receive different outer error tuples and call different restoration APIs. A named provider error recognizer can prevent one path drifting if the protocol code changes; it must not merge the two delivery decisions or alter their item state transitions. The checkpoint path explicitly describes this as defensive parity with turn-boundary drain. Agent-runtime-09 already identifies this backend protocol leak, so this is corroborating constant-level evidence rather than an independent defect.",
+      "recommendation": "Own the active-turn code in the provider error contract while preserving each caller's tuple matching and restoration policy.",
+      "effort": "S",
+      "refactor_hint": "agent-runner/provider error",
+      "overlaps": [
+        "agent-runtime-09"
+      ]
+    },
+    {
+      "id": "dup-by-constant-05",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Dashboard advertised-host fallback is repeated for control URLs",
+      "locations": [
+        {
+          "path": "src/lib/aiur/http_server.ex",
+          "lines": "264-266"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/anchor.ex",
+          "lines": "50-64"
+        }
+      ],
+      "description": "HttpServer.display_host/1 and PaneManager.Anchor.control_url_host/0 both map wildcard, empty and nil dashboard bind hosts to 127.0.0.1 before advertising a reachable URL. HttpServer also stringifies other host values, while Anchor only handles binaries; sharing a policy must preserve or explicitly resolve that input difference. The string match is a local source contract, not evidence of a measured operator failure or LOC saving.",
+      "recommendation": "Define an advertised-dashboard-host policy below both URL publishers, with a tested nonbinary input contract.",
+      "effort": "S",
+      "refactor_hint": "dashboard/control URL host"
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "scope": "Three public repositories only; journal counts clipped by first_seen_at to the historical report cutoff. Cursor files are observed at audit time, not reconstructed historical snapshots.",
+  "cutoff": "2026-09-26T15:40:00Z",
+  "backlogs": [
+    {
+      "repo": "architecture-docs",
+      "cursor": 352,
+      "retained_records_before_cutoff": 1881,
+      "above_cursor": 1529,
+      "above_cursor_topics": {
+        "system.dispatch.capacity_starved": 282,
+        "system.fleet.capacity.backoff": 38,
+        "system.fleet.capacity.resumed": 31,
+        "system.fleet.capacity.starved": 906,
+        "ticket.agent.attention.canonical-harness-publication": 2,
+        "ticket.agent.attention.decision-undelivered": 1,
+        "ticket.agent.attention.deletion-guard-unavailable": 1,
+        "ticket.agent.attention.duplicate-agent": 12,
+        "ticket.agent.attention.error-retry_exhausted": 4,
+        "ticket.agent.attention.operator-decision": 14,
+        "ticket.agent.attention.paused-agent_pause_request": 5,
+        "ticket.agent.attention.paused-blocker_dependency": 2,
+        "ticket.agent.attention.resolved": 4,
+        "ticket.agent.attention.unblock-sha-correction": 2,
+        "ticket.agent.attention.waiting_for_human": 8,
+        "ticket.agent.attention.workspace-collision": 3,
+        "ticket.agent.attention.workspace-collision-persists": 4,
+        "ticket.agent.retry_exhausted": 3,
+        "ticket.branch.push": 83,
+        "ticket.ci.failed": 7,
+        "ticket.ci.passed": 44,
+        "ticket.pr.merged": 41,
+        "ticket.pr.opened": 32
+      },
+      "journal_sha256": "a0b4fe5e55b625cb6f4a145cdc87bdf5f2e8b5758cd9f1f16e3e9d419fed8756",
+      "cursor_sha256": "fec841f2e40ba60134189b92e87c7fbec5b88526b49b1f159ba9b01c208b9598"
+    },
+    {
+      "repo": "archon",
+      "cursor": 546,
+      "retained_records_before_cutoff": 810,
+      "above_cursor": 264,
+      "above_cursor_topics": {
+        "system.dispatch.capacity_starved": 11,
+        "system.fleet.capacity.backoff": 7,
+        "system.fleet.capacity.resumed": 17,
+        "system.fleet.capacity.starved": 124,
+        "ticket.agent.attention.blocked-ci": 1,
+        "ticket.agent.attention.operator-decision": 5,
+        "ticket.agent.attention.state-label-missing": 3,
+        "ticket.agent.attention.state_divergence": 4,
+        "ticket.agent.attention.waiting_for_human": 2,
+        "ticket.agent.paused": 1,
+        "ticket.branch.push": 46,
+        "ticket.ci.failed": 2,
+        "ticket.ci.passed": 11,
+        "ticket.pr.merged": 16,
+        "ticket.pr.opened": 14
+      },
+      "journal_sha256": "b67a2da77fb15fb6293e8cfc9afbeb2f40f82d3be7636091ea2d4365d32876f8",
+      "cursor_sha256": "6e8981deb9f803857c72665707f154fe385715319f405b49d5107515ef58a4dd"
+    },
+    {
+      "repo": "aiur",
+      "cursor": 4683,
+      "retained_records_before_cutoff": 4749,
+      "above_cursor": 66,
+      "above_cursor_topics": {
+        "system.fleet.capacity.backoff": 2,
+        "system.fleet.capacity.resumed": 4,
+        "ticket.agent.attention.error-lifetime_latch": 1,
+        "ticket.agent.attention.paused-before_run_failure": 1,
+        "ticket.agent.attention.state-label-missing": 1,
+        "ticket.branch.push": 16,
+        "ticket.ci.failed": 3,
+        "ticket.ci.passed": 2,
+        "ticket.pr.merged": 26,
+        "ticket.pr.opened": 6,
+        "ticket.pr.parked_ready": 2,
+        "ticket.pr.ready_for_review": 2
+      },
+      "journal_sha256": "fdcf4aecaeb56b47bf7a2a9f84427a7173828d24233ec5174254351280cd3261",
+      "cursor_sha256": "0c791a88187b9ec02c9b4fae198aa3380691ed8a1e128e46d8e61a38677329d2"
+    }
+  ],
+  "architecture_docs_limit_episode": {
+    "assistant_limit_records": 63,
+    "first_limit_record": "2026-09-03T19:05:58.507Z",
+    "last_limit_record": "2026-09-03T22:07:45.672Z",
+    "notification_like_user_records": 65,
+    "reset_message_times": [
+      "2026-09-03T23:52:34.521Z"
+    ],
+    "limits": "Record counts do not prove every notification caused a wake or that repeated errors continued until the reset message."
+  },
+  "later_wake_read_evidence": [
+    {
+      "call_at": "2026-09-03T23:53:19.916Z",
+      "successful_tool_result": true,
+      "returned_wake_ids": []
+    },
+    {
+      "call_at": "2026-09-04T00:04:08.414Z",
+      "successful_tool_result": true,
+      "returned_wake_ids": [
+        419
+      ]
+    }
+  ],
+  "interpretation": "Above-cursor means not acknowledged through that shared cursor. Returned wake metadata can be observed without advancing it, and neither viewing nor cursor advancement proves the required work was completed."
+}

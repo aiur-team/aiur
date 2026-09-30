@@ -1,0 +1,53 @@
+{
+  "claim": "gaps-01",
+  "status": "source_contract_counterexample",
+  "historical_source": {
+    "commit": "365f097f611fdefbd8975aa442decd8e30323bdc",
+    "path": "src/lib/aiur/events/id_generator.ex",
+    "sha256": "b19459ba6d318943e959be647d4ba1434168d359241652e3d6e9318bfb8f2f03"
+  },
+  "analyzer_source_sha256": "ea557940c18d8679cf3e5026a8dba9498d6dc4cd1cc4b75c0d5a2293277aa8b0",
+  "findings": [
+    "The analyzer groups event_id // 1000000, treats the quotient as boot time and extends the interval to the last first_seen_at in that group. Its comment calls this verified uptime.",
+    "Historical IdGenerator resumes current at persisted reserved_through after restart, reserves another batch, then issues incremented integers. Only cold seeding uses a wall-clock floor, and recovery can instead select a larger historical ID. Therefore the quotient is not a guaranteed boot identity or timestamp.",
+    "A restart can preserve the quotient, and a long-lived process can cross a million-ID boundary. A common quotient proves neither one process lifetime nor uninterrupted host availability.",
+    "The load_wake_boots docstring describes limiting observed uptime to two hours after a signal, but the implementation only computes signal indices and appends the full interval; it does not apply that limit.",
+    "The progress loader accepts matching Bash invocation text without checking command success. The recorded progress model is therefore not uniformly durable output."
+  ],
+  "arithmetic_counterexample": {
+    "initial_current": 1787205471000000,
+    "batch_size": 50,
+    "persisted_reserved_through": 1787205471000050,
+    "first_id_before_restart": 1787205471000001,
+    "first_id_after_restart": 1787205471000051,
+    "both_integer_quotients": 1787205471,
+    "qualification": "Arithmetic application of the inspected load/next rules, not an executed runtime or observed restart."
+  },
+  "omitted_table_runs": [
+    {
+      "run": "20260918T010137Z-4099103",
+      "repo": "khala",
+      "identity_evidence": "Decoded GitHub daemon log filename",
+      "retained_model_hours": 0.24060708946651882
+    },
+    {
+      "run": "20260920T005620Z-222894",
+      "repo": "khala",
+      "identity_evidence": "boot.out.log target GitHub repository announcement",
+      "retained_model_hours": 0.19480555223094093
+    },
+    {
+      "run": "20260924T230720Z-2518661",
+      "repo": "khala",
+      "identity_evidence": "Decoded GitHub daemon log filename",
+      "retained_model_hours": 0.07297523220380148
+    }
+  ],
+  "omitted_run_interpretation": "All three already occur in analysis_meta.json as khala runlog spans. Their absence from the presentation table is not evidence they were excluded from denominator construction.",
+  "limits": [
+    "This source revision is historical code evidence, not an attestation of every loaded daemon build.",
+    "No reconstructed corrected uptime denominator or replacement gap percentage is claimed.",
+    "Retained interval arithmetic still reproduces; the uptime interpretation does not follow from the event-ID contract.",
+    "Host suspension, missing log intervals and complete progress coverage require separate evidence."
+  ]
+}

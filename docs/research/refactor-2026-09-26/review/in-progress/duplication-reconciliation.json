@@ -1,0 +1,193 @@
+{
+  "status": "in-progress",
+  "source": "duplication-overlap.json",
+  "reconciled_findings": [
+    {
+      "finding_id": "build-order-20",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_shared_route_subset",
+      "assessment": "Fresh source review confirms status dispatch, selected-root and authority-epoch helpers plus current_identity. Keep analytics bare ticket keys and usage repository-qualified Scope/cache keys distinct. Original proposal already parameterizes member conversion; evidence supports that boundary, not a new separate finding. Approximate shared LOC and all runtime reconciliation clauses remain outside this subset verification.",
+      "candidate_groups": [
+        {
+          "mode": "exact",
+          "candidate_hash": "31dea5e1e4473007baa0b0f12921f67885d48ba58f37f6cc226566fd076e966c"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "0fdd2f075e11796606d0802ea0e3199cea8b905f1bf09c7b8f0d5882e01345d8"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "5cd571eeb3b0fcbfd481aff864662fd63bee12af0c12bda8c14e3ca0e0510cf9"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "e274d9f5802d40f603915bc29ba4d439347531ac86784cccb3b6cb7b593f73c0"
+        }
+      ]
+    },
+    {
+      "finding_id": "web-rest-10",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_access_gate_subset",
+      "assessment": "Three authorized_context sites now verified, including renamed fallback variable in AnalyticsLive. Existing recommendation to own the gate in FinancialDataAccess is supported. Cursor and subscription helpers add evidence, but the claimed roughly 300-line pipeline, debounce precedence, cache epochs and all loader error paths have not been reverified by the duplication pass. Do not mark the entire finding verified from these spans.",
+      "candidate_groups": [
+        {
+          "mode": "exact",
+          "candidate_hash": "0a7c1187a534d3dab04d6b5ae966904d02a7d317d3a51ef22c80eca8b7ddb69a"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "64c805b3cc010ad08b4f92769fe92112313a4f958b39ab70a56872914712c98c"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "5cd571eeb3b0fcbfd481aff864662fd63bee12af0c12bda8c14e3ca0e0510cf9"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "ba65d3f50ec2916bf3579a6e3f289cec24c2054de838dd3e7c85bf319197ec24"
+        },
+        {
+          "mode": "renamed",
+          "candidate_hash": "86187939c70960f89b32e5542208bae6bfad892178e6b57827acf46e34aef5ae"
+        }
+      ]
+    },
+    {
+      "finding_id": "web-occ-17",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_parameterized_reconciliation_subset",
+      "assessment": "RunSummary and CurrentRunOutcomes share reconcile structure but differ in availability: run.valid? is required only by RunSummary. The inherited recommendation explicitly accepts availability/sameness callbacks, so this difference qualifies extraction rather than refuting the finding. Other presenters and health/reason vocabulary claims remain to be rechecked; preserve domain predicates.",
+      "candidate_groups": [
+        {
+          "mode": "exact",
+          "candidate_hash": "2dd532403b032d1f250e0050f751ff3bb4d5ec39d9ac2e6a7257786dae18f56b"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "2bee9927bc091115cf0ebf6857c320567f23573ce6286be67c8dfa026091a7ad"
+        }
+      ]
+    },
+    {
+      "finding_id": "agent-runtime-32",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "narrow_recommendation_existing_owner",
+      "assessment": "Fresh census confirms three TUI safe_call sites and five AIUR_DEBUG readers. RenderState.safe_call already supplies a TUI-local public owner, so creating a generic core/util helper for that operation is unnecessary. Hash, comment-ID, urgent-digest and screen-grab claims are not resolved by these matches. Preserve failure and sampling semantics; avoid bundling unrelated small helpers into one mandatory core package.",
+      "candidate_groups": [
+        {
+          "mode": "exact",
+          "candidate_hash": "35cfbc4b5be2bb8a9993becc36e6c8fa587bc91843dc8203e8ea15b2a857973e"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "3344eed0457b6275071fecbb4f661094a317f0515a52dcf88e0725fd52bfa06d"
+        },
+        {
+          "mode": "renamed",
+          "candidate_hash": "6c09ecc7dfb31247a77764eb6e71657a3e792f8a68906d612d57ab4a089576ad"
+        },
+        {
+          "mode": "renamed",
+          "candidate_hash": "c0cd9a4f6678f3349e9206c80c5a82009cd2175fe13e7d82718ec98ddd582759"
+        }
+      ]
+    },
+    {
+      "finding_id": "github-a-09",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_branch_selection_subset",
+      "assessment": "Four branch-discovery helpers and their head/ref extraction are verified across both poll batches, including precedence and ordered guesses. Link all exact clusters to this existing finding instead of counting four new opportunities. Overflow, GraphQL normalization and escaping claims still require their own semantic review; the inherited note correctly identifies selecting one overflow policy as a behavior change.",
+      "candidate_groups": [
+        {
+          "mode": "exact",
+          "candidate_hash": "c7475642840f983f44f44ab0d3281cfc7ce5d90a6998c53c79bf13405e418870"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "2ea63889e51ad18585471a0f851cb5838978da8bd8a83f22ff64442e85f32dc4"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "5a758c71fd3be366aea9b4aa9d1757843d29869773d3c84ca8bc7c3b8b84ac53"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "f71ad998e9f6ad3f65dc731514393f256d96bb89b5099f93818f9347add0e303"
+        }
+      ]
+    },
+    {
+      "finding_id": "build-order-05",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_metrics_subset_high_severity_pending",
+      "assessment": "metric_count and member_state_digest implementations/aliases match and source comments require parity. This supports a provider-neutral BuildOrder metrics owner. It does not independently verify the P1 overflow incident, its production prevalence, PlanningSource behavior or every progress branch. Retain this ID/severity as inherited pending the required skeptic check, not validated by the duplicate-body census.",
+      "candidate_groups": [
+        {
+          "mode": "exact",
+          "candidate_hash": "5879699f3ae38c8c53cc4a8cc1496c982103fcc1dbc8ad664c5351a9166618c8"
+        },
+        {
+          "mode": "exact",
+          "candidate_hash": "a721343f208651fe24ba41ac504f481499e8b1b398d8d1cdd8bca96d0623e130"
+        }
+      ]
+    },
+    {
+      "finding_id": "agent-backends-cc-38",
+      "status": "semantic-reconciliation-recommendation-corrected",
+      "disposition": "reject_negative_authorization_derivation",
+      "assessment": "These are four different policy sets: seeded vocabulary, agent write authorization, contradiction precedence, and provenance promotion. Adding a state does not necessarily require adding it to all four. The proposed vocabulary-minus-todo/merging/cancelled derivation includes canceled, which the current positive allowlist rejects. It would also authorize future vocabulary additions by default. Retain an explicit positive agent authorization policy. A shared provider-neutral lifecycle owner may expose separately named policies or explicit role metadata; do not derive write authority by subtracting a few disallowed states or make provider-neutral tools depend on a GitHub seeding adapter.",
+      "evidence": "label-state-contracts.json"
+    },
+    {
+      "finding_id": "agent-runtime-23",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "producer_prefix_assumption_confirmed_incidence_pending",
+      "assessment": "Exact-helper probe and source tracing establish that State.issue_tag chooses the first literal agent: label, including markers; custom-prefix-only inputs lose tag through AgentEvents nil filtering. Fixing only Summaries terminal tags is insufficient. Canonical issue state should be distinct from label presentation. String work-state predicate/sort drift is reproduced but no runtime string producer is established; terminal candidate retention and production incidence remain unverified. Bare-state normalization, TurnPrompt trim differences and separate active-state collection contracts remain as previously assessed.",
+      "evidence": "label-state-contracts.json"
+    },
+    {
+      "finding_id": "telemetry-usage-34",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_vocabulary_subset_preserve_contracts",
+      "assessment": "Four dimension lists and two partition enum pairs corroborated. The proposed Usage.Dimensions leaf is supported; retain ordered dimensions, distinguish five token dimensions from six raw fields, and preserve nullable checkpoint versus required price/provider validation. Three other consumers already derive the six-field vocabulary from UsageEnvelope. Map accessors, exception naming and other helpers in the inherited finding are outside this verification.",
+      "evidence": "constant-triage.json"
+    },
+    {
+      "finding_id": "telemetry-usage-22",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_six_integer_bounds_existing_reuse",
+      "assessment": "Verified six unsigned-64 literal sites: five attributes plus inline aggregate checkpoint bound. Record.bounded_integer? already serves Ledger.Checkpoint and CounterPolicy. A common storage bound is supported, but retain positive/nonnegative domains and contextual error atoms. RetiredFloor writer/load bound asymmetry needs caller review. Checksum, quarantine, atomic-write, degraded-marker and complete cell-codec recommendations are not all reverified by this constant pass.",
+      "evidence": "constant-triage.json"
+    },
+    {
+      "finding_id": "web-occ-09",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "corroborated_four_freshness_label_mappings",
+      "assessment": "Read all25freshness_label clauses. Four presenters map stale to Healthy, while ConversationDrawer keeps Stale and GitHubCache uses older. This confirms a subset of the inherited label-collapse finding; it does not independently verify all nine locations, test assertions or the historical product-decision explanation. Status atoms remain alongside labels at inspected ProviderMeters and CurrentRunOutcomes call sites. Link this evidence to the original finding instead of counting another defect.",
+      "evidence": "duplication-name-triage.json"
+    },
+    {
+      "finding_id": "loose-4-01",
+      "status": "partial-semantic-reconciliation",
+      "disposition": "disabled_callback_failure_reproduced_in_isolated_vm",
+      "assessment": "Both frozen monitor modules reproduce bad_return_value when their disabled branches are selected with minimal configuration doubles. Recompiling each exact source with only {:ignore, %State{}} replaced by :ignore changes GenServer.start to :ignore. The unconditional child declarations at src/lib/aiur.ex:312-313 corroborate relevance, but the probe does not load actual config, start the application or establish historical incidence. Preserve original ID; P0 severity and complete documented-opt-out path remain for skeptical review.",
+      "evidence": "tooling/disabled_monitor_init_probe.exs; duplication-name-triage.json init family",
+      "validation": {
+        "command": "ERL_FLAGS='+S 1:1' elixir tooling/disabled_monitor_init_probe.exs SNAPSHOT_ROOT",
+        "runtime": "Elixir 1.19.5 / OTP 28",
+        "exit_code": 0,
+        "results": [
+          "Aiur.BuildGateHoldMonitor original=bad_return_value",
+          "Aiur.BuildGateHoldMonitor in_memory_correction=ignore",
+          "Aiur.SaturationSentinel original=bad_return_value",
+          "Aiur.SaturationSentinel in_memory_correction=ignore"
+        ],
+        "scope": "Isolated VM; no application build, production edits, external requests, or live state mutation. Runtime binaries selected explicitly because the private scratch directory has no mise version configuration."
+      }
+    }
+  ],
+  "limits": "Twelve selected inherited findings compared with source contracts. Partial claim-level corroboration and recommendation correction, not final deduplication or high-severity skeptic review. Original IDs/raw findings preserved."
+}

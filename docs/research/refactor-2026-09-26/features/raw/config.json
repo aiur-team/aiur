@@ -1,0 +1,1077 @@
+{
+  "surface": "config",
+  "coverage_notes": "Scope: every key reachable from Aiur.Config.Schema (183 dotted keys per scripts/check-config-docs.py re-run on the snapshot, which also passes) plus keys read outside the schema (prompt_file, hooks_file, prewarm.base_build_file, alerts.alerts_file, agent.<backend>/top-level <backend> shorthands, legacy linear:/codex:, opencode.db_path/prewarm_workspace, backend_configs sub-keys from OpenAICompat.Config @known_keys). Grouped into 39 features (config-01..39). Real-config usage: ruby YAML flatten (scratch-config/flatten.rb, flat.json, usage_matrix.tsv) over 7 current configs (aiur live, ~/.aiur/config global, ~/.aiur/config.archon, archon, kevinweaver-dev, <private repo> (private) (private), <private repo> (private) (private)) and 15 distinct historical versions (10 distinct ~/.aiur/config.bak* hashes of 12 files; 4 distinct tracked aiur/.aiur/config versions found across 49 worktree/clone checkouts deduped by md5; the snapshot copy) = 22 distinct files. 'set' = key present; 'non-default' = differs from the Ecto default. Hook keys counted in the 6 distinct hooks files. Env names from dotenv files counted by name only (values never read out). Private repos reported as counts only. Runtime evidence: 30 ~/.aiur/logs/*/log/alerts.ndjson (topic counts), telemetry.ndjson (backend-name grep), model-usage.json keys, ~/.aiur/github-budget listing. Executor evidence: python scan of 16 Executor transcripts (~/.claude/projects/-home-user-github-everdred-*/*.jsonl, scratch-config/edits.py) for Edit/Write on */.aiur/config and `aiur(dev) set` commands: 27 config edits, 13 `set max-agents`. Implementation check: python regex scan of src/lib for each key leaf outside config/schema (scratch-config/consumers.txt), then rg for callers of config.ex accessors; found 4 keys with no runtime consumer and 2 reader keys with no schema field. Not done: agent transcripts and ~/.codex/sessions were not grepped (agents do not configure Aiur); GitHub PR history per key was not mined beyond git log on schema files. LOC: wc -l on the snapshot. lib_loc counts the config layer plus modules that exist solely for a key (credential pool, ssh, rtk, bootstrap image, pr_watch scan, Linear); large shared runtimes gated by keys (dispatch_policy, build_gate, repo_base, webhooks mode registry, opencode TUI, eleven_labs, decision_api, takeover monitor, github/budget) are named in module notes but not counted, to avoid double counting with other surfaces. Partial-file figures (github/config.ex ~470 of 1090, alerts.ex ~300 of 746, target_selection ~100 of 526, agent.ex splits) are estimates. config.ex (1462) is attributed wholly to config-01. Headline: of 183 schema keys, 111 are set in none of the 22 real config files or their hook files (91 appear in neither real configs, hook files nor the 3 portable examples); 4 are documented but have no runtime effect; the most-operated keys are tracker.*, workspace.root, hooks_file/prompt_file, agent.max_concurrent_agents (+runtime set), agent.max_turns, agent.priority/routing, polling.interval_seconds, codex.approval_policy; several tuned values are explicit bug mitigations (#2278 budget ceilings, #2329 max_agent_duration_minutes).",
+  "features": [
+    {
+      "id": "config-01",
+      "name": "Config loading, discovery, hot reload and accessor facade",
+      "surface": "config",
+      "description": "Discovers ./.aiur/config then ~/.aiur/config, parses YAML, resolves sibling files (prompt_file, hooks_file, prewarm.base_build_file, alerts.alerts_file), normalizes legacy/alias sections (top-level linear: merged, root codex: rejected, top-level <backend>: and agent.<backend>: folded into agent.backend_configs, top-level github:/linear:/memory: infer tracker.kind, polling.interval_ms rejected), casts through the Ecto embedded schema, resolves $VAR secrets, caches in ETS via WorkflowStore (1s poll hot reload), and exposes ~114 public accessor functions in Aiur.Config. GlobalConfigStartup bootstraps labels when the global config is used.",
+      "modules": [
+        "src/lib/aiur/config.ex (1462)",
+        "src/lib/aiur/config/schema.ex (240)",
+        "src/lib/aiur/config/schema/attrs.ex (58)",
+        "src/lib/aiur/config/schema/errors.ex (43)",
+        "src/lib/aiur/config/schema/env_resolver.ex (76)",
+        "src/lib/aiur/config/schema/string_or_map.ex (25)",
+        "src/lib/aiur/config/env_ref.ex (82)",
+        "src/lib/aiur/workflow.ex (431)",
+        "src/lib/aiur/workflow_store.ex (542)",
+        "src/lib/aiur/workflow_store/cache.ex (150)",
+        "src/lib/aiur/global_config_startup.ex (113)",
+        "src/lib/aiur/agent_config.ex (7)",
+        "src/lib/aiur/tracker_config.ex (7)"
+      ],
+      "entry_points": [
+        "prompt_file",
+        "hooks_file",
+        "Aiur.Config.settings!/0",
+        "Aiur.Workflow.load/1",
+        "Aiur.WorkflowStore",
+        "legacy top-level linear:",
+        "legacy root codex: (rejected)",
+        "agent.<backend>: shorthand (undocumented)",
+        "top-level <backend>: sections (undocumented)"
+      ],
+      "lib_loc": 3236,
+      "test_loc": 3668,
+      "usage": "heavy",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): prompt_file set in 7/7 current (6 non-default), hooks_file 7/7. Executor transcripts (~/.claude/projects/-home-user-github-everdred-*/*.jsonl, python scan scratch-config/edits.py): 27 Edit tool calls on */.aiur/config (15 aiur, 12 architecture-docs). git log at 3339b88: config.ex 68 commits, config/schema.ex 45, reference doc 99; fixes/merged-fixes.md ranks config.ex #6 hot file (38 fix PRs of 72). The agent.<backend> shorthand is live in 2/7 current configs (global, config.archon: agent.deepseek.enabled) and in the snapshot's tracked aiur config, but appears nowhere in reference/configuration.md.",
+      "recommendation": "simplify",
+      "rationale": "Loading is core and must stay, but the layer is over-built: a 1,462-line facade of ~114 accessors that mostly re-read one struct field; five spellings for backend settings (agent.claude, agent.backend_configs.claude, agent.claude shorthand, top-level claude:, registry default); and unknown keys are silently dropped by Ecto cast (a typo like max_concurent_agents is accepted and ignored; the docs call this deliberate for removed keys). Config churn is high (38 fix PRs).",
+      "rewrite_notes": "Keep: discovery order, YAML + sibling-file resolution, $VAR resolution, ETS-cached hot reload. Remove: the per-field accessor functions (read the typed struct), all legacy/alias section folding (one canonical path per setting), GlobalConfigStartup (move label bootstrap to the GitHub package). Add: strict unknown-key rejection with a did-you-mean, and per-package schema registration (each feature package contributes its section) as codebase/feature-boundaries.md proposes.",
+      "loc_saving_estimate": 1400,
+      "docs": "website/docs-app/reference/configuration.md (intro, Resolution & validation notes); AGENTS.md Layout"
+    },
+    {
+      "id": "config-02",
+      "name": "TUI pane and opencode keys",
+      "surface": "config",
+      "description": "Top-level max_vertical_panes and pre_warmed_sessions plus the opencode.* section (command, bridge_port, bridge_host, serve_args, model_prefix, prewarm_disabled) that drive the tmux/opencode chat-pane TUI. Aiur.Opencode.Config also reads opencode.db_path and opencode.prewarm_workspace, which are not schema fields.",
+      "modules": [
+        "src/lib/aiur/config/schema/opencode.ex (26)",
+        "src/lib/aiur/opencode/config.ex (216)",
+        "top-level fields in src/lib/aiur/config/schema.ex (shared)"
+      ],
+      "entry_points": [
+        "max_vertical_panes",
+        "pre_warmed_sessions",
+        "opencode.command",
+        "opencode.bridge_port",
+        "opencode.bridge_host",
+        "opencode.serve_args",
+        "opencode.model_prefix",
+        "opencode.prewarm_disabled",
+        "opencode.db_path (dead)",
+        "opencode.prewarm_workspace (dead)"
+      ],
+      "lib_loc": 242,
+      "test_loc": 116,
+      "usage": "regular",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): max_vertical_panes set 6/7, all at default 3 (0 non-default in 22 files). pre_warmed_sessions 7/7 set, 2 non-default (archon, kevinweaver-dev). opencode section set only in aiur (1/7), every value equal to its default; bridge_port and prewarm_disabled 0/22. opencode.db_path/prewarm_workspace: Opencode.Config.section_value/1 reads them from Aiur.Config.settings!().opencode, a struct with no such field, so they always resolve to nil; they are in no config and no doc.",
+      "recommendation": "simplify",
+      "rationale": "The pane count is the only key operators set away from default. The opencode section is copied at defaults, and two readers target keys the schema cannot hold (implemented-but-unreachable).",
+      "rewrite_notes": "If the TUI survives the rewrite, keep one pane-count key and pre_warmed_sessions; hardcode opencode command/bridge/model_prefix (env override for bridge port already exists as AIUR_OPENCODE_BRIDGE_PORT). Delete db_path/prewarm_workspace readers. If the opencode TUI (8,544 lib lines in src/lib/aiur/opencode, owned by the TUI surface) is cut, all of these go.",
+      "loc_saving_estimate": 180,
+      "docs": "configuration.md#top-level, #opencode"
+    },
+    {
+      "id": "config-03",
+      "name": "Log history cap (max_log_history_mb)",
+      "surface": "config",
+      "description": "Top-level max_log_history_mb bounds ~/.aiur/logs; Aiur.Logs.Retention sweeps oldest sessions every 5 minutes once exceeded.",
+      "modules": [
+        "src/lib/aiur/logs/retention.ex (190)",
+        "field + accessor in schema.ex/config.ex (~8)"
+      ],
+      "entry_points": [
+        "max_log_history_mb"
+      ],
+      "lib_loc": 198,
+      "test_loc": 96,
+      "usage": "occasional",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): set in 2/7 current (aiur at default, kevinweaver-dev non-default); 5 historical aiur versions at default. ~/.aiur/logs held 40 run directories / 865 MB on 2026-09-26 (research README), so the cap is active at default.",
+      "recommendation": "merge",
+      "rationale": "Useful but it is one of three separate retention knobs (this, observability.telemetry_retention_max_bytes/_max_age_days, telemetry_retention_prune_interval_bytes). Merge into config-25 as a single retention section.",
+      "rewrite_notes": "Merge with config-25 telemetry retention into one `retention:` block (log MB + telemetry bytes/age).",
+      "loc_saving_estimate": 20,
+      "docs": "configuration.md#top-level"
+    },
+    {
+      "id": "config-04",
+      "name": "Executor takeover advisory thresholds",
+      "surface": "config",
+      "description": "executor_takeover_first_alert_hours (8) and executor_takeover_continuous_alert_hours (1) tune the convergence-age takeover advisory alert; includes a raw-integer validator.",
+      "modules": [
+        "fields + validate_raw_non_negative_integer in src/lib/aiur/config/schema.ex (~25)",
+        "accessors in src/lib/aiur/config.ex (~15)"
+      ],
+      "entry_points": [
+        "executor_takeover_first_alert_hours",
+        "executor_takeover_continuous_alert_hours"
+      ],
+      "lib_loc": 40,
+      "test_loc": 59,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): set in 0/22 real config files; set only in the 3 src/examples/workflows/*.yaml, at their defaults (8 and 1). The feature runs at defaults: `rg -o '\"topic\":\"system\\.[^\"]*\"'` over 30 ~/.aiur/logs/*/log/alerts.ndjson found system.executor_takeover.* alerts for 21 tickets (26 lines).",
+      "recommendation": "simplify",
+      "rationale": "The alert is used; the two knobs are not. Examples set them to defaults, which adds noise.",
+      "rewrite_notes": "Hardcode 8h/1h; delete the keys, the raw-integer validator and the example lines. The takeover monitor itself (src/lib/aiur/executor/takeover_alert*, 1,051 lines) belongs to the Executor surface.",
+      "loc_saving_estimate": 40,
+      "docs": "configuration.md#executor-takeover-alerts"
+    },
+    {
+      "id": "config-05",
+      "name": "Tracker core: kind, base branch, lifecycle states",
+      "surface": "config",
+      "description": "tracker.kind (github|linear|memory), tracker.base_branch (required, no fallback since #1714), tracker.active_states, tracker.terminal_states, tracker.terminal_fence_grace_seconds.",
+      "modules": [
+        "Aiur.Config.Schema.Tracker in src/lib/aiur/config/schema/tracker.ex (~35)",
+        "Config.base_branch/2 and state accessors in src/lib/aiur/config.ex (~70)"
+      ],
+      "entry_points": [
+        "tracker.kind",
+        "tracker.base_branch",
+        "tracker.active_states",
+        "tracker.terminal_states",
+        "tracker.terminal_fence_grace_seconds"
+      ],
+      "lib_loc": 105,
+      "test_loc": 0,
+      "usage": "heavy",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): kind, base_branch, active_states, terminal_states set in 7/7 current and 22/22 files; tracker.kind is `github` in every one of the 19 current+global-backup files checked. terminal_fence_grace_seconds 0/22. Tests live in config-01 schema_test/workspace_and_config_test.",
+      "recommendation": "keep",
+      "rationale": "Required core. One footgun: the schema default for active_states is Linear display names [\"Todo\",\"In Progress\"], which AGENTS.md ('Tracker label slugs') says makes a GitHub tracker treat issues as non-active; every real config overrides it with slugs.",
+      "rewrite_notes": "Keep the four keys; make state defaults tracker-specific (GitHub slugs derived from label_prefix lifecycle) so the override is unnecessary; hardcode terminal_fence_grace_seconds (0 uses).",
+      "loc_saving_estimate": 0,
+      "docs": "configuration.md#tracker; AGENTS.md 'Tracker label slugs'"
+    },
+    {
+      "id": "config-06",
+      "name": "GitHub repository and identity keys",
+      "surface": "config",
+      "description": "tracker.github.repo (origin auto-detect), label_prefix, bot_account (agent login), github_app.account (daemon App bot login), identity_mode (separate_account|single_account with in-body AgentMarker), trusted_accounts, allowed_users, human_mergers.",
+      "modules": [
+        "identity fields of Aiur.Config.Schema.Github in src/lib/aiur/config/schema/tracker.ex (~60)",
+        "src/lib/aiur/config/schema/github_app.ex (57)",
+        "repo resolution + identity accessors in src/lib/aiur/github/config.ex (~470 of 1090; the rest is token/keyring resolution owned by GitHub auth)",
+        "src/lib/aiur/github/bot_identity.ex (116)",
+        "src/lib/aiur/github/agent_marker.ex (107, single_account only)"
+      ],
+      "entry_points": [
+        "tracker.github.repo",
+        "tracker.github.label_prefix",
+        "tracker.github.bot_account",
+        "tracker.github.github_app.account",
+        "tracker.github.identity_mode",
+        "tracker.github.trusted_accounts",
+        "tracker.github.allowed_users",
+        "tracker.github.human_mergers"
+      ],
+      "lib_loc": 810,
+      "test_loc": 351,
+      "usage": "heavy",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): bot_account 7/7; repo 6/7 (global relies on origin auto-detect); github_app.account 4/7; human_mergers 4/7 (1 private); trusted_accounts 2/7 (global, archon); allowed_users 2/7 (global, archon); label_prefix 3/7, all equal to default `agent`; identity_mode 0/22. Executor Edit calls on .aiur/config touched bot_account/github_app/human_mergers (edits.py). Tests: github/config_test.exs L197-206 + L536-662 (~135) and agent_marker tests (216).",
+      "recommendation": "simplify",
+      "rationale": "repo/bot_account/github_app.account/human_mergers are core and used. single_account mode (#2505, 2026-09-02) is set nowhere; label_prefix never differs from default; trusted_accounts and allowed_users are two overlapping login allowlists set in the same two configs.",
+      "rewrite_notes": "Cut identity_mode + AgentMarker; merge trusted_accounts and allowed_users into one allowlist; hardcode label_prefix `agent`; keep repo auto-detect and the App/agent identity split.",
+      "loc_saving_estimate": 250,
+      "docs": "configuration.md#tracker; apis/github.md"
+    },
+    {
+      "id": "config-07",
+      "name": "GitHub request budget and per-actor hourly ceilings",
+      "surface": "config",
+      "description": "tracker.github.max_inflight, max_inflight_per_endpoint, requests_per_minute, stagger_ms and six per-actor hourly ceilings (daemon_/agent_ x core/graphql/search _limit_per_hour).",
+      "modules": [
+        "budget fields + validations in src/lib/aiur/config/schema/tracker.ex (~70)",
+        "pass-through to agent env in src/lib/aiur/agent_environment.ex (~20)"
+      ],
+      "entry_points": [
+        "tracker.github.max_inflight",
+        "tracker.github.max_inflight_per_endpoint",
+        "tracker.github.requests_per_minute",
+        "tracker.github.stagger_ms",
+        "tracker.github.daemon_core_limit_per_hour",
+        "tracker.github.daemon_graphql_limit_per_hour",
+        "tracker.github.daemon_search_limit_per_hour",
+        "tracker.github.agent_core_limit_per_hour",
+        "tracker.github.agent_graphql_limit_per_hour",
+        "tracker.github.agent_search_limit_per_hour"
+      ],
+      "lib_loc": 90,
+      "test_loc": 0,
+      "usage": "rare",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): 8 of 10 keys: 0/22 real files (only github-claude.yaml and github-codex.yaml, at defaults). daemon_core_limit_per_hour and agent_core_limit_per_hour: set only in the live aiur config (uncommitted, 12000/3000), with the comment 'Restore the defaults once #2278 makes a 304 cost nothing locally'; meta/recurring-issues.md lists them among 'config mitigations marked restore once fixed'.",
+      "recommendation": "simplify",
+      "rationale": "The only real use is raising a local counter that disagrees with GitHub's billing by ~14x (#2278) - a knob used to work around a bug. The rate/inflight/stagger/graphql/search knobs are never tuned.",
+      "rewrite_notes": "Meter from GitHub's own X-RateLimit/rateLimit responses and keep at most one daemon/agent ceiling pair; drop the other eight keys. Runtime budget code (src/lib/aiur/github/budget.ex, 915) is owned by the GitHub surface.",
+      "loc_saving_estimate": 60,
+      "docs": "configuration.md#tracker; apis/github.md"
+    },
+    {
+      "id": "config-08",
+      "name": "GitHub credential pooling (tracker.github.credentials)",
+      "surface": "config",
+      "description": "A list of extra credentials (id, kind app_installation|machine_user|human, identity, token_env, writes, enabled) the daemon spreads read traffic across, with headroom/selector/usage accounting.",
+      "modules": [
+        "src/lib/aiur/config/schema/github_credential.ex (79)",
+        "src/lib/aiur/github/credential.ex",
+        "src/lib/aiur/github/credential_registry.ex",
+        "src/lib/aiur/github/credential_selector.ex",
+        "src/lib/aiur/github/credential_headroom.ex",
+        "src/lib/aiur/github/credential_usage.ex",
+        "src/lib/aiur/github/budget_map.ex (these six: 1544; budget_map may be partly shared with github/budget.ex)"
+      ],
+      "entry_points": [
+        "tracker.github.credentials[].id",
+        "tracker.github.credentials[].kind",
+        "tracker.github.credentials[].identity",
+        "tracker.github.credentials[].token_env",
+        "tracker.github.credentials[].writes",
+        "tracker.github.credentials[].enabled"
+      ],
+      "lib_loc": 1623,
+      "test_loc": 1109,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): credentials set in 0/22 real config files and in 0 examples. Added 2026-08-20 ('Spread GitHub reads across a pool of credentials', 2 commits to the schema). ~/.aiur/github-budget holds one agent-token and one budget.sqlite3; no pool state.",
+      "recommendation": "cut",
+      "rationale": "1.6k lines plus 1.1k test lines for a pool nobody configured in five weeks; the single App/PAT path covers every real install.",
+      "rewrite_notes": "Drop the key and the credential_* modules; keep single-credential resolution (App token or GITHUB_TOKEN). If pooling is ever needed, add it inside the GitHub package.",
+      "loc_saving_estimate": 1623,
+      "docs": "configuration.md#tracker; apis/github.md#credential-pooling"
+    },
+    {
+      "id": "config-09",
+      "name": "Build Order planning safeguards and provider tuning",
+      "surface": "config",
+      "description": "tracker.github.planning_root_limit/page_budget/call_budget plus 11 build_order.* keys (ticket_detail_*, ticket_history_*, graph_catalog_refresh_ms, graph_catalog_labels_refresh_ms, graph_refresh_timeout_ms, graph_max_selected_roots, graph_max_inflight) and the option/configuration modules that turn them into provider options and derived cadences.",
+      "modules": [
+        "src/lib/aiur/config/schema/build_order.ex (91)",
+        "src/lib/aiur/build_order/graph_projection_options.ex (232)",
+        "src/lib/aiur/build_order/ticket_detail_coordinator_options.ex (77)",
+        "src/lib/aiur/build_order/ticket_history_provider_options.ex (91)",
+        "src/lib/aiur/build_order/graph_projection_configuration.ex (104)",
+        "src/lib/aiur/build_order/ticket_detail_coordinator_configuration.ex (67)",
+        "src/lib/aiur/build_order/cadence.ex (276)",
+        "src/lib/aiur/build_order/github_graph/settings.ex (218)"
+      ],
+      "entry_points": [
+        "tracker.github.planning_root_limit",
+        "tracker.github.planning_page_budget",
+        "tracker.github.planning_call_budget",
+        "build_order.ticket_detail_freshness_ms",
+        "build_order.ticket_detail_max_entries",
+        "build_order.ticket_detail_max_description_bytes",
+        "build_order.ticket_history_limit",
+        "build_order.ticket_history_max_identities",
+        "build_order.ticket_history_stale_after_ms",
+        "build_order.graph_catalog_refresh_ms",
+        "build_order.graph_catalog_labels_refresh_ms",
+        "build_order.graph_refresh_timeout_ms",
+        "build_order.graph_max_selected_roots",
+        "build_order.graph_max_inflight"
+      ],
+      "lib_loc": 1156,
+      "test_loc": 533,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): all 11 build_order.* keys: 0/22 real files (8 of them appear in github-claude.yaml/github-codex.yaml at their defaults). planning_*: set in 2/7 (aiur, kevinweaver-dev) and 5 historical aiur versions, always at the default value -> 0 non-default settings anywhere. Two further keys (graph_selected_refresh_ms, graph_demand_refresh_ms) were already removed.",
+      "recommendation": "simplify",
+      "rationale": "14 knobs and ~1.2k lines of option plumbing, none ever tuned. Cadence derivation from the poll interval is the useful part.",
+      "rewrite_notes": "Hardcode sizes/limits as module constants inside the Build Order package; keep only the derived-cadence function (~300 lines). Moves with Build Order if that is externalized.",
+      "loc_saving_estimate": 800,
+      "docs": "configuration.md#build-order, #tracker"
+    },
+    {
+      "id": "config-10",
+      "name": "Linear tracker keys",
+      "surface": "config",
+      "description": "tracker.linear.api_key ($LINEAR_API_KEY fallback), project_slug, endpoint, assignee ($LINEAR_ASSIGNEE fallback), plus the legacy top-level linear: section merged into tracker.linear.",
+      "modules": [
+        "Aiur.Config.Schema.Linear in src/lib/aiur/config/schema/tracker.ex (~20)",
+        "Linear env fallback in Schema.finalize_settings (~15)",
+        "src/lib/aiur/linear/*.ex (859: config, client, tracker adapter)"
+      ],
+      "entry_points": [
+        "tracker.linear.api_key",
+        "tracker.linear.project_slug",
+        "tracker.linear.endpoint",
+        "tracker.linear.assignee",
+        "linear: (legacy top-level)"
+      ],
+      "lib_loc": 894,
+      "test_loc": 323,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): tracker.kind is github in 19/19 current+global-backup files; tracker.linear.* in 0/22; only src/examples/workflows/linear-codex.yaml uses Linear (via the legacy top-level linear: section). No LINEAR_* names in ~/.aiur/.env, aiur/.env or kevinweaver-dev/.env. Linear code predates the 2026-06-02 elixir/->src/ rename (inherited from the upstream fork; linear/client.ex 3 commits). Tests: workspace_and_config_test.exs L1273-1483 (~210) + codex/dynamic_tool/linear_graphql_test.exs (113).",
+      "recommendation": "externalize",
+      "rationale": "Unused tracker adapter; every operator repo is GitHub. Keeping it in core forces the tracker-agnostic abstractions (TrackerConfig behaviour, section inference, env fallbacks).",
+      "rewrite_notes": "Move to an optional tracker plugin package (or cut). Drop the legacy top-level linear: merge and the example that depends on it.",
+      "loc_saving_estimate": 894,
+      "docs": "configuration.md#tracker; src/examples/workflows/linear-codex.yaml"
+    },
+    {
+      "id": "config-11",
+      "name": "Polling cadence (polling.*)",
+      "surface": "config",
+      "description": "polling.interval_seconds (120), idle_widen_factor (5.0), usage_interval_seconds (300, min 120), view_state_sweep_seconds (900), intervals map per poll class (dispatch, ci, review, planning, firehose; 0 = on-demand) resolved by Aiur.PollCadence.",
+      "modules": [
+        "src/lib/aiur/config/schema/polling.ex (114)",
+        "src/lib/aiur/poll_cadence.ex (483)"
+      ],
+      "entry_points": [
+        "polling.interval_seconds",
+        "polling.idle_widen_factor",
+        "polling.usage_interval_seconds",
+        "polling.view_state_sweep_seconds",
+        "polling.intervals.dispatch",
+        "polling.intervals.ci",
+        "polling.intervals.review",
+        "polling.intervals.planning",
+        "polling.intervals.firehose"
+      ],
+      "lib_loc": 597,
+      "test_loc": 114,
+      "usage": "heavy",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): interval_seconds set 7/7; 4 non-default: global, config.archon and kevinweaver-dev all set 30 (plus 1 private non-default), although the schema comment says 30s costs ~5,800 GraphQL points/hour, above the 5,000 budget; src/examples/workflows/github-codex.yaml also ships 30. intervals set in 2/7 (archon, 1 private) with dispatch/planning(/review) only; ci and firehose 0/22. idle_widen_factor 1/7 (private) + 3 examples; view_state_sweep_seconds 1/7 (private, at default); usage_interval_seconds 0/22. The reference itself calls the firehose class 'a dead knob' and ci 'not recommended'.",
+      "recommendation": "simplify",
+      "rationale": "The base interval is the most-tuned key in the surface, but two of five poll classes are self-described dead knobs, and two recovery bounds are never tuned.",
+      "rewrite_notes": "Keep interval_seconds and intervals for dispatch/review/planning; delete the ci and firehose classes, usage_interval_seconds and view_state_sweep_seconds keys (hardcode), and fix the github-codex example's 30s.",
+      "loc_saving_estimate": 150,
+      "docs": "configuration.md#polling; apis/github.md"
+    },
+    {
+      "id": "config-12",
+      "name": "Webhook mode tuning (webhooks.*)",
+      "surface": "config",
+      "description": "webhooks.repos (expected webhook sources), silence_threshold_seconds, sweep_interval_seconds, poll_widen_factor (>=1.0) for proven webhook-backed repos.",
+      "modules": [
+        "src/lib/aiur/config/schema/webhooks.ex (41)",
+        "src/lib/aiur/webhooks/interval_policy.ex (60)"
+      ],
+      "entry_points": [
+        "webhooks.repos",
+        "webhooks.silence_threshold_seconds",
+        "webhooks.sweep_interval_seconds",
+        "webhooks.poll_widen_factor"
+      ],
+      "lib_loc": 101,
+      "test_loc": 510,
+      "usage": "occasional",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): webhooks.repos set 1/7 (aiur) and 4 historical aiur versions; ~/.aiur/.env sets AIUR_GITHUB_WEBHOOK_SECRET. silence_threshold_seconds, sweep_interval_seconds, poll_widen_factor: 0/22. test_loc is the shared webhooks interval_policy + mode_registry tests (510).",
+      "recommendation": "simplify",
+      "rationale": "Webhooks are used in the dogfood repo; the three tuning knobs never are.",
+      "rewrite_notes": "Keep repos (or infer from first delivery); hardcode the three tuning values. Mode registry (src/lib/aiur/webhooks/mode_registry.ex, 502) belongs to the webhooks surface.",
+      "loc_saving_estimate": 30,
+      "docs": "configuration.md#webhooks; apis/github.md"
+    },
+    {
+      "id": "config-13",
+      "name": "Workspace root and bootstrap image",
+      "surface": "config",
+      "description": "workspace.root (per-issue workspace root, $VAR/~ expanded), workspace.bootstrap_image and bootstrap_image_pull (seed build caches from a Docker image).",
+      "modules": [
+        "src/lib/aiur/config/schema/workspace.ex (19)",
+        "src/lib/aiur/workspace/bootstrap_image.ex (116)"
+      ],
+      "entry_points": [
+        "workspace.root",
+        "workspace.bootstrap_image",
+        "workspace.bootstrap_image_pull"
+      ],
+      "lib_loc": 135,
+      "test_loc": 51,
+      "usage": "heavy",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): workspace.root 7/7 non-default (22/22). bootstrap_image and bootstrap_image_pull 0/22 and 0 examples (commented out in .aiur/examples/config.example). bootstrap_image.ex dates from #871 (2026-07-09).",
+      "recommendation": "simplify",
+      "rationale": "root is core; the Docker bootstrap image is unused and overlaps prewarm (config-29), which two configs do use.",
+      "rewrite_notes": "Keep workspace.root; cut bootstrap_image(+_pull) and Aiur.Workspace.BootstrapImage.",
+      "loc_saving_estimate": 125,
+      "docs": "configuration.md#workspace"
+    },
+    {
+      "id": "config-14",
+      "name": "SSH remote workers (worker.*)",
+      "surface": "config",
+      "description": "worker.ssh_hosts and worker.max_concurrent_agents_per_host: run agents on remote hosts over SSH, with per-host slot caps.",
+      "modules": [
+        "src/lib/aiur/config/schema/worker.ex (18)",
+        "src/lib/aiur/ssh.ex (181)",
+        "remote branches in agent_runner.ex, orchestrator/slots.ex, workspace/remove.ex, test_reset.ex (~150, not counted)"
+      ],
+      "entry_points": [
+        "worker.ssh_hosts",
+        "worker.max_concurrent_agents_per_host"
+      ],
+      "lib_loc": 199,
+      "test_loc": 258,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): both keys 0/22 real files and 0 examples (commented in config.example). ssh.ex predates the 2026-06-02 rename (upstream fork inheritance, 4 commits).",
+      "recommendation": "cut",
+      "rationale": "Never configured; it forces remote-path branches through workspace, slots, sandbox policy (writable roots not forwarded to SSH workers) and the codex reset-time zone logic.",
+      "rewrite_notes": "Remove worker.* and every ssh/worker_host branch; the fleet is single-host in every recorded run.",
+      "loc_saving_estimate": 350,
+      "docs": "configuration.md#worker"
+    },
+    {
+      "id": "config-15",
+      "name": "Workspace lifecycle hooks (hooks.*, hooks_file)",
+      "surface": "config",
+      "description": "Shell hooks after_create, before_run, after_run, before_remove with timeout_ms, given inline or through a sibling hooks_file.",
+      "modules": [
+        "src/lib/aiur/config/schema/hooks.ex (21)",
+        "src/lib/aiur/workspace/hooks.ex (381)"
+      ],
+      "entry_points": [
+        "hooks_file",
+        "hooks.after_create",
+        "hooks.before_run",
+        "hooks.after_run",
+        "hooks.before_remove",
+        "hooks.timeout_ms"
+      ],
+      "lib_loc": 402,
+      "test_loc": 417,
+      "usage": "heavy",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): hooks_file used by 7/7 current configs; ruby parse of the 6 distinct hook files (aiur, archon, kevinweaver-dev, ~/.aiur/hooks, 2 private): after_create 6/6, before_run 6/6, before_remove 2/6, timeout_ms 2/6, after_run 0/6. Inline hooks: only the 3 examples (after_create 3/3, before_remove 2/3).",
+      "recommendation": "keep",
+      "rationale": "Every run bootstraps its workspace through these hooks.",
+      "rewrite_notes": "Keep; drop after_run (0 uses) and pick one form (file) since every real config uses hooks_file while examples inline.",
+      "loc_saving_estimate": 0,
+      "docs": "configuration.md#hooks; AGENTS.md 'Workflow bootstrap'"
+    },
+    {
+      "id": "config-16",
+      "name": "Backend selection and rate-limit fallback keys",
+      "surface": "config",
+      "description": "agent.priority (ordered routes backend[:model[:effort]][+remote]) and its deprecated predecessors agent.kind, agent.switch_model_on_ratelimit, agent.rate_limit_primary, agent.rate_limit_fallback; agent.backend_configs.<backend>.enabled (plus the undocumented agent.<backend>: shorthand); agent.pricing_policy.avoid_peak_pricing (DeepSeek peak windows).",
+      "modules": [
+        "src/lib/aiur/config/routing_value.ex (56)",
+        "src/lib/aiur/config/schema/pricing_policy.ex (71)",
+        "selection validation in src/lib/aiur/config/schema/agent.ex (~80)",
+        "dual-path accessors in config.ex (counted in config-01)"
+      ],
+      "entry_points": [
+        "agent.priority",
+        "agent.kind (deprecated)",
+        "agent.switch_model_on_ratelimit (deprecated)",
+        "agent.rate_limit_primary (deprecated)",
+        "agent.rate_limit_fallback (deprecated)",
+        "agent.backend_configs.<backend>.enabled",
+        "agent.<backend>.enabled (shorthand)",
+        "agent.pricing_policy.avoid_peak_pricing"
+      ],
+      "lib_loc": 207,
+      "test_loc": 492,
+      "usage": "heavy",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): priority set 4/7 (aiur, config.archon, archon, 1 private); deprecated kind still set in 5/7 (2 non-default); switch_model_on_ratelimit 1/7 (private); rate_limit_primary/fallback 0/22; explicit agent.backend_configs key 0/22, agent.deepseek.enabled shorthand 2/7 (global, config.archon); avoid_peak_pricing 0/22. Backends referenced (kind/priority/routing) across the 5 public current configs: claude and codex, plus deepseek only in config.archon; kimi and openrouter are referenced by 0 of 7 current configs (public or private). `rg deepseek|kimi|openrouter` over 30 retained telemetry.ndjson files: 0 hits; model-usage.json (global, aiur, archon) lists only claude/codex. The live aiur config replaced [codex, deepseek, claude] with [claude, codex] on 2026-09-03.",
+      "recommendation": "simplify",
+      "rationale": "priority is the real selector; four deprecated keys keep parallel code paths alive in config.ex, orchestrator/rate_limit_fallback.ex and init. pricing_policy exists only for DeepSeek peak pricing and DeepSeek is in no active priority list.",
+      "rewrite_notes": "Make agent.priority the only selection key (migrate the 5 configs still setting kind); delete kind/switch_model_on_ratelimit/rate_limit_primary/rate_limit_fallback and the agent.<backend> shorthand; cut pricing_policy (and mix aiur.pricing_window).",
+      "loc_saving_estimate": 350,
+      "docs": "configuration.md#agent, #routes-in-agent-priority"
+    },
+    {
+      "id": "config-17",
+      "name": "Complexity routing (agent.routing, max_turns_by_complexity, complexity_prompts)",
+      "surface": "config",
+      "description": "Per complexity:<N> label routing to backend:model:effort, per-complexity turn caps and per-complexity extra prompt text, validated by AgentValidation.",
+      "modules": [
+        "src/lib/aiur/config/schema/agent_validation.ex (272, shared with config-16/21)"
+      ],
+      "entry_points": [
+        "agent.routing",
+        "agent.max_turns_by_complexity",
+        "agent.complexity_prompts"
+      ],
+      "lib_loc": 272,
+      "test_loc": 238,
+      "usage": "regular",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): routing set 4/7 (global, kevinweaver-dev, 2 private), all with levels 1-5; max_turns_by_complexity 2/7 (aiur, kevinweaver-dev); complexity_prompts 0/22. config.example ships routing as an essential placeholder.",
+      "recommendation": "simplify",
+      "rationale": "Routing and turn caps are used; complexity_prompts never is.",
+      "rewrite_notes": "Keep routing + max_turns_by_complexity; cut complexity_prompts and its prompt_builder branch. Consider folding max_turns_by_complexity into the routing value (one map per level).",
+      "loc_saving_estimate": 60,
+      "docs": "configuration.md#agent; website/docs-app/index.md"
+    },
+    {
+      "id": "config-18",
+      "name": "Backend-specific settings: agent.claude and agent.codex (incl. sandbox policy)",
+      "surface": "config",
+      "description": "agent.claude.{command, model, permission_mode}; agent.codex.{command, approval_policy, thread_sandbox, turn_sandbox_policy, read_timeout_ms, thrash_max_per_window, thrash_window_seconds, reset_time_zone, reset_min_delay_seconds}; CodexSandboxPolicy resolves writable roots.",
+      "modules": [
+        "Codex/Claude schemas in src/lib/aiur/config/schema/agent.ex (~86)",
+        "src/lib/aiur/config/codex_sandbox_policy.ex (347)",
+        "src/lib/aiur/codex/config.ex (126)",
+        "src/lib/aiur/claude/config.ex (67)"
+      ],
+      "entry_points": [
+        "agent.claude.command",
+        "agent.claude.model",
+        "agent.claude.permission_mode",
+        "agent.codex.command",
+        "agent.codex.approval_policy",
+        "agent.codex.thread_sandbox",
+        "agent.codex.turn_sandbox_policy",
+        "agent.codex.read_timeout_ms",
+        "agent.codex.thrash_max_per_window",
+        "agent.codex.thrash_window_seconds",
+        "agent.codex.reset_time_zone",
+        "agent.codex.reset_min_delay_seconds"
+      ],
+      "lib_loc": 626,
+      "test_loc": 394,
+      "usage": "heavy",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): claude.command 5/7 and permission_mode 5/7, all at defaults; claude.model 1/7 (archon). codex.command 6/7 at default; codex.approval_policy 6/7 non-default - every public config that sets it uses `never` against the `untrusted` default (2 private also non-default); thread_sandbox 2/7 at default; turn_sandbox_policy 2/7 (aiur, kevinweaver-dev); read_timeout_ms, thrash_*, reset_* 0/22. Tests: codex/config_test 44, claude/config_test 57, sandbox tests in workspace_and_config_test L2980-3273 (~293).",
+      "recommendation": "simplify",
+      "rationale": "Needed per backend, but most keys are copied at defaults and the only always-overridden key (approval_policy) has the wrong default. Two keys name one command: runtime reads agent.claude.command while init model listing reads backend_configs.claude.command; the github-claude example's top-level claude: reaches only the latter.",
+      "rewrite_notes": "Fold agent.claude/agent.codex into backend_configs.<backend>; default approval_policy to never (or drop it); hardcode read_timeout, thrash and reset knobs; keep turn_sandbox_policy.writableRoots.",
+      "loc_saving_estimate": 150,
+      "docs": "configuration.md#agent-claude, #agent-codex"
+    },
+    {
+      "id": "config-19",
+      "name": "OpenAI-compatible backend overrides (backend_configs.<backend>.*)",
+      "surface": "config",
+      "description": "Per-backend overrides for kimi/deepseek/openrouter: command, model, default_model, base_url, api_key_env, management_api_key_env, transport, balance_baseline, model_discovery, quirks.{reasoning_content_replay,text_tool_fallback,openrouter_metadata,local_concurrency_limit}, openrouter.provider.{order,ignore,allow_fallbacks,sort}.",
+      "modules": [
+        "src/lib/aiur/open_ai_compat/config.ex (136)",
+        "src/lib/aiur/open_ai_compat/balance_baseline.ex (291)",
+        "model_discovery opt-out check in src/lib/aiur/model_discovery.ex (~10)"
+      ],
+      "entry_points": [
+        "agent.backend_configs.<backend>.command",
+        "agent.backend_configs.<backend>.model",
+        "agent.backend_configs.<backend>.default_model",
+        "agent.backend_configs.<backend>.base_url",
+        "agent.backend_configs.<backend>.api_key_env",
+        "agent.backend_configs.<backend>.management_api_key_env",
+        "agent.backend_configs.<backend>.transport",
+        "agent.backend_configs.<backend>.balance_baseline",
+        "agent.backend_configs.<backend>.model_discovery",
+        "agent.backend_configs.<backend>.quirks.*",
+        "agent.backend_configs.openrouter.provider.*"
+      ],
+      "lib_loc": 437,
+      "test_loc": 825,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): no real config sets any backend_configs sub-key other than `enabled` (0/22); only commented lines in config.example mention balance_baseline and openrouter model. Runtime: 0 deepseek/kimi/openrouter mentions in 30 retained telemetry files. test_loc = balance_baseline_test (261) + model_discovery_test (564, shared with model discovery).",
+      "recommendation": "cut",
+      "rationale": "The registry already carries every default; the override surface (and the prepaid balance-baseline tracker) has no user.",
+      "rewrite_notes": "Keep backend enable + model per route (already expressible in agent.priority); cut quirk/transport/base_url overrides and balance_baseline. If the OpenAI-compatible backends move to a plugin, this goes with them.",
+      "loc_saving_estimate": 330,
+      "docs": "configuration.md#agent-backend-configs-backend, #model-discovery"
+    },
+    {
+      "id": "config-20",
+      "name": "Agent turn and lifecycle limits",
+      "surface": "config",
+      "description": "agent.max_turns, max_consecutive_noop_turns, max_retry_attempts, max_retry_backoff_ms, turn_timeout_ms, stall_timeout_ms, max_agent_duration_minutes, ci_wait_rewake_minutes, max_dispatches_per_ticket, prior_work_continuation, remote_control.",
+      "modules": [
+        "fields/validations in src/lib/aiur/config/schema/agent.ex (~60)",
+        "accessors in config.ex (counted in config-01)"
+      ],
+      "entry_points": [
+        "agent.max_turns",
+        "agent.max_consecutive_noop_turns",
+        "agent.max_retry_attempts",
+        "agent.max_retry_backoff_ms",
+        "agent.turn_timeout_ms",
+        "agent.stall_timeout_ms",
+        "agent.max_agent_duration_minutes",
+        "agent.ci_wait_rewake_minutes",
+        "agent.max_dispatches_per_ticket",
+        "agent.prior_work_continuation",
+        "agent.remote_control"
+      ],
+      "lib_loc": 60,
+      "test_loc": 0,
+      "usage": "heavy",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): max_turns 7/7 non-default (uncapped via `none` in global and config.archon; numeric in aiur/archon/kevinweaver-dev; 2 private non-default); max_agent_duration_minutes 6/7 non-default - the live aiur config sets 150 with the comment 'Raised ... as a MITIGATION, not a fix ... Restore to 60 once #2329 lands'; max_dispatches_per_ticket 2/7; stall_timeout_ms 2/7 at default; prior_work_continuation 1/7 (private, default); remote_control 0/22 (RC used through model:remote labels instead); noop/retry/turn_timeout/ci_wait 0/22.",
+      "recommendation": "simplify",
+      "rationale": "Three keys are real controls; seven are never tuned; the most-changed one (max_agent_duration_minutes) is being used to paper over a slot-leak bug.",
+      "rewrite_notes": "Keep max_turns, max_agent_duration_minutes, max_dispatches_per_ticket; hardcode the other eight (remote_control stays label-driven).",
+      "loc_saving_estimate": 40,
+      "docs": "configuration.md#agent"
+    },
+    {
+      "id": "config-21",
+      "name": "Fleet concurrency and host-load admission keys",
+      "surface": "config",
+      "description": "agent.max_concurrent_agents (derived from schedulers when unset), max_concurrent_agents_by_state, max_load_average, target_load_average, load_ramp_step, load_cooldown_seconds (AIMD envelope), run_queue_threshold, min_free_memory_mb, synthetic_load_process_cap, saturation_log_enabled, capacity_starvation_alert_after_seconds.",
+      "modules": [
+        "fields/validations in src/lib/aiur/config/schema/agent.ex (~50)",
+        "gated runtime (not counted): orchestrator/dispatch_policy.ex 1213, agent_resource_guard.ex 192, saturation_sentinel.ex 245"
+      ],
+      "entry_points": [
+        "agent.max_concurrent_agents",
+        "agent.max_concurrent_agents_by_state",
+        "agent.max_load_average",
+        "agent.target_load_average",
+        "agent.load_ramp_step",
+        "agent.load_cooldown_seconds",
+        "agent.run_queue_threshold",
+        "agent.min_free_memory_mb",
+        "agent.synthetic_load_process_cap",
+        "agent.saturation_log_enabled",
+        "agent.capacity_starvation_alert_after_seconds",
+        "aiur set max-agents (runtime override)",
+        "--max-agents"
+      ],
+      "lib_loc": 50,
+      "test_loc": 202,
+      "usage": "heavy",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): max_concurrent_agents 7/7 non-default; plus 13 `aiur(dev) set max-agents` runtime overrides in Executor transcripts (8 aiur, 3 khala, 2 architecture-docs; edits.py). max_load_average 3/7 (1 non-default); target_load_average/load_ramp_step/load_cooldown_seconds 1/7 each (kevinweaver-dev); by_state, run_queue_threshold, min_free_memory_mb, synthetic_load_process_cap, saturation_log_enabled, capacity_starvation_alert_after_seconds 0/22. meta/recurring-issues.md Rank 15 (host saturation, ~107 citations) persisted with these knobs available. test_loc = agent_resource_guard_test + saturation_sentinel_test.",
+      "recommendation": "simplify",
+      "rationale": "The fleet cap is the most operated control in the whole config surface; the rest of the admission tuning is almost never touched.",
+      "rewrite_notes": "Keep max_concurrent_agents (config + runtime set) and one load ceiling; hardcode the AIMD envelope, run-queue gate, per-state caps, synthetic-load cap, saturation toggle and starvation dwell.",
+      "loc_saving_estimate": 35,
+      "docs": "configuration.md#agent, #host-pressure-fleet-admission"
+    },
+    {
+      "id": "config-22",
+      "name": "Mix build gate keys",
+      "surface": "config",
+      "description": "agent.max_concurrent_builds, build_start_stagger_seconds, build_gate_max_hold_seconds, build_gate_retain_seconds, mix_scheduler_cap - fleet admission for agent-launched mix compile/test.",
+      "modules": [
+        "fields in src/lib/aiur/config/schema/agent.ex + default_mix_scheduler_cap (~40)",
+        "gated runtime (not counted): build_gate.ex + build_gate_hold_monitor.ex 1020"
+      ],
+      "entry_points": [
+        "agent.max_concurrent_builds",
+        "agent.build_start_stagger_seconds",
+        "agent.build_gate_max_hold_seconds",
+        "agent.build_gate_retain_seconds",
+        "agent.mix_scheduler_cap"
+      ],
+      "lib_loc": 40,
+      "test_loc": 0,
+      "usage": "occasional",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): max_concurrent_builds 2/7 (aiur default, kevinweaver-dev non-default); build_start_stagger_seconds 2/7 non-default; mix_scheduler_cap 1/7 at default; hold/retain 0/22. Executor edits touched max_concurrent_builds (edits.py).",
+      "recommendation": "externalize",
+      "rationale": "Elixir/Mix-specific; only the two Elixir repos set it. It belongs in a language plugin with the build gate itself.",
+      "rewrite_notes": "Move with the build gate into an Elixir plugin; keep max_concurrent_builds, hardcode stagger/hold/retain/scheduler cap.",
+      "loc_saving_estimate": 30,
+      "docs": "configuration.md#agent (build-gate table)"
+    },
+    {
+      "id": "config-23",
+      "name": "Budget-broker degraded-alert tuning",
+      "surface": "config",
+      "description": "agent.budget_broker_rate_window_seconds, budget_broker_degraded_retry_threshold, budget_broker_degraded_alert_after_seconds: dwell/threshold for system.github.budget_broker_degraded.",
+      "modules": [
+        "fields in src/lib/aiur/config/schema/agent.ex + accessors (~25)",
+        "consumer src/lib/aiur/github/broker_timeout.ex (295, GitHub surface)"
+      ],
+      "entry_points": [
+        "agent.budget_broker_rate_window_seconds",
+        "agent.budget_broker_degraded_retry_threshold",
+        "agent.budget_broker_degraded_alert_after_seconds"
+      ],
+      "lib_loc": 25,
+      "test_loc": 170,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): all three 0/22 and 0 examples (commented in config.example). Alert feed shows 3 system.github.budget_broker_retry lines in 30 run logs (defaults).",
+      "recommendation": "cut",
+      "rationale": "Alert-tuning knobs placed under agent.* for a GitHub-broker signal; never tuned.",
+      "rewrite_notes": "Hardcode inside the GitHub broker module.",
+      "loc_saving_estimate": 25,
+      "docs": "configuration.md#agent"
+    },
+    {
+      "id": "config-24",
+      "name": "rtk output compression (agent.rtk.enabled)",
+      "surface": "config",
+      "description": "Opt-in rtk shell-output compression for agents, admitted only when the host rtk config excludes gh; drives an analytics panel.",
+      "modules": [
+        "Aiur.Config.Schema.Rtk in src/lib/aiur/config/schema/agent.ex (~20)",
+        "src/lib/aiur/rtk.ex (241)"
+      ],
+      "entry_points": [
+        "agent.rtk.enabled"
+      ],
+      "lib_loc": 261,
+      "test_loc": 155,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): agent.rtk.enabled 0/22 and 0 examples. Added 2026-09-03 (#2521, 1 commit).",
+      "recommendation": "cut",
+      "rationale": "Opt-in optimization nobody enabled; its own docs measure zero saving on common commands.",
+      "rewrite_notes": "Remove key, module and analytics panel.",
+      "loc_saving_estimate": 261,
+      "docs": "configuration.md#agent"
+    },
+    {
+      "id": "config-25",
+      "name": "Observability and telemetry retention keys",
+      "surface": "config",
+      "description": "observability.dashboard_enabled, dashboard_writable, refresh_ms, render_interval_ms, telemetry_enabled, telemetry_retention_max_bytes, telemetry_retention_max_age_days, telemetry_retention_prune_interval_bytes.",
+      "modules": [
+        "src/lib/aiur/config/schema/observability.ex (44)",
+        "telemetry_retention/0 + accessors in config.ex (~25)"
+      ],
+      "entry_points": [
+        "observability.dashboard_enabled",
+        "observability.dashboard_writable",
+        "observability.refresh_ms",
+        "observability.render_interval_ms",
+        "observability.telemetry_enabled",
+        "observability.telemetry_retention_max_bytes",
+        "observability.telemetry_retention_max_age_days",
+        "observability.telemetry_retention_prune_interval_bytes"
+      ],
+      "lib_loc": 69,
+      "test_loc": 0,
+      "usage": "rare",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): dashboard_writable 1/7 (private); telemetry_enabled 0/22; retention keys 0/22 real (3 examples at defaults). Dead keys: python scan of src/lib (scratch-config/consumers.txt) plus `rg observability_enabled?|observability_refresh_ms|observability_render_interval_ms` found zero callers outside config.ex for dashboard_enabled, refresh_ms and render_interval_ms - documented keys with no runtime effect (the reference already labels dashboard_enabled 'Reserved compatibility setting').",
+      "recommendation": "simplify",
+      "rationale": "Three of eight keys are documented but unimplemented; retention knobs are never tuned.",
+      "rewrite_notes": "Delete dashboard_enabled/refresh_ms/render_interval_ms and their accessors; merge retention with config-03 into one section; keep dashboard_writable and telemetry_enabled.",
+      "loc_saving_estimate": 40,
+      "docs": "configuration.md#observability"
+    },
+    {
+      "id": "config-26",
+      "name": "Dashboard server bind (server.*)",
+      "surface": "config",
+      "description": "server.port (0 = OS-assigned loopback) and server.host (default 127.0.0.1 or AIUR_DEFAULT_DASHBOARD_HOST; --host wins).",
+      "modules": [
+        "src/lib/aiur/config/schema/server.ex (22)",
+        "prepare_server_config/default_server_host in config.ex (~15)"
+      ],
+      "entry_points": [
+        "server.port",
+        "server.host",
+        "AIUR_DEFAULT_DASHBOARD_HOST",
+        "--host"
+      ],
+      "lib_loc": 37,
+      "test_loc": 0,
+      "usage": "regular",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): port 4/7 non-default (aiur, archon, kevinweaver-dev, 1 private); host 4/7 (3 non-default, e.g. aiur 0.0.0.0).",
+      "recommendation": "keep",
+      "rationale": "Small and used by every repo that exposes the dashboard.",
+      "rewrite_notes": "Keep. Fix .aiur/examples/config.example, whose server comment still claims 'host omitted = authenticated Tailscale IP when available' although AGENTS.md and the reference say there is no Tailscale detection.",
+      "loc_saving_estimate": 0,
+      "docs": "configuration.md#server"
+    },
+    {
+      "id": "config-27",
+      "name": "Supervisor decision policy (decisions.*)",
+      "surface": "config",
+      "description": "decisions.supervisor_allowed_kinds and supervisor_allow_non_reversible: which Decision kinds an authenticated supervising Executor (AIUR_SUPERVISOR_TOKEN bearer) may answer through the Decision API.",
+      "modules": [
+        "src/lib/aiur/config/schema/decisions.ex (62)",
+        "src/lib/aiur/decision_authority.ex (141)",
+        "gated API (not counted): decision_api*.ex 750"
+      ],
+      "entry_points": [
+        "decisions.supervisor_allowed_kinds",
+        "decisions.supervisor_allow_non_reversible",
+        "AIUR_SUPERVISOR_TOKEN"
+      ],
+      "lib_loc": 203,
+      "test_loc": 1506,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): both keys 0/22 and 0 examples. AIUR_SUPERVISOR_TOKEN is present but blank in all three dotenv files that name it (~/.aiur/.env, aiur/.env, kevinweaver-dev/.env; names-only scan), so the API is disabled on every host. meta/recurring-issues.md Rank 2 (~110 citations): agents 'asked ten times over hours ... the Executor was forbidden to answer'; #2262 'supervisor token empty'. test_loc = decision_api/authority tests (shared with the decisions surface).",
+      "recommendation": "cut",
+      "rationale": "A policy layer for an API that is disabled everywhere, while the recurring failure it was meant to solve (Executor cannot answer decisions) continues.",
+      "rewrite_notes": "Replace with one explicit Executor-authority rule in the decisions package (who may answer what), not a token + two keys + API; decide with the decisions-surface inventory.",
+      "loc_saving_estimate": 200,
+      "docs": "configuration.md#decisions, #observability"
+    },
+    {
+      "id": "config-28",
+      "name": "Event digest tuning (events.*)",
+      "surface": "config",
+      "description": "events.block_state_debounce_seconds, custom_events_per_turn_max, codeowners_refresh_seconds.",
+      "modules": [
+        "src/lib/aiur/config/schema/events.ex (25)",
+        "accessors in config.ex (~15)"
+      ],
+      "entry_points": [
+        "events.block_state_debounce_seconds",
+        "events.custom_events_per_turn_max",
+        "events.codeowners_refresh_seconds"
+      ],
+      "lib_loc": 40,
+      "test_loc": 0,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): all three 0/22 and 0 examples. custom_events_per_turn_max: Config.events_custom_events_per_turn_max/0 has zero callers in src/lib (rg) - documented ('Caps custom events per turn') but unimplemented.",
+      "recommendation": "cut",
+      "rationale": "Never tuned; one key does nothing.",
+      "rewrite_notes": "Hardcode debounce and CODEOWNERS refresh in their modules; delete custom_events_per_turn_max.",
+      "loc_saving_estimate": 40,
+      "docs": "configuration.md#events"
+    },
+    {
+      "id": "config-29",
+      "name": "Warm-base prewarm keys (prewarm.*)",
+      "surface": "config",
+      "description": "prewarm.enabled, base_build (inline) / base_build_file (sibling script), poll_seconds; drives the shared pre-built base checkout (RepoBase).",
+      "modules": [
+        "src/lib/aiur/config/schema/prewarm.ex (24)",
+        "base_build_file resolution in src/lib/aiur/workflow.ex (~25)",
+        "gated runtime (not counted): repo_base.ex 1539"
+      ],
+      "entry_points": [
+        "prewarm.enabled",
+        "prewarm.base_build",
+        "prewarm.base_build_file",
+        "prewarm.poll_seconds"
+      ],
+      "lib_loc": 49,
+      "test_loc": 0,
+      "usage": "regular",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): prewarm.enabled set 7/7, true in 2 (aiur, kevinweaver-dev); base_build_file 2/7 (same two); inline base_build 0/22; poll_seconds 6/7 (1 non-default: aiur). meta/recurring-issues.md lists prewarm.enabled:false among 'config mitigations marked restore once fixed'.",
+      "recommendation": "keep",
+      "rationale": "Used by both Elixir dogfood repos; small config layer.",
+      "rewrite_notes": "Keep; accept only the file form (inline base_build never used).",
+      "loc_saving_estimate": 0,
+      "docs": "configuration.md#prewarm"
+    },
+    {
+      "id": "config-30",
+      "name": "Alert sounds (alerts.*)",
+      "surface": "config",
+      "description": "alerts.enabled, use_os_default_sounds, sound_dir, alerts_file (topic->sound map, .aiur/alerts; examples alerts.linux/macos.example): local audio playback for alerts.",
+      "modules": [
+        "src/lib/aiur/config/schema/alerts.ex (32)",
+        "sound playback portion of src/lib/aiur/alerts.ex (~300 of 746, approx)",
+        "src/lib/aiur/init/alerts.ex (97)"
+      ],
+      "entry_points": [
+        "alerts.enabled",
+        "alerts.use_os_default_sounds",
+        "alerts.sound_dir",
+        "alerts.alerts_file"
+      ],
+      "lib_loc": 430,
+      "test_loc": 0,
+      "usage": "occasional",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): alerts.enabled set 5/7: explicitly disabled in 3 public (global, config.archon, archon) and set in 2 private; unset (default on) in aiur and kevinweaver-dev. use_os_default_sounds 4/7 (3 non-default); alerts_file 2/7 (both private); sound_dir 0/22. alerts tests (1,607 lines) mix emission and sound; sound share unknown, so test_loc left 0.",
+      "recommendation": "externalize",
+      "rationale": "Desktop sound playback is a notifier concern, off in most public configs; it shares alerts.ex with the core alert feed.",
+      "rewrite_notes": "Split alert emission (core) from sound playback; move playback to a notifier sidecar (the Stream Deck sidecar pattern) that subscribes to the feed; drop sound_dir.",
+      "loc_saving_estimate": 400,
+      "docs": "configuration.md#alerts"
+    },
+    {
+      "id": "config-31",
+      "name": "PR-health scan (pr_health.*)",
+      "surface": "config",
+      "description": "pr_health.enabled/interval_seconds/stale_hours: scan open PRs for unmergeable authorship, stale unreviewed PRs and rework re-queue.",
+      "modules": [
+        "src/lib/aiur/config/schema/pr_health.ex (27)",
+        "src/lib/aiur/orchestrator/pr_health_scanner.ex (373)"
+      ],
+      "entry_points": [
+        "pr_health.enabled",
+        "pr_health.interval_seconds",
+        "pr_health.stale_hours"
+      ],
+      "lib_loc": 400,
+      "test_loc": 371,
+      "usage": "regular",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): enabled in 1/7 (aiur) and 2 historical aiur versions; interval/stale at defaults. Run logs: 41 system.pr_health.stale_unreviewed + 27 system.pr_health.unmergeable_author alert lines across 30 ~/.aiur/logs/*/log/alerts.ndjson.",
+      "recommendation": "keep",
+      "rationale": "Fires real alerts in the dogfood repo; small.",
+      "rewrite_notes": "Keep; consider default-on for GitHub and hardcode interval/stale_hours.",
+      "loc_saving_estimate": 0,
+      "docs": "configuration.md#pr-health"
+    },
+    {
+      "id": "config-32",
+      "name": "Repo-wide PR comment watching (pr_watch.*)",
+      "surface": "config",
+      "description": "pr_watch.enabled, watch_label (agent:watch), command_prefix (/aiur): act on trusted comments on PRs Aiur did not open.",
+      "modules": [
+        "src/lib/aiur/config/schema/pr_watch.ex (28)",
+        "src/lib/aiur/orchestrator/command_scan.ex (417, gated entirely by pr_watch.enabled)",
+        "src/lib/aiur/events/pr_command_scanner.ex (159)",
+        "watch-label branch of orchestrator/comment_polling/target_selection.ex (~100 of 526)"
+      ],
+      "entry_points": [
+        "pr_watch.enabled",
+        "pr_watch.watch_label",
+        "pr_watch.command_prefix"
+      ],
+      "lib_loc": 704,
+      "test_loc": 657,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): all three keys 0/22 (commented in config.example). `rg -c '\"agent:watch\"'` over the research issue and label-event exports for aiur, archon, archon-docs, khala, aiur-claude, kevinweaver-dev: 0 hits. CommandScan.run returns early unless Aiur.GitHub.Config.pr_watch_enabled?/0.",
+      "recommendation": "cut",
+      "rationale": "Opt-in path never enabled, never labelled; ~700 lines plus tests.",
+      "rewrite_notes": "Remove keys, CommandScan, PrCommandScanner and the watch-label target selection.",
+      "loc_saving_estimate": 700,
+      "docs": "configuration.md#pr-watch"
+    },
+    {
+      "id": "config-33",
+      "name": "ElevenLabs voice keys (elevenlabs.*)",
+      "surface": "config",
+      "description": "elevenlabs.api_key ($ELEVENLABS_API_KEY fallback), language_code, voice_id for Stream Deck/dashboard dictation and spoken replies.",
+      "modules": [
+        "src/lib/aiur/config/schema/eleven_labs.ex (26)",
+        "accessors + env fallback in config.ex/schema.ex (~20)",
+        "src/lib/aiur/init/eleven_labs.ex (73)",
+        "gated voice runtime (not counted): src/lib/aiur/eleven_labs/* 1199"
+      ],
+      "entry_points": [
+        "elevenlabs.api_key",
+        "elevenlabs.language_code",
+        "elevenlabs.voice_id",
+        "ELEVENLABS_API_KEY"
+      ],
+      "lib_loc": 119,
+      "test_loc": 0,
+      "usage": "rare",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): elevenlabs section 0/22. The credential comes only from the environment: ELEVENLABS_API_KEY is set in ~/.aiur/.env and aiur/.env (names-only scan). voice_id 0/22, so Aiur.ElevenLabs.TTS (135 lines) returns 'not configured' on every host - dashboard spoken replies are unused.",
+      "recommendation": "simplify",
+      "rationale": "Speech-to-text works through the env var alone; the config section adds nothing in practice and TTS is never configured.",
+      "rewrite_notes": "Env-only credential; drop the config section (or keep voice_id only if TTS survives); move voice to a separate package with the Stream Deck.",
+      "loc_saving_estimate": 110,
+      "docs": "configuration.md#elevenlabs"
+    },
+    {
+      "id": "config-34",
+      "name": "Upgrade notice opt-out (upgrade.check_enabled)",
+      "surface": "config",
+      "description": "upgrade.check_enabled toggles the `aiur run` npm version notice; AIUR_UPGRADE_CHECK_DISABLED and legacy AIUR_NO_UPDATE_NOTIFIER do the same.",
+      "modules": [
+        "src/lib/aiur/config/schema/upgrade.ex (19)",
+        "upgrade_check_enabled?/1 in config.ex (~10)"
+      ],
+      "entry_points": [
+        "upgrade.check_enabled",
+        "AIUR_UPGRADE_CHECK_DISABLED",
+        "AIUR_NO_UPDATE_NOTIFIER"
+      ],
+      "lib_loc": 29,
+      "test_loc": 0,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): 0/22 and commented in config.example. The check never runs under aiurdev (reference), which is how every Executor transcript launches Aiur.",
+      "recommendation": "simplify",
+      "rationale": "Three ways to disable one notice.",
+      "rewrite_notes": "Keep one env var; drop the key and the legacy alias. Upgrade logic (upgrade.ex, 701) belongs to the CLI surface.",
+      "loc_saving_estimate": 25,
+      "docs": "configuration.md#upgrade"
+    },
+    {
+      "id": "config-35",
+      "name": "Top-level debug key",
+      "surface": "config",
+      "description": "`debug: true` enables file logging/debug UI without the --debug flag.",
+      "modules": [
+        "field in src/lib/aiur/config/schema.ex + reads (~10)"
+      ],
+      "entry_points": [
+        "debug",
+        "--debug"
+      ],
+      "lib_loc": 10,
+      "test_loc": 0,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): debug 0/22 (commented in config.example); operators use the --debug CLI flag (AGENTS.md 'Recording chat panes over time').",
+      "recommendation": "cut",
+      "rationale": "Duplicate of the CLI flag; never set.",
+      "rewrite_notes": "Remove; keep --debug.",
+      "loc_saving_estimate": 10,
+      "docs": "configuration.md#top-level"
+    },
+    {
+      "id": "config-36",
+      "name": "Environment variable schema and dotenv layering",
+      "surface": "config",
+      "description": "Aiur.Env.Schema declares ~66 env vars (type, group, secret, docs), validates at startup, renders .env.example (CI drift check), and implements shell > ./.env > ~/.aiur/.env layering with GitHub credentials resolved as one group.",
+      "modules": [
+        "src/lib/aiur/env.ex, src/lib/aiur/env/schema.ex, src/lib/aiur/env/types.ex (828)",
+        "src/lib/aiur/init/dotenv.ex (60)"
+      ],
+      "entry_points": [
+        "~/.aiur/.env",
+        "./.env",
+        ".env.example",
+        "mix aiur.env.example",
+        "scripts/check-env-example.py"
+      ],
+      "lib_loc": 888,
+      "test_loc": 645,
+      "usage": "heavy",
+      "usage_evidence": "Names-only scan of dotenv files: ~/.aiur/.env sets 8 names (+1 blank), aiur/.env 4 (+1 blank), kevinweaver-dev/.env 3 (+1 blank). Every run validates the schema at boot. Detailed per-variable usage belongs to the env/CLI surface inventory.",
+      "recommendation": "keep",
+      "rationale": "Single source for env vars with startup validation; used on every boot.",
+      "rewrite_notes": "Keep in the config package; prune variables whose features are cut (supervisor token, Linear, voice if externalized).",
+      "loc_saving_estimate": 0,
+      "docs": "configuration.md#environment-variables; AGENTS.md Auth"
+    },
+    {
+      "id": "config-37",
+      "name": "Config reference docs, docs checker and annotated templates",
+      "surface": "config",
+      "description": "website/docs-app/reference/configuration.md (834 lines), scripts/check-config-docs.py (169) + scripts/test-check-config-docs.sh, src/test/aiur/configuration_reference_test.exs (140), .aiur/examples/config.example (203, embedded by aiur init) and src/examples/workflows/{github-claude,github-codex,linear-codex}.yaml (294) + prompts.",
+      "modules": [
+        "website/docs-app/reference/configuration.md",
+        "scripts/check-config-docs.py",
+        "scripts/test-check-config-docs.sh",
+        ".aiur/examples/config.example",
+        "src/examples/workflows/*.yaml"
+      ],
+      "entry_points": [
+        "aiur init (template)",
+        "lint CI job (check-config-docs)"
+      ],
+      "lib_loc": 0,
+      "test_loc": 140,
+      "usage": "heavy",
+      "usage_evidence": "Checker re-run against the snapshot (copy with REPO_ROOT patched): 'all 183 config keys are documented'. Reference doc 99 commits, config.example 62 commits (git log at 3339b88). Drift found: (1) 4 documented keys have no runtime consumer (observability.dashboard_enabled/refresh_ms/render_interval_ms, events.custom_events_per_turn_max); (2) the agent.<backend> and top-level <backend> shorthands, used in 2 live configs, are undocumented; opencode.db_path/prewarm_workspace readers are undocumented and unreachable; (3) config.example says server.host omitted = Tailscale IP, contradicting the reference; (4) agent.codex.reset_time_zone doc names a `worker_host` key that does not exist (the key is worker.ssh_hosts); (5) the two GitHub examples set ~27 keys at their defaults (8 build_order, 10 budget, 3 planning, 2 telemetry retention, 2 takeover, 2 others) and github-codex.yaml sets polling.interval_seconds: 30 against the documented budget rationale; (6) the aiur snapshot config comment says deepseek needs enabled:true despite being in priority, which the reference says auto-enables.",
+      "recommendation": "simplify",
+      "rationale": "Three hand-maintained copies (schema comments, reference table, templates) plus a regex checker keep drifting; the checker only proves a key string appears, not that it works.",
+      "rewrite_notes": "Generate the reference table and the annotated template from the schema (type, default, one-line doc per field) and delete the regex checker and configuration_reference_test; shrink examples to non-default essentials. Estimated ~400 non-lib doc/template lines removable (counted in loc_saving_estimate).",
+      "loc_saving_estimate": 400,
+      "docs": "website/docs-app/reference/configuration.md; AGENTS.md 'Docs ship with the change'"
+    },
+    {
+      "id": "config-38",
+      "name": "Config.Paths state-directory registry",
+      "surface": "config",
+      "description": "Aiur.Config.Paths: log root, repo name, sanitize, and per-repo durable state directories (decisions, usage ledger, executor, takeover, balance baseline...). Not operator config keys.",
+      "modules": [
+        "src/lib/aiur/config/paths.ex (354)"
+      ],
+      "entry_points": [
+        "Aiur.Config.Paths.*"
+      ],
+      "lib_loc": 354,
+      "test_loc": 229,
+      "usage": "heavy",
+      "usage_evidence": "codebase/feature-boundaries.md: Config.Paths has 20 boundary callers. No config key; used on every run.",
+      "recommendation": "merge",
+      "rationale": "A runtime-state path registry living in the config namespace; it couples every stateful package to Config.",
+      "rewrite_notes": "Move to a small runtime-state/paths package (merge with the state-store surface); each package registers its own path key.",
+      "loc_saving_estimate": 0,
+      "docs": "none (internal)"
+    },
+    {
+      "id": "config-39",
+      "name": "Memory tracker kind (tracker.kind: memory)",
+      "surface": "config",
+      "description": "In-memory tracker adapter selected by tracker.kind: memory (or a top-level memory: section); flat workspace layout.",
+      "modules": [
+        "src/lib/aiur/memory/config.ex (10)",
+        "src/lib/aiur/memory/tracker.ex (193)"
+      ],
+      "entry_points": [
+        "tracker.kind: memory",
+        "memory: (top-level section inference)"
+      ],
+      "lib_loc": 203,
+      "test_loc": 0,
+      "usage": "none-found",
+      "usage_evidence": "Real-config scan (22 distinct files: 7 current incl. 2 private + 15 historical; flatten.rb/usage_matrix.tsv, see coverage_notes): tracker.kind is github in every real config; `rg '\"memory\"|kind: memory'` finds 37 test files using it and no launcher/script path (scripts/aiurdev, aiur-engine.sh) selecting it.",
+      "recommendation": "simplify",
+      "rationale": "A test double shipped in the release.",
+      "rewrite_notes": "Move to test support (or a test-only package); drop the memory: section inference.",
+      "loc_saving_estimate": 203,
+      "docs": "configuration.md#tracker"
+    }
+  ]
+}

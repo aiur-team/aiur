@@ -1,0 +1,76 @@
+{
+  "verdicts": [
+    {
+      "id": "codebase-02",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high",
+      "corrected_claim": "Both the original survey graph and an independent AST reference graph put 35 of 36 candidate boundaries in one strongly connected component, with DEV alone; all 12 grouped families remain mutually reachable. The independent graph at the report revision 0972f0297 has 1,062 defined modules, 3,849 primary-module edges and 98 mutually dependent boundary pairs. At 3339b8871 it has 1,066 modules, 3,872 edges and the same 98 pairs. These are method-specific source-reference counts, not a proof that every boundary is unextractable or a count of runtime calls. Treat the large SCC as a reason to assign ownership and inspect particular contracts before extraction.",
+      "method": "Independent parser: elixir --erl \"+S 2:2 +SDcpu 1 +SDio 1\" tooling/module_references.exs <snapshot> > <refs.tsv>; python3 tooling/graph_summary.py <refs.tsv> tooling/boundary-map.json --relocations tooling/relocation-rules.json. Run separately against git archive 0972f0297 src/lib and the complete 3339b8871 snapshot. The candidate taxonomy and proposed relocation rules are definitions retained from the survey; source parsing and graph traversal are independent. AST parsing does not compile or load Aiur. Compared edge identities with scratch/deps.json only after generating the independent graph: all 3,849 baseline edges occur in the old graph; 163 old edges are absent, including 47 cross-boundary edges. Read representative differences in app_server/tool_call_ledger/storage.ex:4,58; claude/repl/launcher.ex:51,60; coding_agent/route_failure.ex:40. Summary evidence is graph-audit-0972f0297.json and graph-audit-3339b887.json.",
+      "note": "The old 4,012-edge count includes alias/prefix and quoted-text references the AST method excludes, while the AST method does not expand Phoenix HEEx or other macros. A quoted documentation link to OpenAICompat.Transport is not a real backend dependency. Conversely, module references inside HEEx may be actual compiled calls. Neither graph is a proven lower bound or a complete runtime dependency graph. Repository placement is a design decision; the SCC alone does not establish a universal impossibility of extracting a package.",
+      "commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+      "verification_mode": "sequential reproduce and interpret checks by the continuing researcher"
+    },
+    {
+      "id": "codebase-03",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high",
+      "corrected_claim": "The original synthetic scenario is reproducible as a design hypothesis, but its totals depend on the parser and candidate layering. The independent AST graph has 311 upward edges out of 2,076 cross-boundary edges at 0972f0297. Applying the same proposed rules relocates 57 modules, deletes 70 edges and leaves 119 upward edges (a 61.7% modeled reduction). At 3339b8871 the figures are 312 of 2,087, 58 relocations, 70 deletions and 119 remaining (61.9%). Alerts has 56 source-module users across 17 candidate boundaries at the earlier revision and 57 across 17 later. These simulations estimate graph changes only; no latency, quota, LOC saving or successful package extraction has been measured.",
+      "method": "Independent parser: elixir --erl \"+S 2:2 +SDcpu 1 +SDio 1\" tooling/module_references.exs <snapshot> > <refs.tsv>; python3 tooling/graph_summary.py <refs.tsv> tooling/boundary-map.json --relocations tooling/relocation-rules.json. Run separately against git archive 0972f0297 src/lib and the complete 3339b8871 snapshot. The candidate taxonomy and proposed relocation rules are definitions retained from the survey; source parsing and graph traversal are independent. AST parsing does not compile or load Aiur. Independently applied the original relocation/inversion predicates to the newly parsed edges. Inversions at both revisions: 23 config registrations, 17 Orchestrator callbacks, 13 backend registrations, 10 remote capabilities, 5 alert-state reads, 2 tracker registry edges. Inspected the missing 14th backend edge: coding_agent/route_failure.ex:40 mentions OpenAICompat.Transport in @doc, not executable code. Read Config.Schema, CodingAgent and Tracker coupling through their AST edges and direct source references.",
+      "note": "The modeled fall is of similar magnitude to the reported 320 -> 125, but calling the remaining work mostly mechanical overstates the evidence. Edge deletion stands in for unimplemented event ordering, error handling, schema registration and lifecycle contracts; replacement edges and process overhead are not modeled. Layer levels are proposed architecture, not an independently measured correctness property. The simulation cannot justify a saving claim or an implementation estimate.",
+      "commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+      "verification_mode": "sequential reproduce and interpret checks by the continuing researcher"
+    },
+    {
+      "id": "codebase-04",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high",
+      "corrected_claim": "The central dispatch/control/CI reducers still share one Orchestrator GenServer and a State struct with 100 top-level fields at both checked revisions. Exactly 26 files contain the stated in-process documentation sentence. Orchestrator.ex is 996 lines, with 100 distinct direct-def names, 110 names including delegates, 138 syntactic name/arity signatures and 104 handle_* clauses. The all-library history census counts 130 appearances of this path since 2026-06-01, the most in that census. The July extraction retained the central process/state seam, but it is false that every module in the five candidate orchestration boundaries runs in that process: SnapshotStore and the periodic PRHealthScanner are separate workers, among others.",
+      "method": "Parsed orchestrator.ex and orchestrator/state.ex with Code.string_to_quoted! and Macro.prewalk, counting def/defdelegate heads and mixed atom/keyword defstruct fields (no module execution). rg -l \"All functions execute inside the orchestrator GenServer process\" src/lib/aiur returned 26. git log --since=2026-06-01 --format= --name-only 0972f0297 -- src/lib, counted per file, gives Orchestrator 130, aiur.ex 92, config.ex 66. Inspected git show 486df7f88 (#959), which moves bodies to helper modules while retaining use GenServer and delegation. Read orchestrator/snapshot_store.ex, orchestrator/pr_health_scanner.ex:20-50, orchestrator/state.ex:207 onward.",
+      "note": "The approximately 96 fields were counted with an undefined classification; the AST has 100. The 21 alert and approximately 17 cursor subcategories are judgments rather than language constructs and should not be added as disjoint categories. A path-filtered git log returns 128 commits because Git history simplification differs from the full-library path census; 130 is reproducible under the survey method. Structural ownership is the useful conclusion, not a proposal to split every helper into a process.",
+      "commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+      "verification_mode": "sequential reproduce and interpret checks by the continuing researcher"
+    },
+    {
+      "id": "codebase-05",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high",
+      "corrected_claim": "The GHR candidate remains 22 files and 7,220 lines at both revisions, including a 2,191-line ResourceStore and seven direct GenServer modules. Six ETS allocation call sites exist, including one private per-cycle table, rather than four total table sites. ResourceStore has 31 source-module referrers and four AST module targets; the older five-target count also counted the Config alias prefix. GHR depends on seven other candidate boundaries. It is an extraction candidate, not a package ready to move unchanged: ReadCache.Policy depends on webhook mode, ViewStateSweep on webhook activity and Build Order status, and WriteThrough on PollSnapshots review-thread invalidation/merging.",
+      "method": "Independent parser: elixir --erl \"+S 2:2 +SDcpu 1 +SDio 1\" tooling/module_references.exs <snapshot> > <refs.tsv>; python3 tooling/graph_summary.py <refs.tsv> tooling/boundary-map.json --relocations tooling/relocation-rules.json. Run separately against git archive 0972f0297 src/lib and the complete 3339b8871 snapshot. The candidate taxonomy and proposed relocation rules are definitions retained from the survey; source parsing and graph traversal are independent. AST parsing does not compile or load Aiur. Enumerated GHR files through the retained boundary map, summed splitlines, and inspected every use GenServer and :ets.new call. Sites: github/cycle_fetch_cache.ex:10; resource_store.ex:1299; read_cache.ex:245-246; open_issue_snapshot.ex:33; read_cache/metrics.ex:60. Read read_cache/policy.ex:506,534; view_state_sweep.ex:91-93,290; write_through.ex:204-219. The independent external-edge list confirms BO, CFG, GHB, GHC, ING, K and WS.",
+      "note": "Seven GenServer implementations do not prove seven live processes in any particular run. The additional WriteThrough -> PollSnapshots dependency preserves mutation-versus-delayed-webhook ordering; dropping or blindly inverting it can reintroduce stale review resolution. Keep freshness/version and invalidation contracts explicit. A separately owned cache package remains plausible after these contracts are defined; this is not evidence for a currently working extracted package.",
+      "commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+      "verification_mode": "sequential reproduce and interpret checks by the continuing researcher"
+    },
+    {
+      "id": "codebase-06",
+      "reproduce_holds": true,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "high",
+      "corrected_claim": "The ING candidate contains 40 files and 11,464 lines at both revisions. Orchestrator-owned state drives firehose, comment and CI polling; the comment path already performs I/O asynchronously and folds a correlated result back into State. Cursor, ETag, reconciliation and cadence fields remain in that state, so moving ownership out of the orchestration loop is a justified design direction. A dedicated listeners supervisor is an option, not a proven prerequisite for library packaging or a requirement to create exactly one process per source.",
+      "method": "Enumerated ING files from the retained taxonomy and independent AST module inventory. Read orchestrator/comment_polling.ex:1-10,35-60 and start_async/apply_async/apply_async_started; apply_async checks the poll reference before updating State. Read ci_lifecycle.ex:379-451 and the GithubCIPoller invocation, dispatcher.ex:133 and command_scan.ex, and the listed fields in state.ex:289-316. Checked event poller modules own fetch logic while results/cursors pass through Orchestrator state. This reproduces the responsibilities independently of the report graph.",
+      "note": "The finding supports separating poll scheduling/state from dispatch. The original \"not cuttable\" and \"must come first\" wording mistakes one migration strategy for a structural impossibility: a library can accept state and return results before a process migration. Any new owner must preserve stale-result rejection, rate-limit floors, pagination/reconciliation, cursor persistence and event ordering. This check did not measure delay caused by any source.",
+      "commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+      "verification_mode": "sequential reproduce and interpret checks by the continuing researcher"
+    },
+    {
+      "id": "codebase-10",
+      "reproduce_holds": true,
+      "interpret_holds": true,
+      "holds": true,
+      "confidence": "high",
+      "corrected_claim": "The Tracker behaviour mixes issue and code-host operations: it declares 15 callbacks, selects adapters in a hard-coded case, and the Linear implementation has seven explicit empty/unsupported callback stubs. At survey revision 0972f0297, 38 source modules reference Tracker; the later snapshot has 39. At both revisions, 64 modules in 18 boundaries outside GHC/GHB/GHR/GHD/ING reference GitHub modules; target counts remain Config 37, Client 11, Transport 10 and Tracker 9. Dispatcher directly calls conditional GitHub candidate fetch and blocked-by hydration. Separate issue-tracker and code-host capabilities are a supported design option; not every GitHub-specific caller is itself a defect.",
+      "method": "Independent parser: elixir --erl \"+S 2:2 +SDcpu 1 +SDio 1\" tooling/module_references.exs <snapshot> > <refs.tsv>; python3 tooling/graph_summary.py <refs.tsv> tooling/boundary-map.json --relocations tooling/relocation-rules.json. Run separately against git archive 0972f0297 src/lib and the complete 3339b8871 snapshot. The candidate taxonomy and proposed relocation rules are definitions retained from the survey; source parsing and graph traversal are independent. AST parsing does not compile or load Aiur. Counted @callback declarations in tracker.ex, read adapter/0 at the end of that file, and read linear/tracker.ex:88-103,136-140 for the five empty read callbacks and two unsupported label mutations. Inspected orchestrator/dispatcher.ex:537-542 and :1282. Computed exact primary-source-module sets for Tracker and the four named GitHub targets, excluding the five GitHub/ingestion boundaries from the latter counts. Original counts reproduce at their stated survey revision.",
+      "note": "The caller sets overlap and must not be summed. Code-host-specific code legitimately uses GitHub services; the contract concern is generic dispatch/control logic requiring those services despite the Tracker abstraction. Registration and capability interfaces can address that without promising existing Linear parity. Claims about separate repositories still require contract and migration validation.",
+      "commit": "3339b887196d5e9aefb273117a14bf33391ee41f",
+      "verification_mode": "sequential reproduce and interpret checks by the continuing researcher"
+    }
+  ]
+}

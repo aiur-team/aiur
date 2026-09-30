@@ -1,0 +1,200 @@
+[
+  {
+    "id": "cli-04",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The five flags form different contracts and cannot be cut as one unused group. The launcher inserts --interactive and --headless internally, so zero operator-typed occurrences cannot establish dead code. --no-dashboard is a documented foreground and background mode with a Remote Control safety check in AGENTS.md and the CLI reference. --logs-root was used by the isolated 2026-09-29 native Muse acceptance to keep the test run separate from the shared daemon; that is observed post-snapshot use, not evidence of frozen-period frequency. The guardrails acknowledgement is launcher-injected, and removing it changes the daemon's accepted launch contract. Consolidate internal mode handling if equivalent tests prove it; preserve the documented operator flags and safety behavior. Any line saving must be measured after implementation. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-20",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "A search that finds no `.aiurconfig` on the research host cannot measure installed users who still have one. The documented behavior deliberately rejects a legacy file with an actionable migration error, while config discovery otherwise falls through to `~/.aiur/config`. Removing that guard risks silently running a different workflow for a user who expected the local legacy file to apply. The 134-line gross estimate is too small to justify a compatibility break without a measured installed population and an equivalent fail-closed detection path. Keep the migration guard or replace it with a smaller equivalent; test local and global discovery precedence. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-32",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "`executor-fast-forward` is an exceptional repair for a wake prefix already covered by another complete means. `.claude/skills/aiur-run/SKILL.md` and the CLI reference specify owner-lease checks, exact-prefix acknowledgement and preservation of newer wakes. Zero normal invocations is expected for an emergency recovery command and does not prove the recovery path is redundant with `executor-wait`, which acknowledges only its own successful consumption. Keep the capability unless an equivalent bounded recovery route is designed and tested. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-34",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "Automatic claims and lease expiry do not replace all manual authority transitions. `.claude/skills/aiur-run/SKILL.md` treats `executor-revoke` as an operator decision after roster evidence and expressly forbids an agent from revoking a live peer itself. `executor-release` permits immediate handoff instead of waiting for TTL; claim refusal makes ownership visible. The zero-use sample is not a safe reason to remove these incident controls. Preserve them behind explicit owner/authority checks, or design and prove an equivalent takeover contract before removing a verb. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-35",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The five commands combine an optional raw stream with persistent event-bus administration. `.claude/skills/aiur-run/SKILL.md` says `executor-listen` is optional, not obsolete, and describes `executor-emit` plus binding management for general Executor coordination; the CLI reference defines validated topic patterns. The zero invocation window does not measure all external operators or incident use. Consolidate the admin surface if the same event authority, replay, scope validation and observable receipts survive; do not delete the entire group based on a normal-loop usage count. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-11",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The evidence does not support deleting the agent chat capability or booking an 8,500-line saving. Aiur's documented human-driven foreground mode opens a live chat pane; AGENTS.md makes real TUI chat interaction the manual acceptance path. The 2026-09-29 native Muse acceptance used that path to display a skill read, an allow-once approval, a scoped tool result and a delivered follow-up. The inherited usage sample counts mostly headless runs and has no retained pane recordings, but a missing recording is not evidence that foreground users do not use the pane. The existing bridge's private opencode SQLite dependency is a valid simplification target. A plain transcript-backed TUI can replace it only after feature parity for rendered tool/prose output, typed operator input, queued delivery, approval commands, pause/resume and restart is demonstrated in the real CLI/TUI. Count removed lines after the replacement exists and includes its tests; moving the TUI to another package is relocation, not deletion. This challenge was performed by the continuing researcher, not an independent reviewer."
+  },
+  {
+    "id": "integrations-25",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "The frozen delivery census shows an actual failed webhook deployment, not an unused or redundant capability. `website/docs-app/apis/github.md` documents verified-delivery gating: failed or absent deliveries keep full polling and short cache TTLs; a proven delivery widens selected reconciliation reads and retires stale cache entries. Removing ingress would delete that conditional product contract and its event latency/reconciliation path. The cited 5,721 accepted deliveries in the earlier period show a real population, while 3,524 later 502 responses show the current path needs operational diagnosis. No quota saving may be claimed during the failed period, and the proposed 5,120-line deletion is a gross estimate that omits replacement work. Keep the capability while deciding whether to repair the deployment or replace transport; test loss recovery, signature validation and measured read displacement before any cut. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-44",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "Build Order is used in the counted pack and CLI populations, and `codebase/feature-boundaries.md` assigns it a coherent domain boundary but also records tracker, catalog, dashboard and projection dependencies. The raw proposal combines a plausible package seam with unproven deletion of catalog cadence, ticket history and selected-root policy. On-demand graph reads do not automatically preserve freshness, bounded GitHub cost, recursive membership or historical context; the inherited P0 detail-loop finding also makes read policy a correctness issue. Extract a package inside the repository after its identity, event, cache and read-model contracts are characterized. Defer repository separation and any 4,000-line deletion claim until equivalent behavior and measured physical lines exist. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-45",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The dashboard pages are a consumer of the Build Order read model, not a free-standing extraction merely because they share a name. No page-view telemetry exists, so 72 transcript URL mentions cannot measure ordinary use. The proposed collapse of PlanningSource, DataSource, SourceRuntime and ContextRuntime needs behavior tests for demo/no-source, selected root, loading, stale/error and ticket detail/history states. Keep the Phoenix presentation in the web app while moving domain reads behind an explicit contract; count any deleted lines after the replacement, not from an estimated 2,000-line collapse. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-46",
+    "holds": true,
+    "recommendation": "externalize",
+    "note": "The planning-only `aiur-build` skill declares that it prepares durable packs and never runs Aiur or implements tickets; that is a real ownership seam from the daemon. The source inventory counts actual pack directories and skill reads, so the skill is not dead. Externalize only as a separately versioned skill/plugin with its planning contract, documentation links, template loading and tests intact; ensure a later `aiur-run` can consume the same pack schema. Moving the skill to another repository removes no product complexity and creates no net LOC saving by itself. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "ui-12",
+    "holds": true,
+    "recommendation": "cut",
+    "note": "The frozen production code does not select `PlanningSource` through a run config, but the raw usage note missed `src/test/aiur/build_order/pack_status_test.exs`, which calls `PlanningSource.catalog/0` and `demand/1`. Cut the production demo data source only after moving those test fixtures behind the real data-source contract and preserving documentation screenshots that depend on it. The proposed 926 source lines plus bundled JSON are a gross footprint; replacement test fixture lines and any retained examples must be subtracted from a measured net deletion. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "ui-30",
+    "holds": true,
+    "recommendation": "cut",
+    "note": "The frozen source registers `Hooks.DomSvgLayout` in `layouts.ex:252-253` and tests its worker through a dedicated browser script, but a full `phx-hook=\"DomSvgLayout\" search over `src` finds no mounted element. The Build Order grid uses its separate hook. That makes the ELK/DOM-SVG runtime a credible removal candidate, including its 6,312-line vendored worker, which is already over the 500-line file limit. Before deletion, search generated templates and dynamic hook names, remove the loader and packaging checks together, and run the real Build Order browser flow. Count the deleted files exactly; the raw LOC estimate omitted the worker. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "ui-33",
+    "holds": true,
+    "recommendation": "cut",
+    "note": "The frozen AGENTS.md explicitly claims `--debug` records each chat pane as `log/record/chat.<issue>.ansi` and keeps ANSI with `capture-pane -e`, but the source search found no recorder or stitching implementation and no retained record directory. This is a documentation defect rather than code to delete. Remove or qualify the three claims in AGENTS.md, the TUI guide and the debug skill unless the recorder is implemented and manually verified; no source-LOC saving can be booked for this cut. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-46",
+    "holds": true,
+    "recommendation": "merge",
+    "note": "The default launcher resolves the packaged share/aiur.tmux.conf after optional AIUR_TMUX_CONF and user configuration, while scripts/verify-ctrlc-binding.sh tests scripts/aiur.tmux.conf. The two tracked copies differ materially: the test copy has synchronized-output advertising and a C-q hide binding, and the packaged copy retains the old h=...; $h form that the regression harness comment says raw-kills a pane on Ctrl+C. The source comparison is a strong defect signal, but no live packaged-keypress reproduction is claimed here. Merge the files by choosing one tested packaged source, then run the real wrapper-client keypress regression against that exact file and test C-c, C-q and user override precedence. The 109-line estimate is gross deletion only; a retained regression test and comments count toward net LOC. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-18",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "The agent-workspace --test guard blocks ticket workers from resetting pinned GitHub sandbox tickets; it does not remove Executor-root manual testing. AGENTS.md still requires the real foreground CLI/TUI smoke path, and the launcher calls preflight_stale_manual_smoke on foreground startup and reap_stale_manual_smoke on stop. The inventory uses same-user, workspace-path and tmux-aliveness checks before reaping stale BEAMs, plus orphan-attach and wrapper-socket checks. One explicit CLI use does not count automatic preflight/stop executions or the loss from abandoned child processes. Preserve scoped stale cleanup while the smoke harness exists; simplify inventory only after measuring false-positive/false-negative behavior, and keep dry-run visibility before destructive cleanup. The 181-line estimate is an unsupported net saving. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-14",
+    "holds": true,
+    "recommendation": "merge",
+    "note": "The dispatch-budget latch is a distinct durable state. The CLI reference explicitly says resume cannot clear it, and the orchestrator has its own reset_dispatch_budget call path. Merging the spelling into `resume <id> --reset-budget` is plausible only if the implementation keeps an explicit per-ticket acknowledgement, rejects --all, preserves the latch reset transaction and documents that the flag changes two states. Do not remove the lifetime budget itself as an incidental simplification. The 35-line estimate is gross wrapper removal, not a measured net saving after parse/docs/tests. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-44",
+    "holds": true,
+    "recommendation": "externalize",
+    "note": "The dev-only sandbox reset and timer belong beside the test fixtures rather than in the shared product launcher, but Executor-root aiurdev --test remains the canonical real CLI/TUI acceptance path in AGENTS.md; only agent-workspace launches are blocked. An extraction must preserve a one-command foreground path that starts the actual release and tmux, preserves --allow-remote safety, explicit force/clear semantics and cleanup, and keeps the user-facing CLI guide accurate. --test3 has no observed invocations in the sample, which supports prioritizing its removal after checking the three-ticket scenario owner; it does not prove that --test can be deleted. The 300-line figure is gross source movement/deletion; count retained harness lines as relocation and run manual acceptance on the extracted command. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-08",
+    "holds": true,
+    "recommendation": "merge",
+    "note": "`watch` reads the daemon fleet view without a GitHub round trip and adds a persistent delta baseline, removed-row detection, attention/ask evidence and an ACTIONABLE section; the monitor skill names `watch --full` its primary board and `--changes` its periodic tick. A lower invocation count than `agents` therefore does not establish duplicate behavior. Consolidation into `agents --changes` can hold only if the same server-side baseline, full/changes/interval modes, freshness and actionable signals survive, including restart-baseline handling. Count eliminated code after an output-equivalence test; 280 lines is a gross estimate. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-10",
+    "holds": true,
+    "recommendation": "merge",
+    "note": "The low observed invocation count makes a dedicated usage command a reasonable consolidation candidate, but the output carries provider windows, observation age and reset time, including an explicit unknown state. A status section or JSON envelope must retain those fields and their source freshness; a dashboard or Stream Deck display does not by itself cover headless operators or script callers. Preserve documented `aiur usage` compatibility until callers can migrate, and measure the net deletion after adding the status presentation. The 80-line figure is predictive, not measured. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-28",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "The documented terminal analytics form supplies a selectable retained time window, Build Order scope and a timestamped JSON pressure series; the dashboard capture skill explicitly calls the /analytics page current data, not a frozen window. Zero invocations in the sampled transcript population does not prove that this read-only diagnostic contract has no other headless consumer. A cut would need a counted installed/API population and a replacement query that preserves source freshness, unavailable/null semantics and historical time filters. The raw 45-line estimate omits the renderer owned under subsystems-02 and does not establish meaningful net deletion. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-30",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "`github-usage` reports per-actor and per-credential Core, GraphQL and search request-count ceilings with reset windows; `github-cost` attributes Core/GraphQL points to call sites and reconciles a separate credential window. The GitHub API documentation and both CLI contracts warn against treating these as one metric. A common command family could present both only with distinct named schemas, units, windows and 0-versus-unknown states; changing the spelling saves about 26 wrapper lines at most while risking operator confusion. Keep the separate query contract until a measured demand and migration plan justify consolidation. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-36",
+    "holds": true,
+    "recommendation": "externalize",
+    "note": "The finding ledger is host-local Executor/meta bookkeeping with 73 sampled records and a documented aiur-meta workflow, so an independently versioned skill-owned tool is a plausible owner. Extraction must preserve repository state-node discovery, bounded record validation, append semantics, unfiled/latest-slug reduction, digest output and readable corrupt-record diagnostics. The existing `aiur findings` command is documented and used; ship a migration command and references before removing it. Moving the ledger/parser code is relocation, while only the thin CLI glue can count as net deletion after measurement. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-37",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "Asks are Executor-authored repository-operator requests with urgency, blocking, append-only resolution and notes. Commands are agent-originated decisions with offered options, optimistic versions, supersede/moot and ticket delivery. Their low-count ledgers do not make their authority and delivery contracts interchangeable. A shared presentation or notification layer may simplify status/watch, but moving asks into DecisionStore needs an explicit schema, authorization and migration design that preserves old ask history and does not send an operator-only request to an agent. The 120-line CLI estimate omits the store and migration cost. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-19",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The three dotenv parsers can drift, and the GitHub credential group precedence is subtle (#2638), but moving all resolution into the daemon does not preserve the frozen launcher contract. `run_aiur` calls `load_dotenv` before it chooses `AIUR_DEFAULT_DASHBOARD_HOST`, starts the release, and scrubs the run-only CI readiness token; the launcher needs some credential presence before BEAM boot, and `aiur init` has its own pre-daemon use. Consolidate a shared parser or generated contract only after specifying this preboot boundary, preserving shell-export precedence, blank handling, GitHub-group isolation and child scrubbing. The raw 70-line saving is speculative until the replacement code and tests are counted. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-22",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The proposed `npm i -g aiur-cli@<channel>` does not do everything the frozen command does. `cmd_upgrade` detects dev/Brew/unknown installs, refuses a live daemon unless --force, derives latest/next/nightly from installed version and registry tags, avoids downgrade, and explains restart behavior. Zero observed invocations and a stale global npm install support low priority, not equivalence of a raw npm command; installed-user use is not measured by Executor transcripts. Simplify or remove only with an explicit package-manager replacement and documented stop/channel/restart safety contract, then count actual removed lines. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "cli-24",
+    "holds": false,
+    "recommendation": "keep",
+    "note": "`aiur units` is a filtered catalog over current-run membership, including non-running tickets; the launcher and UnitsCLI share the Dashboard Units projection with scope, condition, format, source freshness and a versioned JSON envelope. `agents` and `watch` are active-agent fleet views and cannot express the non-running catalog. Thirteen observed Executor calls are a real population, not zero. A common CLI umbrella could reuse presentation code, but replacing Units with `agents --json` would need its own catalog query and schema, likely moving rather than deleting most lines. Retain the distinct query contract until equivalent output and net physical deletion are demonstrated. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-29",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "CODEOWNERS author matching is applied to comment content before agents see it; tracker trusted_accounts, allowed_users and human_mergers govern different identity/action questions. A single flat list would authorize people for actions they did not have before, or fail closed on legitimate repository owners. The frozen Codeowners module also handles path-specific rules and an explicit trusted-account fallback when no rule matches. Consolidate policy vocabulary and configuration ownership, but retain separate permissions for comment instructions, issue writes and merge authority; prove each against adversarial comments and missing CODEOWNERS. Dropping the runtime parser/refresh needs an equivalent current owner signal, not only an init-time seed. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-30",
+    "holds": true,
+    "recommendation": "merge",
+    "note": "The PR-health scan is configured in two of sixteen distinct configs and emits counted stale/unmergeable alerts, so retaining the scan is supported. ReworkRequeue writes a ticket state based on own-contribution diff since the latest CHANGES_REQUESTED review, distinguishing merge-only from addressed changes; that decision belongs in the single lifecycle authority if extraction preserves review-thread clearance, failed-write attention, head-change throttling and a bounded GitHub read policy. Do not merge it into a timestamp/head-SHA heuristic or erase the different alert classes. Actual net LOC saving and read rate require measurement after the move. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-31",
+    "holds": true,
+    "recommendation": "cut",
+    "note": "The frozen PrWatch schema defaults disabled, and the retained config census has zero of 68 enabling `pr_watch.*`; the one-off command and anchored human-PR paths therefore have no configured production population in that census. A cut is justified if a final census of shipped and external configs still finds no enabled deployment and there is no documented compatibility commitment. Remove the schema, poller, target-selection branch, docs and tests together, retaining safety that ignores human PR comments unless explicitly trusted. Count actual deleted lines, not the estimated branch size. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-36",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "No revision/enrichment event appeared in the retained decision population, but `executor-answer --supersede` and `executor-moot` are documented emergency controls for withdrawing or replacing an answer before an agent receives it. A zero-use normal window cannot establish those recovery semantics are obsolete. The decision-latency writer does have retained rows and the dashboard reads them, so it is not a dead pipeline. Simplify the storage/metrics implementation if a read-derived latency preserves event-time, source freshness and unknown paths; remove revision only after proving an equivalent pre-delivery withdrawal/replacement contract. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-37",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The HTTP Decision API was disabled in 30 retained boots, with no configured supervisor_allowed_kinds in the sampled configs, which establishes zero current enabled population there. The proposal that a future remote Executor can use the same RPC as the local CLI is not an equivalent authenticated network contract: DecisionApi includes bearer validation, fail-closed delegation and authority checks. A cut may be attractive, but first decide whether the first-class agent-operated Executor mode needs remote decision submission, count external deployments, and either keep this authority seam or specify and test a replacement. Do not count moving its policy into a new adapter as deletion. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-39",
+    "holds": false,
+    "recommendation": "simplify",
+    "note": "The append-only Asks ledger records Executor-authored requests for a repository operator, with urgency, blocking and explicit done notes. Commands are agent-originated, ticket-addressed decisions with offered answers, versioning and delivery back to a worker. Representing an ask as an Executor-created Command changes who can answer, where the answer goes and how history is reduced; five records are too small a population to prove equivalence. A common notification/read model could reduce duplicate presentation, but a store merge needs schema, authority and migration proofs before deletion. This is a continuing-researcher challenge, not an independent reviewer result."
+  },
+  {
+    "id": "integrations-40",
+    "holds": true,
+    "recommendation": "externalize",
+    "note": "The host-local Findings ledger has an observed 73-record population across four public repositories and serves the aiur-meta workflow, which is a sensible external ownership seam. Preserve bounded NDJSON validation, append behavior, state-node discovery, latest-slug/unfiled reduction and digest diagnostics in a versioned skill-side tool, then migrate documented `aiur findings` callers. The existing daemon CLI wrapper can be deleted only after a usable replacement exists; moving the ledger to another package is relocation, not net LOC reduction. This is a continuing-researcher challenge, not an independent reviewer result."
+  }
+]

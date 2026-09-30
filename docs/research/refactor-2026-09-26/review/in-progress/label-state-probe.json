@@ -1,0 +1,18 @@
+{
+  "status": "passed",
+  "method": "Compile exact frozen helper slices and the full pure Summaries module in an isolated Elixir process. Minimal Issue struct; actual label_names helper. No full StatusReport or poll pipeline execution.",
+  "sources": {
+    "src/lib/aiur/orchestrator/state.ex": "090b0516ce6a6a87345cb5da1aaef6f695d272d333f61d924ce446eb535f0663",
+    "src/lib/aiur/agent_events.ex": "361c84de983f9c5688ae6bd4d68cac1f510b69af974d0d6fd412ab85d29dd82e",
+    "src/lib/aiur/issue.ex": "00f6ef5a6856f65a6580faa63fda2f4da4bcbb9febdbeda0e546523c205efb8a",
+    "src/lib/aiur/agent_list/summaries.ex": "511b683448c3a153ffb7836a2b4fe6430dd50974b02fbbe576125a6dfb41c8e3"
+  },
+  "observations": [
+    "default_done: visible=false tag=\"agent:done\"",
+    "custom_done: visible=true tag=nil",
+    "marker_before_done: visible=true tag=\"agent:watch\"",
+    "done_before_marker: visible=false tag=\"agent:done\"",
+    "string_paused: predicate=true; sort after atom_paused despite lower identifier"
+  ],
+  "limits": "Synthetic helper boundary inputs establish deterministic behavior, not production prevalence, end-to-end reachability, or manual TUI verification. String work_state producer reachability remains open."
+}

@@ -1,0 +1,1337 @@
+{
+  "unit_id": "github-b",
+  "files_reviewed": 39,
+  "lines_reviewed_estimate": 15800,
+  "coverage_notes": "Read in full: all 39 unit files (resource_store, quota, issues, pull_requests, transport, read_cache, read_cache/policy, read_cache/identity, read_cache/metrics, graphql_cost, graphql_errors, errors, issue_state, labels, state_policy, quota_usage, quota_history, write_through, view_state_sweep, view_state_demand, request_log, request_origin, issue_dependencies, issue_relationships, resource_events, resource_fetch, review_threads, review_threads/reply, review_threads/resolution, review_threads/resolution_policy, local_hold, poll_snapshots, tracker, human_review_gate, host_command, merge_queue, open_issue_snapshot, repo_events, teams). Read in part outside the unit to verify claims: client.ex 160-240 and 276-329, events/publisher.ex 180-260, events/github_webhook/deposit.ex 860-946, build_order/github_graph/reconciliation.ex 40-110, build_order/catalog_store.ex 240-255, dispatch_authorization.ex 60-78, credential_selector.ex 155-224, budget.ex 318-326. Cross-tree duplication and caller counts come from grep over src/lib and src/test. Not reviewed: the unit's test files (only grep counts, used to show dead APIs kept alive by tests) and priv/github_quota_guard.sh (not present in the snapshot). Function sizes were measured: no function exceeds about 60 lines; the size problem is at module level (responsibility mix and doc volume), not in individual functions.",
+  "findings": [
+    {
+      "id": "github-b-01",
+      "category": "large-module",
+      "severity": "P1",
+      "title": "ResourceStore is a 2,191-line god module and the cross-package shared mutable state",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1-254"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "295-403"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "572-671"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1294-1515"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1784-2156"
+        }
+      ],
+      "description": "One module owns seven responsibilities: a closed registry of every consumer's resource types, an ETS compare-and-swap engine, the validator/body invariants, event-dedup 'processed marks' (an Events.Publisher concern), the retention sweep and body shedding, JSON checkpoint persistence and decoding, and a PubSub facade (defdelegates to ResourceEvents). Measured: 811 code lines, 512 comment lines, 656 doc lines (the moduledoc alone is 250 lines). The table is a public named ETS table written directly from callers' processes in at least five would-be packages (events, orchestrator, build_order, github read paths, github write-through). Any consumer adding a resource type must edit @resource_types in the store; the comments on that list name CommandScan, Build Order, DependenciesApi, CommentPollBatch and the Client lookup, so the store encodes other packages' vocabulary and cannot be carved without them.",
+      "evidence": "resource_store.ex 1299: \":ets.new(@table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])\"; 299-362: \"@resource_types [ :issue_comment, ... :branch_pull_request_listing ]\" with comments such as \"`Aiur.Orchestrator.CommandScan` used to keep their validators under its own call-site names\" and \"Build Order graph edges (#2313)\"; moduledoc 225-242: \"Writers: `Aiur.Events.GithubCommentsPoller` ... `Aiur.Orchestrator.CommandScan` ... `Aiur.Events.Publisher` marks individual comment resources processed\". Line split measured with a comment/doc counter: code=811 comment=512 doc=656 blank=213.",
+      "recommendation": "Split into ResourceStore.Key (key/key_for_repo/normalize_id plus an open type registry that each package contributes to at compile time), ResourceStore.Table (lookup, update_cas, pace, swapped?, announce), ResourceStore.Entry (pure transitions: deposit, deposit_etag, apply_processed_mark, held_body, storable_data), ResourceStore.Retention (sweep, shed_bodies, expired_body_keys, reload_entry) and ResourceStore.Checkpoint (encode_*/decode_*/load/write). Move processed?/mark_processed to an events-owned ProcessedMarks module (Events.Publisher is the only production caller). Move the design narrative out of @moduledoc into a design doc and keep the module doc to the contract.",
+      "refactor_hint": "Core of an aiur_github_store package. Processed marks belong with the events package. The type registry must be inverted so build_order and orchestrator register their own types instead of the store naming them.",
+      "effort": "L"
+    },
+    {
+      "id": "github-b-02",
+      "category": "anti-pattern",
+      "severity": "P1",
+      "title": "Order-sensitive store keys have five writers with three staleness policies; one is check-then-act and three are unguarded",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "296-323"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_fetch.ex",
+          "lines": "206-228"
+        },
+        {
+          "path": "src/lib/aiur/github/write_through.ex",
+          "lines": "224-242"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/reconciliation.ex",
+          "lines": "83-104"
+        },
+        {
+          "path": "src/lib/aiur/events/github_webhook/deposit.ex",
+          "lines": "861-876"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "192-200"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "395-403"
+        }
+      ],
+      "description": "The store says fetch-then-put loses writes and that the 2-arity update_resource/3 is the safe way to make a conditional write; the webhook Deposit does its regression check inside the swap. Issues.put_issue_resource does the same check outside the swap (fetch, compare, then put_resource), which is the check-then-act the store forbids, and its comment admits it must mirror Deposit by hand. ResourceFetch.store (the strict read HumanReviewGate uses for :branch_pull_request), WriteThrough.deposit (:issue, :pull_request) and Build Order reconciliation (:sub_issue) call put_resource with no regression check, although every one of these types is in @order_sensitive_types. A webhook body that lands during the fetch round trip is overwritten by the older fetched body, and fetched_at_ms is stamped 'now', so freshness-bounded readers are served the rollback.",
+      "evidence": "issues.ex 299-307: \"if regression?(key, version) do ... :ok else ResourceStore.put_resource(key, body, source: source, version: version, etag: etag)\"; issues.ex 318-320: \"defp regression?(key, version) do case ResourceStore.fetch(key) do {:ok, %{version: held}} when is_binary(held) and is_binary(version) -> version < held\"; issues.ex 317: \"Same rule and same reasoning as `Aiur.Events.GithubWebhook.Deposit.regression?/2` - the two must not drift.\"; deposit.ex 862-876: \"ResourceStore.update_resource(key, &accept(&1, &2, body, version), ...)\" / \"if regression?(held, version), do: :unchanged, else: body\"; resource_fetch.ex 212: \"ResourceStore.put_resource(key, data, source: ..., version: version, etag: etag)\"; resource_store.ex 395-403: \"@order_sensitive_types [:issue, :issue_labels, :pull_request, :branch_pull_request, :sub_issue, :issue_dependency, :issue_blocked_by]\".",
+      "recommendation": "Add one store primitive, ResourceStore.deposit_unless_older(key, body, opts), built on the 2-arity update_resource/3 and a single regression?/2 predicate moved from Deposit into the store. Route Issues.put_issue_resource, ResourceFetch.store, WriteThrough.deposit, reconciliation and Deposit through it. Delete Issues.regression?/2.",
+      "refactor_hint": "Store package API; removes the 'must not drift' coupling between github/ and events/.",
+      "effort": "M"
+    },
+    {
+      "id": "github-b-03",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "Review-thread reply mutation is retried after ambiguous failures and can post the reply twice",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/review_threads/reply.ex",
+          "lines": "1-9"
+        },
+        {
+          "path": "src/lib/aiur/github/review_threads/reply.ex",
+          "lines": "55-96"
+        },
+        {
+          "path": "src/lib/aiur/github/transport.ex",
+          "lines": "560-577"
+        },
+        {
+          "path": "src/lib/aiur/github/transport.ex",
+          "lines": "646-649"
+        },
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "lines": "199-203"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "lines": "313-317"
+        }
+      ],
+      "description": "do_reply_to_review_thread/7 retries addPullRequestReviewThreadReply whenever Errors.retryable_github_error?/1 is true. That includes a transport deadline (Transport turns {:error, :fetch_deadline_exceeded} into {:github, :transport, ...}) and every 5xx. In both cases GitHub may already have applied the mutation. The module doc claims 'a successful mutation is never posted twice', but a mutation whose response was lost is posted again. The read cache in the same unit treats any answered write, including a 500, as possibly applied. The later verification passes on the duplicate, because the latest comment's body equals the reply body.",
+      "evidence": "reply.ex 80-91: \"if Errors.retryable_github_error?(reason) and attempt < max_attempts do sleep_review_thread_retry(opts, attempt) do_reply_to_review_thread(...)\"; errors.ex 199-203: \"when kind in [:dns, :timeout, :tls, :transport, :rate_limited, :local_hold], do: true\" and \"{:github, :http, %{status: status}}) when status in 500..599, do: true\"; transport.ex 648: \"defp validate_graphql_response({:error, reason}), do: {:error, Errors.classify_error({:error, reason}), nil}\"; read_cache.ex 313-316: \"a write that failed somewhere past the server's front door may still have applied\".",
+      "recommendation": "Retry a mutation only for errors that prove the request never reached GitHub (local hold, broker timeout, DNS failure, connection refused). For ambiguous failures (deadline, closed socket, 5xx), re-read the thread with the existing verify path first and re-post only if the reply is absent. Add a test whose request_fun applies the mutation and then answers {:error, :fetch_deadline_exceeded}.",
+      "refactor_hint": "Add Errors.mutation_safe_to_retry?/1 in the transport package; every write path uses it instead of retryable_github_error?/1.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-04",
+      "category": "performance",
+      "severity": "P1",
+      "title": "Quota is a 1,380-line GenServer on every request's path that scans the filesystem and emits alerts in its callbacks",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "136-148"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "221-274"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "308-320"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "974-1015"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1137-1206"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1225-1232"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1351-1379"
+        }
+      ],
+      "description": "Every GitHub request makes a synchronous Quota.preflight GenServer.call (default 5 s timeout) and a cast observe. The same process also appends the durable request log, writes or removes hold files on every observed response, reads and parses every workspace's agent-requests.tsv (and .1) during snapshot, globs the workspace root for stale-broker markers on every snapshot and every refresh, emits alerts from inside a read (snapshot) call, and messages the Orchestrator. QuotaHistory calls snapshot every 30 s, and the dashboard and CLI call it too. While a snapshot reads files, preflight calls queue behind it; if one exceeds 5 s the catch returns :ok and the request goes out unmetered, so quota gating fails open without a signal. sync_hold_file/3 also calls File.rm on every observed response whose window is not exhausted. 914 code lines.",
+      "evidence": "137-140: \"GenServer.call(server, {:preflight, request}) catch :exit, _reason -> :ok\"; 253: \"state |> prune_backoffs(now) |> prune_observations(now) |> refresh_shell_observations(now) |> refresh_stale_broker_alerts()\"; 998-1000: \"[path <> \\\".1\\\", path] |> Enum.flat_map(&Path.wildcard(&1, match_dot: true)) |> Stream.flat_map(&shell_file_lines/1)\" with 1011 \"File.read(path)\"; 1173-1174: \"path |> Path.wildcard(match_dot: true)\"; 1354-1355: \"else remove_hold_file(state, \\\"#{resource}-hold\\\")\" -> 1375 \"_ = File.rm(Path.join(state.hold_dir, name))\".",
+      "recommendation": "Split into: (1) QuotaWindows, holding windows and backoffs in ETS so preflight and dispatch_status are ETS reads, not calls; (2) QuotaAttribution, the observation ring plus ranking and reconciliation (summarize_*, coverage/3 and reconciliation/1 are already pure); (3) AgentShellLogReader, a separate periodic process that ingests agent-requests.tsv and stale-broker markers and emits their alerts; (4) a hold-file writer that acts only on window-state transitions; (5) a RequestLog writer process that owns its io_device. Replace the Orchestrator send with a PubSub event.",
+      "refactor_hint": "Core of a github_budget package; the Orchestrator subscribes to a recovery event instead of being messaged by registered name.",
+      "effort": "L"
+    },
+    {
+      "id": "github-b-05",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Request classification (resource, direction, consumer, cost) is implemented in five places and the copies disagree",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "637-658"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1234-1292"
+        },
+        {
+          "path": "src/lib/aiur/github/request_log.ex",
+          "lines": "258-334"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "lines": "100-129"
+        },
+        {
+          "path": "src/lib/aiur/github/credential_selector.ex",
+          "lines": "159-224"
+        },
+        {
+          "path": "src/lib/aiur/github/budget.ex",
+          "lines": "323-325"
+        },
+        {
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "lines": "161-192"
+        }
+      ],
+      "description": "Quota and RequestLog carry copies of request_resource, request_direction, request_consumer, ticket_number_from_url/variables, find_ticket_number, valid_ticket_number and request_cost, with a comment saying 'the two must agree'. They already disagree: for a transport error on core, Quota records {1, :reported} and RequestLog records {1, :assumed}. There are four definitions of 'this GraphQL document is a mutation': Quota and RequestLog use ~r/^\\s*mutation\\b/i (start of string only, case-insensitive), ReadCache.Identity uses ~r/(\\A|\\n)\\s*mutation\\b/ (any line start, case-sensitive), CredentialSelector uses ~r/(\\A|[\\s{])mutation[\\s({]/, and GraphQLCost.query_root? strips comment trivia first. A document that starts with a '#' comment line and then 'mutation' is a read for attribution (Quota, RequestLog) but a write for cache invalidation (Identity) and for credential choice (CredentialSelector). 'Is this GraphQL' has two forms: URI path == \"/graphql\" (Quota, RequestLog, CredentialSelector) and a prefix match against a hard-coded base URL (Identity). Budget.request_resource is a fifth resource classifier via EndpointPolicy.",
+      "evidence": "quota.ex 638 \"defp attribution_response(_result), do: {nil, %{}}\" then 658 \"defp request_cost(_resource, _status, _response), do: {1, :reported}\"; request_log.ex 334 \"defp request_cost(_resource, _error), do: {1, :assumed}\"; request_log.ex 258-260 \"Every derivation below mirrors `Aiur.GitHub.Quota` ... the two must agree\"; quota.ex 1243 and request_log.ex 271 \"Regex.match?(~r/^\\s*mutation\\b/i, query)\"; identity.ex 127 \"Regex.match?(~r/(\\A|\\n)\\s*mutation\\b/, doc)\"; credential_selector.ex 219 \"Regex.match?(~r/(\\A|[\\s{])mutation[\\s({]/, document)\"; identity.ex 102 \"String.starts_with?(url, \\\"#{@base_url}/graphql\\\")\".",
+      "recommendation": "Extract Aiur.GitHub.RequestClass with resource/1, direction/1 (one mutation detector built on GraphQLCost's trivia stripping), consumer/1, cost/2 and graphql?/1. Compute it once in Transport and stamp the result on the request map, so Quota, RequestLog, ReadCache.Policy/Identity, CredentialSelector and Budget read the same fields.",
+      "refactor_hint": "Transport package; removes the reason RequestLog has to copy Quota's semantics.",
+      "effort": "M"
+    },
+    {
+      "id": "github-b-06",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "The GitHub layer depends upward on Orchestrator, BuildOrder, Workspace, Webhooks, CodingAgent and AgentGitHubGuard",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/transport.ex",
+          "lines": "466-477"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "36-45"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1110-1135"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1225-1232"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "7-22"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "936-952"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "1116-1117"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_relationships.ex",
+          "lines": "4-8"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_relationships.ex",
+          "lines": "63-69"
+        },
+        {
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "lines": "91-93"
+        },
+        {
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "lines": "199-222"
+        },
+        {
+          "path": "src/lib/aiur/github/labels.ex",
+          "lines": "18"
+        },
+        {
+          "path": "src/lib/aiur/github/labels.ex",
+          "lines": "77-116"
+        },
+        {
+          "path": "src/lib/aiur/github/host_command.ex",
+          "lines": "29"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache/policy.ex",
+          "lines": "182"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache/policy.ex",
+          "lines": "532-537"
+        }
+      ],
+      "description": "Lower layers call higher ones. Transport identifies the Orchestrator process by registered name to pick its deadline. Quota sends :github_quota_recovered to Aiur.Orchestrator and derives workspace paths from Workspace.Layout and Config.workspace_root. Issues calls Orchestrator.DispatchPolicy (terminal_issue_state?/2, terminal_state_set/0, resolve_state_labels/1) and BuildOrder.Bounded. IssueRelationships uses BuildOrder.TicketDetail.DestinationNormalizer. ViewStateSweep hard-codes Aiur.BuildOrder.PackStatus as a source and calls its reseed_demand/demanded?/refresh. Labels builds its label set from CodingAgent, HostCommand depends on AgentGitHubGuard, and Policy depends on Webhooks.ModeTable. PullRequests and ReviewThreads call Codeowners. These become dependency cycles once github/ is its own package.",
+      "evidence": "transport.ex 477 \"defp orchestrator_process?, do: self() == GenServer.whereis(Aiur.Orchestrator)\"; quota.ex 1226-1227 \"case Process.whereis(Aiur.Orchestrator) do pid when is_pid(pid) -> send(pid, :github_quota_recovered)\"; issues.ex 22 \"alias Aiur.Orchestrator.DispatchPolicy\" and 940 \"DispatchPolicy.terminal_issue_state?(issue.state, DispatchPolicy.terminal_state_set())\"; view_state_sweep.ex 91-93 \"@sources [Aiur.BuildOrder.PackStatus]\"; issue_relationships.ex 4 \"alias Aiur.BuildOrder.TicketDetail.DestinationNormalizer\"; labels.ex 80 \"CodingAgent.default_backend(), CodingAgent.default_rate_limit_fallback()\"; policy.ex 534 \"ModeTable.transport(\\\"#{owner}/#{repo}\\\")\".",
+      "recommendation": "Invert each edge: carry the deadline class on the request (deadline: :interactive) instead of comparing pids; publish quota recovery on PubSub; inject terminal-state sets and the multi-label resolver into Issues (or move them into StatePolicy); have ViewStateSweep read its sources from config and a ViewStateSource behaviour; move label-set composition (Labels.label_set/2) to the init/CLI layer that knows the backends; pass the paths Quota needs through start_link; take the webhook transport mode as a function injected into Policy.",
+      "refactor_hint": "Prerequisite for carving aiur_github as a leaf package; each edge is a seam to cut before the move.",
+      "effort": "M"
+    },
+    {
+      "id": "github-b-07",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "REST boilerplate, status mapping and Link pagination are hand-written at every call site",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "13-501"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "543-701"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "880-913"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "380-765"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "14-91"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "336-406"
+        },
+        {
+          "path": "src/lib/aiur/github/teams.ex",
+          "lines": "17-42"
+        },
+        {
+          "path": "src/lib/aiur/github/repo_events.ex",
+          "lines": "39-78"
+        },
+        {
+          "path": "src/lib/aiur/github/review_threads.ex",
+          "lines": "111-165"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_dependencies.ex",
+          "lines": "272-293"
+        }
+      ],
+      "description": "Each reader repeats the same lines to resolve repo, token and request_fun and to build the URL, then the same two error arms. Counts in the snapshot: `Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)` appears 59 times in lib (17 in pull_requests.ex, 7 in issues.ex, 3 in issue_state.ex); `Transport.parse_repo()` 17 times in pull_requests.ex; `Errors.github_status_error(response)` 14/8/5 times and `Errors.classify_error({:error, reason})` 14/4/5 times in pull_requests/issues/issue_state. Link-header pagination is written as separate recursive functions: PullRequests fetch_open_ticket_pull_request (159-185), fetch_open_ticket_pull_requests (218-240), fetch_open_ticket_pull_request_pages (318-347), fetch_check_runs (412-429), fetch_all_open_pull_requests (487-501), fetch_labeled_open_pull_requests (898-913); Issues fetch_label_issue_pages (682-701) and fetch_conditional_page (582-608); Teams.fetch_member_logins (27-42); plus GraphQL cursor loops in ReviewThreads and IssueDependencies. Most accumulate with `acc ++ page`.",
+      "evidence": "pull_requests.ex 16-19 (repeated in each public reader): \"with {:ok, {owner, repo}} <- Transport.parse_repo(), {:ok, token} <- Transport.require_token() do request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1) url = \\\"#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/...\\\"\"; repeated arms: \"{:ok, %{status: _status} = response} -> {:error, Errors.github_status_error(response)} {:error, reason} -> {:error, Errors.classify_error({:error, reason})}\"; pull_requests.ex 231 \"acc ++ matched\", 493 \"acc ++ body\".",
+      "recommendation": "Add Aiur.GitHub.Rest: request(method, repo_path, opts) that resolves repo, token, request_fun and a required caller and returns {:ok, response} | {:error, classified}; get_json(path, :map | :list, opts); and paginate(path, opts, reducer) supporting find-first (halt) and collect. Rewrite PullRequests, Issues, IssueState and Teams on it.",
+      "refactor_hint": "Transport package public API; domain modules become thin.",
+      "effort": "M"
+    },
+    {
+      "id": "github-b-08",
+      "category": "performance",
+      "severity": "P2",
+      "title": "The repo-wide open-PR listing is revalidated once per ticket per cycle and paginated by five separate functions",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "115-240"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "242-347"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "431-501"
+        },
+        {
+          "path": "src/lib/aiur/github/client.ex",
+          "lines": "170-218"
+        },
+        {
+          "path": "src/lib/aiur/github/human_review_gate.ex",
+          "lines": "105-140"
+        }
+      ],
+      "description": "GET /repos/:o/:r/pulls?state=open&per_page=100 is built in five functions, each with its own paginator and filter. The per-cycle caller, Client.fetch_open_pull_request_for_branch, runs once per human-review target (up to 25 per cycle, per the PullRequests doc) and keys the conditional read by ticket number. So the same page-1 URL is revalidated N times per cycle under N different validators, and any change on page 1 (any PR update) turns all N into full 200 reads of up to 100 PRs each. HumanReviewGate reads the same listing unconditionally on every gate check, and fetch_open_pull_requests_for_branch (merged-ticket reconciler) paginates it to exhaustion per ticket.",
+      "evidence": "pull_requests.ex 129-131: \"calls this once per human-review target - up to 25 a cycle\"; client.ex 200: \"key = ResourceStore.key_for_repo(:branch_pull_request_listing, repo_full_name(opts), issue_number)\"; listing URL built at pull_requests.ex 148/153, 206/211, 273-274, 454-455, 476-477; human_review_gate.ex 108: \"Unconditional, and it stays that way here (#2126)\".",
+      "recommendation": "Read the open-PR listing once per cycle into one per-repo entry (CycleFetchCache or a store key such as {:open_pull_requests, repo}) with a page-1 validator, and answer the per-ticket, per-label and all-PR questions as pure filters over that list. Keep one paginator.",
+      "refactor_hint": "A PR-listing projection in the GitHub read model; per-ticket functions become filters.",
+      "effort": "M"
+    },
+    {
+      "id": "github-b-09",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Production-dead public APIs are kept alive only by tests",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "503-525"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "568-607"
+        },
+        {
+          "path": "src/lib/aiur/github/client.ex",
+          "lines": "276-284"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "509-537"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "639-671"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1248-1257"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "472-527"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "632-680"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "720-765"
+        }
+      ],
+      "description": "PullRequests.fetch_pull_request_head_ref/2 and fetch_pull_request_head_ref_conditional/2 (with head_ref_conditional_response and the Client wrappers) have no caller in lib or test other than Client's pass-through. ResourceStore.claim/3, change_validator/1 and forget/1 have no production caller, yet carry long doc sections; Events.Publisher uses processed?/2 plus mark_processed/3 rather than claim/3. Issues exposes internal helpers as public API with no outside caller: fetch_issues_for_each_label, reduce_label_issues, do_fetch_issues_by_states, do_fetch_issue_states_by_ids, do_fetch_issue_states_by_ids_conditional, do_fetch_issues_by_id_list, reduce_fetch_issue, and do_list_issues, which has no caller at all.",
+      "evidence": "grep in snapshot: `ResourceStore.claim` lib=0 test=14; `ResourceStore.change_validator` lib=0 test=25; `ResourceStore.forget` lib=1 (a comment at dependencies_api.ex:133) test=5; `fetch_pull_request_head_ref` appears only in lib/aiur/github/pull_requests.ex and client.ex; `do_list_issues` has 2 hits, both its own @spec and def in issues.ex.",
+      "recommendation": "Delete the head_ref readers and their Client wrappers. Delete claim/change_validator/forget and their tests, or move them to test support. Make the Issues helpers defp. This also removes about 120 lines of store moduledoc describing states nothing reaches.",
+      "refactor_hint": "Shrinks the surface to carve; do it before splitting ResourceStore.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-10",
+      "category": "dead-code",
+      "severity": "P3",
+      "title": "Small internal duplicates and vestigial parameters",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "886-891"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1184-1194"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "2015-2021"
+        },
+        {
+          "path": "src/lib/aiur/github/transport.ex",
+          "lines": "637"
+        },
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "lines": "207-209"
+        },
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "lines": "231-242"
+        },
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "lines": "106-120"
+        },
+        {
+          "path": "src/lib/aiur/github/review_threads/resolution_policy.ex",
+          "lines": "17-27"
+        },
+        {
+          "path": "src/lib/aiur/github/review_threads/resolution_policy.ex",
+          "lines": "57-66"
+        }
+      ],
+      "description": "held_body/1 and held_entry/1 are the same function. encode_data/1 and decode_data/1 are identical. Transport.maybe_put_caller/2 only calls put_caller/2. Errors.transient_github_error?/1 ORs in github_status_transient?/1, which repeats a clause retryable_github_error?/1 already has. ResolutionPolicy.verify_review_thread_resolution_latest_reply/8 takes _request_fun and _token, which every caller passes as nil. classify_status/2 builds the same rate-limit detail map in its 403 and 429 arms.",
+      "evidence": "resource_store.ex 886-890 and 1186-1192 both: \"case Map.get(entry, :data) do nil -> nil data -> if expired?(Map.get(entry, :fetched_at_ms) || 0), do: nil, else: data\"; 2015-2021 \"defp encode_data(data) do if json_round_trips?(data), do: data, else: nil end defp decode_data(data) do if json_round_trips?(data), do: data, else: nil\"; transport.ex 637 \"defp maybe_put_caller(request, opts), do: put_caller(request, opts)\"; errors.ex 207-208 and 238-239 share the guard \"when status in [408, 429] or status in 500..599\"; resolution_policy.ex 23-24 pass \"nil, nil,\".",
+      "recommendation": "Collapse each pair and drop the unused parameters.",
+      "refactor_hint": "Mechanical cleanup during the move.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-11",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "Issues keeps parallel conditional and unconditional pipelines for three fetch families",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "39-99"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "380-431"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "513-765"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "767-891"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "250-275"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "1195-1215"
+        }
+      ],
+      "description": "fetch_candidate_issues, fetch_issues_by_states and fetch_issue_states_by_ids each exist in an unconditional and a conditional form (six entry points). The unconditional ones are live (AgentControlCli, DecisionStore, SessionLifecycle, IssueContext). The module has two pagination engines (fetch_label_issue_pages and fetch_conditional_page), three copies of the same ctx map (398-405, 532-539, 651-658), two implementations of '304 with no held body: retry once without the validator' (serve_not_modified_raw_issue 259-275 and materialize_not_modified_issue 825-860), and a private response_header/2 that duplicates Transport.header/2. Its 1,246 lines mix fetch, normalization (normalize_issue has 7 references in 4 other lib modules) and blocked-by hydration.",
+      "evidence": "ctx built three times: \"ctx = %{request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), token: token, owner: owner, repo: repo, prefix: GitHub.Config.label_prefix(), caller: ...}\"; issues.ex 1195-1199 \"defp response_header(headers, name) when is_list(headers) do Enum.find_value(headers, fn {key, value} when is_binary(key) -> if String.downcase(key) == name\" versus transport.ex 797-822 header/2.",
+      "recommendation": "Keep only the conditional pipeline (an empty cache map is the unconditional case), build ctx once, share one 'conditional GET with a single retry' helper, and use Transport.header/2. Split into Issues.Fetch (listing and by-id), Issues.Normalize (normalize_issue, extract_state*, priority, label flags) and Issues.BlockedBy (hydrate_blocked_by, normalize_blockers).",
+      "refactor_hint": "Issues.Normalize is shared with webhook and CI/comment batch code and should be its own pure module in the carve.",
+      "effort": "M"
+    },
+    {
+      "id": "github-b-12",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "State-label parsing is spread over five modules and has already drifted on case and whitespace",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "1121-1130"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "1161-1193"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "289-334"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "378-432"
+        },
+        {
+          "path": "src/lib/aiur/github/state_policy.ex",
+          "lines": "6-35"
+        },
+        {
+          "path": "src/lib/aiur/github/labels.ex",
+          "lines": "25-35"
+        },
+        {
+          "path": "src/lib/aiur/github/labels.ex",
+          "lines": "91-96"
+        }
+      ],
+      "description": "Issues.extract_state_labels/2 trims and down-cases both the label and the prefix before matching. IssueState.remove_state_labels/8 and remove_active_state_labels/7 filter with a case-sensitive String.starts_with?(&1, \"#{prefix}:\"), and StatePolicy.terminal_state_label?/2 uses a case-sensitive replace_prefix. A label that differs from the configured prefix only in case or surrounding whitespace is therefore counted as a state label by the reader but never removed by the writer, so a swap leaves two state labels. normalize_label_name/1 is defined twice (public in IssueState, private in Issues), paused_label?/2 and parked_label?/2 are two copies of one function, and the terminal list [\"done\", \"cancelled\", \"canceled\"] is duplicated in StatePolicy.terminal_state_name?/1 and IssueState.maybe_close_issue/4.",
+      "evidence": "issues.ex 1123-1126 \"prefix_colon = normalize_label_name(\\\"#{prefix}:\\\") label_names |> Enum.map(&state_label_suffix(&1, prefix_colon))\"; issue_state.ex 300 and 326 \"|> Enum.filter(&String.starts_with?(&1, \\\"#{prefix}:\\\"))\"; state_policy.ex 25 \"|> String.replace_prefix(\\\"#{prefix}:\\\", \\\"\\\")\"; issue_state.ex 380 \"if StatePolicy.normalize_state(state_name) in [\\\"done\\\", \\\"cancelled\\\", \\\"canceled\\\"] do\" versus state_policy.ex 31 with the same list.",
+      "recommendation": "Create one Aiur.GitHub.LabelCodec owning normalize/1, state_suffix/2, marker?/1, paused?/2, parked?/2, state_labels/2 and terminal?/1. IssueState filters with LabelCodec.state_suffix/2 so reader and writer agree. maybe_close_issue/4 uses StatePolicy.terminal_state_name?/1.",
+      "refactor_hint": "Pure module shared by the tracker, the webhook normalizer and the orchestrator; carve it first.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-13",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "IssueState has two label-add and two label-remove implementations that accept different success codes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "38-91"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "289-376"
+        }
+      ],
+      "description": "add_label/3 accepts any 2xx, but add_issue_label/6 accepts only 200 or 201. remove_label/3 accepts 2xx or 404, but delete_issue_label/6 accepts 200, 204 or 404. So the same POST or DELETE is a success through one entry point and an error through the other. remove_state_labels/8 and remove_active_state_labels/7 are the same pipeline with a different reject predicate. add_label/3 and remove_label/3 use Transport.require_token/0 and ignore a token passed in opts.",
+      "evidence": "issue_state.ex 47 \"{:ok, %{status: status, body: labels}} when status in 200..299 ->\" versus 363 \"when status in [200, 201] ->\"; 81 \"when status in 200..299 or status == 404\" versus 346 \"when status in [200, 204, 404]\".",
+      "recommendation": "Keep one add and one delete primitive that take a context, have the public functions build that context, and replace the two removal pipelines with one remove_labels(context, body, reject_fun).",
+      "refactor_hint": "A small IssueLabels write module in the tracker package.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-14",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Test seams live in production paths, and production code has to defend against them",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/transport.ex",
+          "lines": "79-92"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "276-287"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_dependencies.ex",
+          "lines": "178-227"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1232-1257"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "150-159"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "lines": "235-241"
+        },
+        {
+          "path": "src/lib/aiur/github/open_issue_snapshot.ex",
+          "lines": "61-68"
+        }
+      ],
+      "description": "Transport.require_token/1 returns the literal \"test-gh-token\" whenever opts contain :request_fun and no token, so a production caller that injects a request_fun without a token sends a fake bearer token. IssueState has a helper and a comment whose only job is to avoid that seam. IssueDependencies keeps a whole REST BFS (with its own 200-call cap) 'for deterministic unit tests', selected by the presence of :request_fun. Several modules export reset/forget/flush functions documented as test seams.",
+      "evidence": "transport.ex 86-87 \"if Keyword.has_key?(opts, :request_fun) do {:ok, \\\"test-gh-token\\\"}\"; issue_state.ex 276-280 \"The token is passed explicitly so `Transport.require_token/1` never falls through to its `:request_fun` test seam in production\"; issue_dependencies.ex 193-195 \"The request-function seam deliberately keeps the REST traversal available for deterministic unit tests\" and 188 \"Keyword.has_key?(client_opts, :request_fun) -> rest_bfs(...)\".",
+      "recommendation": "Remove the fake token; tests pass token: explicitly or use a helper. Delete rest_bfs and test graph_bfs with a fake graph_request_fun. Put reset/forget helpers in a test-only support module compiled only in :test.",
+      "refactor_hint": "Keeps test behaviour out of the carved library.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-15",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "ViewStateSweep's divergence watermark drops every failed head read with no log or alert",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "lines": "39-50"
+        },
+        {
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "lines": "243-274"
+        }
+      ],
+      "description": "The head read is the only corroboration signal left for detecting lost 'issues' webhook deliveries; the moduledoc says that without it the projections 'would sit frozen reporting :available forever'. Any non-200 answer (401, 403, rate limit, 5xx), any {:error, _} including a local quota hold, and a missing token all fall into ':ok' branches with no log. Only raised exceptions are logged, with Logger.warning, which is not persisted without --debug. A credential that lacks permission therefore disables delivery-loss detection silently.",
+      "evidence": "view_state_sweep.ex 250-258: \"case state.request_fun.(%{method: :get, url: url, token: token, max_response_bytes: @head_response_bytes}) do {:ok, %{status: 200, body: body}} when is_list(body) -> ... _unexpected -> :ok\"; 263-264: \"_configuration_or_auth_fault -> :ok\".",
+      "recommendation": "Count consecutive failures in state. After N ticks emit an Alerts.emit_system alert naming the status or classification, and a resolved alert on recovery. Expose the last successful head time for the dashboard.",
+      "refactor_hint": "Webhook-health concern; belongs with Webhooks.DeliveryMode rather than the GitHub read package.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-16",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "Quota latches with no exit: the anonymous-quota alert and hold file, and the request log after one write error",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "47-53"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "344-351"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "406-439"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "665-694"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1322-1370"
+        }
+      ],
+      "description": "(1) The 'core:anonymous' window is updated only by an anonymous response (Codeowners public reads); the /rate_limit refresh ingests only core and graphql. reconcile_resource_alerts/3 and sync_hold_file/3 run only when that resource's window is written. So a system.github.quota.core:anonymous.exhausted alert (needs_attention: true) and the core:anonymous-hold file stay after reset_at until another anonymous read happens. (2) log_request/4 sets request_log_io to nil on the first write error and nothing reopens it, so the durable request log stops for the life of the process with no log line. (3) write_hold_file/3 swallows every failure in a bare rescue, so the agents' gh guards never see a hold the daemon believes it wrote.",
+      "evidence": "quota.ex 345: \"Enum.reduce(@primary_resources, state, fn resource, acc -> case Map.get(resources, resource)\"; 424-425 (the only callers): \"|> reconcile_resource_alerts(resource, window) |> sync_hold_file(resource, window)\"; 673: \"{:error, _reason} -> %{state | request_log_io: nil, request_log_bytes: 0}\"; 1363-1369: \":ok = File.mkdir_p(state.hold_dir) ... :ok = File.rename(temporary, path) state rescue _unavailable -> state\".",
+      "recommendation": "On every observe and refresh, evaluate each held window against the clock and clear alerts and hold files once reset_at has passed, whatever the resource. Retry open_writer on a timer and emit one alert when the log is disabled. Log and alert on hold-file write failure.",
+      "refactor_hint": "Fix inside the QuotaWindows split proposed in github-b-04.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-17",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "The store's 'loud' refusals and write-through faults are Logger-only",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "446-461"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1481-1488"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1677-1695"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1921-1936"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1947-1986"
+        },
+        {
+          "path": "src/lib/aiur/github/write_through.ex",
+          "lines": "373-384"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_events.ex",
+          "lines": "345-348"
+        }
+      ],
+      "description": "The ResourceStore docs repeatedly promise that dangerous states are 'loud': an unknown type, a refused body, an abandoned compare-and-swap write, a failed checkpoint, an entry that cannot be checkpointed. Every one is only Logger.error or Logger.warning, which is not persisted without --debug; there is no counter, metric or alert. WriteThrough swallows every exception at Logger.debug; that loses the processed mark which stops a webhook echo from waking an agent for its own write. ResourceEvents drops broadcast failures at Logger.debug.",
+      "evidence": "resource_store.ex 1482: \"Logger.error(\\\"GitHub.ResourceStore abandoned a contended write for #{inspect(key)} ...\\\")\"; 1680: \"Logger.error(\\\"GitHub.ResourceStore refused a body for #{inspect(key)} that JSON cannot round-trip unchanged; ...\\\")\"; 1932: \"Logger.warning(\\\"GitHub.ResourceStore checkpoint failed; reason=#{inspect(reason)}\\\")\"; write_through.ex 377-378: \"error -> Logger.debug(\\\"GitHub write-through skipped: #{Exception.message(error)}\\\")\".",
+      "recommendation": "Add a ResourceStore metrics table (refused_unknown_type, refused_body, cas_abandoned, checkpoint_failed, write_through_failed) shown by the existing CacheInspector and github-cost surfaces, and emit a system alert when a checkpoint fails or CAS abandonments exceed a rate.",
+      "refactor_hint": "Observability hooks are part of the store package contract.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-18",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "ResourceStore.with_table rescues ArgumentError around caller code, so a raising merge function silently drops the write",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1723-1733"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "815-845"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1441-1474"
+        }
+      ],
+      "description": "with_table/2 wraps its whole callback in 'rescue ArgumentError -> default'. update_resource/3 and update_reply/3 run the caller-supplied merge function inside that callback. An ArgumentError raised by the caller's function (String.to_integer/1, String.to_existing_atom/1, :binary functions and so on) becomes the storeless default (:ok): the write is dropped with no log and looks like a successful deposit.",
+      "evidence": "resource_store.ex 1726-1733: \"defp with_table(default, fun) do case :ets.whereis(@table) do :undefined -> default table -> fun.(table) end rescue ArgumentError -> default end\"; 823-824: \"update_reply(key, :ok, fn existing -> case merge(fun, existing) do\".",
+      "recommendation": "Narrow the rescue to the ETS calls only (lookup, select_replace, insert_new). Let exceptions from the caller's function propagate, or log them with the key and count them.",
+      "refactor_hint": "Part of the Table/CAS extraction in github-b-01.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-19",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "ReadCache invalidation markers are max-merged non-atomically and can move backwards",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "lines": "512-521"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "lines": "362-372"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "lines": "187-195"
+        }
+      ],
+      "description": "mark/2 does :ets.lookup and then :ets.insert. Two concurrent invalidations of one identity with stamps a < b can interleave so that b is written and then overwritten by a. The {:collections, owner, repo} identity is marked by every numbered write (write_identities/1) and every webhook delivery (invalidate_number/2), so concurrent marks of it are routine. After the regression, an entry whose fetch started between a and b is no longer retired and can be served for the rest of its TTL (1 h on webhook-backed repos). That is the write-after-invalidate race the module says its start stamp closes.",
+      "evidence": "read_cache.ex 512-516: \"defp mark(identity, at_ms) do case :ets.lookup(@markers, identity) do [{^identity, existing}] when existing >= at_ms -> :ok _older_or_absent -> :ets.insert(@markers, {identity, at_ms})\"; 370: \"true -> [collections_identity(repo) | numbers]\"; 191: \"invalidate([{:number, owner, repo, parsed}, {:collections, owner, repo}])\".",
+      "recommendation": "Make the max atomic: :ets.insert_new when the marker is absent, otherwise an :ets.select_replace loop guarded by {:<, :\"$1\", at_ms}.",
+      "refactor_hint": "Read-cache package internal.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-20",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Two GitHub error taxonomies coexist, and the retry classifier recognises only one of them",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "lines": "26-27"
+        },
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "lines": "103-141"
+        },
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "lines": "188-215"
+        },
+        {
+          "path": "src/lib/aiur/github/labels.ex",
+          "lines": "172-188"
+        }
+      ],
+      "description": "Transport code returns {:github, class, detail}. Labels.ensure/5 returns {:github_api_status, status, label} 3-tuples and {:github_api_request, reason}; Codeowners, Init.Github and GlobalConfigStartup (outside this unit) return {:github_api_status, status} 2-tuples. retryable_github_error?/1 matches only the 2-tuple, so a 502 or 429 during label creation is permanent. A REST 403 without a rate-limit signal is :http in classify_status/2 but :permission in github_graph_status_error/1, so one HTTP status surfaces as two classes depending on which API answered.",
+      "evidence": "labels.ex 183: \"{:error, {:github_api_status, status, label}}\"; 186: \"{:error, {:github_api_request, reason}}\"; errors.ex 207: \"def retryable_github_error?({:github_api_status, status})\" (2-tuple only); errors.ex 112: \"{:github, :http, %{status: 403}}\" versus 137-138: \"if rate_limited_response?(response, :unknown), do: :rate_limited, else: :permission\".",
+      "recommendation": "Make {:github, class, detail} the only error shape. Labels.ensure returns Errors.classify_error results with the label name in detail. Classify a non-rate-limited REST 403 as :permission, as GraphQL does.",
+      "refactor_hint": "The transport package exports exactly one error type.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-21",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Distinct failures are collapsed into specific, wrong causes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/issue_dependencies.ex",
+          "lines": "139-155"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_dependencies.ex",
+          "lines": "196-197"
+        },
+        {
+          "path": "src/lib/aiur/github/human_review_gate.ex",
+          "lines": "42-58"
+        },
+        {
+          "path": "src/lib/aiur/github/human_review_gate.ex",
+          "lines": "146-164"
+        }
+      ],
+      "description": "IssueDependencies.post_dependency_error/1 maps every 422 to :cycle_detected, although GitHub also returns 422 for other validation failures. The REST BFS returns :rate_limited when its own 200-call cap is spent, the same atom used for GitHub rate limiting. HumanReviewGate.approved?/2 maps any failed reviews read (transport error, 5xx, local hold) to false, so the caller reports {:unverified_review_threads, ...} instead of the read error: the ticket is told to fix threads when the real cause is an unreadable review list. The gate also passes ({:ok, _pr} -> :ok) a PR body whose \"number\" is not an integer. AGENTS.md: collapse an unknown cause to a cause-neutral atom, never to a specific cause.",
+      "evidence": "issue_dependencies.ex 143: \"github_http_status?(reason, 422) -> {:error, :cycle_detected}\"; 197: \"defp rest_bfs(_queue, %{api_calls: calls}, _opts) when calls >= 200, do: {:error, :rate_limited}\"; human_review_gate.ex 160-163: \"case ResourceFetch.need(key, fetcher, ...) do {:ok, reviews, _meta} when is_list(reviews) -> approved_decision?(standing_verdicts(reviews)) _other -> false\"; 52-53: \"{:ok, _pr} -> :ok\".",
+      "recommendation": "Return {:error, {:dependency_rejected, detail}} for a non-cycle 422 (inspect the message) and :cycle_check_budget_exhausted for the BFS cap. Have approved?/2 return {:error, reason} and propagate it from verify_pr_review_threads_clear/3. Treat a non-integer PR number as {:error, :invalid_pull_request}.",
+      "refactor_hint": "Error contracts at package boundaries.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-22",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Tracker dispatches through a runtime-configured client with function_exported? duck typing, guarded inconsistently",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/tracker.ex",
+          "lines": "32-124"
+        },
+        {
+          "path": "src/lib/aiur/github/tracker.ex",
+          "lines": "194-196"
+        },
+        {
+          "path": "src/lib/aiur/github/client.ex",
+          "lines": "1-388"
+        }
+      ],
+      "description": "Aiur.GitHub.Tracker delegates to Application.get_env(:aiur, :github_client_module, Client). Client (53 defs, 44 lines of the form 'do: Module.fun(...)') delegates again to Issues, PullRequests and the rest. Optional capabilities are probed with function_exported?/3 at five sites. Four call Code.ensure_loaded?/1 first, because (per the comment at 89-92) function_exported?/3 is false for a module not yet loaded in a release. auth_preflight/0 does not, and its fallthrough is 'true -> :ok'. Under the condition the module itself documents, the auth preflight is skipped silently.",
+      "evidence": "tracker.ex 51-55: \"cond do function_exported?(client, :preflight_auth, 0) -> client.preflight_auth() function_exported?(client, :preflight_auth, 1) -> client.preflight_auth([]) true -> :ok end\"; 89-93: \"`Code.ensure_loaded?/1` first: under a release's lazy module loading, `function_exported?/3` answers false for a module that simply has not been loaded yet\".",
+      "recommendation": "Define an explicit Aiur.GitHub.ClientBehaviour with required callbacks and call through it; drop the fallbacks. Collapse Tracker -> Client -> domain into Tracker -> domain, or make Client the behaviour implementation and delete the pass-through layer.",
+      "refactor_hint": "The tracker adapter is a natural package interface; make it a behaviour before the carve.",
+      "effort": "M"
+    },
+    {
+      "id": "github-b-23",
+      "category": "docs-drift",
+      "severity": "P2",
+      "title": "Issues' 304 handling follows a rationale the store has invalidated, and contradicts itself",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "250-275"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "284-291"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "325-345"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "825-866"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_fetch.ex",
+          "lines": "230-273"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "893-955"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1536-1544"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_events.ex",
+          "lines": "39-48"
+        }
+      ],
+      "description": "On a 304, Issues calls put_etag/2 and deliberately does not move fetched_at_ms, arguing that put_resource and update_resource 'both take the version as a fixed option'. The store now accepts a version function and offers revalidate/3, which ResourceFetch uses on the same 304 path to move the clock atomically. So the two readers of the :issue key follow opposite policies, and Issues pays an extra conditional request every freshness window. The comment at 834-836 in the same file says the opposite ('the shared entry's freshness clock has to move'). The comment at 284-291 says the store's change test includes :source, but observable/1 excludes it. The ResourceEvents moduledoc (line 48) also lists source as a publishing change.",
+      "evidence": "issues.ex 339-345: \"So the clock does not move, and the only thing written back is the validator ... defp retain_validator(key, etag), do: ResourceStore.put_etag(key, etag)\"; issues.ex 834-836: \"the shared entry's freshness clock has to move when GitHub says the body is still current\"; issues.ex 285-286: \"the store's change test includes `:source`\"; resource_store.ex 1542-1543: \"defp observable(entry) do Map.take(entry, [:etag, :data, :data_version, :processed_at_ms, :version])\".",
+      "recommendation": "Route Issues' 304 through ResourceStore.revalidate/3 (or ResourceFetch.need/3 with a freshness), delete retain_validator/2 and refresh_stored_issue/3 with the stale comments, and fix the ResourceEvents doc list.",
+      "refactor_hint": "One read path (ResourceFetch) for store-backed single resources across the carve.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-24",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "ResourceStore has two listing APIs with different expiry rules, and one documents the wrong shape",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1107-1138"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1140-1194"
+        },
+        {
+          "path": "src/lib/aiur/build_order/catalog_store.ex",
+          "lines": "252"
+        }
+      ],
+      "description": "list/3 returns raw ETS entries from match_object, including bodies past retention that fetch/1 and list_type/2 decline, and using internal field names (:version is the processed mark, not the body version). Its doc says it returns 'the same entry shape fetch/1 returns'. list_type/2 applies the fetch expiry rule and returns bodies. The one production caller of list/3 (BuildOrder CatalogStore) reads :data directly, so between sweeps it can build the graph from expired bodies.",
+      "evidence": "resource_store.ex 1116-1117: \"Returns `[{key, entry}]` with the same entry shape `fetch/1` returns\"; 1130-1132: \"with_table([], fn table -> :ets.match_object(table, {{resource_type, owner, repo, :_}, :_}) end)\"; list_type/2 at 1171-1175: \"|> :ets.match_object(pattern) |> Enum.flat_map(&type_entry/1)\" with held_entry/1 expiry; catalog_store.ex 252: \"defp store_entries({owner, repository}, type), do: ResourceStore.list(type, owner, repository)\".",
+      "recommendation": "Keep one list API that returns fetch-shaped, expiry-filtered entries; migrate CatalogStore; delete the other.",
+      "refactor_hint": "Store read API consolidation.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-25",
+      "category": "performance",
+      "severity": "P2",
+      "title": "ResourceStore checkpoints copy the whole table every 30 s and keep a second full copy in process state",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1296-1336"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1846-1874"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1914-1945"
+        }
+      ],
+      "description": "Each checkpoint runs :ets.tab2list/1 over up to 100,000 entries (bodies up to 256 KiB), re-checks every body with json_round_trips?/1, builds a map, deep-compares it with the previous document and keeps that whole map in last_written. The GenServer heap therefore holds a copy of every checkpointed body. shed_bodies/2 also tab2lists and sorts the full table. The checkpoint and sweep timers are rescheduled with the module constants, ignoring the :checkpoint_interval_ms and :sweep_interval_ms options that init uses.",
+      "evidence": "resource_store.ex 1922-1929: \"document = table |> :ets.tab2list() |> Enum.reduce(%{}, &encode_entry/2) if document == state.last_written do ... {:ok, %{state | last_written: document}}\"; 1328: \"schedule(:checkpoint, @checkpoint_interval_ms)\" and 1334: \"schedule(:sweep, @sweep_interval_ms)\" versus 1313-1314: \"schedule(:checkpoint, checkpoint_interval(opts))\".",
+      "recommendation": "Track dirtiness with a write counter bumped in update_cas and skip clean cycles; keep only a hash of the last document; stream-encode with :ets.foldl. Store the intervals from opts in state and reuse them.",
+      "refactor_hint": "Checkpoint module extraction (github-b-01).",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-26",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Quota filters its whole hour of observations on every observed request",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "614-635"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "696-709"
+        }
+      ],
+      "description": "attribute_request/4 prepends the observation and immediately calls prune_observations/2, which runs Enum.filter with DateTime.compare over the whole list. The list holds every request of the last hour (the moduledoc cites daemon rates around 15,000 points per hour), so each observe cast does O(n) work in the process that every request's preflight call waits on. snapshot then concatenates observations ++ shell_observations.",
+      "evidence": "quota.ex 633: \"prune_observations(%{state | observations: [observation | state.observations]}, now)\"; 698: \"%{state | observations: Enum.filter(state.observations, &(DateTime.compare(&1.observed_at, cutoff) != :lt))}\"; 788: \"the daemon's measured ~250 points/minute ... stated as ~15,000/hour\".",
+      "recommendation": "Keep observations in a queue or in per-minute buckets keyed by resource, caller and consumer, drop from the old end on a timer, and store integer stamps instead of DateTime structs.",
+      "refactor_hint": "QuotaAttribution extraction (github-b-04).",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-27",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "ResourceStore.clear/3 is an unversioned whole-type delete that lets set reconciliation erase newer deliveries",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "1077-1105"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/reconciliation.ex",
+          "lines": "40-104"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "2105-2118"
+        }
+      ],
+      "description": "clear/3 match_deletes every entry of a type in a repo, with no time bound. Reconciliation fetches the catalog (multi-page GraphQL), then clears :sub_issue, then put_resource's each fetched edge unconditionally. A sub_issue_removed tombstone deposited by the webhook during the fetch is deleted by the clear, and the older fetched edge is re-deposited as present: true; an add delivered during the fetch is wiped. Separately, reconciliation deposits with source: :reconciliation, which known_source_atom/1 does not decode, so the body's source is lost after a restart.",
+      "evidence": "resource_store.ex 1095-1096: \"with_table(:ok, fn table -> :ets.match_delete(table, {{resource_type, owner, repo, :_}, :_})\"; reconciliation.ex 51-53: \"case Pager.catalog(paging, state) do {:ok, nodes, _state} -> deposit_catalog(repository, nodes)\" and 71-72: \"ResourceStore.clear(:sub_issue, owner, repo) Enum.each(nodes, &deposit_root(&1, repository))\"; resource_store.ex 2114-2118: known_source_atom accepts only \"webhook\", \"poll\", \"mutation\", \"fetch\".",
+      "recommendation": "Replace clear/3 with clear_older_than(type, owner, repo, cutoff_ms) (select_delete on recorded_at_ms) and pass the reconciliation's fetch start time. Deposit through the guarded primitive from github-b-02. Derive the known sources from one attribute that includes :reconciliation.",
+      "refactor_hint": "Store API used by the build_order package.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-28",
+      "category": "naming-structure",
+      "severity": "P2",
+      "title": "About 16 REST calls declare no caller, so distinct purposes share one attribution row",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "51"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "162"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "221"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "413"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "490"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "511"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "549"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "627"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "754"
+        },
+        {
+          "path": "src/lib/aiur/github/pull_requests.ex",
+          "lines": "901"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "46"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "73"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "341"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "362"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "381"
+        },
+        {
+          "path": "src/lib/aiur/github/view_state_sweep.ex",
+          "lines": "250"
+        }
+      ],
+      "description": "Transport.put_caller/2 exists so spend is attributed to a call site, and the Issues and Comments readers use it. Most PullRequests readers, every IssueState write, the PR base-repair PATCH and the ViewStateSweep head read send no caller. GraphQLCost.derive/1 then falls back to the route shape, which merges the human-review gate listing, the merged-ticket reconciler listing, the label-watch listing and the PR-health scan into one 'rest:GET /repos/:owner/:repo/pulls' row, and puts the divergence watermark in the same row as the open-issue list.",
+      "evidence": "pull_requests.ex 162 and 221: \"case request_fun.(%{method: :get, url: url, token: token}) do\"; issue_state.ex 46: \"request_fun.(%{method: :post, url: url, token: token, body: %{\\\"labels\\\" => [label]}})\"; view_state_sweep.ex 250: \"state.request_fun.(%{method: :get, url: url, token: token, max_response_bytes: @head_response_bytes})\"; graphql_cost.ex 425: \"def derive(request), do: route_shape(request)\".",
+      "recommendation": "Make caller a required argument of the Rest helper from github-b-07 (raise in dev/test when absent) and name each site.",
+      "refactor_hint": "Budget attribution is a transport-package invariant.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-29",
+      "category": "config",
+      "severity": "P3",
+      "title": "The GitHub API base URL is hard-coded in 11 places",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/transport.ex",
+          "lines": "42-43"
+        },
+        {
+          "path": "src/lib/aiur/github/labels.ex",
+          "lines": "21"
+        },
+        {
+          "path": "src/lib/aiur/github/labels.ex",
+          "lines": "162"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "lines": "49"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "lines": "102"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1212"
+        },
+        {
+          "path": "src/lib/aiur/codeowners.ex",
+          "lines": "32"
+        },
+        {
+          "path": "src/lib/aiur/github/app_token.ex",
+          "lines": "18-23"
+        },
+        {
+          "path": "src/lib/aiur/github/config.ex",
+          "lines": "1004"
+        },
+        {
+          "path": "src/lib/aiur/init/github.ex",
+          "lines": "161"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/reconciliation.ex",
+          "lines": "179"
+        },
+        {
+          "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex",
+          "lines": "91"
+        }
+      ],
+      "description": "Transport exposes base_url/0, but Labels, ReadCache.Identity and Quota redefine or inline the literal, and Identity.graphql?/1 decides 'is GraphQL' by prefix-matching its own copy. Supporting GitHub Enterprise or a test base URL means editing every copy, and missing one silently disables cache classification.",
+      "evidence": "labels.ex 21 and identity.ex 49: \"@base_url \\\"https://api.github.com\\\"\"; identity.ex 102: \"String.starts_with?(url, \\\"#{@base_url}/graphql\\\")\"; quota.ex 1212: \"url: \\\"https://api.github.com/rate_limit\\\"\".",
+      "recommendation": "One configurable base URL in Transport or GitHub.Config; everything else calls Transport.base_url/0 and graphql_url/0; Identity.graphql?/1 checks the URI path.",
+      "refactor_hint": "Package configuration surface.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-30",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Latest-comment verification for review threads is written twice, with case-sensitive login checks",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/review_threads/reply.ex",
+          "lines": "210-268"
+        },
+        {
+          "path": "src/lib/aiur/github/review_threads/resolution_policy.ex",
+          "lines": "57-115"
+        },
+        {
+          "path": "src/lib/aiur/github/review_threads/resolution_policy.ex",
+          "lines": "221-254"
+        },
+        {
+          "path": "src/lib/aiur/github/human_review_gate.ex",
+          "lines": "40-67"
+        }
+      ],
+      "description": "Reply.verify_latest_review_thread_comment/6 and ResolutionPolicy.verify_review_thread_resolution_latest_reply/8 both check latest-missing, author != daemon_account and body mismatch, with different error atoms. Login comparisons use != and Enum.member?/2 (case-sensitive), although GitHub logins are case-insensitive and agent_classification_opts/2 already de-duplicates with String.downcase. The set of logins that are Aiur's is built separately in ResolutionPolicy (daemon account plus configured bot) and in HumanReviewGate (bot_account plus opts agent_logins).",
+      "evidence": "reply.ex 234: \"get_in(latest, [\\\"author\\\", \\\"login\\\"]) != daemon_account ->\"; resolution_policy.ex 83: the same comparison; resolution_policy.ex 228: \"|> Enum.uniq_by(&String.downcase/1)\" versus 251: \"|> Enum.member?(login)\".",
+      "recommendation": "One ReviewThreads.LatestComment.verify(thread, expected_author, expected_body) used by both; compare logins case-insensitively; one BotIdentity.aiur_logins/1.",
+      "refactor_hint": "Review-thread package internal.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-31",
+      "category": "other",
+      "severity": "P3",
+      "title": "ReadCache.Policy files commit reads under :comments, and its unsafe-path regex matches repository names",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/read_cache/policy.ex",
+          "lines": "290-300"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache/policy.ex",
+          "lines": "393-401"
+        }
+      ],
+      "description": "The immutable /commits/:sha read is classified into the :comments class, so its hits, misses and TTL show under 'comments' in the metrics, and an operator override for comments also changes commit caching. @unsafe_rest is not anchored to a path position, so a repository named status, merge, reviews or statuses has every read refused as :unsafe_kind.",
+      "evidence": "policy.ex 399: \"{~r\\\"/repos/[^/?#]+/[^/?#]+/commits/[0-9a-f]{7,40}(?:$|\\\\?)\\\", :comments}\"; 300: \"@unsafe_rest ~r{/(?:check-runs|check-suites|status|statuses|commits/[^/]+/status|merge|requested_reviewers|reviews|actions/(?:runs|jobs))(?:/|$|\\\\?)}\".",
+      "recommendation": "Add a :commit class with its own TTL row; anchor @unsafe_rest after /repos/[^/]+/[^/]+/.",
+      "refactor_hint": "Read-cache package.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-32",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Header and integer parsing is duplicated with different leniency, and GraphQLErrors is misnamed",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/transport.ex",
+          "lines": "797-859"
+        },
+        {
+          "path": "src/lib/aiur/github/graphql_errors.ex",
+          "lines": "14-78"
+        },
+        {
+          "path": "src/lib/aiur/github/graphql_errors.ex",
+          "lines": "156-168"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1307-1316"
+        },
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "lines": "143-172"
+        }
+      ],
+      "description": "There are five integer parsers: Transport.parse_nonnegative_integer/1 and Quota.integer_value/1 are strict; GraphQLErrors.integer/1, GraphQLErrors.positive_integer/1 and Transport.poll_interval/1 accept trailing garbage. The X-Poll-Interval header is parsed twice with different defaults (60 in Transport.poll_interval/1, nil in GraphQLErrors.rate_limit_poll_interval/1). GraphQLErrors (@moduledoc false) holds the REST rate-limit header helpers that Quota and Errors use, and Errors re-exports eight of them with defdelegate.",
+      "evidence": "transport.ex 851-853: \"case Integer.parse(value) do {n, _} when n > 0 -> n _ -> 60\"; graphql_errors.ex 158: \"{number, _rest} when number > 0 -> number\"; quota.ex 1311: \"{parsed, \\\"\\\"} -> {:ok, parsed}\"; errors.ex 150-172: eight defdelegate lines to GraphQLErrors.",
+      "recommendation": "One Aiur.GitHub.RateLimitHeaders module with strict parsing and one default policy, used by Transport, Quota and Errors; merge or rename GraphQLErrors.",
+      "refactor_hint": "Transport package.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-33",
+      "category": "docs-drift",
+      "severity": "P3",
+      "title": "Docs reference a misspelled module and source line numbers that have drifted",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "183"
+        },
+        {
+          "path": "src/lib/aiur/github/resource_store.ex",
+          "lines": "848"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache/policy.ex",
+          "lines": "83-85"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache.ex",
+          "lines": "11"
+        },
+        {
+          "path": "src/lib/aiur/github/request_log.ex",
+          "lines": "23"
+        }
+      ],
+      "description": "ResourceStore docs name Aiur.Events.GitHubWebhook.Deposit in three places; the module is Aiur.Events.GithubWebhook.Deposit, so doc links break. Policy cites issues.ex:890, comments.ex:176 and repo_events.ex:44; in this snapshot issues.ex:890 is a closing `end` of materialized_issue/4 and repo_events.ex:44 is a Keyword.get line, not the request. RequestLog cites Aiur.GitHubTracker.auth_preflight/0, which is an alias, not a module.",
+      "evidence": "resource_store.ex 183: \"`Aiur.Events.GitHubWebhook.Deposit.regression?/2`\"; deposit.ex line 1: \"defmodule Aiur.Events.GithubWebhook.Deposit do\"; policy.ex 84-85: \"`issues.ex:890`, `comments.ex:176`, `repo_events.ex:44`\".",
+      "recommendation": "Reference modules and functions only (no file:line) and fix the spelling.",
+      "refactor_hint": "These break on the carve anyway; fix them during the move.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-34",
+      "category": "other",
+      "severity": "P3",
+      "title": "Quota's dispatch gate ignores secondary-rate-limit backoffs that preflight enforces",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "26-31"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "466-531"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "584-602"
+        }
+      ],
+      "description": "resource_status/4 (used by preflight) holds on a secondary backoff, but dispatch_status/2 only consults window_status/4. New agents are therefore dispatched while every daemon request is held locally, and neither the recovery timer nor :github_quota_recovered is armed when a backoff clears. The moduledoc says the backoff 'holds callers off exactly as an exhausted window does'.",
+      "evidence": "quota.ex 508-510: \"defp dispatch_status(state, now) do Enum.find_value(@primary_resources, :available, fn resource -> case window_status(state, resource, @low_water_percent, now) do\"; 471-473: resource_status checks \"Map.get(state.backoffs, resource)\" first.",
+      "recommendation": "Use resource_status/4 with the low-water floor in dispatch_status/2, or document that dispatch ignores secondary limits on purpose.",
+      "refactor_hint": "QuotaWindows extraction.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-35",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Quota and RequestLog derive the same filesystem paths independently",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1017-1029"
+        },
+        {
+          "path": "src/lib/aiur/github/quota.ex",
+          "lines": "1110-1135"
+        },
+        {
+          "path": "src/lib/aiur/github/request_log.ex",
+          "lines": "160-173"
+        }
+      ],
+      "description": "default_shell_log_path/0 and default_stale_broker_path/0 are the same five-step pipeline with a different final filename. default_hold_dir/0 and RequestLog.resolve_default_path/0 both compute RepoBase.repo_path(repo) |> Path.join(\"github-quota\"). A layout change has to be made in four places.",
+      "evidence": "quota.ex 1114-1118: \"Config.workspace_root() |> Path.expand() |> Layout.issue_workspace_path(\\\"__github_quota_probe__\\\") |> Path.dirname() |> Path.join(\\\"*/.aiur-runtime/github-quota/agent-requests.tsv\\\")\" and 1128-1132 identical with the marker name; request_log.ex 163-165: \"|> RepoBase.repo_path() |> Path.join(\\\"github-quota\\\")\".",
+      "recommendation": "One Aiur.GitHub.QuotaPaths module (repo_dir/0, agent_runtime_glob/1).",
+      "refactor_hint": "Inject the paths into the budget package at start.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-36",
+      "category": "performance",
+      "severity": "P3",
+      "title": "One issue-state transition reads the same issue up to three times",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "93-122"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "142-161"
+        },
+        {
+          "path": "src/lib/aiur/github/issue_state.ex",
+          "lines": "250-274"
+        }
+      ],
+      "description": "do_update_issue_state/2 reads the issue, revalidate_expected_state/2 reads it again when :expected_state is given, and add_active_issue_label/2 reads it a third time before adding an active label. Each is a conditional request (free on 304 but a round trip and a secondary-limit hit), on top of the human-review gate's listing, GraphQL thread and review reads.",
+      "evidence": "issue_state.ex 97: \"Issues.fetch_issue_raw_conditional(update_context.issue_number, issue_read_opts(update_context))\"; 148-151: \"Issues.fetch_issue_raw_conditional(context.issue_number, issue_read_opts(context) |> Keyword.put(:revalidate, true))\"; 252: \"case Issues.fetch_issue_raw_conditional(context.issue_number, issue_read_opts(context)) do\".",
+      "recommendation": "Pass the revalidated body into add_state_label/3 and skip the third read.",
+      "refactor_hint": "Tracker write path.",
+      "effort": "S"
+    },
+    {
+      "id": "github-b-37",
+      "category": "performance",
+      "severity": "P3",
+      "title": "Every GraphQL request re-scans its document several times",
+      "locations": [
+        {
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "lines": "118-127"
+        },
+        {
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "lines": "251-373"
+        },
+        {
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "lines": "429-439"
+        },
+        {
+          "path": "src/lib/aiur/github/transport.ex",
+          "lines": "607-623"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache/identity.ex",
+          "lines": "131-164"
+        },
+        {
+          "path": "src/lib/aiur/github/read_cache/policy.ex",
+          "lines": "310-348"
+        }
+      ],
+      "description": "Per request the document is scanned by GraphQLCost.check (strip_literals builds a list of one-codepoint binaries, then walk_nodes), by instrument (another byte scan), by the Policy unsafe-selection regex, by Identity's number scan and enumerating regex, by operation_name, and by the Quota, RequestLog and CredentialSelector mutation regexes. Batch documents are tens of kilobytes (read_cache.ex 502-504).",
+      "evidence": "graphql_cost.ex 313-314: \"defp strip_literals(<<char::utf8, rest::binary>>, :normal, acc), do: strip_literals(rest, :normal, [<<char::utf8>> | acc])\"; transport.ex 608-615: \"GraphQLCost.check(query, caller: ...)\" then \"GraphQLCost.instrument(query)\".",
+      "recommendation": "Memoize per document (persistent_term or ETS keyed by :erlang.phash2(query)) the estimate, instrumented text, operation name, mutation flag and unsafe flag; compute once in Transport and stamp them on the request (pairs with github-b-05).",
+      "refactor_hint": "Transport package.",
+      "effort": "S"
+    }
+  ]
+}

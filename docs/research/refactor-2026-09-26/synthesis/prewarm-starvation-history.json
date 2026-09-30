@@ -1,0 +1,162 @@
+{
+  "claims": [
+    "gaps-03",
+    "gaps-05"
+  ],
+  "status": "bounded_verdict_complete_with_unresolved_incidence",
+  "wake_source": {
+    "path": "aiur/executor/aiur.executor.wakes.ndjson",
+    "sha256": "fdcf4aecaeb56b47bf7a2a9f84427a7173828d24233ec5174254351280cd3261"
+  },
+  "selected_event_id_quotient": 1787205471,
+  "identity_limit": "This quotient is the original analyzer's grouping, not an independently verified daemon boot; see gap-uptime-contract.json.",
+  "topic_counts": {
+    "system.dispatch.prewarm_blocked": {
+      "records": 71,
+      "coalesced_count_sum": 71,
+      "first_seen_at": "2026-08-20T05:58:09.810375Z",
+      "last_record_first_seen_at": "2026-08-21T03:06:27.382302Z"
+    },
+    "system.dispatch.prewarm_blocked.resolved": {
+      "records": 70,
+      "coalesced_count_sum": 70,
+      "first_seen_at": "2026-08-20T06:38:22.820777Z",
+      "last_record_first_seen_at": "2026-08-21T03:06:15.188089Z"
+    },
+    "system.fleet.capacity.starved": {
+      "records": 1,
+      "coalesced_count_sum": 1,
+      "first_seen_at": "2026-08-20T06:18:15.961109Z",
+      "last_record_first_seen_at": "2026-08-20T06:18:15.961109Z"
+    }
+  },
+  "ordered_pair_check": {
+    "completed_pairs": 70,
+    "orphan_resolutions": 0,
+    "repeated_blocks_before_resolution": 0,
+    "unclosed_block_at_group_end": true,
+    "minimum_pair_seconds": 5.153894901275635,
+    "median_pair_seconds": 606.6973253488541,
+    "maximum_pair_seconds": 2413.0104019641876
+  },
+  "pull_cache_sha256": "d000e9bad2cede61cb7bb2b9e71a1ca7284b95afbc749bd5cf8057605742b7d5",
+  "changes": [
+    {
+      "commit": "0344bb9d0296380e0ff4d822ad52c93e98573d15",
+      "pr": 2242,
+      "paths": [
+        ".aiur/config"
+      ],
+      "diff_sha256": "96652bea0d523c7cdff8ed678d60c252c47e13467f6d4bf29215b1b050b25095",
+      "cached_merged_at": "2026-08-21T22:32:10Z",
+      "assessment": "Disables prewarm in dogfood config; also changes identity and sandbox configuration. This is a mitigation with confounding simultaneous changes, not the #2237 code repair."
+    },
+    {
+      "commit": "374b8f492bac31e3eaea978ab646bf4612a24e73",
+      "pr": 2274,
+      "paths": [
+        "src/lib/aiur/repo_base.ex",
+        "src/lib/aiur/orchestrator/dispatcher.ex"
+      ],
+      "diff_sha256": "ad71d7235b3ec423a411e9d49e7bdc632e32158d2dea1c900aacab3fd7280907",
+      "cached_merged_at": "2026-08-23T20:06:53Z",
+      "assessment": "Repairs checking-state probe recreation, checks worker liveness and adds a bounded idle-hold watchdog. A live worker rearms it; this is not a universal wall-clock cap on all prewarm work. Error fallback releases the gate for cold clones."
+    },
+    {
+      "commit": "663ca77acadc914b1382101125e6a0fce605d91c",
+      "pr": 2434,
+      "paths": [
+        "src/lib/aiur/orchestrator/dispatcher.ex"
+      ],
+      "diff_sha256": "7889a2de817d690b900237653c3c8b22b8dfef6a45b0a2eadbb061ae5c3f5b20",
+      "cached_merged_at": "2026-08-24T02:44:15Z",
+      "assessment": "Debounces prewarm alerts for fifteen seconds, separating routine freshness checks from persistent holds."
+    },
+    {
+      "commit": "47395dcfd9969e0642d7e303d4f26ca6206270aa",
+      "pr": 2449,
+      "paths": [
+        "src/lib/aiur/orchestrator/dispatcher.ex",
+        "src/lib/aiur/orchestrator/issue_sync.ex"
+      ],
+      "diff_sha256": "13ca5c449cb3f092658ac87ae01f957aebbac980f227e6d23048343fa62264cf",
+      "cached_merged_at": "2026-08-24T18:55:52Z",
+      "assessment": "Changes capacity-starved detection to avoid below-target ramp false alarms and decision-blocked demand. Earlier detection used free slots or low load with backlog; the topic does not identify prewarm as the unique cause."
+    }
+  ],
+  "interpretation": "Repeated blocked/resolved signals do not by themselves prove the absorbing checking-state defect caused the entire classified interval. Capacity starvation, prewarm phase holds, load-ramp false alarms and dependency/decision blockage have distinct contracts. Merged source is not deployment evidence.",
+  "unresolved": [
+    "Historical loaded revisions/effective prewarm exposure after the repair",
+    "Independent daemon-lifetime and suspension evidence",
+    "Which later starvation alerts reflect real dispatch defects versus false alarms or intended holds",
+    "Causal allocation of classified minutes to individual defects"
+  ],
+  "reported_healthy_window": {
+    "start": "2026-08-21T22:32:00Z",
+    "end": "2026-08-24T02:51:00Z",
+    "retained_gap_source_sha256": "2de9a3d9218e268b6b9ad0a3c44e3ae25fbc2e522877edc944519f40229dae4d",
+    "overlapping_30_min_gap_count": 3,
+    "clipped_gap_hours": 1.950288905236456,
+    "all_three_gaps_precede_code_fix_merge": true,
+    "assessment": "The interval begins at the disable-prewarm/config-change merge, almost two days before the code repair. Its low modeled gap total cannot be attributed uniquely to the later repair or prove non-recurrence."
+  },
+  "category_population": {
+    "prelog_aiur": {
+      "category_bin_hours": 282.9166666666667,
+      "d_bin_hours": 257.2,
+      "d_share_percent": 90.9101620029455
+    },
+    "all_prelog": {
+      "category_bin_hours": 316.03333333333336,
+      "d_bin_hours": 273.06666666666666,
+      "d_share_percent": 86.40438772281405
+    },
+    "all_runlog": {
+      "category_bin_hours": 411.76666666666665,
+      "d_bin_hours": 6.516666666666667,
+      "d_share_percent": 1.5826115113737553
+    }
+  },
+  "category_interpretation": "257.2 h is pre-log aiur category d, or 90.91% of its 282.9167 h. All pre-log d is 273.0667 h of 316.0333 h (86.40%). These are different populations; neither isolates the absorbing-state defect. The analyzer assigns 'load governor' to every system.fleet.capacity.starved topic without reading its actual binding cause.",
+  "primary_diagnosis_records": [
+    {
+      "source": "local Claude Aiur session 8989d0ab-749c-4674-9bc5-fc65b39f6adb",
+      "line": 51,
+      "record_sha256": "eb4336f1cf42ce82d65482a9452ba6f6e154bd488093f455196c2614a98ff221",
+      "timestamp": "2026-08-21T02:42:12.104Z",
+      "assessment": "Successful tool result includes an August 20 06:18:15.961183Z fleet-starvation alert with live agents zero, load 0.86/16.0, effective cap 1, configured cap 16 and binding prewarm checking; this directly contradicts interpreting the hard-coded load-governor label as its actual cause."
+    },
+    {
+      "source": "local Claude Aiur session 8989d0ab-749c-4674-9bc5-fc65b39f6adb",
+      "line": 5071,
+      "record_sha256": "f586ad3962187e8e07db3fa6c40fe54a85a84ea2fa95f315155fbef75375c1d9",
+      "timestamp": "2026-08-21T18:42:15.847Z",
+      "assessment": "Successful tool result reports ready tickets 31, live agents 0, effective cap 1, configured cap 1 and prewarm checking. This verifies a snapshot, not the cause of every earlier model minute."
+    },
+    {
+      "source": "local Claude Aiur session 8989d0ab-749c-4674-9bc5-fc65b39f6adb",
+      "line": 5106,
+      "record_sha256": "2a504cc405951d13a01f68d74f0437f6e48050d1217051a6e759d2523e51818c",
+      "timestamp": "2026-08-21T18:42:58.841Z",
+      "assessment": "Assistant repeats the diagnosis; this is not independent evidence."
+    },
+    {
+      "source": "local Claude Aiur session 8989d0ab-749c-4674-9bc5-fc65b39f6adb",
+      "line": 5163,
+      "record_sha256": "01c068fbac961b0877e68af9b74ab5b2d6b1153d4d6bafdb77c8911bbf7b1346",
+      "timestamp": "2026-08-21T18:52:34.789Z",
+      "assessment": "Assistant reports checking persists eight minutes after restarting with poll_seconds 30; reported intervention outcome, not proof of deployment across all later intervals."
+    }
+  ],
+  "after_code_merge_signals": {
+    "start_exclusive": "2026-08-23T20:06:53Z",
+    "end_exclusive": "2026-09-26T15:40:00Z",
+    "records_by_topic": {
+      "system.dispatch.prewarm_blocked": 197,
+      "system.dispatch.prewarm_blocked.resolved": 194,
+      "system.fleet.capacity.starved": 36,
+      "system.fleet.capacity.starved.resolved": 27
+    },
+    "interpretation": "Later topic records exist; they neither prove recurrence of the same absorbing-state bug nor prove it absent. Effective configuration, loaded revision, queue eligibility and concrete constraint must be joined at each incident."
+  }
+}

@@ -1,0 +1,3926 @@
+{
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "status": "in-progress",
+  "method": "All literal definition names grouped across modules, excluding fully reviewed families; ordered by module count then name.",
+  "input_sha256": {
+    "function_census": "4a35433cfa6efeffaf23f77fe016c690c82721896fef29c8538cca6b13cfc4d5",
+    "name_triage": "dfd600b4c5a4fee2517804d6991f33062b13e09cf75e32fbf04ddb973bc375ce"
+  },
+  "counts": {
+    "all_names": 13748,
+    "cross_module_names": 1680,
+    "single_module_names": 12068,
+    "reviewed_cross_module_names": 1029,
+    "remaining_cross_module_names": 651,
+    "remaining_literal_entries": 1977
+  },
+  "families": [
+    {
+      "name": "known_model?",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "known_relationships",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "kpi_items",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 56
+    },
+    {
+      "name": "label_name",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "lane",
+      "clauses": 8,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "last_observed",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "latest_text",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "launch_env",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 29
+    },
+    {
+      "name": "layout_asset",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "legacy_branch_name",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "legacy_file_name",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "lifecycle_key",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "lifecycle_pair_key",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "lines",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "list_active_identifiers",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "list_panes",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "list_running_active_identifiers",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "list_windows",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 21
+    },
+    {
+      "name": "load_context",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "load_envelope",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "load_gate",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "load_model",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 59
+    },
+    {
+      "name": "load_records",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "load_regular_checkpoint",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "load_runtime_sources",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "load_sources",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "log_failure",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "log_path",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "log_root_dir",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "log_roots",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "log_tracker_fetch_error",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "log_tracker_preflight_error",
+      "clauses": 14,
+      "modules": 2,
+      "summed_source_span_lines": 28
+    },
+    {
+      "name": "loop_state_extras",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "lose_continuity",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "make_room",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 22
+    },
+    {
+      "name": "make_runnable",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 22
+    },
+    {
+      "name": "mark_provider_cleanup_succeeded",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "mark_queue_item_consumed",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "mark_queue_item_failed",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "mark_reconciliation",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "mark_sleeping",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "marker",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "matching_hint_context?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "matching_hint_pause?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "materialize",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "materialize_from_base",
+      "clauses": 7,
+      "modules": 2,
+      "summed_source_span_lines": 31
+    },
+    {
+      "name": "max_age_ms",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "max_bytes",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "max_retry_after_seconds",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "maybe_alert",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 29
+    },
+    {
+      "name": "maybe_deactivate_human_review_issue",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 38
+    },
+    {
+      "name": "maybe_put_legacy_attention",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "maybe_put_model",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "maybe_put_opaque",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "maybe_put_option",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "maybe_put_process_group",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "maybe_put_provider_group",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "maybe_put_provider_pid",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "maybe_put_provider_processes",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "maybe_put_query",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "maybe_put_source_created_at",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "maybe_relist",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "maybe_resolve",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "maybe_resume",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "maybe_set_usage",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "maybe_trust_remote_control_workspace",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "meaningful",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "member_identities",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "member_key",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "member_lifecycle",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "member_metadata",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "member_numbers",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "member_state_digest",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 26
+    },
+    {
+      "name": "memory_gate",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "merge_check_run",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 36
+    },
+    {
+      "name": "merge_patch",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "merge_queue_observation",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "merge_review_thread",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 37
+    },
+    {
+      "name": "merged_pull_request_event?",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "meter_class",
+      "clauses": 7,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "meter_failure_recorder",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "meter_ingester",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "meter_windows",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "method_not_allowed",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "metric_count",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "metrics_file",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "mint_topic",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "mode",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "moot",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "move_pane_hidden",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "move_pane_visible",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "mutate",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "names",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "nav_counts",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "new_hidden_window_with_env",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "newer?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "newer_order?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "next_sequence",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "non_neg",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "normalize_atom",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "normalize_block",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "normalize_capabilities",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "normalize_capability",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 43
+    },
+    {
+      "name": "normalize_check_run",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 25
+    },
+    {
+      "name": "normalize_decision_id",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "normalize_definition",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 48
+    },
+    {
+      "name": "normalize_failure",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 33
+    },
+    {
+      "name": "normalize_host",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "normalize_id",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "normalize_issue",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 60
+    },
+    {
+      "name": "normalize_label",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "normalize_label_name",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "normalize_legacy_attention",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 35
+    },
+    {
+      "name": "normalize_login",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "normalize_logins",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "normalize_optional_map",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "normalize_optional_string",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "normalize_pull_request",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 41
+    },
+    {
+      "name": "normalize_rate_limits",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "normalize_reason",
+      "clauses": 10,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "normalize_revision",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 47
+    },
+    {
+      "name": "normalize_scope",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "normalize_secret",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "normalize_selection",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "normalize_targets",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "normalize_tickets",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "normalize_timestamp",
+      "clauses": 8,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "normalize_token",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "normalize_usage",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "normalize_window",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 22
+    },
+    {
+      "name": "normalized_percent",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "not_found",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "note_agent_activity",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "note_github_connectivity_failure",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 30
+    },
+    {
+      "name": "note_github_connectivity_success",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "note_github_poll_interval",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "note_queued_demand",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "notify_provider_started",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 25
+    },
+    {
+      "name": "notify_running_queue_update",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "observation",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "observe_operator_delivery",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 22
+    },
+    {
+      "name": "observe_response",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 43
+    },
+    {
+      "name": "only_keys?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "open_conversation",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "open_decision?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "open_pull_request_head_ref",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "open_pull_request_node?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "option",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "optional_boolean",
+      "clauses": 8,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "optional_datetime",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "optional_string",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "origin_id",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "origin_repo",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "overflow_diagnostic",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "overrunning_entry?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "pad",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "pad2",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "page",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "pane_interrupt_action",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "pane_interrupt_action_no_pane",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "pane_interrupt_by_pane_id",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "pane_state",
+      "clauses": 10,
+      "modules": 2,
+      "summed_source_span_lines": 40
+    },
+    {
+      "name": "parse_args",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 26
+    },
+    {
+      "name": "parse_clock",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 33
+    },
+    {
+      "name": "parse_complexity",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "parse_ip",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "parse_observed_at",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "parse_output",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "parse_reset",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "parsed_options",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "partial_cost?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "paste_text",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "patch",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 33
+    },
+    {
+      "name": "pause_issue_for_ci_wait",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 39
+    },
+    {
+      "name": "pause_issue_for_label_override",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "pause_latched?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "payload_text",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "pending",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "pending_key",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "pending_operator_messages_for_issue",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "pending_path",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "persist_checkpoint",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 22
+    },
+    {
+      "name": "persist_handle_best_effort",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "persist_reply",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "persisted_map",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "persisted_string",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "persisted_timestamp",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "planning",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 34
+    },
+    {
+      "name": "pluralize",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "policy",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "poll_status",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "poll_target",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 32
+    },
+    {
+      "name": "polling_reason",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "poly",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "pool",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 26
+    },
+    {
+      "name": "pool_line",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "port_metadata",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "port_os_pid",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "positive_integer?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "positive_number?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "positive_opt",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "post_aiur_turn_markers",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "pr_number",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "pr_topic",
+      "clauses": 8,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "prefer",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "preflight_auth",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "prepare_directory",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "presence",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "present_counts",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "present_credential",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "present_window",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "presentation",
+      "clauses": 11,
+      "modules": 2,
+      "summed_source_span_lines": 33
+    },
+    {
+      "name": "preserve_running_issue_on_external_error",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "prewarm_gate",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "pricing",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 34
+    },
+    {
+      "name": "print_credentials",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "print_record",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "prioritize_agent",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "probe",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 28
+    },
+    {
+      "name": "process_alive?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "process_group_alive?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "process_group_for_pid",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "process_group_id",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 31
+    },
+    {
+      "name": "progress_fill_class",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "progress_label",
+      "clauses": 7,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "project_attention",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 26
+    },
+    {
+      "name": "projection",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "projection_checkpoint",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "projection_freshness",
+      "clauses": 8,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "prompt",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 32
+    },
+    {
+      "name": "prompt_file_scaffold",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "prompt_file_template",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "provider_delivery_callback",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "provider_families",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "provider_identity",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "provider_logo",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "provider_meter",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 30
+    },
+    {
+      "name": "provider_meters",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 49
+    },
+    {
+      "name": "provider_usage",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "providers",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "public",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 31
+    },
+    {
+      "name": "public_lkg",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "publish_all",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "publish_global_pause",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "pull_request",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 32
+    },
+    {
+      "name": "pull_request_fields",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "put_active_turn_ids",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "put_auth_mode",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "put_catalog",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "put_credential_view",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "put_identity",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "put_projection_checkpoint",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "put_projection_checkpoint_fenced",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "put_record",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "put_running_entry",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "put_scope",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 21
+    },
+    {
+      "name": "put_selected",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 36
+    },
+    {
+      "name": "put_state",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "queue_depth_for_issue",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "quota_snapshot",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "r2",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "rate",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "rate_limit_body_remaining",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "rate_limit_message?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "rate_limit_observation",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "rate_limit_poll_interval",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "rate_limit_reset",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "rate_limit_usable?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "rate_limited_response?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "rate_limits_map?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 32
+    },
+    {
+      "name": "rc_session_name",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "reactivate_issue",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "read_bytes",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "read_cpu",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "read_csi",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 22
+    },
+    {
+      "name": "read_current",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "read_load",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "read_marker",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "read_memory",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "read_or_empty",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "read_state",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "readable?",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "reap",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 36
+    },
+    {
+      "name": "reap_orphaned_panes",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "reap_process_group",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "reap_process_tree",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "reap_workspace_agents",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 30
+    },
+    {
+      "name": "reason_label",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "reason_phrase",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "reason_text",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "reasoning_text",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "reasons_sentence",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "reasons_text",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "rebuild_snapshot",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "recommendation",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "recommended?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "reconcile_decision",
+      "clauses": 8,
+      "modules": 2,
+      "summed_source_span_lines": 71
+    },
+    {
+      "name": "reconcile_entry",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "reconcile_overrunning_agents",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "reconcile_pending_auto_resumes",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "reconcile_repository",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "reconcile_runtime_health",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "reconcile_snapshot",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 66
+    },
+    {
+      "name": "reconcile_stalled_running_issues",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "record_batch",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 21
+    },
+    {
+      "name": "record_event",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "record_id",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "record_placeholder",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "record_probe_result",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "recover_retained_binding",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "redacted_message",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "redispatch_admission",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "reduce",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "refresh_from_config",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "refresh_now",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "refresh_open_drill",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 22
+    },
+    {
+      "name": "regression?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "regular_log?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "regular_or_missing",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "reject_duplicate",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "reject_incomplete",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "rejection",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 42
+    },
+    {
+      "name": "relationship",
+      "clauses": 8,
+      "modules": 2,
+      "summed_source_span_lines": 27
+    },
+    {
+      "name": "relationship_catalog",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "relative_time",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 37
+    },
+    {
+      "name": "reload",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 21
+    },
+    {
+      "name": "remaining_ms",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "remember_list",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "remote?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "remote_control?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "remote_session_backend",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "remove_dependency",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "remove_issue_label",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "remove_issue_workspaces",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 33
+    },
+    {
+      "name": "remove_marker",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "remove_stale_lock",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "render_body",
+      "clauses": 7,
+      "modules": 2,
+      "summed_source_span_lines": 21
+    },
+    {
+      "name": "render_row",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 96
+    },
+    {
+      "name": "replay_events",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "replay_record",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 25
+    },
+    {
+      "name": "reply",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "reply_to_review_thread",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "reply_waiters",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "repo_full_name",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "repo_identity",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "repo_root",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "repo_string",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "repo_url",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "request_consumer",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "request_cost",
+      "clauses": 7,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "request_direction",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "request_reconcile",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "request_refresh",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "required_text",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "reset_dispatch_budget",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "reset_epoch",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "reset_on_identity_change",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 27
+    },
+    {
+      "name": "reset_turn_quotas",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "resolution",
+      "clauses": 7,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "resolution_topic",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "resolve_default_path",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 28
+    },
+    {
+      "name": "resolve_env_value",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 26
+    },
+    {
+      "name": "resolve_format",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "resolve_model",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "resolve_path",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "resolve_prewarm",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 44
+    },
+    {
+      "name": "resolve_scope",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "resolve_self_pane",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 28
+    },
+    {
+      "name": "resolve_timeout",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "resolve_token",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "resources",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "respawn_pane",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "response_text",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 28
+    },
+    {
+      "name": "restore_canonical",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "restore_delivered_queue_items",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "restore_queue_item_pending",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "restore_terminal",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "result",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "result_tone",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "resumable?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "resume_agent_with_receipt",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "resume_label_overridden_issue",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "resume_outcome",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "resume_paused_issue",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "resume_session_id",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "resume_thread_id",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "retained_counts",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "retention_ms",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "retire_binding",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "retry_after",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "retry_after_ms",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "retry_candidate_issue?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "retry_due?",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "reverse",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "review_context",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "revision",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "revoke",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "rework_attempt_alert_opts",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "rewrite_segment",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "rollback",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "root_fingerprint",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "root_identity",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "root_metrics",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 34
+    },
+    {
+      "name": "rotate_if_large",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "routing_effort",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "routing_model",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "routing_value",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "row_class",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "row_token",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "run_check",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 21
+    },
+    {
+      "name": "run_command",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 21
+    },
+    {
+      "name": "run_id",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "run_sweep",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 37
+    },
+    {
+      "name": "run_tick",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 25
+    },
+    {
+      "name": "runnable?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "runtime_bucket",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "safe_attributes",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 37
+    },
+    {
+      "name": "safe_config",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "safe_emit",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "safe_error",
+      "clauses": 9,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "safe_evidence",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "safe_identifier",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "safe_label_prefix",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "safe_opaque",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "safe_provenance",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 25
+    },
+    {
+      "name": "safe_publish",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "safe_rows",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "safe_source",
+      "clauses": 7,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "safe_store_call",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "safe_supervised_start",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "safe_title",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "safe_unsubscribe",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "safely_invoke_provider_delivery",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "safely_mark_membership_unavailable",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 28
+    },
+    {
+      "name": "same?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "same_run?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "samples",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "schedule_flush",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "schedule_poll_cycle_start",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "schedule_refresh",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "schedule_reload",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 33
+    },
+    {
+      "name": "schedule_resubscribe",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "schedule_timeout",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "scope_only",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "score",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "search",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 26
+    },
+    {
+      "name": "secret_names",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "secure_equal?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "select_layout",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "select_worker_host",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 27
+    },
+    {
+      "name": "selected?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "selected_diagnostics",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 21
+    },
+    {
+      "name": "selected_identifier",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "selected_repository?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "selected_root",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "selected_status",
+      "clauses": 9,
+      "modules": 2,
+      "summed_source_span_lines": 31
+    },
+    {
+      "name": "selected_topic",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "send",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "send_agent_message",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "send_correlated_operator_message",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "send_enter",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "send_escape",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "send_frame",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "send_initialize",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "send_interrupt",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "send_keys_literal",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "send_pause_control_message",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "send_text",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "sequence",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "serve",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "serve_command",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "session_handle_to_save",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "session_resumed?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "set_global_pause_call",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 25
+    },
+    {
+      "name": "set_max_concurrent_agents",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "set_pane_border",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "set_remote_control",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "severity",
+      "clauses": 7,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "shell_escape",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "should_display_tail?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "signature",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 22
+    },
+    {
+      "name": "slot_count",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "slots_topic",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "slug",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "snapshot_agents",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "snapshot_fun",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "snapshot_status",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "source_connection",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "source_facts",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 22
+    },
+    {
+      "name": "source_label",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "sources",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "spec_for",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "split_command",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "split_lines",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "split_pane",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 46
+    },
+    {
+      "name": "sqlite_exec",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "stacked_areas",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 28
+    },
+    {
+      "name": "stamp",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "start_agent_session",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "start_reap",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 35
+    },
+    {
+      "name": "start_refresh",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 64
+    },
+    {
+      "name": "start_thread",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 25
+    },
+    {
+      "name": "start_writer",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "state_for",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "state_payload",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 48
+    },
+    {
+      "name": "stats",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "status_label",
+      "clauses": 14,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "status_with_capacity",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "stop_port",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 49
+    },
+    {
+      "name": "stop_tailer",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "string_field",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "stringify",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "structurally_defective?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "structurally_valid?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "subject",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "subscribe_agent",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "subscribe_all",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "subscribe_context",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "subscribe_for_declared_blocker",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 26
+    },
+    {
+      "name": "subscribe_sources",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "subscribe_to_configuration",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "subscribe_to_events",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "subscription",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "subscription_topic",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "subscriptions_path",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "success",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "sum",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "summarize",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "supersede",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "supervisor_basis",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 30
+    },
+    {
+      "name": "supported?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "svg",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "sweep_own_panes",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "sync_scope",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "table",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "table_line",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "take_sample",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "target",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "target_entry",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 31
+    },
+    {
+      "name": "target_task_results",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 48
+    },
+    {
+      "name": "telemetry_enabled?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "telemetry_file",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "telemetry_retention",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "terminal",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "terminal_lifecycle",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "terminal_states",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "terminate_pane_command",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "terminate_running_issue",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 50
+    },
+    {
+      "name": "ticket_context",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 64
+    },
+    {
+      "name": "ticket_from_topic",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "ticket_identity",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 10
+    },
+    {
+      "name": "ticket_key",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "ticket_label",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "ticket_number",
+      "clauses": 7,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "ticket_number_from_url",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "ticket_number_from_variables",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "tier",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "tier_label",
+      "clauses": 12,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "timeout_ms",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "timestamp_sort_value",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "title_suffix",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "to_record",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 36
+    },
+    {
+      "name": "toggle_pause",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "toggle_remote_control",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "token_source",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "token_value",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "tokens",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "tone",
+      "clauses": 8,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "tool_call_scope",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "tool_name",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "tool_verb",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "topic_label",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "total_for",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "track_host_lock",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "track_provider",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "tracker_paused?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "transcript_delta",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "transcript_flush_ms",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "transition_control_status",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 29
+    },
+    {
+      "name": "trusted_provenance",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 22
+    },
+    {
+      "name": "trusted_source",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "truthy?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "turn_done_reason",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "turn_handle_attrs",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "type_topic",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "unauthorized",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 13
+    },
+    {
+      "name": "unavailable_fleet",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 27
+    },
+    {
+      "name": "unavailable_message",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "unavailable_retained_counts",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 28
+    },
+    {
+      "name": "unknown_attribution",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "unregister",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "unsubscribe_catalog",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "unsubscribe_context",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "unsubscribe_for_declared_blocker",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "unsubscribe_selected",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "update_issue_state_if_current",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 36
+    },
+    {
+      "name": "update_running_entry",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "update_state",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "updated_at",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "usable?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "usage",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 26
+    },
+    {
+      "name": "usage_bar",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "usage_context",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 17
+    },
+    {
+      "name": "utc_datetime",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "valid_close_event?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "valid_limit?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "valid_limits?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "valid_name?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "valid_request_id?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "valid_run?",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "valid_run_id",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "valid_ticket_number",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "validate_dimension",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 8
+    },
+    {
+      "name": "validate_exact_fields",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "validate_expected_state",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 25
+    },
+    {
+      "name": "validate_intervals",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 33
+    },
+    {
+      "name": "validate_record",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 27
+    },
+    {
+      "name": "validate_root_label",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "validate_size",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "validate_source",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 7
+    },
+    {
+      "name": "validate_workspace_cwd",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 57
+    },
+    {
+      "name": "verb",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "verdict",
+      "clauses": 6,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "verify",
+      "clauses": 5,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "verify_review_thread_resolution_ready",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 33
+    },
+    {
+      "name": "verify_review_thread_resolution_still_latest",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 34
+    },
+    {
+      "name": "version_of",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 12
+    },
+    {
+      "name": "via",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "visible_conditions",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "wait",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "watermark_path",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "webhook_backed?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "weight",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 5
+    },
+    {
+      "name": "window_for",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 19
+    },
+    {
+      "name": "window_freshness",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    },
+    {
+      "name": "window_label",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "window_ms",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 3
+    },
+    {
+      "name": "window_name",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 9
+    },
+    {
+      "name": "window_size",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "with_table",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 16
+    },
+    {
+      "name": "work_state",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 2
+    },
+    {
+      "name": "worker_host_for_log",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "workpad_comment?",
+      "clauses": 4,
+      "modules": 2,
+      "summed_source_span_lines": 11
+    },
+    {
+      "name": "workspace_root",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 15
+    },
+    {
+      "name": "workspace_write_policy?",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 6
+    },
+    {
+      "name": "write_and_close",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 20
+    },
+    {
+      "name": "write_entry",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 23
+    },
+    {
+      "name": "write_marker",
+      "clauses": 3,
+      "modules": 2,
+      "summed_source_span_lines": 14
+    },
+    {
+      "name": "writers_for_base_url",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 4
+    },
+    {
+      "name": "x_axis",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 24
+    },
+    {
+      "name": "y_grid",
+      "clauses": 2,
+      "modules": 2,
+      "summed_source_span_lines": 18
+    }
+  ],
+  "limits": "A reproducible queue, not semantic review or defect evidence. Single-module names can still duplicate concepts/bodies and are not certified here. Macro-generated definitions remain outside the literal census."
+}

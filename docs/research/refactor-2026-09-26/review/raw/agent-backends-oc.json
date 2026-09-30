@@ -1,0 +1,1363 @@
+{
+  "unit_id": "agent-backends-oc",
+  "files_reviewed": 80,
+  "lines_reviewed_estimate": 13413,
+  "coverage_notes": "Read in full (every line): all 80 files in the unit. Opencode: attach_pool, session_writer, slot, protocol, slot_policy, server, db, config, event_row, chat_completions (+caller, delta_renderer, operator_dispatch, replay, sse, stream_policy, turn_request, turn_stream), active_turns, token_registry, slot_registry, slot_supervisor, session_writer_registry, api_client, bridge, bridge_port, bridge_supervisor, turn_markers, hidden_window, warmth_report, workspace_setup, session_gc, operator_text, style, slot/{attach_pane,events,serve_lifecycle,sessions,state}, prewarm/session/pane supervisors, event_consumer. OpenAI-compat: all 20 files. app_server: all 17 files. Cross-checked outside the unit (read only the cited ranges): agent_runner/turn_streams.ex, orchestrator/agent_teardown.ex, agent_environment.ex (25-80, 245-300), codex/approvals.ex (300-345), codex/session_lifecycle.ex (40-70), claude/remote_control.ex (240-300), claude/repl/{transcript_turn,hook_turn}.ex receive clauses, agent_runner/queue_drain.ex (80-140), coding_agent/backend.ex (30-60), events/debug_log.ex subscribe API, tmux.ex session/1, and the unit's tests only by grep (source-reading regression tests, CommandRunner token test, HOME usage). Caller/dead-code claims are from grep over src/lib and src/test of the frozen snapshot. Not done: no runtime verification (read-only snapshot, no builds/tests); opencode's own GET /session scoping (relevant to finding 30) was not verifiable from this repo; I did not read the full test suites for these modules beyond targeted greps.",
+  "findings": [
+    {
+      "id": "agent-backends-oc-01",
+      "category": "security",
+      "severity": "P0",
+      "title": "Opencode bridge dispatches Executor messages to agents without checking the bearer token",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/chat_completions.ex",
+          "lines": "39-75"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions.ex",
+          "lines": "131-149"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/operator_dispatch.ex",
+          "lines": "17-26"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/caller.ex",
+          "lines": "21-32"
+        },
+        {
+          "path": "src/lib/aiur/opencode/bridge.ex",
+          "lines": "8-20"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/turn_stream.ex",
+          "lines": "27-78"
+        }
+      ],
+      "description": "Authorization is done per branch, not per route. Only the plain operator-text branch (OperatorDispatch.dispatch_user_text) calls Caller.authorize/1. The turn-marker branch first runs dispatch_shadowed_operator_texts/2, which forwards every non-marker trailing user text to OperatorDispatch.send_operator/3 -> AgentChat.send/3. It then opens TurnStream.stream/3, which subscribes the caller to the agent's live AgentPubSub transcript. Neither step checks a token. The Bridge router has only :match, Plug.Parsers and :dispatch, so there is no outer auth plug. The listener is loopback by default, but every agent can reach it: OpenAI-compat sandboxes use --share-net (command_runner.ex:47), and Codex and Claude agents run on the host.",
+      "evidence": "chat_completions.ex:62-70: `defp handle_identified_text(body, conn, identifier, @turn_marker_prefix <> _ = marker) do ... dispatch_shadowed_operator_texts(body, identifier); TurnStream.stream(conn, identifier, aiur_turn_id)`; chat_completions.ex:143: `_ = OperatorDispatch.send_operator(identifier, sanitized, Sse.random_id())`; the only `Caller.authorize(conn)` call in src/lib is operator_dispatch.ex:19; bridge.ex plugs: `plug(:match)`, `plug(Plug.Parsers, ...)`, `plug(:dispatch)`.",
+      "recommendation": "Add an auth plug to Aiur.Opencode.Bridge that runs before :dispatch. It should require a TokenRegistry-valid bearer on every /v1/chat/completions request, whatever branch the request takes: turn marker, stream marker, nudge, or operator text. Then remove the per-branch Caller.authorize. Add a regression test: an unauthenticated request whose messages are [user:'do X', user:'__aiur_turn__:t1'] must return 401 and must not call AgentChat.send.",
+      "refactor_hint": "Bridge auth belongs at the router boundary of the opencode-backend package. The per-branch pattern is how the coalescing defense (#332-era) bypassed it.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-02",
+      "category": "security",
+      "severity": "P0",
+      "title": "OpenAI-compat exec_command sandbox copies GITHUB_TOKEN/GH_TOKEN into every agent command",
+      "locations": [
+        {
+          "path": "src/lib/aiur/open_ai_compat/command_runner.ex",
+          "lines": "10"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/command_runner.ex",
+          "lines": "80-99"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/command_runner.ex",
+          "lines": "207-215"
+        },
+        {
+          "path": "src/lib/aiur/agent_environment.ex",
+          "lines": "45-56"
+        },
+        {
+          "path": "src/test/aiur/open_ai_compat/command_runner_budget_test.exs",
+          "lines": "84-97"
+        }
+      ],
+      "description": "The bwrap sandbox starts with --clearenv. It then re-adds GITHUB_TOKEN and GH_TOKEN, read directly from the daemon's System env. AgentEnvironment.workspace_env marks both names for scrubbing ({name, false}), but agent_environment/2 drops the scrub entries (`_unset -> []`). So nothing overrides the explicit inherited copy. The launcher sources .env into the daemon environment (aiur-engine.sh:805; Init.Dotenv put_env_if_unset), so in the normal configuration the token is present. This breaks the #2356 invariant: 'agents must not inherit the raw GitHub credential'. The existing test sets GH_TOKEN and depends on it reaching the sandbox, so the leak is pinned by a test.",
+      "evidence": "command_runner.ex:10 `@inherited_env_names ~w(GITHUB_TOKEN GH_TOKEN LANG LC_ALL TERM)`; :89-98 `inherited = @inherited_env_names |> Enum.flat_map(fn name -> case System.get_env(name) do value when is_binary(value) and value != \"\" -> [{name, value}] ...` then `[\"--clearenv\" | ... [\"--setenv\", name, value] ...]`; agent_environment.ex:45-56 comment: 'the environment itself carries no token'.",
+      "recommendation": "Remove GITHUB_TOKEN and GH_TOKEN from @inherited_env_names. Build the sandbox env only from AgentEnvironment.workspace_env, and let the in-sandbox gh guard read the agent token file (AgentGitHubGuard.ensure_agent_token_file) through a read-only bind. Change command_runner_budget_test to provision the token file, and add a test asserting that `env` inside the sandbox contains neither name.",
+      "refactor_hint": "Credential scrubbing should be one AgentEnvironment API that every launcher uses (Port env, bwrap --setenv, tmux). Today each launcher re-derives it. Put it in an agent-sandbox package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-03",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Chat pane drops transcript events whenever a turn is :active but no bridge stream is subscribed",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "190-212"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "221-239"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "251-267"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/turn_stream.ex",
+          "lines": "155-179"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/turn_stream.ex",
+          "lines": "218-229"
+        },
+        {
+          "path": "src/lib/aiur/opencode/turn_markers.ex",
+          "lines": "137-149"
+        }
+      ],
+      "description": "SessionWriter skips its SQL write whenever ActiveTurns has any :active turn for the identifier. The intent is to avoid duplicating what the live SSE stream renders. But whether a turn is :active has nothing to do with whether a TurnStream is actually subscribed. TurnStream closes on the watchdog and at every segment boundary without touching ActiveTurns. A failed continuation-marker post only logs. So events published in those windows reach neither the SSE stream nor SQL. The comments claim a SQL fallback, and no code implements it.",
+      "evidence": "session_writer.ex:265-267 `defp live_stream_active?(state) do ActiveTurns.active_turn_ids(state.identifier) != [] end`; :194-198 comment: 'when no marker stream ever opened — both posts failed, logged as post_retry_failed — the SQL write remains the only render path and proceeds'. turn_markers.ex:147 on double failure only `Logger.warning(\"aiur_turn_marker post_retry_failed ...\")`. turn_stream.ex:161-179 watchdog close and :223-229 close_segment both call unsubscribe_stream/1; neither calls ActiveTurns.mark_closed.",
+      "recommendation": "Base the dedup on actual subscription. Have TurnStream register and unregister its pid in ActiveTurns (the unused register_subscriber/3 already exists for this). SessionWriter should skip only while a live subscriber exists. Buffer events across the segment-close gap, or write them to SQL. Add a test: with an :active turn and no subscriber, a transcript event must be written to SQL.",
+      "refactor_hint": "Deciding which path renders an event (SessionWriter SQL vs TurnStream SSE) is spread over three modules and ActiveTurns. Consolidate it into one render-router in the opencode package.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-04",
+      "category": "config",
+      "severity": "P1",
+      "title": "Hardcoded tmux session 'aiur-orangekid-default' in three duplicated hidden-window geometry routines",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "899-933"
+        },
+        {
+          "path": "src/lib/aiur/opencode/hidden_window.ex",
+          "lines": "104-138"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+          "lines": "48-63"
+        }
+      ],
+      "description": "Three copies of the 'size the hidden window to chat-pane geometry' logic target one developer's tmux session name. The session is really `aiur-$USER[-KEY]-default`, and `Aiur.Tmux.session/1` (tmux.ex:352) already returns it. Every copy swallows failure with `else _ -> :ok` / `rescue _ -> :ok`. For any other user or instance key the resize silently never happens. That brings back the 5-7 s SIGWINCH re-render this code exists to prevent, and nothing is logged. AttachPool.ensure_hidden_geometry has no lib callers. It is kept only for skipped source-grep tests, which also pin the literal string (warm_attach_open_test.exs:71).",
+      "evidence": "attach_pool.ex:904 `\"display-message -p -t aiur-orangekid-default:0 ...\"`, :916 `\"resize-window -t aiur-orangekid-default:aiur-hidden ...\"`, :922 `select-layout -t aiur-orangekid-default:aiur-hidden`; hidden_window.ex:108 and :120; slot/attach_pane.ex:51, :56, :57. 8 literal occurrences in 3 files, each wrapped in rescue/else -> :ok.",
+      "recommendation": "Keep one implementation, HiddenWindow.resize_to_visible_geometry/1, targeting `Tmux.session()` and the window name. Delete AttachPool.ensure_hidden_geometry and AttachPane.resize_hidden_window_for_live_slots. Log a warning, not :ok, when the dimension probe fails.",
+      "refactor_hint": "Tmux geometry belongs to the TUI/pane package, not AttachPool. core_test.exs:329 already forbids 'orangekid' in the tree, but that guard does not scan lib/aiur/opencode.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-05",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "A timed-out sensitive RPC permanently discards every later non-JSON stream line on that port",
+      "locations": [
+        {
+          "path": "src/lib/aiur/app_server/rpc/sensitive_responses.ex",
+          "lines": "83-102"
+        },
+        {
+          "path": "src/lib/aiur/app_server/rpc/sensitive_responses.ex",
+          "lines": "119"
+        },
+        {
+          "path": "src/lib/aiur/app_server/rpc/await.ex",
+          "lines": "34-36"
+        },
+        {
+          "path": "src/lib/aiur/app_server/turn_loop.ex",
+          "lines": "57-70"
+        },
+        {
+          "path": "src/lib/aiur/codex/session_lifecycle.ex",
+          "lines": "51-56"
+        }
+      ],
+      "description": "When a sensitive request times out (for example Codex account/read, handshake.ex:148-164), its id is retained per port. From then on, any malformed line on that port that does not mention the retained id is still discarded, because the fallback is `retained_for_port?(port)`. That fallback does not remove the id. TurnLoop runs discard_late_sensitive_response? before StreamDiagnostics.record. The retained set is cleared only in cleanup_port at session end. So after one unanswered sensitive request, the provider's stderr refusal banners never reach StreamDiagnostics. The #2607 quota classification (Adapter.classify_stream_failure) then sees an empty string.",
+      "evidence": "sensitive_responses.ex:99-100 `nil -> retained_for_port?(port)`; :119 `defp retained_for_port?(port), do: Enum.any?(ids(), fn {retained_port, _request_id} -> retained_port == port end)`; turn_loop.ex:61 `if Rpc.discard_late_sensitive_response?(port, payload_string) do {:continue, state}` before :69 `StreamDiagnostics.record(port, payload_string)`.",
+      "recommendation": "Bound the retention. Discard malformed lines only while a partial sensitive line is pending, or expire retained ids after N lines or T ms. For discarded non-sensitive lines, still record a redacted placeholder in StreamDiagnostics. Test: retain an id, feed a quota banner line, and assert StreamDiagnostics.recent_text/1 contains it.",
+      "refactor_hint": "SensitiveResponses and StreamDiagnostics keep per-port state in the process dictionary. Make them an explicit per-port transport struct owned by the app_server transport package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-06",
+      "category": "performance",
+      "severity": "P1",
+      "title": "AttachPool.consume runs a multi-second Slot.set_visible inside handle_call; timeouts turn into silent misses",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "104-110"
+        },
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "115-179"
+        },
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "202-223"
+        },
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "834-852"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "lines": "132-140"
+        }
+      ],
+      "description": "consume/2 calls the pool with the default 5 s timeout and turns any exit into :miss. Inside that handle_call, the pool calls Slot.set_visible/3 synchronously, with a 15 s timeout. The pool's own comments say a respawn costs 5-7 s. While it waits, every other pool read (attach_count, visible_count, find_slot_for, snapshot, each with a 1 s timeout) returns 0, :miss or empty. When the consume caller times out it cold-opens a placeholder, and the pool then marks the identifier visible in the slot anyway: two panes, plus a stale reply in the caller's mailbox. do_seed also calls Slot.snapshot on each slot serially inside the pool.",
+      "evidence": "attach_pool.ex:107 `GenServer.call(__MODULE__, {:consume, identifier, opts})` / :108-109 `catch :exit, _ -> :miss`; :835 `case Slot.set_visible(slot_pid, identifier) do` inside handle_call; :712-713 comment 'Picking any other slot forces a respawn (5-7 s ...)'; slot.ex:135 `def set_visible(server, identifier, timeout \\\\ 15_000)`; :117,:127,:145,:176 read timeouts of 1_000 with 0/:miss fallbacks.",
+      "recommendation": "Keep AttachPool as pure bookkeeping. The caller should get the slot index from find_slot_for, call Slot.set_visible itself, then cast mark_visible. Alternatively, do the set_visible in a Task and GenServer.reply later. Make the caller's timeout at least the callee's.",
+      "refactor_hint": "Which component paints which pane is decided in three places: Slot, AttachPool and PaneManager. The carve should give pane allocation one owner.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-07",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "Slot and HiddenWindow ':failed' are terminal latches; SlotSupervisor docs claim they restart",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "lines": "183-199"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "lines": "213-231"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "lines": "403-406"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot_supervisor.ex",
+          "lines": "16-19"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot_supervisor.ex",
+          "lines": "132-166"
+        },
+        {
+          "path": "src/lib/aiur/opencode/hidden_window.ex",
+          "lines": "77-92"
+        }
+      ],
+      "description": "Four paths set `status: :failed` and keep the process alive: serve boot error, attach-pane spawn error, serve EXIT, and HiddenWindow create error. No clause leaves :failed. SlotSupervisor's moduledoc says a :failed slot 'terminates and the supervisor restarts it from scratch'. It does not. acquire_slot_or_grow counts a :failed slot as neither ready nor warming, so the pool grows new slots until max_slots and then returns :no_ready_slot for good. If HiddenWindow fails once at boot (for example tmux is not ready yet), every slot's attach spawn fails with :hidden_window_failed.",
+      "evidence": "slot.ex:196-197 `{:error, _} -> {:noreply, %{state | status: :failed}}`; :227-229 same; :403-405 `def handle_info({:EXIT, pid, reason}, %{server_pid: pid} = state) ... {:noreply, %{state | status: :failed, server_pid: nil}}`; hidden_window.ex:87-90 `{:error, reason} -> ... {:noreply, %{state | status: :failed}}` with no retry; slot_supervisor.ex:16-19 doc contradicts.",
+      "recommendation": "On failure return `{:stop, {:shutdown, reason}, state}` with backoff, so the :transient restart does its job. Or send :rebuild_now with a bounded retry budget. Have HiddenWindow retry creation. Raise an alert when a slot fails repeatedly. Fix the moduledoc.",
+      "refactor_hint": "The slot lifecycle is an implicit state machine spread over Slot, State and ServeLifecycle. Make it an explicit gen_statem in the opencode-slots package.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-08",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "SlotPolicy never learns a slot died: live_slots/highest_started latch and grow skips holes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/slot_policy.ex",
+          "lines": "236-270"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot_policy.ex",
+          "lines": "303-327"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot_policy.ex",
+          "lines": "376-406"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "lines": "411-415"
+        }
+      ],
+      "description": "SlotPolicy subscribes to the slots topic, but it has no clause for {:slot_terminated, idx, pid}, which Slot.terminate broadcasts, and it does not monitor slot pids. live_slots only shrinks when the policy itself drains. So a warm slot that exits permanently is never restarted: next_missing_slot sees it as live. grow_slot always starts `highest + 1`, so it never refills the hole and reaches :at_capacity early. SlotSupervisor.slot_count() (the registry) and SlotPolicy.live_slots can disagree indefinitely.",
+      "evidence": "slot_policy.ex:270 `def handle_info(_msg, state), do: {:noreply, state}` swallows :slot_terminated; :310 `next = highest + 1`; :400-405 `Enum.find(1..target, &(!MapSet.member?(state.live_slots, &1)))`; slot.ex:413 `Events.slot_terminated(state.slot_index, self())`.",
+      "recommendation": "Handle :slot_terminated (or monitor the pids returned by start_slot): remove the index from live_slots, recompute highest_started, and restart it if the index is <= target. Make grow_slot pick the lowest free index.",
+      "refactor_hint": "Same opencode-slots package as finding 07. The pool's true state should come from one source (SlotRegistry), not a shadow MapSet.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-09",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "Db.with_transaction commits after an {:error,_} return and ignores COMMIT failure",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/db.ex",
+          "lines": "64-84"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "338-364"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "404-413"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "457-486"
+        }
+      ],
+      "description": "ROLLBACK runs only when fun raises. If fun returns {:error, reason}, as open_turn's `with` does when a part insert fails after the message insert, COMMIT runs and the partial rows persist. open_turn then returns {:error} without recording the turn, so the next event with the same turn_id opens a second assistant message. The COMMIT result is discarded (`_ = Basic.exec(conn, \"COMMIT\")`). If COMMIT fails (SQLITE_BUSY), the connection closes, an implicit rollback happens, and the caller still sees success. Replay also ignores the root-message insert result and silently counts failed events.",
+      "evidence": "db.ex:70-73 `result = fun.(conn); _ = Basic.exec(conn, \"COMMIT\"); result`; session_writer.ex:353 `_ = Db.insert_message(conn, state.session_id, root_msg_id, user_root_data)`; :410 `{:error, _reason} -> count`; :466-474 `with :ok <- Db.insert_message(...) do insert_part_list(...) end` inside with_transaction.",
+      "recommendation": "Make with_transaction roll back on any non-:ok / {:error,_} return and propagate COMMIT errors. Stop discarding the root insert result during replay. Add Db tests for error-return rollback and COMMIT failure.",
+      "refactor_hint": "Db is the opencode-SQLite adapter. Give it tested transactional semantics before carving it into the opencode package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-10",
+      "category": "performance",
+      "severity": "P1",
+      "title": "ToolCallLedger keeps every dynamic tool result forever and fsyncs twice per call through one global GenServer",
+      "locations": [
+        {
+          "path": "src/lib/aiur/app_server/tool_call_ledger.ex",
+          "lines": "42-74"
+        },
+        {
+          "path": "src/lib/aiur/app_server/tool_call_ledger.ex",
+          "lines": "109-128"
+        },
+        {
+          "path": "src/lib/aiur/app_server/tool_call_ledger.ex",
+          "lines": "175-192"
+        },
+        {
+          "path": "src/lib/aiur/app_server/tool_call_ledger/storage.ex",
+          "lines": "26-41"
+        },
+        {
+          "path": "src/lib/aiur/codex/approvals.ex",
+          "lines": "308-331"
+        }
+      ],
+      "description": "Every Codex dynamic tool call that has a call_id gets a DETS row: {:running} at claim, then {:done, fingerprint, result} with the full normalized result. No code path deletes or compacts entries. init loads the whole table into the GenServer map at boot. Each claim and each complete runs :dets.insert + :dets.sync inside handle_call, and all callers wait with :infinity timeouts. Memory, boot time and file size grow with lifetime tool calls across all tickets. When DETS hits its 2 GB file limit, put fails, claim_new returns {:ledger_unavailable, _}, and every dynamic tool call is refused.",
+      "evidence": "grep for delete/prune/expire in tool_call_ledger*.ex finds only `Map.delete(&1, monitor)`; storage.ex:35-38 `with :ok <- :dets.insert(table_name, {key, entry}) do :dets.sync(table_name) end`; storage.ex:27 `:dets.foldl(fn {key, entry}, acc -> Map.put(acc, key, entry) end, %{}, table_name)`; tool_call_ledger.ex:35 and :159 `GenServer.call(server, ..., :infinity)`.",
+      "recommendation": "Tie ledger entries to the (scope, thread) lifetime: purge a thread's :done entries when its app-server session ends, keeping :uncertain tombstones only while the thread can replay. Or add TTL compaction. Store a result digest plus the spill path instead of full results. Consider one ledger per agent to remove the global serialization.",
+      "refactor_hint": "Belongs with app_server session lifecycle. The carve should give the ledger an owner that sees session end.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-11",
+      "category": "anti-pattern",
+      "severity": "P1",
+      "title": "ActiveTurns/TokenRegistry create their named public ETS table lazily from whichever process calls first",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/active_turns.ex",
+          "lines": "45-51"
+        },
+        {
+          "path": "src/lib/aiur/opencode/active_turns.ex",
+          "lines": "171-176"
+        },
+        {
+          "path": "src/lib/aiur/opencode/token_registry.ex",
+          "lines": "47-53"
+        },
+        {
+          "path": "src/lib/aiur/opencode/token_registry.ex",
+          "lines": "99-103"
+        },
+        {
+          "path": "src/lib/aiur/opencode/token_registry.ex",
+          "lines": "126-131"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+          "lines": "134"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/tracked_set.ex",
+          "lines": "107"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/latest_run.ex",
+          "lines": "135"
+        }
+      ],
+      "description": "Every public function calls ensure_table/0. If the table is missing, :ets.new runs in the caller's process, and that process becomes the owner. If the ActiveTurns or TokenRegistry GenServer restarts, the table disappears with it. The next caller then owns the new table: an AgentRunner task, or a Bandit request handler calling TokenRegistry.valid?/1. When that short-lived process exits, the table and every token or active-turn entry vanish again. Result: the bridge answers 401 for all slots, and TurnStream treats live turns as phantoms. Two concurrent callers in that window race :ets.new on a named table (ArgumentError). The same helper appears in 3 more modules outside this unit.",
+      "evidence": "active_turns.ex:171-176 and token_registry.ex:126-131: `case :ets.whereis(@table) do :undefined -> :ets.new(@table, [:named_table, :public, read_concurrency: true]); _tid -> @table end`, called from put/lookup/valid?/lookup_slot/delete/delete_stale/active_turn_ids/mark_closed.",
+      "recommendation": "Create the tables only in the owning GenServer's init, or use a dedicated table-owner process with an :heir. Readers should return a defined empty result when the table is absent, never create it. Move the 5 copies into one shared helper.",
+      "refactor_hint": "Add an 'owned ETS table' utility to the core package and use it from every package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-12",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Large dead public surface across opencode Protocol/ApiClient/Config/Db/Slot* and OpenAI-compat",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/protocol.ex",
+          "lines": "8-59"
+        },
+        {
+          "path": "src/lib/aiur/opencode/protocol.ex",
+          "lines": "189-196"
+        },
+        {
+          "path": "src/lib/aiur/opencode/protocol.ex",
+          "lines": "208-235"
+        },
+        {
+          "path": "src/lib/aiur/opencode/api_client.ex",
+          "lines": "42-71"
+        },
+        {
+          "path": "src/lib/aiur/opencode/api_client.ex",
+          "lines": "99-107"
+        },
+        {
+          "path": "src/lib/aiur/opencode/config.ex",
+          "lines": "119-122"
+        },
+        {
+          "path": "src/lib/aiur/opencode/config.ex",
+          "lines": "158-182"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer_registry.ex",
+          "lines": "63-81"
+        },
+        {
+          "path": "src/lib/aiur/opencode/db.ex",
+          "lines": "86-95"
+        },
+        {
+          "path": "src/lib/aiur/opencode/db.ex",
+          "lines": "117-126"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "lines": "122-130"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot/state.ex",
+          "lines": "52-58"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot_supervisor.ex",
+          "lines": "93-111"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot_policy.ex",
+          "lines": "64-95"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot_policy.ex",
+          "lines": "251-284"
+        }
+      ],
+      "description": "grep over src/lib finds no production callers for the following. Protocol: verified_min/0 and verified_max/0 (still say opencode '0.7.0'/'0.7.x'; every comment elsewhere pins 1.15.6/1.17.10), session_idle/session_error/permission_asked/tool_before/tool_after (0 refs anywhere), user_message_part/assistant_text_message/assistant_command_message/system_message_part/alert_message_part/aiur_metadata (tests only), and user_message_data's :marker option, whose three maybe_put_marker clauses are all identity. ApiClient: update_part, show_toast, abort_session, health (0 refs). Opencode.Config: prewarm_workspace, model_for_issue. SessionWriterRegistry.lookup/1: its doc says Replay uses it, while Replay says 'NO FALLBACK'. Db.insert_message/3 and insert_part/4 (tests only). Slot.attach_many. State.new/2 (Slot.init builds the struct inline). The :serve_starting status, which is never assigned. SlotSupervisor.acquire_slot/0. SlotPolicy.bump/0, a no-op kept 'for backward compatibility'. SlotPolicy.highest_started/0 (no external caller). SlotPolicy's 'old PubSub event names' no-op handle_info clauses.",
+      "evidence": "caller counts (src/lib / src/test): Protocol.verified_min 0/0, session_idle 0/0, user_message_part 0/1, aiur_metadata 0/1; ApiClient.update_part 0/0, show_toast 0/0, abort_session 0/0, health 0/0; Config.prewarm_workspace 0, model_for_issue 0; `SessionWriterRegistry.lookup(` lib callers only the /2 form (replay.ex:60, caller.ex:65); `acquire_slot()` has no lib caller (pane_manager uses acquire_slot_or_grow); slot_policy.ex:272-274 comment 'Kept as a no-op so existing call sites ... compile'.",
+      "recommendation": "Delete these functions and their test-only callers during the carve. Replace verified_min/max with the real pinned version if a guard is wanted. Fix the SessionWriterRegistry and SlotSupervisor moduledocs, which describe removed behavior (lookup/1, release_slot, LRU stamping).",
+      "refactor_hint": "Shrinking the public API before carving reduces the cross-package interface of the opencode package. Roughly 200 lines.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-13",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "AttachPool carries dead state, dead messages and dead tmux helpers kept alive only by skipped source-grep tests",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "45-60"
+        },
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "300-304"
+        },
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "473-492"
+        },
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "501-506"
+        },
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "862-867"
+        },
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "881-968"
+        }
+      ],
+      "description": "The in_flight MapSet is only ever deleted from (lines 528, 554, 576); nothing inserts into it. The leadoff Task sends {:attach_task_done, ...} (lines 479, 490), which falls into the catch-all at line 319. ensure_hidden_geometry/0, wait_for_paint/2 and _attach_command_for/2 (about 85 lines) have no lib callers; the comment says 'Not invoked from inside this module'. Their only users are regression tests under @describetag :skip. slot_pid_for/1 scans SlotRegistry.all() linearly, although current_slot_pid/1 in the same module and SlotRegistry.lookup/1 already do a constant-time lookup. The module is 969 lines, the largest in the unit, and about 40% of it is design history in comments.",
+      "evidence": "attach_pool.ex:51 `in_flight: MapSet.new()` with no MapSet.put anywhere; :479 `send(pool, {:attach_task_done, slot_index, identifier, :ok})`; :881-883 comment 'retained for slot-bound callers ... Not invoked from inside this module'; grep: ensure_hidden_geometry/wait_for_paint/_attach_command_for have 0 lib callers; :863 `Enum.find(SlotRegistry.all(), fn {idx, _pid} -> idx == slot_index end)`.",
+      "recommendation": "Delete in_flight, the :attach_task_done sends, and the three tmux helpers, together with the skipped tests that grep for them. Replace slot_pid_for with SlotRegistry.lookup. After this, AttachPool should be under 500 lines.",
+      "refactor_hint": "Opencode-slots package. Do this before splitting pane allocation (finding 06).",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-14",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Dead modules and dead protocol paths: EventConsumer, PaneSupervisor, WarmthReport, stream-marker Replay, ActiveTurns subscriber displacement",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/event_consumer.ex",
+          "lines": "1-11"
+        },
+        {
+          "path": "src/lib/aiur/opencode/pane_supervisor.ex",
+          "lines": "1-11"
+        },
+        {
+          "path": "src/lib/aiur/opencode/warmth_report.ex",
+          "lines": "1-223"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/replay.ex",
+          "lines": "1-83"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions.ex",
+          "lines": "20-27"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions.ex",
+          "lines": "77-89"
+        },
+        {
+          "path": "src/lib/aiur/opencode/db.ex",
+          "lines": "148-165"
+        },
+        {
+          "path": "src/lib/aiur/opencode/active_turns.ex",
+          "lines": "18-28"
+        },
+        {
+          "path": "src/lib/aiur/opencode/active_turns.ex",
+          "lines": "110-147"
+        }
+      ],
+      "description": "EventConsumer is an empty GenServer with 0 references. PaneSupervisor is started at aiur.ex:479, but nothing ever calls start_child on it. WarmthReport is referenced only by tests. Nothing in src/lib produces the `__aiur_stream__:<msg>` or `__aiur_stream__:nudge:` markers any more: SessionWriter's moduledoc says the nudge was removed, and Protocol's {:stream, _} marker option does nothing. So the stream-marker branch, Replay (83 lines) and Db.fetch_message_with_parts exist only for markers left over in old opencode SQLite. ActiveTurns documents 'Subscriber displacement' and stores a pid column, but register_subscriber/3 has no callers, so the displacement it describes is not implemented.",
+      "evidence": "grep counts: EventConsumer lib=0 test=0; PaneSupervisor only `unless(headless?, do: Aiur.Opencode.PaneSupervisor)` at aiur.ex:479; WarmthReport lib=0; `__aiur_stream__` appears only in chat_completions.ex, turn_request.ex, replay.ex and protocol docs; `register_subscriber` appears only in active_turns.ex.",
+      "recommendation": "Delete EventConsumer, PaneSupervisor and its child spec, and WarmthReport (or move it to a dev/mix task). Decide whether stale stream markers still need handling: if yes, answer them with Sse.empty_stream and delete Replay and fetch_message_with_parts; if no, delete the whole branch. Either wire register_subscriber in (see finding 03) or delete it and the pid column.",
+      "refactor_hint": "About 400 lines that would otherwise be carried into the opencode package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-15",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "TurnState keeps an unreachable legacy 'active_turn_ids without accepted_turn_ids' state shape, dispatched by map-shape pattern matching",
+      "locations": [
+        {
+          "path": "src/lib/aiur/app_server/turn_state.ex",
+          "lines": "20-98"
+        },
+        {
+          "path": "src/lib/aiur/app_server/turn_state.ex",
+          "lines": "193-221"
+        },
+        {
+          "path": "src/lib/aiur/app_server/provider_turn_ledger.ex",
+          "lines": "44-53"
+        },
+        {
+          "path": "src/lib/aiur/codex/coding_agent.ex",
+          "lines": "193-198"
+        }
+      ],
+      "description": "TurnState chooses among three behaviors by the shape of the state map. (1) With accepted_turn_ids, it delegates to ProviderTurnLedger; Codex, via loop_state_extras -> ProviderTurnLedger.start_turn, which always sets both sets. (2) With active_turn_ids only: the legacy path. (3) With neither: an outstanding_turns counter; Claude, whose loop_state_extras returns %{}. No production code builds shape (2); only tests in app_server/*_test.exs and codex/*_test.exs do. That dead variant accounts for 5 clauses plus retire_legacy_provider_turn and put_active_turn_ids. Using the state's shape as polymorphism doubles the combinations every function must handle.",
+      "evidence": "turn_state.ex:37 `def register_provider_turn(%{active_turn_ids: %MapSet{} = active_turn_ids} = state, ...)`, :66, :79, :208-221; provider_turn_ledger.ex:47-49 `active_turn_ids: MapSet.new(), accepted_turn_ids: MapSet.new()` always set together; claude/coding_agent.ex:292 `def loop_state_extras(_session), do: %{}`.",
+      "recommendation": "Delete the legacy active-only branches. Make the turn-tracking strategy explicit: a :tracking field (:ledger | :counter) or a behaviour implemented by the backend, instead of matching on which keys exist.",
+      "refactor_hint": "app_server package. An explicit strategy lets the Claude and Codex adapters be carved with a clear interface.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-16",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "The pause/queue control-message vocabulary is re-matched in 5 receive loops that have already diverged",
+      "locations": [
+        {
+          "path": "src/lib/aiur/open_ai_compat/coding_agent.ex",
+          "lines": "297-306"
+        },
+        {
+          "path": "src/lib/aiur/app_server/turn_loop.ex",
+          "lines": "22-47"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/transcript_turn.ex",
+          "lines": "221-235"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/hook_turn.ex",
+          "lines": "146-162"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "105-140"
+        }
+      ],
+      "description": "Every backend's turn loop hand-matches {:pause_agent, id}, {:pause_agent, id, gen}, {:agent_queue_updated, ident, item, deliver_now?} and the legacy 3-tuple {:agent_queue_updated, ident, item}. The copies disagree. TurnLoop filters queue updates by issue_identifier; OpenAI-compat and both Claude REPL loops do not. OpenAI-compat accepts {:pause_agent, request_id} without an is_integer guard. OpenAI-compat also consumes and discards deliver_now?=true updates, while the others act on them. Every copy still carries the legacy 3-tuple clause.",
+      "evidence": "open_ai_compat/coding_agent.ex:299-302 `{:pause_agent, request_id} -> ...; {:agent_queue_updated, _identifier, _item_id, _deliver_now?} -> pause_state(); {:agent_queue_updated, _identifier, _item_id} -> pause_state()`; turn_loop.ex:31-47 filters `when issue_identifier == state.issue_identifier`; transcript_turn.ex:222/226/229 and hook_turn.ex:148/153/156 repeat all three queue shapes.",
+      "recommendation": "Add Aiur.CodingAgent.Control.classify(msg, identifier) -> {:pause, control} | {:queue_updated, deliver_now?} | :ignore, and have each loop call it in a single `msg ->` clause. Retire the 3-tuple sender (delivery_policy.ex:55 already sends the 4-tuple).",
+      "refactor_hint": "The control protocol between runner and backend is the seam for carving backends into separate packages. Put it in the shared coding-agent contract package with its Backend behaviour (coding_agent/backend.ex:40-47).",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-17",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "The shared app_server layer and the OpenAI-compat backend depend on concrete Codex/Claude modules",
+      "locations": [
+        {
+          "path": "src/lib/aiur/app_server/adapter.ex",
+          "lines": "11-12"
+        },
+        {
+          "path": "src/lib/aiur/app_server/adapter.ex",
+          "lines": "61-64"
+        },
+        {
+          "path": "src/lib/aiur/app_server/adapter.ex",
+          "lines": "251-262"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/tool_spec.ex",
+          "lines": "4"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/tool_spec.ex",
+          "lines": "109"
+        }
+      ],
+      "description": "Aiur.AppServer.Adapter is meant to be the backend-neutral skeleton, yet it calls Aiur.Claude.RemoteControl.graceful_kill_tree/1 to kill ports and defaults tool_executor to Aiur.Codex.DynamicTool.execute/2. OpenAICompat.ToolSpec pulls its dynamic tool list from Aiur.Codex.DynamicTool.tool_specs/0. These imports run the wrong way: the shared layer imports two of its own implementers, and the OpenAI-compat backend imports the Codex backend.",
+      "evidence": "adapter.ex:11 `alias Aiur.Claude.RemoteControl`, :12 `alias Aiur.Codex.DynamicTool`, :63 `DynamicTool.execute(tool, arguments)`, :253 `RemoteControl.graceful_kill_tree(os_pid)`; tool_spec.ex:109 `defp all, do: @builtin ++ DynamicTool.tool_specs()`.",
+      "recommendation": "Move process-tree reaping into a neutral process-management module (see finding 33 for the duplicate in Opencode.Server). Move DynamicTool (the Aiur tool catalog) out of Aiur.Codex into a backend-neutral agent-tools package that both Codex and OpenAI-compat use. Require callers to inject tool_executor.",
+      "refactor_hint": "This blocks carving Codex, Claude and OpenAI-compat into separate packages: app_server would drag both in.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-18",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "The opencode backend reaches directly into Orchestrator, AgentChat, IssueLog and Config, including a sleep-poll inside a GenServer callback",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/turn_stream.ex",
+          "lines": "161-167"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot/serve_lifecycle.ex",
+          "lines": "24-32"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot/serve_lifecycle.ex",
+          "lines": "198-219"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_gc.ex",
+          "lines": "29-30"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/operator_dispatch.ex",
+          "lines": "33-50"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "338-343"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "792-796"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "lines": "183-188"
+        }
+      ],
+      "description": "The chat-pane transport calls orchestrator internals directly. TurnStream calls Aiur.Orchestrator.mark_sleeping/1 when its watchdog fires. ServeLifecycle and SessionGC call Aiur.Orchestrator.list_active_identifiers; ServeLifecycle does so in a Process.sleep(100) loop for up to 3 s inside Slot.handle_continue(:start_serve), which blocks the Slot. OperatorDispatch calls AgentChat.send. SessionWriter reads IssueLog history and Aiur.Config.workspace_root. The opencode package therefore cannot be carved without the orchestrator.",
+      "evidence": "turn_stream.ex:167 `Aiur.Orchestrator.mark_sleeping(identifier)`; serve_lifecycle.ex:205 `Process.sleep(@orchestrator_poll_interval_ms)` and :214 `Aiur.Orchestrator.list_active_identifiers(Aiur.Orchestrator, 500)`; session_gc.ex:30 `MapSet.new(Aiur.Orchestrator.list_active_identifiers())`; operator_dispatch.ex:45 `AgentChat.send(identifier, operator_text, ...)`.",
+      "recommendation": "Define a small port behaviour (for example Aiur.Opencode.Host) with active_identifiers/0, deliver_operator_text/3, mark_sleeping/1, history/2 and workspace_for/1, implemented by the core app and injected via config. Seed slot identifiers from AttachPool.seed data, which already carries them, instead of polling the orchestrator.",
+      "refactor_hint": "Required seam for moving opencode into its own package or repo.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-19",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "Protocol mixes four concerns and duplicates row builders",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/protocol.ex",
+          "lines": "61-187"
+        },
+        {
+          "path": "src/lib/aiur/opencode/protocol.ex",
+          "lines": "252-319"
+        },
+        {
+          "path": "src/lib/aiur/opencode/protocol.ex",
+          "lines": "389-403"
+        },
+        {
+          "path": "src/lib/aiur/opencode/protocol.ex",
+          "lines": "415-447"
+        }
+      ],
+      "description": "The 448-line 'isolation boundary' holds four separate concerns: opencode.json provider config, a 58-line theme literal, SQLite row JSON builders, and shell command builders. assistant_message_data/1 and system_message_data/1 are about 23 near-identical lines each; they differ only in role, mode/agent and the modelID prefix. The zero-token map (`\"tokens\" => %{\"total\" => 0, ... \"cache\" => %{...}}`) is written out three times.",
+      "evidence": "protocol.ex:266-272, :307-313 and :395-401 are the same 7-line tokens map; assistant_message_data (:253-278) and system_message_data (:296-319) share parentID/path/cost/tokens/providerID/time/finish; aiur_theme_json spans :130-187.",
+      "recommendation": "Split into Opencode.Protocol.Config (opencode.json, tui.json, theme; move the theme to a priv JSON file), Opencode.Protocol.Rows (message and part data, with one base_message/2 helper and one @zero_tokens attribute), and Opencode.Protocol.Commands (serve and attach commands).",
+      "refactor_hint": "Rows and Db together form the opencode-SQLite adapter. Config and Commands belong to slot provisioning.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-20",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "SessionWriter: four near-identical message writers, discarded PATCH plumbing, contradictory moduledoc, and public *_for_test",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "1-31"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "199-205"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "457-583"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "683-697"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "788-816"
+        }
+      ],
+      "description": "open_turn, write_standalone_in_txn, write_system_standalone_in_txn and write_user_message_in_txn all repeat the same steps: mint ids, build parts, insert_message, insert_part_list. The `finish` computation appears in both write_standalone_in_txn (:497) and build_message_data (:801). tag_parts/2 builds {message_id, part_id, part_data} lists that every caller throws away (`_ = parts`, `_finalize_parts`). The moduledoc says the writer 'ALSO fire[s] PATCH ... for each freshly written part', but the closing comment (:811-816) says it 'no longer needs to poke opencode per-part'. handle_write_failure_for_test/2 and reset_fk_failures_for_test/1 expose private functions as public API. The module has 817 lines.",
+      "evidence": "session_writer.ex:204 `_ = parts`; :216 `{new_state, _finalize_parts} = finalize_turn(...)`; :9-13 PATCH claim vs :811-816 'SessionWriter no longer needs to poke opencode per-part'; :683-694 *_for_test defs.",
+      "recommendation": "Add one write_message(conn, state, message_data, parts) helper and build the four shapes as data. Drop tag_parts and the parts return values. Rewrite the moduledoc. Test FK handling through handle_info with an injected Db failure instead of *_for_test.",
+      "refactor_hint": "Opencode-SQLite adapter package. The writer could shrink to about 450 lines.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-21",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "A SessionWriter restart re-replays up to 500 history events into the same opencode session",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "75-82"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "143-165"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "338-364"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer_registry.ex",
+          "lines": "332-344"
+        }
+      ],
+      "description": "Writers are :transient children started with a fixed session_id. After any crash, the DynamicSupervisor restarts the writer with the same session_id. handle_continue(:boot) then calls replay_history, which inserts a fresh root message and rewrites the last 500 IssueLog events as new rows. Nothing checks which rows already exist, so the chat pane shows the history twice.",
+      "evidence": "session_writer_registry.ex:333-337 child spec `start: {SessionWriter, :start_link, [%{identifier: identifier, session_id: session_id, base_url: base_url}]}, restart: :transient`; session_writer.ex:340 `IssueLog.history(state.identifier, 500)`, :345 `root_msg_id = Db.msg_id()` and replays every event.",
+      "recommendation": "Make replay idempotent: persist the last replayed event id or check for existing rows in the session. Or use restart: :temporary and let SessionWriterRegistry.ensure create a new session on the next attach.",
+      "refactor_hint": "Opencode-SQLite adapter.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-22",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Slot does long blocking I/O inside GenServer callbacks while callers probe it with 2 s snapshots on hot paths",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "lines": "183-199"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "lines": "417-454"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot/sessions.ex",
+          "lines": "12-23"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot/serve_lifecycle.ex",
+          "lines": "42-77"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/caller.ex",
+          "lines": "45-55"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot_supervisor.ex",
+          "lines": "103-149"
+        },
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "375-380"
+        }
+      ],
+      "description": "Inside Slot callbacks: ServeLifecycle.boot waits up to 30 s in Server.await_ready plus the 3 s orchestrator sleep-poll. do_attach_known and do_select call SessionWriterRegistry.ensure, which is an HTTP create_session with a 30 s receive timeout, followed by SessionWriter.await_replay with a 10 s timeout. Meanwhile three hot paths call Slot.snapshot/1 (2 s timeout, returns %{status: :unavailable}): Caller.base_url on every bridge request, which silently disables segmentation when it fails; SlotSupervisor.acquire_slot_or_grow, serially over all slots; and AttachPool.do_seed, serially over all slots inside the pool GenServer.",
+      "evidence": "server.ex:17 `def await_ready(pid, timeout \\\\ 30_000)`; api_client.ex:6 `@receive_timeout 30_000`; sessions.ex:8 `@replay_timeout_ms 10_000`; slot.ex:91 `GenServer.call(server, :snapshot, 2_000)` / :93 `%{status: :unavailable}`; caller.ex:49 `Slot.snapshot(slot_pid)`; slot_supervisor.ex:136 `Enum.map(fn {index, pid} -> {index, pid, Slot.snapshot(pid)} end)`.",
+      "recommendation": "Publish slot status and base_url into the SlotRegistry value, as pane_state already does, so readers never call the Slot process. Move serve boot and session ensure into Tasks whose replies arrive as messages (a gen_statem with :postpone for queued selects).",
+      "refactor_hint": "Opencode-slots package, together with finding 07.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-23",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "Slot state keeps mirrored active_*/visible_* fields that already disagree, plus triplicated claim-guard clauses",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/slot/state.ex",
+          "lines": "20-31"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot/state.ex",
+          "lines": "226-242"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot.ex",
+          "lines": "233-290"
+        },
+        {
+          "path": "src/lib/aiur/opencode/attach_pool.ex",
+          "lines": "801-813"
+        }
+      ],
+      "description": "active_identifier and active_session_id 'mirror visible_identifier / visible_session_id for legacy callers'. The only remaining readers are two log lines in slot.ex (376, 381). rebuild_reset/3 clears active_* but leaves visible_*, so after a rebuild the mirror is already broken. AttachPool.do_seed then reads the stale visible_identifier from Slot.snapshot to decide which slots are free. separately, handle_call repeats the same four clauses (claimed-by-caller, ready/active, claimed-by-other, not-ready) for each of :select, :attach and :set_visible: 12 clauses where one guard helper would do.",
+      "evidence": "state.ex:28-31 'Mirror visible_identifier / visible_session_id for legacy callers'; state.ex:237-240 rebuild_reset sets `active_identifier: nil, active_session_id: nil` but not visible_*; slot.ex:234-245, :257-270, :272-290 the repeated clause groups.",
+      "recommendation": "Delete the active_* fields and log visible_identifier. Decide whether a rebuild keeps visibility, and clear visible_* if it does not. Route the three commands through one `with_slot_access(from, state, fun)` guard.",
+      "refactor_hint": "Opencode-slots package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-24",
+      "category": "performance",
+      "severity": "P2",
+      "title": "OpenAI-compat conversation grows unbounded, read_file is uncapped, and the tool-round limit was fixed by raising it",
+      "locations": [
+        {
+          "path": "src/lib/aiur/open_ai_compat/coding_agent.ex",
+          "lines": "22-32"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/coding_agent.ex",
+          "lines": "70-80"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/conversation.ex",
+          "lines": "4-29"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/tools.ex",
+          "lines": "18-25"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/command_runner.ex",
+          "lines": "270-271"
+        }
+      ],
+      "description": "The session's messages list only ever grows (`state.messages ++ [...]`, which is also O(n) per append), and the whole history is resent on every request for the session's lifetime. Nothing compacts it or caps it by tokens. exec_command output is truncated at 100_000 bytes, but read_file returns the entire file, so a single read of a large log or build artifact enters the context permanently. @max_tool_rounds went from 32 to 256 because complex tickets hit :tool_round_limit_exceeded, which is the known 'fix by raising a limit' pattern.",
+      "evidence": "coding_agent.ex:32 `@max_tool_rounds 256` with comment '256 is 8x the old cap'; coding_agent.ex:74 `state.messages ++ [%{\"role\" => \"user\", ...}]`; conversation.ex:7/17/28 `messages: state.messages ++ ...`; tools.ex:18-24 read_file `File.read(absolute)` with no size limit; command_runner.ex:270-271 `truncate` at 100_000.",
+      "recommendation": "Cap read_file (offset and limit arguments, plus the same 100 KB truncation or ToolResultSpill). Add context compaction or token budgeting keyed on usage.prompt_tokens. Replace the fixed round cap with a spend or elapsed budget that raises an Executor alert, not a silent error.",
+      "refactor_hint": "OpenAI-compat backend package.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-25",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "OpenAI-compat run_turn snapshots and then wholesale-overwrites the session Agent, which would lose concurrent send_operator_message writes",
+      "locations": [
+        {
+          "path": "src/lib/aiur/open_ai_compat/coding_agent.ex",
+          "lines": "70-97"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/coding_agent.ex",
+          "lines": "116-128"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/session.ex",
+          "lines": "9-13"
+        }
+      ],
+      "description": "run_turn reads the Agent state once with Session.get, runs the whole tool loop (minutes) on that copy, and then writes it back with `Session.update(pid, fn _ -> state end)`. send_operator_message/2 appends a user message and bumps next_request_id inside the Agent through get_and_update. Any append made during a turn is overwritten, and request ids can collide. It is latent today: the only path to this callback is Aiur.CodingAgent.send_operator_message/2, which has no callers in src/lib. OpenAI-compat receives mid-turn operator text through Checkpoint instead.",
+      "evidence": "coding_agent.ex:73 `state = Session.get(pid)`; :85/:90/:95 `Session.update(pid, fn _ -> state end)`; :119-123 `Agent.get_and_update(pid, fn state -> ... messages: state.messages ++ [...]`; grep: `CodingAgent.send_operator_message` has no caller.",
+      "recommendation": "Delete send_operator_message for this backend (return {:error, :unsupported}, since the checkpoint path is the delivery mechanism), or have commit_turn merge messages appended since the snapshot. Replace the Agent with a plain struct owned by the runner process.",
+      "refactor_hint": "OpenAI-compat package. The Backend behaviour should state whether send_operator_message may run concurrently with run_turn.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-26",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "RPC await restarts its full timeout on every notification; with_timeout_response/handle_response arity explosion and Rpc<->Await mutual recursion",
+      "locations": [
+        {
+          "path": "src/lib/aiur/app_server/rpc.ex",
+          "lines": "34-114"
+        },
+        {
+          "path": "src/lib/aiur/app_server/rpc/await.ex",
+          "lines": "8-38"
+        },
+        {
+          "path": "src/lib/aiur/app_server/rpc/await.ex",
+          "lines": "40-54"
+        }
+      ],
+      "description": "When Rpc.handle_response/7 receives a non-matching JSON frame (a notification) or a non-JSON line, it re-enters with_timeout_response with the original timeout_ms. So the deadline is really 'time since the last line', and a provider that keeps streaming notifications never times out an awaited response. Rpc has 3 arities each of with_timeout_response and handle_response just to default two optional arguments. Await.response calls back into Rpc.handle_response, which calls Await.response again: mutual recursion across two modules.",
+      "evidence": "rpc.ex:105-107 `{:ok, %{} = other} -> maybe_route_notification(...); with_timeout_response(port, request_id, timeout_ms, \"\", ...)`; :109-112 same for non-JSON; await.ex:34-35 `after timeout_ms ->`; await.ex:45 `Rpc.handle_response(`.",
+      "recommendation": "Compute a monotonic deadline once and pass the remaining time. Collapse the arities into one function taking an opts keyword. Move the decode and route step into Await so Rpc only delegates.",
+      "refactor_hint": "app_server transport package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-27",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "A second pause request during a pending pause is silently dropped; the reply carries the old request id",
+      "locations": [
+        {
+          "path": "src/lib/aiur/app_server/interrupts.ex",
+          "lines": "6-32"
+        },
+        {
+          "path": "src/lib/aiur/app_server/turn_state.ex",
+          "lines": "121-123"
+        }
+      ],
+      "description": "Clause 2 of handle_pause_request returns {:continue, state} for any new request while pause_request_id is set, with no log and no reply. When the interrupt finishes, the pause payload uses state.pause_request_id, the first request's id and generation. The newer control request (a re-issued pause with a new generation) gets no evidence for its own id. Clause 1 (same id) is fully covered by clause 2 and is redundant.",
+      "evidence": "interrupts.ex:13-16 `def handle_pause_request(_session, %{pause_request_id: existing_request} = state, _request) when not is_nil(existing_request) do {:continue, state} end`; turn_state.ex:122-123 `{:paused, pause_result_payload(state.pause_request_id, ...)}`.",
+      "recommendation": "Collect the superseding request ids (or the latest control) and include all of them in the pause result, or reply {:worker_control_state, :superseded, ...} for the dropped one. At minimum, log it at warning level.",
+      "refactor_hint": "Part of the shared control protocol (finding 16).",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-28",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "Callbacks, meter updates, notification handlers and account-generation binds fail silently",
+      "locations": [
+        {
+          "path": "src/lib/aiur/app_server/turn_state.ex",
+          "lines": "223-235"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/meter_adapter.ex",
+          "lines": "10-40"
+        },
+        {
+          "path": "src/lib/aiur/app_server/rpc.ex",
+          "lines": "116-124"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/account_generation.ex",
+          "lines": "26-40"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/account_generation.ex",
+          "lines": "52-72"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot_policy.ex",
+          "lines": "361-374"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot_policy.ex",
+          "lines": "131-140"
+        }
+      ],
+      "description": "TurnState.safe_invoke_success_callback and safe_invoke_failure_callback turn any exception into :ok without logging. These callbacks carry operator-message delivery bookkeeping. MeterAdapter.observe rescues and catches everything into :ok, so a broken meter ingest never surfaces. Rpc.maybe_route_notification logs a crashing notification handler at debug level only. AccountGeneration.bind/1 and process_stopped/1 are `with` chains with no else, and they discard ProviderAccountGeneration.bind/retire results (`_ =`), always returning :ok. SlotPolicy.resize_for_cap rescues every exception and keeps only the new cap. The magic fallback `3` appears 6 times (slot_policy.ex:137,139,340,352,358; hidden_window.ex:143).",
+      "evidence": "turn_state.ex:226-227 `rescue _error -> :ok`; meter_adapter.ex:36-39 `rescue _error -> :ok catch _kind, _reason -> :ok`; rpc.ex:122-123 `rescue _ -> Logger.debug(\"Notification handler failed ...\")`; account_generation.ex:31-38 `_ = ProviderAccountGeneration.bind(...)` then `:ok`; slot_policy.ex:372-373 `rescue _ -> %{state | max_concurrent_agents: cap}`.",
+      "recommendation": "Log at warning with the exception and a counter, and raise an alert where the lost effect is operator-visible (delivery callbacks, account-generation binding). Replace the `3` fallbacks with one documented default in Aiur.Config.",
+      "refactor_hint": "Cross-cutting. Adopt one 'best-effort with telemetry' helper in core.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-29",
+      "category": "performance",
+      "severity": "P2",
+      "title": "TurnStream subscribes every live stream to the global DebugLog firehose, undoing #409 for the bridge",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/turn_stream.ex",
+          "lines": "34-38"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/turn_stream.ex",
+          "lines": "101-115"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/turn_stream.ex",
+          "lines": "191-195"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "154-160"
+        }
+      ],
+      "description": "SessionWriter moved to the per-identifier DebugLog.subscribe/1 (#409) because the global topic 'fanned every mark to all M×N writers'. TurnStream still calls DebugLog.subscribe/0, the global topic, and filters in its receive loop. Every open SSE stream (one per attached slot per active agent) receives every agent's marks. The two consumers of the same data have diverged.",
+      "evidence": "turn_stream.ex:38 `:ok = DebugLog.subscribe()`, :102 `if EventRow.matches?(entry, identifier)`; session_writer.ex:160 `:ok = DebugLog.subscribe(state.identifier)` with the #409 comment at :154-159; debug_log.ex:49 vs :58-59.",
+      "recommendation": "Use DebugLog.subscribe(identifier) and unsubscribe(identifier) in TurnStream. Keep EventRow.matches?/2 as defense in depth.",
+      "refactor_hint": "Opencode bridge.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-30",
+      "category": "config",
+      "severity": "P2",
+      "title": "Slot workspaces, debug pipes and the session GC are not keyed by Aiur instance; the bridge token file uses default permissions",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/slot/serve_lifecycle.ex",
+          "lines": "171-176"
+        },
+        {
+          "path": "src/lib/aiur/opencode/config.ex",
+          "lines": "158-182"
+        },
+        {
+          "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+          "lines": "160-162"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_gc.ex",
+          "lines": "28-60"
+        },
+        {
+          "path": "src/lib/aiur/opencode/workspace_setup.ex",
+          "lines": "74-84"
+        },
+        {
+          "path": "src/lib/aiur/opencode/db.ex",
+          "lines": "21-33"
+        }
+      ],
+      "description": "Aiur instances are keyed (node and socket `aiur-$USER[-KEY]`, per AGENTS.md), but slot workspaces are `~/.local/share/aiur/opencode-slot-N` for every instance. The same is true of the debug pipe log `/tmp/aiur-debug/slot-N-attach.log` and the opencode DB `~/.local/share/opencode/opencode.db`. Two instances on one host each write opencode.json (bridge URL and token) into the same directory. Slot 1's boot-time SessionGC deletes every providerID=='aiur' session whose title is not in *this* instance's active set. Whether that reaches another instance's sessions depends on opencode's GET /session scoping, which could not be verified from this repo. opencode.json holds the bridge bearer token and is written with File.write and default umask, unlike ToolCallLedger.Storage and ToolResultSpill, which chmod to 0600.",
+      "evidence": "serve_lifecycle.ex:175 `Path.join([base, \".local/share/aiur/opencode-slot-#{slot_index}\"])`; attach_pane.ex:162 `\"/tmp/aiur-debug/slot-#{slot_index}-attach.log\"`; session_gc.ex:30 `active = MapSet.new(Aiur.Orchestrator.list_active_identifiers())` and :59 `Protocol.aiur_owned?(model) and not MapSet.member?(active_set, title)`; workspace_setup.ex:76 `File.write(Path.join(workspace, \"opencode.json\"), ...)` with no chmod.",
+      "recommendation": "Derive slot and debug paths from the instance key, as the node and tmux names already are. Scope SessionGC to sessions whose directory is under this instance's workspace root. Write opencode.json with mode 0600.",
+      "refactor_hint": "An instance-scoped paths module in core, used by the opencode package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-31",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Env and config parsing duplicated: AIUR_DEBUG x5, trim-or-default x5, two read paths for opencode config",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/slot/attach_pane.ex",
+          "lines": "164-170"
+        },
+        {
+          "path": "src/lib/aiur/log_file.ex",
+          "lines": "150-159"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager.ex",
+          "lines": "436-444"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/state.ex",
+          "lines": "142-150"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/layout.ex",
+          "lines": "240-248"
+        },
+        {
+          "path": "src/lib/aiur/opencode/config.ex",
+          "lines": "17-39"
+        },
+        {
+          "path": "src/lib/aiur/opencode/config.ex",
+          "lines": "107-117"
+        },
+        {
+          "path": "src/lib/aiur/opencode/config.ex",
+          "lines": "146-156"
+        },
+        {
+          "path": "src/lib/aiur/opencode/config.ex",
+          "lines": "83-97"
+        },
+        {
+          "path": "src/lib/aiur/opencode/config.ex",
+          "lines": "189-215"
+        }
+      ],
+      "description": "The same 8-line AIUR_DEBUG truthiness parse (`String.downcase(String.trim(v)) in [\"1\",\"true\",\"yes\"]`) exists in 5 modules, although LogFile.debug_enabled?/0 is already public. AIUR_PREWARM_DISABLED uses a different rule (`in [\"1\",\"true\",\"yes\"]` with no trim or downcase), so ` TRUE` enables one flag and not the other. Opencode.Config repeats 'trim, blank -> default' five times (command, bridge_host, model_prefix, db_path, prewarm_workspace). bridge_port reads the raw workflow map (raw_section_value), while every other key goes through the typed schema (section_value).",
+      "evidence": "attach_pane.ex:166-167, log_file.ex:152-154, pane_manager.ex:437-439, agent_list/state.ex:143-145, pane_manager/layout.ex:241-243 identical bodies; config.ex:193 `System.get_env(\"AIUR_PREWARM_DISABLED\") in [\"1\", \"true\", \"yes\"]`; config.ex:84 `raw_section_value(\"bridge_port\")` vs :200-206 section_value.",
+      "recommendation": "Add Aiur.Env.truthy?/1 and use it everywhere. Add a `string_or_default(key, default)` helper in Opencode.Config. Put bridge_port in the typed schema and delete raw_section_value.",
+      "refactor_hint": "Core env/config helpers package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-32",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Bridge port selection probes by listen-then-close (TOCTOU), publishes the choice via Application.put_env, and duplicates parse_ip",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/bridge_port.ex",
+          "lines": "12-61"
+        },
+        {
+          "path": "src/lib/aiur/opencode/bridge_port.ex",
+          "lines": "113-121"
+        },
+        {
+          "path": "src/lib/aiur/opencode/bridge_supervisor.ex",
+          "lines": "14-28"
+        },
+        {
+          "path": "src/lib/aiur/opencode/bridge_supervisor.ex",
+          "lines": "30-55"
+        },
+        {
+          "path": "src/lib/aiur/opencode/bridge_supervisor.ex",
+          "lines": "57-65"
+        },
+        {
+          "path": "src/lib/aiur/opencode/server.ex",
+          "lines": "24-25"
+        }
+      ],
+      "description": "BridgePort.available?/2 opens a listen socket, closes it, and reports the port free; Bandit binds later. Opencode.Server's own comment rejects this pattern: 'Pre-allocating via gen_tcp.listen + close races'. The selected port is published by mutating global app env (:opencode_bridge_port_override), which Config.bridge_port reads back. The Bandit child is restart: :temporary, so a lost race leaves the bridge dead for good. parse_ip/1 is duplicated verbatim in both files. num_connections: 50 caps concurrent SSE streams, each held for a whole turn per attached slot.",
+      "evidence": "bridge_port.ex:53-61 `:gen_tcp.listen(...) -> :gen_tcp.close(socket); true`; bridge_supervisor.ex:19 `Application.put_env(:aiur, :opencode_bridge_port_override, selected_port)`; :47 `num_connections: 50`; :50 `restart: :temporary`; server.ex:24-25 comment.",
+      "recommendation": "Let Bandit bind port 0 (or retry on :eaddrinuse), then read the bound port from ThousandIsland.listener_info and store it in a dedicated registry or persistent_term owned by BridgeSupervisor. Use restart: :permanent. Move parse_ip into BridgePort. Make num_connections configurable, sized from max_slots × max_concurrent_agents.",
+      "refactor_hint": "Opencode bridge package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-33",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Opencode.Server re-implements process-group reaping (TERM, poll kill -0, KILL), which Claude.RemoteControl already provides with a different liveness check",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/server.ex",
+          "lines": "225-302"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "248-300"
+        },
+        {
+          "path": "src/lib/aiur/app_server/adapter.ex",
+          "lines": "251-262"
+        }
+      ],
+      "description": "Server has its own pgid probe (`ps -o pgid=`), group and single-pid TERM-wait-KILL, and a liveness check that shells out to `kill -0` every 50 ms, which can spawn 20 processes during terminate/2. Claude.RemoteControl provides graceful_kill_tree, process_group_for_pid and process_alive? (via Aiur.ProcessIdentity.alive?, which is identity-aware). BuildGate has a third pgid reader (build_gate.ex:638). The copies differ: Server's liveness check is a bare pid, subject to pid reuse, and RemoteControl's is identity-aware.",
+      "evidence": "server.ex:270 `System.cmd(\"ps\", [\"-o\", \"pgid=\", \"-p\", ...])`, :298 `System.cmd(\"kill\", [\"-0\", to_string(pid)], ...)`, :243-247 group TERM/KILL; remote_control.ex:250-255 graceful_kill_tree, :282-300 process_group_for_pid / process_alive? -> Aiur.ProcessIdentity.alive?.",
+      "recommendation": "Extract Aiur.OsProcess (group_of/1, alive?/1, terminate_group/2, terminate_tree/2) built on ProcessIdentity, and use it from Server, RemoteControl, Adapter and BuildGate.",
+      "refactor_hint": "Core process-management package. Needed anyway to decouple app_server from Claude (finding 17).",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-34",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "exec_command timeout kills the Elixir task, not the sandboxed process; each command also shells out to `git config` twice",
+      "locations": [
+        {
+          "path": "src/lib/aiur/open_ai_compat/command_runner.ex",
+          "lines": "7"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/command_runner.ex",
+          "lines": "64-76"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/command_runner.ex",
+          "lines": "248-267"
+        }
+      ],
+      "description": "On the 300 s timeout, Task.shutdown(task, :brutal_kill) kills the task that is blocked in System.cmd. No signal reaches the bwrap process or its children. --die-with-parent only fires when bwrap's parent exits, and that parent is the BEAM's port machinery, which stays alive. So a timed-out build or test keeps running, and holding locks, in the workspace after the model has been told 'command timed out'. Separately, every exec_command runs `git config --global --get` twice to build the identity env, and falls back to the operator's global git identity.",
+      "evidence": "command_runner.ex:69 `case Task.yield(task, @timeout_ms) || Task.shutdown(task, :brutal_kill) do`; :66 `runner.(executable, args, stderr_to_stdout: true)` (System.cmd); :249-250 `global_git_config(\"user.name\")`, `global_git_config(\"user.email\")` per call.",
+      "recommendation": "Launch bwrap through a Port with :exit_status and record the os_pid. On timeout, signal the process group (use the helper from finding 33). Compute the git identity once per session.",
+      "refactor_hint": "Agent-sandbox package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-35",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "Ten regression suites assert on opencode source text with regexes; most are skipped and pin dead code",
+      "locations": [
+        {
+          "path": "src/test/aiur/regression/warm_attach_open_test.exs",
+          "lines": "28-110"
+        },
+        {
+          "path": "src/test/aiur/regression/warm_marker_semantics_test.exs",
+          "lines": "28-66"
+        },
+        {
+          "path": "src/test/aiur/regression/warm_state_transitions_test.exs",
+          "lines": "22-194"
+        },
+        {
+          "path": "src/test/aiur/regression/parallel_pre_warm_test.exs",
+          "lines": "19-54"
+        },
+        {
+          "path": "src/test/aiur/regression/opencode_slots_test.exs",
+          "lines": "16-19"
+        },
+        {
+          "path": "src/test/aiur/regression/opencode_slots_test.exs",
+          "lines": "313-461"
+        }
+      ],
+      "description": "The regression tests that name files in this unit mostly File.read! the module source and regex-match code shape: opencode_slots (9 reads), warm_state_transitions (8), enter_opens_new_pane (8), warm_marker_semantics (5), warm_attach_open (4), prewarm_complete_time (4), parallel_pre_warm (3), multi_pane_open (3), preseed_models (2), done_agent_detach (2). Eight describe or module tags are :skip. opencode_slots_test.exs is not skipped: it still regex-matches slot.ex, slot/events.ex, slot/serve_lifecycle.ex and slot/state.ex source on every run (lines 313-461). They pin implementation text, including `resize-window -t aiur-orangekid-default:aiur-hidden` and `defp wait_for_paint(`. They cannot fail for a behavioral regression, and they will all break when files move during the carve.",
+      "evidence": "warm_attach_open_test.exs:28 `@attach_pool_source Path.expand(\"../../../lib/aiur/opencode/attach_pool.ex\", __DIR__)`, :37 `@describetag :skip`, :71 `assert source =~ ~r/resize-window -t aiur-orangekid-default:aiur-hidden -x/`; parallel_pre_warm_test.exs:19 `@moduletag :skip`.",
+      "recommendation": "Delete the skipped source-grep tests. Replace any still-wanted invariant with a behavioral test against Slot, AttachPool or PaneManager using fake Tmux and HTTP modules, which slot_supervisor_test already does with FakeActiveSlot.",
+      "refactor_hint": "Do this before the carve. Path-based source reads break as soon as modules move.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-backends-oc-36",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Marker prefixes, provider-turn parsing and OpenAI HTTP helpers each exist in 2-3 copies",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/chat_completions.ex",
+          "lines": "20-37"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/turn_request.ex",
+          "lines": "9-10"
+        },
+        {
+          "path": "src/lib/aiur/opencode/turn_markers.ex",
+          "lines": "23"
+        },
+        {
+          "path": "src/lib/aiur/app_server/turn_state.ex",
+          "lines": "193-198"
+        },
+        {
+          "path": "src/lib/aiur/app_server/provider_turn_ledger.ex",
+          "lines": "209-214"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/transport.ex",
+          "lines": "79-83"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "lines": "75-80"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/provider_meter_probe.ex",
+          "lines": "109-113"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/config.ex",
+          "lines": "88-95"
+        }
+      ],
+      "description": "`\"__aiur_turn__:\"` is defined in 3 modules (ChatCompletions, TurnRequest, TurnMarkers), although TurnMarkers.marker_prefix/0 exists, and `\"__aiur_stream__:\"` in 2. provider_turn_id/1 and the active-turn status check are identical 3-clause and 2-clause functions in TurnState and ProviderTurnLedger. HTTP status mapping exists in both Transport and ProviderMeterProbe and already disagrees on 401 (:unauthorized vs :authentication). fetch_api_key/2 is copied between OpenAICompat.Config and ProviderMeterProbe, with different error shapes.",
+      "evidence": "chat_completions.ex:20,36; turn_request.ex:9-10; turn_markers.ex:23 `@marker_prefix \"__aiur_turn__:\"`; turn_state.ex:196-198 == provider_turn_ledger.ex:209-211; transport.ex:80 `{:error, :unauthorized}` vs provider_meter_probe.ex:110 `{:error, :authentication}`.",
+      "recommendation": "Reference TurnMarkers.marker_prefix/0 (and add stream_prefix/0). Make provider_turn_id/1 public on ProviderTurnLedger only. Add OpenAICompat.Http with status/1 and api_key/2.",
+      "refactor_hint": "Within-package cleanups.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-37",
+      "category": "coupling",
+      "severity": "P3",
+      "title": "The OpenAI-compat backend registry embeds dashboard presentation (hex colors, CSS classes, logo paths)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/open_ai_compat/registry.ex",
+          "lines": "24-32"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/registry.ex",
+          "lines": "137-150"
+        }
+      ],
+      "description": "Each backend entry carries presentation(order, label, slug, color, border, background), which builds `css_class: \"is-#{slug}\"`, `/provider-assets/...svg` paths and rgba strings. Web styling is compiled into the backend domain registry, so a backend package would have to know dashboard asset paths.",
+      "evidence": "registry.ex:25-32 `presentation(2, \"Kimi\", \"kimi\", \"#74d9e8\", \"rgba(116, 217, 232, 0.4)\", ...)`; :141-143 `logo: \"/provider-assets/#{slug}.svg\"`, `css_class: \"is-#{slug}\"`.",
+      "recommendation": "Keep only family and label in the backend registry. Move colors, CSS and asset paths into an AiurWeb provider-presentation map keyed by family.",
+      "refactor_hint": "Needed for a clean backend/web package boundary.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-38",
+      "category": "error-handling",
+      "severity": "P3",
+      "title": "ApiClient.normalize_body raises on a non-JSON 2xx body inside Slot/SessionWriter call paths",
+      "locations": [
+        {
+          "path": "src/lib/aiur/opencode/api_client.ex",
+          "lines": "109-132"
+        }
+      ],
+      "description": "A successful response with a binary body is decoded with Jason.decode!/1. If opencode returns text on 2xx (an empty-string body or plain text), the exception propagates through SessionWriterRegistry.create_session into Slot's handle_call, which crashes the slot, or into SessionGC and TurnMarkers tasks. Every successful call is also logged at info.",
+      "evidence": "api_client.ex:130 `defp normalize_body(body) when is_binary(body), do: Jason.decode!(body)`; :114 `Logger.info(\"opencode_http method=... status=...\")` on every 2xx.",
+      "recommendation": "Use Jason.decode/1 and return {:ok, %{\"body\" => body}} on failure. Lower the success log to debug.",
+      "refactor_hint": "Opencode HTTP client.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-backends-oc-39",
+      "category": "naming-structure",
+      "severity": "P3",
+      "title": "Misleading names, inconsistent finish reasons, and small quadratic or atom-leak spots",
+      "locations": [
+        {
+          "path": "src/lib/aiur/open_ai_compat/concurrency.ex",
+          "lines": "1-50"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/meter_windows.ex",
+          "lines": "4"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/turn_stream.ex",
+          "lines": "178"
+        },
+        {
+          "path": "src/lib/aiur/opencode/chat_completions/sse.ex",
+          "lines": "30-43"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/tool_call_parser.ex",
+          "lines": "18-26"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/bounded_glob.ex",
+          "lines": "74-75"
+        },
+        {
+          "path": "src/lib/aiur/opencode/warmth_report.ex",
+          "lines": "196-200"
+        },
+        {
+          "path": "src/lib/aiur/opencode/session_writer.ex",
+          "lines": "699-721"
+        },
+        {
+          "path": "src/lib/aiur/app_server/provider_turn_ledger.ex",
+          "lines": "106-113"
+        }
+      ],
+      "description": "The quirk local_concurrency_limit and Concurrency.with_slot only count in-flight requests; they never limit, and the 2_500 in MeterWindows is display-only. The TurnStream watchdog ends with finish_reason \"timeout\", while Sse.finish_reason_for/1 documents that every close must be \"stop\" to avoid opencode re-open loops. ToolCallParser gives ids 'fallback-1..N' that repeat every round. BoundedGlob.keep/2 calls length/1 on every insert, which is O(n^2) up to 2_000 matches. WarmthReport calls String.to_atom on log text. SessionWriter.pop_any converts the whole MapSet to a list on every event once over the cap and evicts an arbitrary element, not the oldest. ProviderTurnLedger.complete persists guards twice (retire_identified and then persist_guards), and retired_turn_ids grow for the life of the session.",
+      "evidence": "concurrency.ex:8-20 with_slot only does :counters.add/sub; turn_stream.ex:178 `Sse.chunk(conn, completion_id, nil, \"timeout\")` vs sse.ex:43 `def finish_reason_for(_reason), do: \"stop\"`; tool_call_parser.ex:23 `\"fallback-#{index + 1}\"`; bounded_glob.ex:74 `when length(matches) >= limit`; warmth_report.ex:199 `String.to_atom(phase)`; session_writer.ex:718-721 pop_any via MapSet.to_list.",
+      "recommendation": "Rename the quirk to local_in_flight_gauge, or implement admission. Use Sse.finish_reason_for(:watchdog). Include the round number in fallback ids. Track a count in BoundedGlob. Use String.to_existing_atom or keep phases as strings. Use a bounded queue for seen_event_ids. Persist guards once per transition.",
+      "refactor_hint": "Low-risk cleanups while touching these files.",
+      "effort": "S"
+    }
+  ]
+}

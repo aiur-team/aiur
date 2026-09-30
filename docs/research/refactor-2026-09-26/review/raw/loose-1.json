@@ -1,0 +1,1257 @@
+{
+ "unit_id": "loose-1",
+ "files_reviewed": 41,
+ "lines_reviewed_estimate": 14310,
+ "coverage_notes": "Snapshot 3339b887196d5e9aefb273117a14bf33391ee41f, unit loose-1: 41 files, 14,310 lines. READ IN FULL: decision_store.ex (all 4,826 lines), codeowners.ex, agent_runner.ex, tmux.ex, decision_history.ex, github_cost_cli.ex, poll_cadence.ex, coordination_tasks.ex, pause_containment.ex, decision_api.ex, decision_revision.ex, decision_log.ex, upgrade.ex, executor_listener.ex, tracker_identity.ex, commands_cli.ex, rtk.ex, shutdown.ex, model_catalog.ex, decision_dispatch_tasks.ex, decision_attention_signals.ex, ssh.ex, asks.ex, executor_command_attention.ex, launch_state_adoption.ex, decision_authority.ex, fs.ex, pr_ready_ledger_store.ex, operator_wait_log.ex, usage_ledger.ex, test_shard.ex, path_safety.ex, dispatch_budget_store.ex, current_run_membership.ex, secret_redactor.ex, os.ex, json_store.ex, current_run_summary.ex, metrics.ex, agent_build_guard.ex, jsonl.ex. That is every file in the unit. OUTSIDE THE UNIT, read only enough to verify a claim: tmux/exec.ex (first 80 lines), tmux/protocol.ex header, pane_manager.ex (subscribe + pane_died handler), github/transport.ex (default_request_fun, caller stamping), github/quota.ex attribute_request, github/graphql_cost.ex derive, orchestrator/dispatcher.ex (refresh_blocked_ticket_ids, persisted_lifetime), orchestrator/issue_sync.ex (latch status), codex/turn_loop.ex and app_server/adapter.ex (pause latch reads), orchestrator/pause_resume.ex arm site, retained_index.ex/retained_snapshot.ex/alert_feed.ex/queue_drain.ex (prefix and readable? copies), decision_event.ex type list, decision_revision_dispatch.ex, decision_artifact.ex, config/paths.ex containment, units_cli.ex table helpers, analytics_live.ex rtk panel, agent_runner/tool_executor.ex (CoordinationTasks use), alerts.ex emit_* and publish payload. Cross-lib greps were run for the duplication claims (atom/string key helpers, unsafe_control_chars?, temp+rename writers, AiurWeb references from core, api.github.com literals, NDJSON appenders). NOT DONE: no tests were read for this unit (the lib-vs-test caller counts come from grep only), so the test-quality bug families were not checked for these modules. The DecisionStore submodules (retained_snapshot, retained_index) and the DecisionDispatchTasks submodules (queue/owner/worker/saturation) were only spot-checked. mix.exs is not in the snapshot, so whether :mix is bundled in the release (loose-1-36) could not be verified. No builds, tests or runtime measurements were run; the line counts and call-site counts come from wc and grep on the snapshot.",
+ "findings": [
+  {
+   "id": "loose-1-01",
+   "category": "large-module",
+   "severity": "P1",
+   "title": "Aiur.DecisionStore is a 4,826-line god module on the Decision hot path",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "1-4826"
+    }
+   ],
+   "description": "One GenServer module owns at least ten separate responsibilities: (1) the public API and call serialization (lines 131-523), (2) boot, replay, corruption and projection repair (524-765), (3) Executor escalation (766-852), (4) request intake, legacy-attention projection/enrichment and creation-time fuzzy dedup (1583-1738, 2047-2475), (5) answer/revise/supersede/moot/dismiss/defer/expire command handling (1158-2045), (6) the transport delivery gate, handoff marks and queue settlement (2655-3164), (7) delivery-failure alert projection (3166-3454), (8) dispatch scheduling, fences, retry ladders and the DecisionDispatchTasks monitor (3456-4600), (9) Executor notification fan-out (4603-4665), and (10) audit read models and the recent-decision gb_sets index (4667-4826). Every mutation, every read and every background settlement goes through this one process, so a change in any area (for example the #2711 withdraw rules or the #2717 orphan adoption) edits the same file and risks the others.",
+   "evidence": "wc -l = 4826. Measured in the snapshot: 48 `def handle_call(` clauses, 13 `def handle_info(` clauses, ~431 `defp` heads, 23 `build_and_persist_event(` call sites, 13 `Alerts.emit_custom(` sites, 25 `Logger.warning(` and 5 `Logger.error(` sites. configure_dispatch (558-595) injects 17 function/module seams into the state map. Largest functions: maybe_start_dispatch (3827-3875, ~50 lines), replay_and_project (624-658), persist_and_notify (2426-2463), persist_enrichment (2125-2159).",
+   "recommendation": "Keep one serialized writer, but split the module by responsibility: Aiur.Decisions.Store (GenServer shell: API, handle_* dispatch, state struct), Aiur.Decisions.Boot (replay/repair/corruption), Aiur.Decisions.Commands (answer/revise/supersede/moot/dismiss/defer/expire as pure `state -> {reply, state}` functions), Aiur.Decisions.Intake (request, attention projection, creation dedup), Aiur.Decisions.DeliveryGate (validate_delivery/handoff/transport transitions), Aiur.Decisions.DispatchScheduler (fences, retry ladders, monitor), Aiur.Decisions.Alerts (every Alerts.emit_custom and topic builder), Aiur.Decisions.ReadModel (audit windows, gb_sets index). Replace the ad hoc state map with a %State{} struct so the 30+ keys are declared once.",
+   "effort": "L",
+   "refactor_hint": "Core of a future `aiur_decisions` package. Split before the carve; moving 4.8k lines as one unit carries all of its outward dependencies (see loose-1-02/-11) into the new package."
+  },
+  {
+   "id": "loose-1-02",
+   "category": "error-handling",
+   "severity": "P1",
+   "title": "One failed follow-up append latches the DecisionStore read-only until restart, with no alert, and halts fleet dispatch",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "4365-4368"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "4057-4092"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "1776-1778"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+     "lines": "479-491"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "4287-4313"
+    }
+   ],
+   "description": "persist_revision_follow_up_required and ensure_superseded_revision_follow_ups route an append error to fatal_lifecycle_append_failed, which sets `writable?: false` and a health tuple, with only Logger.error (not written anywhere without --debug). No Alerts call, no retry, and nothing in the module ever sets writable? back to true (only boot does). The new health `{:lifecycle_append_failed, type, reason}` is not `readable?`, so blocked_ticket_ids/0 answers {:error, :store_unavailable} and the Orchestrator dispatcher holds EVERY new dispatch (fail-closed gate). The only exit is a daemon restart. Other lifecycle append failures in the same module take a different path (recover_background_append: needs-attention alert plus bounded retry). The same fault has two policies, and the stricter one is the silent one.",
+   "evidence": "defp fatal_lifecycle_append_failed(state, type, reason) do\n    Logger.error(\"aiur_decision_store phase=lifecycle_append_failed type=#{type} reason=#{inspect(reason)}\")\n    %{state | writable?: false, health: {:lifecycle_append_failed, type, reason}}\n  end\nreadable?/1: `defp readable?(_health), do: false` for anything but :writable/{:corrupt,..}.\ndispatcher.ex: `{:error, :store_unavailable} -> %{state | blocked_ticket_ids: :unavailable}` (\"holds every new dispatch\").",
+   "recommendation": "Route follow-up append failures through recover_background_append (alert + bounded retry keyed by action_id) like every other lifecycle append. If a truly fatal state is needed, emit a needs-attention alert that names the cause, keep the store readable (blocked_ticket_ids can still serve the in-memory projection), and add an explicit recovery path (retry the append on the next reconcile tick, or an operator RPC) instead of requiring a restart.",
+   "effort": "S",
+   "refactor_hint": "Decision package reliability. Fix before the carve so the new package does not inherit a restart-only latch that stops the whole fleet."
+  },
+  {
+   "id": "loose-1-03",
+   "category": "error-handling",
+   "severity": "P1",
+   "title": "A derived-projection write failure makes the store read-only and silently suppresses publication of already-durable events",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "733-764"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2141-2154"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2436-2459"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2509-2528"
+    }
+   ],
+   "description": "decisions.json is a derived cache of the audit log (the ndjson is authoritative, per the module's own alert text). Yet repair_projection runs after EVERY accepted mutation and, on any write error, flips `writable?: false` / `health: {:repair, reason}` until restart. That health is not readable?, so dispatch is held fleet-wide (same path as loose-1-02). Worse, the event that triggered the failed write is already appended and fsynced, but repair_and_notify_lifecycle and persist_enrichment only notify `if next_state.writable?`. The answer, dismissal or delivery event is durable yet never published to the Exchange or PubSub, and the Executor escalation is never resolved. No retry covers this. The request path (persist_and_notify) does notify unconditionally, so the three write paths already disagree.",
+   "evidence": "write_projection: JsonStore.write!(state.projection_path, DecisionProjection.serialize_current(state.current)); File.chmod!(..., 0o600)\nrepair_projection failure -> %{state | writable?: false, health: {:repair, reason}}\npersist_enrichment: `if next_state.writable?, do: notify_lifecycle(updated, event, event_id)`\nrepair_and_notify_lifecycle: `if next_state.writable? do Enum.each(lifecycle_events, ... notify_lifecycle ...)`\npersist_and_notify: `notify(current, event_id, state)` (unconditional).",
+   "recommendation": "Treat decisions.json as a best-effort cache: on a write failure, alert and retry on a timer, but stay writable because the ndjson is the source of truth. Always publish an event once it is durable (publication failure is a separate, retryable concern). Put the three persist paths on one \"apply + notify\" helper so the policy exists once.",
+   "effort": "M",
+   "refactor_hint": "Decision package storage layer. Cache-write policy belongs to a small projection-writer component, not the command handlers."
+  },
+  {
+   "id": "loose-1-04",
+   "category": "performance",
+   "severity": "P2",
+   "title": "Every Decision mutation rewrites the whole decisions.json; the audit log and in-memory history grow without bound",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "755-761"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "624-650"
+    },
+    {
+     "path": "src/lib/aiur/decision_log.ex",
+     "lines": "166-181"
+    },
+    {
+     "path": "src/lib/aiur/decision_log.ex",
+     "lines": "216-222"
+    }
+   ],
+   "description": "repair_projection serializes the entire `current` map, fsyncs a temp file, renames it and chmods it, all inside the single serialized writer, for every accepted event (answer, handoff, delivered, consumed, failed, ...). The cost grows with the total number of Decisions ever retained. There is no retention or compaction: decisions.ndjson is only appended to, boot replays it by reading the whole file into memory (File.read), and the store keeps `history` and `audit_history` for every Decision forever. The store has no bound on its memory or its per-event write cost.",
+   "evidence": "write_projection -> JsonStore.write!(path, DecisionProjection.serialize_current(state.current)) (Fs.atomic_write fsync: true). replay: `{:ok, content} <- read_or_empty(path)` then String.split(\"\\n\"). grep for compact/retention/prune in decision_store*/decision_log: no hits. state keys `history`, `audit_history` hold every record.",
+   "recommendation": "Write the projection on a debounce (coalesce bursts, write at most every N ms) or only at checkpoints, since the ndjson is authoritative. Add a retention policy: snapshot plus truncate for terminal Decisions older than a horizon, and stream replay line by line. Keep only the bounded windows the read APIs actually use in memory, and serve full audit history from disk on demand.",
+   "effort": "M",
+   "refactor_hint": "Decision package storage. Likely the first scaling wall after the carve; design the snapshot/compaction format with the package boundary."
+  },
+  {
+   "id": "loose-1-05",
+   "category": "silent-failure",
+   "severity": "P2",
+   "title": "Pending-answer redelivery (#2713) is silently dropped when the dispatch-task coordinator is momentarily down",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "4562-4584"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "3827-3835"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "3947-3956"
+    }
+   ],
+   "description": "schedule_pending_answer_delivery logs \"Redelivering Decision answer to the new worker\", resets the retry count, then calls maybe_start_dispatch directly. maybe_start_dispatch's `with` returns the state unchanged when `decision_dispatch_monitor_live?` is false, so while DecisionDispatchTasks is restarting the redelivery does nothing: no reschedule, no alert, and a log line that says the opposite happened. Every other dispatch entry point goes through with_decision_dispatch_monitor, which reschedules the message after @decision_dispatch_monitor_retry_ms. This is the silent-refusal family on the exact path #2713 added to stop answers from being stranded.",
+   "evidence": "Logger.info(\"Redelivering Decision answer to the new worker ticket=#{ticket_identifier} ...\")\n%{acc | retry_counts: Map.delete(acc.retry_counts, action_id)} |> maybe_start_dispatch(dispatch_fence(decision), true)\nmaybe_start_dispatch: with true <- state.writable?, true <- decision_dispatch_monitor_live?(state), ... else _other -> state",
+   "recommendation": "Schedule the redelivery as a `{:dispatch_action, fence, true}` message via schedule_dispatch/4, so it gets the same monitor-retry wrapper as every other dispatch. Log after admission, not before. More generally, make maybe_start_dispatch return a reason for every refusal and log or alert the non-fence ones.",
+   "effort": "S",
+   "refactor_hint": "Decision dispatch scheduler (see loose-1-01 split)."
+  },
+  {
+   "id": "loose-1-06",
+   "category": "silent-failure",
+   "severity": "P2",
+   "title": "Queue-settlement facts are dropped with a warning or with no log at all",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "3074-3090"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "1142-1152"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "365-377"
+    }
+   ],
+   "description": "record_transport_batch_async is the Orchestrator's only way to report restored/consumed/failed queue settlements. In the batch path, a settlement whose attempt is missing or whose correlation is rejected is dropped with only Logger.warning. When the store is read-only, the `:transport_transitions` and `:deliver_pending_answers` casts are dropped with no log at all. The cast wrapper also swallows `:exit` to `:ok`. A `:failed` settlement that is dropped leaves the attempt `:queued`, so the failure alert and the transient retry ladder never fire for it.",
+   "evidence": "{:ok, _decision, :missing_attempt, _context} -> Logger.warning(\"aiur_decision_store phase=transport_batch_missing_attempt type=#{type}\"); {state, events}\n{:error, context_reason} -> Logger.warning(\"... phase=transport_batch_rejected ...\"); {state, events}\ndef handle_cast({:transport_transitions, _type, _items, _reason}, %{writable?: false} = state), do: {:noreply, state}\ndef handle_cast({:deliver_pending_answers, _ticket_identifier}, %{writable?: false} = state), do: {:noreply, state}",
+   "recommendation": "Count dropped settlements in store state and expose the count in health. Emit one deduplicated needs-attention alert per decision/action when a `:failed` or `:consumed` settlement cannot be recorded. While read-only, buffer settlements in a bounded queue and replay them when the store becomes writable, instead of discarding them.",
+   "effort": "M",
+   "refactor_hint": "Delivery-gate component of the decision package; the Orchestrator side of this contract crosses the package boundary."
+  },
+  {
+   "id": "loose-1-07",
+   "category": "error-handling",
+   "severity": "P2",
+   "title": "Notify-after-persist has four different failure policies inside one module",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "4603-4665"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2552-2631"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2153"
+    }
+   ],
+   "description": "After a durable append, notification is a side effect with inconsistent handling. (a) A request's Exchange publish failure is Logger.warning with no retry, but its Executor notification retries on a 3-step ladder and then gives up with only Logger.warning (no alert; recovery happens only at the next boot reconcile). (b) A lifecycle Exchange publish, a deferred-Executor notification and an escalation resolution each fail with Logger.warning and no retry. (c) Lifecycle and enrichment notifications are skipped entirely when the projection write failed (loose-1-03). #2558 established that an exhausted delivery ladder must raise an alert. The Executor-notification ladder does not follow that rule.",
+   "evidence": "schedule_executor_request_retry exhausted -> Logger.warning(\"aiur_decision_store phase=executor_request_notification_retry_exhausted ...\")\nnotify_lifecycle: rescue error -> Logger.warning(\"aiur_decision_store phase=lifecycle_publisher_failed ...\")\nnotify_deferred_executor: {:error, reason} -> Logger.warning(\"... phase=executor_notification_failed ...\")\nresolve_executor_escalation: {:error, reason} -> Logger.warning(\"... executor_escalation_resolution_failed ...\")",
+   "recommendation": "Introduce one outbox for post-commit side effects: each durable event records the notifications it owes, a single retry scheduler drains the outbox, and exhaustion raises one deduplicated alert. That removes the four ad hoc paths and makes publication at-least-once for every event type.",
+   "effort": "M",
+   "refactor_hint": "Decision package <-> Events package boundary; an outbox is the natural seam once they are separate packages."
+  },
+  {
+   "id": "loose-1-08",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "16 copy-pasted read-only guard clauses, with two different error shapes for the same condition",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "855-1004"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "1133-1152"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "349-361"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "451-455"
+    }
+   ],
+   "description": "Every mutating operation has its own `%{writable?: false}` handle_call clause that returns `{:error, {:store_unavailable, state.health}}`, and three casts have their own no-op clause. The client wrappers for validate_delivery, record_delivery, blocked_ticket_ids and open_blocking_decision_ids catch exits and return a bare `{:error, :store_unavailable}`. Callers have to match both shapes, and every new operation needs a new guard clause (forgetting one would let a mutation through while read-only).",
+   "evidence": "grep count: 19 `writable?: false} = state)` heads (16 handle_call + 3 handle_cast). Example pair repeated per operation:\n  def handle_call({:moot, _decision_id, _payload, _opts}, _from, %{writable?: false} = state) do\n    {:reply, {:error, {:store_unavailable, state.health}}, state}\n  end",
+   "recommendation": "Tag mutating messages as `{:mutate, op, args}` (or keep a module attribute list of mutating ops) and guard once: `def handle_call({:mutate, _, _}, _, %{writable?: false} = s)`. Pick a single error shape (`{:error, {:store_unavailable, health}}`) and make the exit-catching wrappers return it too.",
+   "effort": "S",
+   "refactor_hint": "Decision package API shell."
+  },
+  {
+   "id": "loose-1-09",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Three hand-written copies of 'apply an accepted event to the in-memory indexes' have drifted",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2141-2151"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2436-2456"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2493-2500"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2419-2424"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "636-638"
+    }
+   ],
+   "description": "persist_enrichment, persist_and_notify and build_and_append_event each rebuild current/decision_index/retained_index/audit_history/recent_audit by hand. They already differ: `history` is updated by two of the three (build_and_append_event skips it), and notification gating differs (see loose-1-03). audit_history appends with `&1 ++ [event]`, which is O(n) per event, while the boot comment claims histories are kept newest-first \"so every accepted append is O(1)\". accept/2 calls IdGenerator.reserve_durable_id() directly and bypasses the injected state.event_id_reserver seam that the other two paths use, so a test cannot inject a non-durable ID for requests.",
+   "evidence": "audit_history: Map.update(state.audit_history, current.decision_id, [event], &(&1 ++ [event])) (2148, 2453, 2498)\ncomment 636: \"The store keeps histories newest-first so every accepted append is O(1).\"\naccept/2: case IdGenerator.reserve_durable_id() do ... vs build_and_append_event: with {:ok, event_id} <- state.event_id_reserver.()",
+   "recommendation": "Extract `apply_event(state, prior, updated, event, opts)` as the single function that updates every index, and `reserve_event_id(state)` as the single reservation path. Store audit_history newest-first (or as :queue) and reverse on read, as `history` already does.",
+   "effort": "S",
+   "refactor_hint": "Decision package state module."
+  },
+  {
+   "id": "loose-1-10",
+   "category": "error-handling",
+   "severity": "P2",
+   "title": "An event-ID reservation exit crashes the single Decision writer instead of rejecting the request",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2419-2424"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2483-2491"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2132"
+    },
+    {
+     "path": "src/lib/aiur/events/id_generator.ex",
+     "lines": "105-107"
+    }
+   ],
+   "description": "The moduledoc says a request is \"rejected outright ... if ... the durable ID reservation itself fails\". The reservers are GenServer.call to IdGenerator with the default 5 s timeout and no catch. A slow or restarting IdGenerator therefore exits the DecisionStore process, whether the call came from a client request or from a background settlement in handle_info. The in-memory dispatch bookkeeping (dispatching, retry_counts, lifecycle_append_failures) is lost with the process, and any in-flight callers get exits.",
+   "evidence": "@spec reserve_durable_id(GenServer.server()) :: {:ok, pos_integer()} | {:error, :not_durable}\ndef reserve_durable_id(server \\\\ __MODULE__), do: GenServer.call(server, :reserve_durable_id)\nDecisionStore: `with {:ok, event_id} <- state.event_id_reserver.(), ...` (no rescue/catch around it).",
+   "recommendation": "Wrap the reserver in a `safe_reserve/1` that catches :exit and returns {:error, :event_id_unavailable}, and map it to a rejection or background retry like the other append failures.",
+   "effort": "S",
+   "refactor_hint": "Decision package <-> Events.IdGenerator boundary."
+  },
+  {
+   "id": "loose-1-11",
+   "category": "coupling",
+   "severity": "P1",
+   "title": "DecisionStore depends upward on Tracker, Orchestrator policy, Executor journal and Alerts, which blocks a clean decisions package",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "35-64"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "3256-3261"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "577-585"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2580-2631"
+    }
+   ],
+   "description": "Of its 28 aliases, 12 are outside the Decision domain. They include Aiur.Tracker (the default terminal-ticket resolver does a live tracker batch read), Aiur.Orchestrator.DispatchPolicy (terminal-state policy), Aiur.ExecutorEvents and Aiur.ExecutorCommandAttention (Executor journal and alert markers), Aiur.Alerts, Aiur.Events.Publisher/IdGenerator, Aiur.Boot, Aiur.Config.Paths and JsonStore. Some are injected via opts (configure_dispatch). Others are called directly (Tracker/DispatchPolicy in default_terminal_ticket_resolver, ExecutorEvents.publish_deferred, ExecutorCommandAttention.resolve, Alerts.emit_custom x13, Publisher.publish_persisted). As a result the decisions core cannot be compiled or tested without the orchestrator, tracker and executor layers.",
+   "evidence": "alias Aiur.Orchestrator.DispatchPolicy; alias Aiur.Tracker\ndefp default_terminal_ticket_resolver(ticket_identifiers) do\n  with {:ok, issues} <- Tracker.fetch_issue_states_by_ids(ticket_identifiers) do\n    terminal_states = DispatchPolicy.terminal_state_set() ...\nnotify_deferred_executor -> ExecutorEvents.publish_deferred(decision) (direct, not injected)",
+   "recommendation": "Define ports owned by the decisions package: TerminalTicketResolver, Notifier (Exchange + PubSub + Executor journal), AlertSink and IdSource. Make DecisionStore depend only on those behaviours and inject the implementations from the application supervisor. Move the terminal_identities/1 helper (3263-3283) to the adapter side.",
+   "effort": "M",
+   "refactor_hint": "Required to carve `aiur_decisions` out without a dependency cycle back into orchestrator/tracker/executor."
+  },
+  {
+   "id": "loose-1-12",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "Decision attention topic grammar is built in 4 places and classified by string prefix in 3 others",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "1791-1802"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "3447-3454"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "4360-4363"
+    },
+    {
+     "path": "src/lib/aiur/decision_store/retained_index.ex",
+     "lines": "221-225"
+    },
+    {
+     "path": "src/lib/aiur/alert_feed.ex",
+     "lines": "447-449"
+    },
+    {
+     "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+     "lines": "393-396"
+    },
+    {
+     "path": "src/lib/aiur/decision_attention_signals.ex",
+     "lines": "169-179"
+    },
+    {
+     "path": "src/lib/aiur/executor_command_attention.ex",
+     "lines": "7-10"
+    }
+   ],
+   "description": "Whether a legacy attention counts as an operator Command (and therefore gates dispatch) is decided by `String.starts_with?(slug, [\"decision-delivery-\", \"decision-lifecycle-persistence-\"])`, copied three times (DecisionStore.open_blocking_command?, RetainedIndex.operator_command?, AlertFeed.internal_decision_alert?). The strings are produced by separate builders in DecisionStore (two), QueueDrain (\"decision-delivery-correlation-\", which matches the prefix only by accident), DecisionAttentionSignals (three kinds, sha256-16 digest) and ExecutorCommandAttention (another sha256-16 digest copy). Adding a new internal alert kind, or renaming one, silently changes dispatch gating.",
+   "evidence": "decision_store.ex:1801  not String.starts_with?(slug, [\"decision-delivery-\", \"decision-lifecycle-persistence-\"])\nretained_index.ex:224   not String.starts_with?(slug, [\"decision-delivery-\", \"decision-lifecycle-persistence-\"])\nalert_feed.ex:449       String.starts_with?(slug, [\"decision-delivery-\", \"decision-lifecycle-persistence-\"])\nqueue_drain.ex:395      \"ticket.#{identifier}.agent.attention.decision-delivery-correlation-#{action_slug}\"",
+   "recommendation": "Create Aiur.Decisions.AttentionTopics with one builder per kind and a single `internal?/1` classifier (or better, carry an explicit `internal: true` field on the alert instead of parsing the slug). Replace the three prefix checks and the two local digest helpers with calls to it.",
+   "effort": "S",
+   "refactor_hint": "Shared contract between the decisions package and the alerts/feed package; it must be one module or the carve will split the copies across packages."
+  },
+  {
+   "id": "loose-1-13",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Executor history event-type table has drifted: deferrals and enrichments lose their actor",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_history.ex",
+     "lines": "27-47"
+    },
+    {
+     "path": "src/lib/aiur/decision_history.ex",
+     "lines": "180-253"
+    },
+    {
+     "path": "src/lib/aiur/decision_history.ex",
+     "lines": "301-308"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2633-2653"
+    },
+    {
+     "path": "src/lib/aiur/decision_event.ex",
+     "lines": "35-66"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "1833-1834"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2126-2130"
+    }
+   ],
+   "description": "The set of Decision event types is enumerated separately in DecisionEvent (@types, canonical), DecisionStore.lifecycle_slug (21 clauses) and DecisionHistory (@change_kinds, 19 keys, plus 15 event_record/3 clauses). DecisionHistory has no event_record clause for :decision_deferred or :enriched, so both fall through to `base`, which carries no actor. actor/3 then falls back to source_actor(nil) and renders \"Unknown source\", although both events persist `data.actor` (persist_deferral stores %{actor: actor}; persist_enrichment stores the supervisor actor). :decision_deferred is also missing from @change_kinds, so it surfaces as :decision_deferred while the siblings are normalized (:dismissed, :expired, :mooted). :handed_off rows likewise lose their action_id.",
+   "evidence": "decision_history.ex:253  defp event_record(_event, base, _revisions), do: base\ndecision_history.ex:326  defp unknown_actor, do: %{type: :unknown, id: nil, label: \"Unknown source\"}\n@change_kinds keys: requested, enriched, decision_expired, expired, decision_mooted, ..., follow_up_handled (no \"decision_deferred\", no \"handed_off\").\ndecision_store.ex:1834  build_and_persist_event(:decision_deferred, decision, %{actor: actor}, ...)",
+   "recommendation": "Derive every per-type table from DecisionEvent.types/0: give DecisionEvent a `describe(type)` returning {slug, change_kind, carries_actor?, carries_action_id?}, and have DecisionHistory merge `data.actor`/`data.action_id` generically when present instead of per-type clauses. Add a test asserting every DecisionEvent type projects with its actor.",
+   "effort": "S",
+   "refactor_hint": "Decision read-model (history) module; generic projection keeps new event types from silently regressing the Executor surface."
+  },
+  {
+   "id": "loose-1-14",
+   "category": "silent-failure",
+   "severity": "P2",
+   "title": "DecisionHistory drops any record whose projection raises, with no log and no count",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_history.ex",
+     "lines": "288-294"
+    },
+    {
+     "path": "src/lib/aiur/decision_history.ex",
+     "lines": "84-92"
+    },
+    {
+     "path": "src/lib/aiur/decision_history.ex",
+     "lines": "143-150"
+    }
+   ],
+   "description": "isolated_projection rescues every exception and catches every throw/exit and returns [], so a record the projector cannot handle disappears from the Executor history. Nothing records that it happened. A schema change that breaks projection for a whole event type would show up as missing history rows, not as an error.",
+   "evidence": "defp isolated_projection(fun) do\n    [fun.()]\n  rescue\n    _error -> []\n  catch\n    _kind, _reason -> []\n  end",
+   "recommendation": "Keep the isolation, but return a placeholder row (`change: :unprojectable`, decision_id, event type) and emit one deduplicated warning with the exception class, so the gap is visible on the surface and in logs.",
+   "effort": "S",
+   "refactor_hint": "Decision read-model."
+  },
+  {
+   "id": "loose-1-15",
+   "category": "error-handling",
+   "severity": "P2",
+   "title": "DecisionApi reports every exception, exit and unexpected reply as :store_unavailable",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_api.ex",
+     "lines": "308-314"
+    },
+    {
+     "path": "src/lib/aiur/decision_api.ex",
+     "lines": "232-306"
+    },
+    {
+     "path": "src/lib/aiur/decision_api.ex",
+     "lines": "168-187"
+    },
+    {
+     "path": "src/lib/aiur/decision_api.ex",
+     "lines": "323-329"
+    }
+   ],
+   "description": "safe_store_call turns any raise inside DecisionStore client code (a FunctionClauseError from a guard, for example) and any exit (noproc, the 60 s timeout, a store crash) into the atom :store_unavailable. Each write_* then also maps any unexpected reply shape to {:error, :store_unavailable}. AGENTS.md (\"A collapsed cause names the collapse at the source\") forbids collapsing heterogeneous causes into a specific one. Here a programming error and a timeout (where the answer may actually have been accepted) are both reported to the supervising agent as \"store unavailable\". The module also has three near-identical write_* functions and three trusted_*_actor functions that differ only in the error tag.",
+   "evidence": "defp safe_store_call(fun) do\n    fun.()\n  rescue\n    _error -> :store_unavailable\n  catch\n    :exit, _reason -> :store_unavailable\n  end\nwrite_answer: `_invalid -> {:error, :store_unavailable}`",
+   "recommendation": "Return {:error, {:store_call_failed, :exception | :timeout | :noproc | :unexpected_reply}} and preserve the reason in a `reasons` field. Map a timeout to an explicit \"outcome unknown, retry with the same idempotency key\" reply. Collapse the three write_* functions into one with a result validator, and the three actor checks into `trusted_actor(opts, error_tag)`.",
+   "effort": "S",
+   "refactor_hint": "API facade of the decisions package (the supervisor-facing HTTP contract)."
+  },
+  {
+   "id": "loose-1-16",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "unsafe_control_chars? has 9 copies with 2 different definitions",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_api.ex",
+     "lines": "384-388"
+    },
+    {
+     "path": "src/lib/aiur/config/schema/decisions.ex",
+     "lines": "57-61"
+    },
+    {
+     "path": "src/lib/aiur/decision_query/params.ex",
+     "lines": "212"
+    },
+    {
+     "path": "src/lib/aiur/decision_revision.ex",
+     "lines": "366-370"
+    },
+    {
+     "path": "src/lib/aiur/decision_answer.ex",
+     "lines": "257-261"
+    },
+    {
+     "path": "src/lib/aiur/decision_event.ex",
+     "lines": "988-992"
+    },
+    {
+     "path": "src/lib/aiur/decision_validation.ex",
+     "lines": "202-206"
+    },
+    {
+     "path": "src/lib/aiur/decision_delegation.ex",
+     "lines": "292-296"
+    },
+    {
+     "path": "src/lib/aiur/recent_merge.ex",
+     "lines": "519-523"
+    }
+   ],
+   "description": "Two incompatible rules are used for the same check. DecisionApi, Config.Schema.Decisions and DecisionQuery.Params reject every C0 control plus DEL (0x7F), including newline and tab. DecisionAnswer, DecisionEvent, DecisionRevision, DecisionValidation, DecisionDelegation and RecentMerge allow \\n \\t \\r and allow DEL. As a result an identity field (for example an action_id checked by DecisionRevision.bounded_identity) accepts newlines and DEL, while the API layer rejects the same characters in a decision_id.",
+   "evidence": "decision_api.ex:387       |> Enum.any?(&(&1 < 0x20 or &1 == 0x7F))\ndecision_revision.ex:369  |> Enum.any?(fn codepoint -> codepoint < 0x20 and codepoint not in [?\\n, ?\\t, ?\\r] end)\ndecision_query/params.ex:212  String.match?(value, ~r/[\\x00-\\x1F\\x7F]/)",
+   "recommendation": "Create Aiur.TextSafety with two named predicates: `identity_unsafe?/1` (any C0 or DEL, for IDs/keys/slugs) and `prose_unsafe?/1` (C0 except \\n\\t\\r, plus DEL, for free text). Replace all 9 copies and pick the predicate deliberately at each site.",
+   "effort": "S",
+   "refactor_hint": "Shared validation utility for the decisions package; small and pure, good first extraction."
+  },
+  {
+   "id": "loose-1-17",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "The atom-or-string key lookup helper is copied 31 times across 27 files",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "767"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "841-852"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2367"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2697"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2956-2957"
+    },
+    {
+     "path": "src/lib/aiur/decision_history.ex",
+     "lines": "535-539"
+    },
+    {
+     "path": "src/lib/aiur/decision_revision.ex",
+     "lines": "372"
+    },
+    {
+     "path": "src/lib/aiur/executor_command_attention.ex",
+     "lines": "163"
+    },
+    {
+     "path": "src/lib/aiur/executor_listener.ex",
+     "lines": "277"
+    }
+   ],
+   "description": "`Map.get(map, key, Map.get(map, Atom.to_string(key)))` is re-implemented as payload_value, correlation_value, value, field, get, raw_version and inline expressions. DecisionStore alone has 5 variants. Across lib the exact form appears 31 times in 27 files. ExecutorListener uses a different, subtly wrong variant `Map.get(map, key) || Map.get(map, Atom.to_string(key))`, which skips an explicit `false`/`nil` atom-key value.",
+   "evidence": "Exact-pattern sites: decision_answer.ex:311, decision_revision.ex:372, decision_history.ex:536, decision_sanitizer.ex:110, executor_command_attention.ex:163, decision_validation.ex:171, decision_event.ex:1056, ticket_observation.ex:192, decision_store.ex:842/2697/2957, build_order/ticket_history_normalizer.ex:276, build_order/ticket_history_provider.ex:625, decision_api/public_projection.ex:107, decision_api/public_lifecycle_projection.ex:131, decision_metrics/collector.ex:83, orchestrator/control_lifecycle.ex:876, run_telemetry/sampler.ex:448/455, usage/price_table.ex:122, usage/price_table/validator.ex:217, usage_envelope/relationship_registry.ex:454, usage_ledger/counter_policy.ex:395, usage_envelope/codec.ex:104, aiur_web/streamdeck_projection.ex:533, aiur_web/build_order/ticket_context_presenter.ex:714/718, aiur_web/components/operator_control_center/decision_card.ex:217, decision_latency.ex:66, history.ex:282, aiur_web/operator_control_center/analytics/presenter.ex:557.",
+   "recommendation": "Normalize external payloads to string keys (or atoms) once at the boundary (DecisionValidation.normalize, the transport item constructor), and delete the dual-key readers downstream. Until then, provide one `Aiur.MapAccess.get_either/2` and replace the copies.",
+   "effort": "M",
+   "refactor_hint": "Cross-cutting; do it per package during the carve (boundary normalization is part of defining each package's input types)."
+  },
+  {
+   "id": "loose-1-18",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "CoordinationTasks and DecisionDispatchTasks are two implementations of the same keyed FIFO lane scheduler",
+   "locations": [
+    {
+     "path": "src/lib/aiur/coordination_tasks.ex",
+     "lines": "1-433"
+    },
+    {
+     "path": "src/lib/aiur/decision_dispatch_tasks.ex",
+     "lines": "1-191"
+    },
+    {
+     "path": "src/lib/aiur/decision_dispatch_tasks/queue.ex",
+     "lines": "1-106"
+    }
+   ],
+   "description": "Both are GenServers that admit work per key with global and per-key pending bounds (per-key default = max_pending - 1 in both), keep a runnable-key queue plus MapSet for fairness, run one task per key under Aiur.TaskSupervisor, enforce per-task timeouts, and look up active tasks by linear scan on ref. They have drifted apart. CoordinationTasks retries task-start failures with exponential backoff and supports synchronous `run/5`. DecisionDispatchTasks fails the job on start failure, monitors owners and purges their work, and emits saturation alerts. CoordinationTasks hardcodes Aiur.TaskSupervisor for termination even when task_starter is injected (line 162).",
+   "evidence": "identical helpers: coordination_tasks.ex:427-429 / decision_dispatch_tasks.ex:185-187 `defp resolve_timeout(:default, default), do: default` ...\ncoordination_tasks.ex:420-421 / decision_dispatch_tasks.ex:189-190 `default_per_*_limit(max_pending) when max_pending > 1, do: max_pending - 1`\ncoordination_tasks.ex:304-306 / decision_dispatch_tasks.ex:181-183 `active_by_ref(active, ref)`",
+   "recommendation": "Extract one Aiur.KeyedLanes library (admission, fairness, timeouts, owner monitoring, saturation hook, start-failure policy as options) and make both modules thin configurations of it.",
+   "effort": "M",
+   "refactor_hint": "Generic concurrency utility; belongs in a shared `aiur_core`/runtime package that both the decisions and agent-runner packages depend on."
+  },
+  {
+   "id": "loose-1-19",
+   "category": "security",
+   "severity": "P2",
+   "title": "CODEOWNERS team membership is cached in the process dictionary forever, so a removed team member stays authoritative",
+   "locations": [
+    {
+     "path": "src/lib/aiur/codeowners.ex",
+     "lines": "409-426"
+    },
+    {
+     "path": "src/lib/aiur/agent_runner/comment_context.ex",
+     "lines": "90-92"
+    },
+    {
+     "path": "src/lib/aiur/github/comments.ex",
+     "lines": "126-136"
+    }
+   ],
+   "description": "team_members/3 memoizes `@org/team` expansion with Process.put and has no TTL and no invalidation. The cache lives as long as the calling process: the agent runner (via Tracker.fetch_classified_issue_comments -> Comments -> Codeowners.repo_ownership), or any long-lived poller that classifies review threads. A user removed from a CODEOWNERS team keeps being classified `authoritative: true`, so their comments stay trusted instructions to the agent for the rest of that process's life. Additions are not seen either (the fail-closed direction). The process dictionary also grows with every team looked up.",
+   "evidence": "cache_key = {__MODULE__, :team_members, String.downcase(org), String.downcase(team_slug)}\ncase Process.get(cache_key) do\n  nil -> ... Process.put(cache_key, members)\n  members -> {:ok, members}",
+   "recommendation": "Move team expansion into a shared cache with a short TTL (minutes). The existing GitHub ReadCache/Teams module is the natural owner, since the comment at 428-432 already calls this \"a second, unpaginated copy of Teams.fetch_team_members/3\". Never cache authority data in the process dictionary.",
+   "effort": "S",
+   "refactor_hint": "GitHub adapter package (trust/authority). Keep authority resolution in one place so the degraded-mode trust owner (Aiur.GitHub.CodeOwners) and this module cannot diverge."
+  },
+  {
+   "id": "loose-1-20",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Codeowners has two unpaginated copies of GitHub reads; PRs with more than 100 files or teams with more than 100 members are truncated",
+   "locations": [
+    {
+     "path": "src/lib/aiur/codeowners.ex",
+     "lines": "428-457"
+    },
+    {
+     "path": "src/lib/aiur/codeowners.ex",
+     "lines": "473-499"
+    },
+    {
+     "path": "src/lib/aiur/codeowners.ex",
+     "lines": "32"
+    }
+   ],
+   "description": "fetch_team_members and fetch_pr_changed_paths are documented (#2298 item 7) copies of Teams.fetch_team_members/3 and PullRequests.fetch_pull_request_changed_paths/2, kept because the error contract differs. Both request `per_page=100` and never follow Link pagination. For a PR touching more than 100 files, owners are computed only from the first 100 paths. For a team with more than 100 members, later members are not trusted. The module also hardcodes `@base_url \"https://api.github.com\"` instead of Transport.base_url().",
+   "evidence": "url = \"#{@base_url}/orgs/#{org}/teams/#{team_slug}/members?per_page=100\"\nurl = \"#{@base_url}/repos/#{owner}/#{repo}/pulls/#{pr_number}/files?per_page=100\"\ncomment: \"#2298 item 7: this is a second, unpaginated copy of `Teams.fetch_team_members/3`\"",
+   "recommendation": "Call the canonical paginated readers and adapt their error shape in a 5-line wrapper (map 429 -> :quota_hold, status -> {:github_api_status, s}). Delete the private copies.",
+   "effort": "S",
+   "refactor_hint": "GitHub adapter package; removing the copies also removes Codeowners' direct HTTP knowledge."
+  },
+  {
+   "id": "loose-1-21",
+   "category": "other",
+   "severity": "P2",
+   "title": "Codeowners' default request function drops the :caller tag, so its GitHub spend is never attributed",
+   "locations": [
+    {
+     "path": "src/lib/aiur/codeowners.ex",
+     "lines": "643-656"
+    },
+    {
+     "path": "src/lib/aiur/codeowners.ex",
+     "lines": "438"
+    },
+    {
+     "path": "src/lib/aiur/codeowners.ex",
+     "lines": "483"
+    },
+    {
+     "path": "src/lib/aiur/github/quota.ex",
+     "lines": "614-624"
+    },
+    {
+     "path": "src/lib/aiur/github/graphql_cost.ex",
+     "lines": "415-425"
+    }
+   ],
+   "description": "fetch_team_members and fetch_pr_changed_paths pass `caller: \"codeowners_team_members\"` / `\"codeowners_pr_files\"`, and the comments say they \"now declare [their] caller so the read is attributed\". But default_request_fun pattern-matches only method/url/token and builds a new map without :caller before calling Transport.default_request_fun. Quota attributes observations with GraphQLCost.derive(request), which uses request.caller when present and otherwise falls back to a route shape. In production these two call sites are therefore reported under anonymous route shapes, and the attribution the comment claims is inert.",
+   "evidence": "defp default_request_fun(%{method: :get, url: url, token: token}) do\n    request = %{method: :get, url: url, token: token}   # :caller dropped\n    ...\n    Transport.default_request_fun(request)\nquota.ex:624  caller: GraphQLCost.derive(request)\ngraphql_cost.ex:416  def derive(%{caller: caller}) when is_binary(caller) and caller != \"\", do: caller",
+   "recommendation": "Pass the incoming request map through (`Map.put_new(req, :anonymous, true)` when the token is blank) instead of rebuilding it. Add a test that asserts the request reaching Transport carries :caller. This one should also fail with the production hunk reverted, per AGENTS.md.",
+   "effort": "S",
+   "refactor_hint": "GitHub adapter package; fixing this is a one-line change that makes `aiur github-cost` truthful for these call sites."
+  },
+  {
+   "id": "loose-1-22",
+   "category": "dead-code",
+   "severity": "P2",
+   "title": "The tmux event-subscription path is dead: nothing sends tmux_event, so PaneManager's pane_died handler is unreachable",
+   "locations": [
+    {
+     "path": "src/lib/aiur/tmux.ex",
+     "lines": "60-65"
+    },
+    {
+     "path": "src/lib/aiur/tmux.ex",
+     "lines": "440-444"
+    },
+    {
+     "path": "src/lib/aiur/tmux.ex",
+     "lines": "550-563"
+    },
+    {
+     "path": "src/lib/aiur/tmux/protocol.ex",
+     "lines": "1-183"
+    },
+    {
+     "path": "src/lib/aiur/pane_manager.ex",
+     "lines": "173-176"
+    },
+    {
+     "path": "src/lib/aiur/pane_manager.ex",
+     "lines": "302-310"
+    }
+   ],
+   "description": "The moduledoc says control mode (`tmux -CC`) was abandoned for shell-outs. The subscription API was kept: Tmux.subscribe_events/1 monitors and stores subscribers, but no code anywhere in lib sends `{:tmux_event, ...}`. PaneManager subscribes at init and has a detailed `{:tmux_event, {:notification, :pane_died, pane_id}}` handler (with Perf events and logging) that can never run. Aiur.Tmux.Protocol, a 183-line control-mode parser, has no caller in lib. A reader of PaneManager would believe externally killed panes are detected by notification, when in practice only list_panes polling catches them.",
+   "evidence": "grep \"tmux_event\" lib: only pane_manager.ex:302 and :416 (receivers). grep \"Tmux.Protocol\" lib: only its own defmodule. tmux.ex: `subscribers: MapSet.put(state.subscribers, pid)`, and no Enum.each(state.subscribers, &send(...)) anywhere.",
+   "recommendation": "Delete subscribe_events/1, the subscribers set, the DOWN handler, Aiur.Tmux.Protocol and PaneManager's tmux_event handlers. If pane-death detection is wanted, implement it explicitly (for example tmux `set-hook pane-died` running a CLI callback) and test it end to end.",
+   "effort": "S",
+   "refactor_hint": "TUI/tmux package. Removing it shrinks the package surface before extraction."
+  },
+  {
+   "id": "loose-1-23",
+   "category": "performance",
+   "severity": "P2",
+   "title": "Every tmux operation for every agent runs through one GenServer with unbounded System.cmd calls",
+   "locations": [
+    {
+     "path": "src/lib/aiur/tmux.ex",
+     "lines": "34-429"
+    },
+    {
+     "path": "src/lib/aiur/tmux.ex",
+     "lines": "449-555"
+    },
+    {
+     "path": "src/lib/aiur/tmux/exec.ex",
+     "lines": "35-52"
+    },
+    {
+     "path": "src/lib/aiur/tmux/exec.ex",
+     "lines": "62-80"
+    }
+   ],
+   "description": "Aiur.Tmux is a singleton GenServer whose state is only {transport, session, dead subscribers}. Every call (capture_pane for REPL readiness, paste_text, send_keys, split/move/kill) runs System.cmd(\"tmux\", ...) inside handle_call, and that System.cmd has no timeout. One wedged tmux invocation blocks the process for every agent. Callers time out at 5-10 s and receive {:error, :timeout}, while the GenServer keeps working through a growing backlog. Serialization is not needed for correctness, because the tmux server serializes commands itself. Each of the 23 public functions also repeats the same catch block (26 copies of `:exit, {:noproc, _} -> {:error, :no_tmux}`).",
+   "evidence": "tmux/exec.ex:43  case System.cmd(tmux, full_args, stderr_to_stdout: true) do   (no timeout)\ntmux.ex:94-98   GenServer.call(server, {:split_pane, ...}, 10_000)\ngrep -c ':exit, {:noproc, _} -> {:error, :no_tmux}' tmux.ex = 26",
+   "recommendation": "Make the tmux API plain functions over a config stored at init (socket, session, transport) and execute through a bounded runner (Port with kill-on-timeout, or Task with yield/shutdown), so concurrent agents do not queue behind each other. Keep a GenServer only if ordering between specific pane operations must be guaranteed, and then per pane. Collapse the catch boilerplate into one `safe_call/3`.",
+   "effort": "M",
+   "refactor_hint": "TUI/tmux package; also removes a cross-agent coupling point from the agent-runner hot path."
+  },
+  {
+   "id": "loose-1-24",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "AgentRunner exposes 17 @doc false pass-through functions, 15 of them used only by tests and one used by nothing",
+   "locations": [
+    {
+     "path": "src/lib/aiur/agent_runner.ex",
+     "lines": "470-567"
+    }
+   ],
+   "description": "Aiur.AgentRunner keeps a block of public wrappers that forward to its submodules (SessionResume, SessionLifecycle, TurnLoop, QueueDrain, EventsDigest, TurnPrompt, CommentContext, TurnStreams), three of them named *_for_test. Tests are coupled to the facade instead of the owning module, which makes moving the submodules during the carve noisier and hides which module is under test.",
+   "evidence": "lib vs test callers (grep \"AgentRunner.<fn>\"): current_comment_context_events_for_test 0/5, resume_thread_id 0/9, session_resumed? 0/3, turn_handle_attrs 0/11, session_handle_to_save 0/12, persist_handle_best_effort 0/2, should_display_tail? 0/5, remote_session_backend 0/4, maybe_trust_remote_control_workspace 0/4, rc_session_name 0/6, start_agent_session 0/6, best_effort_queue_bookkeeping 0/3, turn_done_reason 0/0 (dead), claim_after_queue_update_for_test 0/4, render_events_digest_for_test 0/10, build_turn_prompt_for_test 0/2; post_aiur_turn_markers 1/5.",
+   "recommendation": "Point tests at the owning submodules (Aiur.AgentRunner.SessionResume.turn_handle_attrs/2 etc.) and delete the facade functions. Delete turn_done_reason/1 outright.",
+   "effort": "S",
+   "refactor_hint": "Agent-runner package; shrinks the public surface to run/3 before extraction."
+  },
+  {
+   "id": "loose-1-25",
+   "category": "performance",
+   "severity": "P2",
+   "title": "PauseContainment.paused? is a synchronous singleton call on every Codex turn method and fails open",
+   "locations": [
+    {
+     "path": "src/lib/aiur/pause_containment.ex",
+     "lines": "102-134"
+    },
+    {
+     "path": "src/lib/aiur/codex/turn_loop.ex",
+     "lines": "165-176"
+    },
+    {
+     "path": "src/lib/aiur/codex/turn_loop.ex",
+     "lines": "217-219"
+    },
+    {
+     "path": "src/lib/aiur/app_server/adapter.ex",
+     "lines": "153"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+     "lines": "1810-1823"
+    }
+   ],
+   "description": "The Codex turn loop passes `pause_latched?(session, state)` as an eager argument to Approvals.maybe_handle_approval_request for every turn method. That is a GenServer.call into the PauseContainment singleton (1 s timeout) per streamed method, across all agents. call/2 turns any exit into :ignored, so paused?/2 returns false (`:ignored == true`) when the containment server is slow or restarting, which is fail-open for a pause latch. The same :ignored leaks out of arm/confirm/release/unregister, whose specs promise {:ok, handle} | :not_registered or :ok. The Orchestrator calls arm/1 synchronously from inside its own process and ignores the result.",
+   "evidence": "defp call(server, message) do\n    GenServer.call(server, message, 1_000)\n  catch\n    :exit, _ -> :ignored\n  end\ndef paused?(server, %{...}), do: call(server, {:paused?, identifier, generation}) == true\nturn_loop.ex:175  pause_latched?(session, state)   # argument, evaluated for every method",
+   "recommendation": "Publish the latch state in an ETS table (or :atomics per registered generation) written by PauseContainment and read lock-free by the turn loop. Evaluate it lazily only when an approval decision needs it. Treat \"containment unknown\" as latched (fail closed) or at least report it distinctly, and make the API return its declared types (for example {:error, :containment_unavailable}).",
+   "effort": "M",
+   "refactor_hint": "Agent-runtime package; the pause latch is a cross-backend primitive and should be a cheap read, not a singleton call on the stream path."
+  },
+  {
+   "id": "loose-1-26",
+   "category": "coupling",
+   "severity": "P1",
+   "title": "A core CLI module depends on the web layer (and 15 other core modules do too)",
+   "locations": [
+    {
+     "path": "src/lib/aiur/commands_cli.ex",
+     "lines": "4-5"
+    },
+    {
+     "path": "src/lib/aiur/commands_cli.ex",
+     "lines": "107-132"
+    }
+   ],
+   "description": "Aiur.CommandsCLI (the `aiur commands` CLI, in the core lib/aiur tree) builds its data through AiurWeb.OperatorControlCenter.DecisionProvider.list/counts/detail. So the CLI cannot be compiled without the Phoenix web layer, and the dependency points core -> web. The same inversion exists in 15 other lib/aiur modules outside this unit, which is the main obstacle to carving `aiur_web` into its own package.",
+   "evidence": "commands_cli.ex:5  alias AiurWeb.OperatorControlCenter.DecisionProvider\nOther lib/aiur files referencing AiurWeb.: agent_pubsub.ex, build_orders_cli.ex, analytics_cli.ex, alerts.ex, current_run_projections.ex, agent_control_cli.ex, http_server.ex, recent_merge_store.ex, units_cli.ex, build_order/pack_paths.ex, build_order/member.ex, current_run_projections/units_builder.ex, current_run_projections/state.ex, current_run_summary/facts.ex, orchestrator/snapshot_store.ex.",
+   "recommendation": "Move DecisionProvider's non-presentation logic (query building, counts, detail lookup) into the decisions package (for example Aiur.DecisionQuery or a new Aiur.Decisions.Provider) and have both the CLI and the web layer call it. Add a compile-time boundary check (the `boundary` library or an xref check in CI) that forbids Aiur.* -> AiurWeb.* edges.",
+   "effort": "M",
+   "refactor_hint": "Core/web split. A CI xref gate should land before the carve so new inversions cannot creep back in."
+  },
+  {
+   "id": "loose-1-27",
+   "category": "naming-structure",
+   "severity": "P2",
+   "title": "Storage primitives are misnamed and bypassed: DecisionLog is a generic durable log, and 16 writers hand-roll their own atomic writes",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_log.ex",
+     "lines": "1-279"
+    },
+    {
+     "path": "src/lib/aiur/fs.ex",
+     "lines": "18-68"
+    },
+    {
+     "path": "src/lib/aiur/json_store.ex",
+     "lines": "1-60"
+    },
+    {
+     "path": "src/lib/aiur/event_publication_log.ex",
+     "lines": "52-53"
+    },
+    {
+     "path": "src/lib/aiur/executor_events.ex",
+     "lines": "417-450"
+    },
+    {
+     "path": "src/lib/aiur/executor_wake_inbox.ex",
+     "lines": "110-363"
+    }
+   ],
+   "description": "Aiur.DecisionLog (fsync'd append, torn-tail repair, validating replay) is the codebase's only crash-safe NDJSON primitive, and EventPublicationLog, ExecutorEvents and ExecutorWakeInbox use it under a \"Decision\" name. EventPublicationLog and ExecutorEvents also call DecisionLog.prepare/3 on every append, although the doc says prepare is a one-time setup step kept off the hot path. Aiur.Fs.atomic_write is the shared temp+rename primitive, but at least 16 sites implement temp+rename themselves with different semantics (no fsync, no temp cleanup on failure, a fixed `.tmp` name that races). JsonStore's doc says it writes to `path <> \".tmp\"` (actually `.tmp.<unique>`) and lists only two users.",
+   "evidence": "Hand-rolled temp+rename sites: agent_github_guard.ex:200-207 and :501, agent_skills.ex:257 and :313, model_discovery.ex:653-656, model_availability.ex:413-417, app_server/tool_result_spill.ex:91, repo_base.ex:771, executor/takeover_alert/store.ex:285-288 (fixed \".tmp\"), github/agent_cache.ex:241-246, upgrade/state.ex:62-66 and :111, github/quota.ex:1363-1366, run_telemetry/retention.ex:213, workspace/git_metadata.ex:163-169, workspace/reconstruction.ex:219.\nevent_publication_log.ex:52-53  with :ok <- DecisionLog.prepare(Path.dirname(path), path) do DecisionLog.append(path, ...)",
+   "recommendation": "Create a small storage package: Aiur.Storage.DurableLog (renamed DecisionLog), Aiur.Storage.AtomicFile (Fs.atomic_write plus mkdir and mode options) and Aiur.Storage.JsonFile (JsonStore). Migrate the 16 hand-rolled writers, and document which ones intentionally skip fsync. Call prepare once at owner init.",
+   "effort": "M",
+   "refactor_hint": "Natural leaf package (`aiur_storage`) with no upward dependencies; extract it first so every other package can depend on it."
+  },
+  {
+   "id": "loose-1-28",
+   "category": "performance",
+   "severity": "P2",
+   "title": "The analytics page's rtk panel runs up to three sequential shell-outs and an uncached config parse on each render",
+   "locations": [
+    {
+     "path": "src/lib/aiur/rtk.ex",
+     "lines": "76-81"
+    },
+    {
+     "path": "src/lib/aiur/rtk.ex",
+     "lines": "164-183"
+    },
+    {
+     "path": "src/lib/aiur/rtk.ex",
+     "lines": "220-238"
+    },
+    {
+     "path": "src/lib/aiur_web/live/analytics_live.ex",
+     "lines": "407-416"
+    }
+   ],
+   "description": "Rtk.savings/1 calls status/1, which reads `Aiur.Config.settings_uncached()` (a workflow load and schema parse) and then runs `rtk --version` and `rtk hook check` before `rtk gain -f json`. Each is a Task with a 5 s bound, and they run sequentially, so a slow or wedged rtk can stall the LiveView for up to 15 s. The comment on run/4 says the bound exists because savings/1 \"is read from a LiveView mount\", but three bounded calls in a row compound the bound.",
+   "evidence": "def enabled?(settings \\\\ Aiur.Config.settings_uncached())\nread_savings: executable(opts) ... run(rtk, [\"gain\", \"-f\", \"json\"], opts)   # after version + hook check in admit/1\n@probe_timeout_ms 5_000\naiur_web/live/analytics_live.ex:407-416  defp rtk_panel do case Aiur.Rtk.savings(...)",
+   "recommendation": "Cache the admission result (version + gh-exclusion verdict) for the daemon's lifetime, or refresh it on a timer or config change, and read the cached settings. Fetch savings asynchronously (start_async in the LiveView) so a render never waits on a shell-out.",
+   "effort": "S",
+   "refactor_hint": "Agent-tooling/rtk adapter; keep shell-outs out of web render paths."
+  },
+  {
+   "id": "loose-1-29",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "PollCadence is a :persistent_term global registry shared by the Orchestrator, web, CLI and Stream Deck; an explicit option is ignored for on-demand classes",
+   "locations": [
+    {
+     "path": "src/lib/aiur/poll_cadence.ex",
+     "lines": "177-219"
+    },
+    {
+     "path": "src/lib/aiur/poll_cadence.ex",
+     "lines": "252-270"
+    },
+    {
+     "path": "src/lib/aiur/poll_cadence.ex",
+     "lines": "436-441"
+    }
+   ],
+   "description": "The Orchestrator writes the per-class effective interval into :persistent_term, and every reader derives staleness from it. That is shared mutable state across what will become separate packages, and each change of value triggers a global GC scan on write. The fleet flips between idle and busy widening often, so the value does change. effective_interval_ms/1 documents precedence \"1. an explicit :effective_interval_ms option\", but when the published class value is 0 it returns 0 before looking at the option. forget_effective_interval_ms/0 erases the bare @effective_key, which nothing writes (dead line).",
+   "evidence": "case published_for(class) do\n  0 -> 0\n  published_ms -> with nil <- positive_integer(Keyword.get(opts, :effective_interval_ms)), ...\nforget: :persistent_term.erase(@effective_key)   # only {@effective_key, class} keys are ever put",
+   "recommendation": "Move the published cadence behind a small owner process (or the Orchestrator snapshot) with a read API. If persistent_term is kept for read speed, keep it private to one module and document the write frequency. Honour the explicit option first, and delete the dead erase.",
+   "effort": "S",
+   "refactor_hint": "Orchestrator <-> observability boundary; readers in other packages should call an API, not share a global key."
+  },
+  {
+   "id": "loose-1-30",
+   "category": "silent-failure",
+   "severity": "P3",
+   "title": "ExecutorListener loses wake records for non-executor topics when inbox enqueue fails, with only Logger.error",
+   "locations": [
+    {
+     "path": "src/lib/aiur/executor_listener.ex",
+     "lines": "144-191"
+    },
+    {
+     "path": "src/lib/aiur/executor_listener.ex",
+     "lines": "319-321"
+    }
+   ],
+   "description": "For non-`executor.` topics, deliver/2 enqueues a projected wake record into ExecutorWakeInbox. An enqueue error becomes a MatchError on `:ok = deliver(...)`, which is rescued and only logged. There is no watermark or replay for those topics, so the wake is lost for good. (For executor.* topics a later event advances the watermark, so the only effect is a failed watermark write.)",
+   "evidence": ":ok = deliver(event, state.inbox)  ... rescue error -> log_delivery_failure(event, error); state\n{:ok, record} -> ExecutorWakeInbox.enqueue(record, inbox)",
+   "recommendation": "Retry enqueue with a bounded ladder, and raise one deduplicated alert when wake delivery fails, since Executor waits depend on these records.",
+   "effort": "S",
+   "refactor_hint": "Executor package."
+  },
+  {
+   "id": "loose-1-31",
+   "category": "dead-code",
+   "severity": "P3",
+   "title": "DecisionStore has a dead cast clause and 5 public functions with no production caller",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "1133-1140"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "364-368"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "487-497"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "511-522"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "3263-3277"
+    }
+   ],
+   "description": "handle_cast({:transport_transition, ...}) has no sender (record_transport_async routes through the batch cast, and record_delivery uses the call). record_transport_async/4, all_history/1, audit_history/2, health/1 and terminal_identities/2 are called only from tests.",
+   "evidence": "grep \"DecisionStore.<fn>\" lib/test: record_transport_async 0/14, all_history 0/3, audit_history 0/51, health 0/16, terminal_identities 0/2. grep \"{:transport_transition,\" lib: only the client call at 358 and the handle_call/handle_cast heads.",
+   "recommendation": "Delete the dead cast. Move the test-only reads onto a test helper, or mark them as the package's supported inspection API and give them a production caller (for example `aiur commands --health`).",
+   "effort": "S",
+   "refactor_hint": "Decision package API surface."
+  },
+  {
+   "id": "loose-1-32",
+   "category": "error-handling",
+   "severity": "P3",
+   "title": "DecisionStore has no catch-all handle_info",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "3456-3569"
+    }
+   ],
+   "description": "The canonical writer defines 13 specific handle_info clauses and no fallback, so any unexpected message (a stray DOWN, a late reply, a mistyped test message) raises FunctionClauseError and restarts the store (full replay, loss of in-memory dispatch bookkeeping). Sibling GenServers in this unit (Tmux, CoordinationTasks, PauseContainment, ExecutorListener) all end with `def handle_info(_message, state), do: {:noreply, state}`.",
+   "evidence": "last clause: def handle_info({:revision_follow_up_result, operation, decision_id, action_id, {:error, reason}}, state)",
+   "recommendation": "Add a catch-all that logs at warning with the message shape and returns {:noreply, state}.",
+   "effort": "S",
+   "refactor_hint": "Decision package."
+  },
+  {
+   "id": "loose-1-33",
+   "category": "duplication",
+   "severity": "P3",
+   "title": "DecisionStore re-implements helpers that already exist in sibling modules",
+   "locations": [
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "1771-1778"
+    },
+    {
+     "path": "src/lib/aiur/decision_store/retained_snapshot.ex",
+     "lines": "120-122"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "3263-3283"
+    },
+    {
+     "path": "src/lib/aiur/decision_revision_dispatch.ex",
+     "lines": "174-178"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "2044-2045"
+    }
+   ],
+   "description": "readable?/1 is a line-for-line copy of RetainedSnapshot.readable?/1 (the comment says \"Mirrors\"). terminal_identities/issue_terminal_identity copies the identifier-then-id fallback from DecisionRevisionDispatch.target_identifier (the comment says \"Mirrors the established reader\"). Also, settle_queue_result's :duplicate clause (4106-4113) and its catch-all clause (4115-4122) have identical bodies, and the `if revision_action?(...), do: :revision_dispatched, else: :dispatch_queued` choice is repeated 3 times (2854, 2994, 4173).",
+   "evidence": "decision_store.ex:1776-1778 == retained_snapshot.ex:120-122:\n  defp readable?(:writable), do: true\n  defp readable?({:corrupt, _line, _reason}), do: true\n  defp readable?(_health), do: false",
+   "recommendation": "Expose Health.readable?/1 from one module, one `Aiur.Issue.identity/1`, a `queued_event_type/2` helper, and merge the two identical settle_queue_result clauses.",
+   "effort": "S",
+   "refactor_hint": "Decision package internals."
+  },
+  {
+   "id": "loose-1-34",
+   "category": "duplication",
+   "severity": "P3",
+   "title": "CLI table rendering is copied between github-cost and units",
+   "locations": [
+    {
+     "path": "src/lib/aiur/github_cost_cli.ex",
+     "lines": "466-497"
+    },
+    {
+     "path": "src/lib/aiur/units_cli.ex",
+     "lines": "267-295"
+    }
+   ],
+   "description": "resolve_format(:auto) via :io.columns/0, column_widths/1, table_line/2 and the records fallback are duplicated nearly verbatim (units_cli hardcodes 5 columns in column_widths). Formatting helpers number/percent/value (\"unknown\" for nil) are also local to GitHubCostCLI, while other CLIs keep their own copies.",
+   "evidence": "github_cost_cli.ex:482-487 and units_cli.ex:291-296 both:\n    |> Enum.zip(widths) |> Enum.map_join(\"  \", fn {cell, width} -> String.pad_trailing(cell, width) end) |> String.trim_trailing()",
+   "recommendation": "Extract Aiur.CLI.Table (format resolution, widths, lines, records fallback) and Aiur.CLI.Format (number/percent/unknown) and use them in every *_cli module.",
+   "effort": "S",
+   "refactor_hint": "CLI package."
+  },
+  {
+   "id": "loose-1-35",
+   "category": "config",
+   "severity": "P3",
+   "title": "api.github.com is hardcoded in 14 files instead of using Transport.base_url()",
+   "locations": [
+    {
+     "path": "src/lib/aiur/codeowners.ex",
+     "lines": "32"
+    },
+    {
+     "path": "src/lib/aiur/tracker_identity.ex",
+     "lines": "219"
+    },
+    {
+     "path": "src/lib/aiur/github/transport.ex",
+     "lines": "52"
+    }
+   ],
+   "description": "The GitHub API host is repeated as a literal instead of read from Aiur.GitHub.Transport.base_url/0. TrackerIdentity rejects any repository_url whose host is not api.github.com. Today that is consistent (GitHub Enterprise is not supported anywhere), but any future GHE or proxy support would have to find every copy.",
+   "evidence": "Files with the literal outside transport.ex: codeowners.ex, decision_artifact.ex, tracker_identity.ex, build_order/github_graph/reconciliation.ex, build_order/ticket_detail_normalizer.ex, github/app_token.ex, github/auth_preflight.ex, github/config.ex, github/labels.ex, github/read_cache/identity.ex, init/prewarm/failure.ex, github/quota.ex, init/github.ex, workspace/hooks.ex (19 occurrences).",
+   "recommendation": "Read the host from Transport (or a GitHub.Endpoint module) everywhere, and keep the allowlist in DecisionArtifact derived from it.",
+   "effort": "S",
+   "refactor_hint": "GitHub adapter package owns the endpoint; other packages should not know the host."
+  },
+  {
+   "id": "loose-1-36",
+   "category": "naming-structure",
+   "severity": "P3",
+   "title": "Build and CI tooling ships in the production namespace, and Upgrade reads the version from Mix at runtime",
+   "locations": [
+    {
+     "path": "src/lib/aiur/test_shard.ex",
+     "lines": "1-105"
+    },
+    {
+     "path": "src/lib/aiur/upgrade.ex",
+     "lines": "66-72"
+    },
+    {
+     "path": "src/lib/aiur/cli.ex",
+     "lines": "10"
+    }
+   ],
+   "description": "Aiur.TestShard (CI shard assignment, whose discover/1 defaults to Mix.Project.config()) is compiled into the release under lib/aiur, although only Mix.Tasks.Aiur.TestShard uses it. Upgrade.installed_version/0 calls Mix.Project.config() at runtime as a fallback, while cli.ex and app_server/messages.ex capture the version at compile time with `@version Mix.Project.config()[:version]`. In a release without :mix loaded that fallback raises, and check_and_announce hides the raise with a bare `rescue _ -> :ok`.",
+   "evidence": "test_shard.ex:57  def discover(project \\\\ Mix.Project.config()) do\nupgrade.ex:70     _ -> to_string(Mix.Project.config()[:version])\ncli.ex:10         @version Mix.Project.config()[:version]",
+   "recommendation": "Move TestShard next to its Mix task (lib/mix or a dev-only package). Use a compile-time @version in Upgrade.",
+   "effort": "S",
+   "refactor_hint": "Dev-tooling vs runtime split."
+  },
+  {
+   "id": "loose-1-37",
+   "category": "naming-structure",
+   "severity": "P3",
+   "title": "Aiur.Codeowners and Aiur.GitHub.CodeOwners differ only in capitalisation",
+   "locations": [
+    {
+     "path": "src/lib/aiur/codeowners.ex",
+     "lines": "1-8"
+    },
+    {
+     "path": "src/lib/aiur/codeowners.ex",
+     "lines": "276-287"
+    }
+   ],
+   "description": "Aiur.Codeowners parses CODEOWNERS and classifies comment authority. Aiur.GitHub.CodeOwners is the degraded-mode trust GenServer that Codeowners delegates to. Aiur.Codeowners.Edit and Aiur.Init.Codeowners add two more variants. The near-identical names make it easy to call the wrong module, which matters given the security comment at 120-136 about two modules disagreeing on trust.",
+   "evidence": "alias Aiur.GitHub.CodeOwners   # inside defmodule Aiur.Codeowners\ndegraded_mode_trusted?(commenter, Map.get(context, :trust_server, CodeOwners))",
+   "recommendation": "Rename to intent: Aiur.GitHub.Authority.CodeownersFile (parse/match), Aiur.GitHub.Authority.Classifier (classify_comment/authoritative?), Aiur.GitHub.Authority.DegradedTrust (the GenServer).",
+   "effort": "S",
+   "refactor_hint": "GitHub adapter package, authority sub-namespace."
+  },
+  {
+   "id": "loose-1-38",
+   "category": "performance",
+   "severity": "P3",
+   "title": "DispatchBudgetStore re-reads the whole JSON file on every per-issue lookup, and callers disagree on its errors",
+   "locations": [
+    {
+     "path": "src/lib/aiur/dispatch_budget_store.ex",
+     "lines": "9-17"
+    },
+    {
+     "path": "src/lib/aiur/dispatch_budget_store.ex",
+     "lines": "82-90"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+     "lines": "1727-1741"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+     "lines": "1193-1199"
+    }
+   ],
+   "description": "lifetime/1 does JsonStore.read of dispatch-budgets.json (read plus decode of the full map) for each issue the Orchestrator evaluates, inside the Orchestrator process. The map is never pruned for closed tickets (only reset/1 deletes). The same read error is handled two ways: dispatcher.persisted_lifetime treats it as lifetime 0 (latch disabled, fail-open), while issue_sync.persisted_latch_status returns :unknown.",
+   "evidence": "dispatcher.ex:1734-1736  {:error, reason} -> Logger.error(\"... treating lifetime as 0 (latch disabled) ...\"); 0\nissue_sync.ex:1197        {:error, _reason} -> :unknown",
+   "recommendation": "Load the map once into Orchestrator state at boot and write through on change. Prune entries for terminal tickets during reconciliation. Pick one documented error policy and apply it in one helper.",
+   "effort": "S",
+   "refactor_hint": "Orchestrator package; the store should become part of the orchestrator's persisted state module."
+  },
+  {
+   "id": "loose-1-39",
+   "category": "performance",
+   "severity": "P3",
+   "title": "OperatorWaitLog leaks ETS entries for undelivered messages and does file I/O in the Orchestrator",
+   "locations": [
+    {
+     "path": "src/lib/aiur/operator_wait_log.ex",
+     "lines": "45-82"
+    },
+    {
+     "path": "src/lib/aiur/operator_wait_log.ex",
+     "lines": "100-115"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+     "lines": "997-1031"
+    }
+   ],
+   "description": "record_queued inserts {identifier, request_id} into a public ETS table, and only record_delivered removes it. A message that is never provider-confirmed (agent died, message withdrawn) leaves its row forever. record_delivered runs File.mkdir_p! plus an appending File.write! in the calling process, which is the Orchestrator (operator_messages.ex:1031), once per delivered Executor message.",
+   "evidence": "case :ets.take(@table, {identifier, request_id}) do ... append_line(...)\nappend_line: File.mkdir_p!(Path.dirname(path)); File.write!(path, Jason.encode!(payload) <> \"\\n\", [:append])",
+   "recommendation": "Expire pending rows older than a horizon (sweep on a timer in the owning GenServer), and send the append to that GenServer (cast) so the Orchestrator never blocks on disk.",
+   "effort": "S",
+   "refactor_hint": "Metrics/observability package."
+  },
+  {
+   "id": "loose-1-40",
+   "category": "error-handling",
+   "severity": "P3",
+   "title": "SSH.run has no timeout, ConnectTimeout or BatchMode",
+   "locations": [
+    {
+     "path": "src/lib/aiur/ssh.ex",
+     "lines": "6-11"
+    },
+    {
+     "path": "src/lib/aiur/ssh.ex",
+     "lines": "118-127"
+    }
+   ],
+   "description": "run/3 and run_staged_script call System.cmd(\"ssh\", ...) with no timeout, and ssh_target_args sets neither `-o ConnectTimeout` nor `-o BatchMode=yes`. An unreachable or hung worker host blocks the caller (the agent runner's remote workspace/hook path) for the kernel TCP timeout or longer.",
+   "evidence": "{:ok, System.cmd(executable, ssh_args(host, command), opts)}\nssh_target_args: [] |> maybe_put_config() |> Kernel.++([\"-T\"]) |> Kernel.++(shell_environment_args()) |> maybe_put_port(port) |> Kernel.++([destination])",
+   "recommendation": "Add `-o BatchMode=yes -o ConnectTimeout=<n>` by default and run through a bounded runner, so remote failures surface as {:error, :timeout}.",
+   "effort": "S",
+   "refactor_hint": "Remote-worker package."
+  },
+  {
+   "id": "loose-1-41",
+   "category": "other",
+   "severity": "P3",
+   "title": "PathSafety.canonicalize collapses '..' before resolving symlinks, and contained? collapses all errors to :unreadable",
+   "locations": [
+    {
+     "path": "src/lib/aiur/path_safety.ex",
+     "lines": "6-18"
+    },
+    {
+     "path": "src/lib/aiur/path_safety.ex",
+     "lines": "84-100"
+    }
+   ],
+   "description": "canonicalize/1 runs Path.expand/1 (a lexical `..` collapse) before walking symlinks. For an input like root/sub/link/../../x, the result is root/x, while the kernel would resolve link first and land elsewhere. The current callers (DecisionArtifact, Config.Paths, ToolResultSpill) use the returned canonical path rather than the original, so no escape was found. But the name promises realpath semantics that a future caller could rely on. contained?/2 also maps symlink_cycle, too_many_symlinks and every I/O error to :unreadable.",
+   "evidence": "expanded_path = Path.expand(path)\n{root, segments} = split_absolute_path(expanded_path)\n{:error, {:path_canonicalize_failed, _path, _reason}} -> {:error, :unreadable}",
+   "recommendation": "Resolve `..` segment by segment after following symlinks (true realpath), or document the lexical semantics in the function name. Pass the specific failure reason through contained?/2.",
+   "effort": "S",
+   "refactor_hint": "Security utility; belongs with the storage/path primitives package."
+  },
+  {
+   "id": "loose-1-42",
+   "category": "other",
+   "severity": "P3",
+   "title": "`aiur commands` emits freshness fields that are always unknown",
+   "locations": [
+    {
+     "path": "src/lib/aiur/commands_cli.ex",
+     "lines": "147-156"
+    }
+   ],
+   "description": "Every source in the envelope has hardcoded `observed_at: nil, age_ms: nil, freshness: :unknown`, and the human output prints \"freshness unknown\" for each. AGENTS.md says the CLI emits observed_at/age_ms/freshness so it can be compared with the web surface. Here those fields are placeholders that no code path populates.",
+   "evidence": "defp source(health) do\n    %{state: ..., observed_at: nil, age_ms: nil, freshness: :unknown, partial: ..., reasons: ...}",
+   "recommendation": "Populate observed_at from the store read time (and age_ms relative to captured_at), or drop the fields from the schema until they are real.",
+   "effort": "S",
+   "refactor_hint": "CLI package."
+  },
+  {
+   "id": "loose-1-43",
+   "category": "naming-structure",
+   "severity": "P3",
+   "title": "Daemon-internal alerts are emitted through emit_custom, which labels them source :agent",
+   "locations": [
+    {
+     "path": "src/lib/aiur/alerts.ex",
+     "lines": "113-117"
+    },
+    {
+     "path": "src/lib/aiur/decision_store.ex",
+     "lines": "683-691"
+    },
+    {
+     "path": "src/lib/aiur/executor_listener.ex",
+     "lines": "203-210"
+    },
+    {
+     "path": "src/lib/aiur/agent_runner.ex",
+     "lines": "250-257"
+    }
+   ],
+   "description": "Alerts.emit_custom/3 defaults `event_source` to :agent (Keyword.put_new). DecisionStore's 13 alerts (corruption, repair failure, delivery failures), ExecutorListener's Command alert and AgentRunner's live-session alert are raised by the daemon but published with `source: :agent`. comment_wake.ex has to override the default explicitly to get :system.",
+   "evidence": "alerts.ex:116  do_emit(name, message, Keyword.put_new(opts, :event_source, :agent))\norchestrator/comment_wake.ex:309  Alerts.emit_custom(name, message, Keyword.put(alert_opts, :event_source, :system))",
+   "recommendation": "Use emit_system for daemon-originated alerts (or add an emit_daemon/3 with a message argument), and keep emit_custom for agent-raised alerts only.",
+   "effort": "S",
+   "refactor_hint": "Alerts package API."
+  },
+  {
+   "id": "loose-1-44",
+   "category": "complexity",
+   "severity": "P3",
+   "title": "AgentRunner.transient_run_error? is a per-backend special-case list with overriding precedence",
+   "locations": [
+    {
+     "path": "src/lib/aiur/agent_runner.ex",
+     "lines": "85-119"
+    }
+   ],
+   "description": "The public 1-arity transient_run_error?/1 says :port_closed and {:port_exit, _} are transient. The 2-arity version then overrides that to false for every non-codex backend, adds SessionRecovery.recoverable?/1 for codex only, and ORs in the GitHub transport classifier for all backends. Each incident added a clause (#2427 GitHub, REPL, prompt delivery). The 1-arity function is used only by tests (25 test references, 0 lib).",
+   "evidence": "def transient_run_error?(:port_closed), do: true\ndef transient_run_error?(:port_closed, _backend), do: false\ndef transient_run_error?(reason, \"codex\"), do: SessionRecovery.recoverable?(reason) or transient_run_error?(reason) or github_transport_transient?(reason)",
+   "recommendation": "Let each backend declare its transient classifier (a callback on the CodingAgent behaviour) and keep only the cross-backend GitHub classifier here. Make the 1-arity function private.",
+   "effort": "S",
+   "refactor_hint": "Agent-runner / coding-agent behaviour boundary."
+  },
+  {
+   "id": "loose-1-45",
+   "category": "complexity",
+   "severity": "P3",
+   "title": "CurrentRunMembership is a pure pass-through facade over its Store",
+   "locations": [
+    {
+     "path": "src/lib/aiur/current_run_membership.ex",
+     "lines": "1-87"
+    }
+   ],
+   "description": "11 of the module's 13 public functions only forward to Aiur.CurrentRunMembership.Store with the same arguments. The facade adds an indirection with no policy of its own. The only local logic is subscribe/broadcast_changed.",
+   "evidence": "def observe(identity, lifecycle, opts \\\\ []), do: Store.observe(identity, lifecycle, opts)\ndef snapshot(opts \\\\ []), do: Store.snapshot(opts)\n... (lookup, generation, health, freshness, projection_checkpoint, put_projection_checkpoint[_fenced], mark_reconciled, set_terminal_verification_pending)",
+   "recommendation": "Use defdelegate for the forwarding functions (or make Store the public module) so the facade's intent is explicit and its size reflects its logic.",
+   "effort": "S",
+   "refactor_hint": "Current-run projections package."
+  }
+ ]
+}

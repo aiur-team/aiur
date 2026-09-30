@@ -1,0 +1,1002 @@
+{
+  "unit_id": "nonelixir-shell",
+  "files_reviewed": 57,
+  "lines_reviewed_estimate": 10800,
+  "coverage_notes": "READ IN FULL: packaging/npm/aiur-cli/libexec/aiur-engine.sh (all 4179 lines), bin/aiur.js, libexec/guard-pr-deletions.sh, scripts/postinstall.mjs, scripts/verify-install.sh, packaging/scripts/{resolve-version,platforms,check-platform-drift,assemble-platform-package,stamp-versions,check-layout-assets-release}.mjs, packaging/scripts/build-release.sh, scripts/aiur-saturation-repro.sh, scripts/verify-u11.sh, scripts/verify-ctrlc-binding.sh, scripts/report-ci-failures.sh, report-ci-run-attempt.sh, report-known-flaky-tests.sh, apply-/verify-/verify-...-live human-only-merge-ruleset scripts, verify-workflow-security.sh, test-workflow-security.sh, check-config-docs.py, check-env-example.py, check-test-shard-parity.py, rename_preflight.py, analytics/lib/analytics/{reduce,reduce_cmd,cli,sources,run_summary,build_report,flake_report,__init__}.py. PARTIAL: analytics render.py (lines 1-372 and 386-460 read; the build-report row helpers skimmed); launcher.test.mjs (lines 1-330 and 395-470 read, 508-615 read, the rest grepped for test names, timing and HOME use); postinstall.test.mjs (outline plus 2 tests); test-quarantine-build-cache.sh, test-pr-merge-gate-diagnostic.sh, test-check-config-docs.sh, test-human-only-merge-ruleset.sh, test-report-ci-failures.sh (heads read); analytics tests (grepped for test names, clock and home use; the build-report integration test read). NOT READ BEYOND A GREP: packaging/scripts/test/*.test.mjs (import lines only; confirmed bun:test and not run in CI), test-check-env-example.sh, test-check-test-shard-parity.sh, test-report-known-flaky-tests.sh, test-report-ci-run-attempt.sh, test-human-only-merge-ruleset-live.sh, test_rename_preflight.py, analytics/tests/__init__.py. CROSS-CHECKED OUTSIDE THE UNIT (read-only, targeted): scripts/aiurdev classifiers, both tmux confs, src/lib/aiur/{cli.ex argv_from_file and ask parsing, workflow.ex discovery, process_reaper.ex pidfile, upgrade.ex, repo_base.ex slug, init/dotenv.ex, env.ex precedence, run_telemetry/summaries.ex, run_telemetry/dataset.ex outline, orchestrator.ex status/2, pane_manager/anchor.ex}, the analytics presenter, AGENTS.md and cli.md at the snapshot via git show, and CI workflows at the snapshot via git show (.github is absent from the extracted snapshot). One behavior was verified empirically with a standalone bash snippet (shift past the end under set -e); no project tests, builds or daemons were run.",
+  "findings": [
+    {
+      "id": "nonelixir-shell-01",
+      "category": "error-handling",
+      "severity": "P0",
+      "title": "`aiur stop` kills live headless agents of every other running aiur instance",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3520-3529"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "855-859"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1385-1440"
+        },
+        {
+          "path": "src/lib/aiur/process_reaper.ex",
+          "lines": "250-275"
+        }
+      ],
+      "description": "cmd_stop's 'belt-and-suspenders' sweep iterates every `aiur-*-agents` pidfile in XDG_RUNTIME_DIR (or TMPDIR), not only this instance's, then TERM/KILLs the whole process tree of every recorded pid and deletes the file. Pidfiles are named by the launcher PID (`aiur-${$}-agents`), not the instance key, and nothing checks that the owning instance is down. A second live instance (another project, same user, which the instance-key design explicitly supports) loses its running codex/claude app-servers and its crash-reap backstop file whenever any other project runs `aiur stop` or `aiur restart`. The only pid-reuse guard is a substring match on the command line (`*claude*`, `*codex*`, `*ssh*`), and the file is append-only and never pruned, so a recycled PID now belonging to the operator's own `claude` or `ssh` process also matches. This contradicts the engine's own isolation claims (lines 960-963: 'never another live aiur'; 3418-3423: 'we warn, not reap, to respect the deliberate isolation'). sweep_stale_tmp_artifacts (3395-3405) spares live PID-named files, but this path does not. No test covers it: the sibling-instance test in src/test/aiur_engine_test.exs:2938 checks BEAMs only.",
+      "evidence": "session_root=\"${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}\"\n  for agentfile in \"$session_root\"/aiur-*-agents; do\n    [ -e \"$agentfile\" ] || continue\n    reap_aiur_agents \"\" \"$agentfile\"\n    rm -f \"$agentfile\" 2>/dev/null || true\n  done\n# pidfile naming (858): export AIUR_AGENT_TMPFILE=\"${session_root}/aiur-${$}-agents\"\n# guard (1394): case \"$cmd\" in *\"$comm\"*) return 0 ;;  \u2014 comm is \"claude\"/\"codex\"/\"ssh\"",
+      "recommendation": "Store the run's AIUR_AGENT_TMPFILE in the instance record next to AIUR_RECORD_WORKSPACE_ROOT_FILE and have cmd_stop reap only that file. Alternatively, name pidfiles by instance key (`aiur-<key>-agents`). Sweep another instance's pidfile only after epmd confirms its node is down (probe_named_node_liveness). Record the full `/proc/<pid>/stat` start time, or the exact argv0, as the reuse guard instead of a substring. Add a regression test with two instances' pidfiles.",
+      "refactor_hint": "Launcher process-lifecycle module. The pidfile is a cross-language contract between Aiur.ProcessReaper and the engine. Make it a typed, instance-keyed handoff before the carve splits these two sides into separate packages.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-02",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "argv round-trip via AIUR_ARGV_FILE splits arguments on newlines and drops empty arguments",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "410-418"
+        },
+        {
+          "path": "src/lib/aiur/cli.ex",
+          "lines": "129-144"
+        },
+        {
+          "path": "src/lib/aiur/cli.ex",
+          "lines": "275-289"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "501-524"
+        }
+      ],
+      "description": "write_argv writes one argument per line. Aiur.CLI.argv_from_file splits on \"\\n\" and rejects \"\". So an argument that contains a newline becomes several argv entries, and an empty argument disappears. This breaks the documented `aiur ask <title> --body <text>`: evaluate_ask_create requires `[title] <- positional`, so a multi-line body turns into extra positionals and returns a generic usage error. The same happens to `aiur findings --record <json>` with pretty-printed JSON and to any run argument with a newline. The one-shot paths exec the release (run_version, run_init, run_findings, run_asks), so the argv tempfile is never removed. The file can hold `--body` text and stays in TMPDIR until the 24h sweep.",
+      "evidence": "write_argv() { local a; for a in \"$@\"; do printf '%s\\n' \"$a\" >>\"$argv_file\"; done; }\n# cli.ex\n|> String.split(\"\\n\", trim: false)\n|> Enum.reject(&(&1 == \"\"))",
+      "recommendation": "Write NUL-delimited argv (`printf '%s\\0'`) and split on <<0>> without dropping empties, or base64-encode each line. Delete the file in argv_from_file after reading it. Add an ExUnit case that sends a multi-line --body through the engine.",
+      "refactor_hint": "The engine\u2194CLI argv contract belongs in the launcher boundary spec. The control-RPC path already base64-encodes values, so both transports can converge on one encoding.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-03",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Two diverged tmux confs: the shipped conf has the documented Ctrl+C bug, the verify harness tests the unshipped copy, and the Ctrl+C bridge is never wired",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/share/aiur.tmux.conf",
+          "lines": "51-63"
+        },
+        {
+          "path": "scripts/aiur.tmux.conf",
+          "lines": "22-30,60-86"
+        },
+        {
+          "path": "scripts/verify-ctrlc-binding.sh",
+          "lines": "1-24,58-65"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1089-1100"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/package.json",
+          "lines": "18-24"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/anchor.ex",
+          "lines": "40-50"
+        }
+      ],
+      "description": "The engine loads only share/aiur.tmux.conf (resolve_tmux_conf falls back to `$engine_dir/../share/aiur.tmux.conf`, and aiur.js sets the same path). aiurdev uses the same engine and does not set AIUR_TMUX_CONF, so dev and product both load share/. That file (86 lines) still uses the `h=\"#{@aiur_ctrlc}\"; $h` form that verify-ctrlc-binding.sh describes as silently falling through to raw kill-pane. It also lacks the C-q hide binding and the `terminal-features *:sync` line, both of which exist only in scripts/aiur.tmux.conf (109 lines), which no launcher loads. verify-ctrlc-binding.sh sources scripts/aiur.tmux.conf, so it passes against a file nobody runs. It is also not in ci.yml. Nothing sets @aiur_ctrlc to a helper: Anchor publishes only @aiur_control_url, and scripts/aiur-pane-ctrlc is not in the npm `files` list. Ctrl+C on a chat pane therefore always raw-kills the pane, the outcome the harness says drops a queued Executor message.",
+      "evidence": "share/aiur.tmux.conf:63  'run-shell \"h=\\\"#{@aiur_ctrlc}\\\"; if [ -x \\\"$h\\\" ]; then ...; else tmux kill-pane ...\"'\nscripts/aiur.tmux.conf:70 # NB: reference `#{@aiur_ctrlc}` inline rather than via a `h=...; $h` shell variable ... silently falls through\nverify-ctrlc-binding.sh:24 CONF=\"$REPO_ROOT/scripts/aiur.tmux.conf\"\ngrep: no code sets @aiur_ctrlc (only `set -gq @aiur_ctrlc ''` in both confs)",
+      "recommendation": "Keep one conf (share/) and delete scripts/aiur.tmux.conf, or make the dev copy a symlink. Ship the helper under libexec/ and have PaneManager.Anchor set `@aiur_ctrlc` next to `@aiur_control_url`. Point verify-ctrlc-binding.sh at the shipped conf and add it to the CI `workflow security`/lint job. If the feature is abandoned, delete the helper, the dashboard endpoint and the harness.",
+      "refactor_hint": "Terminal UI assets (tmux conf and pane helpers) belong to the TUI/launcher package, with one copy shipped. Today this feature spans four places (conf, helper script, Anchor, router endpoint) and none of them is complete.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-04",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Command classification is hand-maintained in six places and has diverged",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3987-4175"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "448-497"
+        },
+        {
+          "path": "scripts/aiurdev",
+          "lines": "109-118"
+        },
+        {
+          "path": "scripts/aiurdev",
+          "lines": "500-507"
+        },
+        {
+          "path": "scripts/aiurdev",
+          "lines": "236-249"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/bin/aiur.js",
+          "lines": "206-224"
+        }
+      ],
+      "description": "Six lists record which subcommands exist and what each needs (rebuild, tmux, opencode, control-plane only): the engine dispatch, usage(), aiurdev targets_release_deliberately, pure_control_command, requires_pinned_opencode, and aiur.js isForegroundOneShot. They disagree. (1) usage() omits `usage` and `reset-budget`, both of which dispatch and are documented in cli.md. (2) pure_control_command omits commands, units, build-orders, analytics, usage, watch and executor-*, so under aiurdev those rebuild the release first. That matters for `executor-wait`, which the Executor runs in a loop, and it is the rebuild-under-a-live-daemon pattern that AGENTS.md says control commands avoid. (3) targets_release_deliberately omits `upgrade`, so it falls into the 'deliberate' branch. (4) aiur.js treats only `--version` and `init` as one-shots. Every other command (status, stop, executor-wait, findings, ask) runs `tmux -V`, `opencode --version`, and a global `npm install -g opencode-ai@<pin>` whenever the installed opencode does not match the pin.",
+      "evidence": "aiurdev:504  agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget | github-cost | github-usage) return 0 ;;\naiur.js:209-215 if (arg === \"--version\") return true; ... return arg === \"init\";\nusage(): no line for `aiur usage` or `aiur reset-budget`",
+      "recommendation": "Create one command registry, for example `libexec/commands.tsv` with columns name, kind (run|control|stream|oneshot), needs_tmux, needs_opencode and rebuild_policy. Generate usage() from it, source it from the engine and aiurdev, and read it from aiur.js. Add a test that every dispatch arm has a registry row.",
+      "refactor_hint": "The CLI surface should become a single declared contract owned by the launcher package. The dev shim then consumes that contract instead of re-deriving it.",
+      "effort": "M"
+    },
+    {
+      "id": "nonelixir-shell-05",
+      "category": "large-module",
+      "severity": "P1",
+      "title": "aiur-engine.sh is a 4,179-line god script with a 351-line run_session",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1-4179"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "723-1073"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "2351-2462"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3649-3745"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3869-3964"
+        }
+      ],
+      "description": "One bash file holds nine responsibilities: identity and distribution, dotenv loading, tmux launch and attach, the BEAM-death watchdog and process reaping, control-RPC transport and diagnostics, 32 cmd_* argument parsers (947 lines), restart build verification, npm upgrade and channel logic, and stale manual-smoke hygiene. Measured function sizes: run_session 351 lines, aiur_engine_main 189, run_control_rpc_dispatch 112, cmd_restart 97, cmd_upgrade 96, cmd_stop 86, session_cleanup 71; 162 functions in total. Every product and dev launch goes through it. Its tests live in the Elixir suite, which shells out to bash: src/test/aiur_engine_test.exs (4,245 lines), scripts_aiurdev_test.exs (1,988), regression/engine_control_test.exs (997), plus about 700 more. A 945-line bun suite exists but does not run (see -20).",
+      "evidence": "wc -l: 4179 aiur-engine.sh; run_session 723-1073; 32 cmd_* functions totalling 947 lines; Elixir tests of the engine total 8,417 lines",
+      "recommendation": "Split into sourced modules under libexec/lib/: identity.sh, dotenv.sh, session.sh (launch, attach, watchdog), reap.sh, control_rpc.sh, upgrade.sh. Keep aiur-engine.sh as a thin dispatcher. Break run_session into prepare_env, write_pane_launcher, start_tmux, await_ready and arm_watchdog. Move the argument parsing into Elixir (see -06).",
+      "refactor_hint": "This is the launcher package boundary. Its tests should move with it (bats or bun) and stop living in the Elixir app's test tree.",
+      "effort": "L"
+    },
+    {
+      "id": "nonelixir-shell-06",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Control commands are parsed twice: bash cmd_* parsers generate Elixir source strings that the Elixir *CLI modules validate again",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "2525-3286"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "2698-2824"
+        },
+        {
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "lines": "334-376"
+        }
+      ],
+      "description": "Each control subcommand has a bash option parser that validates flags and builds an Elixir keyword-list literal (`Aiur.AgentControlCLI.units([scope: Base.decode64!(...)])`) sent through `bin/aiur rpc`. The Elixir side (CommandsCLI, UnitsCLI, ExecutorCommandCLI, GitHubCostCLI, ...) then validates again. Measured in the engine: 28 '--x requires a value' branches, 107 `exit 64` sites, and 11 inline `printf ... | base64 | tr -d '\\n'` copies although encode_control_value exists. cmd_executor_answer, cmd_executor_escalate and cmd_executor_moot are three roughly 35-line near-copies. Run, init, findings and ask use a second transport (the argv file) and a third parser (Aiur.CLI OptionParser). Every new flag means editing bash, the Elixir CLI module, usage() and the docs.",
+      "evidence": "2709: --expected-version) [ \"$#\" -gt 1 ] || { echo \"aiur: executor-answer --expected-version requires a value\" >&2; exit 64; }; shift; expected_version=\"$1\" ;;\n2764: identical form for executor-escalate; 2798: identical form for executor-moot\n2851/2857/2863/2898/2938/3078/3217/3218/3226: inline base64 despite encode_control_value (2692)",
+      "recommendation": "Send raw argv as a base64 list to one entry point, `Aiur.AgentControlCLI.main(argv)`, that uses OptionParser. Bash keeps only transport, timeout and exit-marker handling. This removes about 900 lines of bash and makes the Elixir side the only validator.",
+      "refactor_hint": "The control-CLI package owns parsing, and the launcher becomes a transport. This removes a cross-language duplication that would otherwise span two packages after the carve.",
+      "effort": "M"
+    },
+    {
+      "id": "nonelixir-shell-07",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "A trailing valued option exits 1 silently, breaking the engine's no-silent-failure contract",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3082-3102"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3163-3191"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3202-3215"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "2311-2331"
+        }
+      ],
+      "description": "In executor-wait (`--timeout`, `--as`), executor-claim (`--as`), executor-release (`--as`) and executor-emit (`--payload`), each option does `shift; x=\"${1:-}\"` and then the loop does an unconditional `shift`. When the option is the last argument, the second shift fails and `set -e` ends the script with exit 1 and no output. I verified this under set -euo pipefail. The engine's own contract (2311-2331, #1684) says a non-zero exit always carries a stderr line. Other parsers, such as cmd_commands, guard with `[ \"$#\" -gt 1 ] ||`.",
+      "evidence": "3090:      --as) shift; as=\"${1:-}\" ;;\n3094:    esac\n3095:    shift\n# bash -c 'set -euo pipefail; f(){ ... --as) shift; as=\"${1:-}\";; esac; shift; ...}; main x --as' -> rc=1, no output",
+      "recommendation": "Add a shared `take_value <cmd> <opt> \"$@\"` helper that checks $# and prints '<cmd> <opt> requires a value' (or move parsing to Elixir, see -06).",
+      "refactor_hint": "This disappears if control parsing moves to one Elixir OptionParser.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-08",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Project-root and config discovery diverge between the engine (walks up from cwd) and Elixir (cwd, then HOME)",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "66-130"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "206-299"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "917-921"
+        },
+        {
+          "path": "src/lib/aiur/workflow.ex",
+          "lines": "43-95"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "2351-2358"
+        }
+      ],
+      "description": "The engine walks up from $PWD to the first directory with .aiur/config, stopping at $HOME, and uses it for the instance key. The walk is implemented three times (aiur_project_root, aiur_project_root_source, legacy_config_path), and the home_real canonicalisation is repeated at lines 100, 231 and 250. Workflow.config_path_candidates checks only `cwd/.aiur/config`, then `~/.aiur/config`. The pane launcher runs the BEAM with `cd $PWD`. So `aiur` started from repo/src is keyed and controlled as the repo instance, but the daemon loads ~/.aiur/config (or none) and serves the wrong project. The comment at 213-214 says the engine mirrors workflow.ex, which it does not. Legacy .aiurconfig rejection also walks up while Elixir does not. aiur_resolve_identity re-runs both walks on every call (it is called about 10 times per launch, some nested through ensure_erlang_cookie\u2192ensure_bg_state_dir) and unconditionally resets AIUR_PROJECT_ROOT and AIUR_PROJECT_ROOT_SOURCE. That undoes the record adoption in run_control_rpc_dispatch when the adopted identity is prepared a second time.",
+      "evidence": "engine 234: while [ -n \"$d\" ] && [ \"$d\" != \"/\" ] && [ \"$d\" != \"$home_real\" ]; do if [ -f \"$d/.aiur/config\" ] ...\nworkflow.ex 58-66: cwd = File.cwd!() ... [Path.join([cwd, @aiur_dir, @config_basename]), ..., Path.join([home, @aiur_dir, @config_basename]), ...]\nengine 920: printf 'cd %q || exit 1\\n' \"$PWD\"",
+      "recommendation": "Resolve the project root once in the launcher, then either cd the pane to it or pass the resolved config path to the CLI (a positional config is already accepted). Alternatively, make Workflow walk up with the same $HOME stop. Compute identity once (guard with `${AIUR_PROJECT_ROOT+x}`) and add a cross-language test that runs both resolvers on the same directory tree.",
+      "refactor_hint": "Identity and config discovery must have a single owner across the launcher and core-config packages, with the handoff made explicit through env or an argument.",
+      "effort": "M"
+    },
+    {
+      "id": "nonelixir-shell-09",
+      "category": "other",
+      "severity": "P1",
+      "title": "Nightly versions (<base>-nightly.<sha>) cannot be ordered, so upgrade and notice logic misjudges newer nightlies; the comparator is also duplicated in bash and Elixir",
+      "locations": [
+        {
+          "path": "packaging/scripts/resolve-version.mjs",
+          "lines": "71-77"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "159-188"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3749-3964"
+        },
+        {
+          "path": "src/lib/aiur/upgrade.ex",
+          "lines": "47-150,333-344"
+        }
+      ],
+      "description": "resolve-version publishes nightlies as `<base>-nightly.<7-hex sha>`. SemVer orders prerelease identifiers lexically (numerically when all digits), so between two nightlies of the same base the 'newer' one is decided by sha spelling. Bash version_is_older compares the whole prerelease with `[[ a < b ]]`, so cmd_upgrade reports 'already up to date' whenever the newer nightly's sha sorts lower, and maybe_print_upgrade_notice suppresses the notice. Elixir Upgrade.notice uses Version.newer? and has the same flaw. The two also disagree when a sha is all digits: Elixir treats it as numeric, which sorts below alphanumeric, while bash compares it as text. The upgrade policy is implemented twice, and each copy says it mirrors the other: env opt-outs (3793-3795 vs env_disabled?/ci?), dev-launcher detection by path, channel resolution (3920-3935 vs channel/2), and the no-repeat marker.",
+      "evidence": "resolve-version.mjs:77  return { version: `${base}-nightly.${short}`, distTag: \"nightly\", publish: true };\nengine 185: { [ -n \"$installed_pre\" ] && [ -n \"$available_pre\" ] && [[ \"$installed_pre\" < \"$available_pre\" ]]; }\nengine 3944: if ! version_is_older \"$before\" \"$available\"; then echo \"aiur is already up to date ...\"",
+      "recommendation": "Make nightlies orderable, for example `<base>-nightly.<YYYYMMDDHHMMSS>.<sha>` or `nightly.<run_number>`. Keep one comparator and one channel resolver: have `aiur upgrade` call into the release (`bin/aiur eval Aiur.Upgrade...`) or port the whole policy to one place.",
+      "refactor_hint": "Release and upgrade policy belongs to the packaging/distribution package. The version scheme is a contract between resolve-version, the npm registry and Aiur.Upgrade.",
+      "effort": "M"
+    },
+    {
+      "id": "nonelixir-shell-10",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "The analytics reducer exists twice (Python analytics/reduce.py and Elixir RunTelemetry.Dataset), and daemon materialization silently no-ops outside the aiur checkout",
+      "locations": [
+        {
+          "path": "analytics/lib/analytics/reduce.py",
+          "lines": "1-979"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/dataset.ex",
+          "lines": "1-1264"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "12-24,100-196"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/package.json",
+          "lines": "18-24"
+        }
+      ],
+      "description": "reduce.py says it 'produces the same consumable dataset shape as the Elixir Aiur.RunTelemetry.Dataset reducer'. The two share the same constants (RESOURCE_METRICS/@resource_metrics, RESOURCE_EVIDENCE, 5,000 ms interval, 1.5 gap multiplier, 300 s review grace) and function-for-function copies: parse_line, dedupe_records, sequence_warnings, reduce_actors, statistics, resource_gaps, lifecycle_intervals, review_findings, active_review_pause, response_window and in_boot?. No test checks that the two agree. The daemon also shells out to the Python copy: Summaries.reduce_dir looks in `RepoBase.base_path(repo)/analytics` or `Path.expand(\"analytics\")` relative to the BEAM cwd. The npm package does not ship analytics/, and other tracked repos do not contain it, so materialize_async returns `:unavailable -> :ok` with no log. Run summaries silently never exist for npm users and for non-aiur repos. This is the silent-refusal bug family.",
+      "evidence": "reduce.py:5-8 \"produces the same consumable dataset shape as the Elixir ``Aiur.RunTelemetry.Dataset`` reducer\"\ndataset.ex: defp dedupe_records / sequence_warnings / reduce_actors / statistics / resource_gaps / lifecycle_intervals / review_findings (601-1168)\nsummaries.ex:110  :unavailable -> :ok\nsummaries.ex:185  [Path.join(RepoBase.base_path(repo_url()), \"analytics\"), Path.expand(\"analytics\")]",
+      "recommendation": "Keep one reducer. The daemon already has Dataset, so materialize in-process (Dataset.build, then Jason-encode run-summary.json), remove the Python shell-out, and keep Python as a thin offline reader of materialized JSON if Executors need it. If both must stay, add a golden parity test that runs both on src/test/fixtures/analytics. Log when materialization is unavailable.",
+      "refactor_hint": "Telemetry/analytics package boundary. The carve should not ship a Python runtime dependency discovered through the BEAM cwd.",
+      "effort": "L"
+    },
+    {
+      "id": "nonelixir-shell-11",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Python and Elixir compute run KPIs differently: an unknown cap becomes 10 in Python and an em dash in Elixir, and the sample cadence is hard-coded in both",
+      "locations": [
+        {
+          "path": "analytics/lib/analytics/render.py",
+          "lines": "18-32,237-278,322-330,349-368"
+        },
+        {
+          "path": "analytics/lib/analytics/run_summary.py",
+          "lines": "28"
+        },
+        {
+          "path": "src/lib/aiur_web/operator_control_center/analytics/presenter.ex",
+          "lines": "398-423"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/sampler.ex",
+          "lines": "18"
+        }
+      ],
+      "description": "The Elixir presenter documents that wasted slot-hours must be nil (rendered as an em dash) when the effective cap is unknown: 'an unknown cap must not produce a precise-looking hour count'. The Python renderer substitutes `fallback_cap`, which is the --cap CLI default of 10, both in _sampled_waste and in the legacy _concurrency path, and prints 'Wasted capacity: X slot-hours'. AGENTS.md names exactly this anti-pattern: an unknown value replaced with a plausible default. Both implementations hard-code a 5 s sample cadence for CPU-seconds (Python SAMPLE_SECONDS=5; Elixir `* 5`), while the sampler interval is only a default (@default_interval_ms 5_000). They also round differently (Python to 0.1, Elixir to an integer).",
+      "evidence": "render.py:329  total += max((fallback_cap if capacity is None else capacity) - occupied, 0) * bucket_hours\npresenter.ex:405 defp wasted_slot_hours(_series, %{cap_available?: false}, _bucket_hours), do: nil\npresenter.ex:422 cpu_seconds = round(mean / 100 * count * 5)",
+      "recommendation": "Record sample_interval_ms in the telemetry and summary and compute from it. Return None and render 'unavailable' when the cap is unknown. Keep one KPI implementation (follows from -10).",
+      "refactor_hint": "Analytics package: a single KPI module consumed by the dashboard and the CLI.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-12",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "build-report crashes on its documented non-materialized path because build_summary_for returns a path, not a summary",
+      "locations": [
+        {
+          "path": "analytics/lib/analytics/build_report.py",
+          "lines": "52-79"
+        },
+        {
+          "path": "analytics/lib/analytics/reduce.py",
+          "lines": "869-884"
+        },
+        {
+          "path": "analytics/lib/analytics/render.py",
+          "lines": "388-390,453-455"
+        },
+        {
+          "path": "analytics/tests/test_render.py",
+          "lines": "329-360"
+        }
+      ],
+      "description": "The docstring says build-report 'reads the materialized build-summary when present, otherwise reduces the raw stream on the fly'. On the fallback path, _load_or_reduce returns `reducer.build_summary_for(...)`. That function writes the file and returns `str(target)`, and main then calls render.render_build_report(summary), which calls `summary.get(...)` on a str and raises AttributeError. The fallback also writes into the state node as a side effect of a read-only report. The only integration test materializes first, so the crash path is never exercised.",
+      "evidence": "build_report.py:79  return reducer.build_summary_for(state_node, dataset, slug, build_order)\nreduce.py:884  return str(target)\nrender.py:454  build_order = build_summary.get(\"build_order\") or {}",
+      "recommendation": "Split a pure `build_rollup(dataset, slug, build_order) -> dict` out of build_summary_for and use it in build-report. Add a test with no materialized summary.",
+      "refactor_hint": "Analytics package: separate pure reducers from writers.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-13",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Materialized summaries embed the full raw stream, the daemon re-reduces every boot on every segment, and run-summary parses everything before checking the cache",
+      "locations": [
+        {
+          "path": "analytics/lib/analytics/reduce.py",
+          "lines": "224-259,431-443,896-953"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "108-113,157-166"
+        },
+        {
+          "path": "analytics/lib/analytics/run_summary.py",
+          "lines": "1-6,24-49"
+        }
+      ],
+      "description": "boot_summary and _rollup_build put `records` (every raw record) and actors[].samples (every resource sample again) into each JSON file, so a 'cheap' summary is at least as large as the raw telemetry. The daemon runs `reduce --all --all-builds --telemetry <file>` on every telemetry segment boundary. That re-parses and rewrites every boot's summary and every build rollup, so the cost grows with retained telemetry. run-summary's docstring promises to read the materialized file when present, but main() calls reduce_files over the whole stream first (line 37), only uses the dataset for boot ids, and never checks provenance for staleness. The `--current` flag is parsed and never read.",
+      "evidence": "reduce.py:252  \"records\": records,\nsummaries.ex:163 args = [\"--all\", \"--all-builds\", \"--telemetry\", telemetry, \"--state-node\", state]\nrun_summary.py:37 dataset = reducer.reduce_files(files, {})   # before _load_or_reduce",
+      "recommendation": "Materialize incrementally: only boots whose source_bytes changed, using the provenance already recorded. Drop raw records from summaries or put them behind --with-records. List boots from the runs/ directory before parsing the stream. Remove --current or implement it.",
+      "refactor_hint": "Analytics package: define the summary schema as aggregates only, versioned by run-summary.v1.json.",
+      "effort": "M"
+    },
+    {
+      "id": "nonelixir-shell-14",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "The launcher\u2194BEAM environment and tempfile contract is implicit and mostly missing from the env schema",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "917-936"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "844-898"
+        },
+        {
+          "path": "src/lib/aiur/env/schema.ex",
+          "lines": "187-209"
+        },
+        {
+          "path": "src/lib/aiur/upgrade.ex",
+          "lines": "333-336"
+        },
+        {
+          "path": "scripts/check-env-example.py",
+          "lines": "4-10"
+        }
+      ],
+      "description": "The pane launcher re-exports 29 variables, and the BEAM depends on four launcher-minted handoff files (AIUR_SESSION_TMPFILE, AIUR_AGENT_TMPFILE, AIUR_WORKSPACE_ROOT_FILE, AIUR_ALERT_LEDGER_PATH_FILE). The engine also writes alert-ledger JSON by printf (1608), duplicating the Elixir alert schema. check-env-example.py calls env/schema.ex 'the single source of truth for every environment variable Aiur reads', yet 48 of the 69 AIUR_* names in the engine are absent from it. That includes operator-facing knobs: AIUR_NODE_GRACE_TICKS (the startup error at 1935 tells operators to raise it), AIUR_CONTROL_RPC_TIMEOUT_SECONDS, AIUR_TMP_REAP_MINUTES, AIUR_WORKSPACE_REAP_SWEEPS, AIUR_REPO_ROOT (documented in AGENTS.md) and AIUR_TMUX_CONF. It also includes two names Elixir itself reads: AIUR_UPGRADE_CHECK_DISABLED and AIUR_NO_UPDATE_NOTIFIER. Internal shell globals (AIUR_CONTROL_*, AIUR_RECORD_*, AIUR_STOP_FOUND_NOTHING) use the same prefix, so env and locals cannot be told apart. AIUR_LAUNCH_LOCK_TICKS falls back to the unrelated AIUR_NODE_GRACE_TICKS (1466).",
+      "evidence": "python census: 69 AIUR_* names in aiur-engine.sh, 48 not declared in src/lib/aiur/env/schema.ex\n1935: echo \"   Raise the budget with AIUR_NODE_GRACE_TICKS (ticks of 0.1s) if this box is just slow.\"",
+      "recommendation": "Declare a :launcher group in env/schema.ex for every operator-settable launcher knob and every handoff variable. Rename internal shell state to lower-case (`_ctl_adopted_record`). Collect the handoff files into one per-instance directory whose path is a single variable.",
+      "refactor_hint": "This is the key interface to write down before the carve: the launcher package and the daemon package communicate only through it.",
+      "effort": "M"
+    },
+    {
+      "id": "nonelixir-shell-15",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "probe_control_liveness reports 'down' when the Orchestrator is merely slow, and several guards depend on it",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1827-1844"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "755-803"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1897-1944"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3684-3686"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3895-3906"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator.ex",
+          "lines": "666-668"
+        }
+      ],
+      "description": "The probe runs `bin/aiur rpc` with no timeout wrapper (unlike probe_dashboard_status) and calls Aiur.Orchestrator.status/2 with a 100 ms deadline, which returns :timeout under mailbox load. Anything other than READY prints 'down'. Consequences: (a) bare `aiur` refuses to attach to its own live session when the Orchestrator is busy ('control plane is not ready; leaving the running session intact'), although attaching needs only tmux; (b) `aiur upgrade` fails open and replaces the binary under a live daemon without --force; (c) the startup budget counts ticks, but each tick boots a full Erlang VM for the rpc, so the 1,200-tick budget is not 120 s and the '$(max_ticks/10)s' message misreports elapsed time; (d) without a timeout, a wedged node can hang any of these callers. The budget was raised from 100 to 1,200 ticks (comment 1901-1905), which fits the 'fix by raising a limit' family.",
+      "evidence": "1832: ... Aiur.Orchestrator.status(Aiur.Orchestrator, 100) ... _ -> IO.puts(\"__AIUR_CONTROL_NOT_READY__\")\n1835: output=\"$(\"$release_bin\" rpc \"$expression\" 2>&1)\"   # no timeout\n3896: if [ \"$(probe_control_liveness)\" = \"up\" ]; then  # upgrade guard fails open\n1934: \"...was still booting after $(awk \"BEGIN{printf \\\"%.0f\\\", ${max_ticks} / 10}\")s\"",
+      "recommendation": "Return three states (ready, alive-but-busy, down), combining epmd liveness with a timed rpc (run_release_rpc_with_timeout). Use a wall-clock deadline (`date +%s`) instead of ticks. Attach whenever tmux has-session and the node is up. Make destructive guards such as upgrade fail closed on 'busy'.",
+      "refactor_hint": "The launcher control-plane client should expose one liveness API with explicit semantics, shared by attach, restart, upgrade and startup.",
+      "effort": "M"
+    },
+    {
+      "id": "nonelixir-shell-16",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Five different TERM\u2192wait\u2192KILL implementations with inconsistent grace periods",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1114-1138"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1164-1174"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1428-1439"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1749-1758"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "2211-2230"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1371-1383"
+        }
+      ],
+      "description": "kill_beams_matching (30 ticks by default, 300 on stop), kill_pid_with_escalation (20 ticks), reap_aiur_agents (20), reap_workspace_cwd_agents (10 ticks per sweep \u00d7 6 sweeps) and kill_control_rpc_process (a fixed 0.2 s) each implement signal, poll and escalate separately. agent_pid_tree says it mirrors Aiur.RemoteControl.collect_descendants, and Aiur.ProcessReaper has its own graceful kill tree, so the same policy also exists across languages.",
+      "evidence": "kill -KILL at lines 1137, 1173, 1439, 1758, 2227, 2229; each preceded by its own `while [ \"$waited\" -lt N ]` loop",
+      "recommendation": "Use one `signal_with_grace <grace_ticks> <pid...>` helper plus one tree snapshot helper. Document the grace policy in one place.",
+      "refactor_hint": "Launcher reap module (see -05).",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-17",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Session and socket names, the dev-release path, and pid-suffix parsing are re-derived at many sites",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "747-748,973-974,3465-3466"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1211-1217"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1188,1202-1203,3789,3847"
+        },
+        {
+          "path": "src/lib/aiur/upgrade.ex",
+          "lines": "57-62"
+        },
+        {
+          "path": "scripts/aiurdev",
+          "lines": "39"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3337-3344,3397-3405"
+        }
+      ],
+      "description": "The `${AIUR_SESSION_PREFIX}-${USER:-user}${KEY:+-$KEY}[-default]` formula appears three times. aiur_node_tmux_session_alive re-derives socket and session from the node name and assumes the prefix `aiur`. The dev-release suffix `*/src/_build/dev/rel/aiur` is hard-coded four times in the engine, once in Aiur.Upgrade.dev_launcher? and once in aiurdev, and 'is this a dev launch' is decided by path sniffing. PID extraction from `aiur-<pid>-{sessions,agents,alert-ledger,crash-dump-baseline}` is written twice within 60 lines.",
+      "evidence": "747: local session=\"${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default\"\n3465: local session=\"${AIUR_ADOPTED_TMUX_SESSION:-${AIUR_SESSION_PREFIX}-${USER:-user}${AIUR_INSTANCE_KEY:+-$AIUR_INSTANCE_KEY}-default}\"\n3789: */src/_build/dev/rel/aiur) return 0 ;;",
+      "recommendation": "Add aiur_session_name and aiur_socket_name helpers. Have aiurdev export `AIUR_LAUNCHER_KIND=dev` and read that in the engine and in Aiur.Upgrade instead of matching paths. Add one `tmp_artifact_pid <base>` helper.",
+      "refactor_hint": "Identity and launcher-kind become explicit fields of the launcher contract (-14).",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-18",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "Dev and manual-test hygiene is shipped in the product engine and runs on every launch and stop",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1182-1369"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "842"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3531-3533"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "3288-3311"
+        }
+      ],
+      "description": "The npm-installed engine carries dev-harness knowledge: `*/aiur-workspaces/*` path scoping, wrapper sockets `codex-driver-*|codex-aiur*|claude-driver*`, `aiurdev --test` start commands, and the `/src/_build/dev/rel/aiur` release layout. preflight_stale_manual_smoke scans every same-user BEAM, every tmux socket and every opencode attach on every launch. Its `>/dev/null` does nothing because all output goes to stderr. cmd_stop runs reap_stale_manual_smoke, and sweep_dead_tmux_sockets deletes any `*-driver` socket that does not answer, including sockets from other tools that follow that naming.",
+      "evidence": "1261: codex-driver-* | codex-aiur* | codex-[0-9]* | claude-driver*) ;;\n1270: *aiurdev\\ --test* | *scripts/aiurdev\\ --test*) manual_context=1 ;;\n1335: report_stale_manual_smoke >/dev/null || true   # report writes only to stderr\n3301: aiur* | *-driver | *-driver-*) ;;",
+      "recommendation": "Move the manual-smoke inventory and reaping and the driver-socket sweep into scripts/aiurdev or a dev-only libexec module that the npm package does not ship. Restrict the product socket sweep to `aiur-$USER*`.",
+      "refactor_hint": "Keep the dev tooling package separate from the distributable launcher.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-19",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Platform tables and tmux/opencode provisioning are copied across the npm scripts, have diverged on darwin-x64, and the drift check misses most copies",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/bin/aiur.js",
+          "lines": "20-26,48-74,99-204"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/scripts/postinstall.mjs",
+          "lines": "30-59,84-217"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/scripts/verify-install.sh",
+          "lines": "54"
+        },
+        {
+          "path": "packaging/scripts/assemble-platform-package.mjs",
+          "lines": "17-22"
+        },
+        {
+          "path": "packaging/scripts/platforms.mjs",
+          "lines": "1-18"
+        },
+        {
+          "path": "packaging/scripts/check-platform-drift.mjs",
+          "lines": "28-92"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/test/postinstall.test.mjs",
+          "lines": "106-108"
+        }
+      ],
+      "description": "platforms.mjs calls itself the single source of truth ('everything ... must derive from here') and excludes darwin-x64. aiur.js PLATFORMS, verify-install.sh's inline map, assemble-platform-package TARGETS and launcher.test HOST_TRIPLE all still include darwin-x64, and postinstall has its own SUPPORTED_PLATFORMS. check-platform-drift only checks package.json pins and the workflow. On an Intel Mac installed with bun or pnpm (which skip postinstall, as aiur.js 89-96 notes), aiur.js reports 'platform package ... is not installed ... optional dependencies were skipped' instead of 'unsupported platform'. MIN_TMUX, tmuxVersion/tmuxSatisfiesMin, tmuxHint, installTmux (identical package-manager list), opencodeMatchesPin and installOpencode are copied between aiur.js and postinstall.mjs. The 'parity' test only asserts `MIN_TMUX == [3,3]`. postinstall's manual hint installs unpinned `opencode-ai`, which then fails the pin check on every launch.",
+      "evidence": "aiur.js:23  \"darwin x64\": \"darwin-x64\",\npostinstall.mjs:30-33 const SUPPORTED_PLATFORMS = { linux: [\"x64\",\"arm64\"], darwin: [\"arm64\"] };\nplatforms.mjs:18 export const PUBLISH_TARGETS = [\"linux-x64\", \"linux-arm64\", \"darwin-arm64\"];\npostinstall.mjs:136 \"npm install -g opencode-ai (see https://opencode.ai)\"",
+      "recommendation": "Put platforms and provisioning in a CommonJS module (lib/platforms.cjs, lib/provision.cjs) that aiur.js requires and the .mjs scripts import (ESM can import CJS, so the comment that the launcher 'cannot import the .mjs counterpart' does not rule this out). Derive every table from PUBLISH_TARGETS and extend check-platform-drift to cover them.",
+      "refactor_hint": "The npm distribution package should own one platform manifest.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-20",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "The bun test suites under packaging/ never run, and launcher.test.mjs has rotted",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/test/launcher.test.mjs",
+          "lines": "434-468,508-535"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/package.json",
+          "lines": "14-17"
+        },
+        {
+          "path": "packaging/scripts/test/assemble-platform-package.test.mjs",
+          "lines": "1"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "606-613,2302-2304,3987-3991"
+        }
+      ],
+      "description": "Every packaging test imports `bun:test`: launcher.test.mjs (945 lines), postinstall.test.mjs (239), and packaging/scripts/test/*.test.mjs (512). At the snapshot, neither ci.yml nor release-npm.yml runs `bun test`. The root package.json has only `setup`, and the Makefile only runs rename-preflight. The launcher suite has drifted from the engine. It expects 'control rpc to aiur-test@127.0.0.1 timed out after 1s' and \"for example, 'aiurdev stop'\", but aiur_engine_main always sets AIUR_CONTROL_COMMAND to the subcommand, so the label is 'status', and 'for example' appears nowhere in the engine. 'launcher loads global provider credentials before repo-local dotenv' asserts that the global .env beats the repo .env, which is the inverse of load_dotenv. It exercises this through `--todo`, a control path that never loads dotenv.",
+      "evidence": "launcher.test.mjs:527  expect(result.stderr).toContain(\"control rpc to aiur-test@127.0.0.1 timed out after 1s\");\nlauncher.test.mjs:528  expect(result.stderr).toContain(\"for example, 'aiurdev stop'\");\nlauncher.test.mjs:465  expect(capture).toContain(\"DEEPSEEK_API_KEY:global-deepseek\");\ngit grep 'bun test' in .github/: no matches",
+      "recommendation": "Add a CI step (`bun test packaging/`) or port the suites to `node --test`, which CI already uses for capture-dashboard. Repair or delete the rotted cases. Deduplicate them against the ExUnit engine tests so each behavior has one owner.",
+      "refactor_hint": "The packaging package should carry its own test runner and CI job. Tests that nobody runs give false coverage and mislead planning; docs/plans cite launcher.test.mjs as 'the focused test surface'.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-21",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "verify-u11.sh is dead (it waits for log markers that no longer exist) and deletes every opencode session on the machine",
+      "locations": [
+        {
+          "path": "scripts/verify-u11.sh",
+          "lines": "38-54,69-122"
+        }
+      ],
+      "description": "The harness waits for `opencode_warm_server phase=ready` and `opencode_attach_queue phase=warm_ready`, and neither string appears in src/lib any more (only aiur_agent_list and opencode_hidden_window remain), so it always fails. Its pre-clean deletes all `ses_*` sessions from `opencode session list`, including the operator's personal sessions, even though the comment says 'Aiur-owned'. It also truncates src/log/aiur.log. Only plan documents reference it.",
+      "evidence": "42: mapfile -t pre_sessions < <(mise exec -- opencode session list ... | grep '^ses_' || true)\n49: mise exec -- opencode session delete \"$id\"\n118: if grep -qE \"opencode_attach_queue phase=warm_ready\" \"$LOG_FILE\"; then   # marker absent from src/lib",
+      "recommendation": "Delete the script. The AGENTS.md wrapper-tmux recipe supersedes it.",
+      "refactor_hint": "Remove before the carve so it does not get copied into a new package.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-22",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Saturation repro watches the wrong crash-dump path for background daemons and so cannot report REPRODUCED",
+      "locations": [
+        {
+          "path": "scripts/aiur-saturation-repro.sh",
+          "lines": "92-107,216-240,144-165"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "866-885"
+        }
+      ],
+      "description": "resolve_dump_path uses AIUR_LOGS_ROOT only if the operator's shell has it; otherwise it takes the newest existing erl_crash.dump under ~/.aiur/logs or falls back to ~/.aiur/logs/erl_crash.dump. A background daemon's ERL_CRASH_DUMP is `$AIUR_LOGS_ROOT/erl_crash.dump`, with AIUR_LOGS_ROOT created per run inside the engine, exported only to the pane, and not stored in the instance record or in `aiur __identity`. A real #852 crash therefore shows up as exit 4 'DAEMON DOWN, NO DUMP'. epmd_node_state is a stated mirror of probe_node_liveness. GNU-only stat -c and find -printf are used without a guard.",
+      "evidence": "repro 98: if [ -n \"${AIUR_LOGS_ROOT:-}\" ]; then printf '%s\\n' \"$AIUR_LOGS_ROOT/erl_crash.dump\"; return; fi\nengine 872: AIUR_LOGS_ROOT=\"$(printf '%s/%s-%s' \"$HOME/.aiur/logs\" \"$(date -u +%Y%m%dT%H%M%SZ)\" \"$$\")\"",
+      "recommendation": "Write AIUR_LOGS_ROOT and ERL_CRASH_DUMP into the instance record and print them from `aiur __identity`. Have the repro read them from there.",
+      "refactor_hint": "Diagnostics tooling: identity output is the stable interface for dev tools.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-23",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Repo-slug to state-node parsing differs between Python analytics and Elixir RepoBase",
+      "locations": [
+        {
+          "path": "analytics/lib/analytics/sources.py",
+          "lines": "68-87,190-199"
+        },
+        {
+          "path": "src/lib/aiur/repo_base.ex",
+          "lines": "1500-1522"
+        },
+        {
+          "path": "src/lib/aiur/run_telemetry/summaries.ex",
+          "lines": "37-60"
+        }
+      ],
+      "description": "Python _repo_segments splits only on '/' and drops 'https:', 'http:', 'ssh:', 'git@' and 'github.com'. Elixir slug splits on `[/:]`, drops a different token set, takes the last two segments, and raises on '..'. They diverge: `git@github.com:o/n.git` gives owner `git@github.com:o` in Python and `o` in Elixir; a single segment `n` gives `local/n` in Python and `n` in Elixir; '..' is accepted by Python and rejected by Elixir. Without --state-node, state_node_root silently picks the only repo node, or writes into ~/.aiur/repo itself when there are several.",
+      "evidence": "sources.py:194 parts = [p for p in cleaned.split(\"/\") if p and p not in (\"https:\", \"http:\", \"ssh:\", \"git@\", \"github.com\")]\nrepo_base.ex:1512 |> String.split(~r{[/:]}) |> Enum.reject(&(&1 in [\"\", \"https\", \"http\", \"ssh\", \"git\", \"github.com\"])) |> Enum.take(-2)",
+      "recommendation": "Have the Python tools require --state-node or --repo and exit with an error when the node is ambiguous. Port the Elixir rule exactly and share a fixture table between the two test suites. Better, remove the need through -10.",
+      "refactor_hint": "The state-node layout is a cross-package contract (RepoBase \u2194 analytics).",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-24",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "The human-only merge ruleset verifiers duplicate each other, and the admin verifier hard-codes what the live verifier reads from the declaration",
+      "locations": [
+        {
+          "path": "scripts/verify-human-only-merge-ruleset.sh",
+          "lines": "4-88"
+        },
+        {
+          "path": "scripts/verify-human-only-merge-ruleset-live.sh",
+          "lines": "22-97"
+        },
+        {
+          "path": "scripts/apply-human-only-merge-ruleset.sh",
+          "lines": "4-14"
+        }
+      ],
+      "description": "The ruleset lookup (`gh api rulesets --paginate | jq select(.name==...)`) appears three times. The target/main, exclude and pull_request jq checks are byte-identical in verify and verify-live. The admin verifier assigns `declaration=` (line 7) and never uses it. Instead it hard-codes the 13 required check contexts, strict=false, do_not_enforce_on_create=false and bypass actor 1020682, while the live verifier derives the same values from docs/security/human-only-merge-ruleset.json. The two agree today but can drift silently, and a new required check means editing two places. apply-* does not guard against duplicate names; verify-* does.",
+      "evidence": "verify.sh:7  declaration=\"$root/docs/security/human-only-merge-ruleset.json\"   # unused\nverify.sh:62-76 required_checks='[ \"browser harness\", \"build\", ... \"workflow security\" ]'\nverify-live.sh:74-76 expected_checks=\"$(jq -c '[.rules[] | select(.type == \"required_status_checks\") ...' \"$declaration\")\"",
+      "recommendation": "Merge into one script with `--admin`, which additionally checks bypass_actors. Read every expectation from the declaration JSON. Share the lookup function with apply-*.",
+      "refactor_hint": "Repo-governance tooling. Small, but it should be one module.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-25",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "Python CI gates regex-parse Elixir source and mirror Elixir constants by hand; the shard hash exists three times",
+      "locations": [
+        {
+          "path": "scripts/check-config-docs.py",
+          "lines": "40-83,108-127"
+        },
+        {
+          "path": "src/lib/aiur/open_ai_compat/config.ex",
+          "lines": "114-121"
+        },
+        {
+          "path": "scripts/check-env-example.py",
+          "lines": "36-43,51-89"
+        },
+        {
+          "path": "scripts/rename_preflight.py",
+          "lines": "28-37"
+        },
+        {
+          "path": "scripts/check-test-shard-parity.py",
+          "lines": "1-73"
+        }
+      ],
+      "description": "check-config-docs.py finds schema fields with FIELD_RE and EMBEDS_RE regexes and resolves aliases by assuming everything lives under Aiur.Config.Schema (module_name). An embed it cannot resolve is skipped with no warning ('Nothing to enumerate'), so that section's keys are never checked. KNOWN_MAP_SUBKEYS hand-mirrors OpenAICompat.Config @known_keys plus other consumers. check-env-example.py regex-parses env/schema.ex to recheck a weaker property (name sets and headers) than regenerating with `mix aiur.env.example` and diffing. The test-shard hash is implemented in test_shard.ex, rename_preflight.shard_of and check-test-shard-parity.expected, with two golden tables and a parity checker to keep them in step.",
+      "evidence": "check-config-docs.py:114-118  if source is None: ... return   # silently skipped\ncheck-config-docs.py:46-65 KNOWN_MAP_SUBKEYS mirrors config.ex:116 ~w(base_url api_key_env model ... sort)\nrename_preflight.py:29 \"Mirror of `Aiur.TestShard.shard_of/2`\"",
+      "recommendation": "Replace with mix tasks that introspect `__schema__(:fields)` and `__schema__(:embeds)` (the lint job can run mix), plus `mix aiur.env.example --check`. Have rename_preflight get shard assignments from `mix aiur.test_shard --list`. If Python must stay, make unresolved embeds a failure rather than a skip.",
+      "refactor_hint": "Once the config schema moves into a sub-package, path-hardcoded regex gates (SCHEMA_DIR = src/lib/aiur/config/schema) break. Introspection survives the move.",
+      "effort": "M"
+    },
+    {
+      "id": "nonelixir-shell-26",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "verify-workflow-security.sh is a raw-text YAML security scanner that has grown one special case per incident",
+      "locations": [
+        {
+          "path": "scripts/verify-workflow-security.sh",
+          "lines": "61-172"
+        },
+        {
+          "path": "scripts/test-workflow-security.sh",
+          "lines": "23-83"
+        }
+      ],
+      "description": "It grep-scans workflow YAML for triggers and `uses:` pins. Each bypass found so far has become another rule: escaped double-quoted keys (61-72), explicit `? ` mapping keys (74-85), quoted and flow-mapping `uses` with a hand-written tokenizer (99-156), and symlink refusal. This is the 'growing cond of special cases' family applied to a security control, and the next YAML feature (anchors or aliases, multi-line flow) is another bypass.",
+      "evidence": "61: # Raw-text checks cannot safely interpret escapes in double-quoted YAML keys. Reject them ...\n74: # Explicit mapping keys can put `? uses` and its `:` on separate lines ...\n111: while [[ \"$remaining\" =~ $uses_key_pattern ]]; do",
+      "recommendation": "Parse the YAML (python3 -c with PyYAML, or yq) and walk jobs[].steps[].uses and `on:` structurally. Better, adopt pinact, actionlint or zizmor, which already implement these rules.",
+      "refactor_hint": "CI governance tooling.",
+      "effort": "M"
+    },
+    {
+      "id": "nonelixir-shell-27",
+      "category": "docs-drift",
+      "severity": "P2",
+      "title": "The engine auto-detects Tailscale and overwrites AIUR_DEFAULT_DASHBOARD_HOST, contradicting AGENTS.md and the env schema; usage() is also stale",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "680-697,809"
+        },
+        {
+          "path": "src/lib/aiur/env/schema.ex",
+          "lines": "209"
+        },
+        {
+          "path": "src/lib/aiur/config.ex",
+          "lines": "1359"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "448-497"
+        }
+      ],
+      "description": "AGENTS.md at the snapshot (lines 140-141) says that when server.host is omitted the dashboard binds 127.0.0.1 'or the AIUR_DEFAULT_DASHBOARD_HOST override \u2014 there is no automatic Tailscale detection'. The engine runs `tailscale ip -4` and exports the result, and line 809 assigns AIUR_DEFAULT_DASHBOARD_HOST unconditionally, so an operator's own value is discarded before the BEAM reads it in Config (config.ex 1359). The env schema documents the variable as settable (default 127.0.0.1). cli.md mentions 'the loopback or safe Tailscale default', so the three sources disagree. usage() also omits `aiur usage` and `aiur reset-budget`.",
+      "evidence": "809: export AIUR_DEFAULT_DASHBOARD_HOST=\"$(default_dashboard_host)\"\n690: ip=\"$(tailscale ip -4 2>/dev/null | grep -m1 -E '^100\\.[0-9]+...' || true)\"\nAGENTS.md@3339b88:141 \"there is no automatic Tailscale detection\"",
+      "recommendation": "Change to `: \"${AIUR_DEFAULT_DASHBOARD_HOST:=$(default_dashboard_host)}\"` so an operator's value wins. Make AGENTS.md, cli.md and the schema describe the same rule. Generate usage() from the command registry (-04).",
+      "refactor_hint": "Launcher contract docs.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-28",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Dotenv parsing and precedence are implemented three times with different rules",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "592-671"
+        },
+        {
+          "path": "src/lib/aiur/init/dotenv.ex",
+          "lines": "1-60"
+        },
+        {
+          "path": "src/lib/aiur/env.ex",
+          "lines": "158-200"
+        }
+      ],
+      "description": "The launcher parser rejects keys containing any character outside [A-Za-z0-9_], so `export KEY=v` lines are silently ignored. It strips only a matched pair of quotes and keeps trailing whitespace, and it treats an env var that is set but empty as set. Aiur.Init.Dotenv trims both ends, strips every leading and trailing quote independently (`String.trim(\"\\\"\")`), keeps `export KEY` as the key, and overwrites empty env values. Aiur.Env.precedence_conflicts re-implements the launcher's precedence and GitHub credential grouping to produce warnings, and its docstring says it 'Mirrors GITHUB_CREDENTIAL_ENV_NAMES in the launcher'. So the warnings can disagree with what the launcher actually exported, for example on values with trailing whitespace. The launcher also reads `./.env` relative to cwd, while identity is keyed by the walked-up repo root (-08), so a launch from a subdirectory misses the repo .env.",
+      "evidence": "engine 633: case \"$key\" in '' | *[!A-Za-z0-9_]*) return 1 ;; esac\nengine 668: [ -n \"${!DOTENV_KEY+x}\" ] && continue\ndotenv.ex:59  raw |> String.trim() |> String.trim(\"\\\"\") |> String.trim(\"'\")\ndotenv.ex:23  if System.get_env(key) in [nil, \"\"], do: System.put_env(key, value)",
+      "recommendation": "Define one dotenv grammar, preferably with a shared fixture file tested by both bash and ExUnit. Load `.env` from the resolved project root. Have the BEAM receive the launcher's resolution (which file supplied each name) instead of recomputing precedence.",
+      "refactor_hint": "Credentials loading is a launcher responsibility. The daemon should consume the result, not re-derive it.",
+      "effort": "M"
+    },
+    {
+      "id": "nonelixir-shell-29",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "guard-pr-deletions is advisory and uses a two-dot diff that counts files added on base as 'deletions'",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/guard-pr-deletions.sh",
+          "lines": "17-36,54-68"
+        },
+        {
+          "path": ".claude/skills/aiur-agent/dev-loop.md",
+          "lines": "283-292"
+        },
+        {
+          "path": "src/lib/aiur/prompt_builder.ex",
+          "lines": "81-83"
+        }
+      ],
+      "description": "`git diff --diff-filter=D $base_sha..HEAD` compares the base tip with HEAD, so files that main added after the branch point show as 'deleted' and 'untouched', and a branch that is merely behind is refused with a message about deletions. The agent skill frames this as 'repair the wrong or stale base', but the refusal text does not say so. The guard only runs when the agent remembers to run it; the skill cites an audit that found 70 of 289 agent pushes where it never ran.",
+      "evidence": "guard 30: git diff --diff-filter=D --name-only \"$base_sha\"..HEAD | LC_ALL=C sort -u >\"$scratch_dir/deleted\"\ndev-loop.md:291 \"A 2026-09-25 audit found 70 of 289 agent pushes where the guard never ran\"",
+      "recommendation": "Install the guard as a pre-push hook in workspace bootstrap (Aiur owns after_create/before_run), so it cannot be skipped. Report 'branch is N files behind base' separately from real deletions (`merge-base...HEAD` diff), or use a three-dot diff if staleness is not meant to be part of this guard.",
+      "refactor_hint": "Workspace-bootstrap package: enforcement belongs in hooks, not prompts.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-30",
+      "category": "dead-code",
+      "severity": "P3",
+      "title": "Unreachable timeout branch and repeated with/without-context message branches in control-RPC diagnostics",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "2332-2349"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "2375-2378"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "2402-2419,2444-2459"
+        }
+      ],
+      "description": "run_control_rpc's 124 branch never fires: run_control_rpc_dispatch always calls control_rpc_say, which sets DIAGNOSED=1, before returning 124. Five if/else pairs choose between two nearly identical messages depending on AIUR_CONTROL_ATTEMPT_CONTEXT, although control_attempt_sentence already returns empty when there is no context.",
+      "evidence": "2339: if [ \"$status\" -eq 124 ]; then control_rpc_say ...   # dispatch already said it at 2377 and set DIAGNOSED\n2404-2408 / 2414-2418 / 2445-2449 / 2454-2458: `elif [ -n \"${AIUR_CONTROL_ATTEMPT_CONTEXT:-}\" ]` duplicates",
+      "recommendation": "Remove the dead branch and collapse each pair into one message that appends $(control_attempt_sentence).",
+      "refactor_hint": "Control-RPC module cleanup.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-31",
+      "category": "error-handling",
+      "severity": "P3",
+      "title": "Inconsistent defensive handling under set -u (HOME/USER), a wrong exit-code capture in session_cleanup, and scripts that contradict their stated exit policy",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "229-231,281,612,872,1094"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "294,339-340,747,975,1223-1226"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1952-1956"
+        },
+        {
+          "path": "scripts/report-known-flaky-tests.sh",
+          "lines": "76-78,113-116"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/scripts/verify-install.sh",
+          "lines": "35,70"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "4149-4151"
+        }
+      ],
+      "description": "aiur_project_root guards `${HOME:-}` ('so an unset HOME under set -u can't abort'), yet aiur_resolve_identity (281), load_dotenv (612), run_session (872) and resolve_tmux_conf (1094) use bare $HOME, so the guard buys nothing. Session names fall back to `${USER:-user}`, but node names, the cookie owner check and the legacy reap use bare ${USER}. session_cleanup does `local code=$?` after `_cleanup_ran=1`, so it always captures 0. report-known-flaky-tests.sh says 'Exits 0 always', but `grep -v | sed` under pipefail exits 1 when the list contains only comments. verify-install.sh discards npm install errors (`>/dev/null 2>&1 || true`). `aiur stop <anything>` silently ignores its arguments.",
+      "evidence": "1953-1955: [ \"$_cleanup_ran\" = 1 ] && return 0; _cleanup_ran=1; local code=$?\n612: load_dotenv_file \"$HOME/.aiur/.env\" \"$global_skip\"\n4150: stop) cmd_stop ;;",
+      "recommendation": "Resolve HOME and USER once at the top of the engine, falling back to `id -un` and getent. Capture $? on the first line of the trap. Make the flaky reporter `|| true` its grep. Surface npm install output on failure. Reject stop arguments.",
+      "refactor_hint": "Launcher robustness pass during the split.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-32",
+      "category": "other",
+      "severity": "P3",
+      "title": "Per-boot run summaries include other boots' findings; build rollups include all warnings",
+      "locations": [
+        {
+          "path": "analytics/lib/analytics/reduce.py",
+          "lines": "224-266"
+        },
+        {
+          "path": "analytics/lib/analytics/reduce.py",
+          "lines": "825-840"
+        },
+        {
+          "path": "analytics/lib/analytics/reduce.py",
+          "lines": "934"
+        }
+      ],
+      "description": "boot_summary scopes warnings to the boot on purpose (262-266: 'must not carry another boot's boot-scoped warnings'), but findings are filtered only by ticket membership (`finding.get(\"ticket\") in tickets`), and _rescope_tickets copies each ticket's complete findings list and dispatch complexity from all boots. Build rollups copy every warning in the dataset, including warnings for files and boots unrelated to the build's members. The module also has several function-local imports (270, 769, 851, 879, 962-965).",
+      "evidence": "230: findings = [finding for finding in dataset[\"findings\"] if finding.get(\"ticket\") in tickets]\n838: \"findings\": ticket.get(\"findings\", []),\n934: \"warnings\": [warning for warning in dataset[\"warnings\"]],",
+      "recommendation": "Scope findings by comment boot_id and warnings by boot/member. Hoist the imports.",
+      "refactor_hint": "Resolved by -10 if one reducer remains.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-33",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "The ELK vendor pin literals are repeated across four checker and vendor scripts",
+      "locations": [
+        {
+          "path": "packaging/scripts/check-layout-assets-release.mjs",
+          "lines": "23-55"
+        },
+        {
+          "path": "src/browser/scripts/check-vendored-elk.mjs",
+          "lines": "1-1"
+        },
+        {
+          "path": "src/browser/scripts/vendor-elk.mjs",
+          "lines": "1-1"
+        },
+        {
+          "path": "src/browser/scripts/check-packaged-layout-worker.mjs",
+          "lines": "1-1"
+        }
+      ],
+      "description": "The elkjs version 0.11.1, the sha512 integrity, the upstream commit 572e733\u2026 and the revision names are hard-coded in check-layout-assets-release.mjs and repeated in src/browser/scripts (git grep at the snapshot). A vendor bump means editing each checker. check-layout-assets-release.mjs also differs in style from its siblings (no shebang, no semicolons). Line ranges for the src/browser files are nominal; git grep located the literals there.",
+      "evidence": "check-layout-assets-release.mjs:23 path.join(applications, aiurApp, 'priv', 'static', 'vendor', 'elk', '0.11.1')\n:34 manifest.engine?.integrity !== 'sha512-zxxR9k+rx5ktMwT/...'\ngit grep 'zxxR9k+rx5ktMwT' -> check-layout-assets-release.mjs, src/browser/scripts/check-vendored-elk.mjs, src/browser/scripts/vendor-elk.mjs, src/priv/static/vendor/elk/0.11.1/manifest.json",
+      "recommendation": "Keep one pin file (for example src/priv/static/vendor/elk/pin.json) that vendor-elk writes and every checker reads. The release checker should validate the manifest against that pin, not against literals.",
+      "refactor_hint": "Frontend asset package owns the pin, and the packaging checks import it.",
+      "effort": "S"
+    },
+    {
+      "id": "nonelixir-shell-34",
+      "category": "other",
+      "severity": "P3",
+      "title": "Erlang cookie creation races between concurrent first launches of different instances",
+      "locations": [
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "321-348"
+        },
+        {
+          "path": "packaging/npm/aiur-cli/libexec/aiur-engine.sh",
+          "lines": "1459-1506"
+        }
+      ],
+      "description": "The launch lock is per instance (keyed slug), but the cookie file is shared per user. Two first-ever launches from different projects can both see no cookie, each write a temp file and `mv` it into place. The first BEAM then runs with a cookie that has since been overwritten, and every later control RPC to it fails authentication.",
+      "evidence": "327: if [ ! -f \"$cookie_file\" ]; then ( umask 0177; tmp_file=\"$(mktemp ...)\"; head -c 32 /dev/urandom | base64 ... >\"$tmp_file\"; mv \"$tmp_file\" \"$cookie_file\" )",
+      "recommendation": "Create the cookie with `ln \"$tmp\" \"$cookie\"` (atomic create-if-absent, a pattern already used at 1548) and re-read it afterwards.",
+      "refactor_hint": "Launcher identity module.",
+      "effort": "S"
+    }
+  ]
+}

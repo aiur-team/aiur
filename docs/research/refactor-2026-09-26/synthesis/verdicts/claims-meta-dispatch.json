@@ -1,0 +1,24 @@
+{
+  "verdicts": [
+    {
+      "id": "meta-07",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "High for retained status/resume outputs, label interval replay and historical code contract; unresolved for causal runtime diagnosis and aggregate recurrence counts.",
+      "corrected_claim": "The #165 label history shows a 64m28s CI wait ended by operator movement to human-review. Its status capture has35 explicit dependency decline rows and warns of a16-second stale view; manual resume explicitly refuses no_agent_work_state. The purported ticket165 telemetry extract has zero exact ticket165 records. Full stream filtering supplies the relevant records. Both historical7dd56fc and frozen source contain CI polling and a timer fallback that transitions the tracker before reactivation. Later closed CI-wait label intervals ended by the operator are #367 2h1m50s, #350 3h33m8s and #232 5h2m25s. These demonstrate waits and interventions, not absence of every recovery path or proven green CI throughout. Aggregate150 citations/12 fixes and ten todo cases remain reported counts, not a verified recurrence rate.",
+      "method": "Inspect retained evidence bundle; replay public cached label events; exact-ticket full telemetry filter; compare historical CiLifecycle source byte-for-byte with frozen source; inspect retrospective and cached issue closure evidence.",
+      "note": "Preserve intentional no-agent-work gating while investigating state transition ownership, timer registration, poll coverage, freshness and per-ticket explanations. Existing recovery code and decline surfaces make incremental diagnosis viable. The evidence does not require a wholesale state-machine rewrite.",
+      "unresolved": [
+        "Historical loaded runtime/configuration, CI result/readiness and timer state for each long wait",
+        "Independent command/output and deployment evidence for each retrospective todo non-dispatch case",
+        "Deduplicated incident-to-fix mapping supporting aggregate citation/fix counts and recurrence rate",
+        "Complete current-head CI evidence for the claim that every cited wait was CI-green"
+      ],
+      "evidence_artifacts": [
+        "synthesis/dispatch-state-evidence.json"
+      ],
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher"
+    }
+  ]
+}

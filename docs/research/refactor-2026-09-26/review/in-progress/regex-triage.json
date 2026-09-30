@@ -1,0 +1,1243 @@
+{
+  "status": "candidate-assessment-complete",
+  "source": "regex-census.json",
+  "assessed_groups": [
+    {
+      "modules": 19,
+      "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+      "sites": [
+        {
+          "line": 2753,
+          "module": "Aiur.AgentControlCLI",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 3126,
+          "module": "Aiur.AgentControlCLI",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 14,
+          "module": "Aiur.AgentList.Renderer.Text",
+          "path": "src/lib/aiur/agent_list/renderer/text.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 352,
+          "module": "Aiur.AgentProcessLog",
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 502,
+          "module": "Aiur.AgentProcessLog",
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 528,
+          "module": "Aiur.AgentProcessLog",
+          "path": "src/lib/aiur/agent_process_log.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 183,
+          "module": "Aiur.AgentResourceGuard",
+          "path": "src/lib/aiur/agent_resource_guard.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 62,
+          "module": "Aiur.AgentSkills",
+          "path": "src/lib/aiur/agent_skills.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 359,
+          "module": "Aiur.Codeowners",
+          "path": "src/lib/aiur/codeowners.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 49,
+          "module": "Aiur.Codeowners.Edit",
+          "path": "src/lib/aiur/codeowners/edit.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 93,
+          "module": "Aiur.Codeowners.Edit",
+          "path": "src/lib/aiur/codeowners/edit.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 26,
+          "module": "Aiur.EventHumanizerHelpers",
+          "path": "src/lib/aiur/event_humanizer_helpers.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 103,
+          "module": "Aiur.FindingsCLI",
+          "path": "src/lib/aiur/findings_cli.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 134,
+          "module": "Aiur.Git",
+          "path": "src/lib/aiur/git.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 425,
+          "module": "Aiur.GitHub.CodeOwners",
+          "path": "src/lib/aiur/github/code_owners.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 449,
+          "module": "Aiur.GitHub.CodeOwners",
+          "path": "src/lib/aiur/github/code_owners.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 207,
+          "module": "Aiur.Init.AgentCli",
+          "path": "src/lib/aiur/init/agent_cli.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 376,
+          "module": "Aiur.Linear.Client",
+          "path": "src/lib/aiur/linear/client.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 198,
+          "module": "Aiur.ModelCatalog",
+          "path": "src/lib/aiur/model_catalog.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 106,
+          "module": "Aiur.Opencode.BridgePort",
+          "path": "src/lib/aiur/opencode/bridge_port.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 75,
+          "module": "Aiur.Orchestrator.StatusReason",
+          "path": "src/lib/aiur/orchestrator/status_reason.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 133,
+          "module": "Aiur.Tmux.Exec",
+          "path": "src/lib/aiur/tmux/exec.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 569,
+          "module": "AiurWeb.Presenter",
+          "path": "src/lib/aiur_web/presenter.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        },
+        {
+          "line": 62,
+          "module": "AiurWeb.SupervisorAuth",
+          "path": "src/lib/aiur_web/supervisor_auth.ex",
+          "expression_sha256": "67b5911e0e029ed686a03591aff40ba2c73b1a96d6c916cd134ef72ee2296257",
+          "expression": "~r\"\\s+\""
+        }
+      ],
+      "group_index": 0,
+      "disposition": "generic_primitive_distinct_contracts",
+      "assessment": "Whitespace splitting/collapse spans display cells, bounded error text, CODEOWNERS, process rows, command parsing, manifests and bearer parsing. Split parts limits, trim, escaping, truncation and later quote grouping differ. No universal parser owner follows from this regex. CODEOWNERS tokenization and command parsing warrant domain-specific comparison; keep authentication and display semantics separate.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 5,
+      "expression_sha256": "8d913e11645bd60f1e75950404220655d21162231e69aec559fe0cb002365c23",
+      "sites": [
+        {
+          "line": 155,
+          "module": "Aiur.AffectedTests",
+          "path": "src/lib/aiur/affected_tests.ex",
+          "expression_sha256": "8d913e11645bd60f1e75950404220655d21162231e69aec559fe0cb002365c23",
+          "expression": "~r\"^\\d+$\""
+        },
+        {
+          "line": 3218,
+          "module": "Aiur.AgentControlCLI",
+          "path": "src/lib/aiur/agent_control_cli.ex",
+          "expression_sha256": "8d913e11645bd60f1e75950404220655d21162231e69aec559fe0cb002365c23",
+          "expression": "~r\"^\\d+$\""
+        },
+        {
+          "line": 665,
+          "module": "Aiur.Claude.RemoteControl",
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "expression_sha256": "8d913e11645bd60f1e75950404220655d21162231e69aec559fe0cb002365c23",
+          "expression": "~r\"^\\d+$\""
+        },
+        {
+          "line": 332,
+          "module": "Aiur.CLI",
+          "path": "src/lib/aiur/cli.ex",
+          "expression_sha256": "8d913e11645bd60f1e75950404220655d21162231e69aec559fe0cb002365c23",
+          "expression": "~r\"^\\d+$\""
+        },
+        {
+          "line": 467,
+          "module": "Aiur.GitHub.GraphQLCost",
+          "path": "src/lib/aiur/github/graphql_cost.ex",
+          "expression_sha256": "8d913e11645bd60f1e75950404220655d21162231e69aec559fe0cb002365c23",
+          "expression": "~r\"^\\d+$\""
+        }
+      ],
+      "group_index": 1,
+      "disposition": "digits_different_domains",
+      "assessment": "Digits classify noisy test terms, CLI IDs, proc directory names and cost-report route segments. CLI trims and canonicalizes IDs; proc reader converts PIDs; route classifier emits :n. Keep those policies local rather than coupling five domains for one lexical primitive.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 3,
+      "expression_sha256": "0ffd75adda2cd71b92202ac9b024962b96e1f17743bc492d0454bc0d3a2a91c0",
+      "sites": [
+        {
+          "line": 195,
+          "module": "Aiur.Linear.Tracker",
+          "path": "src/lib/aiur/linear/tracker.ex",
+          "expression_sha256": "0ffd75adda2cd71b92202ac9b024962b96e1f17743bc492d0454bc0d3a2a91c0",
+          "expression": "~r\"[\\s_]+\""
+        },
+        {
+          "line": 191,
+          "module": "Aiur.Memory.Tracker",
+          "path": "src/lib/aiur/memory/tracker.ex",
+          "expression_sha256": "0ffd75adda2cd71b92202ac9b024962b96e1f17743bc492d0454bc0d3a2a91c0",
+          "expression": "~r\"[\\s_]+\""
+        },
+        {
+          "line": 1095,
+          "module": "Aiur.Orchestrator.DispatchPolicy",
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "expression_sha256": "0ffd75adda2cd71b92202ac9b024962b96e1f17743bc492d0454bc0d3a2a91c0",
+          "expression": "~r\"[\\s_]+\""
+        }
+      ],
+      "group_index": 2,
+      "disposition": "state_slug_shared_transform",
+      "assessment": "Linear, Memory and DispatchPolicy trim/lowercase and replace spaces/underscores with hyphens. DispatchPolicy returns nil for empty/nonbinary inputs, Memory normalization can return empty string, and Linear helper assumes string inputs. Share a lifecycle slug transform only with explicit invalid/empty policy; do not replace all callers by one unchecked wrapper.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 3,
+      "expression_sha256": "132ee0e0b4b34db3fcc41b76c8ce6c7f4245a9a17d1b7352ea072d63cbe8cfe6",
+      "sites": [
+        {
+          "line": 97,
+          "module": "Aiur.DecisionAttention",
+          "path": "src/lib/aiur/decision_attention.ex",
+          "expression_sha256": "132ee0e0b4b34db3fcc41b76c8ce6c7f4245a9a17d1b7352ea072d63cbe8cfe6",
+          "expression": "~r\"\\A[a-z0-9][a-z0-9.-]{0,63}\\z\""
+        },
+        {
+          "line": 938,
+          "module": "Aiur.DecisionEvent",
+          "path": "src/lib/aiur/decision_event.ex",
+          "expression_sha256": "132ee0e0b4b34db3fcc41b76c8ce6c7f4245a9a17d1b7352ea072d63cbe8cfe6",
+          "expression": "~r\"\\A[a-z0-9][a-z0-9.-]{0,63}\\z\""
+        },
+        {
+          "line": 419,
+          "module": "Aiur.DecisionValidation",
+          "path": "src/lib/aiur/decision_validation.ex",
+          "expression_sha256": "132ee0e0b4b34db3fcc41b76c8ce6c7f4245a9a17d1b7352ea072d63cbe8cfe6",
+          "expression": "~r\"\\A[a-z0-9][a-z0-9.-]{0,63}\\z\""
+        }
+      ],
+      "group_index": 3,
+      "disposition": "attention_slug_shared_grammar",
+      "assessment": "Three decision-lifecycle sites require the same bounded lowercase attention slug. Correlation constructs a ticket topic, event decoder returns a slug error and DecisionValidation uses legacy_attention_slug plus exact-topic matching. A decision-domain slug predicate can own grammar while each boundary preserves error names and topic identity checks.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 3,
+      "expression_sha256": "15cc39b6541d682c5e1d539e760795ecd955173aa64b5d0ca8a2fa0b5627bb2d",
+      "sites": [
+        {
+          "line": 161,
+          "module": "Aiur.Git",
+          "path": "src/lib/aiur/git.ex",
+          "expression_sha256": "15cc39b6541d682c5e1d539e760795ecd955173aa64b5d0ca8a2fa0b5627bb2d",
+          "expression": "~r\"[/:]\""
+        },
+        {
+          "line": 300,
+          "module": "Aiur.Init.GitHub",
+          "path": "src/lib/aiur/init/github.ex",
+          "expression_sha256": "15cc39b6541d682c5e1d539e760795ecd955173aa64b5d0ca8a2fa0b5627bb2d",
+          "expression": "~r\"[/:]\""
+        },
+        {
+          "line": 1512,
+          "module": "Aiur.RepoBase",
+          "path": "src/lib/aiur/repo_base.ex",
+          "expression_sha256": "15cc39b6541d682c5e1d539e760795ecd955173aa64b5d0ca8a2fa0b5627bb2d",
+          "expression": "~r\"[/:]\""
+        }
+      ],
+      "group_index": 4,
+      "disposition": "origin_parser_existing_owner_subset",
+      "assessment": "Git.parse_origin_url and Init.GitHub.parse_repo have matching suffix strip, split, final-two-segment and nil behavior. Prefer existing Git parser reuse. RepoBase.slug also trims trailing slash, rejects scheme/host tokens and prevents traversal; do not replace it with the simpler helper without preserving its path-safety contract.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 3,
+      "expression_sha256": "70c86ba8a4a2d5ee401f973269960a1c4db04825ccb13eb91e58f85d18630645",
+      "sites": [
+        {
+          "line": 151,
+          "module": "Aiur.IssueContext",
+          "path": "src/lib/aiur/issue_context.ex",
+          "expression_sha256": "70c86ba8a4a2d5ee401f973269960a1c4db04825ccb13eb91e58f85d18630645",
+          "expression": "~r\"\\r?\\n\""
+        },
+        {
+          "line": 994,
+          "module": "Aiur.IssueLog",
+          "path": "src/lib/aiur/issue_log.ex",
+          "expression_sha256": "70c86ba8a4a2d5ee401f973269960a1c4db04825ccb13eb91e58f85d18630645",
+          "expression": "~r\"\\r?\\n\""
+        },
+        {
+          "line": 456,
+          "module": "Aiur.RecentMerge",
+          "path": "src/lib/aiur/recent_merge.ex",
+          "expression_sha256": "70c86ba8a4a2d5ee401f973269960a1c4db04825ccb13eb91e58f85d18630645",
+          "expression": "~r\"\\r?\\n\""
+        }
+      ],
+      "group_index": 5,
+      "disposition": "line_break_primitive_distinct_uses",
+      "assessment": "IssueContext normalizes escaped newlines then sanitizes, takes 12 lines and 600 graphemes; IssueLog flattens for a summary; RecentMerge processes fences/quotes to identify closing references. Same CRLF delimiter does not make these operations one parser.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 3,
+      "expression_sha256": "7a7946d3d93d263a5defdab05dedd7de65bac93b6bc25176bdb8b71122582982",
+      "sites": [
+        {
+          "line": 148,
+          "module": "Aiur.BuildOrder.Bounded",
+          "path": "src/lib/aiur/build_order/bounded.ex",
+          "expression_sha256": "7a7946d3d93d263a5defdab05dedd7de65bac93b6bc25176bdb8b71122582982",
+          "expression": "~r\"[\\x00-\\x1F\\x7F]\""
+        },
+        {
+          "line": 211,
+          "module": "Aiur.BuildOrder.Bounded",
+          "path": "src/lib/aiur/build_order/bounded.ex",
+          "expression_sha256": "7a7946d3d93d263a5defdab05dedd7de65bac93b6bc25176bdb8b71122582982",
+          "expression": "~r\"[\\x00-\\x1F\\x7F]\""
+        },
+        {
+          "line": 212,
+          "module": "Aiur.DecisionQuery.Params",
+          "path": "src/lib/aiur/decision_query/params.ex",
+          "expression_sha256": "7a7946d3d93d263a5defdab05dedd7de65bac93b6bc25176bdb8b71122582982",
+          "expression": "~r\"[\\x00-\\x1F\\x7F]\""
+        },
+        {
+          "line": 970,
+          "module": "AiurWeb.BuildOrderPresenter",
+          "path": "src/lib/aiur_web/build_order_presenter.ex",
+          "expression_sha256": "7a7946d3d93d263a5defdab05dedd7de65bac93b6bc25176bdb8b71122582982",
+          "expression": "~r\"[\\x00-\\x1F\\x7F]\""
+        }
+      ],
+      "group_index": 6,
+      "disposition": "control_byte_predicate_shared_not_entire_validator",
+      "assessment": "Bounded route/decision-ID checks, query-ID validation and presenter labels all reject C0/DEL controls, with different surrounding byte limits, URI decoding and secret checks. A named control-byte predicate may be shared, but each domain retains its constraints. Equivalent lowercase-hex pattern in group 24 replaces controls rather than rejecting them.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 3,
+      "expression_sha256": "9280334de98a8b1c5e1f71ce83ff542fd782e9b8921c6c5a1d68e3c2e4907601",
+      "sites": [
+        {
+          "line": 188,
+          "module": "Aiur.AgentList.Renderer.EventPhrases",
+          "path": "src/lib/aiur/agent_list/renderer/event_phrases.ex",
+          "expression_sha256": "9280334de98a8b1c5e1f71ce83ff542fd782e9b8921c6c5a1d68e3c2e4907601",
+          "expression": "~r\"\\s+\"u"
+        },
+        {
+          "line": 885,
+          "module": "Aiur.AgentRunner.SessionLifecycle",
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "expression_sha256": "9280334de98a8b1c5e1f71ce83ff542fd782e9b8921c6c5a1d68e3c2e4907601",
+          "expression": "~r\"\\s+\"u"
+        },
+        {
+          "line": 1648,
+          "module": "Aiur.DecisionStore",
+          "path": "src/lib/aiur/decision_store.ex",
+          "expression_sha256": "9280334de98a8b1c5e1f71ce83ff542fd782e9b8921c6c5a1d68e3c2e4907601",
+          "expression": "~r\"\\s+\"u"
+        }
+      ],
+      "group_index": 7,
+      "disposition": "unicode_whitespace_transform_distinct_policy",
+      "assessment": "EventPhrases collapses/trims prose; session names first remove terminal control/quote characters then cap to 60; DecisionStore strips markdown/punctuation and lowercases for question identity. Do not share full normalizers or let display normalization change decision identity.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 3,
+      "expression_sha256": "9c2c35a680e39424a4cae35b75c73ba0f3bf9b77688dc68ae8c36bfede149e1d",
+      "sites": [
+        {
+          "line": 458,
+          "module": "Aiur.Codex.RateLimitAdapter",
+          "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+          "expression_sha256": "9c2c35a680e39424a4cae35b75c73ba0f3bf9b77688dc68ae8c36bfede149e1d",
+          "expression": "~r\"^[A-Za-z0-9._:-]+$\""
+        },
+        {
+          "line": 20,
+          "module": "Aiur.OpaqueIdentifier",
+          "path": "src/lib/aiur/opaque_identifier.ex",
+          "expression_sha256": "9c2c35a680e39424a4cae35b75c73ba0f3bf9b77688dc68ae8c36bfede149e1d",
+          "expression": "~r\"^[A-Za-z0-9._:-]+$\""
+        },
+        {
+          "line": 276,
+          "module": "Aiur.ProviderMeters.Input",
+          "path": "src/lib/aiur/provider_meters/input.ex",
+          "expression_sha256": "9c2c35a680e39424a4cae35b75c73ba0f3bf9b77688dc68ae8c36bfede149e1d",
+          "expression": "~r\"^[A-Za-z0-9._:-]+$\""
+        }
+      ],
+      "group_index": 8,
+      "disposition": "identifier_same_alphabet_different_admission",
+      "assessment": "Codex rate-limit source IDs accept bounded valid UTF-8, preserve canonical IDs up to 80 bytes and hash other accepted strings; ProviderMeters admits up to 96 bytes and rejects invalid IDs; OpaqueIdentifier additionally applies SecretRedactor with caller-defined bounds and returns nil. A lexical helper cannot replace these policies. Keep hashing versus rejection explicit.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 3,
+      "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab",
+      "sites": [
+        {
+          "line": 28,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab",
+          "expression": "~r\"^[A-Z]{3}$\""
+        },
+        {
+          "line": 269,
+          "module": "Aiur.UsageAggregate.Key",
+          "path": "src/lib/aiur/usage_aggregate/key.ex",
+          "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab",
+          "expression": "~r\"^[A-Z]{3}$\""
+        },
+        {
+          "line": 12,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "expression_sha256": "ab2dd01f39a1f3d95f7cf7a8d66aded2cf976e0de80d406fe5a6e69681d65cab",
+          "expression": "~r\"^[A-Z]{3}$\""
+        }
+      ],
+      "group_index": 9,
+      "disposition": "currency_shape_different_wrappers",
+      "assessment": "Three sites share the pattern. ExactMoney returns invalid_currency, price validation invalid_price_currency, Aggregate.Key bare :error; only first two explicitly test valid UTF-8. A currency-shape predicate may be shared with preserved wrappers. Pattern identity does not prove ISO membership or strict end-of-input validity.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 3,
+      "expression_sha256": "c0b66de517e9f8f1aecfbbbe61ae382ff551641c3fb5cfd50522fcdd99efe59a",
+      "sites": [
+        {
+          "line": 347,
+          "module": "Aiur.Events.Sanitizer",
+          "path": "src/lib/aiur/events/sanitizer.ex",
+          "expression_sha256": "c0b66de517e9f8f1aecfbbbe61ae382ff551641c3fb5cfd50522fcdd99efe59a",
+          "expression": "~r\"\\s\""
+        },
+        {
+          "line": 677,
+          "module": "Aiur.GitHub.CiReadiness",
+          "path": "src/lib/aiur/github/ci_readiness.ex",
+          "expression_sha256": "c0b66de517e9f8f1aecfbbbe61ae382ff551641c3fb5cfd50522fcdd99efe59a",
+          "expression": "~r\"\\s\""
+        },
+        {
+          "line": 63,
+          "module": "Mix.Tasks.Aiur.TestShard",
+          "path": "src/lib/mix/tasks/aiur.test_shard.ex",
+          "expression_sha256": "c0b66de517e9f8f1aecfbbbe61ae382ff551641c3fb5cfd50522fcdd99efe59a",
+          "expression": "~r\"\\s\""
+        }
+      ],
+      "group_index": 10,
+      "disposition": "whitespace_removal_not_rejection",
+      "assessment": "Sanitizer removes whitespace while detecting encoded blobs; CI workflow decoder removes it before Base.decode64; test-shard command rejects any whitespace in paths. Leave contextual behavior separate.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 3,
+      "expression_sha256": "ea9436402d99191e60fdc2e62717315d42f0554c36574f37666b807d005460aa",
+      "sites": [
+        {
+          "line": 140,
+          "module": "Aiur.DecisionMetrics.Event",
+          "path": "src/lib/aiur/decision_metrics/event.ex",
+          "expression_sha256": "ea9436402d99191e60fdc2e62717315d42f0554c36574f37666b807d005460aa",
+          "expression": "~r\"[^a-z0-9]+\""
+        },
+        {
+          "line": 55,
+          "module": "Aiur.TicketBranch",
+          "path": "src/lib/aiur/ticket_branch.ex",
+          "expression_sha256": "ea9436402d99191e60fdc2e62717315d42f0554c36574f37666b807d005460aa",
+          "expression": "~r\"[^a-z0-9]+\""
+        },
+        {
+          "line": 160,
+          "module": "AiurWeb.OperatorControlCenter.DecisionCard",
+          "path": "src/lib/aiur_web/components/operator_control_center/decision_card.ex",
+          "expression_sha256": "ea9436402d99191e60fdc2e62717315d42f0554c36574f37666b807d005460aa",
+          "expression": "~r\"[^a-z0-9]+\""
+        }
+      ],
+      "group_index": 11,
+      "disposition": "slug_replacement_distinct_outputs",
+      "assessment": "DecisionMetrics emits underscore labels and removes decision_ prefix; TicketBranch transliterates and keeps four words joined by hyphens; DecisionCard emits a CSS class. Same negated character class does not justify a shared slug policy.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "014dbda1d2598d2b4c19b01f5eb7e3e12e053103159bae241e6756e3607c24d1",
+      "sites": [
+        {
+          "line": 84,
+          "module": "Aiur.LiveConversation.Source",
+          "path": "src/lib/aiur/live_conversation/source.ex",
+          "expression_sha256": "014dbda1d2598d2b4c19b01f5eb7e3e12e053103159bae241e6756e3607c24d1",
+          "expression": "~r\"^[A-Za-z0-9_-]+$\""
+        },
+        {
+          "line": 646,
+          "module": "Aiur.Orchestrator.State",
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "expression_sha256": "014dbda1d2598d2b4c19b01f5eb7e3e12e053103159bae241e6756e3607c24d1",
+          "expression": "~r\"^[A-Za-z0-9_-]+$\""
+        },
+        {
+          "line": 676,
+          "module": "Aiur.Orchestrator.State",
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "expression_sha256": "014dbda1d2598d2b4c19b01f5eb7e3e12e053103159bae241e6756e3607c24d1",
+          "expression": "~r\"^[A-Za-z0-9_-]+$\""
+        }
+      ],
+      "group_index": 12,
+      "disposition": "opaque_digest_grammar_shared_prefixes_distinct",
+      "assessment": "Conversation handles, projection epochs and runtime session digests share 43-byte URL-safe digest grammar. Preserve prefixes and runtime session nil acceptance. State already delegates conversation validation to LiveConversation.Source; extend an existing low-level digest contract only if useful, not one interchangeable identity type.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "043a9c0550aca9041dc75286b3c421415958a6185a893abaf4b9c17035a28696",
+      "sites": [
+        {
+          "line": 235,
+          "module": "Aiur.BuildOrder.Bounded",
+          "path": "src/lib/aiur/build_order/bounded.ex",
+          "expression_sha256": "043a9c0550aca9041dc75286b3c421415958a6185a893abaf4b9c17035a28696",
+          "expression": "~r\"^[1-9][0-9]{0,18}$\""
+        },
+        {
+          "line": 103,
+          "module": "Aiur.BuildOrder.Metadata",
+          "path": "src/lib/aiur/build_order/metadata.ex",
+          "expression_sha256": "043a9c0550aca9041dc75286b3c421415958a6185a893abaf4b9c17035a28696",
+          "expression": "~r\"^[1-9][0-9]{0,18}$\""
+        }
+      ],
+      "group_index": 13,
+      "disposition": "positive_decimal_grammar_distinct_meaning",
+      "assessment": "BuildOrder.Bounded uses up-to-19-digit positive syntax for issue URL paths; Metadata parses phase labels to integers. Share lexical checking at most; retain URL validation versus label parsing and do not confuse decimal width with a numeric storage bound.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "1803016f0f1e8be3d78a4d3ac1ce3ef95860e98f8c47bd23a92e6bac8eae500c",
+      "sites": [
+        {
+          "line": 14,
+          "module": "Aiur.UsageEnvelope",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "expression_sha256": "1803016f0f1e8be3d78a4d3ac1ce3ef95860e98f8c47bd23a92e6bac8eae500c",
+          "expression": "~r\"\\A[A-Za-z0-9._:-]+\\z\""
+        },
+        {
+          "line": 154,
+          "module": "Aiur.UsageLedger.Record",
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "expression_sha256": "1803016f0f1e8be3d78a4d3ac1ce3ef95860e98f8c47bd23a92e6bac8eae500c",
+          "expression": "~r\"\\A[A-Za-z0-9._:-]+\\z\""
+        }
+      ],
+      "group_index": 14,
+      "disposition": "ledger_identifier_pair_shared_privacy_primitive",
+      "assessment": "UsageEnvelope's scalar helper and Record's recursive admission use the same strict alphabet plus sensitive-pattern rejection. Envelope imposes 1..256 bytes and returns value/nil; Record walks all encoded map keys/values and permits integer/nil/boolean leaves. A usage-domain safe-string predicate can be shared, but recursive admission and scalar bounds are separate.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "1fe43711bb7041e503818ec6ddb1e684464369254ee8a2cf82ba08ea25fee217",
+      "sites": [
+        {
+          "line": 29,
+          "module": "Aiur.Usage.PriceTable.Validator",
+          "path": "src/lib/aiur/usage/price_table/validator.ex",
+          "expression_sha256": "1fe43711bb7041e503818ec6ddb1e684464369254ee8a2cf82ba08ea25fee217",
+          "expression": "~r\"^\\d+(?:\\.\\d+)?$\""
+        },
+        {
+          "line": 182,
+          "module": "Aiur.UsageEnvelope.ExactMoney",
+          "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+          "expression_sha256": "1fe43711bb7041e503818ec6ddb1e684464369254ee8a2cf82ba08ea25fee217",
+          "expression": "~r\"^\\d+(?:\\.\\d+)?$\""
+        }
+      ],
+      "group_index": 15,
+      "disposition": "decimal_lexical_subset_only",
+      "assessment": "PriceTable and ExactMoney share bounded decimal string syntax and UTF-8 checks. ExactMoney additionally handles bounded integers/Decimal values, nonfinite/negative rejection and explicit minor units; price returns different errors and accepts strings only. Share lexical validation if worthwhile, not whole decoders.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "33dc9c4ceafed54218e5199b9c79be1f32d7f014ef4930ae24cb05ebc3b75a32",
+      "sites": [
+        {
+          "line": 464,
+          "module": "Aiur.Events.BranchRefStore",
+          "path": "src/lib/aiur/events/branch_ref_store.ex",
+          "expression_sha256": "33dc9c4ceafed54218e5199b9c79be1f32d7f014ef4930ae24cb05ebc3b75a32",
+          "expression": "~r\"\\A[0-9a-f]{40}\\z\"i"
+        },
+        {
+          "line": 1066,
+          "module": "Aiur.Orchestrator.PushRouting",
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "expression_sha256": "33dc9c4ceafed54218e5199b9c79be1f32d7f014ef4930ae24cb05ebc3b75a32",
+          "expression": "~r\"\\A[0-9a-f]{40}\\z\"i"
+        }
+      ],
+      "group_index": 16,
+      "disposition": "branch_sha_shared_predicate_identity_guard_preserved",
+      "assessment": "BranchRefStore and PushRouting validate binary 40-digit hexadecimal SHAs case-insensitively and lowercase accepted values. Store maps ref to a ticket; PushRouting additionally checks that ticket against the expected blocker. Shared branch metadata parsing may fit the event/GitHub boundary, retaining the expected-ticket guard.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "5706a491a61d21fdcb896b464446623865673e832e41ebec3e59037cfdad4127",
+      "sites": [
+        {
+          "line": 271,
+          "module": "AiurWeb.OperatorControlCenter.ConversationDrawer",
+          "path": "src/lib/aiur_web/components/operator_control_center/conversation_drawer.ex",
+          "expression_sha256": "5706a491a61d21fdcb896b464446623865673e832e41ebec3e59037cfdad4127",
+          "expression": "~r\"^[a-z][a-z0-9-]{0,63}$\""
+        },
+        {
+          "line": 318,
+          "module": "AiurWeb.OperatorControlCenter.TicketContext",
+          "path": "src/lib/aiur_web/components/operator_control_center/ticket_context.ex",
+          "expression_sha256": "5706a491a61d21fdcb896b464446623865673e832e41ebec3e59037cfdad4127",
+          "expression": "~r\"^[a-z][a-z0-9-]{0,63}$\""
+        }
+      ],
+      "group_index": 17,
+      "disposition": "ui_close_event_predicate_local_reuse",
+      "assessment": "ConversationDrawer and TicketContext have equivalent binary/fallback close-event validation. A shared OCC UI helper is appropriate if extracting alongside their related presentation contracts; this is not a generic domain identifier.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "63d0a075560055511b7d9b117ab226debe7e2b48f9594c58b17935e496c04746",
+      "sites": [
+        {
+          "line": 1243,
+          "module": "Aiur.GitHub.Quota",
+          "path": "src/lib/aiur/github/quota.ex",
+          "expression_sha256": "63d0a075560055511b7d9b117ab226debe7e2b48f9594c58b17935e496c04746",
+          "expression": "~r\"^\\s*mutation\\b\"i"
+        },
+        {
+          "line": 271,
+          "module": "Aiur.GitHub.RequestLog",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "expression_sha256": "63d0a075560055511b7d9b117ab226debe7e2b48f9594c58b17935e496c04746",
+          "expression": "~r\"^\\s*mutation\\b\"i"
+        }
+      ],
+      "group_index": 18,
+      "disposition": "github_request_direction_shared_classifier",
+      "assessment": "Quota and RequestLog use equivalent method/path/query classification but return atoms versus strings. A request-metadata classifier can own semantics with serialization at the logging boundary. This review does not validate the regex as a full GraphQL parser or establish classification accuracy for comments/multiple operations.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "973919265018ba6e6ca4de18322d86cb44953dec6708985f6eccb388783aec50",
+      "sites": [
+        {
+          "line": 147,
+          "module": "Aiur.DecisionProvenance",
+          "path": "src/lib/aiur/decision_provenance.ex",
+          "expression_sha256": "973919265018ba6e6ca4de18322d86cb44953dec6708985f6eccb388783aec50",
+          "expression": "~r\"\\AeyJ[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\z\""
+        },
+        {
+          "line": 8,
+          "module": "Aiur.DecisionSanitizer",
+          "path": "src/lib/aiur/decision_sanitizer.ex",
+          "expression_sha256": "973919265018ba6e6ca4de18322d86cb44953dec6708985f6eccb388783aec50",
+          "expression": "~r\"\\AeyJ[A-Za-z0-9_-]*\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\z\""
+        }
+      ],
+      "group_index": 19,
+      "disposition": "jwt_detection_shared_rejection_primitive",
+      "assessment": "DecisionProvenance rejects JWT-shaped identity strings with structured errors; DecisionSanitizer drops unsafe agent IDs to nil and additionally requires a canonical agent-ID grammar. Both layer SecretRedactor checks. Share detection if useful in privacy utilities; do not merge admission versus projection behavior or claim complete credential detection.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "9ca7e219ed104c639543c8e59a7e00be91068d49adced99ba891a233aa37e492",
+      "sites": [
+        {
+          "line": 15,
+          "module": "Aiur.UsageEnvelope",
+          "path": "src/lib/aiur/usage_envelope.ex",
+          "expression_sha256": "9ca7e219ed104c639543c8e59a7e00be91068d49adced99ba891a233aa37e492",
+          "expression": "~r\"(?:sk[-_][A-Za-z0-9]|ghp_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|secret|password|credential|bearer|authorization|api[-_]?key|prompt)\"i"
+        },
+        {
+          "line": 155,
+          "module": "Aiur.UsageLedger.Record",
+          "path": "src/lib/aiur/usage_ledger/record.ex",
+          "expression_sha256": "9ca7e219ed104c639543c8e59a7e00be91068d49adced99ba891a233aa37e492",
+          "expression": "~r\"(?:sk[-_][A-Za-z0-9]|ghp_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|secret|password|credential|bearer|authorization|api[-_]?key|prompt)\"i"
+        }
+      ],
+      "group_index": 20,
+      "disposition": "sensitive_ledger_pattern_shared_with_recursive_boundary",
+      "assessment": "Same two sites as strict ledger alphabet: extract the paired usage privacy predicate, keeping scalar length checks and recursive encoded-record admission. This is one opportunity with group 14, not two independent savings.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "a3a6d6b1663142b1413bd959a451ef464728b1088d6511d32491b3b0388fac95",
+      "sites": [
+        {
+          "line": 387,
+          "module": "Aiur.AgentEventFeed",
+          "path": "src/lib/aiur/agent_event_feed.ex",
+          "expression_sha256": "a3a6d6b1663142b1413bd959a451ef464728b1088d6511d32491b3b0388fac95",
+          "expression": "~r\"\\R\"u"
+        },
+        {
+          "line": 564,
+          "module": "AiurWeb.StreamdeckLogs",
+          "path": "src/lib/aiur_web/streamdeck_logs.ex",
+          "expression_sha256": "a3a6d6b1663142b1413bd959a451ef464728b1088d6511d32491b3b0388fac95",
+          "expression": "~r\"\\R\"u"
+        }
+      ],
+      "group_index": 21,
+      "disposition": "unicode_line_break_display_differences",
+      "assessment": "AgentEventFeed replaces Unicode line breaks then trims only trailing whitespace to preserve diff indentation; StreamDeckLogs converts body to string and trims both ends. Preserve leading spaces for diffs; do not substitute the complete Stream Deck formatter.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "ad353ecb2e507fe733d73e1766f60e11f6f20683bcdce3467ea0c052f076d907",
+      "sites": [
+        {
+          "line": 385,
+          "module": "Aiur.AlertFeed",
+          "path": "src/lib/aiur/alert_feed.ex",
+          "expression_sha256": "ad353ecb2e507fe733d73e1766f60e11f6f20683bcdce3467ea0c052f076d907",
+          "expression": "~r\"\\Aticket\\.([^.]+)\\.\""
+        },
+        {
+          "line": 78,
+          "module": "Aiur.ExecutorWakeProjection",
+          "path": "src/lib/aiur/executor_wake_projection.ex",
+          "expression_sha256": "ad353ecb2e507fe733d73e1766f60e11f6f20683bcdce3467ea0c052f076d907",
+          "expression": "~r\"\\Aticket\\.([^.]+)\\.\""
+        }
+      ],
+      "group_index": 22,
+      "disposition": "ticket_topic_parser_shared",
+      "assessment": "AlertFeed and ExecutorWakeProjection extract the first ticket topic segment with identical nil fallback. Prefer one event-topic parser, keeping upstream typed-input guards and topic namespace semantics. This regex does not parse arbitrary dotted ticket identifiers or validate whole topics.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "be07ec0ed28bf436ce18469c2885524ca66e98947be04e0d538af798ce897320",
+      "sites": [
+        {
+          "line": 343,
+          "module": "Aiur.Codeowners",
+          "path": "src/lib/aiur/codeowners.ex",
+          "expression_sha256": "be07ec0ed28bf436ce18469c2885524ca66e98947be04e0d538af798ce897320",
+          "expression": "~r\"\\R\""
+        },
+        {
+          "line": 38,
+          "module": "Aiur.Codeowners.Edit",
+          "path": "src/lib/aiur/codeowners/edit.ex",
+          "expression_sha256": "be07ec0ed28bf436ce18469c2885524ca66e98947be04e0d538af798ce897320",
+          "expression": "~r\"\\R\""
+        }
+      ],
+      "group_index": 23,
+      "disposition": "codeowners_line_split_same_domain",
+      "assessment": "Both CODEOWNERS implementations split on non-Unicode-flagged line breaks and trim empty lines, then use different token consumers. Consolidate with CODEOWNERS parsing rather than create a global line utility; preserve edit/comment formatting requirements.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "c9f12d13a5f6f2f6892a1271f1fdfdd5c82ed78d204ee2f3be3411b9dec3700a",
+      "sites": [
+        {
+          "line": 105,
+          "module": "Aiur.Claude.Repl.OperatorInject",
+          "path": "src/lib/aiur/claude/repl/operator_inject.ex",
+          "expression_sha256": "c9f12d13a5f6f2f6892a1271f1fdfdd5c82ed78d204ee2f3be3411b9dec3700a",
+          "expression": "~r\"[\\x00-\\x1f\\x7f]\""
+        },
+        {
+          "line": 114,
+          "module": "Aiur.PaneManager.State",
+          "path": "src/lib/aiur/pane_manager/state.ex",
+          "expression_sha256": "c9f12d13a5f6f2f6892a1271f1fdfdd5c82ed78d204ee2f3be3411b9dec3700a",
+          "expression": "~r\"[\\x00-\\x1f\\x7f]\""
+        }
+      ],
+      "group_index": 24,
+      "disposition": "terminal_control_scrubbing_distinct_postprocessing",
+      "assessment": "OperatorInject replaces control bytes, collapses repeated spaces and trims before keystroke submission; PaneManager only replaces controls for a title. Low-level replacement is shared, but submission and display wrappers differ. Same character set as group 6 rejection regex despite hex spelling difference.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "cecd8f292447dc6bba69ef3a2a17fde8ee82028658bec4d85f8b5c6f701469f5",
+      "sites": [
+        {
+          "line": 15,
+          "module": "Aiur.Config.EnvRef",
+          "path": "src/lib/aiur/config/env_ref.ex",
+          "expression_sha256": "cecd8f292447dc6bba69ef3a2a17fde8ee82028658bec4d85f8b5c6f701469f5",
+          "expression": "~r\"^[A-Za-z_][A-Za-z0-9_]*$\""
+        },
+        {
+          "line": 53,
+          "module": "Aiur.Config.Schema.EnvResolver",
+          "path": "src/lib/aiur/config/schema/env_resolver.ex",
+          "expression_sha256": "cecd8f292447dc6bba69ef3a2a17fde8ee82028658bec4d85f8b5c6f701469f5",
+          "expression": "~r\"^[A-Za-z_][A-Za-z0-9_]*$\""
+        }
+      ],
+      "group_index": 25,
+      "disposition": "env_reference_existing_owner",
+      "assessment": "EnvRef.reference_name and Schema.EnvResolver.env_reference_name implement the same dollar-prefixed grammar and result shape. EnvRef already advertises ownership; reuse it for recognition. Preserve path-specific :missing/default semantics and empty-secret behavior; EnvRef.normalize_secret trims but its resolve path and EnvResolver.normalize_secret_value only map empty to nil.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "db7d3dd04a5db0a487e03db4a54da840991159fd0f36b4180289ee9e00c5f881",
+      "sites": [
+        {
+          "line": 1256,
+          "module": "Aiur.GitHub.Quota",
+          "path": "src/lib/aiur/github/quota.ex",
+          "expression_sha256": "db7d3dd04a5db0a487e03db4a54da840991159fd0f36b4180289ee9e00c5f881",
+          "expression": "~r\"/(?:issues|pulls)/(\\d+)(?:/|$)\""
+        },
+        {
+          "line": 284,
+          "module": "Aiur.GitHub.RequestLog",
+          "path": "src/lib/aiur/github/request_log.ex",
+          "expression_sha256": "db7d3dd04a5db0a487e03db4a54da840991159fd0f36b4180289ee9e00c5f881",
+          "expression": "~r\"/(?:issues|pulls)/(\\d+)(?:/|$)\""
+        }
+      ],
+      "group_index": 26,
+      "disposition": "github_ticket_attribution_shared",
+      "assessment": "Quota and RequestLog URL ticket extraction match including URI.path fallback, capture and ticket: prefix, inside equivalent explicit-consumer/URL/variables precedence. Share request attribution with the direction classifier rather than count a separate utility per regex.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    },
+    {
+      "modules": 2,
+      "expression_sha256": "f44b6ef25c2d60f00ce777299c9ac85d38d0d973e9f825f4fc4962659262596b",
+      "sites": [
+        {
+          "line": 280,
+          "module": "Aiur.Config.Paths",
+          "path": "src/lib/aiur/config/paths.ex",
+          "expression_sha256": "f44b6ef25c2d60f00ce777299c9ac85d38d0d973e9f825f4fc4962659262596b",
+          "expression": "~r\"[^A-Za-z0-9._-]\""
+        },
+        {
+          "line": 484,
+          "module": "Aiur.Executor.Claims",
+          "path": "src/lib/aiur/executor/claims.ex",
+          "expression_sha256": "f44b6ef25c2d60f00ce777299c9ac85d38d0d973e9f825f4fc4962659262596b",
+          "expression": "~r\"[^A-Za-z0-9._-]\""
+        }
+      ],
+      "group_index": 27,
+      "disposition": "filesystem_sanitizer_existing_owner",
+      "assessment": "Config.Paths.sanitize/1 already owns replacement of characters outside ASCII filename alphabet with underscore. Executor.Claims has the same replacement and binary callers. Reuse the existing owner; retain Claims instance-ID selection/truncation policy. Sanitization is lossy and not a general identity validator.",
+      "coverage": "Every listed sigil site and immediate consumer read; selected helper callers/attributes expanded where needed. Not a full transitive correctness review."
+    }
+  ],
+  "assessed_group_count": 28,
+  "candidate_sites": 93,
+  "remaining_candidate_groups": 0,
+  "inputs": [
+    {
+      "path": "src/lib/aiur/affected_tests.ex",
+      "sha256": "4430fde3925ee72c40f81643fb3c8a103e49b732bcc437bfe4311c3ee75c6e62"
+    },
+    {
+      "path": "src/lib/aiur/agent_control_cli.ex",
+      "sha256": "329f38d6eff41137666c5a4c3f8f783154a9fc0399de4625a2d4ed5845e3be66"
+    },
+    {
+      "path": "src/lib/aiur/agent_event_feed.ex",
+      "sha256": "2bbe8d6cb944ea0823b5e5c82d9c0ca6d9e42f7367e01bfb08ec2f833aa50cf7"
+    },
+    {
+      "path": "src/lib/aiur/agent_list/renderer/event_phrases.ex",
+      "sha256": "ad0f43f2f1e73e7b1d9258c0b46f30384153897a03f1bff2acddea3a33cda20c"
+    },
+    {
+      "path": "src/lib/aiur/agent_list/renderer/text.ex",
+      "sha256": "fd40ad1149d66c05ab489651f2b7c299944ce6b884159ad0c31391ff4c00c27c"
+    },
+    {
+      "path": "src/lib/aiur/agent_process_log.ex",
+      "sha256": "97339b89406ee555ceec27824204576ce8127d7b415aab27fb50f2097560eb5e"
+    },
+    {
+      "path": "src/lib/aiur/agent_resource_guard.ex",
+      "sha256": "f1bb4d44e7019ff6d4010bb3e0c5ee160fc34fc2eec1e82d10086800a8505021"
+    },
+    {
+      "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+      "sha256": "b623c7318c04f3cac0a40c102945e5c6a0ffa91fc06801443c0b4aa29801af99"
+    },
+    {
+      "path": "src/lib/aiur/agent_skills.ex",
+      "sha256": "103f3c6383d9feff0764b1c88c6f4a195aa7ce7d9b84b5102991518f6592df41"
+    },
+    {
+      "path": "src/lib/aiur/alert_feed.ex",
+      "sha256": "d8730f11e492e8da0950f26e49f597e9e4f8afca6027fc2168259fc2b339744b"
+    },
+    {
+      "path": "src/lib/aiur/build_order/bounded.ex",
+      "sha256": "34a7eed8dcbee52f1355ff0c4b1f67532686968b18776c1f1372e92f675e0ad7"
+    },
+    {
+      "path": "src/lib/aiur/build_order/metadata.ex",
+      "sha256": "e299aa237001910f81a5f3e341191623bfe8af8b0da075972d575f08b661eefa"
+    },
+    {
+      "path": "src/lib/aiur/claude/remote_control.ex",
+      "sha256": "dc74c852a1ca2f42be3c8e6f4e8311586357aa5333b98241d3474aa1828dcd83"
+    },
+    {
+      "path": "src/lib/aiur/claude/repl/operator_inject.ex",
+      "sha256": "eafbe1f665a3afaadc38262c6beb9027c5c8d84003bb57763494ae49c1854c48"
+    },
+    {
+      "path": "src/lib/aiur/cli.ex",
+      "sha256": "80f2579b9f4a99bfb9461241234f54f55369bab3ad82f0669daf553820031967"
+    },
+    {
+      "path": "src/lib/aiur/codeowners.ex",
+      "sha256": "77d70dab6a5745635d0342884b9354a8690cce207766bf20ff6e5943166bc232"
+    },
+    {
+      "path": "src/lib/aiur/codeowners/edit.ex",
+      "sha256": "d364f4d6b6af2d73ff658346dd4be734bc9b8e073b31c58da587ba7e71c65cda"
+    },
+    {
+      "path": "src/lib/aiur/codex/rate_limit_adapter.ex",
+      "sha256": "7cd3e57744f59577c9966975f58090e3d6c66b056c582fc4eb336afcc0e88db2"
+    },
+    {
+      "path": "src/lib/aiur/config/env_ref.ex",
+      "sha256": "a3adb1c8755e546f0f4e2768fb8fdf250a5fac10dcdbf2dae2a2ae0ccef5aee7"
+    },
+    {
+      "path": "src/lib/aiur/config/paths.ex",
+      "sha256": "c7ead1666f7df4893eed94b131e2c1882897e1a9aaca3338a77683a8982d952f"
+    },
+    {
+      "path": "src/lib/aiur/config/schema/env_resolver.ex",
+      "sha256": "13dee617df316825ad4d8d34e954b9781651f58a736d48b533501b1a0e009e69"
+    },
+    {
+      "path": "src/lib/aiur/decision_attention.ex",
+      "sha256": "a0c3771847ee7e7e88638514ff848ed180e58f1b18af23c11cdd73b44322b1f3"
+    },
+    {
+      "path": "src/lib/aiur/decision_event.ex",
+      "sha256": "447d8ac1631573352a2ec0faab055243aff1ee7fa4eaabaac0c1e89d359eb414"
+    },
+    {
+      "path": "src/lib/aiur/decision_metrics/event.ex",
+      "sha256": "a5fce566fc44a995ecbbed11eeb954e7677ba2cc96f1c96951777a1f9a9d9d1d"
+    },
+    {
+      "path": "src/lib/aiur/decision_provenance.ex",
+      "sha256": "91036205138e01742e0707f8c9051c9ca3c44ba2808ff2c2611df3ab70e3f669"
+    },
+    {
+      "path": "src/lib/aiur/decision_query/params.ex",
+      "sha256": "7f1ee53fcd687677e8ee0fe58f63167e0698f4754af47fd8070905c7cef7bb09"
+    },
+    {
+      "path": "src/lib/aiur/decision_sanitizer.ex",
+      "sha256": "29ab42569a8260058ada0aea2d678dbd1c95f4397fc4d301dcfd7030f1d9abec"
+    },
+    {
+      "path": "src/lib/aiur/decision_store.ex",
+      "sha256": "604fa85db5df33bb49c726741b3567c911372de746dc0908cb91020ab3b81711"
+    },
+    {
+      "path": "src/lib/aiur/decision_validation.ex",
+      "sha256": "b0ea422b4293f92c004b5a0c066416cda4ce2b1e0264f3fb3cf0f11b74cbd03e"
+    },
+    {
+      "path": "src/lib/aiur/event_humanizer_helpers.ex",
+      "sha256": "edf35aa7a41cc6d4f0866cc73cf240d8159aac760c877a0be920ee4f1072a990"
+    },
+    {
+      "path": "src/lib/aiur/events/branch_ref_store.ex",
+      "sha256": "86b636efdb281cd48c73c16989c62882d64db171a3bf69ce026f3e0e62faebce"
+    },
+    {
+      "path": "src/lib/aiur/events/sanitizer.ex",
+      "sha256": "c0e8c4851d161a805b794f54610102a891fc7d78effdfd9f979f5ea4dc25aaa9"
+    },
+    {
+      "path": "src/lib/aiur/executor/claims.ex",
+      "sha256": "fa02a95c7630f11c1243228a3af85e41330af0ab7d04df6fe9dccae4a64c8d5c"
+    },
+    {
+      "path": "src/lib/aiur/executor_wake_projection.ex",
+      "sha256": "54f30fd66c776319cbaccf5cec92bb739c43ddb7988a81cd96fb84ce370ba4fd"
+    },
+    {
+      "path": "src/lib/aiur/findings_cli.ex",
+      "sha256": "50b6942bfb6c170e5f7bf1c192f411e01a18029ddbe877e8983ffcb0f7652abd"
+    },
+    {
+      "path": "src/lib/aiur/git.ex",
+      "sha256": "d860b4fb98985df12d7def2c4a45515f1804dcf88c20aee1714a4f0baf9b544c"
+    },
+    {
+      "path": "src/lib/aiur/github/ci_readiness.ex",
+      "sha256": "1df3e1379743dc8da2cea3781c029ba5a58f7680edbb41ba2c68555c242c21bb"
+    },
+    {
+      "path": "src/lib/aiur/github/code_owners.ex",
+      "sha256": "b7708c27a483b827b9bd08381a8e64a7ad4f74af8da00664c66efe49f196e9c5"
+    },
+    {
+      "path": "src/lib/aiur/github/graphql_cost.ex",
+      "sha256": "4c142f189fd683af721381b65feadd1d5d6711df34b793b54c8050b20bac62d0"
+    },
+    {
+      "path": "src/lib/aiur/github/quota.ex",
+      "sha256": "32dbf6fff8b4381dabf48006aa7b2016532e67db44c8906fba5f0a8e4eb11e4e"
+    },
+    {
+      "path": "src/lib/aiur/github/request_log.ex",
+      "sha256": "de3dcabb5bcf3354292a51d896a2a998f0436ae73ed216a02b1fc45abc498e63"
+    },
+    {
+      "path": "src/lib/aiur/init/agent_cli.ex",
+      "sha256": "2e1ca73f4571554a691d3bf7216528e8b5ab7f4b04a7f8144eb5eb7cb21d8e1c"
+    },
+    {
+      "path": "src/lib/aiur/init/github.ex",
+      "sha256": "f0fb5b4f51842bddb2d980f3e8b6aa8a177bee9af4fa2a269e57dc8db30fdae7"
+    },
+    {
+      "path": "src/lib/aiur/issue_context.ex",
+      "sha256": "14a0f6042f67dd49e41e476b20d85fe8b76c34b32b88581bff01cfebcdecddf1"
+    },
+    {
+      "path": "src/lib/aiur/issue_log.ex",
+      "sha256": "963414a204267284876fc92cb7c0a5c6099dc539a4cd456a6e8424e2d33bda96"
+    },
+    {
+      "path": "src/lib/aiur/linear/client.ex",
+      "sha256": "43bbbb6acca390de0d3459d0d7f6e117def1eaf00dd2b978ae7d5660c46e1e8c"
+    },
+    {
+      "path": "src/lib/aiur/linear/tracker.ex",
+      "sha256": "0b288dbbb69e4d30076d949daaaee05d7aee8349014a7c69a9a179e720077cfc"
+    },
+    {
+      "path": "src/lib/aiur/live_conversation/source.ex",
+      "sha256": "10739574f69c17cd636b01b636490e04428f1c6cef3a7108e294c455b3b549ab"
+    },
+    {
+      "path": "src/lib/aiur/memory/tracker.ex",
+      "sha256": "ba250ac0c501899b710527804cb9ad702435ff8deac7e70356c704cf0a1ad6e7"
+    },
+    {
+      "path": "src/lib/aiur/model_catalog.ex",
+      "sha256": "920516e7439c775df4105fbc29a4a8262f8256693414ac77a5c71f92417f890a"
+    },
+    {
+      "path": "src/lib/aiur/opaque_identifier.ex",
+      "sha256": "72a3dfa377347951feb7371eb88ae4d4d865d6b72c7344c3ee9c68211ac35ff3"
+    },
+    {
+      "path": "src/lib/aiur/opencode/bridge_port.ex",
+      "sha256": "b47731a72859e447f78f819651d46ab9560af08965a286a03d31eda4f12c9e8f"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+      "sha256": "766ee6c194f71b7176f5ebaa1a0005ff113fa5139cfedefffc60a333eba00185"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/push_routing.ex",
+      "sha256": "8796a557df7abefff766fbbfa0ad4a6281a409e9fca5095c8e4285a7306cf0e3"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/state.ex",
+      "sha256": "090b0516ce6a6a87345cb5da1aaef6f695d272d333f61d924ce446eb535f0663"
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/status_reason.ex",
+      "sha256": "e4db663d439ae3cacdc079cdae267c43ef4151f57802641a6890b326f3044561"
+    },
+    {
+      "path": "src/lib/aiur/pane_manager/state.ex",
+      "sha256": "e1b6d83e8dc0790871270462ed6144bf42453978e6269e2234aaf05b8d3b07da"
+    },
+    {
+      "path": "src/lib/aiur/provider_meters/input.ex",
+      "sha256": "d80dd7853da744a2d3899e42e4a3036a835d0db084117e047200d2d3786b103b"
+    },
+    {
+      "path": "src/lib/aiur/recent_merge.ex",
+      "sha256": "b435edd95ba805c8c8344c3bc6297bab02ee835982bd0920f5004e45cb8e2c03"
+    },
+    {
+      "path": "src/lib/aiur/repo_base.ex",
+      "sha256": "dcdf8427cd33aaf67b1b26128b7cd8ef1ca4e0dd148434759c0c7be520128723"
+    },
+    {
+      "path": "src/lib/aiur/ticket_branch.ex",
+      "sha256": "27d2b0fb7a8008039bde11fca4214fea5389bd2f4bdbc94860a0cc0aeea6d4ba"
+    },
+    {
+      "path": "src/lib/aiur/tmux/exec.ex",
+      "sha256": "3c70093a4a11d9af65ae467e391087e91689c367fce93371bca3bce6d9c0fac8"
+    },
+    {
+      "path": "src/lib/aiur/usage/price_table/validator.ex",
+      "sha256": "ef91fb6e035adca8cf7f629cbdad853b3a4aa227bff5a3e0a2d5392c517d4051"
+    },
+    {
+      "path": "src/lib/aiur/usage_aggregate/key.ex",
+      "sha256": "ecde1e9a427e776d821a7121b5a7e26279a9a7f04bcacf21c9aaa2b5d075714a"
+    },
+    {
+      "path": "src/lib/aiur/usage_envelope.ex",
+      "sha256": "ad3bd69d1beb83f92d692fdfca065fc516bdb3860cd8f825e3b2012b2eb9560f"
+    },
+    {
+      "path": "src/lib/aiur/usage_envelope/exact_money.ex",
+      "sha256": "3e4834fd315bc784de42844bc3b1779aaf8614f54981bd7d34a5b5a83ad13293"
+    },
+    {
+      "path": "src/lib/aiur/usage_ledger/record.ex",
+      "sha256": "106245b5e50c6493cd4dcf5f44582b48d300edb81cdb35f057b843c6ff061820"
+    },
+    {
+      "path": "src/lib/aiur_web/build_order_presenter.ex",
+      "sha256": "1b6cee4913963279517d3ce677e67584ecd85e677331ef7ac1f31ff8a798be79"
+    },
+    {
+      "path": "src/lib/aiur_web/components/operator_control_center/conversation_drawer.ex",
+      "sha256": "d037573c3c287e6186067a39acaa3c7fa0c24e8f7d1e65895c81642589224049"
+    },
+    {
+      "path": "src/lib/aiur_web/components/operator_control_center/decision_card.ex",
+      "sha256": "e337baef4ba00205a8b196e919f5ad85df345246696e9fd810f358b4db0871f1"
+    },
+    {
+      "path": "src/lib/aiur_web/components/operator_control_center/ticket_context.ex",
+      "sha256": "a53e9e17c901a29746fc8c5e5c2945e185b6bbb4621aa5f14a9867e29331085e"
+    },
+    {
+      "path": "src/lib/aiur_web/presenter.ex",
+      "sha256": "c8be4c9263882424f134423cc58ab43671c25b663d112a737039104aa074d054"
+    },
+    {
+      "path": "src/lib/aiur_web/streamdeck_logs.ex",
+      "sha256": "0fb7cbe3f014f7aeb55700a06a57da73a3e64588f351a7fd4361444afd117acb"
+    },
+    {
+      "path": "src/lib/aiur_web/supervisor_auth.ex",
+      "sha256": "0231da7af253469b1a5993cfa6d0e6b506c4fdc8d86f37567bc360f9e4391e09"
+    },
+    {
+      "path": "src/lib/mix/tasks/aiur.test_shard.ex",
+      "sha256": "526f87f532801529c9533a1f2c6f26ebbdd83182ec2b6528bf034f2c79f2d908"
+    }
+  ],
+  "limits": "All 28 syntactic cross-module sigil groups assessed at source-consumer level, not all regex correctness. Dynamic Regex.compile patterns, macro-generated patterns and single-module groups remain outside this candidate set. No full constant or duplication unit completion, runtime safety, production prevalence or savings claimed. Related groups explicitly overlap."
+}

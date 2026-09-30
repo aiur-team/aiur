@@ -1,0 +1,859 @@
+{
+ "surface": "ui",
+ "coverage_notes": "Scope: every dashboard route in src/lib/aiur_web/router.ex (live routes /, /commands, /build-orders, /analytics, /github-cache, /streamdeck; JSON /api/v1/*; static assets), every OperatorControlCenter component/presenter, the TUI (agent_list, pane_manager, tmux, opencode chat-pane stack), Stream Deck (packages/streamdeck + server channel + emulator), voice/TTS (eleven_labs, voice channel), alert sounds, the offline telemetry report and the browser harness. There is NO push/desktop notification subsystem: rg \"notify-send|ntfy|pushover|PushNotification\" over src/lib and packages -> 0; \"notification\" hits are JSON-RPC protocol notifications. Operator notification is the alert feed (alerts surface) plus the alert-sound player (ui-24). Excluded as owned by other surfaces: Supervisor Decision API (/api/v1/decisions*, supervisor_auth.ex), GitHub webhook receiver (/api/v1/github/webhook), AgentChat messaging facade, CLI commands (`aiur units/commands/build-orders/analytics/agents`), the launcher engine, run telemetry sampler/writer, provider-meter probes. LOC method: wc -l over the listed files in the frozen snapshot (features/scratch-ui/loc.py); src/priv and src/browser are not in the snapshot and were read with git show 3339b88:<path>. Adjustments: operator_control_center_components_test.exs (1,550) split by describe blocks into Commands ~870, Build Order ~430, dead components ~250; OpenTicketSource (553/524) attributed to Units; ~100 lines of static_assets.ex attributed to ui-30; alert-sound LOC is the sum of sound-related functions in alerts.ex (211) + constants (47) + schema + init prompt + templates, and its tests are lines 941-1388 of alerts_test.exs + init/alerts_test.exs (estimates). Vendored elk-worker.min.js (6,312 lines, 1.6 MB) is not counted. loc_saving_estimate = lib + test lines removed from the Aiur repository (for externalize, lines moved out, not deleted); simplify/merge figures are judgment estimates stated in rationale. Usage sources: 7 distinct real configs (~/.aiur/config, ~/.aiur/config.archon, aiur, archon, kevinweaver-dev and two private configs (private)) read for key names only with features/scratch-ui/keys.rb (aiur-research/aiur-executor-runtime/worktree configs are copies of the aiur config and were not counted); dotenv files read for key names only; Executor transcripts via scan_transcripts.py (Bash commands and user-typed text only; 2026-09-26 hits include research sessions); Codex sessions via rg; Stream Deck sidecar systemd journal (2.9M lines since 2026-08-13; debug tracing on); ~/.aiur/logs retained runs (39, 2026-09-15..09-26; no daemon debug log retained, so page views and TUI key presses are not observable); ~/.aiur/repo/*/*/meta retro dashboard snapshots; opencode.db was inspected read-only (immutable) but Aiur-injected sessions are GC'd, so it gives no chat-pane usage signal. Unknowns: how often the human opens the dashboard, drawer or TUI directly (no access logs); these are marked from indirect evidence. Totals: lib 97901, test 80957, loc_saving_estimate 109346.",
+ "features": [
+  {
+   "id": "ui-01",
+   "name": "Dashboard HTTP server, router and page shell",
+   "description": "Phoenix endpoint + router + root layout that host every dashboard page: listener start/bind/port-collision handling (Aiur.HttpServer), sidebar shell and nav (DashboardShell, NavState, RouteRegistry), static asset serving, the shared Operator Control Center payload pipeline (PayloadLoader -> ControlCenterPresenter -> ControlCenterCache), markdown rendering, sortable tables, theme toggle, copy-to-clipboard. Config: server.host, server.port, observability.dashboard_enabled, observability.refresh_ms, observability.render_interval_ms; env AIUR_DEFAULT_DASHBOARD_HOST.",
+   "modules": [
+    "src/lib/aiur/http_server.ex",
+    "src/lib/aiur_web/endpoint.ex",
+    "src/lib/aiur_web/router.ex",
+    "src/lib/aiur_web/components/layouts.ex",
+    "src/lib/aiur_web/components/operator_control_center/dashboard_shell.ex",
+    "src/lib/aiur_web/components/operator_control_center/overview.ex",
+    "src/lib/aiur_web/static_assets.ex",
+    "src/lib/aiur_web/controllers/static_asset_controller.ex",
+    "src/lib/aiur_web/control_center_cache.ex",
+    "src/lib/aiur_web/control_center_presenter.ex",
+    "src/lib/aiur_web/operator_control_center/{payload_loader,nav_state,route_registry,time_format,money,row_token}.ex",
+    "src/lib/aiur_web/markdown.ex",
+    "src/lib/aiur_web/observability_pubsub.ex",
+    "src/lib/aiur_web/error_{html,json}.ex",
+    "src/lib/aiur/config/schema/{server,observability}.ex",
+    "src/priv/static/sortable-table-hook.js"
+   ],
+   "entry_points": [
+    "GET / (and every live route)",
+    "aiur / aiurdev run (listener starts unless --no-dashboard)",
+    "--host",
+    "server.host",
+    "server.port"
+   ],
+   "usage": "heavy",
+   "usage_evidence": "URL tally: rg -o '(127\\.0\\.0\\.1|localhost|ts\\.net|100\\.[0-9.]+):[0-9]{4}/(streamdeck|github-cache|analytics|build-orders|commands)...' over ~/.claude/projects and ~/.codex/sessions -> /build-orders* 347, /github-cache* 34, /analytics 28, /commands 4, /streamdeck 0. aiur-meta visual check: find ~/.aiur/repo -type d -name 'dashboard-*' -> 46 snapshot dirs (aiur 31, architecture-docs 6, archon 5, khala 4), dated 2026-08-20..2026-09-16; captured PNGs units 15, commands 15, analytics 15, build-orders 16 (github-cache and streamdeck are not captured). Config (7 distinct real configs: ~/.aiur/config, ~/.aiur/config.archon, aiur, archon, kevinweaver-dev and two private configs (private); ruby keys.rb): server.host+server.port set in 4 of 7 (1 private); observability.dashboard_writable set in 1 of 7 (private); observability.dashboard_enabled/refresh_ms/render_interval_ms/telemetry_* set in 0 of 7. Code check: rg shows Config.observability_enabled?/observability_refresh_ms/observability_render_interval_ms have zero callers, so observability.dashboard_enabled, refresh_ms and render_interval_ms are dead keys. Dashboard credentials (AIUR_DASHBOARD_USERNAME/PASSWORD names) present in 5 dotenv files (~/.aiur/.env, aiur, kevinweaver-dev, 2 private).",
+   "recommendation": "simplify",
+   "rationale": "The dashboard is the most-watched operator surface (URL tallies, hourly meta captures, human reports such as \"dashboard shows 2440 ...\" on 2026-08-24), so the shell stays. It carries dead weight: three config keys with no reader, a three-layer payload pipeline for one read model, a root layout that loads the dead DOM-SVG/ELK layout loader on every page (ui-30), and a config.example comment at line 200 that still promises automatic Tailscale host detection that AGENTS.md says no longer exists.",
+   "rewrite_notes": "Keep: endpoint, router, one layout, nav, static assets, port-collision degrade. Remove: observability.dashboard_enabled, refresh_ms, render_interval_ms (no readers); the layout-asset routes and loader script tag; collapse PayloadLoader/ControlCenterPresenter/ControlCenterCache into one cached read model owned by core (the `aiur units` and `aiur build-orders` CLIs currently import AiurWeb presenters - an inverted dependency to fix). Fix the stale Tailscale comment in .aiur/examples/config.example.",
+   "loc_saving_estimate": 1300,
+   "docs": "website/docs-app/guide/gui.md; reference/configuration.md#observability, #server; reference/cli.md (--host, --no-dashboard)",
+   "surface": "ui",
+   "lib_loc": 3204,
+   "test_loc": 1648
+  },
+  {
+   "id": "ui-02",
+   "name": "Dashboard authentication and write gates (FinancialData access layer)",
+   "description": "HTTP Basic Auth for every dashboard route, implemented as a signed-session \"financial data access\" proof with configuration/connection generations, a protected query cache, a subscription authority and a change bridge; plus the router write gates (:api_write same-origin + X-Aiur-Request header, :require_writable) and the startup credential gate (refuse non-loopback bind without both credentials; loopback fails closed). Config: observability.dashboard_writable; env AIUR_DASHBOARD_USERNAME, AIUR_DASHBOARD_PASSWORD.",
+   "modules": [
+    "src/lib/aiur_web/financial_data_access.ex",
+    "src/lib/aiur_web/financial_data_access/{generation,proof}.ex",
+    "src/lib/aiur_web/financial_data.ex",
+    "src/lib/aiur_web/financial_data/{cache,cache/pending,change_bridge,subscription_authority,supervisor}.ex",
+    "router.ex plugs dashboard_basic_auth/verify_same_origin/require_custom_header/require_dashboard_writable (counted in ui-01)"
+   ],
+   "entry_points": [
+    "every dashboard and /api/v1 route",
+    "observability.dashboard_writable",
+    "AIUR_DASHBOARD_USERNAME",
+    "AIUR_DASHBOARD_PASSWORD"
+   ],
+   "usage": "heavy",
+   "usage_evidence": "Every dashboard request passes through it. Credential names present in 5 dotenv files (2 private). observability.dashboard_writable set in 1 of 7 configs (private). Operational cost observed: boot.out.log in 5 retained runs warns \"environment precedence conflict: AIUR_DASHBOARD_PASSWORD is set to different values in ~/.aiur/.env and ./.env\", and the Stream Deck sidecar journal shows 8,466 \"Stream Deck token request failed (unauthorized)\" retries (journalctl --user -u aiur-streamdeck.service).",
+   "recommendation": "simplify",
+   "rationale": "Authentication is required, but 1,108 lines of generation proofs, per-connection cache scoping and a subscription authority guard one local single-operator dashboard whose only secret is a Basic-Auth pair. The complexity did not prevent the observed failure mode (mismatched passwords across dotenv files silently locking out the deck).",
+   "rewrite_notes": "One Basic-Auth plug (constant-time compare) + one writable flag + the same-origin/X-Aiur-Request check for writes; drop FinancialData/FinancialDataAccess generations, proofs and SubscriptionAuthority. Keep the bind rule (non-loopback needs credentials). Resolve credentials from one source so the dashboard and the sidecar cannot disagree.",
+   "loc_saving_estimate": 1950,
+   "docs": "website/docs-app/guide/gui.md#authentication-and-network-exposure; reference/configuration.md#observability",
+   "surface": "ui",
+   "lib_loc": 1108,
+   "test_loc": 1338
+  },
+  {
+   "id": "ui-03",
+   "name": "Units page (fleet table, tickets panel, unit controls)",
+   "description": "Route `/`: the Units fleet table with scope/condition filters and sortable columns, per-unit pause/resume, global pause toggle, concurrency capacity control in the run summary strip, add-agent modal with routing-label preview, agent log modal, ticket detail/context modals, Tickets panel of every open ticket (fed by OpenTicketSource) with search and progressive reveal, history/recent outcomes, current-run outcomes and run summary strip. The `aiur units` CLI reuses these presenters.",
+   "modules": [
+    "src/lib/aiur_web/live/dashboard_live.ex (2,858 lines; also hosts Commands, drawer and voice handlers)",
+    "src/lib/aiur_web/operator_control_center/units_{presenter,presentation,policy,control_policy,url}.ex",
+    "src/lib/aiur_web/operator_control_center/units_row*.ex",
+    "src/lib/aiur_web/components/operator_control_center/{units_table,units_filters,tickets_panel,history,run_summary,run_summary_strip,current_run_outcomes,add_agent_modal,agent_log_modal,ticket_detail_modal,ticket_context}.ex",
+    "src/lib/aiur_web/operator_control_center/{tickets_presenter,ticket_search,run_summary_presenter,current_run_outcomes_presenter,capacity_presenter,add_agent_submission,agent_routing_preview}.ex",
+    "src/lib/aiur/open_ticket_source.ex, open_ticket_source/snapshot.ex (Tickets panel only; shared with github/view_state_sweep.ex)"
+   ],
+   "entry_points": [
+    "GET /",
+    "aiur units (CLI counterpart, shares presenters)",
+    "LiveView events pause-agent, toggle-global-pause, capacity-*, confirm-add-agent, search-tickets, show-agent-log"
+   ],
+   "usage": "heavy",
+   "usage_evidence": "Transcript scan (features/scratch-ui/scan_transcripts.py) of Executor transcripts five public transcript segments (571/150/262/87/0 files) and one private source (111 files; no private path retained), counting only Bash tool_use commands and user-typed text; hits dated 2026-09-26 include today's research sessions. Bash hits for the dashboard root URL: aiur 108 (9 sessions, 08-21..09-26), architecture-docs 13, khala 6, archon 1. aiur-meta visual check: find ~/.aiur/repo -type d -name 'dashboard-*' -> 46 snapshot dirs (aiur 31, architecture-docs 6, archon 5, khala 4), dated 2026-08-20..2026-09-16; captured PNGs units 15, commands 15, analytics 15, build-orders 16 (github-cache and streamdeck are not captured). Human operator report 2026-08-24: \"dashboard shows 2440, stream deck shows ...\" (aiur transcript). Git: dashboard_live.ex touched by 63 commits (merged-fixes.md counts 52 PRs, 13 of them fixes).",
+   "recommendation": "simplify",
+   "rationale": "Core operator view, used every hour by the meta check and by the human. But one 2,858-line LiveView owns five surfaces and is tested by a 6,562-line test file; 12 Units row/presenter/policy modules (2,038 lines) project one table; the CLI imports AiurWeb presenters. It is the top churn file on the dashboard.",
+   "rewrite_notes": "Split DashboardLive into Units, Commands and Conversation LiveViews. Move the Units read model (UnitsPresenter/Row/Policy) into a core package that both the CLI and the page consume; render only. Keep OpenTicketSource only if the Tickets panel of unrouted tickets stays (it exists solely for this panel). Tests: assert the read model once, keep a thin LiveView smoke test.",
+   "loc_saving_estimate": 6000,
+   "docs": "website/docs-app/concepts/units.md; guide/gui.md",
+   "surface": "ui",
+   "lib_loc": 9962,
+   "test_loc": 14007
+  },
+  {
+   "id": "ui-04",
+   "name": "Provider and usage meters on the Units page",
+   "description": "Units strip meters for model providers (Claude, Codex, DeepSeek, Kimi, OpenRouter credits) and non-model APIs (GitHub, ElevenLabs), usage/cost summary with drill-down and live \"usage watch\". Renders data owned by the usage/provider-meter subsystems.",
+   "modules": [
+    "src/lib/aiur_web/components/operator_control_center/{provider_meters,usage_summary}.ex",
+    "src/lib/aiur_web/operator_control_center/{provider_meters_presenter,provider_meter_source,usage_summary_presenter}.ex",
+    "src/priv/static hook UsageWatch (in layouts.ex)"
+   ],
+   "entry_points": [
+    "GET / (meter strip)",
+    "LiveView events usage-drill-down, usage-watch-start/stop"
+   ],
+   "usage": "regular",
+   "usage_evidence": "Rendered on every Units view (see ui-03 evidence; units.png in 15 meta captures). The Stream Deck sidecar also consumed the same provider usage feed: journal shows 160,538 \"channel.usage providers=[claude,codex,deepseek,kimi,openrouter]\" lines. No direct transcript evidence of drill-down use (no grep target; LiveView events are not logged).",
+   "recommendation": "simplify",
+   "rationale": "Useful at a glance, but 1,637 lib lines of presenters (usage_summary_presenter alone 718) re-derive values the usage subsystem and `aiur usage`/`aiur analytics` CLIs already compute.",
+   "rewrite_notes": "Render one meter DTO from the usage package; drop the page-local drill-down/watch state machine unless a user asks for it back.",
+   "loc_saving_estimate": 1350,
+   "docs": "website/docs-app/concepts/units.md#api-meters, #usage-and-cost",
+   "surface": "ui",
+   "lib_loc": 1637,
+   "test_loc": 1740
+  },
+  {
+   "id": "ui-05",
+   "name": "Commands page (decision inbox, detail, answer, revise)",
+   "description": "Routes /commands and /commands/:decision_id (legacy /decisions redirects): inbox filters, Command cards, detail, answer/defer/dismiss forms, revision chain, delivery retry, awaiting-Commands banner on every page. Command revision is GUI-only today.",
+   "modules": [
+    "src/lib/aiur_web/components/operator_control_center/{decision_inbox,decision_card,decision_detail,decision_action,decision_revision_action}.ex",
+    "src/lib/aiur_web/operator_control_center/{decision_commands,revision_commands,decision_events,decision_path,decision_presenter,decision_provider,awaiting_commands}.ex",
+    "src/lib/aiur_web/controllers/commands_redirect_controller.ex",
+    "handlers inside live/dashboard_live.ex"
+   ],
+   "entry_points": [
+    "GET /commands",
+    "GET /commands/:decision_id",
+    "GET /decisions (301)",
+    "aiur commands (CLI counterpart)"
+   ],
+   "usage": "regular",
+   "usage_evidence": "URL tally: rg -o '(127\\.0\\.0\\.1|localhost|ts\\.net|100\\.[0-9.]+):[0-9]{4}/(streamdeck|github-cache|analytics|build-orders|commands)...' over ~/.claude/projects and ~/.codex/sessions -> /build-orders* 347, /github-cache* 34, /analytics 28, /commands 4, /streamdeck 0. aiur-meta visual check: find ~/.aiur/repo -type d -name 'dashboard-*' -> 46 snapshot dirs (aiur 31, architecture-docs 6, archon 5, khala 4), dated 2026-08-20..2026-09-16; captured PNGs units 15, commands 15, analytics 15, build-orders 16 (github-cache and streamdeck are not captured). Executor Bash hits: /commands 2 (aiur, 2026-08-22); /api/v1/decisions 7 (aiur) + 1 (architecture-docs). Executors mostly answer through `aiur commands` (boot.out.log lines cite \"answer it (see `aiurdev commands`)\").",
+   "recommendation": "keep",
+   "rationale": "Commands flagged human_required can only be answered by a human, and the page is the only GUI for revision. Size (2,121 lib) is proportionate; captured in every meta check.",
+   "rewrite_notes": "Keep as its own LiveView split out of DashboardLive; share the decision read model with `aiur commands`.",
+   "loc_saving_estimate": 0,
+   "docs": "website/docs-app/concepts/commands.md; guide/gui.md",
+   "surface": "ui",
+   "lib_loc": 2121,
+   "test_loc": 1355
+  },
+  {
+   "id": "ui-06",
+   "name": "Agent conversation drawer and LiveConversation projection",
+   "description": "Read-only live transcript drawer on the Units page plus the operator composer (send-operator-message, also POST /api/v1/:id/messages). Backed by Aiur.LiveConversation, an in-memory generation-isolated projection with its own normalizer, compactor and retention, fed by backend adapters (e.g. claude display tailer).",
+   "modules": [
+    "src/lib/aiur_web/components/operator_control_center/conversation_drawer.ex",
+    "src/lib/aiur_web/operator_control_center/conversation_drawer/presenter.ex",
+    "src/lib/aiur/live_conversation.ex",
+    "src/lib/aiur/live_conversation/{compactor,normalizer,retention,source}.ex",
+    "src/priv/static/conversation-drawer-hook.js"
+   ],
+   "entry_points": [
+    "Units row -> read-conversation",
+    "send-operator-message",
+    "POST /api/v1/:issue/messages"
+   ],
+   "usage": "occasional",
+   "usage_evidence": "No page-level telemetry exists. Human statement 2026-09-09 (aiur transcript): \"would the user still be able to chat via the TUI or in the dashboard?\" shows the capability is valued. Agent logs in retained runs hold 130 role=user operator messages (rg over ~/.aiur/logs/*/log/*.agent_events.jsonl) but the channel (TUI, dashboard, deck, CLI) is not recorded. POST /api/v1/:id/messages: 1 Executor Bash hit.",
+   "recommendation": "merge",
+   "rationale": "Aiur keeps four separate transcript projections for four viewers: LiveConversation (drawer), opencode SessionWriter/SQLite injection (TUI chat pane, ui-23), StreamdeckLogs + TranscriptRelay (deck, ui-15) and AgentEventFeed (API/deck). Merge onto one durable per-agent event feed.",
+   "rewrite_notes": "Keep the drawer + composer; replace LiveConversation (1,282 lib) with a read of the shared per-agent feed (AgentEventFeed is 399 lines). The composer should call the same AgentChat facade the CLI `aiur message` uses.",
+   "loc_saving_estimate": 2100,
+   "docs": "website/docs-app/concepts/units.md#agent-conversation-and-voice",
+   "surface": "ui",
+   "lib_loc": 1964,
+   "test_loc": 1537
+  },
+  {
+   "id": "ui-07",
+   "name": "Dashboard voice: browser dictation and spoken replies",
+   "description": "Browser push-to-talk dictation into the composer (getUserMedia PCM over a Phoenix VoiceChannel to an ElevenLabs realtime session) and spoken agent replies (ElevenLabs TTS streamed back as PCM). Session limiter (2 per connection, 8 per daemon). Config: elevenlabs.voice_id (needed for spoken replies).",
+   "modules": [
+    "src/lib/aiur_web/voice_channel.ex",
+    "src/lib/aiur_web/voice_socket.ex",
+    "src/lib/aiur_web/voice_session_limiter.ex",
+    "src/lib/aiur/eleven_labs/tts.ex",
+    "src/priv/static/conversation-voice-controller.js",
+    "src/priv/static/voice-capture-worklet.js"
+   ],
+   "entry_points": [
+    "/voice socket",
+    "conversation drawer mic button",
+    "elevenlabs.voice_id"
+   ],
+   "usage": "none-found",
+   "usage_evidence": "elevenlabs.* keys set in 0 of 7 real configs (so elevenlabs.voice_id is unset and spoken replies are disabled everywhere); ELEVENLABS_API_KEY name present in 2 dotenv files (~/.aiur/.env, aiur/.env). No voice log lines in any retained boot.out.log (grep -i \"voice|elevenlabs\" over ~/.aiur/logs/*/log/boot.out.log = 0). User-typed transcript text mentioning voice/dictation concerns only the Stream Deck TestMic slot and the `aiur init` voice prompt (default No). Git: added in one PR (#2026, 2026-08-16), never touched again. Caveat: VoiceChannel logs only on failure (voice_channel.ex:257,262), so a successful dictation would leave no trace; spoken replies are provably off because tts.ex requires elevenlabs.voice_id, which no config sets.",
+   "recommendation": "cut",
+   "rationale": "Built in one PR, never configured (no voice_id anywhere), no evidence of a single dictation or spoken reply; it is the only feature that sends operator audio to a third party.",
+   "rewrite_notes": "Delete VoiceChannel/VoiceSocket/limiter/TTS and both JS files; drop elevenlabs.voice_id. Typed composer stays (ui-06).",
+   "loc_saving_estimate": 1731,
+   "docs": "website/docs-app/apis/elevenlabs.md; concepts/units.md#agent-conversation-and-voice; reference/configuration.md#elevenlabs",
+   "surface": "ui",
+   "lib_loc": 1152,
+   "test_loc": 579
+  },
+  {
+   "id": "ui-08",
+   "name": "ElevenLabs realtime speech-to-text client",
+   "description": "Server-held ElevenLabs scribe realtime websocket client (Mint transport) shared by Stream Deck voice input and dashboard dictation; config elevenlabs.api_key and elevenlabs.language_code; `aiur init` voice question.",
+   "modules": [
+    "src/lib/aiur/eleven_labs/realtime.ex",
+    "src/lib/aiur/eleven_labs/realtime/{mint_socket,mint_transport,transport}.ex",
+    "src/lib/aiur/config/schema/eleven_labs.ex",
+    "src/lib/aiur/init/eleven_labs.ex"
+   ],
+   "entry_points": [
+    "elevenlabs.api_key",
+    "elevenlabs.language_code",
+    "ELEVENLABS_API_KEY",
+    "aiur init voice prompt"
+   ],
+   "usage": "rare",
+   "usage_evidence": "Only consumer with evidence is Stream Deck voice: sidecar journal (journalctl --user -u aiur-streamdeck.service -g controller.state) shows micHeld=true on 11 state lines, all on 2026-08-15/16 (build week), none since. elevenlabs.* config keys: 0 of 7 configs; key via env in 2 dotenv files. aiur transcript 2026-09-02 shows `aiur init` asking \"Enable Stream Deck voice input with ElevenLabs speech-to-text?\" with No selected.",
+   "recommendation": "cut",
+   "rationale": "Exists only to serve ui-07 and ui-17, both unused after their build week.",
+   "rewrite_notes": "Delete with ui-07/ui-17. If deck voice is ever revived, it belongs in the externalized Stream Deck package, not in core.",
+   "loc_saving_estimate": 1401,
+   "docs": "website/docs-app/apis/elevenlabs.md; guide/stream-deck.md#voice-input; reference/configuration.md#elevenlabs",
+   "surface": "ui",
+   "lib_loc": 768,
+   "test_loc": 633
+  },
+  {
+   "id": "ui-09",
+   "name": "ElevenLabs credit-quota meter",
+   "description": "Fleet-wide GET /v1/user/subscription poller that renders an ElevenLabs credit-quota bar on the Units strip when a key is configured.",
+   "modules": [
+    "src/lib/aiur/eleven_labs/quota.ex"
+   ],
+   "entry_points": [
+    "Units meter strip (present only when ELEVENLABS_API_KEY resolves)"
+   ],
+   "usage": "rare",
+   "usage_evidence": "Active on hosts where ELEVENLABS_API_KEY is set (2 dotenv files), so it polls and renders, but it measures the TTS character pool, not the speech-to-text minutes voice input spends (per apis/elevenlabs.md), and voice itself is unused (ui-07, ui-08).",
+   "recommendation": "cut",
+   "rationale": "A meter for an unused integration that, by its own docs, does not measure what the integration spends.",
+   "rewrite_notes": "Delete with the voice features.",
+   "loc_saving_estimate": 547,
+   "docs": "website/docs-app/apis/elevenlabs.md#what-the-units-meter-measures",
+   "surface": "ui",
+   "lib_loc": 296,
+   "test_loc": 251
+  },
+  {
+   "id": "ui-10",
+   "name": "Analytics page",
+   "description": "Route /analytics: latest-run telemetry (lifecycle time, CPU, memory, fleet/build pressure, concurrency, cost) as inline SVG charts with legend/sort/time-brush interactions, durable restart fallback, source-freshness line, optional Build Order scope, rtk output-compression panel.",
+   "modules": [
+    "src/lib/aiur_web/live/analytics_live.ex",
+    "src/lib/aiur_web/operator_control_center/analytics/{charts,latest_run,presenter,scope_resolver,styles}.ex",
+    "src/priv/static/time-brush-hook.js"
+   ],
+   "entry_points": [
+    "GET /analytics",
+    "aiur analytics (CLI counterpart)"
+   ],
+   "usage": "regular",
+   "usage_evidence": "URL tally: rg -o '(127\\.0\\.0\\.1|localhost|ts\\.net|100\\.[0-9.]+):[0-9]{4}/(streamdeck|github-cache|analytics|build-orders|commands)...' over ~/.claude/projects and ~/.codex/sessions -> /build-orders* 347, /github-cache* 34, /analytics 28, /commands 4, /streamdeck 0. aiur-meta visual check: find ~/.aiur/repo -type d -name 'dashboard-*' -> 46 snapshot dirs (aiur 31, architecture-docs 6, archon 5, khala 4), dated 2026-08-20..2026-09-16; captured PNGs units 15, commands 15, analytics 15, build-orders 16 (github-cache and streamdeck are not captured). Executor Bash hits for :4xxx/analytics: 2 (aiur).",
+   "recommendation": "simplify",
+   "rationale": "Captured hourly by the meta check, so it is looked at, but mostly by automation; direct navigation is rare. 2,945 lib lines include a 1,101-line presenter and 661 lines of hand-built SVG charting that duplicate `aiur analytics`.",
+   "rewrite_notes": "Build the page and `aiur analytics` from one dataset module; keep the pressure and lifecycle charts, drop time-brush and the Build Order scope unless they show up in real use. Consider a small charting lib over hand-rolled SVG.",
+   "loc_saving_estimate": 2100,
+   "docs": "website/docs-app/guide/gui.md#read-fleet-and-build-pressure",
+   "surface": "ui",
+   "lib_loc": 2945,
+   "test_loc": 2168
+  },
+  {
+   "id": "ui-11",
+   "name": "Build Order pages (catalog and root detail)",
+   "description": "Routes /build-orders and /build-orders/:root_number: catalog, epic-by-wave grid, phase/lane breakdown, dependency graph (CSS/SVG), ticket context dialog, per-root usage and analytics panels, route state in the query string. `aiur build-orders` CLI reuses AiurWeb.BuildOrder.DataSource and BuildOrderPresenter.",
+   "modules": [
+    "src/lib/aiur_web/live/build_order_live.ex",
+    "src/lib/aiur_web/build_order_presenter.ex",
+    "src/lib/aiur_web/build_order_view_model.ex",
+    "src/lib/aiur_web/build_order/{analytics_runtime,analytics_scope,context_runtime,data_source,route_state,runtime,source_runtime,ticket_context_adapter,ticket_context_presenter,ticket_context_selection,usage_runtime,usage_scope}.ex",
+    "src/lib/aiur_web/components/operator_control_center/build_order_{analytics,breakdown,catalog,epic_icon,graph,grid_model,selected,status,ticket_context,usage}.ex",
+    "src/priv/static/build-order-grid-hook.js",
+    "src/priv/static/ticket-context-dialog-hook.js"
+   ],
+   "entry_points": [
+    "GET /build-orders",
+    "GET /build-orders/:root_number",
+    "aiur build-orders (CLI counterpart)"
+   ],
+   "usage": "heavy",
+   "usage_evidence": "URL tally: rg -o '(127\\.0\\.0\\.1|localhost|ts\\.net|100\\.[0-9.]+):[0-9]{4}/(streamdeck|github-cache|analytics|build-orders|commands)...' over ~/.claude/projects and ~/.codex/sessions -> /build-orders* 347, /github-cache* 34, /analytics 28, /commands 4, /streamdeck 0. (the most-visited page by far). aiur-meta visual check: find ~/.aiur/repo -type d -name 'dashboard-*' -> 46 snapshot dirs (aiur 31, architecture-docs 6, archon 5, khala 4), dated 2026-08-20..2026-09-16; captured PNGs units 15, commands 15, analytics 15, build-orders 16 (github-cache and streamdeck are not captured). Executor Bash hits: aiur 13, architecture-docs 18, khala 3, archon 1.",
+   "recommendation": "simplify",
+   "rationale": "Heavily used planning view; keep it. It is also the largest page (8,244 lib excluding the dead layout engine in ui-30): four ticket-context modules (1,676 lines), page-local usage/analytics runtimes that duplicate ui-04/ui-10, and the CLI depends on web-layer modules.",
+   "rewrite_notes": "Move DataSource/BuildOrderPresenter into the build-order core package used by both CLI and page. Keep grid + breakdown + ticket context; fold the per-root usage/analytics panels into links to /analytics. Remove the dead layout engine (ui-30) and PlanningSource (ui-12).",
+   "loc_saving_estimate": 4000,
+   "docs": "website/docs-app/concepts/build-orders.md; guide/gui.md",
+   "surface": "ui",
+   "lib_loc": 8244,
+   "test_loc": 7512
+  },
+  {
+   "id": "ui-12",
+   "name": "Build Order PlanningSource (pre-ticket demo data source)",
+   "description": "Alternate Build Order data source that renders a local planning-pack JSON before GitHub issues exist; selected only via application env :build_order_data_source / :build_order_planning_pack. Ships three bundled demo packs under src/priv/build_orders.",
+   "modules": [
+    "src/lib/aiur_web/build_order/planning_source.ex",
+    "src/priv/build_orders/{README.md, three demo pack JSON files}"
+   ],
+   "entry_points": [
+    "config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource (app env only, no .aiur/config key)"
+   ],
+   "usage": "none-found",
+   "usage_evidence": "rg \"PlanningSource|build_order_planning_pack|priv/build_orders\" over src/lib, src/test, scripts, .claude/skills: referenced only by its own module, planning_source_test.exs and test/manual/executor_control_center_docs_fixture.exs (docs screenshot fixture). No .aiur/config key can select it.",
+   "recommendation": "cut",
+   "rationale": "Demo/screenshot tooling carried in the production library (926 lines + 2,466 lines of bundled JSON).",
+   "rewrite_notes": "Delete; if docs screenshots need data, keep a small fixture under test/ that feeds the normal DataSource behaviour.",
+   "loc_saving_estimate": 4368,
+   "docs": "none (moduledoc only)",
+   "surface": "ui",
+   "lib_loc": 3441,
+   "test_loc": 927
+  },
+  {
+   "id": "ui-13",
+   "name": "GitHub cache inspector page",
+   "description": "Routes /github-cache, /github-cache/:resource_type, /github-cache/:resource_type/:identity: strictly view-only map/group/entry layers over the shared GitHub state cache, 30-second history sampler ring (CacheHistory), live budget map (caller -> cache -> pool), broker admissions, ResourceStore and webhook panels, agent gh exact-shape hit rate.",
+   "modules": [
+    "src/lib/aiur_web/live/github_cache_live.ex",
+    "src/lib/aiur_web/operator_control_center/github_cache/{charts,styles}.ex",
+    "src/lib/aiur/github/cache_inspector.ex",
+    "src/lib/aiur/github/cache_inspector/{entry,events,redactor,resource_store_source,source}.ex",
+    "src/lib/aiur/github/cache_history.ex",
+    "src/lib/aiur/github/budget_map.ex",
+    "src/lib/aiur/github/agent_cache_metrics.ex"
+   ],
+   "entry_points": [
+    "GET /github-cache",
+    "GET /github-cache/:resource_type",
+    "GET /github-cache/:resource_type/:identity"
+   ],
+   "usage": "occasional",
+   "usage_evidence": "URL tally: rg -o '(127\\.0\\.0\\.1|localhost|ts\\.net|100\\.[0-9.]+):[0-9]{4}/(streamdeck|github-cache|analytics|build-orders|commands)...' over ~/.claude/projects and ~/.codex/sessions -> /build-orders* 347, /github-cache* 34, /analytics 28, /commands 4, /streamdeck 0. Executor Bash hits for :4xxx/github-cache: 16 in 4 aiur sessions, 2026-08-21..2026-09-10, none after. Not part of the meta visual check. Built 2026-08-17..08-24 (15 commits to the LiveView), mostly used during that build and the GitHub-budget investigation.",
+   "recommendation": "cut",
+   "rationale": "A diagnostic page (4,393 lib + 3,528 test) with no visits after 2026-09-10; `aiur github-cost` already ranks spend by caller from the same ledgers. Its CacheHistory sampler runs every 30 s in every daemon to feed charts almost nobody opens.",
+   "rewrite_notes": "Delete the LiveView, charts/styles, CacheHistory sampler and CacheInspector. If the budget map verdicts (free/billed/wasted) are wanted, emit them as a section of `aiur github-cost --json` (keep BudgetMap ~500 lines in the github package).",
+   "loc_saving_estimate": 7400,
+   "docs": "website/docs-app/guide/gui.md#github-cache; apis/github.md",
+   "surface": "ui",
+   "lib_loc": 4393,
+   "test_loc": 3528
+  },
+  {
+   "id": "ui-14",
+   "name": "Stream Deck browser emulator page",
+   "description": "Route /streamdeck: a LiveView that emulates the Stream Deck + keys, dials and touch strip in the browser, driving the same channel/projection as the physical sidecar.",
+   "modules": [
+    "src/lib/aiur_web/live/streamdeck_live.ex",
+    "src/priv/static/streamdeck-emulator-hook.js"
+   ],
+   "entry_points": [
+    "GET /streamdeck (nav label \"Streamdeck+\")"
+   ],
+   "usage": "none-found",
+   "usage_evidence": "URL tally: rg -o '(127\\.0\\.0\\.1|localhost|ts\\.net|100\\.[0-9.]+):[0-9]{4}/(streamdeck|github-cache|analytics|build-orders|commands)...' over ~/.claude/projects and ~/.codex/sessions -> /build-orders* 347, /github-cache* 34, /analytics 28, /commands 4, /streamdeck 0. -> 0 URL occurrences of /streamdeck across all Claude and Codex transcripts; 0 Executor Bash navigations; excluded from the meta visual check by design (\"Stream Deck is excluded\"). Exercised only by browser specs (streamdeck-emulator 1,311, operator-flow 317, proof-capture 456 lines) and docs screenshots.",
+   "recommendation": "cut",
+   "rationale": "A test double for the physical deck shipped as a production page (2,405 lib + 3,888 test); the one person with a deck uses the device.",
+   "rewrite_notes": "Delete; if the deck package is externalized (ui-16), its own repo can keep a headless renderer test harness (render-preview already exists there).",
+   "loc_saving_estimate": 6293,
+   "docs": "website/docs-app/guide/stream-deck.md (emulator sections); guide/gui.md",
+   "surface": "ui",
+   "lib_loc": 2405,
+   "test_loc": 3888
+  },
+  {
+   "id": "ui-15",
+   "name": "Stream Deck server channel and projections",
+   "description": "Phoenix channel + token endpoint the sidecar connects to (POST /api/v1/streamdeck/token, GET /api/v1/streamdeck/grid), bucket-ordered grid projection, logs projection (event keys + transcript), touch-strip descriptors, key-face contract shared with the TS sidecar, transcript relay, voice audio relay to ElevenLabs.",
+   "modules": [
+    "src/lib/aiur_web/{streamdeck_channel,streamdeck_projection,stream_deck_grid,streamdeck_logs,streamdeck_strip,streamdeck_key_face_contract,streamdeck_transcript_relay,streamdeck_auth,streamdeck_socket}.ex",
+    "src/lib/aiur_web/controllers/streamdeck_session_controller.ex",
+    "src/lib/aiur/agent_event_feed.ex (shared; counted in ui-25)"
+   ],
+   "entry_points": [
+    "POST /api/v1/streamdeck/token",
+    "GET /api/v1/streamdeck/grid",
+    "/streamdeck socket"
+   ],
+   "usage": "regular",
+   "usage_evidence": "Sidecar journal (journalctl --user -u aiur-streamdeck.service -g channel.snapshot): connected ~288 snapshots/day continuously 2026-08-14..09-03, then on only 9 of the 23 days since 09-04; -g \"daemon channel unavailable|channel closed\": 49,544 failure lines over 45 days (2,880/day = disconnected all day on 09-15, 09-17, 09-18, 09-25). MEMORY.md \"Stream Deck follows one daemon\": AIUR_PHOENIX_URL must be repointed and the sidecar restarted at every launch on a new repo.",
+   "recommendation": "externalize",
+   "rationale": "Deck-specific projections (grid bucket order, strip, key faces, logs anchors) live in core and are coupled to one hardware device; the channel is single-daemon, so every repo switch breaks it. Move deck presentation into the deck package and serve it a generic, versioned fleet/event stream.",
+   "rewrite_notes": "Core keeps one generic authenticated fleet+events websocket (~600 lines) that the dashboard, CLI watch and deck all share; the grid/strip/logs/key-face projections move to the externalized deck package. Support multiple daemons (or a stable local endpoint) so the deck survives repo switches.",
+   "loc_saving_estimate": 4181,
+   "docs": "website/docs-app/guide/stream-deck.md; docs/streamdeck-channel.md",
+   "surface": "ui",
+   "lib_loc": 2494,
+   "test_loc": 2887
+  },
+  {
+   "id": "ui-16",
+   "name": "Stream Deck + physical sidecar (packages/streamdeck)",
+   "description": "TypeScript sidecar for the Elgato Stream Deck +: USB/hidraw device backends, rasterizer and key/touch-strip rendering, dials, modes Grid/Command/Logs, lifecycle (hotplug, suspend, reconnect), systemd user service, udev rule, release packaging and CI workflow. Env: AIUR_PHOENIX_URL, AIUR_DASHBOARD_USERNAME/PASSWORD (in ~/.config/aiur/streamdeck.env), STREAMDECK_BRIGHTNESS, AIUR_STREAMDECK_DEBUG.",
+   "modules": [
+    "packages/streamdeck/src/** (excluding audio/voice, commands.ts, demo.ts)",
+    "packages/streamdeck/scripts/*",
+    "packages/streamdeck/systemd/aiur-streamdeck.service",
+    "packages/streamdeck/udev/70-streamdeck.rules",
+    ".github/workflows/streamdeck-package.yml"
+   ],
+   "entry_points": [
+    "systemd --user aiur-streamdeck.service",
+    "~/.config/aiur/streamdeck.env"
+   ],
+   "usage": "occasional",
+   "usage_evidence": "systemctl --user: aiur-streamdeck.service enabled and running (debug drop-in AIUR_STREAMDECK_DEBUG=1). journalctl -g input.decoded: 3,567 decoded physical input reports in total, 3,253 of them 2026-08-13..08-20 (build week), 314 after, last on 2026-09-11. Mode transitions (-g controller.state): logs 4,681, grid 768, cmd 336. streamdeck.env last edited 2026-09-19 (3 backups). Human reports: 2026-08-24 deck/dashboard disagreement, 2026-09-10 \"my streamdeck doesnt show any agents\". Git: 32 commits to packages/streamdeck.",
+   "recommendation": "externalize",
+   "rationale": "A separate TypeScript/Node program (11,207 lib + 9,562 test) for one hardware device on one OS (Arch x64); it already lives in its own package with its own CI. Press activity collapsed after the build week and the channel has been down most days since 09-04, so it should not share Aiur core release cadence or test budget.",
+   "rewrite_notes": "Move to its own repository consuming the generic fleet stream from core (see ui-15). Loc saving here is lines leaving the Aiur repo, not deleted.",
+   "loc_saving_estimate": 20769,
+   "docs": "website/docs-app/guide/stream-deck.md; packages/streamdeck/README.md",
+   "surface": "ui",
+   "lib_loc": 11207,
+   "test_loc": 9562
+  },
+  {
+   "id": "ui-17",
+   "name": "Stream Deck voice input and microphone settings",
+   "description": "Sidecar PipeWire/PulseAudio capture, waveform/level panel, press-and-hold Mic, TestMic, microphone picker (Settings mode, ~/.config/aiur/streamdeck-mic.json), mishearing corrections for the coined name, audio relay to Aiur for ElevenLabs STT.",
+   "modules": [
+    "packages/streamdeck/src/audio/**",
+    "packages/streamdeck/src/{voiceHost,voicePanel,aiur-speech,settings}.ts",
+    "voice relay inside src/lib/aiur_web/streamdeck_channel.ex (counted in ui-15)"
+   ],
+   "entry_points": [
+    "Mic key (Command mode)",
+    "Settings key -> microphone picker",
+    "TestMic key"
+   ],
+   "usage": "rare",
+   "usage_evidence": "journalctl -g controller.state: micHeld=true on 11 lines, all 2026-08-15/16; mode=settings 8 lines; no \"[streamdeck] voice:\" lines. ~/.config/aiur/streamdeck-mic.json last written 2026-08-16. User requests 2026-09-10/11 were about moving the TestMic key, not about using voice.",
+   "recommendation": "cut",
+   "rationale": "Used only while being built; 2,099 lib + 3,312 test lines plus the server ElevenLabs path (ui-08) for no observed use.",
+   "rewrite_notes": "Delete audio capture, voice panel, mic settings and the channel voice relay; free the Mic/Settings key slots.",
+   "loc_saving_estimate": 5411,
+   "docs": "website/docs-app/guide/stream-deck.md#voice-input",
+   "surface": "ui",
+   "lib_loc": 2099,
+   "test_loc": 3312
+  },
+  {
+   "id": "ui-18",
+   "name": "Stream Deck on-device Command answering",
+   "description": "Commands mode on the deck: Command history keys, option paging on dial D, press-to-approve, dictated free-text answer, operator/streamdeck attribution.",
+   "modules": [
+    "packages/streamdeck/src/commands.ts",
+    "src/lib/aiur_web/streamdeck_commands.ex"
+   ],
+   "entry_points": [
+    "Commands key (Command mode)"
+   ],
+   "usage": "rare",
+   "usage_evidence": "journalctl -g controller.state: mode=commands appears on 1 line in the sidecar journal (entire history since 2026-08-13).",
+   "recommendation": "cut",
+   "rationale": "Duplicates the Commands page and `aiur commands` answer path on a device where it was entered once.",
+   "rewrite_notes": "Delete with the deck externalization; answering stays in the dashboard and CLI.",
+   "loc_saving_estimate": 1381,
+   "docs": "website/docs-app/guide/stream-deck.md#answer-agent-commands",
+   "surface": "ui",
+   "lib_loc": 553,
+   "test_loc": 828
+  },
+  {
+   "id": "ui-19",
+   "name": "Stream Deck demo mode",
+   "description": "Synthetic fleet demo source for the sidecar plus a render-demo script.",
+   "modules": [
+    "packages/streamdeck/src/demo.ts",
+    "packages/streamdeck/scripts/render-demo.mjs"
+   ],
+   "entry_points": [
+    "sidecar demo toggle"
+   ],
+   "usage": "rare",
+   "usage_evidence": "journalctl: \"[streamdeck] demo mode on\" 6 lines, \"off\" 3 lines, all during the build weeks.",
+   "recommendation": "cut",
+   "rationale": "Presentation/dev aid with no ongoing use.",
+   "rewrite_notes": "Delete (or keep in the externalized deck repo as a test fixture).",
+   "loc_saving_estimate": 762,
+   "docs": "none",
+   "surface": "ui",
+   "lib_loc": 519,
+   "test_loc": 243
+  },
+  {
+   "id": "ui-20",
+   "name": "TUI agent-list board",
+   "description": "The foreground terminal board (pane 0.0): one row per ticket with state glyphs, runtime, backend/model, progress bar, LATEST event, attention marker, warm-pane markers, max-agents chip, events ticker, help overlay; keys up/down/j/k, enter, shift+enter/O, space (pause/resume), left/right (concurrency cap), a (attach), r (remote control), v (layout), ? (help), q (quit).",
+   "modules": [
+    "src/lib/aiur/agent_list/** (28 modules)",
+    "src/lib/aiur/progress_tracker.ex"
+   ],
+   "entry_points": [
+    "aiur / aiurdev (foreground)",
+    "aiur --bg --interactive then bare aiur to attach"
+   ],
+   "usage": "occasional",
+   "usage_evidence": "No usage telemetry exists for key presses. Human (aiur transcript 2026-08-21): \"what is the flag for me to run aiurdev and connect TUI to existing run\"; 2026-09-09 asked to keep \"chat via the TUI\". Khala Executor drove the TUI via tmux (103 send-keys, 63 capture-pane Bash hits, 2026-09-24..26). Launch mix in Executor Bash commands: --bg 77 vs bare attach/foreground 18 (all repos). Retained run logs (~/.aiur/logs, 39 runs 2026-09-15..09-26): 30 have log/boot.out.log, which aiur-engine.sh:906 writes only in background mode; all runs with agent event logs are among them, so no working run in that window had the board. aiur-run skill: \"Background mode is intentionally headless; observe it through the control commands, not TUI panes.\"",
+   "recommendation": "simplify",
+   "rationale": "A real but secondary surface: agent Executors use `aiur agents`/`status`, and the human attaches sometimes. 4,240 lib lines render what `aiur agents` prints, with warmth markers that exist only to explain opencode slot pre-warm state (ui-23).",
+   "rewrite_notes": "Rebuild as a thin renderer over the same agents read model the CLI uses (one row DTO); drop warm-slot markers, perf/warmth intakes and the debug events ticker. Keep keys enter/space/arrows/?/q. Note: no Executor transcript uses --bg --interactive (see ui-32).",
+   "loc_saving_estimate": 3600,
+   "docs": "website/docs-app/guide/tui.md",
+   "surface": "ui",
+   "lib_loc": 4240,
+   "test_loc": 4743
+  },
+  {
+   "id": "ui-21",
+   "name": "TUI pane manager and conversation panes",
+   "description": "Opens/closes/hides chat panes beside the board: deterministic slot grid layout, orientation toggle, placeholder pane with async swap, open queue, pane-died reconciliation, pane titles, focus restore, screen-grab debug tick (AIUR_SCREEN_GRAB), perf logging, Conversations facade. Config max_vertical_panes.",
+   "modules": [
+    "src/lib/aiur/pane_manager.ex",
+    "src/lib/aiur/pane_manager/{anchor,close,convo_paint,generic_open,layout,opencode_open,open_queue,placeholder,reconcile,screen_grab,slot_attach,state}.ex",
+    "src/lib/aiur/conversations.ex",
+    "src/lib/aiur/perf.ex"
+   ],
+   "entry_points": [
+    "enter / shift+enter on a board row",
+    "max_vertical_panes",
+    "AIUR_SCREEN_GRAB"
+   ],
+   "usage": "occasional",
+   "usage_evidence": "Same launch evidence as ui-20 (no working foreground run 09-15..09-26). max_vertical_panes set in 6 of 7 configs (2 private), always equal to the default 3 in the public ones because `aiur init` scaffolds it (config.example line 120).",
+   "recommendation": "simplify",
+   "rationale": "Most of its 2,490 lines manage opencode slot binding, warm moves and placeholders; with a simpler chat pane (ui-23) it reduces to split/kill/title.",
+   "rewrite_notes": "Keep open/close/hide + layout; drop slot_attach/opencode_open/placeholder/open_queue/convo_paint/screen_grab once ui-23 is replaced.",
+   "loc_saving_estimate": 3600,
+   "docs": "website/docs-app/guide/tui.md#chat-panes; reference/configuration.md (max_vertical_panes)",
+   "surface": "ui",
+   "lib_loc": 2490,
+   "test_loc": 2564
+  },
+  {
+   "id": "ui-22",
+   "name": "tmux integration, isolated tmux config and Ctrl-key bridges",
+   "description": "Aiur.Tmux command bus (per-socket, control-mode protocol parsing, mock transport), isolated tmux.conf (no prefix, extended keys, sync output, pane titles; ~/.config/aiur/tmux.conf override), Ctrl+C 3-state and Ctrl+Q hide bindings via scripts/aiur-pane-ctrlc -> POST /api/v1/pane/interrupt|hide, @aiur_control_url tmux option, launcher watchdog self-halt.",
+   "modules": [
+    "src/lib/aiur/tmux.ex",
+    "src/lib/aiur/tmux/{exec,input,layout,mock_transport,protocol,query,style}.ex",
+    "src/lib/aiur/launcher_watchdog.ex",
+    "scripts/aiur.tmux.conf",
+    "packaging/npm/aiur-cli/share/aiur.tmux.conf",
+    "scripts/aiur-pane-ctrlc"
+   ],
+   "entry_points": [
+    "Ctrl+C / Ctrl+Q in chat panes",
+    "POST /api/v1/pane/interrupt",
+    "POST /api/v1/pane/hide",
+    "~/.config/aiur/tmux.conf"
+   ],
+   "usage": "regular",
+   "usage_evidence": "Every run (including --bg) creates the tmux lifetime-holder session; live check: tmux -L aiur-<user>-<key> list-panes shows the current run session. Pane endpoints: 23 /api/v1/pane/hide and 10 /interrupt curl mentions across all transcripts (rg). The meta visual check reads @aiur_control_url from the tmux socket to find the dashboard.",
+   "recommendation": "simplify",
+   "rationale": "Needed while the TUI and lifetime holder exist; two copies of aiur.tmux.conf (109 and 86 lines) and a control-mode parser are more than a pane splitter needs.",
+   "rewrite_notes": "One tmux.conf; plain tmux commands instead of control-mode protocol parsing; keep the Ctrl+C/Ctrl+Q bridge.",
+   "loc_saving_estimate": 1200,
+   "docs": "website/docs-app/guide/tui.md; AGENTS.md (driving the TUI from a non-TTY agent)",
+   "surface": "ui",
+   "lib_loc": 1852,
+   "test_loc": 1530
+  },
+  {
+   "id": "ui-23",
+   "name": "opencode chat-pane renderer (slots, attach pool, SQLite injection, chat-completions bridge)",
+   "description": "Chat panes are opencode TUI instances: Aiur boots pre-warmed opencode-serve + opencode-attach slot panes in a hidden tmux window, injects every agent transcript (Claude/Codex) as rows into opencode's SQLite DB (~/.local/share/opencode/opencode.db) and PATCHes parts so the attached TUI re-renders, streams live turns through an OpenAI-compatible chat-completions bridge with __aiur_turn__ markers, installs an aiur opencode theme, and GCs sessions. Config: pre_warmed_sessions, opencode.prewarm_disabled, opencode.db_path.",
+   "modules": [
+    "src/lib/aiur/opencode/** (45 modules incl. slot*, attach_pool, session_writer, db, chat_completions/*, hidden_window, warmth_report, turn_markers, event_row)",
+    "src/lib/aiur/opencode_theme.ex",
+    "src/lib/aiur/agent_runner/turn_streams.ex",
+    "src/priv/opencode_themes/aiur.json"
+   ],
+   "entry_points": [
+    "enter on a board row (opens a slot pane)",
+    "pre_warmed_sessions",
+    "opencode.prewarm_disabled"
+   ],
+   "usage": "occasional",
+   "usage_evidence": "Started only in non-headless runs (aiur.ex:478 \"Chat-pane machinery - UI-only, never read by a headless run\"); no working run in the retained 09-15..09-26 window was foreground (see ui-20). pre_warmed_sessions set in 7 of 7 configs (2 private; public values 3, 3, 0, 2) because `aiur init` scaffolds it; opencode.prewarm_disabled 0 of 7. Git: 48 commits to src/lib/aiur/opencode (10 fix-like subjects).",
+   "recommendation": "simplify",
+   "rationale": "The single largest UI subsystem (9,050 lib + 5,210 test) exists to borrow opencode's renderer for agents that are not opencode, by writing into another tool's private SQLite schema (pinned row shapes, verified_min version) and faking chat-completion turns. It is idle in headless runs, which are the norm for agent Executors. Keep the capability (chat with an agent in the terminal), replace the mechanism.",
+   "rewrite_notes": "Replace with a native chat pane: `aiur chat <ticket>` that tails the shared per-agent event feed (ui-06) and sends input through AgentChat, rendered with a small ANSI/markdown formatter (~500-800 lines). Or open the backend's own TUI (claude/codex resume) in the pane. Drop pre_warmed_sessions/opencode.* keys, slot pool, SQLite injection, theme install and warmth report.",
+   "loc_saving_estimate": 13150,
+   "docs": "website/docs-app/guide/tui.md#chat-panes; reference/configuration.md (pre_warmed_sessions, opencode.*); src/docs/notes/opencode-row-shapes-1.17.10.md",
+   "surface": "ui",
+   "lib_loc": 9050,
+   "test_loc": 5210
+  },
+  {
+   "id": "ui-24",
+   "name": "Alert sounds",
+   "description": "Plays a sound per alert topic: topic->sound YAML map (.aiur/alerts, scaffolded by `aiur init` from macOS/Linux templates) or built-in OS sounds by category, player probing afplay/paplay/canberra-gtk-play/aplay. Config: alerts.enabled (default true), alerts.use_os_default_sounds, alerts.sound_dir, alerts.alerts_file.",
+   "modules": [
+    "src/lib/aiur/alerts.ex (sound selection/playback functions, ~258 of 746 lines)",
+    "src/lib/aiur/config/schema/alerts.ex",
+    "src/lib/aiur/init/alerts.ex",
+    ".aiur/examples/alerts.{macos,linux}.example",
+    ".aiur/alerts (shared with alert messages)"
+   ],
+   "entry_points": [
+    "alerts.enabled",
+    "alerts.use_os_default_sounds",
+    "alerts.sound_dir",
+    "alerts.alerts_file",
+    "aiur init alerts prompt"
+   ],
+   "usage": "none-found",
+   "usage_evidence": "alerts.* set in 5 of 7 configs (2 private, values not reported). The public ones: ~/.aiur/config and ~/.aiur/config.archon set alerts.enabled: false (with use_os_default_sounds: true), archon sets alerts.enabled: false. The aiur and kevinweaver-dev repo configs omit alerts, so the default mapping mode resolves bare names under ~/alerts, which does not exist on this host (ls ~/alerts: no such directory) -> silent. So no public configuration on this host can play a sound.",
+   "recommendation": "cut",
+   "rationale": "Disabled or silently inert everywhere it can be checked; ~700 lib lines plus a 245-line topic map to keep in sync with alert topics (the July inventory already found stale keys in it).",
+   "rewrite_notes": "Delete sound playback and the four alerts.* keys; if an audible cue is wanted, expose one generic \"on alert run command\" hook (alerts stay in the alert feed). Keep alert message definitions with the alerts surface.",
+   "loc_saving_estimate": 1224,
+   "docs": "reference/configuration.md#alerts",
+   "surface": "ui",
+   "lib_loc": 703,
+   "test_loc": 521
+  },
+  {
+   "id": "ui-25",
+   "name": "Dashboard JSON observability API",
+   "description": "GET /api/v1/state, /api/v1/:issue, /api/v1/:issue/events; POST /api/v1/refresh, /api/v1/:issue/messages, /pause, /resume (behind the writable gate); POST /api/v1/:issue/claude-hook (Remote Control lifecycle sink); shared Presenter projections and the per-agent AgentEventFeed (also used by Stream Deck logs).",
+   "modules": [
+    "src/lib/aiur_web/controllers/observability_api_controller.ex",
+    "src/lib/aiur_web/presenter.ex",
+    "src/lib/aiur/agent_event_feed.ex"
+   ],
+   "entry_points": [
+    "/api/v1/state",
+    "/api/v1/:issue",
+    "/api/v1/:issue/events",
+    "/api/v1/refresh",
+    "/api/v1/:issue/messages",
+    "/api/v1/:issue/pause",
+    "/api/v1/:issue/resume",
+    "/api/v1/:issue/claude-hook"
+   ],
+   "usage": "rare",
+   "usage_evidence": "rg for \"/api/v1/state|refresh|.../events|/messages|/pause\" over .claude/skills, packages, scripts, packaging, src/lib, website: only router.ex (no in-repo client). curl mentions across all Claude+Codex transcripts: /api/v1/state 20, /messages 9 (mixed with other APIs), none for refresh/pause/resume. Executor Bash hits: /api/v1/:id/messages 1. The control RPC CLI (`aiur status/agents/pause/resume/message`) covers the same operations.",
+   "recommendation": "simplify",
+   "rationale": "A second control plane beside the CLI RPC with no in-repo consumer for the read/write issue endpoints; the only live consumers are the tmux pane bridge (ui-22), the deck token/grid (ui-15), the claude-hook sink and the decisions API (other surface).",
+   "rewrite_notes": "Keep pane interrupt/hide, streamdeck token (if deck kept), claude-hook (if RC kept) and one read-only state endpoint generated from the same read model as `aiur status --json`. Delete refresh/messages/pause/resume HTTP writes or route them to the RPC layer.",
+   "loc_saving_estimate": 1300,
+   "docs": "website/docs-app/guide/gui.md (writable controls); AGENTS.md (manual testing: do not use curl POST messages as a UX proxy)",
+   "surface": "ui",
+   "lib_loc": 1311,
+   "test_loc": 1574
+  },
+  {
+   "id": "ui-26",
+   "name": "Offline telemetry HTML report (mix aiur.telemetry.dashboard)",
+   "description": "Generates a self-contained HTML analytics artifact from durable telemetry NDJSON, with best-effort GitHub enrichment; wrapped by scripts/aiur-telemetry-dashboard.",
+   "modules": [
+    "src/lib/aiur/run_telemetry/dashboard.ex",
+    "src/lib/mix/tasks/aiur.telemetry.dashboard.ex",
+    "src/lib/aiur/run_telemetry/github_enricher.ex (only caller: dashboard.ex)",
+    "scripts/aiur-telemetry-dashboard"
+   ],
+   "entry_points": [
+    "mix aiur.telemetry.dashboard",
+    "scripts/aiur-telemetry-dashboard"
+   ],
+   "usage": "none-found",
+   "usage_evidence": "Executor transcripts: 17 Bash hits in aiur, all greps of the code or today's research, no invocation. Codex sessions: rg -o \"scripts/aiur-telemetry-dashboard [^\\\"]{0,100}\" -> 64 bare mentions + 60 \"--help\" doc lines, no invocation with --input/--output. find ~/github ~/.aiur ~/Downloads -name \"*telemetry-dashboard*.html\" -> 0 generated reports.",
+   "recommendation": "cut",
+   "rationale": "Superseded by the live /analytics page and `aiur analytics`; never run.",
+   "rewrite_notes": "Delete the mix task, Dashboard renderer, GithubEnricher and wrapper script.",
+   "loc_saving_estimate": 1531,
+   "docs": "mix task @moduledoc; AGENTS.md mentions only",
+   "surface": "ui",
+   "lib_loc": 1114,
+   "test_loc": 417
+  },
+  {
+   "id": "ui-27",
+   "name": "Browser test harness and dashboard visual check",
+   "description": "Playwright harness (src/browser) with a fixture server that renders every dashboard route with synthetic data, failure-artifact sanitizer, and the aiur-meta capture-dashboard.mjs visual check that screenshots Units/Commands/Build Order/Analytics each meta cycle.",
+   "modules": [
+    ".claude/skills/aiur-meta/scripts/capture-dashboard.mjs",
+    "src/browser/scripts/*.mjs",
+    "src/browser/playwright.config.mjs",
+    "src/test/browser/fixture_server.exs",
+    "src/test/support/browser_harness/*",
+    "src/test/manual/executor_control_center_docs_fixture*.exs"
+   ],
+   "entry_points": [
+    ".claude/skills/aiur-run/scripts/executor-retrospective.sh visual-check",
+    "npm test in src/browser"
+   ],
+   "usage": "regular",
+   "usage_evidence": "aiur-meta visual check: find ~/.aiur/repo -type d -name 'dashboard-*' -> 46 snapshot dirs (aiur 31, architecture-docs 6, archon 5, khala 4), dated 2026-08-20..2026-09-16; captured PNGs units 15, commands 15, analytics 15, build-orders 16 (github-cache and streamdeck are not captured). Report verdicts across report.json files: healthy 62, attention 23, did-not-run 7. Executor Bash hits for capture-dashboard.mjs: aiur 42 (8 sessions), khala 1.",
+   "recommendation": "keep",
+   "rationale": "The only automated check that the dashboard renders real data; per-page specs for cut pages are counted with those features.",
+   "rewrite_notes": "Keep; drop specs for cut pages (ui-13, ui-14, ui-30) and keep the four-page visual check.",
+   "loc_saving_estimate": 0,
+   "docs": ".claude/skills/aiur-meta/SKILL.md; .claude/skills/aiur-run/SKILL.md",
+   "surface": "ui",
+   "lib_loc": 1595,
+   "test_loc": 4257
+  },
+  {
+   "id": "ui-28",
+   "name": "Dashboard stylesheet (dashboard.css)",
+   "description": "One hand-written 10,273-line stylesheet for every dashboard page, theme tokens and dark/light themes; plus page-local style modules (analytics/styles.ex, github_cache/styles.ex, counted in their pages).",
+   "modules": [
+    "src/priv/static/dashboard.css"
+   ],
+   "entry_points": [
+    "GET /dashboard.css"
+   ],
+   "usage": "heavy",
+   "usage_evidence": "Loaded by every dashboard page (see ui-01). Git: 117 commits touched dashboard.css (21 fix-like subjects), the most-churned UI file.",
+   "recommendation": "simplify",
+   "rationale": "Rough selector attribution (python over rule blocks): build order 26%, units 19%, stream deck emulator 14%, commands 7%, voice/conversation 4%, shell 8%, unclassified 22%. Cutting the emulator, voice and dead components removes ~18% outright; the rest is ripe for consolidation.",
+   "rewrite_notes": "Delete styles for cut pages; move to a small utility/token system so page styles do not accrete in one file.",
+   "loc_saving_estimate": 4000,
+   "docs": "none",
+   "surface": "ui",
+   "lib_loc": 10273,
+   "test_loc": 312
+  },
+  {
+   "id": "ui-29",
+   "name": "Unreferenced dashboard components",
+   "description": "Seven component modules no page renders: FleetTable, FleetFilters (only used by FleetTable/Overview.fleet_overview), CapacityControl, RecentOutcomes, DecisionLatency, LifecycleComponents, BuildOrderIcon.",
+   "modules": [
+    "src/lib/aiur_web/components/operator_control_center/{fleet_table,fleet_filters,capacity_control,recent_outcomes,decision_latency,lifecycle_components,build_order_icon}.ex"
+   ],
+   "entry_points": [
+    "none"
+   ],
+   "usage": "none-found",
+   "usage_evidence": "features/scratch-ui/comp_refs.py + rg \"\\b<Module>\\b\" over src/lib: each module is referenced only by its own file (FleetFilters also by fleet_table.ex and Overview.fleet_overview, whose only caller is fleet_table.ex); FleetTable, DecisionLatency, LifecycleComponents and BuildOrderIcon are referenced only from operator_control_center_components_test.exs.",
+   "recommendation": "cut",
+   "rationale": "Dead code kept alive by tests.",
+   "rewrite_notes": "Delete the modules and their tests (test_loc is an estimate of their share of operator_control_center_components_test.exs).",
+   "loc_saving_estimate": 1018,
+   "docs": "none",
+   "surface": "ui",
+   "lib_loc": 768,
+   "test_loc": 250
+  },
+  {
+   "id": "ui-30",
+   "name": "Build Order graph layout engine (ELK worker + DOM-SVG adapter) - dead",
+   "description": "Web-worker graph layout pipeline: vendored ELK 0.11.1 (1.6 MB minified), aiur-layout-client/worker (two copies), aiur-dom-svg-layout adapter/loader modules, layout-asset routes and digests, vendoring/packaging check scripts.",
+   "modules": [
+    "src/priv/static/aiur-dom-svg-layout*.js, aiur-dom-svg-layout/*.js",
+    "src/browser/layout/*.js",
+    "src/priv/static/vendor/elk/0.11.1/* (plus 6,312-line elk-worker.min.js not counted)",
+    "src/lib/aiur_web/static_assets.ex (layout part, ~100 lines)",
+    "src/browser/scripts/{check-packaged-layout-worker,check-vendored-elk,vendor-elk}.mjs",
+    "packaging/scripts/check-layout-assets-release.mjs"
+   ],
+   "entry_points": [
+    "GET /aiur-dom-svg-layout-loader.js (loaded on every page)",
+    "GET /vendor/layout/:version/:digest/:asset"
+   ],
+   "usage": "none-found",
+   "usage_evidence": "git grep at 3339b88: no element renders phx-hook=\"DomSvgLayout\" (hooks in use: AgentLogPanel, BuildOrderGrid, ConversationDrawer, CopyToClipboard, NavToggle, SortableTable, StreamdeckEmulator, ThemeToggle, TicketContextDialog, TimeBrush, UsageWatch); AiurWeb.StaticAssets.layout_asset_urls/0 has no caller; build-order-grid-hook.js has no ELK/DomSvg reference. Last change 2026-07-19 (#1285).",
+   "recommendation": "cut",
+   "rationale": "A complete layout engine plus release checks that nothing on any page uses.",
+   "rewrite_notes": "Delete the JS, vendored ELK, routes, static_assets layout code, browser specs and packaging checks; remove the loader script tag from layouts.ex.",
+   "loc_saving_estimate": 5505,
+   "docs": "none",
+   "surface": "ui",
+   "lib_loc": 3940,
+   "test_loc": 1565
+  },
+  {
+   "id": "ui-31",
+   "name": "Remote Control affordances in the TUI",
+   "description": "Board `r` key toggles Claude Remote Control for a row, RC glyph cell, RC session URL on the chat-pane top border (silent set), transient RC hints; server side lives in the Claude backend surface.",
+   "modules": [
+    "src/lib/aiur/agent_list/rc_pane_borders.ex",
+    "RC cells/hints inside agent_list renderer and input (counted in ui-20)"
+   ],
+   "entry_points": [
+    "r key on a board row",
+    "agent.remote_control",
+    "agent.routing value with +remote",
+    "model:remote label"
+   ],
+   "usage": "none-found",
+   "usage_evidence": "agent.remote_control set in 0 of 7 configs; no agent.routing value contains \"+remote\" (keys.rb check, 0 of 7). rg \"model:remote|claude-repl\" over ~/.aiur/logs (39 retained runs) -> 0 lines. Transcript mentions (750 lines in 200 files) are code discussion.",
+   "recommendation": "cut",
+   "rationale": "TUI surface for a backend mode with no configured or logged use in the retained window; follow the Claude backend inventory decision.",
+   "rewrite_notes": "Remove with Remote Control; if RC stays, show its URL in `aiur agents` instead of a pane border.",
+   "loc_saving_estimate": 124,
+   "docs": "website/docs-app/guide/tui.md (keys); AGENTS.md (Remote Control requires the dashboard listener)",
+   "surface": "ui",
+   "lib_loc": 53,
+   "test_loc": 71
+  },
+  {
+   "id": "ui-32",
+   "name": "UI launch switches (foreground attach, --bg, --bg --interactive, --no-dashboard, --host, --debug)",
+   "description": "How a run chooses its UI: bare `aiur` starts the foreground board or attaches to this checkout's session (engine injects --interactive); --bg is headless (no board, no chat panes, dashboard on); --bg --interactive keeps an attachable TUI; --no-dashboard suppresses the listener (refused when Remote Control is configured); --host overrides the bind host; --debug enables verbose logging.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh (owned by the CLI surface; not counted here)",
+    "src/lib/aiur.ex headless?/interactive_cli? supervision branches"
+   ],
+   "entry_points": [
+    "aiur",
+    "aiur --bg",
+    "aiur --bg --interactive",
+    "aiur --no-dashboard",
+    "aiur --host",
+    "aiur --debug"
+   ],
+   "usage": "heavy",
+   "usage_evidence": "Transcript scan (features/scratch-ui/scan_transcripts.py) of Executor transcripts five public transcript segments (571/150/262/87/0 files) and one private source (111 files; no private path retained), counting only Bash tool_use commands and user-typed text; hits dated 2026-09-26 include today's research sessions. Bash hits: --bg 77 (aiur 53, architecture-docs 18, archon 4, khala 2); bare aiur/aiurdev 18; --debug 50; --host 27; --no-dashboard 3; \"--bg --interactive\" 0. Retained runs: 30 of 39 background.",
+   "recommendation": "simplify",
+   "rationale": "--bg (headless) is the dominant mode; --bg --interactive has no recorded use and adds a third TUI lifecycle to the engine and aiur.ex supervision tree.",
+   "rewrite_notes": "Keep two modes: headless daemon, and a separate `aiur tui` client that attaches to any running daemon (removes the need for --interactive and the foreground special case).",
+   "loc_saving_estimate": 50,
+   "docs": "website/docs-app/guide/tui.md#foreground-vs-background; reference/cli.md; AGENTS.md#running",
+   "surface": "ui",
+   "lib_loc": 0,
+   "test_loc": 0
+  },
+  {
+   "id": "ui-33",
+   "name": "Debug chat-pane ANSI recorder (documented, not implemented)",
+   "description": "Docs claim `aiur --debug` records each chat pane to log/record/chat.<issue>.ansi by stitching capture-pane -e frames.",
+   "modules": [
+    "none (no implementation at 3339b88)"
+   ],
+   "entry_points": [
+    "aiur --debug (claimed)"
+   ],
+   "usage": "none-found",
+   "usage_evidence": "rg \"record/chat|capture-pane -e|recorder|stitch\" over src/lib, scripts, packaging: no implementation; only plain `capture-pane -p` for screen-grab/convo-paint. find ~/.aiur/logs -type d -name record -> 0. The July feature inventory already flagged it (FI-DOC-001). Still documented in AGENTS.md (\"Recording chat panes over time - folded into --debug\"), website guide/tui.md and the aiur-debug skill.",
+   "recommendation": "cut",
+   "rationale": "A documented feature that does not exist misleads Executors during debugging.",
+   "rewrite_notes": "Delete the claims from AGENTS.md, guide/tui.md and .claude/skills/aiur-debug/evidence-and-correlation.md.",
+   "loc_saving_estimate": 0,
+   "docs": "AGENTS.md; website/docs-app/guide/tui.md:69; .claude/skills/aiur-debug/evidence-and-correlation.md:67",
+   "surface": "ui",
+   "lib_loc": 0,
+   "test_loc": 0
+  }
+ ]
+}

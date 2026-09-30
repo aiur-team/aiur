@@ -1,0 +1,1336 @@
+{
+  "unit_id": "orch-b",
+  "files_reviewed": 29,
+  "lines_reviewed_estimate": 14881,
+  "coverage_notes": "Read in full: all 29 unit files (pause_resume, retry_engine, status_report, push_routing, state, reconciler, rate_limit_fallback, snapshot_store, snapshot_publisher, tracker_health, rework_requeue, pr_health_scanner, runtime_watchdog, remote_control_mode, rework_gate, pr_anchored, startup_claim_reconciler + boot_marker, token_accounting + payloads, waiting_reason, slots, orphaned_workers, ready_for_review_transitions, workspace_cleanup, priority_control, tracked_set, review_freshness, status_reason). Cross-referenced (targeted reads/greps, not full reviews): orchestrator.ex facade, dispatcher.ex (admit_redispatch, dispatch_latch_statuses, sync call sites), agent_teardown.ex (terminate/deactivate), control_lifecycle.ex pause_reasons, control_lifecycle_store.ex persist, comment_wake.ex / issue_sync.ex membership helpers, auto_resume.ex, operator_messages.ex, interrupts.ex, github/issues.ex, github/errors.ex, agent_runner/message_handler.ex, issue.ex. Not done: no tests were read (test-quality lens not applied to this unit's test files), nothing was compiled or run, and orch-b-02/orch-b-03 are traced from code paths rather than reproduced. ReadCache coverage of the retry-path list fetch (orch-b-23) was not verified.",
+  "findings": [
+    {
+      "id": "orch-b-01",
+      "category": "silent-failure",
+      "severity": "P0",
+      "title": "Read-model projection drops State fields its own renderers read; dashboard and `aiur status` show struct defaults",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "200-236"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "403"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1223-1246"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "lines": "215-245"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "lines": "273-295"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "lines": "340-349"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "895-903"
+        }
+      ],
+      "description": "StatusReport.snapshot_input/1 builds the projected State from a hand-kept Map.take allow-list (23 keys plus 3 overrides). SnapshotStore then runs StatusReport.snapshot_payload/1 (dashboard) and, for fleet rows, StatusReport.agent_statuses/1 (`aiur status`/`watch`) on that projection. Several fields those renderers read are not in the allow-list, so on the steady-state read path they resolve to struct defaults: (1) orphaned_agent_reap_count is always 0; (2) startup_claim_reconciliation_complete? is always false, so an idle in-progress row always reads :orphaned_claim and the post-pass :stale_claim that WaitingReason documents can never reach an operator; (3) Slots.max_concurrent_agent_status reads dispatch_capacity_sample, so capacity.load is always :unavailable and load_threshold/schedulers are nil; (4) capacity.queued_demand? runs DispatchPolicy.dispatch_candidate?, which reads claimed, model_fallback_waiting and blocked_ticket_ids, all defaulted (nil blocked_ticket_ids means 'no gate'), so demand is over-reported. Only the pre-first-publish fallback (fleet_view_from_process -> full State) shows real values, so the two sources disagree. The comment at 211-213 records an earlier instance of the same omission (dispatch_recovery).",
+      "evidence": "status_report.ex:203-232 `state |> Map.take([:agent_rate_limits, ... :session_max_concurrent_agents]) |> then(&struct!(State, &1))` - no :orphaned_agent_reap_count, :startup_claim_reconciliation_complete?, :dispatch_capacity_sample, :claimed, :model_fallback_waiting, :blocked_ticket_ids. Readers: status_report.ex:403 `orphaned_agent_reap_count: state.orphaned_agent_reap_count`; status_report.ex:1244 `startup_reconciliation_complete?: state.startup_claim_reconciliation_complete?`; slots.ex:220 `sample = state.dispatch_capacity_sample`; dispatch_policy.ex:901 `state.blocked_ticket_ids`. Projection consumers: snapshot_store.ex:286 `StatusReport.snapshot_payload(snapshot_input)`, :343 `StatusReport.agent_statuses(state)` on source_state. Live writers exist: retry_engine.ex:238, dispatcher.ex:2148, startup_claim_reconciler.ex:53/106.",
+      "recommendation": "Short term: add the missing fields to snapshot_input and add a test that builds a State with non-default values for every field the renderers read and asserts snapshot_payload(snapshot_input(state)) == snapshot_payload(state) and the same for agent_statuses. Durable fix: replace the allow-list with an explicit projection struct (e.g. FleetProjection) consumed by both renderers, so a renderer cannot read a field the projection does not carry.",
+      "refactor_hint": "Seam between orchestrator core and the fleet read model (StatusReport rows + SnapshotStore/Publisher); the projection type becomes that package's input contract.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-02",
+      "category": "error-handling",
+      "severity": "P0",
+      "title": "Parked rate-limit-fallback safety entry has no :started_at; teardown paths crash the Orchestrator with KeyError",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+          "lines": "179-199"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "lines": "428-493"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "lines": "678-704"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1278-1286"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1326-1343"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1409-1437"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "lines": "40-48"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/agent_teardown.ex",
+          "lines": "105-117"
+        }
+      ],
+      "description": "RateLimitFallback.redispatch_safety_entry/2 builds a parked running entry from Map.take([:identifier, :worker_host, :retry_attempt, :prior_work]) plus control: %{status: :completed} and pid/ref nil. It has no :started_at and no :completion_totals_recorded. retain_redispatch_safety/3 leaves that entry in state.running whenever the redispatch did not produce a Task pid. TokenAccounting.record_session_completion_totals/2 (called by both AgentTeardown.terminate_running_issue and deactivate_running_issue) uses strict dot access `running_entry.started_at`, which raises KeyError on that entry inside a GenServer callback. Paths that reach it while the entry is parked: (a) the next poll's Reconciler.maybe_reactivate_or_refresh matches `%{control: %{status: :completed}}` -> PauseResume.replace_completed_issue -> replace_admitted_completed_entry_result -> AgentTeardown.terminate_running_issue once a slot is free; (b) the ticket closes -> terminal reconcile -> terminate; (c) the ticket moves to human-review -> deactivate, whose completed_provenance? branch also records totals. A crash restarts the Orchestrator with an empty registry (the #2699/#2705 class). Every other started_at reader in this unit uses Map.get.",
+      "evidence": "token_accounting.ex:182-183 `def record_session_completion_totals(state, running_entry) when is_map(running_entry) do runtime_seconds = State.running_seconds(running_entry.started_at, DateTime.utc_now())`; rate_limit_fallback.ex:458-467 `running_entry |> Map.take([:identifier, :worker_host, :retry_attempt, :prior_work]) |> Map.merge(%{issue: relabeled_issue, pid: nil, ref: nil, control: %{status: :completed}, ...})`; rate_limit_fallback.ex:482-483 parks it when no pid; reconciler.ex:688-689 `%{control: %{status: :completed}} = running_entry -> PauseResume.replace_completed_issue(...)`; pause_resume.ex:1426-1429 `|> AgentTeardown.terminate_running_issue(issue_id, false)`; agent_teardown.ex:47-48 and 109-116.",
+      "recommendation": "Use Map.get(running_entry, :started_at) in record_session_completion_totals (State.running_seconds already returns 0 for nil) and set completion_totals_recorded: true on the safety entry. Add a regression test that parks a safety entry and drives Reconciler with the ticket closed, in human-review, and active with a free slot, asserting the call returns a State.",
+      "refactor_hint": "Strong argument for a RunningEntry struct with enforced keys (orch-b-12) before teardown, accounting and fallback are split into separate packages that each assume a different key set.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-03",
+      "category": "other",
+      "severity": "P1",
+      "title": "Correlated resume keeps paused_reason for reasons outside a hard-coded list; the next worker pause is misattributed",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1005-1040"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1186-1204"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1969-1976"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1042-1045"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "lines": "156-183"
+        }
+      ],
+      "description": "When a resume request is applied and the worker reports :working, paused_reason is cleared only by maybe_clear_control_owned_pause/3 (9 listed reasons), clear_agent_pause_on_work/2 (:agent_pause_request) and reset_duration_clock_if_capped/4 (:max_agent_duration). :usage_limit_exhausted (resumed by RateLimitFallback :resume), :rate_limit_fallback_recovery, :before_run_failure, :worker_pause_unknown and :automatic_pause survive on a :working entry, so status rows show a pause_reason for a working agent. worker_pause_reason/4 prefers the entry's stored paused_reason over the worker-reported payload kind, so the next uncorrelated worker pause (for example kind :input_required) is recorded as :usage_limit_exhausted. put_usage_limit_reset/4 then drops the reset time, and RateLimitFallback.usage_pause_recovered?/3 can auto-resume an agent that asked for human input as soon as ModelAvailability confirms the backend.",
+      "evidence": "pause_resume.ex:1187-1197 `if Map.get(running_entry, :paused_reason) in [:agent_pause_request, :ci_wait, :global_pause, :input_required, :label_override, :operator_pause, :pause_containment, :blocker_dependency, :github_budget_hold]`; pause_resume.ex:1970-1975 `pending_pause_reason(running_entry, request) || Map.get(running_entry, :paused_reason) || pending_unclassified_pause_reason(...) || Map.get(pause_payload, :kind) || ...`; rate_limit_fallback.ex:167-170 `State.paused_running_entry?(entry) and Map.get(entry, :paused_reason) == :usage_limit_exhausted and not Issue.paused?(issue) and usage_reset_recovered?(...)`.",
+      "recommendation": "On an applied resume to :working, clear paused_reason unless the reason is explicitly owned by another subsystem, and let the worker-reported kind win over a stored reason when no request correlates. Test: usage-limit pause -> correlated resume -> worker pause with kind :input_required -> assert paused_reason == :input_required and RateLimitFallback.decide/3 == :noop.",
+      "refactor_hint": "Fix together with the pause-reason taxonomy (orch-b-04); belongs to the control-lifecycle package.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-04",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Pause reasons are free atoms enumerated in at least 12 separate lists that disagree",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "35-40"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1186-1204"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1266-1276"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1950-1967"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "2069-2071"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "720-744"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "lines": "678-704"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "lines": "116-122"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+          "lines": "226-242"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_reason.ex",
+          "lines": "55-66"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/control_lifecycle.ex",
+          "lines": "891-903"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "953"
+        }
+      ],
+      "description": "There is no single definition of the pause-reason set or of each reason's properties (reserves a slot, cleared on resume, waits on a human, persisted, rendered text, requester). Each consumer keeps its own list, and the lists already disagree: the persisted ControlLifecycle set omits :agent_pause_request, :input_required, :github_budget_hold, :pause_containment, :worker_pause_unknown and :automatic_pause; the resume-clear list omits :usage_limit_exhausted (see orch-b-03); @non_reserving_pause_reasons and normalize_pause_context carry different 'daemon-owned' sets. Each new cause (#2329, #2730, #2737, #2742) was added to some lists and not others.",
+      "evidence": "Lists: pause_resume.ex:36 [:agent_pause_request, :input_required]; :1187-1197 (9 reasons); :1267 [:blocker_dependency, :github_budget_hold]; :1955 [:input_required, :worker_pause_unknown, :pause_containment]; :2069-2071 pause_requester; state.ex:734 [:ci_wait, :blocker_dependency, :max_agent_duration, :usage_limit_exhausted]; reconciler.ex:682/694/698 [:before_run_failure, :ci_wait, :label_override]; rate_limit_fallback.ex:118-121; waiting_reason.ex:228-242; status_reason.ex:57-64; control_lifecycle.ex:892-902 (9 reasons); operator_messages.ex:953 [:global_pause, :usage_limit_exhausted, :github_budget_hold].",
+      "recommendation": "Create Aiur.Orchestrator.PauseReason with the full set and per-reason attributes (reserves_slot?, cleared_on_resume?, human_wait?, owner, persisted?, label) and derive every list from it; add a test that iterates all reasons through every attribute and through ControlLifecycle persistence round-trip.",
+      "refactor_hint": "A shared vocabulary module for the control-lifecycle package; dashboard/CLI renderers depend on it instead of re-listing atoms.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-b-05",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Orchestrator control-call client copied 7 times; the #1634 fix exists in only one copy",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "2438-2456"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "lines": "291-300"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "lines": "12-21"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "lines": "84-93"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/priority_control.ex",
+          "lines": "151-160"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/interrupts.ex",
+          "lines": "158-167"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+          "lines": "1069-1084"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "132-156"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "853-864"
+        }
+      ],
+      "description": "Every control surface wraps GenServer.call to the Orchestrator with its own whereis/catch helper. PauseResume's copy distinguishes a crash inside a live Orchestrator ({:orchestrator_call_failed, reason}) from a missing daemon (:unavailable), because laundering every exit to :unavailable told operators the daemon was down when it was not (#1634). The other copies still map every non-timeout exit to :unavailable (and StatusReport.list_*_api maps even timeouts to []). Timeouts also differ: configurable :control_api_call_timeout_ms (PauseResume), hard-coded 5_000 (Slots, PriorityControl, Interrupts), 10_000 (RemoteControlMode), caller-passed (OperatorMessages).",
+      "evidence": "pause_resume.ex:2452-2455 `:exit, {:timeout, _} -> {:error, :timeout}; :exit, {:noproc, _} -> {:error, :unavailable}; :exit, {{:nodedown, _node}, _} -> {:error, :unavailable}; :exit, reason -> {:error, {:orchestrator_call_failed, reason}}` vs remote_control_mode.ex:298-299, slots.ex:91-92, priority_control.ex:158-159, interrupts.ex:165-166, operator_messages.ex:1076-1077 `:exit, {:timeout, _} -> {:error, :timeout}; :exit, _ -> {:error, :unavailable}`; status_report.ex:137-139 `catch :exit, _ -> []`.",
+      "recommendation": "Extract Aiur.Orchestrator.ControlClient.call(server, request, opts) with the PauseResume exit taxonomy and one configurable timeout; replace all copies. The client-side functions (pause_agent/1, set_remote_control/2, prioritize_agent/1, max_concurrent_agents/0, status_api/0 ...) move with it.",
+      "refactor_hint": "The client half of every control module belongs in a thin 'orchestrator client' package consumed by CLI/web/StreamDeck; the server half stays in core. Today each module mixes both.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-06",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Local GitHub budget-hold error shapes are parsed in five places with different coverage",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "1056-1095"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/auto_resume.ex",
+          "lines": "95-114"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/tracker_health.ex",
+          "lines": "60-78"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator.ex",
+          "lines": "269-277"
+        },
+        {
+          "path": "src/lib/aiur/github/errors.ex",
+          "lines": "180-206"
+        }
+      ],
+      "description": "The same set of error terms (raw {:aiur, :locally_held, hold}, {:github, :local_hold, _}, legacy {:github, :transport, %{reason: ...}}, {:workspace_github_connectivity_failed, _, inner}, {:github_auth_preflight_failed, %{classification: :local_hold}}) is recognised by separate hand-written clauses. They have drifted: RetryEngine also unwraps %{hold: _} and {:github, :local_hold, %{reason: raw}}; AutoResume matches the preflight diagnostic without unwrapping :detail; TrackerHealth does not unwrap the workspace wrapper or the preflight diagnostic, so those holds classify as :unclassified, log a warning and ride the generic backoff; connectivity_detail lives on the Orchestrator facade although only TrackerHealth uses it. The comments cite #2339, #2409, #2429 - each fix touched a subset of copies.",
+      "evidence": "retry_engine.ex:1072-1088 (9 clauses incl. `local_budget_hold_reason(%{hold: hold})`); auto_resume.ex:106-114 (6 clauses, boolean); tracker_health.ex:66-78 (`connectivity_classification({:aiur, :locally_held, _hold}), do: :local_hold` ... `connectivity_classification(_reason), do: :unclassified`) - no workspace/preflight clauses; orchestrator.ex:273 `connectivity_detail({:aiur, :locally_held, hold})`; github/errors.ex:197,205 retryable_github_error? clauses.",
+      "recommendation": "Move one total function, e.g. Aiur.GitHub.Errors.local_budget_hold(term) :: {:ok, hold} | :none, into the GitHub package and make RetryEngine, AutoResume, TrackerHealth and connectivity_detail call it; add a table-driven test over every known shape.",
+      "refactor_hint": "Belongs in the GitHub client package; orchestrator code should receive a classified error struct rather than pattern-match raw tuples.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-07",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "Retry exhaustion of agent failures is recorded and alerted as a tracker failure",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "554-570"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "731-743"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "1097-1123"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1348-1359"
+        }
+      ],
+      "description": "schedule_issue_retry/4's give-up branch (agent crashed/startup failed max_retry_attempts times) releases the claim through record_claim_release/3 and emit_claim_released_alert/6, which were written for the retry-poll path. claim_release_reason/1 collapses every non-rate-limit cause to :tracker_retry_exhausted, which is stored in state.released_claims and rendered by StatusReason as 'claim released: tracker retry exhausted'. The alert text hard-codes 'after 3 tracker failures' (@max_retry_poll_failures) even though the caller passes the agent failure count. This is the 'collapse to a specific cause' pattern AGENTS.md forbids: the atom flows into the JSON envelope and logs.",
+      "evidence": "retry_engine.ex:557 `|> record_claim_release(issue_id, exhaustion_reason)`; :566 `emit_claim_released_alert(released, issue_id, identifier, failed_attempts, exhaustion_reason, ...)`; :1103 `\"... after #{@max_retry_poll_failures} tracker failures \"`; :1122-1123 `defp claim_release_reason({:github, :rate_limited, details}) ... ; defp claim_release_reason(_reason), do: {:tracker_retry_exhausted, %{}}`.",
+      "recommendation": "Pass the release origin explicitly (:agent_retry_exhausted vs :tracker_poll_exhausted) and classify unknown reasons to a cause-neutral :unknown with the raw reason kept in details; format the alert count from the actual origin. Test both paths and assert released_claims[issue].cause.",
+      "refactor_hint": "Claim/ownership bookkeeping should be its own small module with a typed release record; retry scheduling calls it.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-08",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Rate-limit fallback: one ticket with a failing label write starves fallback and revert for every other ticket",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "lines": "34-64"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "lines": "185-203"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "lines": "340-425"
+        }
+      ],
+      "description": "reconcile/2 sorts running entries by issue_id and stops after @max_transitions_per_tick (1) transitions. engage_after_preflight/3 and revert_after_preflight/2 return {state, true} - counted as a transition - when the tracker label write fails. A ticket whose label write fails every tick (permission, deleted label, 422) and sorts first therefore consumes the only transition on every tick, so no other ticket is ever engaged, reverted or resumed. The failure is reported only by Logger.error (written nowhere without --debug); no alert, no backoff, and a failed rollback leaves the marker/model labels inconsistent on the ticket.",
+      "evidence": "rate_limit_fallback.ex:36 `@max_transitions_per_tick 1`; :57 `Enum.sort_by(fn {issue_id, _entry} -> to_string(issue_id) end)`; :191-192 halts when `transition_count >= max_transitions`; :363 and :375 `{context.state, true}` after `log_transition_failure(:engage, ...)`; :404 and :416 the same for :revert; :421 `Logger.error(\"Rate-limit fallback #{transition} failed: ...\")`.",
+      "recommendation": "Count only successful transitions, record a per-ticket failure backoff on the running entry, and raise a needs-attention alert (with rollback outcome) on the first failure. Test: two engage candidates, first one's add_label_fun always errors; assert the second engages on the next tick.",
+      "refactor_hint": "Fallback routing is a self-contained policy; carve it with its own per-ticket state instead of reusing running-entry keys.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-09",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Pending blocker auto-resume retries forever with no log for non-capacity refusals",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "543-581"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "456-493"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "937-953"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "1015-1027"
+        }
+      ],
+      "description": "drain_pending_auto_resume/3 runs on every reconcile tick for each entry holding a pending_auto_resume hint. Any resume error is dropped without a log line and the hint is kept, on the assumption that the cap is full. For a non-capacity refusal ({:control_rejected, _}, :control_id_unavailable, {:pause_override_clear_failed, _}) the blockee stays paused indefinitely and each tick reserves a durable control id, persists a new request, rejects and persists it again, and broadcasts both. The cleared-dependency path emits an info alert (needs_attention: false) saying the resume 'is waiting for a dispatch slot' for every error reason.",
+      "evidence": "push_routing.ex:575-578 `{{:error, _reason}, next_state} -> # Cap still full or another error - keep the hint for the next reconcile tick. next_state`; :1022 `reason: \"Blocker #{blocker_identifier} is clear; the automatic resume is waiting for a dispatch slot (#{inspect(reason)}).\"`, :1023 `needs_attention: false`.",
+      "recommendation": "Distinguish :max_concurrent_agents_reached (keep hint silently) from every other error (log once, raise a needs-attention alert naming the reason, add an attempt counter with exit). Only claim 'waiting for a dispatch slot' when that is the reason.",
+      "refactor_hint": "Blocker auto-resume should become its own module (see orch-b-30) with an explicit hint lifecycle and exit states.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-10",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Backend-swap redispatch implemented four times; the lifecycle-fence safety exists in only one",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "lines": "427-537"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "lines": "120-230"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1318-1447"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "1353-1404"
+        }
+      ],
+      "description": "Four flows tear down a running agent and redispatch the same issue: RateLimitFallback.redispatch, RemoteControlMode promote/demote, PauseResume completed-entry replacement, and RetryEngine.handle_active_retry. Each has its own admission adapter, 'did it start' check and retry fallback. RateLimitFallback keeps a parked copy of the entry (with lifecycle_fence) until the replacement is admitted, 'so a failed fallback never turns an authoritative queue claim into an unfenced, unrecoverable ticket'. RemoteControlMode deletes the entry (drop_redispatch_entry) before dispatch, so a failed RC redispatch loses the fence exactly as the RateLimitFallback comment warns. Private helpers are literally copied: live_running_entry?/1 (3 copies), redispatch_admission (2 copies with different arity), ensure_redispatch_started (2 copies).",
+      "evidence": "rate_limit_fallback.ex:434-438 comment + :439 `staged_entry = redispatch_safety_entry(running_entry, relabeled_issue)`; remote_control_mode.ex:127 `state = drop_redispatch_entry(state, relabeled.id)` and :229-230 `%{state | running: Map.delete(state.running, issue_id)}`; copies: rate_limit_fallback.ex:525-526, remote_control_mode.ex:215-216, retry_engine.ex:1403-1404 `defp live_running_entry?(%{pid: pid}) when is_pid(pid), do: true`; rate_limit_fallback.ex:528-537 vs remote_control_mode.ex:218-227 redispatch_admission; rate_limit_fallback.ex:506-523 vs remote_control_mode.ex:196-213 ensure_redispatch_started.",
+      "recommendation": "Extract one Redispatch.swap(state, running_entry, relabeled_issue, opts) that owns admission, teardown ordering, staged safety entry, start verification and retry fallback; make the four callers supply only the relabel and the reason.",
+      "refactor_hint": "A 'dispatch lifecycle' package boundary: callers express intent (swap backend, replace completed runner) and one module owns the running-entry transitions.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-b-11",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "Submodules call back through the Orchestrator facade, creating dependency cycles the carve must break",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "lines": "29-36"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "lines": "491-647"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "lines": "706-769"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "224-240"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "663-712"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "lines": "249-270"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pr_anchored.ex",
+          "lines": "259-313"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1328-1334"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "350-508"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator.ex",
+          "lines": "256-430"
+        }
+      ],
+      "description": "Orchestrator delegates to the unit's modules, and those modules call back into Orchestrator for functions that are themselves one-line delegations to siblings (e.g. Reconciler -> Orchestrator.resume_paused_issue -> PauseResume.resume_paused_issue, although Reconciler already aliases PauseResume). Counts of `Orchestrator.<fun>` calls: reconciler 20, push_routing 4, retry_engine 4, remote_control_mode 3, pr_anchored 2, status_report 1, tracker_health 1; orchestrator.ex references PauseResume 30x, StatusReport 22x, Slots 10x. Callers are inconsistent: TrackerHealth.note_github_connectivity_failure is called via the facade (comment_polling.ex:60,165,964) and directly (ci_lifecycle.ex:390,465,540; dispatcher.ex:531). State, the data module, calls StatusReport.notify_dashboard and PauseResume.reset_last_codex_timestamp, so it cannot be a leaf.",
+      "evidence": "reconciler.ex:31-34 `Orchestrator.reconcile_runtime_health(state)` ... `Orchestrator.reconcile_pending_auto_resumes(state)`; reconciler.ex:709 `Orchestrator.reactivate_issue(state, new_entry)` (orchestrator.ex:930 `do: PauseResume.reactivate_issue(...)`); pause_resume.ex:1334 `|> Aiur.Orchestrator.cancel_ci_wait_rewake(issue.id)`; state.ex:368 `StatusReport.notify_dashboard(next_state)`, :505 `&PauseResume.reset_last_codex_timestamp(&1, issue_id, DateTime.utc_now())`.",
+      "recommendation": "Make Orchestrator a GenServer shell only: submodules call siblings directly, never the facade. Move State's handle_* callbacks (handle_worker_runtime_info, handle_live_conversation_restart, handle_session_execution_info, note_agent_activity) out of State into a RuntimeInfo module so State has no outbound dependencies. Enforce with a boundary check (e.g. xref graph --fail-above or the boundary library).",
+      "refactor_hint": "Prerequisite for any package split: today Reconciler, PauseResume, RetryEngine and Orchestrator form one strongly connected component.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-b-12",
+      "category": "large-module",
+      "severity": "P1",
+      "title": "State is a ~100-field god struct and the running entry is an untyped map with ~60 keys written by 16 modules",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "15-348"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "204-206"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "2079-2083"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "lines": "632-633"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "1077-1086"
+        }
+      ],
+      "description": "State carries about 100 top-level fields spanning polling, capacity, CI lifecycle, comment polling, GitHub connectivity, alert latches, decision gating, rework bounds and control lifecycle; Credo's StructFieldAmount check is disabled for it. The @type has drifted from defstruct (contradictory_state_label_tickets and contradictory_state_label_alert_active are in the struct but not the type). Running entries are plain maps; across the unit roughly 60 distinct keys are read or written (identifier, issue, pid, ref, control.{status,generation,version,application_confirmation,can_interrupt}, paused_reason, pending_pause_reason, paused_at, started_at, pending_auto_resume, blocker_pause, blocker_pause_generation, consumed_unblocks, github_budget_pause*, usage_limit_reset_at, interrupted_turn_observed_at, runtime_terminal_failure, runtime_health_sample, rate_limit_fallback_*, redispatch_safety, lifecycle_fence, label_divergence_*, before_run_resume_*, last_codex_*, agent_*_tokens, session_execution, live_conversation*, repl_*, headless_*, telemetry_attempt_id ...). 16 modules write state.running directly (58 write sites: pause_resume 17, reconciler 10, push_routing 6, state 4, lifecycle_fence 4, ...). Missing-key bugs such as orch-b-02 follow directly, and State.find_issue_id_for_ref/2 uses a single-clause fn that raises on any entry without :ref.",
+      "evidence": "state.ex:206 `# credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount`; state.ex:269-270 contradictory_state_label_* absent from @type t; state.ex:686 `Enum.find_value(fn {issue_id, %{ref: running_ref}} -> ...)` (no fallback clause); put-entry helpers duplicated: pause_resume.ex:2079, rate_limit_fallback.ex:632, push_routing.ex:1077, github_budget_pause.ex:259, runtime_watchdog.ex:206.",
+      "recommendation": "Introduce %RunningEntry{} with @enforce_keys for identity/runtime fields and nested sub-structs per concern (control, blocker pause, budget pause, fallback, divergence, telemetry), and a RunningRegistry API (put/update/fetch_by_identifier) that is the only writer of state.running. Split State into per-subsystem sub-structs (poll, capacity, ci, comments, alerts, control) owned by the module that mutates them.",
+      "refactor_hint": "The single biggest blocker to carving: every would-be package reads and writes the same maps. Define the sub-structs first, then move modules with their slice.",
+      "effort": "L"
+    },
+    {
+      "id": "orch-b-13",
+      "category": "performance",
+      "severity": "P1",
+      "title": "Every Codex update runs a full dashboard projection, ETS copy and PubSub broadcast inside the Orchestrator",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+          "lines": "18-41"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "158-236"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "268-297"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "866-883"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+          "lines": "45-56"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_publisher.ex",
+          "lines": "112-124"
+        }
+      ],
+      "description": "handle_codex_worker_update/3 calls StatusReport.notify_dashboard/1 for every streamed agent event. notify_dashboard builds snapshot_input/1 (Map.take + struct! + ControlLifecycle.snapshot_for + snapshot_queue_store, which calls AgentQueueStore.list_pending and list_visible_operator_messages for every running, polled and retrying identifier, i.e. the whole backlog), inserts it into ETS (a full copy), then builds running_summaries/1 over all polled issues plus running entries and broadcasts it. SnapshotPublisher then calls :ets.tab2list every 250 ms, copying the whole input out of ETS before comparing versions, even when nothing changed. Comments in the unit cite Orchestrator mailbox backlogs (#1549, #1684, #1837) - this is the busiest message type feeding that mailbox.",
+      "evidence": "token_accounting.ex:38 `StatusReport.notify_dashboard(next_state)`; status_report.ex:168-174 publish + `running_summaries() |> AgentPubSub.broadcast_running_change()`; :275-283 per-identifier queue scans; :879 `Enum.flat_map(&unpolled_running_summary(&1, visible_polled_issues(state), now))`; snapshot_publisher.ex:53 `:ets.insert(@table, {orchestrator, generation, version, snapshot_input})`, :113 `:ets.tab2list(@table)`.",
+      "recommendation": "Coalesce: mark the state dirty on codex updates and publish on a timer (the publisher already exists) instead of projecting per event; broadcast per-entry token deltas instead of full running summaries; store the version in a separate ETS key (or use :ets.lookup_element on the version position) so the publisher only copies the input when it changed. Measure with the mailbox depth metric SnapshotStore already records before and after.",
+      "refactor_hint": "The dashboard read model should subscribe to orchestrator change events rather than be pushed a full projection by core; this decides the core/read-model package interface.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-b-14",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "An unavailable decision count is fed to WaitingReason as 0, dropping waiting_for_human and emitting false `.resolved` alerts",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "716-723"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1016-1033"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1151-1162"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1280-1321"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+          "lines": "147-154"
+        }
+      ],
+      "description": "open_decision_count/1 returns {0, :unavailable} when SubscriptionStore cannot answer. The row carries open_decision_count_health: :unavailable, but every classifier receives the bare 0: WaitingReason.for_running/for_idle classify the row as if no decision were open, and human_wait_alert_candidate?/1 drops it. track_waiting_for_human_episodes/3 then treats a still-waiting ticket as no longer waiting and emits `ticket.<id>.agent.attention.waiting_for_human.resolved`; the attention is re-raised only after a fresh 600 s window. This is the 'unknown replaced with a plausible default' shape AGENTS.md calls out.",
+      "evidence": "status_report.ex:719 `{:error, :unavailable} -> {0, :unavailable}`; :1026-1030 `WaitingReason.for_running(%{... open_decision_count: open_decision_count, ...})`; :1286-1289 `if not Map.has_key?(current, identifier) and episode.alerted?, do: emit_waiting_for_human_resolution(identifier)`; waiting_reason.ex:150-151 `when open_decision_count > 0, do: :waiting_for_human`.",
+      "recommendation": "Return :unknown (not 0) and give WaitingReason an explicit :decision_state_unknown outcome; never resolve a human-wait episode while the count is unknown (carry the episode forward). Test with a SubscriptionStore stub that errors and assert no `.resolved` alert and a non-:active waiting_reason.",
+      "refactor_hint": "Row classification belongs to the read-model package; make 'unknown' a first-class input there.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-15",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Waiting-for-human sync rebuilds full CLI status rows inside the Orchestrator twice per poll",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "982-986"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "389-398"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1120-1149"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1403-1415"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatcher.ex",
+          "lines": "86"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "243"
+        }
+      ],
+      "description": "sync_waiting_for_human_episodes/2 calls agent_statuses/1, which calls RepoBase.status (100 ms budget), reads the durable dispatch-budget file (Dispatcher.dispatch_latch_statuses), resolves Config, and makes one SubscriptionStore call per row, all in the Orchestrator process, at the start and at the end of every poll - only to find rows whose waiting_reason is :waiting_for_human. snapshot_payload's own comment says these rows were deliberately removed from the per-change path because they are too expensive to pay continuously (#1837).",
+      "evidence": "status_report.ex:985 `track_waiting_for_human_episodes(state, agent_statuses(state), now)`; :393-398 comment 'agent_statuses/1 reads dispatch-budgets.json and calls RepoBase; paying that continuously ... is a bad trade'; dispatcher.ex:86 and lifecycle.ex:243 callers.",
+      "recommendation": "Compute the human-wait candidate set from running entries and decision counts only (the two inputs human_wait_alert_candidate? uses), or run the episode tracker in the SnapshotStore projection process instead of the Orchestrator.",
+      "refactor_hint": "Alerting on derived row state belongs with the read model, not in core.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-16",
+      "category": "performance",
+      "severity": "P2",
+      "title": "SnapshotStore rewrites a large :persistent_term value on every projection and on stale reads",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "lines": "307-338"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "lines": "497-523"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "lines": "114-127"
+        }
+      ],
+      "description": "put_snapshot/4 calls :persistent_term.put with the full snapshot plus the full projected source_state on every completed projection (publisher cadence 250 ms + 50 ms coalescing). Updating an existing persistent_term key triggers a global scan of all processes for references to the old value, which is the documented reason persistent_term is meant for rarely-changing data. maybe_log_timeout/2 and maybe_log_initial_timeout/2 also put on the read path, and publish_global_pause writes another key.",
+      "evidence": "snapshot_store.ex:327-337 `:persistent_term.put({@cache_key, orchestrator}, %{generation: ..., snapshot: snapshot, source_state: source_state, ...})`; :500-501 `:persistent_term.put(warning_key, metadata.observed_at)` inside read/3.",
+      "recommendation": "Store the snapshot in a protected ETS table (read_concurrency) owned by SnapshotStore; keep persistent_term only for the generation token. Measure GC count/time before and after with :erlang.statistics(:garbage_collection).",
+      "refactor_hint": "Read-model package internals; no API change needed.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-17",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Every control-lifecycle change does a locked file load/merge/write inside the Orchestrator; failures are only logged",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1851-1854"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "246-262"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/control_lifecycle_store.ex",
+          "lines": "30-84"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/control_lifecycle_store.ex",
+          "lines": "86-120"
+        }
+      ],
+      "description": "persist_control_lifecycle/1 (12 call sites in PauseResume, plus RetryEngine and Lifecycle) calls ControlLifecycleStore.save, which takes a file lock with Process.sleep retries (up to 5 s), loads the journal, merges, and writes JSON - synchronously in the Orchestrator for every request/accept/apply/reject/expire. save/1 always returns :ok and reports lock or write failures with Logger.warning only, so the `:ok =` match at the call sites asserts nothing and a lost control journal is invisible.",
+      "evidence": "pause_resume.ex:1852 `:ok = ControlLifecycleStore.save(state.control_lifecycle)`; control_lifecycle_store.ex:13 `@lock_timeout_ms 5_000`, :66-77 `with_lock(...)` ... `{:error, reason} -> Logger.warning(...)` then `:ok`, :81-84 rescue -> Logger.warning, :ok; :112-114 `Process.sleep(min(lock_retry_ms, remaining_ms))`.",
+      "recommendation": "Persist asynchronously from a dedicated writer process (latest-wins coalescing), return {:error, reason} from save and raise an operator alert on persistent failure. Remove the redundant persist on the {:ignored, _} branches (pause_resume.ex:1818, 1847).",
+      "refactor_hint": "The control-lifecycle package should own its persistence process; core only sends it the new aggregate.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-b-18",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "PauseResume is a 2,471-line module with 77 public clauses and at least eight responsibilities",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1-2471"
+        }
+      ],
+      "description": "PauseResume holds: the client API (pause_agent/resume_agent/request_control/control_lifecycle/reset_dispatch_budget), lifetime dispatch-budget reset with tracker writes and alerts (101-262), guarded control-call crash handling (337-400), global pause hold/release (434-514), the correlated control protocol (request/accept/apply/reject/expire, 956-1236 and 1658-1872), the legacy control protocol (872-889, 1615-1656), label-override pause handling (687-777), completed-runner replacement and reactivation (1278-1547), queued-issue resume with tracker refetch and decline translation (2085-2407), and duration-clock accounting (1899-1948). 77 def clauses and 199 defp clauses.",
+      "evidence": "wc -l = 2471; `grep -c '^  def '` = 77, `^  defp ` = 199 (measured on the snapshot).",
+      "recommendation": "Split into ControlProtocol (correlated + legacy request lifecycle), PauseCauses (label override, global hold, spurious worker pause), Reactivation/Replacement (completed runner + deactivated reactivation), QueuedResume (tracker refetch + decline reasons), DispatchBudgetReset, and a ControlClient (orch-b-05).",
+      "refactor_hint": "ControlProtocol + PauseReason (orch-b-04) form the control-lifecycle package; Replacement belongs with dispatch lifecycle (orch-b-10).",
+      "effort": "L"
+    },
+    {
+      "id": "orch-b-19",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "RetryEngine (1,540 lines) centres on a 135-line schedule_issue_retry; the retry envelope is an untyped map built by hand in 12 places",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "489-622"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "178-216"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "636-661"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "1451-1529"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/runtime_watchdog.ex",
+          "lines": "234-245"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/runtime_watchdog.ex",
+          "lines": "343-355"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "lines": "514-521"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "lines": "204-211"
+        }
+      ],
+      "description": "RetryEngine mixes agent-down handling, retry scheduling, workspace-ownership waits, terminal membership verification, exhaustion (tracker error write + three alerts), claim release, budget-hold parsing and credential fingerprinting. schedule_issue_retry/4 is 135 lines with 12 pick_retry_* locals. The retry metadata has no struct: the key set is spelled out in continuation_retry_metadata, failure_retry_metadata, the stored entry (595-619), pop_retry_attempt_state (642-654), workspace_wait_envelope (362-373), ensure_active_retry_started, handle_active_retry, two RuntimeWatchdog callers, RateLimitFallback and RemoteControlMode, and the sets differ (runtime_watchdog.ex:238-245 omits :issue_state and :priority; :delay_type is deliberately dropped by pop_retry_attempt_state). pick_retry_* helpers use two merge semantics: `||` (identifier, error, worker_host, workspace_path - cannot be cleared) versus Map.has_key? (tracker_identity, priority, issue_state, transient_reason).",
+      "evidence": "Measured function length: schedule_issue_retry 135 lines (489-623). retry_engine.ex:1495-1497 `metadata[:worker_host] || Map.get(previous_retry, :worker_host)` vs :1503-1509 `if Map.has_key?(metadata, :tracker_identity) ...`.",
+      "recommendation": "Introduce %RetryEnvelope{} with one merge/2 function and make every caller build it through constructors (continuation/1, failure/2, capacity/1, stall/2). Split RetryEngine into RetryScheduler, AgentExit, RetryExhaustion and WorkspaceWait.",
+      "refactor_hint": "RetryEnvelope is the contract between dispatch, watchdog and fallback packages.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-b-20",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "StatusReport builds dashboard rows and CLI rows with two parallel sets of builders that have drifted",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "463-526"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1016-1064"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "528-562"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1066-1114"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "598-641"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1151-1210"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "972-1008"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/status_report.ex",
+          "lines": "1212-1221"
+        }
+      ],
+      "description": "running_snapshot/5 vs running_status/4, retry_snapshot/4 vs retry_statuses/1, and idle_issue_snapshot/6 vs idle_status/5 build the same ticket rows for the dashboard and for `aiur status`/`watch`. Both running builders call WaitingReason.for_running with identical attrs; the shapes differ (snapshot rows carry progress, activity_stage, ci_result, backend and priority but no `reason`; status rows carry `reason`, tracker_state and complexity; retry_snapshot has no tracker_paused/pause_reason). Dead parameters remain (idle_issue_snapshot `_terminal_states`, idle_statuses `_running_by_identifier`, and agent_statuses_raw builds running_by_identifier only to pass it there); agent_statuses_and_state/1 returns the state unchanged. idle_reason/2 places WaitingReason atoms in the StatusReason `reason` field, mixing two vocabularies. AGENTS.md requires surfaces the docs call equivalent to agree.",
+      "evidence": "status_report.ex:477-485 and :1025-1033 identical `WaitingReason.for_running(%{tracker_state: ..., pause_reason: pause_reason, work_state: work_state, open_decision_count: ..., stale_for_seconds: ..., stall_timeout_seconds: ...})`; :601 `_terminal_states`; :1126 `_running_by_identifier`; :999-1000 unused map; :1216 `@claim_shaped_waiting_reasons [:orphaned_claim, :stale_claim, :workspace_ownership_waiting]`.",
+      "recommendation": "Build one canonical row per ticket (Row.running/retry/idle) and derive the dashboard and CLI shapes by projection; move the API client functions out (orch-b-05) and the human-wait alerting out (orch-b-15). Target: StatusReport under 500 lines.",
+      "refactor_hint": "Read-model package: rows, projection, and SnapshotStore/Publisher together; core only exports the projection input.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-b-21",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Terminal-membership marker helpers copied four times with drift, all swallowing every error silently",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "1421-1444"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "lines": "653-676"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/comment_wake.ex",
+          "lines": "519-570"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/issue_sync.ex",
+          "lines": "987-1005"
+        }
+      ],
+      "description": "safely_set_terminal_verification_pending and safely_mark_membership_unavailable exist in four modules. RetryEngine and Reconciler check TrackerIdentity.joinable?/1 and rescue/catch; CommentWake checks joinable? but its setter does not rescue; IssueSync's setter rescues but has no joinable? check. Every copy turns exceptions and exits into :ok/:error with no log, so a failing CurrentRunMembership write (the durability marker the terminal-verification retry depends on) leaves no trace.",
+      "evidence": "retry_engine.ex:1425-1428 `rescue _error -> :ok catch _kind, _reason -> :ok`; reconciler.ex:657-660 same returning state; comment_wake.ex:539-552 joinable? without rescue; issue_sync.ex:987-996 rescue without joinable?.",
+      "recommendation": "Move one implementation into CurrentRunMembership (e.g. mark_terminal_pending(identity, bool) :: :ok | {:error, reason}) that logs and counts failures; delete the four copies.",
+      "refactor_hint": "Membership bookkeeping is its own package concern; orchestrator modules should call one API.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-22",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "ControlLifecycle transition boilerplate repeated ~9 times; expire-on-worker-exit implemented twice",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "898-921"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "981-1003"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1101-1134"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1136-1156"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1779-1849"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "246-262"
+        }
+      ],
+      "description": "Each lifecycle transition repeats: call ControlLifecycle.<op>, on {:ok, req, lifecycle} put lifecycle, persist, maybe drop_stale_pending_pause_reason, publish; on {:ignored, lifecycle} put lifecycle. RetryEngine.expire_pending_control/3 and PauseResume.expire_pending_control_on_completion/3 are the same 15 lines (expire current pending with :worker_unavailable, save, broadcast) except that RetryEngine calls the store and PubSub directly.",
+      "evidence": "pause_resume.ex:1146-1153 `case ControlLifecycle.expire(state.control_lifecycle, pending.request_id, :worker_unavailable, now: DateTime.utc_now()) do {:ok, expired, lifecycle} -> state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle() ...`; retry_engine.ex:252-259 same with `:ok = ControlLifecycleStore.save(lifecycle)` and `AgentPubSub.broadcast_control_lifecycle(...)`.",
+      "recommendation": "Add ControlLifecycle.transition(state, op, args) returning {:ok | :ignored, request, state} that persists and publishes once; delete RetryEngine's copy and call PauseResume/ControlProtocol.",
+      "refactor_hint": "Part of extracting the control-lifecycle package (orch-b-18).",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-23",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Each retry timer re-reads the full open-issue list (non-conditional) to find one issue",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "701-712"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "746-764"
+        },
+        {
+          "path": "src/lib/aiur/github/issues.ex",
+          "lines": "380-393"
+        }
+      ],
+      "description": "handle_retry_tracker_poll/5 calls Tracker.fetch_candidate_issues/0 - the unconditional, all-pages open-issue list plus authorization filtering - and then searches it for one issue_id, falling back to fetch_issue_states_by_ids. It runs synchronously in the Orchestrator for every retry timer (continuation retries fire 1 s after every normal agent exit). The main poll uses the ETag-conditional variant; this path does not. I did not verify whether ReadCache absorbs these reads.",
+      "evidence": "retry_engine.ex:702 `fetch_candidate_issues = Keyword.get(opts, :fetch_candidate_issues_fun, &Tracker.fetch_candidate_issues/0)`; github/issues.ex:385 `url = \".../issues?state=open&per_page=100\"` and :388 `fetch_label_issue_pages(...)` in do_fetch_candidate_issues/1.",
+      "recommendation": "Look the issue up in state.last_polled_issues first and use fetch_issue_states_by_ids_conditional/2 with running_issue_cache otherwise; count candidate-list calls per hour in `aiur github-cost` before and after, per the saving-claim rules.",
+      "refactor_hint": "Retry should depend on a narrow 'refresh one issue' tracker port, not the candidate poll.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-24",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "PRHealthScanner and ReworkRequeue duplicate their worker scaffolding, including a 304 adapter that reads as 'no reviews'",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "lines": "43-110"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pr_health_scanner.ex",
+          "lines": "344-372"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "lines": "69-159"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "lines": "453-458"
+        }
+      ],
+      "description": "Both modules are standalone PeriodicWorkers that talk only to GitHub, yet live under Aiur.Orchestrator. They share identical config_value/2, default_enabled?/0 (pr_health.enabled and GitHub tracker), refresh_from_config, default_reviews/1 and pr_title/1. default_reviews maps {:not_modified, _} to {:ok, []}; the comment says 304 cannot occur because no ETag is held, but if it ever does, PRHealthScanner alerts 'no review' and ReworkRequeue skips - the adapter hides the shape instead of rejecting it.",
+      "evidence": "pr_health_scanner.ex:366-372 and rework_requeue.ex:151-157 identical `{:ok, reviews, _etag} when is_list(reviews) -> {:ok, reviews}; {:not_modified, _etag} -> {:ok, []}`; pr_health_scanner.ex:96-110 == rework_requeue.ex:128-142; pr_title identical at 344-349 / 453-458.",
+      "recommendation": "Move both into a PrHealth namespace outside the orchestrator with a shared PrHealth.Worker helper (config refresh, enablement, reviews fetch returning {:error, :unexpected_not_modified} for 304).",
+      "refactor_hint": "Natural candidate for a separate 'pr health' package that depends only on the GitHub client.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-25",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "ReworkRequeue alert names the thread-clearance gate as the cause of every re-queue failure",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "lines": "266-297"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "lines": "328-349"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rework_requeue.ex",
+          "lines": "299-324"
+        }
+      ],
+      "description": "apply_finding/2 routes every {:error, reason} from the human-review write (network error, a local hold beyond the LocalHold ceiling, 5xx, permission) to alert_requeue_failed/3, whose message states the write 'was refused by the thread-clearance gate (unresolved review threads remain)'. The real reason is only in the reason field. Separately, the merge-only alert keys `issue:` by PR number while the requeue alert keys it by issue id, so the two alerts for the same ticket land on different issue keys.",
+      "evidence": "rework_requeue.ex:337-338 `\"Re-queue of reworked issue #{key} to agent:human-review was refused by the thread-clearance gate \" <> \"(unresolved review threads remain) ...\"`; :314 `issue: to_string(number)` vs :339 `issue: key`.",
+      "recommendation": "Classify the error (gate refusal vs transport vs hold) before writing the message; key both alerts by the ticket identifier.",
+      "refactor_hint": "Moves with orch-b-24.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-26",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "Production modules carry test-only functions, env branches and test fun injection through event payloads",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/runtime_watchdog.ex",
+          "lines": "14-39"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/slots.ex",
+          "lines": "95-101"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1392-1407"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "2333-2371"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rework_gate.ex",
+          "lines": "56-74"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/startup_claim_reconciler.ex",
+          "lines": "272-289"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pr_anchored.ex",
+          "lines": "76-89"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pr_anchored.ex",
+          "lines": "231-243"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "lines": "191-293"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator.ex",
+          "lines": "340-352"
+        }
+      ],
+      "description": "Functions with no production caller: RuntimeWatchdog.apply_stall_check/2 and apply_overrun_check/2 (the latter only via Orchestrator.apply_overrun_check_for_test) duplicate the reconcile_* loops; Slots.slot_status/1 (only slot_status_for_test); PauseResume.dispatch_resumed_queued_issue/3 ('Retained for the dependency-wake path's tests'); replace_admitted_completed_entry/5; ReworkGate.verify_open_pr/2. StartupClaimReconciler branches on Application.get_env(:aiur, :env) == :test in production. PrAnchored reads test doubles (open_pull_request_fetcher, pr_anchored_dispatch_fun, admission_probes_fun) from the event map it routes. Reconciler.reconcile_issue_state has 4-, 5- and 6-arity entry points purely to inject funs.",
+      "evidence": "grep over src/lib: apply_stall_check, slot_status, dispatch_resumed_queued_issue, replace_admitted_completed_entry, verify_open_pr have 0 production call sites outside their definition; pause_resume.ex:2333 '# Retained for the dependency-wake path's tests (#1821)'; startup_claim_reconciler.ex:276 `if Application.get_env(:aiur, :env) == :test do {:ok, nil}`; pr_anchored.ex:78 `Map.get(event, :open_pull_request_fetcher)`.",
+      "recommendation": "Delete test-only functions and point tests at the production entry points; replace env branches and event-carried funs with explicit opts or a behaviour injected at start (as other modules already do via keyword opts).",
+      "refactor_hint": "Removing these shrinks the public surface each carved package must keep stable.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-b-27",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "'Is this runner alive?' has three different implementations with different remote-pid behaviour",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "627-653"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1439-1447"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/orphaned_workers.ex",
+          "lines": "102"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "510-526"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "1403-1404"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rate_limit_fallback.ex",
+          "lines": "525-526"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/remote_control_mode.ex",
+          "lines": "215-216"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/startup_claim_reconciler.ex",
+          "lines": "145-147"
+        }
+      ],
+      "description": "worker_pid_alive?/1 treats a remote pid as alive because Process.alive?/1 raises ArgumentError for non-local pids, and its comment says remote pids can occur. live_replacement?/2 in the same module calls Process.alive?(pid) directly, as do OrphanedWorkers.protects_ticket?/1 and State.alive?/1. RetryEngine, RateLimitFallback and RemoteControlMode treat any pid as live without checking. The same question therefore has three answers depending on the caller.",
+      "evidence": "pause_resume.ex:651-652 `defp worker_pid_alive?(pid) when is_pid(pid) and node(pid) == node(), do: Process.alive?(pid); defp worker_pid_alive?(pid) when is_pid(pid), do: true`; :1442 `is_pid(pid) and Process.alive?(pid) and is_reference(ref)`; retry_engine.ex:1403 `defp live_running_entry?(%{pid: pid}) when is_pid(pid), do: true`.",
+      "recommendation": "Add RunningEntry.runner_state(entry) :: :alive | :dead | :staged | :remote in one place and use it everywhere.",
+      "refactor_hint": "Part of the RunningEntry API (orch-b-12).",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-28",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Ticket identifier matching uses five different rules",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "796-802"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "870-879"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "264-275"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/priority_control.ex",
+          "lines": "54-59"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/tracker_health.ex",
+          "lines": "306-315"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "919-929"
+        },
+        {
+          "path": "src/lib/aiur/issue.ex",
+          "lines": "99-106"
+        }
+      ],
+      "description": "State.find_running_by_identifier/2 and find_running_key_by_identifier/2 require `to_string(identifier) == target`. PauseResume.find_issue_id_by_identifier/2 and PushRouting use Issue.identifier_matches?/3, which also accepts a bare number for an identifier ending in '#N'. PriorityControl matches identifier or id with ==; TrackerHealth matches issue_id or identifier; PushRouting.blocker_fetch_identifier/1 splits on '#'. So `aiur resume 123` resolves a queued 'owner/repo#123' ticket but `aiur pause 123` does not resolve the same ticket once it is running.",
+      "evidence": "state.ex:874 `if to_string(identifier) == issue_identifier, do: entry`; issue.ex:105 `target == id or target == identifier or String.ends_with?(identifier, \"##{target}\")`; priority_control.ex:55 `issue.identifier == identifier or issue.id == identifier`; push_routing.ex:921-922 `String.split(\"#\") |> List.last()`.",
+      "recommendation": "Route every lookup through one TicketRef.match?/2 (or Issue.identifier_matches?/3) and index running entries by canonical identity.",
+      "refactor_hint": "A shared ticket-identity module used by CLI, control and routing packages.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-29",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Tracker state names are normalised by four different functions, and WaitingReason carries both spellings",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/waiting_reason.ex",
+          "lines": "258-288"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "1080-1102"
+        },
+        {
+          "path": "src/lib/aiur/github/state_policy.ex",
+          "lines": "7-12"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/startup_claim_reconciler.ex",
+          "lines": "112"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/workspace_cleanup.ex",
+          "lines": "68-81"
+        }
+      ],
+      "description": "DispatchPolicy.normalize_issue_state/1 (trim+downcase), DispatchPolicy.state_slug/1 (also [\\s_]+ -> '-'), GitHub.StatePolicy.normalize_state/1 (single space -> '-') and WaitingReason.by_tracker_state/1 (inline downcase+trim) all normalise the same labels. WaitingReason.idle_by_tracker_state/2 checks both 'in-progress' and 'in progress' because it uses the non-slug normaliser; by_tracker_state('CI Wait') yields :active while state_slug would give 'ci-wait'. StartupClaimReconciler and WorkspaceCleanup use state_slug; PauseResume, RetryEngine and StatusReport use normalize_issue_state.",
+      "evidence": "waiting_reason.ex:265 `state when state in [\"in-progress\", \"in progress\"]`; :280 `case state |> String.downcase() |> String.trim() do \"ci-wait\" -> ...`; dispatch_policy.ex:1081 vs :1095; state_policy.ex:11 `String.replace(\" \", \"-\")`.",
+      "recommendation": "Keep one canonical slug function (TicketState.slug/1) and compare slugs everywhere; delete the inline normalisations.",
+      "refactor_hint": "Tracker-state vocabulary belongs to the tracker adapter boundary so orchestrator packages compare atoms, not strings.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-30",
+      "category": "naming-structure",
+      "severity": "P2",
+      "title": "PushRouting is misnamed: it owns blocker auto-resume, sleeping state and budget-pause pass-throughs, with repeated entry-update helpers",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "1-17"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "74-82"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "207-222"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "499-518"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "595-627"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "973-992"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/push_routing.ex",
+          "lines": "1077-1086"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/github_budget_pause.ex",
+          "lines": "259-264"
+        }
+      ],
+      "description": "Almost all of the 1,087 lines are dependency-blocker auto-resume (unblock keys, pending_auto_resume hints, cleared-dependency rechecks); the rest is mark_sleeping, two pass-throughs to GithubBudgetPause, and maybe_notify_agents_on_default_branch_push/3, which only logs and returns state. The 'find entry by identifier, then Map.put by issue id' step is written five times (stamp_pending_auto_resume, stamp_cleared_dependency_resume, mark_unblock_consumed, clear_pending_auto_resume, update_running_entry) plus once more in GithubBudgetPause; the pending_auto_resume hint map is built in two places with different key sets (one has :resume_kind and no :unblock_key).",
+      "evidence": "push_routing.ex:208-219 maybe_notify_agents_on_default_branch_push logs 'not terminating agents' and returns state; :76-82 `do: GithubBudgetPause.recover_observed(state, now_ms)`; hint maps at :504-510 and :979-985.",
+      "recommendation": "Rename/split into BlockerAutoResume (with a %ResumeHint{} struct) and move mark_sleeping to the control module; delete the log-only function and the pass-throughs; use the RunningEntry registry API (orch-b-12) for updates.",
+      "refactor_hint": "BlockerAutoResume is a coherent unit for a 'dependencies' package together with IssueSync's blocker handling.",
+      "effort": "M"
+    },
+    {
+      "id": "orch-b-31",
+      "category": "anti-pattern",
+      "severity": "P3",
+      "title": "PrAnchored detects admission via a process-dictionary marker",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pr_anchored.ex",
+          "lines": "159-191"
+        }
+      ],
+      "description": "admit_pr_anchored_unit/5 puts a ref-keyed marker in the process dictionary inside the choose-fun passed to Dispatcher.maybe_choose_under_load/4 and deletes it afterwards to learn whether the gate admitted the unit, because maybe_choose_under_load returns only state. The comment explains why inferring from state.capacity_hold is wrong.",
+      "evidence": "pr_anchored.ex:175 `Process.put(marker, :dispatched)`; :187 `case Process.delete(marker) do :dispatched -> next_state`.",
+      "recommendation": "Change maybe_choose_under_load to return {:admitted | :held, state} and drop the marker.",
+      "refactor_hint": "Admission gate API should report its decision; affects the dispatch package interface.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-32",
+      "category": "performance",
+      "severity": "P3",
+      "title": "rework_attempts and rework_attempt_alerted grow for the daemon's lifetime",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/state.ex",
+          "lines": "966-1032"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/rework_gate.ex",
+          "lines": "297-318"
+        }
+      ],
+      "description": "Both are keyed by {issue_id, head_sha} and only ever added to; nothing prunes entries for closed tickets or superseded heads. Growth is one entry per rework routing per head, so it is slow, but it is unbounded state carried in every Orchestrator state copy.",
+      "evidence": "grep over src/lib: rework_attempts written only at state.ex:1014, rework_attempt_alerted only at :1031; no Map.delete/filter anywhere.",
+      "recommendation": "Prune entries for issues that leave last_polled_issues (as issue_sync.ex:752 does for released_claims), or keep only the latest head per issue.",
+      "refactor_hint": "Moves with the rework-gate slice of State.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-33",
+      "category": "silent-failure",
+      "severity": "P3",
+      "title": "Running-issue refresh failures are logged at debug level only",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/reconciler.ex",
+          "lines": "100-166"
+        }
+      ],
+      "description": "When the per-poll refresh of running tickets fails, log_refresh_failure/4 writes Logger.debug and keeps the workers. A persistent failure means terminal, human-review and pause-label changes for running tickets are never reconciled, with no operator signal from this path.",
+      "evidence": "reconciler.ex:159 `Logger.debug(\"Failed to refresh #{context} issue states for ...; keeping active workers\")`.",
+      "recommendation": "Count consecutive refresh failures and raise a needs-attention alert after N polls (resolve on success).",
+      "refactor_hint": "None beyond the reconciler slice.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-34",
+      "category": "coupling",
+      "severity": "P3",
+      "title": "Linear-specific error atoms are handled inside orchestrator modules",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/tracker_health.ex",
+          "lines": "389-433"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/workspace_cleanup.ex",
+          "lines": "101-142"
+        }
+      ],
+      "description": "TrackerHealth.log_tracker_preflight_error/1 and WorkspaceCleanup match :missing_linear_api_token, :missing_linear_project_slug, {:linear_api_status, 401} and {:linear_api_request, :missing_linear_api_token}. The orchestrator thus knows each tracker adapter's private error vocabulary.",
+      "evidence": "workspace_cleanup.ex:104 `when reason in [:missing_linear_api_token, :missing_linear_project_slug]`; :132 `{:linear_api_status, 401}`; tracker_health.ex:394-398.",
+      "recommendation": "Have the Tracker behaviour return classified errors (e.g. {:tracker_unconfigured, detail}, {:tracker_auth, detail}) and match those.",
+      "refactor_hint": "Required if trackers become separate packages/repos.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-35",
+      "category": "performance",
+      "severity": "P3",
+      "title": "Token payload parsing repeats lookups and recursively scans every update for rate limits",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/token_accounting/payloads.ex",
+          "lines": "8-32"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/token_accounting/payloads.ex",
+          "lines": "88-114"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/token_accounting.ex",
+          "lines": "144-169"
+        }
+      ],
+      "description": "extract_token_usage/1 and extract_rate_limits/1 list the same lookup twice (update[:usage] and Map.get(update, :usage) are identical; likewise for :rate_limits). When no direct rate-limit map exists, rate_limit_payloads/1 walks every nested value of the update recursively, on every agent event, in the Orchestrator. Naming is misleading: turn_count increments on a new session id (it counts sessions), while completed_turn_count counts turns.",
+      "evidence": "payloads.ex:11 `update[:usage]` and :13 `Map.get(update, :usage)`; :26 and :28 same for :rate_limits; :88-100 recursive `Map.values(payload) |> Enum.reduce_while(...)`; token_accounting.ex:149-153 turn_count increments when `session_id != existing_session_id`.",
+      "recommendation": "Normalise payloads once per backend adapter into a typed usage/rate-limit struct; drop the recursive scan; rename turn_count to session_count.",
+      "refactor_hint": "Payload shapes belong to each coding-agent adapter package, not the orchestrator.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-36",
+      "category": "coupling",
+      "severity": "P3",
+      "title": "Orchestrator read model depends on the web layer (AiurWeb.ObservabilityPubSub)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "lines": "13-16"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "lines": "114-149"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/snapshot_store.ex",
+          "lines": "252-259"
+        }
+      ],
+      "description": "SnapshotStore, under Aiur.Orchestrator, calls AiurWeb.ObservabilityPubSub.broadcast_update/0 on every publish, so core depends on the web namespace.",
+      "evidence": "snapshot_store.ex:15 `alias AiurWeb.ObservabilityPubSub`; :123, :147, :255 `:ok = ObservabilityPubSub.broadcast_update()`.",
+      "recommendation": "Publish a core-level event (Aiur.PubSub topic) and let the web layer subscribe and re-broadcast.",
+      "refactor_hint": "Needed for a core package that compiles without the web app.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-37",
+      "category": "anti-pattern",
+      "severity": "P3",
+      "title": "TrackedSet refresh blocks the Orchestrator on a GenServer.call with up to three timeout retries",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/tracked_set.ex",
+          "lines": "28-65"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/tracked_set.ex",
+          "lines": "78-105"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1512"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1538"
+        }
+      ],
+      "description": "refresh/1 (called from the Orchestrator, e.g. during reactivation) resets the ETS set through GenServer.call with the default 5 s timeout and retries on timeout up to 3 times, so a slow owner can block the Orchestrator for about 15 s; replace_all/1 also retries on ArgumentError. refresh/1 and StatusReport.list_active_identifiers/1 both use the redundant `entry[:identifier] || Map.get(entry, :identifier)`.",
+      "evidence": "tracked_set.ex:89 `:exit, {:timeout, _} when attempts_left > 1 -> call(message, attempts_left - 1)`; :59 `entry[:identifier] || Map.get(entry, :identifier)`.",
+      "recommendation": "Make the reset a cast (last-writer-wins with a version), or let the Orchestrator own the table via an heir; drop the duplicated lookup.",
+      "refactor_hint": "Minor; stays with core.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-38",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Completed-runner revalidation written twice, with trivial wrapper layers",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1296-1323"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1392-1407"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1469-1499"
+        }
+      ],
+      "description": "revalidate_completed_replacement/3 and restart_completed_issue/2 make the same Dispatcher.revalidate_issue_for_dispatch call and handle the same four outcomes, differing only in whether they return a reply. restart_completed_provenance_issue/2 is a one-line alias of restart_completed_issue/2; dispatch_completed_replacement/4 and replace_admitted_completed_entry/5 only drop the result tuple of their *_result twins.",
+      "evidence": "pause_resume.ex:1297-1301 and :1472-1476 identical `Dispatcher.revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, DispatchPolicy.terminal_state_set())`; :1498-1499 alias.",
+      "recommendation": "Keep one revalidate-and-replace function returning {result, state}; callers that do not need the result pattern-match it away.",
+      "refactor_hint": "Part of the Replacement split (orch-b-18).",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-39",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Resume capacity preflight is spelled out four times; pause/resume preflight rejection is mirrored by hand",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "790-798"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1565-1590"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1658-1690"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "2266-2292"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1749-1777"
+        }
+      ],
+      "description": "The fleet-cap + per-state + worker-host check appears in reactivate_issue/2, resume_paused_issue_preflight/2, submit_resume_control_request/4 and queued_issue_runtime_resumability/3, each with a different subset (reactivate checks only the fleet cap). preflight_rejection/3 has four clauses where the pause and resume halves differ only in the target status.",
+      "evidence": "pause_resume.ex:1578-1585 and :1661-1668 identical three-branch cond returning :max_concurrent_agents_reached; :793 fleet cap only.",
+      "recommendation": "One Capacity.resume_admission(state, entry) :: :ok | {:error, reason} used by all four; parameterise preflight_rejection by target status.",
+      "refactor_hint": "Capacity admission belongs with Slots in a capacity module.",
+      "effort": "S"
+    },
+    {
+      "id": "orch-b-40",
+      "category": "other",
+      "severity": "P3",
+      "title": "One retry exhaustion raises up to three needs-attention alerts",
+      "locations": [
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "506-570"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "853-902"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/retry_engine.ex",
+          "lines": "1097-1120"
+        }
+      ],
+      "description": "The give-up branch emits ticket.<id>.agent.retry_exhausted, then (permanent cause) ticket.<id>.agent.attention.error-retry_exhausted or error-state-write-failed, then orchestrator.claim_released - three needs-attention alerts, on two different topic families, for one event.",
+      "evidence": "retry_engine.ex:516 `Alerts.emit_custom(\"ticket.#{identifier}.agent.retry_exhausted\", ...)`; :870 / :889 error-state alerts; :1111 `\"orchestrator.claim_released\"`.",
+      "recommendation": "Emit one exhaustion alert that carries the error-state write outcome and claim-release/auto-reclaim details.",
+      "refactor_hint": "Moves with RetryExhaustion (orch-b-19).",
+      "effort": "S"
+    }
+  ]
+}

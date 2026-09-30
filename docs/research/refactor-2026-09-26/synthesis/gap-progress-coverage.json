@@ -1,0 +1,31 @@
+{
+  "claim": "gaps-01",
+  "method": "Apply the original progress inclusion rules to the separately fetched architecture-docs cache; intersect strictly inside retained archon-alias >=30-minute gaps, then split them at distinct timestamps.",
+  "input_sha256": {
+    "gh/aiur-team_architecture-docs.issue_events.jsonl": "6cfc6f5f3fc9df47c4de6bea42861ce017dac89dad680737eaaa8cc88effbbf4",
+    "gh/aiur-team_architecture-docs.pulls2.jsonl": "2a20620d1fc7cc14df4432d2bab641df18a1c99ef9f8a7987bfdcc7ed99b15df",
+    "gh/aiur-team_architecture-docs.reviews.jsonl": "219978924c070c5dcf9f9b77230b3c68b2565dbbdd1a667381a3721e06fa5337",
+    "gh/aiur-team_architecture-docs.issue_comments.jsonl": "0850ba64cca4f49e957a4a5e1072314a1ab1b0bb8109707e897685ef0d2c5775",
+    "gap_rows30.jsonl": "2de9a3d9218e268b6b9ad0a3c44e3ae25fbc2e522877edc944519f40229dae4d"
+  },
+  "qualifying_source_records_by_kind": {
+    "comment": 258,
+    "issue_event": 2954,
+    "pr_merge": 109,
+    "pr_open": 110,
+    "review": 106
+  },
+  "records_inside_retained_gaps_by_kind": {},
+  "affected_gap_count": 0,
+  "affected_gaps_aggregate_only": [],
+  "original_total_gap_hours": 727.7333621437019,
+  "split_total_gap_hours": 727.7333621437019,
+  "reduction_hours_within_fixed_spans": 0.0,
+  "limits": [
+    "The original analyzer maps architecture-docs wakes and runtime to archon, but GHREPO maps archon only to its own GitHub cache.",
+    "This is additive source coverage sensitivity, not a corrected final ratio. The original active spans and other missing or misclassified events remain unaudited.",
+    "Progress events may be bookkeeping, unsuccessful control attempts or unrelated to runnable work; their absence does not prove no productive activity.",
+    "No category reclassification, historical uptime proof, runtime testing or saving claim.",
+    "Private rows contribute only to aggregate retained-gap totals; no private event text, identities, paths or timestamps are emitted."
+  ]
+}

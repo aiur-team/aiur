@@ -1,0 +1,749 @@
+{
+  "unit_id": "tests-1a",
+  "status": "reviewed_pending_synthesis",
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "planned_files": 75,
+  "files_reviewed": 75,
+  "lines_reviewed_estimate": 35290,
+  "coverage_notes": "All 75 manifest files read in full, 35290 lines, against the frozen snapshot; hashes, line counts and exact manifest membership verified. Four findings retain individually bounded isolated-probe evidence. Deactivate reviewed as source; no full suite, live application, GitHub operation or manual TUI validation. Supporting Reconciler and TestSupport reads are excerpts.",
+  "coverage": [
+    {
+      "path": "src/test/aiur/current_run_membership_checkpoint_test.exs",
+      "status": "read_in_full",
+      "sha256": "34ef696857f48ef46ac3b90cbdfaa64da8bc501dae5c60c4f29314d32e469f42",
+      "lines": 50
+    },
+    {
+      "path": "src/test/aiur/current_run_membership_marker_test.exs",
+      "status": "read_in_full",
+      "sha256": "181df5263a331549341883f67ab81b4e3b5f568251d45d0218e894e64eecaa64",
+      "lines": 46
+    },
+    {
+      "path": "src/test/aiur/event_publication_log_test.exs",
+      "status": "read_in_full",
+      "sha256": "a219e2d04d1e75dd85d872cffce3849488849c52dd423e4418352b27453af97f",
+      "lines": 56
+    },
+    {
+      "path": "src/test/aiur/json_safe_test.exs",
+      "status": "read_in_full",
+      "sha256": "84e2fbece7814e903c7acbaf3e6cc988769bca086395e8a0b6109eea37a3947c",
+      "lines": 29
+    },
+    {
+      "path": "src/test/aiur/opaque_identifier_test.exs",
+      "status": "read_in_full",
+      "sha256": "a16399bd5caef731c1dc083895db1e00ef4d729b3fb84c2ed9dc3d7bc8ba74a1",
+      "lines": 17
+    },
+    {
+      "path": "src/test/aiur/supervisor_token_test.exs",
+      "status": "read_in_full",
+      "sha256": "9949fa76140106a6902a52e46ff2ca1ba3ed4f94cc0637330b11b3d46ece03b1",
+      "lines": 29
+    },
+    {
+      "path": "src/test/aiur/secret_redactor_test.exs",
+      "status": "read_in_full",
+      "sha256": "2e25107a35c1d55a51dcd5d3c751225c8f01a6a37a64cbb12594dc4f35fde6d8",
+      "lines": 60
+    },
+    {
+      "path": "src/test/aiur/shell_test.exs",
+      "status": "read_in_full",
+      "sha256": "5f3a5fd86f58deeddffba91eaa2c6d5f5c1a6b153490853a30dd86ab4d5d3a95",
+      "lines": 57
+    },
+    {
+      "path": "src/test/aiur/fs_test.exs",
+      "status": "read_in_full",
+      "sha256": "351ad57542bf711583b58d23acb206b8f725543d2143fa4396f1d054e2c95217",
+      "lines": 91
+    },
+    {
+      "path": "src/test/aiur/system_cpu_test.exs",
+      "status": "read_in_full",
+      "sha256": "17a6842078e748bd5dc24ac63c27f6f1cec2dc4268799a6d77b3a81c967a19a3",
+      "lines": 67
+    },
+    {
+      "path": "src/test/aiur/system_load_test.exs",
+      "status": "read_in_full",
+      "sha256": "dec714ebb81060ed1f45c833d423d53e9ad7a71449d4b45c6ed85453a9ac7938",
+      "lines": 44
+    },
+    {
+      "path": "src/test/aiur/system_file_descriptors_test.exs",
+      "status": "read_in_full",
+      "sha256": "712a47d12a48a26358d476bb8d640d0df4aff33c80381ab1a14d8b5609f722a8",
+      "lines": 107
+    },
+    {
+      "path": "src/test/aiur/coding_agent_claude_test.exs",
+      "status": "read_in_full",
+      "sha256": "258098befa7e43d4cdb11025e448102dff6feeea762854bf3c13e7e9f3d023a5",
+      "lines": 60
+    },
+    {
+      "path": "src/test/aiur/issue_context_test.exs",
+      "status": "read_in_full",
+      "sha256": "35b1635d999a83698784f31d7138e928dd9b850008133637f6e18d67cf14144f",
+      "lines": 66
+    },
+    {
+      "path": "src/test/aiur/launcher_watchdog_test.exs",
+      "status": "read_in_full",
+      "sha256": "0e9daf9d69a5093f82a3f9b2c16397914d93c7e0ce4bf95cbfc03638150d9a45",
+      "lines": 49
+    },
+    {
+      "path": "src/test/aiur/orchestrator_broadcast_test.exs",
+      "status": "read_in_full",
+      "sha256": "692fb28651817245af59ae19366809272d40195c527e1ca7666a50bda40cfd19",
+      "lines": 24
+    },
+    {
+      "path": "src/test/aiur/boot_test.exs",
+      "status": "read_in_full",
+      "sha256": "e974ddb64ca58b342c4c07fc455eceef8cf37ddb059f47bb0be04096e5c0caa4",
+      "lines": 85
+    },
+    {
+      "path": "src/test/aiur/decision_dispatch_test.exs",
+      "status": "read_in_full",
+      "sha256": "dc06e510c76a54703456d83484db110823ece2163b5fa94c577af501c34a69f6",
+      "lines": 97
+    },
+    {
+      "path": "src/test/aiur/decision_provenance_test.exs",
+      "status": "read_in_full",
+      "sha256": "de04e24d6d36fabdc636596aac719bb64819a52183306844bb50b0fc70081e92",
+      "lines": 102
+    },
+    {
+      "path": "src/test/aiur/decision_artifact_test.exs",
+      "status": "read_in_full",
+      "sha256": "0a6146668695ea35eaf2d0ece8676aac378dbac7e883556932ff74fe68209351",
+      "lines": 132
+    },
+    {
+      "path": "src/test/aiur/poll_cadence_test.exs",
+      "status": "read_in_full",
+      "sha256": "56d9e5a638cbf9148f8e8b271ada0d7a56c41181450465e6dc914c74cba97ea9",
+      "lines": 114
+    },
+    {
+      "path": "src/test/aiur/provider_meter_watch_test.exs",
+      "status": "read_in_full",
+      "sha256": "ed7be377c3f5f3f686e2898e8783f405836c4d162cdea211ebb3fea428fdac76",
+      "lines": 80
+    },
+    {
+      "path": "src/test/aiur/provider_meters_events_test.exs",
+      "status": "read_in_full",
+      "sha256": "a34386c6038febd81ad4254a9f39d7acd7d2200bbfbbd156bd49afcbe3e1682c",
+      "lines": 106
+    },
+    {
+      "path": "src/test/aiur/affected_tests_test.exs",
+      "status": "read_in_full",
+      "sha256": "e366b0ad612db68d6ab2a65ea23d2e4844283ec2a5a070ddfcd7b5a3b495c894",
+      "lines": 177
+    },
+    {
+      "path": "src/test/aiur/agent_control_cli_usage_test.exs",
+      "status": "read_in_full",
+      "sha256": "3ad9a054b70aead5e5e7bd22eda1f830eb632ced307b028e2261a6454161d0aa",
+      "lines": 190
+    },
+    {
+      "path": "src/test/aiur/agent_event_log_test.exs",
+      "status": "read_in_full",
+      "sha256": "5fa82916b7b29c005d361e3fb72e8dd9078aa3cc7839c8cc6a513f80d069182e",
+      "lines": 176
+    },
+    {
+      "path": "src/test/aiur/model_catalog_test.exs",
+      "status": "read_in_full",
+      "sha256": "80c81b7df8e372f9ee627df63cfd852d1fe8c9bed51b5596f96fa3cfa85394f0",
+      "lines": 90
+    },
+    {
+      "path": "src/test/aiur/github_usage_cli_test.exs",
+      "status": "read_in_full",
+      "sha256": "4a3d1ea8a2a3130e81f3891c5b4235cf9e620f13c2ba3f8cfa1f85aad41240c2",
+      "lines": 117
+    },
+    {
+      "path": "src/test/aiur/saturation_sentinel_test.exs",
+      "status": "read_in_full",
+      "sha256": "b1192ad4e027abd8f6901aad71a2d6302bf2ade72a8e06ac4b7f2e6eb758f159",
+      "lines": 97
+    },
+    {
+      "path": "src/test/aiur/orchestrator_tracked_set_test.exs",
+      "status": "read_in_full",
+      "sha256": "4f091fc64edb7cf478b07a035889f2f764275d139f96e6e8857cf46b5f45d5b5",
+      "lines": 123
+    },
+    {
+      "path": "src/test/aiur/provider_meter_projection_integration_test.exs",
+      "status": "read_in_full",
+      "sha256": "8163f51dbfba30782ef8db953d9a55d87237f71696cc51d2fb1bbe251cffd2e1",
+      "lines": 132
+    },
+    {
+      "path": "src/test/aiur/decision_answer_test.exs",
+      "status": "read_in_full",
+      "sha256": "10d389d866da334bdb7ab8ae6c62ea84e1c09df2b09e20d933028446d80806a0",
+      "lines": 199
+    },
+    {
+      "path": "src/test/aiur/decision_log_test.exs",
+      "status": "read_in_full",
+      "sha256": "825c29a5c2157acec56b76889370627292b8881c9ba61820540725e5df8bde1f",
+      "lines": 210
+    },
+    {
+      "path": "src/test/aiur/test_shard_test.exs",
+      "status": "read_in_full",
+      "sha256": "f564fbc9ff38b1cf99e1e60603e7f04b363531b963795e168dcc2d47ed2e610f",
+      "lines": 147
+    },
+    {
+      "path": "src/test/aiur/test_support_test.exs",
+      "status": "read_in_full",
+      "sha256": "4b28f526e3ff3301b6b36579a79321bb549f6adcc299a67c5744f5186e763b46",
+      "lines": 158
+    },
+    {
+      "path": "src/test/aiur/test_environment_test.exs",
+      "status": "read_in_full",
+      "sha256": "f94fc588cd6d36f933472a4e6b644342a8201b4dd63fecf5f655fbb149ab362e",
+      "lines": 453
+    },
+    {
+      "path": "src/test/aiur/test_reset_test.exs",
+      "status": "read_in_full",
+      "sha256": "6223ddd75371a79009f18fe2cb69207256d562445a60f2d97cbf3713d68cc7d6",
+      "lines": 537
+    },
+    {
+      "path": "src/test/aiur/http_server_credential_gate_test.exs",
+      "status": "read_in_full",
+      "sha256": "7fd24510959e29be3c0b254916be3750876cddbb65da5f714701e233ad1261da",
+      "lines": 154
+    },
+    {
+      "path": "src/test/aiur/issue_log_transcript_test.exs",
+      "status": "read_in_full",
+      "sha256": "51e997d8cc70cef36a2bbe67dc123631b9b9312a6ec0e9e9b843ccbcc324391d",
+      "lines": 151
+    },
+    {
+      "path": "src/test/aiur/rtk_test.exs",
+      "status": "read_in_full",
+      "sha256": "dbb00ec8f2112d8ab15a473866bd134ba6df857cc24a6189c28b12d13d547097",
+      "lines": 155
+    },
+    {
+      "path": "src/test/aiur/issue_log_event_history_test.exs",
+      "status": "read_in_full",
+      "sha256": "fbf346f59ea1a3bf568cfa8e9d89d37bf339c01f26d716cd55d4c27d6f4fc981",
+      "lines": 327
+    },
+    {
+      "path": "src/test/aiur/provider_meter_projection_test.exs",
+      "status": "read_in_full",
+      "sha256": "13d44c7d2ea7b8f7ae10b47f4ebba41c98ec470f1b9309827a4e0012863b75fb",
+      "lines": 262
+    },
+    {
+      "path": "src/test/aiur/log_file_test.exs",
+      "status": "read_in_full",
+      "sha256": "dbcf647294a0355d43fde3ac7823182857d5a20273c4673f685e8893e8ed2051",
+      "lines": 285
+    },
+    {
+      "path": "src/test/aiur/ticket_activity_test.exs",
+      "status": "read_in_full",
+      "sha256": "50dee8ee312fab1f0e119564d7248b2721ef76dd0a5fa157e0b5b2c718530dfb",
+      "lines": 216
+    },
+    {
+      "path": "src/test/aiur/agent_skills_test.exs",
+      "status": "read_in_full",
+      "sha256": "3855b19c947cc485790223d5a4160caf519e45c8e632e964e8c77bbbb1ff1ef4",
+      "lines": 322
+    },
+    {
+      "path": "src/test/aiur/aiur_debug_skill_test.exs",
+      "status": "read_in_full",
+      "sha256": "6823f173c92f0b908421d5a45de60f75248e6c4d5b4631db27f53e0c28ab35bd",
+      "lines": 169
+    },
+    {
+      "path": "src/test/aiur/aiur_alert_watch_skill_test.exs",
+      "status": "read_in_full",
+      "sha256": "b2d1dc2dcca2c37df1dce75e14b93af26917627f3568cd537348b89ae1a8407c",
+      "lines": 464
+    },
+    {
+      "path": "src/test/aiur/prompt_builder_test.exs",
+      "status": "read_in_full",
+      "sha256": "8f06d44d63cf44cfa9f06fc7ed321bc31c88dd6350399970bdbe2db7bf70b0c5",
+      "lines": 294
+    },
+    {
+      "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
+      "status": "read_in_full",
+      "sha256": "5644983b4221781a576ca6f882d33fef529ec5fe566054d36dffa92e956539e5",
+      "lines": 228
+    },
+    {
+      "path": "src/test/aiur/aiur_agent_skill_test.exs",
+      "status": "read_in_full",
+      "sha256": "fc0603f5dcfe6347eda6eee7492a5b0ccbb592a393bfd5c90d873c9714b9cdda",
+      "lines": 842
+    },
+    {
+      "path": "src/test/aiur/cadence_freshness_test.exs",
+      "status": "read_in_full",
+      "sha256": "23f03cc0a3d1a7cd70588e3b9f0c962b04b0ca91613f074a23cdd7b318a50069",
+      "lines": 351
+    },
+    {
+      "path": "src/test/aiur/decision_delivery_integration_test.exs",
+      "status": "read_in_full",
+      "sha256": "91ebda276228e5f1375a3aed1b596200778e8cc8024dd56fce39256ca68c3b27",
+      "lines": 415
+    },
+    {
+      "path": "src/test/aiur/decision_api_integration_test.exs",
+      "status": "read_in_full",
+      "sha256": "a3d5d30769e3ab2cf1b9ce107e14520845873972460c9c7050c385b67a3c87df",
+      "lines": 277
+    },
+    {
+      "path": "src/test/aiur/decision_revision_test.exs",
+      "status": "read_in_full",
+      "sha256": "f6b9b6d18c2d76acf5fdd7462dfe952425f357b3ae018820391bcda58f972198",
+      "lines": 250
+    },
+    {
+      "path": "src/test/aiur/decision_history_test.exs",
+      "status": "read_in_full",
+      "sha256": "6d4aa08473e4ab53a2b83e716f90f1c2abb9a9355bed96ecf80c5c9ed245cba7",
+      "lines": 352
+    },
+    {
+      "path": "src/test/aiur/decision_withdrawal_test.exs",
+      "status": "read_in_full",
+      "sha256": "1c9d9ef5636dcf6cd906eeaf6bc184af5d3c4f82447eeb9a45023fa0f2a9ede7",
+      "lines": 594
+    },
+    {
+      "path": "src/test/aiur/decision_attention_test.exs",
+      "status": "read_in_full",
+      "sha256": "f75c35655a010771f4192cf0147d361528222a063609f0071d485a9143f733ba",
+      "lines": 572
+    },
+    {
+      "path": "src/test/aiur/decision_query_test.exs",
+      "status": "read_in_full",
+      "sha256": "c493bb8d6b6698cc5e0e1a2b7392166eb2a3b525ddf73b0e598e0052b8fdd6f4",
+      "lines": 809
+    },
+    {
+      "path": "src/test/aiur/decision_projection_test.exs",
+      "status": "read_in_full",
+      "sha256": "cf9b80f0f307aa62a7ae3ba7d29ac7f2993fdcc53f31d7c6d37eb87c8ba0d994",
+      "lines": 1036
+    },
+    {
+      "path": "src/test/aiur/decision_revision_store_test.exs",
+      "status": "read_in_full",
+      "sha256": "41431d4c49b5058a0f120105d4589fb11cdb820e2bf50a8d9b3a8d0fcdb32d51",
+      "lines": 766
+    },
+    {
+      "path": "src/test/aiur/alert_feed_test.exs",
+      "status": "read_in_full",
+      "sha256": "83c2caafab161d50b7915b2e524ae35f7c56ce10d83f2f09e42577f0d856d38b",
+      "lines": 433
+    },
+    {
+      "path": "src/test/aiur/coding_agent_checkpoint_test.exs",
+      "status": "read_in_full",
+      "sha256": "2ee6081ad28266ec89f2fb1958fbe9c4a6d900222e7d681f37357d418bde0b50",
+      "lines": 497
+    },
+    {
+      "path": "src/test/aiur/orchestrator_events_digest_coalesce_test.exs",
+      "status": "read_in_full",
+      "sha256": "e9b80e0084ed57f46eef2befa867b74025e51d774edae8b9703b835427893114",
+      "lines": 148
+    },
+    {
+      "path": "src/test/aiur/orchestrator_interrupt_test.exs",
+      "status": "read_in_full",
+      "sha256": "acb9c9bca34f543852bbc2dd44bf78dfca7c4f330d442d1defff131c3c181a5f",
+      "lines": 255
+    },
+    {
+      "path": "src/test/aiur/orchestrator_load_gate_test.exs",
+      "status": "read_in_full",
+      "sha256": "88d025002ac40e48ddf1ee7b9586e7031f6ce19670e6c1d94034570953f37a1f",
+      "lines": 268
+    },
+    {
+      "path": "src/test/aiur/recent_merge_store_test.exs",
+      "status": "read_in_full",
+      "sha256": "009f955cf1fa2e942aadf63338021ef0697d71d448465a1d585bd6c77f0ff93e",
+      "lines": 444
+    },
+    {
+      "path": "src/test/aiur/usage_envelope_test.exs",
+      "status": "read_in_full",
+      "sha256": "c27bd0269c6e36e23d5ee3099c0268dd9be1a339a555772e0216d7db7f759eb4",
+      "lines": 430
+    },
+    {
+      "path": "src/test/aiur/operator_send_timeout_test.exs",
+      "status": "read_in_full",
+      "sha256": "4498d22d978a006ec7a037ae9695f840fcc99ece9453e18e7800569278a76fb4",
+      "lines": 399
+    },
+    {
+      "path": "src/test/aiur/provider_meter_probe_test.exs",
+      "status": "read_in_full",
+      "sha256": "387b20e139de85ffbe726ff356b59363484b7246d8136cbb585a2c010c74b7be",
+      "lines": 698
+    },
+    {
+      "path": "src/test/aiur/dynamic_tool_test.exs",
+      "status": "read_in_full",
+      "sha256": "5e47823b6ec91a78d283cc69be5a5516e487356a012689621eb29aa875667716",
+      "lines": 1004
+    },
+    {
+      "path": "src/test/aiur/alerts_test.exs",
+      "status": "read_in_full",
+      "sha256": "44bc2d51966542f0e2c60b668834dc871a16f7338798ac8ba0e35b0444dcf9aa",
+      "lines": 1388
+    },
+    {
+      "path": "src/test/aiur/orchestrator_ci_lifecycle_test.exs",
+      "status": "read_in_full",
+      "sha256": "fca03ff702ec746fb3cbcc687db4e29ff67a8bf995dc7220f62de8d49fe55fb6",
+      "lines": 1733
+    },
+    {
+      "path": "src/test/aiur/github_client_test.exs",
+      "status": "read_in_full",
+      "sha256": "0d7b31d4531175be67841df37f9054fc19a5e13a9f9699d8bee31aed7a21710e",
+      "lines": 2252
+    },
+    {
+      "path": "src/test/aiur/core_test.exs",
+      "status": "read_in_full",
+      "sha256": "40e67a56ca7ba45b29be7e2e0bd579b0aa272afda1d1f2bff69237011ba2ed3a",
+      "lines": 4023
+    },
+    {
+      "path": "src/test/aiur/orchestrator_deactivate_test.exs",
+      "status": "read_in_full",
+      "sha256": "c56f12b095bbc10068ee98c6c9cbb54de34239fb21de1028a31c160a603e2a8e",
+      "lines": 7653
+    }
+  ],
+  "findings": [
+    {
+      "id": "tests-1a-cont-01",
+      "severity": "P1",
+      "category": "testing",
+      "title": "Reset test cleanup recursively removes a shared workspace parent",
+      "locations": [
+        {
+          "path": "src/test/aiur/test_reset_test.exs",
+          "lines": "153-179"
+        }
+      ],
+      "description": "The direct-workspace-path refusal test creates one fixture below System.tmp_dir!/aiur-workspaces/repo, but its after block removes System.tmp_dir!/aiur-workspaces in full. Any sibling test or workspace directory under that same parent is inside the deletion scope. The serial ExUnit setting only serializes this VM's cases; it does not establish ownership over sibling VM or operator directories.",
+      "evidence": "tooling/reset_cleanup_scope_probe.exs extracts the exact File.rm_rf! expression from the frozen source and evaluates it with System.tmp_dir! pinned to a fresh private probe root. A sibling sentinel is deleted; a control removing only the fixture preserves it. Frozen config/config.exs lines83-130 isolates HOME/XDG/application roots, not TMPDIR; test_helper.exs uses the system temp root without replacing it.",
+      "recommendation": "Allocate a unique parent beneath the system temp root that contains the required aiur-workspaces path segment, then remove only that owned parent. Alternatively remove only the fixture path and assert a sibling sentinel survives teardown.",
+      "refactor_hint": "Test fixtures should carry an explicit owned cleanup root distinct from product workspace roots; package extraction must not preserve broad parent deletion as a reusable helper.",
+      "limits": "This verifies cleanup scope, not observed loss of real workspace data. An externally supplied private TMPDIR narrows exposure to that directory. No shared temporary directory or real reset operation was touched; no full-suite run or production mutation was performed."
+    },
+    {
+      "id": "tests-1a-cont-02",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Transcript boolean test neither retains nor asserts its boolean fixture",
+      "locations": [
+        {
+          "path": "src/test/aiur/issue_log_transcript_test.exs",
+          "lines": "45-56"
+        },
+        {
+          "path": "src/lib/aiur/issue_log.ex",
+          "lines": "748-776"
+        }
+      ],
+      "description": "The boolean persistence test supplies truncated:false in an edit-tool payload, then asserts only that payload is nil or a map and role is a binary. The production bounded_edit_payload reconstruction keeps tool/output and optional edit changes, dropping this truncated field before serialization. The named boolean behavior is therefore neither reached by that fixture field nor constrained by its assertions.",
+      "evidence": "tooling/transcript_boolean_oracle_probe.exs extracts the two actual assertions and evaluates valid false, string false and missing-payload records. All three pass; an exact boolean control accepts only the valid false record. Source inspection independently shows the fixture boolean is removed by the bounded payload projection.",
+      "recommendation": "Use a supported event shape whose boolean survives bounded projection, assert the decoded field is exactly false and true in the respective cases, then verify a serializer mutation stringifying booleans fails the test. Keep payload-retention behavior covered separately.",
+      "refactor_hint": "At serializer/package boundaries, construct fixtures that reach the represented value and assert its exact decoded type and content; nil-or-map permissiveness cannot establish boolean encoding.",
+      "limits": "The probe executes extracted assertions with supplied records, not the full writer or a production serializer mutation. The frozen serializer has an explicit correct boolean clause; no current production encoding defect is alleged."
+    },
+    {
+      "id": "tests-1a-cont-03",
+      "severity": "P3",
+      "category": "testing",
+      "title": "Decision delivery and timeout fixtures use a non-terminating cleanup signal",
+      "locations": [
+        {
+          "path": "src/test/aiur/decision_delivery_integration_test.exs",
+          "lines": "244, 321-337, 355-361"
+        },
+        {
+          "path": "src/test/aiur/operator_send_timeout_test.exs",
+          "lines": "317-363"
+        }
+      ],
+      "description": "start_orchestrator! spawns an unlinked recursive worker probe. Its on_exit callback calls Process.exit(worker_pid, :normal), which does not terminate this non-trapping target when sent by another process. The full-restart test uses the same ineffective signal before creating its replacement worker. The probe has no stop message or parent monitor, so intended cleanup leaves a live receive loop. OperatorSendTimeoutTest repeats this unlinked recursive worker and normal-exit teardown pattern.",
+      "evidence": "tooling/decision_worker_cleanup_probe.exs extracts the actual worker function and on_exit Process.exit expression from either named frozen test file. Separate runs for decision_delivery_integration_test.exs and operator_send_timeout_test.exs both echo a unique post-cleanup barrier and remain alive; each kill control yields a monitored DOWN event. Both owned probe processes are cleaned up.",
+      "recommendation": "Own worker probes under the test supervisor or implement a stop protocol and monitor their exit; verify teardown and restart fixtures observe DOWN before proceeding.",
+      "refactor_hint": "Package integration fixtures need explicit process ownership and completion barriers, including fake workers; stopping the orchestrator does not establish ownership of an independently spawned worker.",
+      "limits": "This isolates the actual helper and cleanup expression, not a full ExUnit run or production controller. No suite-wide process count, performance degradation or production delivery defect is claimed."
+    },
+    {
+      "id": "tests-1a-cont-04",
+      "severity": "P2",
+      "category": "testing",
+      "title": "Audit ordering assertion accepts a missing handled event",
+      "locations": [
+        {
+          "path": "src/test/aiur/decision_revision_store_test.exs",
+          "lines": "564-568"
+        }
+      ],
+      "description": "The supersession test finds the revision and follow_up_handled audit indexes, then compares them without asserting that both were found. With a present revision and absent handled event, Elixir term ordering makes an integer index less than nil, so the ordering assertion passes.",
+      "evidence": "tooling/decision_order_oracle_probe.exs extracts the two index expressions and comparison from the frozen test. A valid ordered audit and an audit missing follow_up_handled both pass. A control requiring integer indexes passes the valid audit and rejects the missing event.",
+      "recommendation": "Assert that both matching audit events exist before comparing positions, and correlate the handled event to the superseded action. Retain the separate restart-repair count check.",
+      "refactor_hint": "Durable lifecycle tests must constrain event presence as well as ordering; projection state and resolver calls alone cannot establish the persisted audit transition.",
+      "limits": "This evaluates the extracted audit oracle against supplied records and a minimal event struct. It does not show that the full test passes against a production mutation, nor allege an actual missing production event. Earlier state and resolver assertions constrain additional behavior."
+    }
+  ],
+  "preserve": [
+    "Membership checkpoint tests recompute the checksum after adding a forbidden content field, so rejection cannot pass merely on checksum mismatch. Marker tests enforce content-free reasons, extra-field rejection, private file mode and corrupt-content rejection.",
+    "Publication log tests separate daemon-owned outcome location from workspace symlinks and preserve the target of a rejected configured symlink. Fs tests exercise fresh BEAM quarantine names with both archived byte sequences; fsync:true content equality alone does not prove crash durability.",
+    "JSONSafe asserts the complete normalized identity record. OpaqueIdentifier bounds size/type/format and rejects credential shapes. SecretRedactor covers multiple credentials, idempotence and escaped capability URLs; these fixtures do not establish exhaustive secret detection.",
+    "Shell tests round-trip quoting edge cases through a real POSIX shell, including newlines and expansion syntax. SupervisorToken explicitly treats whitespace-only values as absent while rejecting surrounding whitespace on nonempty credentials.",
+    "CPU tests preserve unavailable versus valid headroom and reclaimable nice time; descriptor tests distinguish exhausted EMFILE from ordinary unavailable samples and assert exact injected usage/limit arithmetic. Host procfs coverage is conditional on platform.",
+    "LauncherWatchdog tests inject liveness and verify callback plus normal process termination, not actual host restart. Claude backend tests retain workspace refusal and closed-port tolerance; they do not launch a provider.",
+    "IssueContext tests preserve truncate-before-wrap ordering, escaped delimiter balance, author attribution and secret/hidden-content removal. AgentEventLog retains non-alert events, tuple crash reasons and markdown/NDJSON output, with explicit remote no-op and best-effort write failure semantics.",
+    "DecisionDispatch tests assert correlation identity and lifecycle guidance with injected send callbacks. DecisionProvenance restamps trusted acceptance time, preserves unknown model facts and refuses content-bearing/credential identity fields. DecisionArtifact distinguishes canonical local paths from HTTPS host-policy and encoded-credential refusal.",
+    "PollCadence preserves explicit zero freshness tolerance, last valid cadence and bounded widening. Meter events distinguish generation-scoped and fan-out topics; private store/projection integration checks actual observed values and removal of generation identity, not rendered dashboard UX.",
+    "Usage CLI tests inject a private projection, synchronize observation via a server round-trip, assert ages and unknown states, and distinguish credits/local concurrency from provider percentages. Webhook mode fixtures require observed activity to classify silence as degraded.",
+    "AffectedTests covers fail-closed executable/build changes and missing mappings, deleted-reference boundaries and dependency mappings; configured .aiur paths are deliberately excluded. ModelCatalog fixtures retain provider order, hidden-model exclusion and unknown-shape errors rather than empty success.",
+    "TrackedSet tests freeze poll mutation before restarting the application-owned controller and assert ETS ownership survives. SaturationSentinel covers pure escalation/cooldown decisions and diagnostic append behavior; its mutable global configuration remains a test-isolation follow-up.",
+    "DecisionAnswer distinguishes stable action identity from content hash, scopes idempotency by decision, validates addressed versions/options, and requires supervisor-only policy evidence with integer confidence endpoints. Persisted round trips retain actor distinctions and redact content.",
+    "DecisionLog tests retain ordered accepted prefixes, distinguish torn-tail repair from interior corruption, allow non-mutating validation before caller recovery markers and reject symlink paths. On-disk byte equality demonstrates repaired bytes, not independent power-loss durability.",
+    "TestShard preserves golden cross-language assignments and insertion/deletion stability; its self-comparison test adds no independent constraint, while separate golden and population assertions do. Discovery tests cover actual nonempty project file selection without changing cwd.",
+    "TestSupport tests explicitly exercise application recovery, process-down barriers and synchronous workflow reload completion. This is deliberate recovery infrastructure coverage, distinct from incidental application-child mutation in unrelated unit tests.",
+    "TestEnvironment includes an AST cwd guard covering lexical aliases/imports, direct/Erlang calls, inert quote bodies versus executable unquotes and async module scope. It is a syntactic guard, not proof of transitive helper or runtime-generated call coverage.",
+    "TestReset tests distinguish missing/invalid ticket input, explicit confirmation, agent-workspace refusal, closed-ticket cleanup and separate remove/add label calls. Command construction and injected runners are not live GitHub validation; dry-run success alone does not prove absence of every side effect.",
+    "HTTP credential-gate tests distinguish loopback admission from non-loopback refusal and restore endpoint/environment configuration. A non-ignore result and warning logs prove gate passage, not successful bind or HTTP request authentication.",
+    "IssueLog event-history tests distinguish missing/unavailable/empty typed histories, isolate equal repository leaves by owner, keep transcript text from forging daemon events and bind concurrent writers to qualified identities across config changes.",
+    "Transcript tests retain JSON null for absent turn/message IDs, named roles, and queued-versus-delivered user echo labels. Injecting a killed exit signal proves writer signal tolerance but does not actually restart its PubSub partition.",
+    "Provider projection tests retain observed ages, partial source health, probe-failure counts, independent windows and providers, rejection of stale/missing timestamps and generation redaction. A test named after session end only injects a historical snapshot; it does not exercise session termination.",
+    "RTK tests distinguish disabled/unavailable/refused states, require the gh rewrite exclusion, preserve no-data versus measured-zero savings and check the shipped schema default. Supplied gain payloads are parser fixtures, not new production savings measurements.",
+    "LogFile tests restore logger handlers and configuration, preserve explicit log roots and debug flag precedence, and fail safely on unreadable/invalid config. These source checks do not prove absence of unrelated asynchronous writers during global configuration changes.",
+    "TicketActivity separates recent/current membership, content-free observations and stale-but-known phases. Its retention test restarts the projection while keeping the retention process alive; disk flush is exercised, but durable-store restart recovery is covered elsewhere.",
+    "AgentSkills exercises actual local installation and runs the remote-install shell script locally against Git fixtures. It preserves existing repository skills, canonical relative Codex links, vendored manifest/license identity, refresh failure retention and external gitdir handling. This is not SSH transport verification; the local unsafe-link best-effort result differs from remote-script nonzero failure.",
+    "AiurDebugSkill checks documented recipes, correlation/guardrail vocabulary and three reference-file presences; substring links and privacy regex fixtures do not prove exhaustive link resolution, privacy or successful runtime diagnosis.",
+    "Alert-watch tests execute the Bash watcher with bounded iterations, isolated HOME, notification/tmux/process stubs and an atomic poll-release barrier. They cover cold-start skipping, backlog replay, decision resolution, restart suppression, malformed history, jq-free escaping and half-written records completed between scans. Notification recorder success is not actual backend delivery.",
+    "AiurAgentSkill mostly constrains instruction text, but its creation-rule test extracts labels from the specific rule paragraphs and runs the real quota wrapper with a stub gh and broker explicitly disabled, checking both accepted dispositions and rejection without a disposition. Preserve this executable documentation contract without interpreting it as live GitHub admission coverage.",
+    "Skill taxonomy checks distinguish actual resolved canonical links from index-only tracked symlink assertions used for newly exposed skills and vendored CE entries. Index intent does not by itself verify the current mounted working-tree link. Reference enumeration covers the named list rather than every possible markdown link.",
+    "PromptBuilder preserves complexity guidance selection, configured integration-branch authority, shared-versus-skill instruction placement, escaped and bounded untrusted content, author-attribute encoding, hidden-carrier removal, redaction and invalid-UTF8 recovery. Balanced wrappers and instruction text are not proof of model resistance to arbitrary prompt injection.",
+    "BuildOrdersCLIFirstRead uses a real private projection with injected blocked readers and short-lived Task callers to verify demand survives caller exit, loading differs from unavailable, inflight requests coalesce and failed-read backoff suppresses another read until an injected later time. It does not launch the shell CLI, RPC daemon or LiveView.",
+    "CadenceFreshness checks literal fresh/stale ages at three effective cadences, explicit zero tolerance, actual queued mailbox depth and agreement between row admission and catalog status. Snapshot timestamps are restated in persistent_term and controller processes are stubs; these tests cover classification and presenter results, not rendered age text or a live polling cadence.",
+    "DecisionDeliveryIntegration distinguishes decided, queued, handed-off, delivered, consumed, acknowledged and resolved facts, preserves one action across duplicate answers, and compares the complete audit sequence. Store-only restart adopts a surviving queue item; controller-plus-store restart creates another attempt correlated to the same action and queue identity. Dispatch and delivery are driven through helpers, not an actual provider; filesystem sync is injected as a no-op.",
+    "DecisionApiIntegration drives Endpoint.call with authenticated Plug requests, a private real store and injected dispatcher. It checks persisted-before-dispatch audit visibility, trusted supervisor basis, redaction and duplicate answer/revision suppression. The endpoint runs with server:false; this is in-process HTTP-layer coverage, not a bound listener or browser interaction.",
+    "DecisionRevision rejects stale action/sequence before invoking the answer normalizer, rejects forged identity and unchanged action IDs, retains time-independent retry hashes, and detects persisted sequence/reason tampering. Its normalized-answer seam and codec are test doubles; preserve separate composition coverage through the store/API.",
+    "DecisionHistory preserves unknown provenance rather than guessing from agent names, distinguishes Executor/operator/supervisor attribution, keeps unavailable lifecycle facts nil, rejects unsafe links, preserves zero confidence and represents parent follow-up facts without fabricating child decisions. These are projection assertions rather than rendering assertions.",
+    "DecisionWithdrawal distinguishes queued withdrawal from durable in-flight handoff and confirmed delivery, refuses stale/moot/superseded actions, preserves authority checks and correlated retry attempts across store restarts, and raises attention for unknown outcomes or withdrawn-answer delivery. Restart assertions wait for the store-specific reconciliation report; worker presence and transport success are injected, and filesystem sync is a no-op.",
+    "DecisionAttention preserves canonical dismissal during legacy import, bounded restored attentions, live-open precedence over a blocked stale loader, resolution tombstones during startup and nonblocking legacy visibility signals. Race tests monitor loader completion and wait for importing? to clear; persistence failure checks no alert and no subscription, but its title's timer claim is not independently asserted.",
+    "DecisionQuery preserves exact lookup outside the priority overview, first-accepted ordering across enrichment/replay, deterministic equal-time ID ordering, strict invalid-input rejection and atomic health-plus-data reads. State-injected lifecycle/index fixtures test query semantics, not that every real mutation updates all indexes.",
+    "Retained query tests cover capped scans with continuation to rare later matches, unknown totals on incomplete scans, partial corrupt prefixes versus unavailable stores and indeterminate missing IDs. Generated cases compare against independently sorted/filter-derived expected IDs. Sparse current-map fixtures constrain indexed candidate access, but these are not measured production latency or memory savings.",
+    "DecisionProjection keeps decision lifecycle distinct from delivery and action attempts, preserves original answers and historical acknowledgements through revisions, and rejects wrong-action transitions. Typed provenance tests distinguish captured from unknown, detect stripping/binding changes and forbid enrichment rewriting trusted provenance.",
+    "Projection compatibility tests preserve opaque unknown event records while validating their envelope and rejecting duplicate event IDs; known types still fail on unsupported schemas. The rollback-reader helper reconstructs a historical hash algorithm but invokes the current request decoder, so it is compatibility-model evidence rather than an independently executed old release.",
+    "DecisionRevisionStore preserves exact retry identity after restart, conflicting-token refusal, at-most-one correction for competing callers, audit visibility from inside dispatch, active-revision retry and barrier-controlled corrective dispatch ordering. Handoff-before-settlement and action-scoped append-failure fixtures cover distinct recovery seams.",
+    "Revision follow-ups remain parent-owned audit facts: missing targets avoid queue attempts, restart reprojects a stable slug, newer revisions supersede old follow-ups and stale reconciliation repairs a deliberately removed handled event. The test controls scheduler delivery and rewrites its private audit; this is targeted replay recovery rather than a real host crash or filesystem-sync test.",
+    "AlertFeed tests separate normal project-ledger reads from explicit workspace backfill using a FIFO that would block accidental transcript opening. They preserve firing/resolution cycles, first-opening time with latest question, bounded tail parsing, active-attention retention priority, explicit active drops when the byte ceiling cannot fit them, indivisible-record refusal and retryable backfill markers.",
+    "Alert ledger concurrency fixtures hold append/backfill locks explicitly and check final persisted records. The append-start marker precedes append itself and Task.yield(task, 0) does not establish that each contender has reached lock acquisition; final retained bytes are stronger evidence than that immediate noncompletion observation.",
+    "CodingAgentCheckpoint drives real adapters against fake shell app-servers, checks traced turn/start count, rejects safe-checkpoint delivery during a live turn and exercises backend-specific acknowledged interruption plus prestart-versus-active idle status. The post-return stability check observes another 150 ms; it is bounded fake-protocol coverage, not a real provider or workspace-concurrency stress run.",
+    "EventsDigestCoalesce preserves per-item enqueue identity while combining events only at drain, sorting/deduplicating event IDs and deduplicating comments by comment identity across distinct event IDs. Other identifiers and operator-message ordering remain separate. The test named after a delivered duplicate has only claimed the item; it does not mark consumption or exercise cursor advancement.",
+    "OrchestratorInterrupt distinguishes working native interrupt, pause requested, matching-generation pause confirmation and second-press pane close. It retains queued messages when hardware interruption fails. These fixtures mutate the application-owned controller and inspect return values/state; they do not press keys or verify rendered chat panes, and failure injection relies on the assumed absence of a tmux server for the fixture pane.",
+    "Admission tests preserve strict load and memory boundaries, disabled-source short circuits, unavailable-versus-exhausted FD behavior, rounded integer reserves, static capacity caps, cooldown and demand/headroom-dependent recovery. Pure envelope outputs and injected source strings do not measure real host saturation or demonstrate the entire dispatch loop leaves running workers untouched.",
+    "RecentMergeStore distinguishes live observation from backfill attribution, keeps same-repository closing references beyond summary truncation, bounds/redacts content and rejects malformed URLs/timestamps. It tests append-before-state behavior, torn-tail repair versus corrupt-prefix read-only state, retention across restart and sticky partial reconciliation. Closing-keyword cases are local parser expectations, not new verification of GitHub behavior; filesystem sync is injected.",
+    "UsageEnvelope keeps account generation separate from counter epoch, requires deterministic identity for counter evidence, preserves unknown occurrence/pricing context and rejects unsafe attribution and invalid UTF8. ExactMoney rejects floating-point input and validates declared minor scales; provider-specific context/cache partitions round-trip without mixing providers. These are codec/measurement contracts, not a billing reconciliation or price-catalog validation.",
+    "OperatorSendTimeout suspends a real private controller to force caller timeout, then tests late queue adoption at delivery gate or retry, preserved attempt identity, unknown-versus-failed outcome and recovery of a previously refused item. Explicit message IDs deduplicate only the same target/text; repeated text without an ID remains a new message, including through AgentChat. These are API/store fixtures, not TUI input or actual provider delivery.",
+    "The timeout fixture's delayed resume helpers use a 225 ms sleep around a 150 ms caller timeout, so those two timing windows are scheduler-dependent. The AgentChat case temporarily unregisters and restores the application-owned controller name; serial case execution does not stop unrelated application processes. These limits are not independently reproduced flakes.",
+    "ProviderMeterProbe tests preserve session-close attempts, crash-versus-timeout/transport causes, per-window publication, meter observation for credentialed disabled providers and no-request behavior for keyless disabled providers. Session agents, usage APIs and balance transports are injected; assertions establish adapter/projection contracts rather than current external service behavior.",
+    "Balance probe fixtures use private baseline files and distinguish first-seed dollar-only data, configured initial deposits, persisted baseline reseeding after top-up, resumed spend measurement, failed baseline writes and malformed/missing balances without fabricated zero credits. The exhausted-balance assertion uses == 100.0, which compares numeric value without independently enforcing float type; no new precision or billing claim is made.",
+    "DynamicTool covers schema advertising, legacy/raw/string and atom-key argument forms, GraphQL body-preserving errors, injected verified-review outcomes, event allowlist validation and dependency errors. Reserved alert scopes are rejected by an injected emitter in that fixture; it verifies error mapping rather than the real emitter's scope enforcement. Subscription/publisher closures do not establish actual broker routing or delivery.",
+    "Alerts tests preserve central/workspace persistence and deduplication, repeated takeover collapse, resolution/refire cycles, suppressed resolution publication, typed stage observations and configurable sound mapping. These assert persisted feed records and Exchange events, not default ExecutorListener receipt; file-tail watcher and direct publisher coverage do not close the default routing gap.",
+    "Alert teardown explicitly monitors and awaits controller DOWN before removing state, a useful counterexample to the independently leaking worker fixtures. Several eventually assertions reinject signals and inspect whole-log substrings rather than correlated rows; legacy unconfirmed control fixtures are distinct from generation-confirmed pause/resume. Fake-player success and platform command selection are not audible playback verification.",
+    "CiLifecycle tests preserve displaced-result rejection, local budget holds without REST fallback, genuine upstream rate-limit fallback, shared cache retention, tracker-write-before-resume, failure-side-effect suppression, approved-head identity and explicit operator/usage pause causes. Timers are token-correlated, rearmed on failed writes or live fences and ignored when stale; missing active workers remain a separate activation question.",
+    "The CI recorder receives generic messages and stamps their arrival positions before forwarding them; numbered assertions therefore constrain observed tracker/event/queue/resume ordering instead of merely using selective receives. Its sync marker bounds messages from that sender, not every possible future asynchronous emitter. poll_ci also explicitly invokes terminal routing through a helper after polling, so these tests do not independently prove the live orchestrator wires that transition.",
+    "Parked-ready and approved-green-draft attentions have distinct disappearance policies: parked readiness resolves on departure or an open-PR miss, while draft stall remains latched across transient misses, missing approval and temporary poll-set departure, resolving on a known disappearance or ready transition. Restart deduplication is supplied by an injected loader, not an actual durable-ledger restart.",
+    "CI fixtures use private state and injected GitHub/alert callbacks; they are not live GitHub, provider, deployment, dashboard or TUI verification. Existing two-element negative resume/pause patterns deserve the same generation-aware assertion correction identified in tests-1b-cont-06; no actual forbidden resume was demonstrated here.",
+    "GitHub Client tests preserve one all-open candidate snapshot, visible-but-undispatchable contradictory labels, paused override separate from state, closed issues overriding stale active labels, and missing-token/auth/DNS/rate-limit/endpoint-permission distinctions. Request callbacks and fabricated API payloads establish local behavior, not current remote API compatibility or credential validity.",
+    "Conditional PR and branch lookups assert the outgoing request validator as well as reuse of the held 304 body; branch lookup covers pagination, readable and legacy branch names, caller attribution and one request for a single-page fixture. These counts are fixture measurements, not production quota savings or population evidence.",
+    "Review-comment fixtures preserve CODEOWNERS trust, fail-closed missing rules and quota-held abstention. Unresolved threads retain the latest trusted comment, including an agent reply that still requires resolution. Reply verification retries reads without posting duplicate mutations; resolution checks authority and latest reply before acting and unresolves after an injected reviewer-follow-up race. Distinct permission errors retain actionable classification without collapsing unrelated GraphQL failures.",
+    "GitHub state-swap tests preserve add-before-remove behavior, paused/watch markers, readiness refusal before label writes, closed-state rechecks, honest no_state_label_written results and propagation of cleanup failures. Some callbacks constrain order through a request counter, but assertions inside callbacks only run if that callback is reached; tests returning only :ok without a final complete call count do not independently prove every intended write occurred.",
+    "The client test named deduplicates issues across labels supplies a single issue in its current all-open snapshot, so it does not exercise duplicate removal. A CI-fetch error fixture returns the same error for every request and does not independently count absence of a legacy-status request. These are source-established coverage limits, not demonstrated production defects. CODEOWNERS temporary directories are removed on successful paths rather than universally owned by teardown.",
+    "Core configuration tests retain defaults, type/blank distinctions, explicit uncapped turns, portable example parsing and effective planning settings. Operator-config tests deliberately load the checked-in dogfood config. Privacy regex checks cover listed patterns only; schema parsing and prompt rendering are not proof of every operational setting or an exhaustive privacy audit.",
+    "Core lifecycle tests distinguish fresh versus expired terminal fences, configurable grace, non-active/missing versus terminal workspace cleanup, reassignment, unexplained error-state retention, PID/global/via server addressing and unavailable servers. Normal continuation, progressive failures, true provider-start exhaustion, slot starvation and tracker-precondition failure have different retry/claim outcomes; stale retry/tick tokens and repeated refresh coalescing remain explicit contracts.",
+    "Core prompt tests assert complete external-content wrappers, nil-description placeholders, strict variable/render errors, date serialization and shared-instruction placement. The nested-value fixture renders only the identifier, so its successful tail assertion does not constrain the rendered nested values. The raw max_turns >= 12 example check does not establish numeric type; uncapped configuration is a separate supported case.",
+    "Core runner integration fixtures use real adapters, local shell/git/files and private controllers with fake provider protocols. They retain workspace logs, same-session continuation, no silent SSH host hopping, before-run pause/retry, queued operator input, acknowledged interrupt and no-active-turn response variants. They do not establish real provider behavior, actual SSH transport or rendered TUI delivery.",
+    "Replacement-worker coverage explicitly suspends the shared default controller, starts the named controller without polling, rejects a stale old-worker DOWN and checks two delivery attempts followed by consumed state after a file-controlled replay release. Completion-race coverage requeues an unacknowledged follow-up without fabricating success or an agent retry. Preserve action/attempt and accepted-versus-consumed distinctions through package extraction.",
+    "Pause/resume fixtures cover idle-first, response-first and response-only interruption, retain a single turn while paused and replay restored input before newly queued input. The restored-input fixture polls for a trace count but does not assert the polling loop succeeded before issuing pause; later exact turn texts constrain the final result. Max-turn completion is held behind an after-run file barrier and only announced after that hook finishes.",
+    "Startup frame tests assert canonical workspace, approval policy and sandbox payloads plus cache/build-gate writable roots, and preserve custom command arguments. Several tests use Enum.any? to find a compliant startup frame; despite an every-frame title, they do not reject an additional noncompliant frame. Core also mixes explicit monitored cleanup with normal-exit callbacks and a retained unlinked fake worker; do not generalize the earlier extracted worker-leak proof to every GenServer without checking links and termination semantics.",
+    "Deactivate tests preserve head-specific CI approval and invalidation persistence, stale-result expected-state guards, rework fences for undelivered feedback, sanitized failure events, subscription-before-wake and order-insensitive failure deduplication. Approved-head restart cases load the real private approval file into a reconstructed State; they do not restart a live daemon.",
+    "CI event handlers re-read current terminal/assignment/pause facts and defer capacity-bound resumes until a slot opens. Generation-confirmed positive controls assert three-element commands and leave status paused until worker evidence arrives. Several negative assertions still match only legacy two-element commands; consolidate these locations with tests-1b-cont-06 instead of treating a matching barrier as proof that every command shape was excluded.",
+    "Human-review deactivation kills the worker while preserving its running entry, claim, workspace and resume handle; terminal completion removes them. Unverified threads return the worker to rework, whereas transient or non-verdict verification errors preserve it for later checking. Active-turn tests assert close broadcasts and retained terminal/deactivated tombstones for every registered stream, not rendered chat output.",
+    "Sleeping remains a slot holder and cannot overwrite a more specific pause/deactivated state. Durable tracker pause and local operator/dependency pause reasons remain distinct: removing an override only requests an eligible resume, failed label removal retains the pause, and matching worker confirmation controls the visible transition. Startup paused-ticket cases include unpaused positive controls and keep merging's independent no-agent-work gate explicit.",
+    "Trusted review feedback retains its concrete queued digest during reactivation, capacity deferral and active-worker rework fencing. An already-rework ticket may wake without another label write; a resolved human-review ticket remains asleep. The later-head CHANGES_REQUESTED case explicitly identifies itself as characterization and points to poll-side regression guards, avoiding a false claim that its own direct event injection reproduced the missing-poll bug.",
+    "Idle comment routing preserves todo without mislabeling prior work, rereads admission against concurrently terminal issues, and retries a failed tracker transition before queueing feedback. Handlers are called directly and the fake runner may only sleep; map membership, a non-deactivated status or a synthetic dispatch callback does not establish actual provider acceptance or completed work.",
+    "Comment polling covers retained running/review/merging targets, per-target cursor progress with a one-second overlap, bounded oldest/unknown-first discovery, combined issue/PR freshness and target-local failures. A failure discovering the review target set preserves the whole cycle cursor and skips requests. Fixture request counts do not establish production quota savings.",
+    "Watched PR discovery keeps PR-number identity separate from branch-derived tracker identity, excludes closed targets, bounds the open set, and retains independent cursors. Command scanning preserves trusted-author/self-loop/PR-only gates and disabled no-fetch behavior. A single advanced cursor assertion does not prove exactly-once publication on a second scan, especially with intentional overlap.",
+    "Budget/dependency recovery tests preserve readiness arriving before pause confirmation, capacity-deferred resumption, stale-generation rejection and replacement by operator or CI pause causes. A final dependency unblock requires canonical ref/SHA corroboration; readiness remains for subscribed or declared late consumers until matching confirmations consume it. Reconstructed state ordering and the live BranchRefStore are not an independent store-process restart test.",
+    "REPL teardown with a bogus pane and nil OS PID only proves tolerance of that no-op failure path. The separate whole-app shutdown test creates a real shell/child subtree, collects descendants after a shell readiness marker and waits on pidfd exit; it is platform-dependent and calls terminate directly, not the full launcher/supervisor shutdown sequence.",
+    "Default-branch tests verify worker survival, claims and retry preservation, including a configured non-main base. They do not assert subscriber notification delivery. PR-anchored tests preserve synthetic identity, trust-before-fetch, legacy fallback, closed-PR workspace/handle cleanup and non-destructive transient errors; empty synthetic labels alone do not prove the absence of every possible tracker write.",
+    "receive_barrier is a selective receive without a timeout, confirmed in TestSupport lines27-51; it is an event-presence barrier, not a general arrival-order assertion. Subscribed event publication is not default Executor inbox receipt. Some control helpers and linked sleepers lack explicit teardown; retain the bounded process-ownership concern without claiming a suite-wide leak census or observed flake."
+  ],
+  "cross_references": [
+    {
+      "path": "src/test/aiur/provider_meters_events_test.exs",
+      "lines": [
+        14,
+        29
+      ],
+      "finding": "Explicitly terminates the application-owned PubSub child and tests its recovery. Relate this to tests-2-01 shared-supervisor coupling, but do not infer terminate_child causes the same automatic rest_for_one cascade as an unexpected child crash.",
+      "related_finding": "tests-2-01"
+    },
+    {
+      "path": "src/test/aiur/orchestrator_tracked_set_test.exs",
+      "lines": [
+        19,
+        116
+      ],
+      "finding": "Controller restart uses the application supervisor after freezing polls; this is another package-boundary integration seam, not an independent demonstrated flake.",
+      "related_finding": "tests-2-01"
+    },
+    {
+      "path": "src/config/config.exs",
+      "lines": [
+        83,
+        130
+      ],
+      "finding": "Suite isolation creates per-VM application/HOME/XDG roots but does not replace TMPDIR in this inspected block; broad workspace-parent cleanup still depends on the caller's system temp root."
+    },
+    {
+      "path": "src/test/support/test_support.exs",
+      "lines": [
+        148,
+        171
+      ],
+      "finding": "tmp_root! uses system temp directory plus PID and VM counter. Unique fixture naming does not justify deleting the common parent."
+    },
+    {
+      "path": "src/test/test_helper.exs",
+      "lines": [
+        1,
+        77
+      ],
+      "finding": "Read the complete 77-line helper: global log cleanup is bounded to configured log parent; the helper does not replace TMPDIR. Supporting read not counted in the 75-file manifest."
+    },
+    {
+      "path": "src/lib/aiur/issue_log.ex",
+      "lines": [
+        740,
+        785
+      ],
+      "finding": "Bounded edit payload reconstructs tool/output and optional changes, dropping truncated:false from the test fixture; json_safe nevertheless has explicit nil/boolean clauses. Excerpt-only supporting source read."
+    },
+    {
+      "path": "src/test/aiur/aiur_alert_watch_skill_test.exs",
+      "lines": [
+        1,
+        464
+      ],
+      "finding": "The workspace file-tail watcher has its own resolution/replay tests. Its coverage does not establish that default ExecutorListener topic subscriptions receive every attention or resolution.",
+      "related_finding": "tests-1b-cont-01"
+    },
+    {
+      "path": "src/test/aiur/decision_attention_test.exs",
+      "lines": [
+        130,
+        137
+      ],
+      "related_finding": "tests-1b-cont-07",
+      "finding": "Extracted projected/alerted selective receives accept reverse arrival order. Generic first-message control rejects reversal and accepts correct order. Group with the existing selective-receive ordering family rather than count another independent defect. Other payload/subscription assertions and persistence-failure coverage remain intact; no production emitter mutation was run."
+    },
+    {
+      "path": "src/test/aiur/orchestrator_deactivate_test.exs",
+      "lines": [
+        360,
+        1165
+      ],
+      "related_finding": "tests-1b-cont-06",
+      "finding": "Confirmed-control fixtures forward three-element commands, but multiple negative pause/resume checks match only two elements. The forwarding helper and control_agent_barrier preserve the message unchanged; a barrier cannot repair a tuple-shape mismatch. Source scope only; no additional production mutation."
+    },
+    {
+      "path": "src/test/support/test_support.exs",
+      "lines": [
+        27,
+        51
+      ],
+      "finding": "Complete receive_barrier macro inspected: selective receive with no after clause. It proves matching message presence, not arrival order or bounded failure time."
+    },
+    {
+      "path": "src/lib/aiur/orchestrator/reconciler.ex",
+      "lines": [
+        169,
+        284
+      ],
+      "finding": "Supporting excerpt plus nonterminal paths499-630: nil-state fixtures with an empty running map still enter terminal/nonterminal classification. Reject the speculative claim that empty running alone bypasses the state predicates; no nil-state coverage finding promoted."
+    }
+  ],
+  "follow_up_candidates": [
+    {
+      "path": "src/test/aiur/saturation_sentinel_test.exs",
+      "lines": [
+        88,
+        96
+      ],
+      "status": "unverified hypothesis",
+      "question": "This async module writes global :aiur/:log_file for file_path and restores nil via put_env rather than deleting an absent key. Check concurrent readers and test-support isolation before promoting a cross-test contamination finding."
+    },
+    {
+      "path": "src/test/aiur/provider_meter_watch_test.exs",
+      "lines": [
+        32,
+        50
+      ],
+      "status": "unverified hypothesis",
+      "question": "Unlinked watcher cleanup occurs only after two assertions; an early assertion failure may leave its infinite sleeper alive. Check suite lifecycle and demonstrate the failure path before promoting a leak finding; successful-path cleanup exists."
+    }
+  ],
+  "next": [
+    "Reconcile the four bounded findings and preserved contracts with production units and final package boundaries.",
+    "Retain or resolve the two explicitly unverified isolation/cleanup hypotheses during synthesis; they are not severity-bearing findings.",
+    "Continue tests-4, skills-prompts, dup-by-name, dup-by-concept and dup-by-constant, plus independent high-priority and feature challenges."
+  ]
+}

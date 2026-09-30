@@ -1,0 +1,62 @@
+{
+  "node": "v24.18.0",
+  "source_sha256": {
+    "src/voiceHost.ts": "556cb8f6a9bd18641f7bc5d1474aaa0f6f4bd4a2d015c26a457630f5a852ac9d",
+    "src/audio/relay.ts": "f438ea65f95e9373095386d7b56428260ccaf2dc73de62598d621286b4736379",
+    "src/audio/stt.ts": "9f096f8284f82acf9fdc1aa9173fa49e9924fba7cb7f3bb9c241c9bd6920abb3",
+    "src/audio/session.ts": "906222367837987de6a9114731b946cc09e3862a5c9f47115b8bf0656225e3c4",
+    "src/audio/pcm.ts": "56632d69bf7704d9824596e2e93d418d06ff0287a5cddd6ae3f22e61044b821d",
+    "src/audio/aggregate.ts": "7fd93a2f04d044c7b6d281750a41472780f39c291f0c37a0394f6302ceb7f2d3",
+    "src/audio/buffer.ts": "5c88b803c5b5fcd3c8dd207b2eac010e5cd3dfc1083ff6e4244615abe0e12bc9",
+    "src/audio/waveform.ts": "03460c6afb1de131a46c8dd4686c37c1d951cabcc794d17e22872214f2ca4f29",
+    "src/audio/capture.ts": "0b15a39506eb3d112fbd80aa1861130057ad240e280e2db8cf559380c8549edf"
+  },
+  "release_final": {
+    "before_release": "already settled last words",
+    "after_final": "already settled",
+    "events": [
+      [
+        "start"
+      ],
+      [
+        "stop",
+        "example-session"
+      ]
+    ],
+    "relay_direct_delivery_also_dropped": true
+  },
+  "overlapping_start": {
+    "before_second_reply": [
+      [
+        "start"
+      ],
+      [
+        "start"
+      ],
+      [
+        "audio",
+        "session-A",
+        "hold-B"
+      ]
+    ],
+    "old_session_text_accepted": "old hold text",
+    "events": [
+      [
+        "start"
+      ],
+      [
+        "start"
+      ],
+      [
+        "audio",
+        "session-A",
+        "hold-B"
+      ],
+      [
+        "stop",
+        "session-B"
+      ]
+    ]
+  },
+  "limits": "Actual frozen voice link, relay and session modules with TypeScript removed. Injected capture and channel ports; synthetic ordered replies. No microphone, provider, WebSocket, live daemon or manual UX test. The overlap demonstrates client misattribution; the server can discard mislabelled audio after replacing its active session."
+}

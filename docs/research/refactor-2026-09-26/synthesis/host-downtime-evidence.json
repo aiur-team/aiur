@@ -1,0 +1,205 @@
+{
+  "claim": "gaps-07",
+  "status": "verified_with_bounded_corrections",
+  "sources": [
+    {
+      "source": "scratch/host-downtime/boots.txt",
+      "command": [
+        "journalctl",
+        "--list-boots",
+        "--no-pager",
+        "--utc"
+      ],
+      "exit_code": 0,
+      "sha256": "ac884f3d17b6b2603670ed86f7f6c55d8699c3fb448c19ccc8f1a6138d47c363"
+    },
+    {
+      "source": "scratch/host-downtime/reboots.txt",
+      "command": [
+        "last",
+        "-x",
+        "-F",
+        "reboot",
+        "shutdown"
+      ],
+      "exit_code": 0,
+      "sha256": "7b9ec05539694815b2bebfa3584d86b0fca51d4cbc5bbc60e828f4ba82707f00"
+    },
+    {
+      "source": "scratch/host-downtime/user_units.txt",
+      "command": [
+        "systemctl",
+        "--user",
+        "list-unit-files",
+        "--no-pager",
+        "--no-legend"
+      ],
+      "exit_code": 0,
+      "sha256": "cee4c67a95d7773530fc9caaff2634ae2035b619d42ad97f3ffb3be7cc9899a2"
+    },
+    {
+      "source": "scratch/host-downtime/system_named_units.txt",
+      "command": [
+        "systemctl",
+        "list-unit-files",
+        "--no-pager",
+        "--no-legend",
+        "aiur*",
+        "khala*"
+      ],
+      "exit_code": 1,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "scratch/host-downtime/streamdeck_policy.txt",
+      "command": [
+        "systemctl",
+        "--user",
+        "show",
+        "aiur-streamdeck.service",
+        "-p",
+        "ActiveState",
+        "-p",
+        "Restart",
+        "-p",
+        "UnitFileState"
+      ],
+      "exit_code": 0,
+      "sha256": "f02cd7d642acb232f8e0f117b4cf666e49d5e71c17b34d7223d5f1c0daa7ce69"
+    }
+  ],
+  "public_daemon_last_telemetry": [
+    {
+      "source": "20260917T022859Z-1671510/log/telemetry.ndjson",
+      "sha256": "f1b2989473429a92de06b096a516b74cd9c7ea4067f0ddf16b7fa7951be953da",
+      "last_timestamp": "2026-09-22T15:42:07.331273Z",
+      "records": 97965
+    },
+    {
+      "source": "20260920T010817Z-304273/log/telemetry.ndjson",
+      "sha256": "f1c996e347eefe94e5824e7aa0542c9253ffe00afbf517d4b3f848ef10bf4c0d",
+      "last_timestamp": "2026-09-22T15:42:04.538694Z",
+      "records": 67131
+    }
+  ],
+  "last_previous_boot_journal_utc": "2026-09-22T15:41:37Z",
+  "next_boot_first_journal_utc": "2026-09-24T17:30:51Z",
+  "arithmetic": {
+    "journal_endpoint_to_next_boot_hours": 49.82055555555556,
+    "khala_last_telemetry_to_recorded_daemon_start_hours": 51.09993180083333,
+    "boot_first_journal_to_recorded_daemon_start_minutes": 77.22155294999999
+  },
+  "interpretation": "A roughly 51.1-hour gap between Khala telemetry observations is reproduced. Missing clean shutdown in wtmp and a boot boundary are consistent with unclean host termination. The last old-boot journal entry is not an exact crash timestamp: both public daemon streams record observations about 30 seconds later. Log absence does not independently prove every intervening minute was downtime.",
+  "supervision": {
+    "current_user_units": "No named Aiur daemon service found; aiur-streamdeck.service is enabled with Restart=on-failure. Current state is not proof of historical unit state.",
+    "current_system_named_units": "No aiur* or khala* system unit file returned; scoped name search does not exclude differently named supervision.",
+    "frozen_launcher": "packaging/npm/aiur-cli/libexec/aiur-engine.sh:1795 start_beam_death_watchdog polls BEAM presence, records unexpected exit unless a stop sentinel exists, and reaps agents. It has no restart action and cannot survive host failure. record_beam_crash at line1627 writes durable markers and can emit a completed-crash-dump alert.",
+    "limit": "Existing crash observation contradicts a blanket assertion that no watchdog/alerting exists, but does not demonstrate delivery for this incident or host-external liveness monitoring."
+  },
+  "unresolved": [
+    "Historical service configuration and any external monitor or delivered notification",
+    "Whether operator/Executor absence can be established beyond selected transcript coverage",
+    "Incident root cause and exact host termination time",
+    "Identity of three brief telemetry-only streams and any deleted or unlogged run"
+  ],
+  "khala_restart_record": {
+    "source": "20260924T184803Z-23735/log/telemetry.ndjson",
+    "sha256": "233bbce497f0fcb9c2cdb78779b25fafb3df9304d903d82d808e5fc6c7ec6223",
+    "daemon_started_at": "2026-09-24T18:48:04.293177Z",
+    "timestamp": "2026-09-24T18:48:05.318454Z",
+    "recorded_at": "2026-09-24T18:48:05.318459Z",
+    "event": "daemon_restart"
+  },
+  "timestamp_semantics": "The new run stream includes historical lifecycle event timestamps (minimum September19); do not use min(timestamp) as boot time. The explicit daemon_restart record carries daemon_started_at September24 18:48:04.293177Z and is recorded one second later.",
+  "post_boot_directory_census": {
+    "cutoff_utc": "2026-09-26T15:40:00Z",
+    "method": "Directory-name selection after next host boot and before original report cutoff; decode GitHub issue log filenames and target GitHub repository lines from boot output. Inspect first telemetry record daemon_started_at separately. Retained directories only; deleted/unlogged runs are not ruled out.",
+    "public_or_unresolved_runs": [
+      {
+        "run": "20260924T184803Z-23735",
+        "public_repositories": [
+          "aiur-team/khala"
+        ],
+        "identity_ambiguous": false,
+        "has_telemetry": true,
+        "first_record_daemon_started_at": "2026-09-24T18:48:04.293177Z"
+      },
+      {
+        "run": "20260924T230720Z-2518661",
+        "public_repositories": [
+          "aiur-team/khala"
+        ],
+        "identity_ambiguous": false,
+        "has_telemetry": true,
+        "first_record_daemon_started_at": "2026-09-24T23:07:20.853147Z"
+      },
+      {
+        "run": "20260924T231144Z-2563251",
+        "public_repositories": [
+          "aiur-team/khala"
+        ],
+        "identity_ambiguous": false,
+        "has_telemetry": true,
+        "first_record_daemon_started_at": "2026-09-24T23:11:45.098064Z"
+      },
+      {
+        "run": "20260925T011458Z-3157204",
+        "public_repositories": [],
+        "identity_ambiguous": true,
+        "has_telemetry": true,
+        "first_record_daemon_started_at": "2026-09-25T01:14:58.706848Z",
+        "records": 3,
+        "last_timestamp": "2026-09-25T01:15:01.002387Z",
+        "identity_limit": "Only telemetry present; no repository-bearing issue log or boot output. Do not assign to a repo or assume this proves a sustained run."
+      },
+      {
+        "run": "20260925T042508Z-193656",
+        "public_repositories": [
+          "aiur-team/khala"
+        ],
+        "identity_ambiguous": false,
+        "has_telemetry": true,
+        "first_record_daemon_started_at": "2026-09-25T04:25:08.706819Z"
+      },
+      {
+        "run": "20260925T235128Z-1991114",
+        "public_repositories": [],
+        "identity_ambiguous": true,
+        "has_telemetry": true,
+        "first_record_daemon_started_at": "2026-09-25T23:51:28.522157Z",
+        "records": 4,
+        "last_timestamp": "2026-09-25T23:51:30.159298Z",
+        "identity_limit": "Only telemetry present; no repository-bearing issue log or boot output. Do not assign to a repo or assume this proves a sustained run."
+      },
+      {
+        "run": "20260925T235921Z-2122054",
+        "public_repositories": [],
+        "identity_ambiguous": true,
+        "has_telemetry": true,
+        "first_record_daemon_started_at": "2026-09-25T23:59:21.252026Z",
+        "records": 3,
+        "last_timestamp": "2026-09-25T23:59:22.598044Z",
+        "identity_limit": "Only telemetry present; no repository-bearing issue log or boot output. Do not assign to a repo or assume this proves a sustained run."
+      },
+      {
+        "run": "20260926T052025Z-954217",
+        "public_repositories": [
+          "aiur-team/khala"
+        ],
+        "identity_ambiguous": false,
+        "has_telemetry": true,
+        "first_record_daemon_started_at": "2026-09-26T05:20:25.537395Z"
+      },
+      {
+        "run": "20260926T055641Z-1318024",
+        "public_repositories": [
+          "aiur-team/khala"
+        ],
+        "identity_ambiguous": false,
+        "has_telemetry": true,
+        "first_record_daemon_started_at": "2026-09-26T05:56:41.825969Z"
+      }
+    ],
+    "private_runs_count_only": 0
+  }
+}

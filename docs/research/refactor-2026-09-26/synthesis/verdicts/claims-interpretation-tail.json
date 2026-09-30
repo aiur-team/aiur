@@ -1,0 +1,24 @@
+{
+  "verdicts": [
+    {
+      "id": "agents-10",
+      "lens": "interpret",
+      "holds": false,
+      "confidence": "high",
+      "method": "Reviewed the recovered reproduction verdict and its counting definitions; inspected scratch/verify-agents-10/an4.py, an7.py and an11.py without rerunning their pickle loaders. Independently checked frozen src/lib/aiur/agent_runner/turn_prompt.ex:85-98 and the aiur-agent skill start-of-turn instruction. This interpretation check does not claim a second extraction of all rollouts.",
+      "note": "The existing reproduction separates about 122.4 hours of recorded interrupted-turn duration from the erroneous 513-hour start-to-next-record span. Even the corrected duration is exposure to interruption, not lost productive work: edits or completed tool effects may survive. A 0/1-tool turn may be a legitimate status or completion response and is not a semantic no-op classification. Gap-chained resume waves are not daemon boot counts; a 4.6-hour chain of 216 turns came from 16 agents, while distinct agents across waves range up to 28. Temporal association with merges does not identify the initiator or show most restarts were caused by the Executor. The resume prompt forbids redundant issue/label/workpad reads, not skill reads; the skill explicitly directs loading each ticket turn.",
+      "corrected_claim": "Retain restart-resume and interruption frequency as recovery-path evidence. Use the reproduced approximately 2,622 resume turns, 577 threads, 257 gap-chained waves and 1,149 interrupted turns with 122.4 hours of recorded duration, with their stated scope and deduplication limits. Do not call 513 hours lost work, 216 simultaneous agents, 0/1-tool turns useless, or skill reloads instruction violations. Measure discarded work, duplicate tool effects, acknowledgement continuity and time to resume useful activity before choosing hot reload, preserved in-flight execution or a prompt change. The existing evidence does not establish that the Executor caused most interruptions.",
+      "verification_mode": "sequential interpretation by continuing researcher; earlier reproduction retained separately"
+    },
+    {
+      "id": "fixes-09",
+      "lens": "interpret",
+      "holds": false,
+      "confidence": "high",
+      "method": "Reviewed the recovered reproduction verdict against the source report. Independently inspected commit 74908cb6f (#2379) and the frozen src/test/aiur/agent_command_installer_test.exs:67 assertion retaining the 98,304-byte growth budget. Inspected the #1972 branch-retirement history and the report examples/observation windows. This is an interpretation check, not a new full issue-history census.",
+      "note": "The report selects a few held fixes and recurring chains after observing their outcomes; it has no complete denominator of clause fixes, consolidation fixes and limit changes, comparable exposure windows or adjustment for deployment/traffic. No later reported incident is an observation bounded by the cutoff, not proof of permanent success. #762 is a capability-validation/fail-closed change and does not cleanly remove a duplicate authority or limit. #2379 retained the growth budget and corrected its premise/test transport. These positive examples already falsify the asserted universal mechanism. Likewise an entry-shape clause can correctly complete a contract, while removing a cap can merely defer an unbounded-resource failure; judge the relevant invariant and actual workload. Rare subject-level Revert commits do not measure regressions or substantive rollback frequency.",
+      "corrected_claim": "The strongest cited example supports consolidating base-branch authority: #1714 plus #1972 removed competing fallbacks and a second branch, with no later wrong-base report found in the checked window. Treat that as case evidence, not a comparative effectiveness study. #762 supports validating the needed git-write capability before work; #2379 supports testing the actual transport and retaining an explicitly justified growth budget. Recurring cap and entry-shape chains motivate invariant and population analysis, not blanket limit removal or a prohibition on clauses. Package design should assign one owner per authority and state transition, justify each bound, and verify failures against real production shapes with a stated follow-up window.",
+      "verification_mode": "sequential interpretation by continuing researcher; earlier reproduction retained separately"
+    }
+  ]
+}

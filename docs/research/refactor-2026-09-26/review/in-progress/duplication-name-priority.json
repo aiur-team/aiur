@@ -1,0 +1,252 @@
+{
+  "snapshot": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "method": "Top35names ranked by distinct modules from complete literal-definition census; routing queue, not semantic findings or a limit on sweep scope.",
+  "families": [
+    {
+      "name": "init",
+      "modules": 123,
+      "clauses": 123,
+      "summed_source_span_lines": 1994,
+      "reviewed_family": true
+    },
+    {
+      "name": "start_link",
+      "modules": 122,
+      "clauses": 122,
+      "summed_source_span_lines": 438,
+      "reviewed_family": true
+    },
+    {
+      "name": "handle_info",
+      "modules": 96,
+      "clauses": 501,
+      "summed_source_span_lines": 2348,
+      "reviewed_family": true
+    },
+    {
+      "name": "handle_call",
+      "modules": 74,
+      "clauses": 424,
+      "summed_source_span_lines": 2396,
+      "reviewed_family": true
+    },
+    {
+      "name": "snapshot",
+      "modules": 52,
+      "clauses": 63,
+      "summed_source_span_lines": 477,
+      "reviewed_family": true
+    },
+    {
+      "name": "run",
+      "modules": 40,
+      "clauses": 44,
+      "summed_source_span_lines": 696,
+      "reviewed_family": true
+    },
+    {
+      "name": "load",
+      "modules": 38,
+      "clauses": 51,
+      "summed_source_span_lines": 522,
+      "reviewed_family": true
+    },
+    {
+      "name": "subscribe",
+      "modules": 38,
+      "clauses": 45,
+      "summed_source_span_lines": 198,
+      "reviewed_family": true
+    },
+    {
+      "name": "terminate",
+      "modules": 36,
+      "clauses": 42,
+      "summed_source_span_lines": 268,
+      "reviewed_family": true
+    },
+    {
+      "name": "new",
+      "modules": 35,
+      "clauses": 46,
+      "summed_source_span_lines": 699,
+      "reviewed_family": true
+    },
+    {
+      "name": "normalize",
+      "modules": 35,
+      "clauses": 81,
+      "summed_source_span_lines": 566,
+      "reviewed_family": true
+    },
+    {
+      "name": "build",
+      "modules": 29,
+      "clauses": 46,
+      "summed_source_span_lines": 688,
+      "reviewed_family": true
+    },
+    {
+      "name": "changeset",
+      "modules": 28,
+      "clauses": 28,
+      "summed_source_span_lines": 442,
+      "reviewed_family": true
+    },
+    {
+      "name": "health",
+      "modules": 27,
+      "clauses": 44,
+      "summed_source_span_lines": 121,
+      "reviewed_family": true
+    },
+    {
+      "name": "fetch",
+      "modules": 25,
+      "clauses": 30,
+      "summed_source_span_lines": 264,
+      "reviewed_family": true
+    },
+    {
+      "name": "observe",
+      "modules": 23,
+      "clauses": 33,
+      "summed_source_span_lines": 249,
+      "reviewed_family": true
+    },
+    {
+      "name": "resolve",
+      "modules": 23,
+      "clauses": 40,
+      "summed_source_span_lines": 301,
+      "reviewed_family": true
+    },
+    {
+      "name": "reconcile",
+      "modules": 22,
+      "clauses": 40,
+      "summed_source_span_lines": 300,
+      "reviewed_family": true
+    },
+    {
+      "name": "refresh",
+      "modules": 22,
+      "clauses": 28,
+      "summed_source_span_lines": 166,
+      "reviewed_family": true
+    },
+    {
+      "name": "topic",
+      "modules": 22,
+      "clauses": 24,
+      "summed_source_span_lines": 44,
+      "reviewed_family": true
+    },
+    {
+      "name": "handle_cast",
+      "modules": 21,
+      "clauses": 49,
+      "summed_source_span_lines": 238,
+      "reviewed_family": true
+    },
+    {
+      "name": "parse",
+      "modules": 21,
+      "clauses": 39,
+      "summed_source_span_lines": 273,
+      "reviewed_family": true
+    },
+    {
+      "name": "render",
+      "modules": 21,
+      "clauses": 54,
+      "summed_source_span_lines": 1338,
+      "reviewed_family": true
+    },
+    {
+      "name": "source",
+      "modules": 21,
+      "clauses": 28,
+      "summed_source_span_lines": 80,
+      "reviewed_family": true
+    },
+    {
+      "name": "freshness",
+      "modules": 19,
+      "clauses": 28,
+      "summed_source_span_lines": 83,
+      "reviewed_family": true
+    },
+    {
+      "name": "get",
+      "modules": 19,
+      "clauses": 27,
+      "summed_source_span_lines": 70,
+      "reviewed_family": true
+    },
+    {
+      "name": "lookup",
+      "modules": 19,
+      "clauses": 26,
+      "summed_source_span_lines": 133,
+      "reviewed_family": true
+    },
+    {
+      "name": "record",
+      "modules": 19,
+      "clauses": 31,
+      "summed_source_span_lines": 205,
+      "reviewed_family": true
+    },
+    {
+      "name": "timestamp",
+      "modules": 19,
+      "clauses": 36,
+      "summed_source_span_lines": 100,
+      "reviewed_family": true
+    },
+    {
+      "name": "write",
+      "modules": 19,
+      "clauses": 24,
+      "summed_source_span_lines": 216,
+      "reviewed_family": true
+    },
+    {
+      "name": "request",
+      "modules": 18,
+      "clauses": 24,
+      "summed_source_span_lines": 132,
+      "reviewed_family": true
+    },
+    {
+      "name": "positive_integer",
+      "modules": 17,
+      "clauses": 33,
+      "summed_source_span_lines": 58,
+      "reviewed_family": true
+    },
+    {
+      "name": "generation",
+      "modules": 16,
+      "clauses": 17,
+      "summed_source_span_lines": 29,
+      "reviewed_family": true
+    },
+    {
+      "name": "present",
+      "modules": 16,
+      "clauses": 35,
+      "summed_source_span_lines": 259,
+      "reviewed_family": true
+    },
+    {
+      "name": "broadcast",
+      "modules": 15,
+      "clauses": 18,
+      "summed_source_span_lines": 155,
+      "reviewed_family": true
+    }
+  ],
+  "limits": "Summed spans may overlap nested definitions and are not unique LOC or projected savings. init/handle_info/handle_call remain unreviewed by this name-family pass; other raw reviews do not automatically confer family-level equivalence."
+}

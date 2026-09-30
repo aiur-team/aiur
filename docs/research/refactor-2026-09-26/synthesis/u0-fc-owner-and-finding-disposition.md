@@ -1,0 +1,18 @@
+# Released-main U0 owners and canonical disposition boundary
+
+The [machine-readable owner ledger](u0-fc-owner-action-ledger.json) assigns all 21 formerly unresolved oversized rows to concrete components at released main `fc8270bb6d30cf44a860b142b365ad10e5c906a1`. Each row records its exact main blob, line count, preservation action profile and acceptance checks. This replaces an unresolved *action route* with a proposed implementation contract; it does not close the oversized rows or prove runtime behavior. The common acceptance profiles are explicit in the JSON and the row-specific gates cover legacy `elixir/docs` references and the npm-shipped demo pack.
+
+| Owner set | Rows | Preservation-first route | Remaining evidence |
+| --- | ---: | --- | --- |
+| Named historical plan or requirements component | 11 | Keep each path as a short historical index; preserve full text at immutable blob and heading fragments. | Link and anchor migration, active-contract check, offline checkout. |
+| Named CE skill component | 8 | Keep behavior and entrypoints; split through pinned `4aeaf685` source plus reviewed five-file overlay. | Reproducible 259-file refresh, 31 Codex links, workspace installation, release parity. |
+| Build Order PlanningSource demo pack | 1 | Keep explicit 54-ticket pack, assemble from small semantic source records. | Exact graph and metadata, explicit override, installed package. External use is unknown and gates **deletion**, not preservation. |
+| Build Order preview | 1 | Keep HTML entrypoint, move inline CSS and JS to local sibling assets. | Offline `file://` and served render, graph and theme parity. |
+
+## Are all 986 canonical findings statically disposed?
+
+**No, under the actionable fix/defer meaning of disposition.** `review/findings.json` has 986 canonical findings: 3 P0, 94 P1, 674 P2 and 215 P3. The reconciled P2/P3 triage covers exactly 889/889 lower-priority IDs with a provisional action: 244 `fix`, 645 `defer`. Its source verdicts are 696 source-supported, 192 unknown and one unsupported. Both independent high-priority skeptic files cover all 97 canonical P0/P1 IDs (182 raw reviewed entries each), but they review claims and severity; neither is a unified, accepted fix/defer decision ledger for those 97. The canonical `recommendation` field is an author's proposed remedy, not such a disposition. Thus **97/986 lack a unified action disposition**; it would be inaccurate to describe the entire remaining backlog as behavior/incidence gates only. Source and citation work on P0/P1 has advanced, including release-specific fixes, but those do not silently assign a current action to every canonical high-priority finding.
+
+The remaining high-priority gate is to reconcile the 97 IDs against released main into explicit `fix`, `defer`, `already addressed`, or `needs behavior/usage evidence` decisions, retaining both skeptic verdicts and marking source-only conclusions as such. Recheck changed citations and runtime paths before calling an item addressed. The 889 P2/P3 decisions are provisional planning decisions, not behavioral confirmation or measured incidence; `defer` remains the action when evidence is unknown. None of these counts is a claim about defects observed in production or net line savings.
+
+Reproduction: `python3 tooling/audit_p2p3_reconciled.py` from this research root reports 889/889 and the 244/645 actions. The 97 high-priority coverage count is the intersection of canonical P0/P1 IDs with each `review/verdicts/independent_{a,b}.json` ID set. All 21 owner ledger paths and blobs resolve at `fc8270bb6`; the ledger's four acceptance profiles are planning criteria pending implementation.

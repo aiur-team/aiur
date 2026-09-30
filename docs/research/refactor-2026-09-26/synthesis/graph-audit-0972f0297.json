@@ -1,0 +1,113 @@
+{
+  "method": "module_references.exs AST traversal; docs and alias declarations excluded; primary-file collapse; original candidate boundary map",
+  "defined_modules": 1062,
+  "primary_files": 1028,
+  "module_edges": 3849,
+  "boundaries": 36,
+  "boundary_edges": 439,
+  "strongly_connected_components": [
+    [
+      "BO",
+      "BUS",
+      "CA",
+      "CDX",
+      "CFG",
+      "CLD",
+      "CLI",
+      "CTL",
+      "DEC",
+      "DSP",
+      "EXE",
+      "GHB",
+      "GHC",
+      "GHD",
+      "GHR",
+      "ING",
+      "INI",
+      "K",
+      "LIN",
+      "MSG",
+      "OAI",
+      "OC",
+      "ORC",
+      "PM",
+      "PRJ",
+      "PRL",
+      "RUN",
+      "SD",
+      "TEL",
+      "TRK",
+      "TUI",
+      "USG",
+      "VOX",
+      "WEB",
+      "WS"
+    ],
+    [
+      "DEV"
+    ]
+  ],
+  "family_components": [
+    [
+      "Accounting",
+      "Agents",
+      "BuildOrder",
+      "Bus",
+      "Executor",
+      "Foundation",
+      "GitHub",
+      "Linear",
+      "Orchestration",
+      "ReadModels",
+      "Runtime",
+      "Surfaces"
+    ]
+  ],
+  "mutually_dependent_boundary_pairs": 98,
+  "cross_boundary_module_edges": 2076,
+  "upward_module_edges": 311,
+  "alerts_inbound_modules": 56,
+  "alerts_inbound_boundaries": 17,
+  "unresolved_aiur_module_references": {
+    "Aiur.Events.Publisher.Dedup": 1,
+    "Aiur.Events.SubscriptionStoreRegistry": 3,
+    "Aiur.GitHub.ResourceStore.Table": 1,
+    "Aiur.IssueLog.Registry": 6,
+    "Aiur.IssueLog.Supervisor": 2,
+    "Aiur.Opencode.PaneRegistry": 1,
+    "Aiur.Opencode.SessionWriterRegistry.Registry": 3,
+    "Aiur.Opencode.SlotRegistry.Registry": 2,
+    "Aiur.PubSub": 104,
+    "Aiur.Supervisor": 5,
+    "Aiur.TaskSupervisor": 22,
+    "Aiur.Usage.Headless.Fake.RequestUsage": 1,
+    "Aiur.Workspace.Ownership.Registry": 5
+  },
+  "cache_boundary_dependencies": [
+    "BO",
+    "CFG",
+    "GHB",
+    "GHC",
+    "ING",
+    "K",
+    "WS"
+  ],
+  "github_references_outside_github_boundaries": {
+    "source_modules": 64,
+    "boundaries": 18
+  },
+  "relocation_simulation": {
+    "relocated_modules": 57,
+    "inversions": {
+      "alert-latch->signal-state": 5,
+      "backend-registry": 13,
+      "config->schema-registration": 23,
+      "orchestrator-callback->event": 17,
+      "remote-session-capability": 10,
+      "tracker-adapter-registry": 2
+    },
+    "inverted_edges": 70,
+    "remaining_upward_edges": 119,
+    "limitation": "Synthetic reassignment and deletion of edges. Replacement contracts, their costs and runtime behavior are not modeled."
+  }
+}

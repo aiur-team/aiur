@@ -1,0 +1,9 @@
+{
+  "unit_id": "nonelixir-web",
+  "status": "promoted",
+  "authoritative_artifact": "../raw/nonelixir-web.json",
+  "files_reviewed": 178,
+  "planned_files": 178,
+  "findings": 16,
+  "note": "Full coverage and candidate dispositions now live in the raw unit. Probe outputs remain in this directory. No full package suite, manual UX, hardware or independent skeptic review claimed."
+}

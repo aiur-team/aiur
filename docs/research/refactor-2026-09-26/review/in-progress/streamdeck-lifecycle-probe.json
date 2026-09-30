@@ -1,0 +1,35 @@
+{
+  "node": "v24.18.0",
+  "source_sha256": {
+    "packages/streamdeck/src/runtime.ts": "a95c2ee00814b241953068145312d79cf01d145a21c1c910db5ea8a4f098f0e9",
+    "packages/streamdeck/src/lifecycle.ts": "a0d623594249251bee0e1430adf3822147c59ad379245d48679ea5b51b4acd3c",
+    "packages/streamdeck/src/lock.ts": "91bec42ab48c9b64b98711b50f4177733454243071fbe6e69bd77b9062e5cdca",
+    "packages/streamdeck/src/line-source.ts": "1c6e4c5b7e6305bc496a4b61936de8ac1e325f12a8252e66aa11a58df7aaf860",
+    "packages/streamdeck/src/sleep-source.ts": "46370864be79cfc619d3681d3914f0d6686c18acadde63b8ccb187b674a8a7f6",
+    "packages/streamdeck/src/udev-source.ts": "ea701ec25ff7d9bd58f67e39a66b7f5844f43cef4b7f61adf951e2bdf4d92a03",
+    "packages/streamdeck/src/report.ts": "a0ffe6bde30c40e7876712f9ce159711028e5ea2e7f919b764ba18563ce38932",
+    "packages/streamdeck/src/read.ts": "6a5bb8d2cd9de9f47505631536539b9ea8f903568a3a8ae33be84a2ca133f0cd"
+  },
+  "monitor": {
+    "actual_missing_executable_on_end_events": [
+      "ENOENT",
+      -2
+    ],
+    "restart_delays_ms_for_one_error_then_close": [
+      500,
+      1000
+    ],
+    "replacement_children_after_both_timers": 2,
+    "replacement_children_not_killed_on_stop": 1,
+    "pending_restart_after_stop": 1,
+    "spawns_after_stop_when_pending_timer_fires": 1
+  },
+  "removal": {
+    "backend_opens": 1,
+    "closes_after_other_vendor": 0,
+    "closes_after_same_vendor_different_product": 1,
+    "pending_poll_or_reopen_timers_after_wrong_removal": 0,
+    "own_product_parse": "device-removed"
+  },
+  "limits": "Actual source modules with stripped types; fake timers, USB backend, net lock and monitor streams. A real Node spawn of a deliberately absent executable confirms error+close delivery. No hardware or live daemon exercised; no population/frequency claim. Product ffff is synthetic. No production changes."
+}

@@ -1,0 +1,1130 @@
+{
+ "unit_id": "tests-2",
+ "files_reviewed": 139,
+ "lines_reviewed_estimate": 24000,
+ "coverage_notes": "All 139 files were covered in some form. Read in full or near-full (about 7,500 lines): resource_store_test (1950), read_cache_test (key sections, about 700 of 1437), ci_readiness_test (about 550 of 1647 plus the tail and grep of the rest), budget_test (setup, broker/sqlite helpers and timing tests, about 450 of 1252), issues_test (setup and normalize_issue/conditional sections, about 450), quota_test (alerts, refresh and helpers, about 350), writer_test (about 330), lifecycle_test, broker_timeout_test, change_bridge_test, interrupts_test, controls_test, activation_test (head), operator_delivery_test (head), app_ticket_activity_test, app_phase_tracking_test, lint_task_test, the renderer/* tiny tests, the credential_* test heads, transport_quota_test (setup and timing test), transport_read_cache_test (setup and helpers), mutation_write_through_test (setup and helpers), config_test (setup, keyring kill, fake-gh helpers), view_state_sweep_test (sources, suppression and ModeRegistry sections), github_enricher_test (singleton hack), store_test (env/cwd/trace test), the mix task temp-dir helpers, cache_inspector_test (head and default-source section), cache_history_test (cadence section) and agent_cache_bridge_test. Every other file was outlined with a pattern grep (use/setup/defp/sleep/utc_now/persistent_term/:sys/Supervisor/env/System.cmd/Port/File.rm_rf/ETS/start_supervised), and its setup and helpers were read. Mechanical counts over all 139 files: receive timeouts via a small parser, System/Application env use, persistent_term keys, request_fun closures, rate-limit header literals, Process.sleep, tmp strategies, assertion-free tests (none found), and test lengths (none over 100 lines). Not read in depth: most individual test bodies in dataset_test, counter_policy_test, projection_test, detect_test, dashboard_test, procfs_test, timeline_test, connectivity_test, budget_map_test, labels_test, merge_queue_test, review_threads_test, human_review_gate_test, pull_requests_test, comments_test, dependencies_api_test, graphql_cost_test (only the caller-coverage section), resource_fetch_test (setup, helpers and the race section) and debug_events_ticker_test (strip helper only). Production code was read only to confirm specific claims: aiur.ex supervisor strategy and child order, transport.ex require_token, github/config.ex token cache, resource_store path/retention, quota default paths, request_log test branch, exchange publish, cycle_fetch_cache, agent_list/app init, issues.ex extract_state. Caveat: src/config/ is absent from the snapshot, so I checked the test-env repo_base_root and decision_state_dir overrides read-only in the live checkout (HEAD 0972f02) and did not report the hold-file or resource-store default-path concerns as live writes to ~/.aiur. tests-2-04 (hard-coded test token) is a latent defect: I found no production caller that passes request_fun without token.",
+ "findings": [
+  {
+   "id": "tests-2-01",
+   "category": "flaky-test",
+   "severity": "P1",
+   "title": "Tests stop, terminate and restart children of the production rest_for_one Aiur.Supervisor",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/read_cache_test.exs",
+     "lines": "826-844"
+    },
+    {
+     "path": "src/test/aiur/github/resource_store_test.exs",
+     "lines": "1904-1941"
+    },
+    {
+     "path": "src/test/aiur/github/mutation_write_through_test.exs",
+     "lines": "49-55,773-790"
+    },
+    {
+     "path": "src/test/aiur/github/resource_fetch_test.exs",
+     "lines": "543-562"
+    },
+    {
+     "path": "src/test/aiur/github/resource_events_test.exs",
+     "lines": "19-27"
+    },
+    {
+     "path": "src/lib/aiur.ex",
+     "lines": "113-116,342-365"
+    }
+   ],
+   "description": "Unit tests use the running application tree as their fixture. They stop app children to test the degraded paths. read_cache_test deletes the ETS tables of the live Aiur.GitHub.ReadCache and calls GenServer.stop on it. Aiur.Supervisor is :rest_for_one, and ReadCache (aiur.ex:342) starts before Quota, BrokerTimeout, ElevenLabs.Quota, BuildOrder, Events.IdGenerator, Exchange, BranchRefStore, OpenIssueSnapshot and ResourceStore. So this one test restarts about ten unrelated app children and adds to the supervisor's restart intensity. Three unit files terminate ResourceStore with Supervisor.terminate_child(Aiur.Supervisor, ResourceStore); suite-wide the count is six (also deposit_test, webhook_poll_reconciliation_test and shared_resource_store_test). Sibling files add defensive 'restart it if a sibling left it down' blocks in setup (resource_events_test:20-22, mutation_write_through_test:52-54). This is the known #589/#2397/#2740 cascade family.",
+   "evidence": "read_cache_test.exs:838-843: `GenServer.stop(owner)` ... `# The restart also restarts every later application child. Wait for all of them, so the next test does not start inside that cascade.` / resource_store_test.exs:1911 `Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)` / aiur.ex:115 `Supervisor.start_link(children, Keyword.put(opts, :strategy, :rest_for_one))` / resource_events_test.exs:20 `if Process.whereis(ResourceStore) == nil do Supervisor.restart_child(Aiur.Supervisor, ResourceStore)`",
+   "recommendation": "Let ResourceStore and ReadCache take name/table options, as Quota (`name: nil`) and CacheHistory already do. Then each degraded-path test can start a private instance with start_supervised!. Remove every terminate_child/GenServer.stop against Aiur.Supervisor children from unit tests. Add a lint check that fails when a test file other than test_support_test matches `Supervisor.(terminate|restart)_child(Aiur.Supervisor`.",
+   "refactor_hint": "The GitHub cache package (ResourceStore, ReadCache, Quota) should own its own supervisor and expose instance-scoped APIs. Tests that depend on child order in the monolith's rest_for_one tree will break when the carve moves these children into another supervisor.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-02",
+   "category": "flaky-test",
+   "severity": "P1",
+   "title": "Global webhook delivery-mode state leaks between tests; only the reader side defends",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/view_state_sweep_test.exs",
+     "lines": "509-533"
+    },
+    {
+     "path": "src/test/aiur/github/read_cache_test.exs",
+     "lines": "30-39"
+    },
+    {
+     "path": "src/test/aiur/github/transport_read_cache_test.exs",
+     "lines": "108-119"
+    },
+    {
+     "path": "src/test/support/test_support.exs",
+     "lines": "207-217"
+    }
+   ],
+   "description": "view_state_sweep_test writes 'owner/repo' into the default app-singleton Aiur.Webhooks.ModeRegistry (configure + record_delivery) and never cleans it up. Almost every GitHub test uses 'owner/repo' as its tracker repo. Read-cache TTLs depend on the mode, so a webhook-backed record turns a 31-second aging test into a cache hit. TestSupport.reset_global_state!/0 resets ResourceStore, AuthPreflight, PollCadence and DispatchAuthorization, but not ModeTable/ModeRegistry. Two reader files (read_cache_test, transport_read_cache_test) now delete the mode entry themselves, and read_cache_test's comment names the leak. Every new reader has to know to do the same.",
+   "evidence": "view_state_sweep_test.exs:513-514 `{:ok, _configured} = ModeRegistry.configure(\"owner/repo\", true)` / `ModeRegistry.record_delivery(\"owner/repo\", at: ~U[2026-08-17 10:00:00Z])` (no on_exit); read_cache_test.exs:33-36 `Ensure it is in polling mode so a stray webhook-backed record (from any test anywhere) cannot turn a 31-second ageing into a hit. ModeTable.delete(@repo)`; transport_read_cache_test.exs:118-119 `ModeTable.delete(\"owner/repo\")`; test_support.exs:208-216 reset list has no ModeTable/ModeRegistry.",
+   "recommendation": "Add ModeTable/ModeRegistry reset to TestSupport.reset_global_state!/0. Fix the writer too: view_state_sweep_test should start a private ModeRegistry (it already accepts `server`/`name`, as read_cache_test:1223 shows) and pass it to ViewStateSweep. Then remove the reader-side ModeTable.delete workarounds.",
+   "refactor_hint": "Webhook mode state crosses the would-be webhooks package and the GitHub read-cache package. Make the dependency explicit: pass a mode source into ReadCache.Policy instead of reading a global ETS table.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-03",
+   "category": "duplication",
+   "severity": "P1",
+   "title": "Read-cache readiness helper duplicated and diverged; read_cache_test keeps the pattern #2397 retired",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/read_cache_test.exs",
+     "lines": "41-54"
+    },
+    {
+     "path": "src/test/aiur/github/transport_read_cache_test.exs",
+     "lines": "164-175"
+    },
+    {
+     "path": "src/test/support/test_support.exs",
+     "lines": "915-944"
+    }
+   ],
+   "description": "There are three ways to 'make sure the shared ReadCache is up'. TestSupport.ensure_read_cache_running/1 restarts the app-owned child without timing. transport_read_cache_test uses it, and its comment says why the old approach was wrong: a wall-clock poll, or a start_supervised! replacement that dies at module end (#2397). read_cache_test, the main ReadCache suite with 82 tests, still has the old copy. It polls with Process.sleep(10) up to 100 times and then falls back to start_supervised!({ReadCache, ...}). That fallback registers a temporary ReadCache under the global name, and it dies when the test ends.",
+   "evidence": "read_cache_test.exs:51-52 `attempts > 0 -> Process.sleep(10) || await_read_cache(attempts - 1)` / `true -> start_supervised!({ReadCache, sweep_interval_ms: 0})`; transport_read_cache_test.exs:164-170 `rather than racing it with a wall-clock poll or start_supervised!-ing a temporary replacement that dies at module end (#2397)`.",
+   "recommendation": "Delete read_cache_test's await_read_cache/1 and call Aiur.TestSupport.ensure_read_cache_running/0, as transport_read_cache_test does. Better, per tests-2-01: start a private ReadCache instance per test.",
+   "refactor_hint": "Readiness helpers for shared children belong in one test-support module per future package (for example a github_cache test-support module). Remove local copies during the carve.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-04",
+   "category": "security",
+   "severity": "P1",
+   "title": "Production Transport.require_token/1 returns the literal 'test-gh-token' whenever a request_fun is passed, and a test pins this",
+   "locations": [
+    {
+     "path": "src/lib/aiur/github/transport.ex",
+     "lines": "79-92"
+    },
+    {
+     "path": "src/test/aiur/github/transport_test.exs",
+     "lines": "49-57"
+    }
+   ],
+   "description": "A test seam lives in the production credential path. Any caller that passes `request_fun:` without `token:` gets {:ok, \"test-gh-token\"} and never reads the configured credential. About 30 production functions call require_token(opts) with caller opts (for example build_order/github_graph.ex:15 and :39, ci_readiness.ex:46, comment_poll_batch.ex:128, human_review_gate.ex:15). Several production modules also forward an optional request_fun (code_owners.ex:476, issue_dependencies.ex:80,96). I found no production caller that passes request_fun without token today, so this is a latent defect, not a proven live one. transport_test asserts the behavior, which makes it part of the contract.",
+   "evidence": "transport.ex:86-87 `if Keyword.has_key?(opts, :request_fun) do {:ok, \"test-gh-token\"}`; transport_test.exs:51 `assert Transport.require_token(request_fun: fn _ -> :ok end) == {:ok, \"test-gh-token\"}`.",
+   "recommendation": "Remove the request_fun branch from require_token/1. Tests that inject request_fun should also pass `token:`, or the request_fun double should ignore the token. Change transport_test:51 to assert that require_token ignores request_fun.",
+   "refactor_hint": "The GitHub transport/credential boundary is a natural package seam. Keep test seams (request_fun) orthogonal to credential resolution before extracting it.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-05",
+   "category": "duplication",
+   "severity": "P1",
+   "title": "GITHUB_TOKEN and GitHub.Config token-cache setup copied into 22 files in 3 diverged variants",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/issues_test.exs",
+     "lines": "20-45"
+    },
+    {
+     "path": "src/test/aiur/github/issue_state_test.exs",
+     "lines": "7-33"
+    },
+    {
+     "path": "src/test/aiur/github/transport_test.exs",
+     "lines": "8-31"
+    },
+    {
+     "path": "src/test/aiur/github/auth_preflight_test.exs",
+     "lines": "13-50"
+    },
+    {
+     "path": "src/test/aiur/github/ci_poll_batch_test.exs",
+     "lines": "6-15"
+    },
+    {
+     "path": "src/test/aiur/github/code_owners_test.exs",
+     "lines": "7-31"
+    },
+    {
+     "path": "src/lib/aiur/github/config.ex",
+     "lines": "197-207,270-275,290-300"
+    }
+   ],
+   "description": "22 unit files set GITHUB_TOKEN in setup. Variant A (8 files: agent_marker_wiring, app_identity, app_token_refresher, ci_poll_batch, client_events, code_owners, comment_poll_batch, mutation_write_through) sets only the env var. Variant B (12 files: comments, dependencies_api, human_review_gate, issue_state, issues, pull_requests, reply, repo_events, resolution, review_threads, teams, transport) also saves, erases and restores the private persistent_term key {Aiur.GitHub.Config, :resolved_token}. Variant C (2 files: auth_preflight, config_test) also handles {Config, :resolved_token_source}. Config.token/0 prefers the cached resolved token over GITHUB_TOKEN, and token_source/0 reads the source key. So variant A files depend on no earlier case leaving a cached token behind, and variant B files leave the source key stale. TestSupport does not reset this cache. Across the unit, tests reference private persistent_term keys 84 times: @token_cache_key 56, @source_cache_key 10, @origin_cache_key 8, @cache_key 6, {Aiur.Boot, :run_id} 4.",
+   "evidence": "issues_test.exs:24-37 `prev_cached_token = :persistent_term.get(@token_cache_key, :unset) / :persistent_term.erase(@token_cache_key) / System.put_env(\"GITHUB_TOKEN\", \"test-gh-token\")`; ci_poll_batch_test.exs:7-8 `previous_token = System.get_env(\"GITHUB_TOKEN\"); System.put_env(\"GITHUB_TOKEN\", \"test-gh-token\")` (no cache handling); config.ex:202 `case :persistent_term.get({__MODULE__, :resolved_token}, :unset) do`.",
+   "recommendation": "Add a public `Aiur.GitHub.Config.reset_token_cache/0` that erases both the token and source keys. Add a `with_github_token(token)` helper to TestSupport that sets the env var, resets the cache and registers the restore. Call it from reset_global_state!/0 and replace all 22 setup blocks with one line.",
+   "refactor_hint": "Token resolution belongs in the GitHub credential package. Expose a reset API so tests in other packages do not reach into private persistent_term keys.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-06",
+   "category": "coupling",
+   "severity": "P1",
+   "title": "Source-scanning 'architecture' tests use hard-coded relative paths into lib/ and will break or silently narrow after the carve",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/graphql_cost_test.exs",
+     "lines": "6,212-233,398-440"
+    },
+    {
+     "path": "src/test/aiur/github/budget_ledger_test.exs",
+     "lines": "136-155"
+    },
+    {
+     "path": "src/test/aiur/github/quota_history_test.exs",
+     "lines": "82-96"
+    },
+    {
+     "path": "src/test/aiur/github/view_state_sweep_test.exs",
+     "lines": "150-170,604-607"
+    }
+   ],
+   "description": "Four unit files assert structure by reading production source text: 25 files suite-wide use `../../../lib`, `@lib_root` or `Application.app_dir(:aiur)`. graphql_cost_test runs a regex over every `lib/**/*.ex` for `Transport.github_graphql(` call sites that lack `caller:`. After a carve, @lib_root covers only the package the test lives in, so call sites in other packages drop out of the check. The `found >= 10` guard might still pass. budget_ledger_test and quota_history_test read one file by a path relative to __DIR__. view_state_sweep_test builds a path from `Application.app_dir(:aiur)/../../../..` + 'lib/' + the module name. quota_history_test's `refute code =~ \"token\"` fails on any comment that contains the word.",
+   "evidence": "graphql_cost_test.exs:6 `@lib_root Path.expand(\"../../../lib\", __DIR__)`; :221 `assert found >= 10`; budget_ledger_test.exs:144 `\"../../../lib/aiur/github/budget_ledger.ex\" |> Path.expand(__DIR__) |> File.read!()`; view_state_sweep_test.exs:605 `root = Application.app_dir(:aiur) |> Path.join(\"../../../..\") |> Path.expand()`.",
+   "recommendation": "Move these checks into one repo-level check with explicit roots, such as a mix task or the existing scripts/ lint job, that scans every package's lib/. Or turn them into behavioral tests: for example, run QuotaHistory with a request_fun that flunks. Keep the found-count guard, and make it per package.",
+   "refactor_hint": "Needs a decision before the carve: which package owns cross-package invariants such as 'every GraphQL call declares a caller'. The answer is probably a repo-level lint, not an ExUnit test inside one package.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-07",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Most of the unit runs serially; heavy TestSupport setup and async: false used without a stated need",
+   "locations": [
+    {
+     "path": "src/test/support/test_support.exs",
+     "lines": "237-373"
+    },
+    {
+     "path": "src/test/aiur/usage_ledger/recovery_test.exs",
+     "lines": "2"
+    },
+    {
+     "path": "src/test/aiur/github/cycle_fetch_cache_test.exs",
+     "lines": "2"
+    },
+    {
+     "path": "src/test/aiur/agent_list/app_phase_tracking_test.exs",
+     "lines": "7"
+    },
+    {
+     "path": "src/test/aiur/agent_list/app_progress_ratchet_test.exs",
+     "lines": "7"
+    },
+    {
+     "path": "src/test/aiur/github/resource_store_test.exs",
+     "lines": "2"
+    }
+   ],
+   "description": "1,258 of the unit's 1,958 tests (64%) run serially: 38 files (767 tests) use `use Aiur.TestSupport`, which is async: false, and 27 files (491 tests) declare async: false. Each TestSupport test does a lot of setup: it writes a workflow file, force-reloads WorkflowStore (15s timeout), sets about 10 Application env keys, resets 7 globals, checks runtime children and stops the HTTP server. 12 TestSupport files (314 tests) never write their own workflow (resource_store 102, dispatch_authorization 36, cache_inspector 34, resource_events 32, resource_fetch 29, view_state_sweep 22, quota_caller_attribution 14, poll_snapshots 12, delivered_pull_request 10, agent_cache_bridge 8, request_log 8, cache_history 7). They use TestSupport mainly for the global reset. In 4 files I verified that async: false has no reason. usage_ledger/recovery.ex, paths.ex and checkpoint.ex touch no Application env, persistent_term, ETS or registered names. CycleFetchCache is per-process (Process.put plus a private ETS table). AgentList.App with `name: nil, subscribe?: false` touches no global state in init (app.ex:99-111).",
+   "evidence": "test_support.exs:237 `use ExUnit.Case` (default async false); cycle_fetch_cache.ex:10-11 `table = :ets.new(__MODULE__, [:private, ...]); Process.put(@process_key, table)`; recovery_test.exs:2 `use ExUnit.Case, async: false` with only a tmp_root! setup.",
+   "recommendation": "Make recovery_test, cycle_fetch_cache_test, app_phase_tracking_test and app_progress_ratchet_test async: true. Split TestSupport into a light `Aiur.TestSupport.GlobalReset`, which resets state and needs no workflow, and a heavy `Aiur.TestSupport.Workflow` for cases that need config. Every async: false should carry a one-line reason comment, as config_test does.",
+   "refactor_hint": "The carve is the moment to make each package's test suite async-by-default with injected state. Global resets in the monolith's TestSupport cannot be split per package without this.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-08",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "No shared GitHub HTTP double: 289 hand-written request_fun routers in 30 files plus Req.Test stubs in 4 files",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/ci_readiness_test.exs",
+     "lines": "124-131,271-279,372-379,389-401,419-442,450-470"
+    },
+    {
+     "path": "src/test/aiur/github/pull_requests_test.exs",
+     "lines": "1-394"
+    },
+    {
+     "path": "src/test/aiur/github/issues_test.exs",
+     "lines": "52-84,249-326"
+    },
+    {
+     "path": "src/test/aiur/github/transport_quota_test.exs",
+     "lines": "42-60"
+    }
+   ],
+   "description": "Every GitHub test builds its own fake for the GitHub API as an inline `fn %{url: url} -> cond do String.ends_with?(url, ...)`. The largest counts are ci_readiness_test 39, pull_requests_test 26, issues_test 24, ci_poll_batch_test 20, comment_poll_batch_test 19, dispatch_authorization_test 18, transport_test 15 and issue_state_test 15; 289 in total. A second, separate mechanism, Req.Test plugs, is used in auth_preflight, transport_quota, transport_read_cache and transport. In ci_readiness_test the clause `String.ends_with?(url, \"/repos/owner/repo\") -> {:ok, %{status: 200, body: %{\"default_branch\" => \"develop\"}}}` appears 31 times. The same file creates a persisted-assessment path plus on_exit cleanup 8 times (lines 69, 87, 112, 138, 1249, 1278, 1619, ...). Many routers have no fallback clause (e.g. lines 419-442), so an unexpected URL raises CondClauseError inside the transport, not a clear flunk.",
+   "evidence": "ci_readiness_test.exs: `grep -c \"request_fun = fn\"` = 39; `grep -c 'String.ends_with?(url, \"/repos/owner/repo\")'` = 31; issue_state_test.exs:73-78 hand-rolls an ETS call log `calls = :ets.new(:calls, [:set, :public])` (7 times in that file).",
+   "recommendation": "Add a `Aiur.TestSupport.GitHubDouble` with a route table (`[{:get, \"/repos/:o/:r\", resp}, ...]`), a default flunk for unmatched routes, a built-in call recorder that replaces the per-test ETS/Agent counters, and helpers for common payloads (repo, branch, workflows, protection, rulesets). Put it on Req.Test so there is one mechanism. Convert ci_readiness_test first; that alone removes about 700 lines.",
+   "refactor_hint": "Ship the double with the GitHub client package as its test-support API so other packages (orchestrator, build_order, run_telemetry) do not rewrite GitHub fakes.",
+   "effort": "L"
+  },
+  {
+   "id": "tests-2-09",
+   "category": "flaky-test",
+   "severity": "P2",
+   "title": "Bare assert_receive (100 ms default) waits on an asynchronous sender in several files",
+   "locations": [
+    {
+     "path": "src/test/aiur_web/financial_data/change_bridge_test.exs",
+     "lines": "17,20,37,40"
+    },
+    {
+     "path": "src/test/aiur/logs/retention_test.exs",
+     "lines": "90-91"
+    },
+    {
+     "path": "src/test/aiur/github/cycle_fetch_cache_test.exs",
+     "lines": "55-70"
+    },
+    {
+     "path": "src/test/aiur/github/resource_events_test.exs",
+     "lines": "370-393"
+    },
+    {
+     "path": "src/test/aiur/agent_list/activation_test.exs",
+     "lines": "22-38"
+    }
+   ],
+   "description": "Counts across the unit: 220 assert_receive (153 without an explicit timeout) in 52 files, and 92 refute_receive (46 bare) in 35 files. No global assert_receive_timeout is configured (test_helper.exs). Most bare sites follow a synchronous call or use a GenServer.call barrier, which is correct; quota_test calls snapshot/1 after each cast observe. The sites listed here wait on another process with only 100 ms. change_bridge_test sends to the bridge GenServer and waits for its broadcast_fun. retention_test does `send(pid, :tick)` and then `assert_receive :retention_swept`. cycle_fetch_cache_test waits for a Task to start (line 67). Inside that task, a bare `assert_receive :release` (line 62) waits for the test to finish `Task.await(Task.async(end_cycle))`; if that takes more than 100 ms the task's assertion fails. resource_events_test waits for a spawned watcher (lines 387 and 393). activation_test's 'opens a warm selected agent asynchronously' waits for an asynchronous PaneManager call.",
+   "evidence": "retention_test.exs:90-91 `send(pid, :tick)` / `assert_receive :retention_swept`; cycle_fetch_cache_test.exs:60-63 `send(parent, :fetch_started) / assert_receive :release`; change_bridge_test.exs:19-20 `send(bridge, {:usage_aggregate_changed, %{generation: 3}})` / `assert_receive :broadcast`.",
+   "recommendation": "Give every receive that waits on another process an explicit bound (the files already use 2_000 elsewhere) or use TestSupport.receive_barrier/1. Add a credo check or grep gate that flags a bare assert_receive when the enclosing test contains Task.async, spawn, send(pid or a start_link.",
+   "refactor_hint": "Set a per-package convention: an @async_assert_timeout module attribute, already used 5 times in this unit, or a shared macro in each package's test support.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-10",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Negative assertions based on sleep or Task.yield timing pass vacuously when the system is slow",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/agent_cache_bridge_test.exs",
+     "lines": "42-47,76-82"
+    },
+    {
+     "path": "src/test/aiur/github/app_token_refresher_test.exs",
+     "lines": "108-114"
+    },
+    {
+     "path": "src/test/aiur/github/view_state_sweep_test.exs",
+     "lines": "334-338"
+    },
+    {
+     "path": "src/test/aiur/github/cache_history_test.exs",
+     "lines": "108-115"
+    },
+    {
+     "path": "src/test/aiur/github/budget_test.exs",
+     "lines": "72-80,84-94,96-110,112-124"
+    }
+   ],
+   "description": "These tests prove that something did NOT happen by waiting a fixed time. agent_cache_bridge_test sleeps 120 ms and then refutes a marker file that the asynchronous bridge would write. If the bridge takes longer than 120 ms under load, the refute passes even with the production change reverted, which breaks the AGENTS.md rule that tests must fail without the change. budget_test asserts `Task.yield(waiter, 80) == nil` to show the waiter is blocked. Budget.acquire spawns a python3 broker subprocess that can take longer than 80 ms to start, so a broken ceiling can also read as 'still blocked'. That file already records load-sensitivity flakes (#2286, comment at 1236-1241).",
+   "evidence": "agent_cache_bridge_test.exs:46-47 `Process.sleep(120)` / `refute File.exists?(...\".collections-invalidated\")`; budget_test.exs:77 `assert Task.yield(waiter, 80) == nil`; app_token_refresher_test.exs:111-113 `send(pid, :refresh); Process.sleep(50); refute_received {:alert, _, _, _}`.",
+   "recommendation": "Replace fixed sleeps with a synchronous barrier on the process that would act. Examples: a :sys.get_state/1 or GenServer.call after the triggering deposit, or a positive control deposit in the same test that must produce its marker first, so the negative is ordered after it. For budget_test, have the broker report 'held' (an observable hold state or telemetry event) and assert on that.",
+   "refactor_hint": "Each package's test support should offer a 'drain' or 'barrier' API on its GenServers so negative assertions are ordered, not timed.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-11",
+   "category": "flaky-test",
+   "severity": "P2",
+   "title": "Wall-clock race test with 200-500 ms margins and a python broker in the loop",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/transport_quota_test.exs",
+     "lines": "253-288"
+    }
+   ],
+   "description": "'starts the HTTP request deadline after local budget admission' sets github_request_deadline_ms to 1_500. The Req stub sleeps 1_000 ms, and the test sleeps 700 ms before it releases the lease. The assertion holds only if about 700 ms of admission wait plus 1_000 ms of request stays under the 1_500 ms deadline measured from admission. That leaves about 500 ms of slack in which the python3 budget broker subprocess (github_budget_enabled? = true) must admit the waiter. The test takes at least 1.7 s of real time.",
+   "evidence": "transport_quota_test.exs:256 `Application.put_env(:aiur, :github_request_deadline_ms, 1_500)`; :277 `Process.sleep(1_000)`; :283 `Process.sleep(700)`.",
+   "recommendation": "Inject a clock or deadline function into Transport's deadline computation, so the test can assert when the deadline starts without sleeping. Or assert on a recorded `deadline_started_at` compared with `admitted_at` instead of racing real time.",
+   "refactor_hint": "Give the GitHub transport package a clock abstraction. This also removes the DateTime.utc_now-based waits in local_hold and auth_preflight tests.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-12",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "Tests rewrite or unregister the live CodeOwners singleton because production reads it by registered name",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/issues_test.exs",
+     "lines": "1109-1119,1165-1167"
+    },
+    {
+     "path": "src/test/aiur/run_telemetry/github_enricher_test.exs",
+     "lines": "7-30,186-203"
+    }
+   ],
+   "description": "issues_test uses :sys.replace_state on the app-supervised Aiur.GitHub.CodeOwners to inject an allowlist, then puts the captured state back in on_exit. If the singleton restarts meanwhile (see tests-2-01), the restore writes stale state into a new process. github_enricher_test calls Process.unregister(CodeOwners) on the live process to force the fallback path, and re-registers it in on_exit. Any app process that calls CodeOwners during the test gets :noproc. If the supervisor has started a new registered CodeOwners in the meantime, Process.register in on_exit raises. The same pattern runs suite-wide: Process.unregister against Orchestrator, Quota and ActiveTurns appears in 7 other files.",
+   "evidence": "issues_test.exs:1117-1119 `:sys.replace_state(codeowners, fn state -> %{state | codeowners: MapSet.new([\"trusted-labeler\"])} end)`; github_enricher_test.exs:192 `Process.unregister(CodeOwners)`; :201 `if Process.alive?(pid), do: Process.register(pid, CodeOwners)`.",
+   "recommendation": "Add an injectable `codeowners:` / `allowed_users_fun:` option to Issues.fetch_issue_states_by_ids_conditional/3 and GitHubEnricher.enrich/3 (DispatchAuthorization.authorize already takes `allowed_users:`). Remove the replace_state and unregister calls.",
+   "refactor_hint": "CodeOwners/trust is a cross-cutting dependency of the GitHub, orchestrator and telemetry packages. Pass it in as a behaviour or a function, not a registered name, before splitting packages.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-13",
+   "category": "flaky-test",
+   "severity": "P2",
+   "title": "VM-global mutations beyond Application env: PATH, cwd, global trace patterns, code purge",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/config_test.exs",
+     "lines": "290,769-795,879-896"
+    },
+    {
+     "path": "src/test/mix/tasks/workspace_before_remove_test.exs",
+     "lines": "29,42,297-363"
+    },
+    {
+     "path": "src/test/aiur/usage_ledger/store_test.exs",
+     "lines": "110-143"
+    },
+    {
+     "path": "src/test/mix/tasks/pr_body_check_test.exs",
+     "lines": "333-348"
+    },
+    {
+     "path": "src/test/mix/tasks/specs_check_task_test.exs",
+     "lines": "93-106"
+    },
+    {
+     "path": "src/test/aiur/github/resource_store_test.exs",
+     "lines": "1878-1893"
+    },
+    {
+     "path": "src/test/aiur/github/cache_inspector_test.exs",
+     "lines": "497-507"
+    }
+   ],
+   "description": "With the whole :aiur application running, several tests change process-global OS or VM state. config_test prepends a fake `gh` to PATH, and with_empty_path sets PATH to an empty directory. The comment at 758-762 admits that other code may shell out during the window. workspace_before_remove_test sets PATH to \"\" via with_path([]). Four files call File.cd!: store_test, pr_body_check_test, specs_check_task_test and workspace_before_remove_test. cwd is VM-wide, and app children that resolve relative paths (for example <cwd>/log) follow it. store_test calls `:erlang.trace(:new, true, ...)`, which traces every new process in the VM. resource_store_test sets a :global trace_pattern on :erlang.send_after/3. If the assert_receive fails, it never turns off the per-process trace, because that call is not in on_exit. cache_inspector_test runs :code.purge and :code.delete on a production module (ResourceStoreSource) that the app's CacheHistory sampler may be running.",
+   "evidence": "config_test.exs:783 `System.put_env(\"PATH\", bin_dir <> \":\" <> (original_path || \"\"))`; workspace_before_remove_test.exs:330 `with_env(%{\"PATH\" => Enum.join(paths, \":\")}, fun)` called with []; store_test.exs:134-136 `:erlang.trace(:new, true, [:call, {:tracer, self()}])` / `File.cd!(cwd, fn ->`; cache_inspector_test.exs:503-504 `:code.purge(ResourceStoreSource)` / `:code.delete(ResourceStoreSource)`.",
+   "recommendation": "Add seams to production: HostCommand already takes :wrapper_dir (host_command_test is the model), so add a `gh_path`/`find_executable_fun` option to Config.keyring_token and the workspace_before_remove task, and a `cwd:` option to the mix tasks. Replace the global trace with an injected `boot_fun` spy. Move all PATH, cwd and trace mutation behind one TestSupport helper that asserts the test module is async: false and restores the value in on_exit.",
+   "refactor_hint": "The mix tasks and host-command runners are candidates for a separate tooling package. Giving them explicit cwd and executable seams now avoids process-global hacks in that package's tests.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-14",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "quota_test creates and deletes a directory in the developer's real $HOME",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/quota_test.exs",
+     "lines": "566-581"
+    }
+   ],
+   "description": "To test tilde-form workspace roots, the test creates `Path.join(System.user_home!(), \"aiur-quota-test-<n>\")`, writes an agent-requests.tsv under it, and removes it in on_exit. If the VM is killed, or the test crashes before on_exit registration completes, the directory is left in the real home. On sandboxed CI with a read-only HOME the test fails. AGENTS.md says a test must never touch real user paths and must use an explicit temp path.",
+   "evidence": "quota_test.exs:568-569 `relative = \"aiur-quota-test-#{System.unique_integer([:positive])}\"` / `root = Path.join(System.user_home!(), relative)`; :576 `workspace_root: Path.join(\"~\", relative)`.",
+   "recommendation": "Give Layout/Quota an injectable home directory (a `home_fun:` or `:home_dir` app env), or run the test with HOME pointed at a tmp_root! for its duration (async: false already).",
+   "refactor_hint": "Tilde expansion is duplicated across the workspace/layout code. Centralize it behind one function that takes a home_dir, which also makes it testable in the workspace package.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-15",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "Tests age and inspect private ETS entry maps directly (ResourceStore.Table, read-cache tables); six copies of 'age' helpers",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/resource_store_test.exs",
+     "lines": "164-166,253-255,555-561,780-795,881-883,896-898,969,997-1000,1661-1662,1898-1902"
+    },
+    {
+     "path": "src/test/aiur/github/view_state_sweep_test.exs",
+     "lines": "556-561"
+    },
+    {
+     "path": "src/test/aiur/github/resource_fetch_test.exs",
+     "lines": "536-541"
+    },
+    {
+     "path": "src/test/aiur/github/read_cache_test.exs",
+     "lines": "580,705,1407-1424"
+    },
+    {
+     "path": "src/test/aiur/github/transport_read_cache_test.exs",
+     "lines": "182-192"
+    },
+    {
+     "path": "src/test/aiur/github/cache_inspector_test.exs",
+     "lines": "9"
+    }
+   ],
+   "description": "ResourceStore and ReadCache have no injectable clock, so tests move time by rewriting private fields in the ETS entry (:fetched_at_ms, :recorded_at_ms, :processed_at_ms, :data_version, and the {key, response, deposited_at} tuple shape). resource_store_test has 37 direct ResourceStore.Table operations. The 'age' helper exists 6 times: age_mark! in resource_store_test and view_state_sweep_test, age_body! in resource_fetch_test, and age_entries_by in read_cache_test and transport_read_cache_test, plus age_markers_by. The retention constant 72h is written out as a literal (`73 * 60 * 60 * 1000` and similar) 15 times in 3 files. That is deliberate in resource_store_test, where the literals pin the value.",
+   "evidence": "resource_store_test.exs:1898-1901 `[{^key, entry}] = :ets.lookup(ResourceStore.Table, key)` / `:ets.insert(ResourceStore.Table, {key, Map.update!(entry, :processed_at_ms, &(&1 - by_ms))})` (identical at view_state_sweep_test.exs:556-560); transport_read_cache_test.exs:182-183 comment `(same trick as Aiur.GitHub.ReadCacheTest)`.",
+   "recommendation": "Add a `clock:`/`now_ms_fun` option to ResourceStore and ReadCache, following Quota's `clock:`, and a test-only `ResourceStore.inspect_entry/1`. Then aging means advancing the clock, and the tests stop depending on the ETS layout. Keep the pinned-literal bound tests, but express them as clock advances.",
+   "refactor_hint": "Needed before extracting a GitHub cache package. Otherwise any change to the entry map layout inside the package breaks tests in other packages (view_state_sweep, cache_inspector).",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-16",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "ANSI-stripping helper re-implemented 6 times with drifted regexes; production Text.strip_ansi/1 exists",
+   "locations": [
+    {
+     "path": "src/test/aiur/agent_list/renderer_test.exs",
+     "lines": "8"
+    },
+    {
+     "path": "src/test/aiur/agent_list/renderer/chrome_usage_test.exs",
+     "lines": "8-9"
+    },
+    {
+     "path": "src/test/aiur/agent_list/debug_events_ticker_test.exs",
+     "lines": "382-391"
+    },
+    {
+     "path": "src/test/aiur/agent_list/app_debug_events_persistence_test.exs",
+     "lines": "166-172"
+    },
+    {
+     "path": "src/lib/aiur/agent_list/renderer/text.ex",
+     "lines": "185-199"
+    }
+   ],
+   "description": "Aiur.AgentList.Renderer.Text.strip_ansi/1 strips CSI and OSC 8, and events_block_test and text_test already use it. Four unit files instead carry private copies with different regexes. renderer_test uses `~r/\\e\\[[?0-9;]*[A-Za-z]/` with no OSC 8 handling. chrome_usage_test uses `[0-9;?]*[a-zA-Z]`. debug_events_ticker_test and app_debug_events_persistence_test use CSI plus OSC 8; the ticker copy is labelled 'Mirror of Renderer.strip_ansi/1'. Two more copies exist outside the unit (regression/render_state_test.exs:30, regression/warm_marker_semantics_test.exs:271), and snapshot_support.exs:5 has a third regex variant. renderer_test therefore asserts on text that still contains OSC 8 wrappers, so a hyperlink regression is judged by a different standard than in the ticker tests.",
+   "evidence": "renderer_test.exs:8 `defp visible(text), do: Regex.replace(~r/\\e\\[[?0-9;]*[A-Za-z]/, text, \"\")`; debug_events_ticker_test.exs:382 `# Mirror of Renderer.strip_ansi/1`; text.ex:191 `def strip_ansi(text) do`.",
+   "recommendation": "Replace every private copy with Aiur.AgentList.Renderer.Text.strip_ansi/1. Where a test needs 'CSI only' (to keep broken OSC 8 visible, as the ticker comment explains), call Text.strip_csi/1 explicitly.",
+   "refactor_hint": "Moves with the TUI (AgentList) package. Tests should depend on the package's own public text helpers.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-17",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Credential fixture helpers copied verbatim in 3 files",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/credential_selector_test.exs",
+     "lines": "8-29"
+    },
+    {
+     "path": "src/test/aiur/github/credential_usage_test.exs",
+     "lines": "10-27"
+    },
+    {
+     "path": "src/test/aiur/github/credential_registry_test.exs",
+     "lines": "9-24"
+    }
+   ],
+   "description": "credential/2 (a unique AIUR_TEST_TOKEN_* env name), export/2 (named with_token/2 in credential_selector_test) and window/2 are duplicated with the same explanatory comment about async-safe env names. The helpers are correct (unique names per credential), but each copy repeats the design reason.",
+   "evidence": "All three: `env = \"AIUR_TEST_TOKEN_#{String.upcase(id)}_#{System.unique_integer([:positive])}\"` / `System.put_env(credential.token_env, token)` / `on_exit(fn -> System.delete_env(credential.token_env) end)`.",
+   "recommendation": "Move them to an `Aiur.TestSupport.GitHubCredentials` module (credential/2, export/2, window/3) and import it in all three files.",
+   "refactor_hint": "Belongs with the GitHub credential package's test support.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-18",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "GitHub App credential fixtures copied in 5 files, each generating fresh RSA-2048 keys",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/app_credentials_test.exs",
+     "lines": "16-37"
+    },
+    {
+     "path": "src/test/aiur/github/app_identity_test.exs",
+     "lines": "23-60"
+    },
+    {
+     "path": "src/test/aiur/github/app_token_refresher_test.exs",
+     "lines": "10-51"
+    },
+    {
+     "path": "src/test/aiur/github/app_token_test.exs",
+     "lines": "12-17,181-189,215-223"
+    },
+    {
+     "path": "src/test/aiur/github/config_test.exs",
+     "lines": "672-690"
+    }
+   ],
+   "description": "pem/0 (named real_pem/0 in app_credentials_test), put_app_credentials/0, clear_app_credentials/0, and the save/restore of GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY and GITHUB_APP_PRIVATE_KEY_PATH are repeated in 5 files. There are 8 `JOSE.JWK.generate_key({:rsa, 2048})` sites, reached through about 33 helper calls. Each call generates a new 2048-bit key, which costs noticeable CPU on every test.",
+   "evidence": "app_identity_test.exs:23-25 and app_token_refresher_test.exs:10-12: `{_map, pem} = JOSE.JWK.to_pem(JOSE.JWK.generate_key({:rsa, 2048}))`; app_token_test.exs:185-188 inline `System.delete_env(\"GITHUB_APP_ID\") ...` restore block repeated at 219-223, 233-236 and 254-257.",
+   "recommendation": "Add a TestSupport module with a key generated once per VM (persistent_term or a module attribute computed at compile time) and a `with_app_credentials/1` helper that saves and restores all four env vars.",
+   "refactor_hint": "Part of the GitHub credential package's test support.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-19",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "TrackerIdentity and TicketActivity fixtures are struct literals copied everywhere; no factory",
+   "locations": [
+    {
+     "path": "src/test/aiur/agent_list/activity_intake_test.exs",
+     "lines": "123-165"
+    },
+    {
+     "path": "src/test/aiur/agent_list/app_phase_tracking_test.exs",
+     "lines": "76-88"
+    },
+    {
+     "path": "src/test/aiur/agent_list/app_progress_ratchet_test.exs",
+     "lines": "57-104"
+    },
+    {
+     "path": "src/test/aiur/agent_list/app_ticket_activity_test.exs",
+     "lines": "101-143"
+    },
+    {
+     "path": "src/test/aiur/agent_list/selection_test.exs",
+     "lines": "65-80"
+    },
+    {
+     "path": "src/test/aiur/ticket_activity/projection_test.exs",
+     "lines": "404-430"
+    }
+   ],
+   "description": "There are 120 `%TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: \"owner\", ...}` literals in 86 test files; 9 of those files are in this unit. TrackerIdentity offers no test-friendly constructor, only from_github/3 and unjoinable/2. The TicketActivity snapshot map (identity/status/progress/stage/latest_evidence with provenance run-1) is copied in activity_intake_test, app_progress_ratchet_test and app_ticket_activity_test. Those copies already differ: two use DateTime.utc_now(), one uses @now; one has stage %{status: :unknown}, another has a known stage.",
+   "evidence": "app_ticket_activity_test.exs:131-142 and app_phase_tracking_test.exs:76-87 identical `%TrackerIdentity{version: 1, status: :joinable, kind: :github, owner: \"owner\", repository: \"repo\", provider_id: \"I-42\", identifier: \"42\", reason: nil}`; `provenance: %{run_id: \"run-1\"` appears in 11 test files.",
+   "recommendation": "Add `Aiur.TestSupport.Factory.tracker_identity/1` and `ticket_activity_snapshot/1` with keyword overrides. When a struct field is added, one place changes instead of 86.",
+   "refactor_hint": "TrackerIdentity is a shared core type that every package will depend on. Ship a factory with the core package's test support.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-20",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "ResourceStore stop/restart helpers duplicated in 6 files (3 in this unit)",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/resource_store_test.exs",
+     "lines": "1904-1926"
+    },
+    {
+     "path": "src/test/aiur/github/mutation_write_through_test.exs",
+     "lines": "773-790"
+    },
+    {
+     "path": "src/test/aiur/github/resource_fetch_test.exs",
+     "lines": "543-562"
+    }
+   ],
+   "description": "stop_store!/0 (monitor, terminate_child, receive DOWN or flunk after 5_000) and restart_store!/1 (stop, put :github_resource_store_path, restart_child) are copied, with small differences in nil handling and on_exit placement. Suite-wide copies also exist in events/github_webhook/deposit_test.exs:1506, events/webhook_poll_reconciliation_test.exs:696 and build_order/shared_resource_store_test.exs:505. The mutation_write_through copy crashes on `Process.monitor(nil)` when the store is already down; the resource_store copy handles nil.",
+   "evidence": "mutation_write_through_test.exs:774-775 `pid = Process.whereis(ResourceStore); ref = Process.monitor(pid)` (no nil clause) vs resource_store_test.exs:1905-1907 `case Process.whereis(ResourceStore) do nil -> :ok`.",
+   "recommendation": "Short term, move one nil-safe `restart_resource_store!(path)` into TestSupport. Long term, delete the helpers by starting private ResourceStore instances (tests-2-01).",
+   "refactor_hint": "Same seam as tests-2-01 (GitHub cache package instance API).",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-21",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "GitHub payload fixtures duplicated across files (review-thread comments, CODEOWNERS repos, branch PR deposits)",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/reply_test.exs",
+     "lines": "230-270"
+    },
+    {
+     "path": "src/test/aiur/github/resolution_test.exs",
+     "lines": "193-236"
+    },
+    {
+     "path": "src/test/aiur/github/review_threads_test.exs",
+     "lines": "469-488"
+    },
+    {
+     "path": "src/test/aiur/github/resolution_policy_test.exs",
+     "lines": "6-13"
+    },
+    {
+     "path": "src/test/aiur/github/ci_poll_batch_test.exs",
+     "lines": "558-566"
+    },
+    {
+     "path": "src/test/aiur/github/comment_poll_batch_test.exs",
+     "lines": "623-631"
+    }
+   ],
+   "description": "review_thread_comment/3 (a GraphQL PRRC node) is defined 7 times suite-wide: 3 here, plus github_comments_poller_test, github_client_test, orchestrator_deactivate_test and regression/github_ingestion_test. codeowners_repo!/1 is defined 4 times (resolution_policy, resolution, review_threads, github_client_test). review_thread_node_response is defined 3 times, and deliver_pull_request/3 twice. These are the GitHub payload shapes the known 'duplicated parsing of GitHub payload shapes' family is about: when GitHub or Aiur changes a field, each copy has to change separately. codeowners_repo! copies clean up with an inline `File.rm_rf!(repo_root)` at the end of each test (e.g. resolution_policy_test.exs:67, 86, 130, 153), not in on_exit, so a failing test leaves its directory behind.",
+   "evidence": "reply_test.exs:230-240 and resolution_test.exs:203-213 are byte-identical `%{\"id\" => \"PRRC_#{id}\", \"databaseId\" => id, ..., \"author\" => %{\"login\" => login}}`.",
+   "recommendation": "Create `Aiur.TestSupport.GitHubPayloads` (review_thread_comment, review_thread_node, codeowners_repo! with on_exit cleanup, branch_pull_request deposit), and use it with the GitHubDouble from tests-2-08.",
+   "refactor_hint": "Ship with the GitHub client package's test support. The payload shapes are the package's contract.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-22",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Polling helpers (wait_until/eventually/await_*) re-implemented per file with different budgets",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/budget_test.exs",
+     "lines": "1236-1248"
+    },
+    {
+     "path": "src/test/aiur/github/read_cache_test.exs",
+     "lines": "1430-1436"
+    },
+    {
+     "path": "src/test/aiur/github/quota_test.exs",
+     "lines": "898-908"
+    },
+    {
+     "path": "src/test/aiur/github/cache_history_test.exs",
+     "lines": "130-141"
+    },
+    {
+     "path": "src/test/aiur/github/view_state_sweep_test.exs",
+     "lines": "609-615"
+    },
+    {
+     "path": "src/test/aiur/github/agent_cache_bridge_test.exs",
+     "lines": "18-23"
+    },
+    {
+     "path": "src/test/aiur/agent_list/app_debug_events_persistence_test.exs",
+     "lines": "124-145"
+    }
+   ],
+   "description": "There are 7 local polling helpers in this unit and 84 `defp wait_until/eventually/await_until/poll_until/wait_for` definitions suite-wide. Budgets vary widely: 5 ms x 200, 10 ms x 50, 10 ms x 60, 10 ms x 100, 10 ms x 300. Failure modes also vary: two return false (the caller must assert), others flunk. quota_test's eventually returns false after 500 ms, and cache_history's returns false after 600 ms. TestSupport has receive_barrier/1 (156 uses suite-wide, 0 in this unit) but no shared predicate poller.",
+   "evidence": "budget_test.exs:1236-1241 comment `The window is generous (3s at 10ms a tick) because ... this file's flakes were filed against (#2286)`; read_cache_test.exs:1433 `Process.sleep(5) && wait_until(fun, attempts - 1)`.",
+   "recommendation": "Add one `Aiur.TestSupport.eventually!(fun, timeout: ms, interval: ms)` that flunks with the last observed value, and replace the local copies. Prefer message or :sys barriers where a process is involved (tests-2-10).",
+   "refactor_hint": "Generic test-support utilities (eventually!, barriers, tmp_root!) should become a small shared test-support library that every carved package depends on in its test env.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-23",
+   "category": "naming-structure",
+   "severity": "P2",
+   "title": "restore_env/2 means System env in TestSupport and Application env in 3 local copies; 5 other restore variants",
+   "locations": [
+    {
+     "path": "src/test/support/test_support.exs",
+     "lines": "503-504"
+    },
+    {
+     "path": "src/test/aiur/github/budget_test.exs",
+     "lines": "1250-1251"
+    },
+    {
+     "path": "src/test/aiur/github/transport_quota_test.exs",
+     "lines": "358-359"
+    },
+    {
+     "path": "src/test/aiur/github/transport_read_cache_test.exs",
+     "lines": "194-195"
+    },
+    {
+     "path": "src/test/aiur/run_telemetry/summaries_test.exs",
+     "lines": "39-40"
+    },
+    {
+     "path": "src/test/aiur/usage_ledger/store_test.exs",
+     "lines": "369-372"
+    },
+    {
+     "path": "src/test/aiur/github/auth_preflight_test.exs",
+     "lines": "78-79"
+    }
+   ],
+   "description": "`use Aiur.TestSupport` imports restore_env/2, which calls System.put_env/delete_env. Three ExUnit.Case files define a private restore_env/2 with the same name that calls Application.put_env/delete_env. summaries_test's restore_env/2 takes {:ok, v} | :error instead. store_test has restore_application_env and restore_system_env; auth_preflight has put_or_delete. Moving a test between TestSupport and plain ExUnit.Case silently changes which environment gets restored. The unit captures and restores env by hand 50 times: 28 System.get_env captures in 25 files and 22 Application.get_env captures in 7 files.",
+   "evidence": "test_support.exs:503 `def restore_env(key, nil), do: System.delete_env(key)`; budget_test.exs:1250 `defp restore_env(key, nil), do: Application.delete_env(:aiur, key)`.",
+   "recommendation": "Add `put_app_env!(key, value)` and `put_system_env!(name, value)` helpers to TestSupport that register their own on_exit restore. Delete all local restore_* copies and rename TestSupport.restore_env to restore_system_env.",
+   "refactor_hint": "Shared test-support library (see tests-2-22).",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-24",
+   "category": "large-module",
+   "severity": "P2",
+   "title": "Oversized test files: seven exceed 1,000 lines; resource_store_test.exs covers about 12 concerns in 1,950 lines",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/resource_store_test.exs",
+     "lines": "1-1950"
+    },
+    {
+     "path": "src/test/aiur/github/ci_readiness_test.exs",
+     "lines": "1-1647"
+    },
+    {
+     "path": "src/test/aiur/github/read_cache_test.exs",
+     "lines": "1-1437"
+    },
+    {
+     "path": "src/test/aiur/agent_list/renderer_test.exs",
+     "lines": "1-1257"
+    },
+    {
+     "path": "src/test/aiur/github/budget_test.exs",
+     "lines": "1-1252"
+    },
+    {
+     "path": "src/test/aiur/github/issues_test.exs",
+     "lines": "1-1247"
+    },
+    {
+     "path": "src/test/aiur/github/quota_test.exs",
+     "lines": "1-1002"
+    }
+   ],
+   "description": "Size (lines/tests): resource_store_test 1950/102, ci_readiness_test 1647/81, read_cache_test 1437/82, renderer_test 1257/65, budget_test 1252/45, issues_test 1247/46, quota_test 1002/45, run_telemetry/writer_test 933/31. resource_store_test has describes for identity, processed marks, etags, :derive, validator/body pairing, restart durability, degrading, held resources, list_type, write-never-raises, revalidate, claim contention, concurrent writers, merges, versionless bodies, unlisted types and bounds. The whole file is serial through TestSupport. ci_readiness_test mixes pure YAML/workflow evaluation (about 50 tests that need no I/O and could run async) with HTTP inspection and persistence. Only the persistence part needs async: false.",
+   "evidence": "`wc -l`: resource_store_test.exs 1950; ci_readiness_test.exs 1647; describe blocks listed at resource_store_test.exs:16,55,134,198,248,298,644,685,939,984,1063,1097,1191,1253,1322,1554,1584,1622.",
+   "recommendation": "Split resource_store_test into identity_and_marks, validators, durability, retention_sweep and concurrency. Split ci_readiness_test into evaluate_test (pure, async: true), inspect_repository_test (HTTP double) and persistence_test (async: false). Split renderer_test to match the Renderer.* modules that already have their own test files.",
+   "refactor_hint": "Split along the package boundaries the carve introduces: pure evaluation and persistence may land in different packages.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-25",
+   "category": "performance",
+   "severity": "P2",
+   "title": "Untagged stress tests in the default suite hammer shared app ETS tables",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/resource_store_test.exs",
+     "lines": "1200-1235,1262-1319,1345-1420,1786-1841"
+    },
+    {
+     "path": "src/test/aiur/github/resource_store_test.exs",
+     "lines": "1499-1526"
+    }
+   ],
+   "description": "These run in every default `mix test` against the shared app-owned ResourceStore.Table. 'grants exactly one winner' starts 101 keys x 8 tasks, 808 Task.async processes with barriers. 'concurrent writers' does 8 writers x 2,000 writes (16,000 puts) with a spinning watcher. 'concurrent merges' does 8 x 200 CAS updates with a spinning sampler. 'the entry ceiling ...' inserts 100,001 rows into the live table and sweeps it. Other app children (CacheHistory sampler, CacheInspector) iterate that table while the rows are present. test_helper already excludes :perf_regression, but none of these carry that tag or any other.",
+   "evidence": "resource_store_test.exs:1201-1202 `keys = 8400..8500; callers = 8`; :1295 `for n <- 1..2_000 do`; :1792 `for index <- 1..100_001 do`; test_helper.exs `ExUnit.start(exclude: [:external, :perf_regression, :quarantine] ++ ...)`.",
+   "recommendation": "Run the concurrency and ceiling tests against a private ResourceStore instance (tests-2-01), and cut the default-suite iteration counts. Keep full-size runs under a `@tag :stress` that CI runs in a dedicated job.",
+   "refactor_hint": "The GitHub cache package's stress tests become its own CI job, separate from fast unit runs.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-26",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Rate-limit response builders hand-built in 13 files",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/budget_test.exs",
+     "lines": "1102-1131"
+    },
+    {
+     "path": "src/test/aiur/github/credential_headroom_test.exs",
+     "lines": "13-24"
+    },
+    {
+     "path": "src/test/aiur/github/quota_test.exs",
+     "lines": "926-1002"
+    },
+    {
+     "path": "src/test/aiur/github/request_log_test.exs",
+     "lines": "23-35"
+    },
+    {
+     "path": "src/test/aiur/github/endpoint_policy_test.exs",
+     "lines": "97-110"
+    },
+    {
+     "path": "src/test/aiur/github/errors_test.exs",
+     "lines": "42-76"
+    }
+   ],
+   "description": "The literal header \"x-ratelimit-remaining\" appears 43 times across 13 files in this unit (budget 7, transport_quota 5, app_token_refresher 5, transport 4, quota 4, errors 4, auth_preflight 4, config 3, credential_headroom 2, app_token 2, request_log 1, quota_caller_attribution 1, endpoint_policy 1), inside builders called response/4, secondary_response/1,3, generic_rate_limit_response/2, observe_headroom/2 and quota_response/4. They differ in resource defaults and in whether reset comes from a pinned @reset or System.system_time.",
+   "evidence": "budget_test.exs:1102-1113 `defp secondary_response(seconds)` with `{\"x-ratelimit-reset\", Integer.to_string(System.system_time(:second) + 60)}`; credential_headroom_test.exs:13-24 `defp response(resource, limit, remaining, reset_at)`.",
+   "recommendation": "Add `GitHubDouble.rate_limit_response(resource:, limit:, remaining:, reset:, retry_after:, status:)` to test support. It should always take an explicit reset, never System.system_time.",
+   "refactor_hint": "GitHub quota/budget package test support.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-27",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "budget_test injects rows into the broker's private SQLite schema with inline python and runs real python3 brokers",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/budget_test.exs",
+     "lines": "620-660,1133-1248"
+    }
+   ],
+   "description": "budget_test.exs is async: false and has 45 tests. It drives the real python3 budget broker for every acquire and release. It also writes to the broker's SQLite tables with python -c scripts: insert_stale_policy, create_legacy_budget_database, bump_broker_version and insert_lease_less_admission. The last one DROPs the admissions_require_lease trigger to insert a legacy row. lock_database opens a python process that holds `BEGIN EXCLUSIVE` for 30 s. The Elixir tests therefore depend on the broker's private table and column names, and each python3 spawn adds load-dependent latency, which is behind the #2286 flakes the file mentions.",
+   "evidence": "budget_test.exs:1206-1209 `c.execute('DROP TRIGGER IF EXISTS admissions_require_lease'); c.execute('INSERT INTO admissions(token_key, consumer_key, lease_id, endpoint_family, admitted_at_ms, billable) ...`; :1136 `script = \"import sqlite3,sys,time; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN EXCLUSIVE'); print('locked', flush=True); time.sleep(30)\"`.",
+   "recommendation": "Move schema fixtures into the broker's own test suite (python) or into a `broker fixture` subcommand, so the Elixir side does not hard-code SQL. Keep a small end-to-end contract suite with the real broker and tag it (:broker_integration). Test Budget's Elixir logic against a fake broker behaviour.",
+   "refactor_hint": "The broker (python plus SQLite) and the Elixir Budget client are likely separate artifacts after the carve. The SQL fixtures belong on the broker side.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-28",
+   "category": "anti-pattern",
+   "severity": "P2",
+   "title": "The suite relies on 8 test-mode branches in production code",
+   "locations": [
+    {
+     "path": "src/lib/aiur/github/request_log.ex",
+     "lines": "98-107"
+    },
+    {
+     "path": "src/test/aiur/github/quota_test.exs",
+     "lines": "891-896"
+    },
+    {
+     "path": "src/test/aiur/github/transport_quota_test.exs",
+     "lines": "14"
+    },
+    {
+     "path": "src/test/aiur/github/transport_read_cache_test.exs",
+     "lines": "23"
+    }
+   ],
+   "description": "Production checks `Application.get_env(:aiur, :env) == :test` in 8 places: aiur.ex:141, agent_process_log.ex:553, alerts.ex:659, github/request_log.ex:99, global_config_startup.ex:11, log_file.ex:66, and orchestrator/startup_claim_reconciler.ex:276 and :284. coding_agent.ex:273 adds a `Mix.env() == :test` check. Some tests in this unit depend on these branches without saying so. quota_test disables the request log explicitly because 'the resolved default path would point at this checkout's repo state'. transport_quota_test and transport_read_cache_test start Quota without request_log_path: nil or hold_dir: nil, so only the RequestLog.default_path test branch and the test-config repo_base_root keep them from writing checkout or home state.",
+   "evidence": "request_log.ex:99-103 `if Application.get_env(:aiur, :env) == :test do # ... never write a request log there ... nil`; quota_test.exs:892-894 `otherwise the resolved default path would point at this checkout's repo state and every observe would write a stray file`; transport_quota_test.exs:14 `start_supervised!({Quota, name: nil, emit_fun: fn _name, _opts -> :ok end})`.",
+   "recommendation": "Have Quota and every durable writer require their paths as explicit start options (with no implicit default) outside the application child spec. Make the application pass the resolved paths. Then remove the :env branches and give tests one start_quota helper with hold_dir: nil and request_log_path: nil.",
+   "refactor_hint": "Test-mode branches do not survive a package split, because a library package cannot know the host's env. Remove them before extracting.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-29",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "Core RunTelemetry tests depend on the web-layer AiurWeb Presenter",
+   "locations": [
+    {
+     "path": "src/test/aiur/run_telemetry/writer_test.exs",
+     "lines": "7,732-739"
+    },
+    {
+     "path": "src/test/aiur/run_telemetry/summaries_test.exs",
+     "lines": "6,161,255-310"
+    }
+   ],
+   "description": "Tests for Aiur.RunTelemetry.Writer and Summaries, which are core, alias AiurWeb.OperatorControlCenter.Analytics.Presenter and assert on Presenter.model/2 and Presenter.load/1 output. After the carve, the telemetry package's tests would need the web package, which inverts the dependency direction. summaries_test also writes the private persistent_term key {Aiur.Boot, :run_id} (lines 23-24) and sets :repo_base_root by hand instead of using TestSupport.",
+   "evidence": "writer_test.exs:7 `alias AiurWeb.OperatorControlCenter.Analytics.Presenter`; :732 `model = Presenter.model(current, cap: 4, cores: 4, ...)`; summaries_test.exs:24 `:persistent_term.put({Aiur.Boot, :run_id}, \"boot-b\")`.",
+   "recommendation": "Move the Presenter assertions into an AiurWeb test (for example test/aiur_web/.../analytics_presenter_test.exs) fed by fixtures from the telemetry tests. Add an `Aiur.Boot.put_run_id_for_test/1` or a `run_id:` option to Summaries instead of writing the persistent_term directly.",
+   "refactor_hint": "Direct evidence of a web to core test dependency that must be cut when RunTelemetry becomes its own package.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-30",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "GitHub issue normalization tests encode Orchestrator.DispatchPolicy precedence (GitHub adapter depends on orchestrator)",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/issues_test.exs",
+     "lines": "4,977-1031"
+    },
+    {
+     "path": "src/lib/aiur/github/issues.ex",
+     "lines": "1107-1119"
+    }
+   ],
+   "description": "Issues.extract_state/2, in the GitHub tracker adapter, delegates multi-label resolution to Aiur.Orchestrator.DispatchPolicy.resolve_state_labels/1. issues_test re-asserts DispatchPolicy's precedence table through normalize_issue ('Mirror of DispatchPolicy.resolve_state_labels/1 (#2366)'). The same state-label precedence is tested in two packages, and the tracker adapter has a compile-time dependency on the orchestrator. This is the 'fixed precedence list' family.",
+   "evidence": "issues.ex:1116-1117 `defp extract_state(_gh_issue, state_labels) when is_list(state_labels) and state_labels != [], do: DispatchPolicy.resolve_state_labels(state_labels)`; issues_test.exs:996 `# Mirror of DispatchPolicy.resolve_state_labels/1 (#2366)`.",
+   "recommendation": "Move state-label vocabulary and precedence into one tracker-neutral module (for example Aiur.Tracker.StateLabels) that both GitHub.Issues and DispatchPolicy depend on. Test the table once there. Keep only one integration assertion in issues_test.",
+   "refactor_hint": "Blocks a clean GitHub-adapter package: the adapter should not import the orchestrator.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-2-31",
+   "category": "test-quality",
+   "severity": "P3",
+   "title": "Renderer sub-module tests restate constants and bundle unrelated assertions into one test",
+   "locations": [
+    {
+     "path": "src/test/aiur/agent_list/renderer/layout_test.exs",
+     "lines": "5-16"
+    },
+    {
+     "path": "src/test/aiur/agent_list/renderer/model_test.exs",
+     "lines": "5-15"
+    },
+    {
+     "path": "src/test/aiur/agent_list/renderer/style_test.exs",
+     "lines": "6-17"
+    },
+    {
+     "path": "src/test/aiur/agent_list/renderer/markers_test.exs",
+     "lines": "5-17"
+    },
+    {
+     "path": "src/test/aiur/agent_list/renderer/chrome_test.exs",
+     "lines": "5-15"
+    }
+   ],
+   "description": "Several of the 14 renderer/*_test.exs files hold a single test that asserts 8-13 unrelated facts, and some of those facts are constants. layout_test asserts `Layout.min_id_width() == 4` and `{progress_bar_width, runtime_cell_width, max_latest_width} == {10, 7, 60}`. style_test asserts that each Style function equals its IO.ANSI counterpart (`Style.reset() == IO.ANSI.reset()`), which only restates the implementation. AGENTS.md lists 'asserting a constant' as a recurring shape to avoid. When one of these bundled assertions fails, the test name does not say which behavior broke.",
+   "evidence": "layout_test.exs:13-14 `assert Layout.min_id_width() == 4` / `assert {Layout.progress_bar_width(), Layout.runtime_cell_width(), Layout.max_latest_width()} == {10, 7, 60}`; style_test.exs:7 `assert Style.reset() == IO.ANSI.reset()`.",
+   "recommendation": "Replace constant assertions with behavioral ones (for example, a row at width N truncates Latest at 60 visible chars). Split the multi-fact tests so each has a descriptive name. Delete style_test or fold it into a rendering test.",
+   "refactor_hint": "TUI package; low priority.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-32",
+   "category": "duplication",
+   "severity": "P3",
+   "title": "cat-port helper copied 7 times in 5 app_server test files",
+   "locations": [
+    {
+     "path": "src/test/aiur/app_server/adapter_test.exs",
+     "lines": "553-571"
+    },
+    {
+     "path": "src/test/aiur/app_server/turn_loop_test.exs",
+     "lines": "224-241"
+    },
+    {
+     "path": "src/test/aiur/app_server/rpc/stream_diagnostics_test.exs",
+     "lines": "62-78"
+    },
+    {
+     "path": "src/test/aiur/app_server/interrupts_test.exs",
+     "lines": "48-80"
+    },
+    {
+     "path": "src/test/aiur/app_server/rpc_test.exs",
+     "lines": "9-35"
+    }
+   ],
+   "description": "`Port.open({:spawn_executable, String.to_charlist(System.find_executable(\"cat\"))}, [:binary, :exit_status, line: 64_000])` plus an on_exit Port.close with rescue ArgumentError is repeated in 5 files: 3 as a defp cat_port, 4 inline. Suite-wide it appears 19 times in 16 files. Each copy spawns a real OS process. Under a modified PATH (tests-2-13), find_executable returns nil and String.to_charlist(nil) raises.",
+   "evidence": "adapter_test.exs:553-571 and turn_loop_test.exs:224-241 are identical `defp cat_port do port = Port.open(...) ... on_exit(fn -> try do Port.close(port) rescue ArgumentError -> :ok end end)`.",
+   "recommendation": "Add `Aiur.TestSupport.AppServer.cat_port!/1`, resolving cat once with a clear flunk if it is missing. Where the port is only an identity token, consider a fake port abstraction.",
+   "refactor_hint": "App-server/agent-backend package test support.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-33",
+   "category": "flaky-test",
+   "severity": "P3",
+   "title": "Hand-rolled System.tmp_dir paths break the documented tmp_root! rule; per-test dirs leak on failure",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/config_test.exs",
+     "lines": "771,805,881"
+    },
+    {
+     "path": "src/test/aiur/github/quota_test.exs",
+     "lines": "477,523,591"
+    },
+    {
+     "path": "src/test/aiur/github/request_log_test.exs",
+     "lines": "9-13"
+    },
+    {
+     "path": "src/test/aiur/github/resolution_policy_test.exs",
+     "lines": "6-13,67,86,130,153"
+    }
+   ],
+   "description": "TestSupport.tmp_root!/1 documents that `System.tmp_dir!() <> unique_integer` names collide across concurrent VMs (measured at 60 shared names in 2 x 320 draws). It says to prefer tmp_root!. This unit still hand-rolls that pattern at 7 sites. Five files use ExUnit @tmp_dir (per-checkout deterministic paths), and 35 files use tmp_root!. resolution_policy_test (and resolution_test) delete their CODEOWNERS repo with an inline File.rm_rf! at the end of the test body, not in on_exit, so a failed assertion leaks the directory.",
+   "evidence": "quota_test.exs:477 `path = Path.join(System.tmp_dir!(), \"aiur-gh-quota-#{System.unique_integer([:positive])}.tsv\")`; test_support.exs:148-165 (the rule); resolution_policy_test.exs:67 `File.rm_rf!(repo_root)` as the last statement of the test.",
+   "recommendation": "Replace the 7 sites with Aiur.TestSupport.tmp_root!/1. Have codeowners_repo! register its own on_exit cleanup. Consider a grep lint banning `Path.join(System.tmp_dir!()` in test/.",
+   "refactor_hint": "Shared test-support library.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-34",
+   "category": "performance",
+   "severity": "P3",
+   "title": "Bare refute_receive after purely synchronous code costs 100 ms each",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/quota_test.exs",
+     "lines": "121,169-170,180,621,627"
+    },
+    {
+     "path": "src/test/aiur/github/code_owners_test.exs",
+     "lines": "205"
+    },
+    {
+     "path": "src/test/aiur/github/broker_timeout_test.exs",
+     "lines": "80,91,120-121,131"
+    },
+    {
+     "path": "src/test/aiur/app_server/operator_delivery_test.exs",
+     "lines": "58-59"
+    },
+    {
+     "path": "src/test/aiur/app_server/turn_loop_test.exs",
+     "lines": "220-221"
+    }
+   ],
+   "description": "There are 46 bare refute_receive calls in 15 files, plus 46 with explicit timeouts (32 of them at 100 ms). Most follow a synchronous call or barrier after which nothing can arrive, so each one waits the full timeout for nothing. That is about 4.6 s of pure wait across this unit, more with the explicit ones. Where the sender is synchronous, refute_received says the same thing without waiting.",
+   "evidence": "operator_delivery_test.exs:57-59 `assert OperatorDelivery.maybe_process_safe_checkpoint(session(), state, ...) == state` / `refute_receive :checkpoint_invoked` / `refute_receive {:operator_message, _}` (both callbacks are invoked synchronously in the caller).",
+   "recommendation": "Use refute_received after synchronous code. Keep refute_receive with an explicit, justified timeout only where an asynchronous sender could still deliver.",
+   "refactor_hint": "None; mechanical cleanup.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-35",
+   "category": "test-quality",
+   "severity": "P3",
+   "title": "ResourceStore suppression bound tested twice, once in the wrong file, including a range assertion that cannot catch value changes",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/view_state_sweep_test.exs",
+     "lines": "380-418"
+    },
+    {
+     "path": "src/test/aiur/github/resource_store_test.exs",
+     "lines": "1843-1874"
+    }
+   ],
+   "description": "view_state_sweep_test tests ResourceStore.processed?/claim against the unversioned bound. It computes offsets from `ResourceStore.unversioned_suppression_ms()`, so it moves with the constant. It also range-asserts that the bound is between 5 minutes and 2 hours. resource_store_test's own comment says these view_state_sweep assertions 'cannot fail when the value changes', and it re-tests the bound with literals. The ViewStateSweep file tests ResourceStore internals, including its own copy of age_mark!.",
+   "evidence": "view_state_sweep_test.exs:416-417 `assert ResourceStore.unversioned_suppression_ms() >= :timer.minutes(5)` / `<= :timer.hours(2)`; resource_store_test.exs:1843-1848 `view_state_sweep_test.exs asserts the behaviour at this boundary, but computes its offsets from unversioned_suppression_ms/0 \u2014 so it moves with the constant and cannot fail when the value changes`.",
+   "recommendation": "Delete the ResourceStore-bound tests from view_state_sweep_test and keep the pinned ones in resource_store_test. view_state_sweep_test should assert only that the sweep calls claim/3 and recovers what claim reports as :marked.",
+   "refactor_hint": "Keep each package's invariants tested in that package.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-36",
+   "category": "flaky-test",
+   "severity": "P3",
+   "title": "Tests share the global Publisher replay window by hand-assigned id bands",
+   "locations": [
+    {
+     "path": "src/test/aiur/github/mutation_write_through_test.exs",
+     "lines": "33-36"
+    },
+    {
+     "path": "src/test/support/test_support.exs",
+     "lines": "207-217"
+    }
+   ],
+   "description": "mutation_write_through_test picks comment ids 'in a band no other suite uses', because Aiur.Events.Publisher's replay window is ETS owned by a long-lived process and TestSupport does not empty it. A delivery reusing another file's comment id would be deduplicated silently. Correctness depends on authors coordinating id ranges by hand across files.",
+   "evidence": "mutation_write_through_test.exs:33-36 `# Comment ids live in a band no other suite uses. Aiur.Events.Publisher's replay window is ETS owned by a long-lived process and the shared setup does not empty it, so any case here that publishes a delivery for a comment id another file also uses would silently dedup that file's case instead.`",
+   "recommendation": "Add a `Publisher.reset_replay_window/0` (test-only) to TestSupport.reset_global_state!/0, or scope the replay window per Publisher instance so tests can start their own.",
+   "refactor_hint": "Events/Exchange package: give it instance-scoped state before the carve.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-37",
+   "category": "test-quality",
+   "severity": "P3",
+   "title": "Type-only assertions where the value is the point",
+   "locations": [
+    {
+     "path": "src/test/aiur/run_telemetry/lifecycle_test.exs",
+     "lines": "15-34"
+    },
+    {
+     "path": "src/test/aiur/app_server/interrupts_test.exs",
+     "lines": "21-42"
+    },
+    {
+     "path": "src/test/aiur/github/budget_test.exs",
+     "lines": "817,820"
+    },
+    {
+     "path": "src/test/aiur/github/cache_inspector_test.exs",
+     "lines": "380,524-525"
+    }
+   ],
+   "description": "There are 19 `assert is_binary/is_integer/is_map/is_list(...)` sites in 10 files. Some are fine: they are paired with a value check, or the value really is opaque. Others are the pattern AGENTS.md warns about. The lifecycle_test named 'records a sanitized lifecycle boundary with a stable event key' only asserts `is_binary(attributes.event_key)`, so a random key per call would pass. interrupts_test checks `is_integer(pending_interrupt_request_id)` but never that the id in the frame equals the stored id. budget_test checks `is_integer(actor.core.reset_at_ms)` and not its value.",
+   "evidence": "lifecycle_test.exs:32 `assert is_binary(attributes.event_key)`; interrupts_test.exs:38-41 `assert is_integer(next_state.pending_interrupt_request_id)` ... `assert_receive {:frame, %{\"id\" => request_id, ...}}` / `assert is_integer(request_id)`.",
+   "recommendation": "Assert the relationships instead. Recording the same boundary twice should give the same event_key. The frame id should equal next_state.pending_interrupt_request_id. reset_at_ms should equal the pinned reset.",
+   "refactor_hint": "None; test hygiene.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-2-38",
+   "category": "config",
+   "severity": "P3",
+   "title": "TestSupport's isolated app-env key list contains :github_cache_inspector_source twice",
+   "locations": [
+    {
+     "path": "src/test/support/test_support.exs",
+     "lines": "86-101"
+    }
+   ],
+   "description": "@isolated_app_env_keys lists :github_cache_inspector_source at lines 91 and 93. It does no harm, since capture and restore are idempotent, but it suggests the list is edited by incident without review, which matters because this list is the suite's main isolation mechanism. The key used by several tests in this unit, :github_budget_enabled?, is not in the list. Each file (budget_test, transport_quota_test, transport_read_cache_test, auth_preflight_test) restores it by hand. So do :github_transport_test_options, :github_quota_server and :github_read_cache_ttls.",
+   "evidence": "test_support.exs:91 `:github_cache_inspector_source,` and :93 `:github_cache_inspector_source,`; budget_test.exs:12-19 manual save/restore of :github_budget_enabled?.",
+   "recommendation": "Deduplicate the list. Add the GitHub transport keys (:github_budget_enabled?, :github_transport_test_options, :github_quota_server, :github_read_cache_ttls, :github_request_deadline_ms) and delete the per-file restore code.",
+   "refactor_hint": "When TestSupport is split per package, each package declares its own isolated keys.",
+   "effort": "S"
+  }
+ ]
+}

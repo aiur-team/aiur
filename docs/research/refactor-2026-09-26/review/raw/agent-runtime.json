@@ -1,0 +1,1181 @@
+{
+  "unit_id": "agent-runtime",
+  "files_reviewed": 68,
+  "lines_reviewed_estimate": 13506,
+  "coverage_notes": "Read all 68 unit files in full (agent_runner/* 17 files, agent_list/* 28 incl. renderer/*, pane_manager/* 12, tmux/* 7, live_conversation/* 4). For context and to verify cross-module claims I also read, outside the unit: src/lib/aiur/agent_runner.ex (control receive block ~425-480), pause_containment.ex (arm/confirm/fallback/release), orchestrator/pause_resume.ex (control message senders, arm_pause_containment), opencode/active_turns.ex, opencode/slot.ex + slot_supervisor.ex (select/snapshot/deselect/acquire), tmux.ex (init/subscribe/handle_info), pane_manager.ex (moduledoc, init, open, tmux_event handlers), events/subscription_store.ex (attach, open_attention_count), agent_event_log.ex + workspace/reconstruction.ex (with_log_lock), coding_agent.ex registry entries, orchestrator/dispatch_policy.ex state normalization, orchestrator/state.ex issue_tag, github/issues.ex and linear/client.ex id/identifier normalization, claude/remote_control.ex process_tree, claude/repl/operator_inject.ex. Tests: sampled only (regression/enter_opens_new_pane_test.exs, session_lifecycle_test.exs 925-992, tmux_test.exs 40-60) plus grep-based counts over the 80 unit test files for assert_receive timeouts, source-text reads and fabricated pids; I did not read most test files in full. Nothing was built or executed. Line numbers are from the frozen snapshot. Findings that cite files outside the unit (pause_containment.ex, pane_manager.ex, tmux.ex, agent_event_log.ex) do so only as supporting evidence for a defect whose root is in a unit file.",
+  "findings": [
+    {
+      "id": "agent-runtime-01",
+      "category": "error-handling",
+      "severity": "P0",
+      "title": "Queue-drain pause paths never confirm PauseContainment, so the codex process group is reaped 5s after a pause",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "715-731"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "40-70"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "lines": "171-191"
+        },
+        {
+          "path": "src/lib/aiur/pause_containment.ex",
+          "lines": "11,182-192,246-254,288-310,361-370"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/pause_resume.ex",
+          "lines": "1810-1823"
+        }
+      ],
+      "description": "Every accepted pause request arms PauseContainment (arm_entry schedules {:fallback, id, gen} after grace_ms=5000). If the entry is still :armed when the timer fires, PauseContainment spawns reap_fun (RemoteControl.graceful_kill_process_group) on the agent's recorded process group. The only production caller of PauseContainment.confirm/1 is TurnLoop's primary-turn {:paused, _} branch. The parallel {:paused, _} branch in QueueDrain.run_supported_queue_item_turn (an operator-message or event-digest turn) and the {:pause_agent, id, gen} receive clauses in drain_operator_messages/wait_for_operator_message never confirm. Containment is registered for codex sessions (codex/session_lifecycle.ex:42). Result: pausing a codex agent while it is working a queued operator message (or in the between-turn drain window) turns the pause into a kill of its app-server process group 5s later, raises a false 'Cooperative pause did not contain the agent' fallback event, and the next resume runs a turn on a dead port.",
+      "evidence": "turn_loop.ex:171-172: `{:paused, pause_payload} -> Aiur.PauseContainment.confirm(Map.get(app_session, :containment))`. queue_drain.ex:715-731 `{:paused, pause_payload} -> TurnAlerts.maybe_emit_usage_limit_alert(...); :ok = restore_delivered_queue_items(...); write_pause_log(...); send_control_state(...:paused...); wait_for_operator_message(...)` with no confirm. grep 'PauseContainment.confirm' over src/lib: exactly one hit (turn_loop.ex:172). pause_containment.ex arm_entry: `deadline_ref = Process.send_after(self(), {:fallback, identifier, entry.generation}, state.grace_ms)`; handle_info({:fallback,...}) with mode :armed -> start_reap.",
+      "recommendation": "Make pause confirmation part of the single turn-settlement path: extract a TurnSettlement.paused(app_session, issue, payload, ctx) used by both TurnLoop and QueueDrain that confirms containment, emits the usage-limit alert, restores delivered items and reports :paused. Also confirm (or skip arming for) pauses received in drain_operator_messages while no turn is running. Add a regression test that drives a {:paused, _} result through run_supported_queue_item_turn with a fake containment server and asserts confirm/1 is called before grace expiry (the test must fail with the confirm removed).",
+      "refactor_hint": "Belongs in the agent-runtime package's turn-execution core; containment is a backend capability (codex only today) so the confirm call should be routed through a CodingAgent capability rather than a direct PauseContainment call from generic runner code.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-02",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "QueueDrain hard-matches :ok on orchestrator queue RPCs that TurnLoop documents as fallible (#1238 repeat)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "604,702,723,734,744,781"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "lines": "17-23,153-157,183-187,217-221,250-259"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator.ex",
+          "lines": "632-641"
+        }
+      ],
+      "description": "The same four orchestrator calls (consume/restore/fail delivered items, settle failure) are handled two different ways. TurnLoop wraps them in best_effort_queue_bookkeeping because 'a briefly overloaded orchestrator queue GenServer answers restore/fail/consume with {:error, :unavailable} / :timeout'. QueueDrain, which runs the identical calls for queued-item turns, uses `:ok =` hard matches at six sites. Its own comment at 758-765 records that issue #1238 was exactly a MatchError from `:ok = restore_delivered_queue_items(...)` on a transient {:error, :unavailable}, converting recovery into an abnormal exit that consumed a retry. The fix was applied to one call site; the pattern remains at the others.",
+      "evidence": "queue_drain.ex:702 `:ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)`; 723 and 734 and 744 `:ok = Aiur.Orchestrator.restore_delivered_queue_items(...)`; 781 `:ok = Aiur.Orchestrator.fail_delivered_queue_items(...)`; 604 `:ok = settle_operator_delivery_failure(...)`. orchestrator.ex:635 `@spec restore_delivered_queue_items(GenServer.server(), String.t()) :: :ok | {:error, term()}`. turn_loop.ex:17-18 comment quoted above.",
+      "recommendation": "Route every queue bookkeeping call through one module (e.g. AgentRunner.QueueBookkeeping) with two explicit policies: best_effort/3 (log + alert-worthy counter) and confirmed/3 (bounded retry, returns {:error, :queue_restore_unconfirmed}). Delete the `:ok =` sites. Add tests where the orchestrator stub returns {:error, :unavailable} for each call from the queue-drain path.",
+      "refactor_hint": "Part of the runner/orchestrator boundary contract; the carve should expose a typed QueueClient behaviour so the runner package cannot pattern-match raw GenServer replies.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-03",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "Two copies of the turn-execution pipeline (TurnLoop vs QueueDrain) have already diverged",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "lines": "83-225"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "618-791"
+        }
+      ],
+      "description": "run_supported_turn (124 lines) and run_supported_queue_item_turn (128 lines) each rebuild callbacks via TurnCallbacks.build with the same Keyword.put chain, send :working, TurnStreams.open, DynamicTool.reset_turn_quotas, call coding_agent_run_turn(opts).(...) with the same callback set, close the stream, then settle {:ok|:paused|:error}. Drift already present: (1) TurnLoop confirms PauseContainment on pause, QueueDrain does not (agent-runtime-01); (2) TurnLoop records RunTelemetry Lifecycle :implement start/end, QueueDrain records nothing, so operator-message turns are invisible in lifecycle telemetry; (3) TurnLoop emits more-tokens and route-failure alerts on error, QueueDrain does not; (4) bookkeeping error policy differs (agent-runtime-02); (5) QueueDrain restores on -32_003 provider active-turn and on :response_timeout/:turn_timeout, TurnLoop does not; (6) codex recovery check expressed differently (backend == \"codex\" vs a \"codex\" function-head).",
+      "evidence": "turn_loop.ex:101-141 and queue_drain.ex:653-691 are line-for-line parallel (TurnCallbacks.build ... |> Keyword.put(:workspace, workspace) |> Keyword.put(:worker_host, worker_host) |> Keyword.put(:recipient, ...) |> Keyword.put(:orchestrator, ...)). turn_loop.ex:122 `Lifecycle.record(issue.identifier, lifecycle_attempt_id, :implement, :start, ...)` has no counterpart (queue_drain.ex has no Lifecycle alias). turn_loop.ex:214-215 `TurnAlerts.maybe_emit_more_tokens_alert` / `maybe_emit_route_failure_alert` absent from queue_drain.ex:766-778. coding_agent_run_turn/1 defined at turn_loop.ex:578 and queue_drain.ex:820.",
+      "recommendation": "Extract one TurnExecutor.run(app_session, issue, input, ctx) -> {:ok, session} | {:paused, payload} | {:error, reason} that owns callbacks, streams, quotas, telemetry, alerts and settlement; TurnLoop and QueueDrain keep only what differs (prompt building and item-specific delivery acknowledgement). Put the settlement table (restore vs fail vs recover) in one function with a test per row.",
+      "refactor_hint": "Core of the agent-runtime package. Doing this before the carve removes the TurnLoop<->QueueDrain cycle (agent-runtime-11) and gives backends a single seam.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-04",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Mid-turn operator delivery drops restore/fail results, so a failed send can be consumed as delivered",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/checkpoint_delivery.ex",
+          "lines": "16-22,37-49,137-193"
+        },
+        {
+          "path": "src/lib/aiur/claude/repl/operator_inject.ex",
+          "lines": "74-87"
+        }
+      ],
+      "description": "For immediate and safe-checkpoint delivery, CheckpointDelivery claims an item (it becomes :delivered) and hands the backend an on_failure callback whose only action is Orchestrator.restore_queue_item_pending/2 (or mark_queue_item_failed). The return value is never inspected by CheckpointDelivery or by the REPL driver, which calls `on_failure.(reason)` and discards the result. The module comment states the turn-end consume_delivered_queue_items sweep retires anything still :delivered. So when the send fails and the restore RPC returns {:error, :unavailable} (a documented transient reply), the operator's message stays :delivered and is then consumed at turn end without ever reaching the agent. No log line records the failed restore.",
+      "evidence": "checkpoint_delivery.ex:42 `on_failure = fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end`; 139/143/147/151/163/180 return `Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item_id)` unchecked; comment 19-21: 'The claimed item moves to `delivered`, so the turn-end `consume_delivered_queue_items` sweep retires it'. operator_inject.ex:84-86 `{:error, reason} -> Logger.warning(...); on_failure.(reason)` (result ignored).",
+      "recommendation": "Make on_failure return a settlement result and have one settle function retry the restore with the same bounded confirm used by TurnLoop.confirm_restore_delivered; if still unconfirmed, emit a ticket-scoped needs-attention alert naming the item id and mark the turn so consume skips that item (consume should only retire items acknowledged via acknowledge_queue_item_delivery).",
+      "refactor_hint": "Same QueueClient/settlement module as agent-runtime-02; the backend-facing {:deliver_text, text, on_success, on_failure} contract belongs in the runtime<->backend interface package and should carry a typed result.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-05",
+      "category": "naming-structure",
+      "severity": "P1",
+      "title": "ToolExecutor keys topics, subscriptions and decisions by issue.id while the rest of the runner uses issue.identifier",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "lines": "147-161,206-212,228,327-359,396-402,568-574"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/bootstrap_digest.ex",
+          "lines": "53-55"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_alerts.ex",
+          "lines": "37,75,114"
+        },
+        {
+          "path": "src/lib/aiur/linear/client.ex",
+          "lines": "465-466"
+        }
+      ],
+      "description": "tool_executor.ex has three identity helpers with different precedence: issue_identifier/1 (returns issue.id first, then identifier - the name lies), issue_number_of/1 (number, then identifier) and tracker_issue_id/1 (id then identifier, integers allowed). Agent alert topics, agent event topics, SubscriptionStore attach/add/remove, DecisionStore ticket identity and the coordination key all go through issue_identifier/1 (id-first). Everything else in the runner (TurnAlerts, ModelLabelRefresh, SessionLifecycle alerts, QueueDrain, BootstrapDigest universal subscriptions, CommentContext) uses issue.identifier. For GitHub id == identifier (github/issues.ex:975-976) so it is invisible; for the Linear tracker id is the Linear UUID and identifier is 'ABC-123' (linear/client.ex:465-466), so an agent's own subscriptions attach a different SubscriptionStore than its universal subscriptions, its events publish under ticket.<uuid>.agent.* which identifier-based subscribers never match, and decision requests carry a different ticket identifier than the queue delivery path.",
+      "evidence": "tool_executor.ex:353-358 `defp issue_identifier(issue) do cond do is_binary(Map.get(issue, :id)) -> issue.id; is_binary(Map.get(issue, :identifier)) -> issue.identifier`; 157 `\"ticket.#{id}.agent.#{name}\"`; 341 `:ok = SubscriptionStore.attach(id)`; 228 `{:ticket, issue_identifier(issue) || issue_number_of(issue)}`. bootstrap_digest.ex:53-54 `UniversalSubscriptions.attach(identifier)` with identifier = issue.identifier. turn_alerts.ex:37 `\"ticket.#{issue.identifier}.agent.usage_limit_exhausted\"`.",
+      "recommendation": "Introduce one TicketRef (built once from Issue: tracker_identity, display identifier, tracker id, number) and pass it through the runner; build topics only from TicketRef.topic_key/1. Delete the three ad-hoc helpers. Add a Linear-shaped fixture (id != identifier) to the ToolExecutor tests that asserts the published topic and subscription key equal the identifier-based ones.",
+      "refactor_hint": "TicketRef belongs in a shared tracker-identity package consumed by orchestrator, events and runtime; the carve will otherwise copy these helpers into each package.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-06",
+      "category": "dead-code",
+      "severity": "P1",
+      "title": "tmux pane-died notification channel is dead: Tmux.Protocol and PaneManager event handling are unreachable in production",
+      "locations": [
+        {
+          "path": "src/lib/aiur/tmux/protocol.ex",
+          "lines": "1-183"
+        },
+        {
+          "path": "src/lib/aiur/tmux.ex",
+          "lines": "1-17,60-65,437-446,550-560"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager.ex",
+          "lines": "45-47,173-176,302-314,416"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/reconcile.ex",
+          "lines": "13-34"
+        }
+      ],
+      "description": "Aiur.Tmux moduledoc says control mode (tmux -CC) was abandoned and every command shells out via System.cmd. Nothing in src/lib sends {:tmux_event, _}: the Tmux GenServer keeps a subscribers MapSet (subscribe_events/1, :DOWN pruning) but never broadcasts. Tmux.Protocol (a 183-line control-mode parser) is referenced only by its own test. PaneManager's moduledoc still says it 'Consumes tmux notifications via Aiur.Tmux.subscribe_events/1 and treats %pane-died ... as authoritative pane-closed signals', and its pane_died handler plus Reconcile.handle_pane_closed are exercised only by tests that send the event by hand. In production a dead chat pane is noticed only lazily, by reconcile_visible_panes on the next open request, so identifier_to_pane stays stale and the AgentList keeps showing the pane as open (no :pane_closed broadcast) until the user opens something else.",
+      "evidence": "grep '{:tmux_event' src/lib: only pane_manager.ex:302,416 (receivers). grep 'Tmux.Protocol|Protocol.parse' src: only protocol.ex and test/aiur/tmux/protocol_test.exs. tmux.ex:5-7 'Control-mode (`tmux -CC attach`) was tried first but requires a TTY ... The shell-out path works'. pane_manager_test.exs:474,490 `send(GenServer.whereis(pm), {:tmux_event, {:notification, :pane_died, \"%10\"}})`. pane_manager.ex:214 reconcile only inside handle_call({:open, ...}).",
+      "recommendation": "Delete Tmux.Protocol, the subscriber set and subscribe_events, and the tmux_event handlers; replace with an explicit liveness source that actually exists (a periodic list-panes reconcile tick in PaneManager, or a tmux `set-hook -g pane-died` that calls the control endpoint). Fix the PaneManager moduledoc. Rewrite the pane-died tests against the new source.",
+      "refactor_hint": "tmux + pane_manager are a natural 'terminal-ui' package; carve it without the dead control-mode layer so the new package does not inherit an API nobody feeds.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-07",
+      "category": "docs-drift",
+      "severity": "P1",
+      "title": "Help overlay tells the user to press q to leave help, but q shuts down the whole Aiur daemon",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/renderer/help.ex",
+          "lines": "41-67,105"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/input.ex",
+          "lines": "102-117"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/app.ex",
+          "lines": "76-82"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "lines": "317-319"
+        }
+      ],
+      "description": "Input dispatches q to App.quit/1 unconditionally (also while help is visible), and App.quit calls Aiur.Shutdown.shutdown(0), which stops Aiur.Supervisor - every running agent. The help overlay says 'q quit the agent list' and 'Press `?` again or `q` to leave this help screen.' Following the on-screen instruction stops the fleet. The keybind lists have also drifted: the help omits r (remote control), a (attach), O / Shift+Enter (new pane) and the left/right max-agents keys that Input handles, and hardcodes '5 conversation slots' although slot_count = max_vertical_panes*2-1 is configurable.",
+      "evidence": "input.ex:111 `defp dispatch(\"q\", target, _input_fun), do: App.quit(target)`; app.ex:79-81 `# q is a global \"shut aiur down\" keybind, equivalent to Ctrl-C. ... Aiur.Shutdown.shutdown(0)`; help.ex:47 `\"q            quit the agent list\"`, 66 `\"Press `?` again or `q` to leave this help screen.\"`, 65 `\"Tickets cycle through 5 conversation slots; #6 replaces #1.\"`.",
+      "recommendation": "While help_visible? is true route q (and Esc) to toggle_help; require a confirmation (second q within N seconds, or Q) for daemon shutdown. Generate the help keybind list and the footer from one keybinding table that Input.dispatch also uses, and derive the slot count from PaneManager state.",
+      "refactor_hint": "TUI package concern; a single keymap table makes the TUI carve-able without three hand-maintained copies.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-08",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "Agent bootstrap silently drops missed events and review comments on enqueue or fetch failure",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/bootstrap_digest.ex",
+          "lines": "138-162"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/comment_context.ex",
+          "lines": "43-60,83-86,97-124"
+        }
+      ],
+      "description": "The first-turn bootstrap digest (every event missed while the agent was offline, plus unaddressed review comments) is enqueued with a raw GenServer.call to the named Aiur.Orchestrator process with a 5s timeout. On {:error, _} or an exit it logs a Logger.warning and returns :ok, and the cursor is not advanced or retried, so the agent starts work without the review feedback it was dispatched to address. CommentContext does the same for each GitHub fetch (issue comments, open PR lookup, PR review comments, unaddressed threads): any error becomes [] with only a Logger.warning. Without --debug these warnings are written nowhere. The raw call also bypasses the Orchestrator API module (the only such call in the unit).",
+      "evidence": "bootstrap_digest.ex:151-154 `{:error, reason} -> Logger.warning(\"aiur_bootstrap_digest enqueue_failed ...\"); :ok`; 159 `GenServer.call(Aiur.Orchestrator, {:enqueue_event_digest_batch, identifier, events}, 5_000)`. comment_context.ex:48-50 `{:error, reason} -> Logger.warning(\"comment_context fetch_failed ...\"); {[], nil}`; 104-106 and 120-122 same shape.",
+      "recommendation": "Return a structured bootstrap result {:ok, count} | {:degraded, [source_failures]} and, on degraded, (a) emit a ticket-scoped needs-attention alert naming the failed sources and (b) include a line in the first-turn prompt telling the agent the comment context is incomplete. Retry the enqueue once through an Orchestrator API function instead of a raw tuple call.",
+      "refactor_hint": "Bootstrap is the runtime's read of tracker state; in the carve it should depend on a Tracker behaviour and an Orchestrator client behaviour, not on Aiur.Orchestrator's registered name.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-09",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "Generic runner code reaches into backend packages and orchestrator internals",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "lines": "6,333,620-623"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "lines": "8,117,211"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "21,670,766"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/checkpoint_delivery.ex",
+          "lines": "13,174"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/codex_update_relay.ex",
+          "lines": "32,39-47"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "lines": "25-28"
+        },
+        {
+          "path": "src/lib/aiur/live_conversation/normalizer.ex",
+          "lines": "4"
+        }
+      ],
+      "description": "The backend-agnostic runner imports Codex- and Claude-specific modules and orchestrator internals directly: Aiur.Codex.SessionRecovery (recovery classification), Aiur.Codex.DynamicTool (tool execution and turn quotas), Aiur.Claude.RemoteControl.process_tree (generic process-tree walk used for every local provider), Aiur.Claude.DisplayTailer and Aiur.Claude.Telemetry; hardcodes backend names (\"codex\" in three recovery sites, [\"claude\", \"claude-repl\"] for telemetry launch) and a Codex JSON-RPC error code (-32_003, matched in two different shapes); CodexUpdateRelay depends on Aiur.Orchestrator.TokenAccounting.Payloads and a list of Codex notification method names; LiveConversation.Normalizer depends on Aiur.BuildOrder.TicketDetail.Sanitizer. CodingAgent already has a registry with capability fields (runtime_report, fallback_backend, rc_display_tail, remote_transport), so these are capability gaps rather than necessities.",
+      "evidence": "turn_loop.ex:211 `if backend == \"codex\" and SessionRecovery.recoverable?(reason) do`; queue_drain.ex:766 `defp settle_failed_queue_item_turn(orchestrator, issue, turn_id, \"codex\", reason, opts)`; checkpoint_delivery.ex:174 `defp handle_checkpoint_delivery_failure(issue, orchestrator, item_id, \"codex\", reason)`; session_lifecycle.ex:333 `if Keyword.get(session_opts, :backend) in [\"claude\", \"claude-repl\"] do`; 623 `Map.put(provider, :descendant_pids, RemoteControl.process_tree(root_pid))`; queue_drain.ex:743 `{:error, {:turn_start_failed, {:response_error, %{\"code\" => -32_003}}}}` vs checkpoint_delivery.ex:161 `{:response_error, %{\"code\" => -32_003}}`; codex_update_relay.ex:32 `alias Aiur.Orchestrator.TokenAccounting.Payloads`.",
+      "recommendation": "Add registry callbacks/capabilities: recoverable_error?/2, active_turn_rejection?/2, telemetry_launch?/1, streaming_notification?/1. Move process_tree into a neutral Aiur.Process (or Os) module. Move the projection sanitizer into a shared text-safety module. After that the runner depends only on CodingAgent (behaviour + registry) and a queue/orchestrator client behaviour.",
+      "refactor_hint": "This is the main blocker for splitting agent-runtime from the codex/claude backend packages; without it the runtime package has compile-time deps on both backends and on the orchestrator.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-10",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "Control-message receive loops duplicated with legacy 2-tuple variants that have diverged",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "40-81,105-201,204-221"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner.ex",
+          "lines": "435-467"
+        },
+        {
+          "path": "src/lib/aiur/pause_containment.ex",
+          "lines": "65-70,130-134"
+        }
+      ],
+      "description": "drain_operator_messages and wait_for_operator_message each handle {:pause_agent, id, gen} and legacy {:pause_agent, id}; wait_for_operator_message also handles {:resume_agent, id, gen}, legacy {:resume_agent, id}, and both 3- and 4-tuple {:agent_queue_updated, ...}. The same families are re-matched in agent_runner.ex wait_for_before_run_resume, app_server/turn_loop.ex, claude/repl/hook_turn.ex and transcript_turn.ex. The legacy forms are still sent (pause_resume.ex:953 rate-limit fallback, 1617 legacy_control_entry). The legacy resume path ignores PauseContainment.release_target's result (`_ =`) and reports :working, while the 3-tuple path rejects with :pause_release_failed. release_target's @spec says :ok but its call/2 wrapper returns :ignored on a 1s timeout, so a legacy resume can report :working while the containment entry stays armed.",
+      "evidence": "queue_drain.ex:188-191 `{:resume_agent, request_id} when is_integer(request_id) -> ... _ = PauseContainment.release_target(issue.identifier); MessageHandler.send_control_state(codex_update_recipient, issue, :working)` vs 207-219 apply_resume_control rejecting `_not_released`. pause_containment.ex:65 `@spec release_target(String.t()) :: :ok`; 130-133 `GenServer.call(server, message, 1_000) catch :exit, _ -> :ignored`.",
+      "recommendation": "Normalize control messages at the orchestrator edge into one struct (%Control{action, request_id, generation | :legacy}) and handle them in one ControlReceiver.receive_control/2 used by every wait loop. Retire the legacy 2-tuples or translate them once. Fix release_target's spec and make the legacy resume path use apply_resume_control.",
+      "refactor_hint": "The control protocol is part of the runtime<->orchestrator interface; define it once in the interface package so backends' turn loops (codex, claude repl) stop re-matching raw tuples.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-11",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "agent_runner submodules form dependency cycles and call back into the parent module",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "lines": "6-7,160,459"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "19-20,634,691,768"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/message_handler.ex",
+          "lines": "22-23,182"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/checkpoint_delivery.ex",
+          "lines": "12"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_callbacks.ex",
+          "lines": "4"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/comment_context.ex",
+          "lines": "13,38"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "lines": "11,690,847"
+        }
+      ],
+      "description": "The 17-file split of AgentRunner left a tangled graph: TurnLoop <-> QueueDrain (drain/wait vs confirm_restore_for_replacement/turn_done_reason), MessageHandler <-> QueueDrain (queue_item_text), CheckpointDelivery -> QueueDrain -> TurnCallbacks -> CheckpointDelivery, BootstrapDigest <-> CommentContext (bootstrap_event_key), ToolExecutor -> SessionLifecycle -> TurnLoop -> ToolExecutor. Children also call the parent Aiur.AgentRunner.issue_context/write_pause_log 33 times (queue_drain 12, turn_loop 9, checkpoint_delivery 6, session_lifecycle 3, session_resume 2, message_handler 1). No submodule can be tested or moved alone.",
+      "evidence": "grep of alias usage per file: queue_drain -> EventsDigest MessageHandler SessionLifecycle ToolExecutor TurnAlerts TurnCallbacks TurnLoop TurnStreams; turn_loop -> MessageHandler QueueDrain SessionLifecycle SessionResume ToolExecutor TurnAlerts TurnCallbacks TurnProgress TurnPrompt TurnStreams; message_handler.ex:182 `text = QueueDrain.queue_item_text(item)`; comment_context.ex:38 `Enum.uniq_by(issue_events ++ pr_events, &BootstrapDigest.bootstrap_event_key/1)`.",
+      "recommendation": "Layer the package: (1) pure leaves (EventsDigest, TurnPrompt, TurnProgress, queue item rendering, logging context) with no runner deps; (2) TurnExecutor (agent-runtime-03); (3) loops (TurnLoop, QueueDrain) depending only downward. Move issue_context/write_pause_log into a leaf RunnerLog module. Move queue_item_text into a QueueItem module both MessageHandler and QueueDrain depend on.",
+      "refactor_hint": "Do this inside the current repo before carving; a cycle-free layering is what makes agent-runtime extractable as one package with a small public API.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-12",
+      "category": "naming-structure",
+      "severity": "P2",
+      "title": "Worker-to-orchestrator protocol is scattered across modules and named after Codex",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "lines": "18-62"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/message_handler.ex",
+          "lines": "583-670"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/codex_update_relay.ex",
+          "lines": "1-72"
+        }
+      ],
+      "description": "Messages the runner sends to the orchestrator ({:repl_session_runtime, ...}, {:session_execution_info, ...}, {:pause_containment_runtime, ...} in SessionLifecycle; {:worker_runtime_info, ...}, {:dispatch_committed, ...}, {:worker_control_state, ...}/4, {:worker_control_rejected, ...} in MessageHandler; {:codex_worker_update, ...} in CodexUpdateRelay) are raw send/2 tuples defined in three modules with no shared type. The recipient parameter is called codex_update_recipient for every backend (39 uses in queue_drain.ex, 12 in session_lifecycle.ex, 10 in turn_loop.ex, 97 across src/lib) and the relay module, message tag and streaming-method list are Codex-named although they apply to all backends.",
+      "evidence": "session_lifecycle.ex:25 `send(recipient, {:repl_session_runtime, issue_id, info})`; message_handler.ex:618 `send(recipient, {:dispatch_committed, issue_id})`; 628 `send(recipient, {:worker_control_state, issue_id, status})`; codex_update_relay.ex:65 `send(recipient, {:codex_worker_update, issue_id, message})`. `grep -rn codex_update_recipient src/lib | wc -l` = 97.",
+      "recommendation": "Create Aiur.AgentRunner.WorkerProtocol with one function per message and @type for each payload; rename codex_update_recipient -> worker_recipient and :codex_worker_update -> :worker_update (with a transitional clause in the orchestrator). Move send_control_state/send_dispatch_committed out of MessageHandler.",
+      "refactor_hint": "WorkerProtocol is the natural public interface between the runtime package and the orchestrator package.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-13",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "MessageHandler mixes per-message fan-out, live-conversation bridge and control protocol; warns on every message for non-GitHub tickets",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/message_handler.ex",
+          "lines": "28-64,102-578,591-670"
+        }
+      ],
+      "description": "The moduledoc says it 'Handles one normalized backend message', but ~470 of its 671 lines are a LiveConversation projection bridge (source resolution, operator delivery buffering, degradation, activation/replacement) and ~80 are orchestrator control messages. with_live_source/5 logs a Logger.warning whenever live_source/3 fails; for any ticket whose TrackerIdentity is not a joinable GitHub identity (Linear, memory, or an unjoinable GitHub identity) that happens on every transcript event, because TrackerIdentity.joinable?/1 and github_key/1 are GitHub-only.",
+      "evidence": "message_handler.ex:479-481 `{:error, reason} -> log_projection_failure(issue, operation, reason); {:error, {:live_conversation_context, reason}}`; 440-444 joinable_live_identity -> `{:error, :unjoinable_identity}`; tracker_identity.ex:118-138 joinable? requires `kind: :github`.",
+      "recommendation": "Split into MessageFanout (the 9-step per-message pipeline), LiveConversationBridge (everything that talks to Aiur.LiveConversation) and WorkerProtocol (agent-runtime-12). Resolve live-conversation eligibility once per session and skip (with a single log/metric) when the tracker cannot join, instead of warning per message.",
+      "refactor_hint": "LiveConversationBridge belongs with live_conversation in its own package; the runtime should depend on it through a narrow observer behaviour.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-14",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Every backend message (including streaming deltas) takes a :global lock and two file appends on the hot path",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/message_handler.ex",
+          "lines": "52-63"
+        },
+        {
+          "path": "src/lib/aiur/agent_event_log.ex",
+          "lines": "24-50"
+        },
+        {
+          "path": "src/lib/aiur/workspace/reconstruction.ex",
+          "lines": "50-86"
+        }
+      ],
+      "description": "The on_message closure calls AgentEventLog.write/3 synchronously for every normalized message. For a local workspace that wraps mkdir_p plus appends to agent.ndjson and agent.md inside Reconstruction.with_log_lock, which does :global.register_name/unregister_name per call (spin-sleeping 10ms on contention). :global name registration is serialized through global_name_server for the whole node, so all agents' per-message writes contend on one process. CodexUpdateRelay's moduledoc documents Codex streams 'hundreds of messages per second' of deltas; those deltas are coalesced for the orchestrator mailbox but not for the log. Failures are Logger.debug only, and remote workers are a silent no-op.",
+      "evidence": "message_handler.ex:58 `AgentEventLog.write(workspace, worker_host, message)`; agent_event_log.ex:27 `Reconstruction.with_log_lock(workspace, fn -> ... File.write(ndjson_path, ..., [:append]) ... File.write(markdown_path, ..., [:append])`; reconstruction.ex:78 `case :global.register_name(name, self()) do ... :no -> Process.sleep(10); acquire_log_lock(name)`; agent_event_log.ex:24 `def write(_workspace, worker_host, _message) when is_binary(worker_host), do: :ok`.",
+      "recommendation": "Replace the :global lock with a per-workspace writer process (or a local :ets/Registry lock) and buffer/coalesce stream deltas before writing (write completed items and control events eagerly). Measure messages/sec and lock wait before and after on a live run as AGENTS.md requires.",
+      "refactor_hint": "Event log writing is a runtime-owned sink; give it its own process in the runtime package supervision tree.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-15",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "AgentList controls mislabel failures: pause errors flash the max-agents alert, max-agent errors are silently ignored",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/controls.ex",
+          "lines": "29-38,74-86"
+        }
+      ],
+      "description": "handle_control_result/3 is used for both pause and resume. Any error other than :globally_paused logs '[user-action] resume_failed' (even for a pause), rings the bell and sets max_agents_alert? - which renders the Agents: N/max chip in red reverse video - so a failed pause is reported as a concurrency-cap problem. Conversely adjust_max_concurrent_agents/2 - the control the max-agents alert belongs to - maps every result to the unchanged state (both handle_max_adjust_result clauses return state), so a failed cap change gives no feedback.",
+      "evidence": "controls.ex:37-38 `defp handle_max_adjust_result(state, {:ok, _status}), do: state` / `defp handle_max_adjust_result(state, _result), do: state`; 81-85 `defp handle_control_result(state, _action, {:error, reason}) do Logger.info(\"[user-action] resume_failed ...\"); ring_bell(state); schedule_max_agents_alert_clear(); %{state | max_agents_alert?: true}`.",
+      "recommendation": "Give each control its own feedback channel: pause/resume failures set a per-row or footer hint naming the action and reason; cap-change failures set max_agents_alert?. Log the actual action. Add tests that assert which state field changes for each failing control.",
+      "refactor_hint": "TUI package; small fix, do before carving so tests move with correct semantics.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-16",
+      "category": "dead-code",
+      "severity": "P2",
+      "title": "AgentList maintains and re-renders for state that no renderer reads (debug footer, slot warmth, visible sessions)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/perf_intake.ex",
+          "lines": "1-37"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/warmth_intake.ex",
+          "lines": "34-58"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/render_state.ex",
+          "lines": "23-35,44-47"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/state.ex",
+          "lines": "63,83-84,119,122,129-133"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/convo_paint.ex",
+          "lines": "15-16,25-88"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "lines": "182-192"
+        }
+      ],
+      "description": "RenderState.build threads perf_summary, warmth_events, started_slots, fully_warmed_slots, visible_sessions, warm_status_dark_mode?, debug_mode? and agent_kind into the renderer, but grep over agent_list/renderer* finds no reader for any of them except agent_kind, which Chrome.agents_row ignores (`_kind`). PerfIntake (the 'compact 3-row debug footer') is therefore entirely dead, WarmthIntake returns changed?=true for slot events and triggers full re-renders that draw nothing new, and ConvoPaint polls capture-pane every 100ms for up to 30s after every open only to feed that footer (its PaneManager message handler is a no-op). attach_state is also never pruned (grows by one entry per ticket ever attached).",
+      "evidence": "grep ':perf_summary|:warmth_events|:started_slots|:fully_warmed_slots|:visible_sessions|:debug_mode|:warm_status_dark_mode' src/lib/aiur/agent_list/renderer*: no matches. chrome.ex:182 `def agents_row(_kind, count, max, focused?, alert?, inner_width)`. pane_manager.ex:406-409 `def handle_info({:convo_first_paint, ...}, state) do # ... this handler just keeps the message from hitting the catch-all`.",
+      "recommendation": "Delete PerfIntake, the unused WarmthIntake branches and RenderState fields, the agent_kind lookup, and gate ConvoPaint behind the debug flag (or delete it). Prune attach_state in Roster.fold alongside agents_with_content. Update State's field comments that describe the removed footer and bottom-nav glyphs.",
+      "refactor_hint": "Shrinks the TUI package surface before the carve; removes a per-open 300-call tmux poller from the pane-manager package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-17",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "TUI computes activity freshness and ages but never renders them; unavailable attention counts render as zero",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/activity_intake.ex",
+          "lines": "281-307"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer.ex",
+          "lines": "43-46"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/cells.ex",
+          "lines": "215-220"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/roster.ex",
+          "lines": "41-45"
+        },
+        {
+          "path": "src/lib/aiur/events/subscription_store.ex",
+          "lines": "217-234"
+        }
+      ],
+      "description": "ActivityIntake builds activity_status_by_identifier (snapshot status plus per-field freshness for progress, stage and evidence) and stores the latest evidence timestamp; the renderer threads activity_status_by_identifier into the layout map and no cell ever reads it, and latest_event_message renders only the message (plus a 'Stale:' prefix). This violates AGENTS.md rule 1 ('If a surface computes an age, it renders the age'). Separately Roster uses SubscriptionStore.open_attention_count/1, which collapses {:error, :unavailable} to 0, although the store offers open_attention_count_result/1 precisely to avoid 'collapsing a missing or restarting store to an exact zero'; the TUI then shows no attention marker, the plausible-default pattern AGENTS.md forbids.",
+      "evidence": "activity_intake.ex:287 `timestamp: evidence[:observed_at],`; 298-306 put_status builds `%{snapshot: ..., progress: field_status(...), stage: ..., evidence: ...}`; cells.ex:217-218 `def latest_event_message(%{message: msg, stale?: true}) ... \"Stale: \" <> msg`; roster.ex:43 `Map.put(acc, id, SubscriptionStore.open_attention_count(id))`; subscription_store.ex:220 `{:error, :unavailable} -> 0`.",
+      "recommendation": "Render the evidence age in the LATEST cell (e.g. '3m ago') and a freshness glyph for stale/unknown progress; use open_attention_count_result/1 and render an explicit unknown marker (e.g. '?') when unavailable. Add tests that fail when the unknown branch is replaced by 0 or blank.",
+      "refactor_hint": "TUI package; align with the dashboard presenter so both surfaces render the same freshness facts.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-18",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Blocking GenServer calls on the AgentList render and keypress paths reintroduce the documented input freeze",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/render_state.ex",
+          "lines": "10-52,83-113,115-129"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/app.ex",
+          "lines": "170-176,216-233,343-359"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/controls.ex",
+          "lines": "199-237"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/rc_pane_borders.ex",
+          "lines": "71-81,99-103"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/roster.ex",
+          "lines": "41-45"
+        }
+      ],
+      "description": "App renders synchronously on almost every message (1s tick, every PubSub event, every debug event). Each render calls RenderState.build, which performs ProviderMeterProjection.snapshot/0 (GenServer.call with a 5s timeout), Tracker.project_identity/0, HttpServer.base_url/0, Config.agent_kind/0 and :io.columns/rows. RenderState's own comment records that a 5s Orchestrator call on this path 'froze arrow-key input during poll cycles' and was replaced by a cached broadcast; the provider meter call has the same shape. Keypress handlers (Controls) make 5s synchronous Orchestrator calls from handle_cast; running_changed triggers a PaneManager.list_open_panes call plus one Tmux.set_pane_border call per change and one SubscriptionStore lookup per visible agent, all inside the TUI process.",
+      "evidence": "render_state.ex:22 `|> Map.put(:provider_usage, provider_usage())`; 102 `safe_call(&ProviderMeterProjection.snapshot/0)`; provider_meter_projection.ex:74 `GenServer.call(server, :snapshot, @call_timeout)` with @call_timeout 5_000; render_state.ex:125-129 'Do NOT reintroduce a blocking call here without also updating the broadcast path.'; controls.ex:217 `Orchestrator.resume_agent(state.orchestrator, identifier)` (control_api_call timeout 5_000).",
+      "recommendation": "Cache provider usage, project label, dashboard URL and agent kind in App state, refreshed by PubSub or a slow timer; coalesce renders (dirty flag + at most one render per 50-100ms); run orchestrator control calls in a Task that reports back with a message; move RcPaneBorders tmux writes to PaneManager.",
+      "refactor_hint": "Keeps the TUI package a pure consumer of broadcasts with no synchronous deps on orchestrator/provider processes - a prerequisite for running it out-of-process later.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-19",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "PaneManager open-success bookkeeping copied five times with drift",
+      "locations": [
+        {
+          "path": "src/lib/aiur/pane_manager/opencode_open.ex",
+          "lines": "127-155,165-180"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/slot_attach.ex",
+          "lines": "46-66,85-92,174-190"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/placeholder.ex",
+          "lines": "116-123"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/generic_open.ex",
+          "lines": "127-136"
+        }
+      ],
+      "description": "'record_slot_pane |> Map.put(:last_attached_pane_id, pane_id) |> Layout.apply |> broadcast :pane_opened |> bump_next_slot |> reply' is written out in OpencodeOpen.move_warm_pane_visible (ok and already-visible branches), SlotAttach.attach_identifier_to_slot and handle_pane_move_error (already-visible), and Placeholder.handle_swap. The copies differ: the two already-visible branches skip Layout.apply; handle_swap skips bump_next_slot; only some start the ConvoPaint poller. record_slot_pane + set_pane_title exist twice (SlotAttach public, GenericOpen private copy). Already-visible detection is a stderr substring match on 'source and target panes must be different'.",
+      "evidence": "opencode_open.ex:127-132 and slot_attach.ex:46-51 identical pipelines with `_ = Layout.apply(new_state)`; opencode_open.ex:165-180 and slot_attach.ex:85-92 same pipeline without Layout.apply; generic_open.ex:127-136 `defp record_slot_pane` / `defp set_pane_title` duplicate slot_attach.ex:175-190; slot_attach.ex:110 `String.contains?(text, \"source and target panes must be different\")`.",
+      "recommendation": "Extract PaneManager.Bind.commit(state, slot, pane_id, identifier, from, opts) that performs the full sequence once, with explicit options for the few legitimate differences, and a single Tmux error classifier (see agent-runtime-29).",
+      "refactor_hint": "pane_manager package internal cleanup; reduces the surface the carve has to test.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-20",
+      "category": "security",
+      "severity": "P2",
+      "title": "Production-dead GenericOpen path puts the Erlang cookie on a tmux command line and carries most PaneManager tests",
+      "locations": [
+        {
+          "path": "src/lib/aiur/pane_manager/generic_open.ex",
+          "lines": "13-77"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/opencode_open.ex",
+          "lines": "23-28"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/activation.ex",
+          "lines": "15-16,43,89"
+        },
+        {
+          "path": "src/test/aiur/pane_manager_test.exs",
+          "lines": "159-270,368,511"
+        }
+      ],
+      "description": "OpencodeOpen.do_open routes any command not starting with '__aiur_opencode__ ' to GenericOpen. Every production caller builds '__aiur_opencode__ <id>' (Activation.default_command_template, Conversations.default_command) and Conversations.open has no callers, so GenericOpen is reachable only from tests. It wraps the command with ERL_AFLAGS containing '-setcookie <cookie>' read from AIUR_ERLANG_COOKIE or ~/.erlang.cookie; the cookie then appears in the tmux pane start command and process arguments, readable by other local users via /proc/<pid>/cmdline, which is sufficient to connect to the distributed aiur node on 127.0.0.1. Meanwhile pane_manager_test.exs drives titles, bookkeeping and queueing through 'echo <id>' commands, i.e. through the path production never takes, leaving the opencode path's bookkeeping (agent-runtime-19 drift) untested by those cases.",
+      "evidence": "opencode_open.ex:25-26 `\"__aiur_opencode__ \" <> _ -> open_opencode_pane(...); _ -> GenericOpen.open_generic_pane(...)`; generic_open.ex:51 `cookie when is_binary(cookie) and cookie != \"\" -> \" -setcookie #{cookie}\"`; 57 `\"env ERL_AFLAGS=\\\"-name #{node_long}#{cookie_flag}#{dist_flags}\\\" #{command}\"`; pane_manager_test.exs:159 `PaneManager.open_conversation(pm, identifier, \"echo \" <> identifier)`.",
+      "recommendation": "Delete GenericOpen and the non-opencode branch (or keep a test-only fake transport outside lib). Rewrite the affected pane_manager tests against the opencode path with SlotRegistry/AttachPool fakes. If a generic pane is ever needed again, pass the cookie via a 0600 file or environment inherited from the parent, never argv.",
+      "refactor_hint": "Removes a security-sensitive, unused path from the pane-manager package before it becomes a public API.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-21",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "Eight regression tests assert on source text of unit modules via relative paths",
+      "locations": [
+        {
+          "path": "src/test/aiur/regression/enter_opens_new_pane_test.exs",
+          "lines": "29-60"
+        },
+        {
+          "path": "src/test/aiur/regression/render_state_test.exs",
+          "lines": "16-18"
+        },
+        {
+          "path": "src/test/aiur/regression/warm_marker_semantics_test.exs",
+          "lines": "29-30"
+        },
+        {
+          "path": "src/test/aiur/regression/warm_state_transitions_test.exs",
+          "lines": "22"
+        },
+        {
+          "path": "src/test/aiur/regression/time_to_paint_test.exs",
+          "lines": "25-26"
+        },
+        {
+          "path": "src/test/aiur/regression/done_agent_detach_test.exs",
+          "lines": "11"
+        },
+        {
+          "path": "src/test/aiur/regression/warm_attach_open_test.exs",
+          "lines": "29"
+        },
+        {
+          "path": "src/test/aiur/pane_manager/convo_paint_test.exs",
+          "lines": "85"
+        }
+      ],
+      "description": "These tests File.read! lib/aiur/agent_list/app.ex, renderer.ex, renderer/*, pane_manager.ex, pane_manager/placeholder.ex, convo_paint.ex and opencode_open.ex through Path.expand(\"../../../lib/...\", __DIR__) and regex-match the source (e.g. splitting app.ex on 'def handle_cast(:activate, state) do' and asserting the block contains ':new_pane'). They assert spelling, not behaviour, pass for semantically broken code, and will all raise when the files move into sub-packages.",
+      "evidence": "enter_opens_new_pane_test.exs:29 `@app_source Path.expand(\"../../../lib/aiur/agent_list/app.ex\", __DIR__)`; 42-51 `source |> String.split(~r/def handle_cast\\(:activate, state\\) do/, parts: 2) ... assert activate_block =~ \":new_pane\"`; 58 `assert source =~ ~r/handle_cast\\(:activate_new_pane, state\\)/`.",
+      "recommendation": "Replace each with a behavioural test (drive App.handle_cast(:activate) with a fake PaneManager and assert the mode it receives; drive PaneManager opens and assert tmux commands via the mock transport). Delete the source-reading tests.",
+      "refactor_hint": "Must be done before or during the carve; otherwise the first file move produces eight unrelated red tests.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-22",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Event topic strings are built and parsed ad hoc throughout the unit (and the codebase)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "lines": "147-161,398-402,488-490"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/comment_context.ex",
+          "lines": "34,66,71,76"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "393-396"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_alerts.ex",
+          "lines": "37,75,114"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/model_label_refresh.ex",
+          "lines": "106"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "lines": "1018"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/bootstrap_digest.ex",
+          "lines": "119-124"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/events_digest.ex",
+          "lines": "82-93,118-137"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/event_line.ex",
+          "lines": "40-48,89-98"
+        }
+      ],
+      "description": "Topics are constructed with string interpolation at 12 sites in this unit (106 sites in 42 files across src/lib) and parsed with at least five different strategies here: regex ^ticket\\.([^.]+)\\. (EventLine), split-on-dot with pattern matching of varying arity (BootstrapDigest, EventsDigest.ci_lifecycle_event?, EventsDigest.block_state_group_key), String.starts_with?/ends_with? (ToolExecutor.prefix_with_ticket_namespace, durable_decision_topic?, EventsDigest block filter) and split with parts: 2 (EventLine.topic_suffix). More copies live outside the unit (events/agent_subscription_policy.ex:14, orchestrator/auto_subscriptions.ex:320,365-369, opencode/event_row.ex:253,260). Aiur.Events.Topic only offers matches?/2 and specificity_score/1.",
+      "evidence": "event_line.ex:42 `Regex.run(~r/^ticket\\.([^.]+)\\./, topic)`; events_digest.ex:134 `[\"ticket\", id, \"agent\", _kind] -> id`; bootstrap_digest.ex:121 `[\"ticket\", id | _] when id not in [\"*\", \"#\"] -> [id]`; tool_executor.ex:489 `Enum.any?([\"decision.requested\", \"decision.acknowledged\", \"decision.resolved\"], &String.ends_with?(topic, &1))`; `grep -rn '\"ticket\\.#{' src/lib | wc -l` = 106.",
+      "recommendation": "Add Aiur.Events.Topic.ticket(ref, segments) and Topic.parse(topic) -> %{scope: :ticket | :system, id, suffix} and migrate call sites; ban raw 'ticket.#{' via a Credo check once migrated.",
+      "refactor_hint": "Topic grammar belongs in the events package that every other package already depends on.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-23",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "State-label and work-state parsing duplicated with drift; configured label_prefix ignored",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "lines": "563-576"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_prompt.ex",
+          "lines": "151-157"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/summaries.ex",
+          "lines": "6-12,25-38,103-128"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/markers.ex",
+          "lines": "14-31"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/dispatch_policy.ex",
+          "lines": "1069-1089"
+        }
+      ],
+      "description": "TurnLoop re-implements DispatchPolicy.active_issue_state?/normalize_issue_state (trim + downcase). TurnPrompt.rework_state? downcases without trimming and also accepts 'agent:rework', whereas every orchestrator rework check uses DispatchPolicy.normalize_issue_state(state) == \"rework\". Summaries.visible_summaries filters tags against hardcoded 'agent:cancelled'/'agent:canceled'/'agent:done' although tracker.label_prefix is configurable (default \"agent\"). Work states are matched in both atom and string form in Summaries and Markers ([:paused, \"paused\", ...]) while Summaries.emoji_sort_key matches atoms only, so a string work_state is 'paused?' but sorts into the catch-all bucket.",
+      "evidence": "turn_loop.ex:566 `Config.settings!().tracker.active_states |> Enum.any?(fn active_state -> normalize_issue_state(active_state) == normalized_state end)`; turn_prompt.ex:153-154 `normalized = String.downcase(state); normalized == \"rework\" or normalized == \"agent:rework\"`; summaries.ex:11 `tag in [\"agent:cancelled\", \"agent:canceled\", \"agent:done\"]`; config/schema/tracker.ex:26 `field(:label_prefix, :string, default: \"agent\")`; summaries.ex:27 `Map.get(summary, :work_state) in [:paused, \"paused\"]` vs 106-108 `case Map.get(summary, :work_state) do :working -> 0; :paused -> 1`.",
+      "recommendation": "Call DispatchPolicy (or a new shared Aiur.IssueState module) from TurnLoop and TurnPrompt; derive terminal tags from the configured prefix; normalize work_state to atoms once when summaries are built so the TUI matches a single form.",
+      "refactor_hint": "IssueState belongs in the tracker/domain package shared by orchestrator and runtime.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-24",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "Queue claim errors collapsed to :empty; a consumed wake leaves pending items with nothing polling",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "398-406,449-494,521-558"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/checkpoint_delivery.ex",
+          "lines": "101-115"
+        }
+      ],
+      "description": "Four wrappers map {:error, _reason} from the orchestrator claim RPCs to :empty with no log. In wait_for_operator_message the {:agent_queue_updated, ...} wake has already been received, so a transient claim error returns the runner to waiting with the item still pending and no further wake until some other queue event or resume arrives. In drain_queued_operator_messages an error ends the drain and the turn loop proceeds as if the queue were empty. The collapse also makes 'queue empty' and 'orchestrator unavailable' indistinguishable in logs.",
+      "evidence": "queue_drain.ex:548-553 `case Aiur.Orchestrator.claim_next_queue_item(orchestrator, issue_identifier) do {:ok, item} -> {:ok, item}; :empty -> :empty; {:error, _reason} -> :empty end`; same shape at 400-405, checkpoint_delivery.ex:101-107 and 109-115; queue_drain.ex:474-482 `:empty -> wait_for_operator_message(...)`.",
+      "recommendation": "Return {:error, reason} distinctly; on error in the paused wait, schedule a self-wake (send_after :retry_claim with backoff) and log/metric the failure; in the drain path, retry once and otherwise leave a marker so the next turn boundary re-drains.",
+      "refactor_hint": "Same QueueClient behaviour as agent-runtime-02/04.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-25",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Decision-attention open/resolve failures are logged and dropped while the agent is told the request is pending",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "lines": "425-461,464-475,806-843"
+        }
+      ],
+      "description": "When an agent emits blocked/pause.request with reason operator_decision (or attention.<slug>), enqueue_agent_event opens a decision attention and then publishes the event. If the attention open fails, log_decision_projection_failure writes a Logger.warning and publication continues; the tool call already returned {:ok, %{\"status\" => \"pending\"}}. The operator may never see the decision the agent is waiting on. On attention.resolved, a failed DecisionAttention.resolve is likewise only logged, leaving the attention open (latched) although the agent reported it resolved.",
+      "evidence": "tool_executor.ex:426-438 `decision_projection = prepare_decision_attention(...); log_decision_projection_failure(decision_projection, topic)`; 836-841 `defp log_decision_projection_failure({:error, reason}, topic) do Logger.warning(\"aiur_tool_executor phase=decision_attention_projection_failed ...\")`; 827-833 log_decision_resolution_failure returns :ok.",
+      "recommendation": "Record projection/resolve failures in the event publication record (it already has a failed status) and emit a system needs-attention alert naming the ticket and slug; retry resolution on the next safe checkpoint. Add tests with a failing attention_opener that assert an alert is emitted.",
+      "refactor_hint": "Decision/attention flow will likely live in its own decisions package; the runtime should hand it a request and get a durable receipt back rather than best-effort side effects.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-26",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Turn stream registration is not released if a turn raises; ActiveTurns entry stays :active",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "lines": "115-141"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "668-691"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_streams.ex",
+          "lines": "7-50"
+        },
+        {
+          "path": "src/lib/aiur/opencode/active_turns.ex",
+          "lines": "46-66"
+        }
+      ],
+      "description": "TurnStreams.open/1 inserts {identifier, turn_id} as :active in the ActiveTurns ETS table and posts turn markers; TurnStreams.close/3 is called only after run_turn returns normally. Neither TurnLoop nor QueueDrain wraps the turn in try/after, and ActiveTurns has no owner monitor or TTL for :active entries (cleanup is scheduled only by mark_closed). If run_turn raises or the runner is killed, the entry stays :active for the life of the node and the opencode bridge waits on a broadcast that never comes (its 10-minute watchdog is the only exit).",
+      "evidence": "turn_loop.ex:115 `aiur_turn_id = TurnStreams.open(issue)` ... 141 `TurnStreams.close(issue, aiur_turn_id, turn_done_reason(result))` with no try/after; active_turns.ex:46-50 put inserts `{..., :active, nil}`; 60-65 mark_closed is the only schedule_cleanup caller.",
+      "recommendation": "Wrap open/run/close in try/after inside the extracted TurnExecutor (agent-runtime-03) closing with {:failed, :runner_crash}; have ActiveTurns monitor the registering pid and close entries on DOWN.",
+      "refactor_hint": "Runtime <-> opencode bridge contract; the monitor belongs in the opencode package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-27",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "Oversized modules and functions in agent_runner",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "lines": "1-1095"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "lines": "1-908"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "97-201,638-756"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_loop.ex",
+          "lines": "44-56,83-196"
+        }
+      ],
+      "description": "SessionLifecycle (1095 lines) mixes session option resolution, workspace-ownership containment, telemetry launch/revoke, backend fallback, display-tailer wiring and live-conversation source handlers, RC chat naming, RC trust seeding, unsupported-model alerts and backend labels; its private pipeline passes the same 8 arguments through start_expected_session/run_contained_session/run_session_turn_loop. ToolExecutor (908 lines) mixes alert namespacing, blocker coordination with reconciliation, ticket-state writes, event publication with durable records, and the decision request/lifecycle flow. Largest functions (approximate, including clause groups): QueueDrain.run_supported_queue_item_turn ~128 lines, TurnLoop.run_supported_turn ~124, QueueDrain.wait_for_operator_message ~110, ToolExecutor.build ~93, SessionLifecycle.run_session ~79. TurnLoop.run_turns has arity 10 and QueueDrain.run_queue_item_turn arity 7, both with credo FunctionArity disables.",
+      "evidence": "wc -l: session_lifecycle.ex 1095, tool_executor.ex 908, queue_drain.ex 821, message_handler.ex 671, turn_loop.ex 579. turn_loop.ex:44 `# credo:disable-for-next-line Credo.Check.Refactor.FunctionArity`; queue_drain.ex:580 same. session_lifecycle.ex:270-279 start_expected_session(workspace, issue, codex_update_recipient, opts, worker_host, ownership, session_context, start_fun).",
+      "recommendation": "Split SessionLifecycle into SessionStart (options, fallback, telemetry launch), ProviderContainment (ownership/process group/provider map), DisplayTail (tailer + source handlers) and RcNaming; split ToolExecutor into BlockerCoordination, AgentEventPublisher and DecisionRequests. Replace positional context with a %RunContext{} struct (the code already builds session_context and turn_context maps ad hoc).",
+      "refactor_hint": "Each extracted module maps to a clear seam in the runtime package; RunContext becomes the runtime's internal state type.",
+      "effort": "L"
+    },
+    {
+      "id": "agent-runtime-28",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Turn alerts classify causes by substring of inspect(reason) and name a re-resolved route instead of the session's backend",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/turn_alerts.ex",
+          "lines": "63-69,72-86,127-139"
+        }
+      ],
+      "description": "maybe_emit_more_tokens_alert decides 'token budget or context limit was exhausted' by searching the lowercase inspect/1 of the error for a fixed list that includes 'rate limit exhausted', so a rate-limit error is reported as token/context exhaustion (a collapsed, mislabelled cause). maybe_emit_route_failure_alert passes CodingAgent.backend_for(issue) - re-resolved from labels/config - rather than the backend the session actually ran on, although SessionLifecycle documents that fallback (claude-repl -> claude) and RC promotion change the real backend and that alerts 'must not invent a backend'.",
+      "evidence": "turn_alerts.ex:130-138 `|> inspect() |> String.downcase() |> String.contains?([\"rate limit exhausted\", \"token budget\", \"context length\", \"maximum context\", \"max tokens\", \"too many tokens\"])`; 64 `route = CodingAgent.backend_for(issue)`; session_lifecycle.ex:1082-1091 session_backend_label doc.",
+      "recommendation": "Classify exhaustion from structured reasons produced by the backends (a CodingAgent.classify_failure/2 capability) and pass SessionLifecycle.session_backend_label(app_session) into the route-failure alert.",
+      "refactor_hint": "Failure taxonomy should be a backend-interface concern, not string matching in the runtime.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-29",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "tmux driven through interpolated command strings, a hand-rolled argv splitter and stderr substring matching",
+      "locations": [
+        {
+          "path": "src/lib/aiur/tmux/exec.ex",
+          "lines": "12-23,109-122,130-167"
+        },
+        {
+          "path": "src/lib/aiur/tmux/layout.ex",
+          "lines": "128-143,159-163"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/placeholder.ex",
+          "lines": "105-108,157,169,182-185"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/screen_grab.ex",
+          "lines": "30,59-66"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/convo_paint.ex",
+          "lines": "33"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/slot_attach.ex",
+          "lines": "101-111"
+        }
+      ],
+      "description": "Aiur.Tmux.command/2 takes one string that Exec.split_command re-tokenizes by splitting on whitespace and re-joining double-quoted runs with a single space (lossy for repeated spaces, no single-quote or escape support). 27 call sites across src/lib build these strings with interpolation (e.g. \"swap-pane -s #{real_pane_id} -t #{placeholder_pane_id}\", \"capture-pane -p -t #{pane_id}\"), while a structured run_args path exists. tmux failures are classified by substring of stderr in four places ('no server running' twice, \"can't find pane\", 'source and target panes must be different'). The placeholder pane command embeds the identifier into a bash -c string with only single quotes stripped, so $() or backticks in an identifier would execute.",
+      "evidence": "exec.ex:21-22 `def run_command(%{transport: :shell} = state, cmd) do run_args(state, split_command(cmd))`; 133 `|> String.split(~r/\\s+/, trim: true)`; placeholder.ex:182-185 `safe_id = String.replace(identifier, \"'\", \"\")` then `\"bash -c 'clear; printf \\\"...issue-#{safe_id}...\\\"; tail -f /dev/null'\"`; layout.ex:137 `String.contains?(&1, \"can't find pane\")`; `grep -rn 'Tmux.command(' src/lib | wc -l` = 27.",
+      "recommendation": "Replace Tmux.command/2 with typed functions over argv (kill_pane/2, select_pane/2, swap_pane/3, capture_pane/2 already partially exist in Query/Layout) and delete split_command; centralize error classification in Tmux.Error.classify/1 returning atoms; pass the placeholder identifier as an environment variable or printf argument rather than inside the script text.",
+      "refactor_hint": "The tmux package's public API should be argv-typed before other packages depend on it.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-30",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "Containment test passes a fabricated OS pid that reaches real pgrep and a real ownership lease",
+      "locations": [
+        {
+          "path": "src/test/aiur/agent_runner/session_lifecycle_test.exs",
+          "lines": "934-956"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "lines": "568-625"
+        },
+        {
+          "path": "src/lib/aiur/claude/remote_control.ex",
+          "lines": "259-262,427-441"
+        }
+      ],
+      "description": "'accepts every valid session shape ...' feeds sessions with os_pid 424_242 and provider pids \"424242\" into SessionLifecycle.track_session_containment/3 with a real Ownership lease. For local shapes, session_provider/2 calls RemoteControl.process_tree(424242), which shells out to pgrep -P recursively on the host and records any real descendants of whatever process owns that pid into the lease that the workspace guardian reaps on owner death. This is the 'fabricated OS pids that reach real kill/kill -0' family: the test's outcome depends on host state and can register a foreign process tree for reaping.",
+      "evidence": "session_lifecycle_test.exs:938 `{\"Claude REPL\", %{backend: \"claude-repl\", os_pid: 424_242}, nil}`; 946 `assert :ok = SessionLifecycle.track_session_containment(active_lease, session, worker_host), shape`; session_lifecycle.ex:622-623 `Map.put(provider, :descendant_pids, RemoteControl.process_tree(root_pid))`; remote_control.ex:434 `System.cmd(pgrep, [\"-P\", Integer.to_string(pid)], ...)`.",
+      "recommendation": "Inject the process-tree function (opts or application env) and use a stub in tests; if a real pid is required, spawn a sleep process owned by the test and use its pid.",
+      "refactor_hint": "The injection seam is needed anyway when process_tree moves out of Aiur.Claude.RemoteControl (agent-runtime-09).",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-31",
+      "category": "performance",
+      "severity": "P3",
+      "title": "Live-conversation retention re-encodes the whole snapshot to JSON per message and per eviction; partials re-sanitize all fragments",
+      "locations": [
+        {
+          "path": "src/lib/aiur/live_conversation/retention.ex",
+          "lines": "12-50,60-68"
+        },
+        {
+          "path": "src/lib/aiur/live_conversation/compactor.ex",
+          "lines": "329-362"
+        },
+        {
+          "path": "src/lib/aiur/live_conversation/normalizer.ex",
+          "lines": "63-80"
+        },
+        {
+          "path": "src/lib/aiur/live_conversation.ex",
+          "lines": "504-522"
+        }
+      ],
+      "description": "LiveConversation.persist_snapshot calls Retention.retain on every changed snapshot; trim_messages computes snapshot_bytes (public_fun + Jason.encode_to_iodata!) for the current list and again after each single-message eviction, so an over-limit snapshot costs O(n) full encodes. Compactor.append_bounded_partial calls Normalizer.compact_fragments, which re-joins every fragment and re-runs the URL/environment redaction regexes over the whole body (up to 128 fragments, 256 KB input) for each new fragment; insert_message re-sorts and re-indexes the full message list per insert.",
+      "evidence": "retention.ex:42-44 `if snapshot_bytes(snapshot, messages, length(evicted), public_fun) > @snapshot_byte_limit do trim_messages(snapshot, rest, ...)`; 65-67 `|> public_fun.() |> Jason.encode_to_iodata!() |> IO.iodata_length()`; compactor.ex:331 `{body, compacted_truncated?} = Normalizer.compact_fragments(fragments)`; normalizer.ex:65-76 join + sanitize_projection(joined, ..., input_byte_limit: 256_000).",
+      "recommendation": "Track an incremental byte estimate per message and evict until under budget, then verify once; sanitize each fragment once on arrival and concatenate sanitized fragments (re-checking only the join boundary).",
+      "refactor_hint": "live_conversation is already cohesive; this is internal optimisation for its own package.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-32",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Small helpers duplicated across the unit (safe_call x3, env-flag parsing x6, digest hashing x7, comment id x2, urgent digest x2)",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/app.ex",
+          "lines": "334-341"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/render_state.ex",
+          "lines": "56-63"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/activation.ex",
+          "lines": "137-144"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/state.ex",
+          "lines": "142-150"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/layout.ex",
+          "lines": "240-248"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/screen_grab.ex",
+          "lines": "91-99"
+        },
+        {
+          "path": "src/lib/aiur/live_conversation/source.ex",
+          "lines": "184-191"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "lines": "723-729"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/bootstrap_digest.ex",
+          "lines": "94-101"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/comment_context.ex",
+          "lines": "238-243"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "412-423,813-820"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/checkpoint_delivery.ex",
+          "lines": "94-99,207-212"
+        }
+      ],
+      "description": "Identical rescue-everything safe_call/1 in three AgentList modules. The AIUR_DEBUG truthiness parser (downcase(trim(v)) in [\"1\",\"true\",\"yes\"]) appears in agent_list/state.ex, pane_manager/layout.ex, pane_manager.ex:437, log_file.ex:152 and opencode/slot/attach_pane.ex:166, plus the same shape for AIUR_SCREEN_GRAB. sha256(term_to_binary) opaque ids exist in live_conversation/source.ex, live_conversation.ex:563-568 and tool_executor.ex (with [:deterministic]) and four more modules outside the unit, with inconsistent use of the :deterministic flag. Comment id extraction is duplicated between BootstrapDigest and CommentContext (one falls back to IdGenerator.next_id, one to nil). The urgent digest is produced twice by String.replace on the rendered XML instead of a render option. provider_delivery_callback and coding_agent_run_turn exist in two modules each.",
+      "evidence": "app.ex:334-341, render_state.ex:56-63, activation.ex:137-144 all `fun.() rescue _ -> nil catch :exit, _ -> nil; _, _ -> nil`. state.ex:143-145 and pane_manager/layout.ex:241-243 `case System.get_env(\"AIUR_DEBUG\") do value when is_binary(value) -> String.downcase(String.trim(value)) in [\"1\", \"true\", \"yes\"]`. queue_drain.ex:422 and checkpoint_delivery.ex:96 `String.replace(..., \"<aiur:events>\", \"<aiur:events urgent=\\\"true\\\">\", global: false)`.",
+      "recommendation": "Add Aiur.Env.flag?/1, Aiur.OpaqueId.digest/2 (always :deterministic), a CommentId helper and EventsDigest.render(events, id, urgent: true); keep one safe_call in a shared util or remove the need for it (agent-runtime-18).",
+      "refactor_hint": "Shared utilities go to a small core/util package every carved package can depend on.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-33",
+      "category": "security",
+      "severity": "P3",
+      "title": "Paste delivery writes operator and prompt text to the shared temp dir with a predictable name",
+      "locations": [
+        {
+          "path": "src/lib/aiur/tmux/input.ex",
+          "lines": "30-47"
+        }
+      ],
+      "description": "paste_text/3 writes the full text (operator messages, RC prompts) to Path.join(System.tmp_dir!(), \"aiur-paste-#{System.unique_integer([:positive])}\") with default permissions (typically 0644 under a 022 umask), so it is readable by other local users while the paste runs, and the name is a small monotonically increasing integer. It also consumes the per-user /tmp quota that has already caused Bash failures on this host.",
+      "evidence": "input.ex:32-33 `buffer = \"aiur-paste-#{System.unique_integer([:positive])}\"; tmp = Path.join(System.tmp_dir!(), buffer)`; 36 `File.write(tmp, text)`.",
+      "recommendation": "Use tmux load-buffer - (stdin) via a Port, or write to a 0700 per-run directory under the Aiur state dir with File.open(path, [:write, :exclusive]) and 0600 permissions.",
+      "refactor_hint": "tmux package internal.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-34",
+      "category": "complexity",
+      "severity": "P3",
+      "title": "PaneManager.State keeps four redundant indexes updated by partial transforms; close path polls every slot synchronously",
+      "locations": [
+        {
+          "path": "src/lib/aiur/pane_manager/state.ex",
+          "lines": "9-43,47-56,117-159"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/close.ex",
+          "lines": "53-58,91-101"
+        },
+        {
+          "path": "src/lib/aiur/pane_manager/placeholder.ex",
+          "lines": "50-52,213-281"
+        }
+      ],
+      "description": "identifier_to_pane, pane_to_identifier, pane_to_slot and slot_panes (plus placeholder_panes and title_by_identifier) must be kept consistent by hand; forget_identifier_for_pane drops identifier_to_pane and the title but leaves pane_to_identifier, while forget_pane_by_identifier drops all. Close.slot_for_pane calls Slot.snapshot (2s GenServer.call) on every registered slot from inside the PaneManager callback although SlotRegistry already exposes an ETS lookup used by OpencodeOpen, and close_opencode_or_generic hard-matches `:ok = Slot.deselect(slot_pid)`. Placeholder's async attach Task is started unmonitored; if it dies without sending :placeholder_swap/:placeholder_failed, the 'Loading opencode...' pane (tail -f /dev/null) stays until the next reconcile, and wait_for_slot busy-polls acquire_slot_or_grow (N Slot.snapshot calls) every 150ms for up to 60s.",
+      "evidence": "state.ex:118-129 forget_identifier_for_pane updates only identifier_to_pane and title_by_identifier; close.ex:93-101 `SlotRegistry.all() |> Enum.find_value(:not_found, fn {slot_index, slot_pid} -> case Slot.snapshot(slot_pid) do %{pane_id: ^pane_id} -> ...`; close.ex:57 `:ok = Slot.deselect(slot_pid)`; placeholder.ex:52 `Task.start(fn -> drive_real_attach(pm, identifier, placeholder_pane_id) end)`; 277 `Process.sleep(150)`.",
+      "recommendation": "Store one map slot => %{pane_id, identifier, kind: :real | :placeholder} and derive the other lookups; use SlotRegistry's ETS for pane->slot; monitor the placeholder task (Task.Supervisor.async_nolink) and fail the placeholder on DOWN; replace polling with the existing :slot_ready broadcast that OpenQueue already consumes.",
+      "refactor_hint": "pane_manager package internal simplification.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-35",
+      "category": "dead-code",
+      "severity": "P3",
+      "title": "Unreachable branches and pass-through wrappers",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/activation.ex",
+          "lines": "18,95-99"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/app.ex",
+          "lines": "48-54,131"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/queue_drain.ex",
+          "lines": "224-230,556-578,585"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner.ex",
+          "lines": "470-483"
+        },
+        {
+          "path": "src/lib/aiur/tmux/mock_transport.ex",
+          "lines": "1-48"
+        }
+      ],
+      "description": "Activation's :swap_in_last_used mode is unreachable (a regression test asserts it is 'structurally unreachable from user input'), yet do_open still has the clause and the @spec advertises it. App.activate_new_pane is documented as 'Distinct from activate/1' but handle_cast(:activate_new_pane) just calls handle_cast(:activate). QueueDrain has pass-through layers: claim_next_wake_queue_item -> claim_next_queue_item, run_operator_turn -> run_queue_item_turn, claim_after_queue_update(_, _, false) -> :ignored handled identically to :empty, and run_queue_item_turn ignores its _message_handler argument. AgentRunner.post_aiur_turn_markers only delegates to TurnStreams.post_aiur_turn_markers (kept for a test). Aiur.Tmux.MockTransport is a test seam compiled into production lib.",
+      "evidence": "app.ex:131 `def handle_cast(:activate_new_pane, state), do: handle_cast(:activate, state)`; activation.ex:98 `defp do_open(pane_manager, identifier, command, title, :swap_in_last_used)`; queue_drain.ex:556-558 `defp claim_next_wake_queue_item(orchestrator, issue_identifier) do claim_next_queue_item(orchestrator, issue_identifier) end`; 585 `_message_handler,`.",
+      "recommendation": "Delete the swap mode and activate_new_pane (keep one keybinding target), collapse the QueueDrain wrappers, move MockTransport under test/support, and repoint the agent_runner_test marker test to TurnStreams.",
+      "refactor_hint": "Removes public functions that would otherwise become package API.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-36",
+      "category": "test-quality",
+      "severity": "P3",
+      "title": "Bare assert_receive (100ms default) on cross-process messages in tmux tests",
+      "locations": [
+        {
+          "path": "src/test/aiur/tmux_test.exs",
+          "lines": "53-54"
+        },
+        {
+          "path": "src/test/aiur/tmux/layout_test.exs",
+          "lines": "1-240"
+        },
+        {
+          "path": "src/test/aiur/tmux/query_test.exs",
+          "lines": "1-200"
+        }
+      ],
+      "description": "The mock tmux transport sends {:tmux_mock_out, cmd} from the Tmux GenServer after a Task calls it, so the test process waits on a message produced by two hops of other processes. Many of these waits use the default 100ms timeout while sibling assertions in the same files pass 1_000, which is the flaky-under-load pattern. Grep counts of assert_receive lines without an explicit timeout: tmux_test.exs about 20 of 42, tmux/layout_test.exs 12 of 26, tmux/query_test.exs 10 of 20, tmux/input_test.exs 6 of 13.",
+      "evidence": "tmux_test.exs:53-54 `assert_receive :ready` / `assert_receive {:tmux_mock_out, \"bogus\"}` next to 36 `assert_receive {:tmux_mock_out, \"list-panes\"}, 1_000`.",
+      "recommendation": "Use an explicit module attribute timeout (e.g. @mock_timeout 1_000) for every cross-process assert_receive, or make MockTransport synchronous with the test via a call.",
+      "refactor_hint": "Fix while moving tests into the tmux package.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-37",
+      "category": "naming-structure",
+      "severity": "P3",
+      "title": "Renderer typespec and comment debt: 54 of 70 all-term() specs in src/lib; stale width comments",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/renderer/chrome.ex",
+          "lines": "11-383"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/cells.ex",
+          "lines": "25-220"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/layout.ex",
+          "lines": "33-39,75-96"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/model.ex",
+          "lines": "29-179"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/table.ex",
+          "lines": "11-100,141-154"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/app.ex",
+          "lines": "28-29"
+        }
+      ],
+      "description": "The renderer modules carry 54 specs of the form '@spec f(term(), ...) :: term()' (chrome 14, cells 12, model 9, markers 6, table 6, help 6, layout 1) - 54 of the 70 such specs in all of src/lib - which document nothing and hide type errors. Comments claim a 16-column progress cell ('<bar 10> <eta 5>') while @progress_cell_width = @progress_bar_width = 10. The row width is summed by hand in three places (Layout.compute base_overhead, Table.render_row plain_visual, table_header_row), and Layout/Text.cell size by String.length while padding uses visual_width, so wide glyphs in titles misalign. App carries @dialyzer no_return/nowarn suppressions for init/1 and render/1.",
+      "evidence": "layout.ex:35 `# Layout: `<bar 10> <eta 5>` = 10 + 1 + 5 = 16 cols.` vs 39 `@progress_cell_width @progress_bar_width`; table.ex:151-154 `plain_visual = 2 + 2 + layout.id_width + Layout.rc_cell_width() + ...`; app.ex:28-29 `@dialyzer {:no_return, init: 1, render: 1}` / `@dialyzer {:nowarn_function, render: 1}`.",
+      "recommendation": "Replace term() specs with real types (iodata(), Layout.t()), have Layout.compute return the column list that both header and row rendering iterate, and remove the dialyzer suppressions after fixing the reported issue.",
+      "refactor_hint": "TUI package hygiene; typed specs make the package boundary reviewable.",
+      "effort": "M"
+    },
+    {
+      "id": "agent-runtime-38",
+      "category": "coupling",
+      "severity": "P3",
+      "title": "TUI hardcodes GitHub URLs and model-family parsing; colors synced with website CSS by comment",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_list/renderer/links.ex",
+          "lines": "9-46"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/renderer/model.ex",
+          "lines": "14-28,103-112"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/activity_intake.ex",
+          "lines": "358"
+        },
+        {
+          "path": "src/lib/aiur/agent_list/roster.ex",
+          "lines": "47-52"
+        }
+      ],
+      "description": "Links builds https://github.com/<project>/issues/<id> and /pull/<n> from Tracker.project_identity for any tracker (Linear projects get GitHub links), with two slightly different issue URL builders (ticket_url validates a positive integer, issue_url does not). Model.model_family parses model names by prefix (opus/sonnet/haiku/gpt) in the renderer instead of using the CodingAgent registry it also consults, and hex colors are kept in sync with website/src/styles.css only by comment. Activity join and selection keys use TrackerIdentity.github_key, so activity silently never joins for non-GitHub trackers.",
+      "evidence": "links.ex:11 `\"https://github.com/\" <> project <> \"/issues/\" <> Integer.to_string(n)`; 43 `def issue_url(repo, id), do: \"https://github.com/#{repo}/issues/#{id}\"`; model.ex:106-109 `\"opus\" <> _ -> :opus ... \"gpt\" <> _ -> :codex`; model.ex:18-19 'Keep these hexes in sync with that file'; activity_intake.ex:358 `defp key(identity), do: TrackerIdentity.github_key(identity)`.",
+      "recommendation": "Ask the tracker adapter for issue/PR URLs (Tracker.issue_url/1) and the CodingAgent registry for a display family/label; generate TUI colors from a shared palette file used by the website build.",
+      "refactor_hint": "Keeps the TUI package tracker- and provider-agnostic.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-39",
+      "category": "complexity",
+      "severity": "P3",
+      "title": "No-op detection is coupled to prompt wording by regex; local workspace probe has no timeout",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/turn_progress.ex",
+          "lines": "56-68,139-149,178-187"
+        },
+        {
+          "path": "src/lib/aiur/agent_runner/turn_prompt.ex",
+          "lines": "20-58"
+        }
+      ],
+      "description": "TurnProgress.prompt_digest/1 strips the turn counter and the no-op bullet from the rendered prompt using two regexes that must match TurnPrompt's wording exactly; TurnPrompt carries a comment warning that changing the wording breaks the no-op cap. The local branch of workspace_digest runs git through System.cmd with no timeout inside the runner (the remote branch has a 15s timeout), so a hung git (index lock, network filesystem) blocks the turn loop indefinitely. TurnPrompt also repeats the same '--test blocked' bullet verbatim three times (lines 29, 100, 123) and inlines the planning-to-work text that planning_to_work_transition_bullet/1 already produces.",
+      "evidence": "turn_progress.ex:61 `@turn_counter_pattern ~r/continuation turn #\\d+( of \\d+)?/`; 68 `@self_referential_prompt_line ~r/^\\s*- Aiur observed that the last \\d+ turn/`; turn_prompt.ex:43-45 'Keep that opening intact if this wording changes, or the no-op counter can never reach its cap.'; turn_progress.ex:181 `System.cmd(\"sh\", [\"-c\", probe_script(workspace)], stderr_to_stdout: true)`.",
+      "recommendation": "Have TurnPrompt return {prompt_text, digest_material} where digest_material excludes counter and self-referential lines structurally; run the local probe through the same timeout wrapper as the remote one.",
+      "refactor_hint": "Runtime package internal.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-40",
+      "category": "duplication",
+      "severity": "P3",
+      "title": "Provider pid extraction parsed three ways in SessionLifecycle with different leniency and key fallbacks",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+          "lines": "84-117,579-614"
+        }
+      ],
+      "description": "headless_os_pid/1 accepts binary pids only, uses Integer.parse with {n, _} (so \"123abc\" -> 123) and reads provider_pid || claude_app_server_pid; process_group_id/1 and maybe_put_provider_pid/2 require {value, \"\"} and accept integers; session_provider/2 reads provider_pid || codex_app_server_pid || claude_app_server_pid. The value from headless_os_pid is what the orchestrator uses to tree-reap on abort, so it is the most lenient parser guarding the most destructive use.",
+      "evidence": "session_lifecycle.ex:85 `pid = metadata[:provider_pid] || metadata[:claude_app_server_pid]`; 89-90 `case Integer.parse(pid) do {n, _} -> n`; 583 `metadata[:provider_pid] || metadata[:codex_app_server_pid] || metadata[:claude_app_server_pid]`; 608-609 `case Integer.parse(pid) do {value, \"\"} when value > 0 ->`.",
+      "recommendation": "Have backends put a normalized provider_os_pid (positive integer) in session metadata and read it through one ProviderPid.parse/1 that is strict.",
+      "refactor_hint": "Part of the ProviderContainment extraction (agent-runtime-27) and of the backend metadata contract.",
+      "effort": "S"
+    },
+    {
+      "id": "agent-runtime-41",
+      "category": "complexity",
+      "severity": "P3",
+      "title": "ToolExecutor repeats the same failure-logging block four times in record_event_publication",
+      "locations": [
+        {
+          "path": "src/lib/aiur/agent_runner/tool_executor.ex",
+          "lines": "492-562"
+        }
+      ],
+      "description": "record_event_publication/7 has four branches ({:error, reason}, unexpected result, rescue, catch) that each compute a failure string, emit the same 'aiur_tool_executor phase=event_publication_record_failed' warning and return the same error tuple. The log context string is also built twice.",
+      "evidence": "tool_executor.ex:514-517, 524-527, 535-539 and 546-550 each `Logger.warning(\"aiur_tool_executor phase=event_publication_record_failed \" <> ... \"failure=#{failure}\")` followed by `{:error, {:event_publication_record_failed, failure}}`.",
+      "recommendation": "Normalize the recorder result first (safe_call returning {:ok | :error, detail}) and log once.",
+      "refactor_hint": "Local cleanup while splitting ToolExecutor (agent-runtime-27).",
+      "effort": "S"
+    }
+  ]
+}

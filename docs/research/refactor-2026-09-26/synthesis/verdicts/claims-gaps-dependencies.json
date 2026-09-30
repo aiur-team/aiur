@@ -1,0 +1,24 @@
+{
+  "verdicts": [
+    {
+      "id": "gaps-06",
+      "reproduce_holds": false,
+      "interpret_holds": false,
+      "holds": false,
+      "confidence": "High for recorded declines, retained wake counts, label replay and inspected alert contract; bounded for extracted historical dependency graph and unresolved for continuous causal allocation.",
+      "corrected_claim": "Six dependency declines are recorded September 20. After ticket 42 closes, the recorded finite graph reduces to paused ticket 41 as the open external root; the handoff also requires code/test changes and rebasing, not credentials alone. September 25 label replay finds eight review issues and 60 todo issues. Every todo has an open or unresolved blocker in the extracted graph, whose external frontier includes seven review issues, paused 41, in-progress 201, parked 236 and unresolved reference 2786. This does not reproduce eight ready review PRs as the sole blockers of 59 tickets. The 9.8374-hour interval has 40 operator-decision and 39 usage-limit wake records. No candidate-decline records occur inside it in retained alerts; the original 59/60 classification backprojects decline reasons across label-state episodes.",
+      "method": "Direct daemon log and resource sample inspection; cached issue label/closure replay; extracted dependency add/remove replay at the exact gap start; exact-boundary wake count; analyzer and frozen IssueSync code inspection.",
+      "note": "Dependency gating is a correctness constraint. Preserve it while improving visibility of blocker ownership, readiness and root causes. Existing circular-wait alerts cover a narrower parked-agent/queued-blocker case; do not claim dependency alerting is absent. Do not assign host downtime or every minute of fleet inactivity to one ticket.",
+      "unresolved": [
+        "Completeness and scope of extracted dependency timelines, including external reference 2786 and dependency edges of external blockers",
+        "Continuous control state, alternate runnable supply and causal allocation of each interval",
+        "Which whole-backlog summaries are already present outside the inspected circular-wait alert",
+        "Separation of in-run waiting from subsequent host downtime (gaps-07)"
+      ],
+      "evidence_artifacts": [
+        "synthesis/dependency-gap-evidence.json"
+      ],
+      "verification_mode": "sequential reproduction and interpretation checks by the continuing researcher"
+    }
+  ]
+}

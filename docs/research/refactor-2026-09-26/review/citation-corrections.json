@@ -1,0 +1,14 @@
+{
+  "revision": "3339b887196d5e9aefb273117a14bf33391ee41f",
+  "scope": "Correct only out-of-bounds P0/P1 citations; preserve raw findings unchanged",
+  "corrections": [
+    {"id": "build-order-02", "path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex", "old": "179-203", "new": "126-135"},
+    {"id": "tests-5-02", "path": "src/test/aiur/regression/done_agent_detach_test.exs", "old": "10-53", "new": "10-51"},
+    {"id": "web-rest-06", "path": "src/lib/aiur_web/streamdeck_key_face_contract.ex", "old": "142-185", "new": "10-12"},
+    {"id": "web-rest-08", "path": "src/lib/aiur_web/controllers/decision_api_controller.ex", "old": "257-263", "new": "63-68"},
+    {"id": "web-rest-08", "path": "src/lib/aiur_web/controllers/decision_api_controller.ex", "old": "347-349", "new": "145-151"},
+    {"id": "web-rest-08", "path": "src/lib/aiur_web/financial_data/change_bridge.ex", "old": "369-383", "new": "61-67"},
+    {"id": "web-rest-08", "path": "src/lib/aiur_web/financial_data_access/generation.ex", "old": "187-192", "new": "35-40"},
+    {"id": "web-rest-09", "path": "src/lib/aiur/workspace/layout.ex", "old": "100-130", "new": "33-46"}
+  ]
+}

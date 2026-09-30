@@ -1,0 +1,1100 @@
+{
+ "surface": "cli",
+ "coverage_notes": "46 features over the command-line surface: every subcommand and run flag in packaging/npm/aiur-cli/libexec/aiur-engine.sh (4,179 lines; function-level LOC split by script, 38 groups summing to 4,180), scripts/aiurdev (912), src/lib/aiur/cli.ex (609; OptionParser switches), src/lib/aiur/agent_control_cli.ex (3,408; split by function line ranges), units_cli.ex, the npm launcher/packaging, and aiurdev-side scripts. Totals here: lib_loc 10927, test_loc 15297, loc_saving_estimate 5625. Not double-counted (listed in modules as \"counted under\"): commands_cli.ex/executor_command_cli.ex (integrations-35), build_orders_cli.ex (integrations-44), github_cost_cli.ex/github_usage_cli.ex (integrations-18), findings (integrations-40), asks (integrations-39), analytics_cli.ex (subsystems-02), init wizard (subsystems-38), upgrade notice + Elixir registry and ~90 engine notice lines (subsystems-37), engine crash-dump/BEAM-death watchdog functions (139 lines) and launcher_watchdog.ex (subsystems-21), ~115 engine reap lines (subsystems-30), distribution.ex (subsystems-40), mix tasks (subsystems-42/-08/-02/-36/-39). Mix task usage for those owners (rpc_mix_scan.py, tool calls): aiur.affected_tests 688 agent + 24 executor, pr_body.check 100 + 29, specs.check 26 + 11, lint 16 + 21, aiur.test_shard 1 + 11, aiur.cost_report 3, aiur.telemetry(.dashboard) 3, aiur.pricing_window 2. Test LOC inside shared test files (aiur_engine_test.exs 4,245, agent_control_cli_test.exs 4,052, scripts_aiurdev_test.exs 1,988, cli_test.exs 578, regression/engine_control_test.exs 997, regression/shutdown_cleanup_test.exs 360) is allocated by test line ranges and is approximate (+/-10%). USAGE METHOD: features/scratch-cli/usage_scan.py parsed tool_use input.command (Claude) and function_call/custom_tool_call/local_shell_call payloads (Codex) from 1,190 Claude Executor transcript files (~/.claude/projects/-home-user-github-everdred-*/**.jsonl incl. subagents), 501 Codex Executor sessions (cwd = repo root, from census codex_classified.ndjson), 1,658 Claude agent transcripts and 5,974 Codex agent sessions; matched `aiurdev` (any path) or bare `aiur` (word start or a bin/ path; release `rel/aiur/bin/aiur` excluded), stripped heredocs and --body/-m payloads, counted each subcommand once per tool call; output features/scratch-cli/usage_counts.json. Zero counts for analytics, upgrade, executor-listen/emit/(un)subscribe(s), claim/release/revoke, fast-forward, --interactive/--headless/--no-dashboard/--logs-root were re-checked with a second grep over raw tool_use lines. rpc_mix_scan.py counted direct `bin/aiur rpc|eval` calls and mix tasks (rpc_mix_counts.json). Shell history: only lines containing \"aiur\" were read from ~/.zsh_history (281 lines total, 41 with aiur) and ~/.bash_history; human-typed invocations are ~9. LIMITS: Claude transcripts start 2026-09-01 (30-day cleanup) and Codex 2026-07-16, so \"none-found\" means none in that window; the hourly executor-cli-check.sh runs status/agents/alerts inside a script, so those three are undercounted; external npm users are unknown. Out of scope here (other surfaces): the TUI itself, dashboard pages and HTTP APIs, Stream Deck, scripts/agent-worktree (agent dev helper, 429 lines, used via aiur-agent/aiur-run skills), CI helper scripts under scripts/. Privacy: the only private-repo figure is a count (guard-pr-deletions 28 in <private repo> (private) (private)); no private content, paths or values are included. Shell history lines containing credentials were seen during the scan and are not reproduced.",
+ "features": [
+  {
+   "id": "cli-01",
+   "name": "Subcommand dispatch, help and usage text",
+   "description": "Shared bash engine entry: raises the nofile limit, records the operator pid, then a 40-arm case statement routes every aiur/aiurdev subcommand; `help`/`-h`/`--help` print a hand-written usage block; an unknown word exits 64 (or runs if it is an existing path).",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh (preamble 1-60, usage() 53, dispatch_run + aiur_engine_main 213)"
+   ],
+   "lib_loc": 326,
+   "test_loc": 37,
+   "entry_points": [
+    "aiur help | -h | --help",
+    "aiur_engine_main",
+    "dispatch_run"
+   ],
+   "docs": "website/docs-app/reference/cli.md (What the CLI does; Inspect and operate)",
+   "usage": "heavy",
+   "usage_evidence": "Every invocation passes through it: usage_scan.py (Executor + agent tool calls; method and window in coverage_notes) found 1,960 executor `aiurdev` + 365 executor `aiur` invocations and 327 + 1,258 agent ones. Explicit `--help`/`help`: 19 executor, 38 agent.",
+   "recommendation": "simplify",
+   "rationale": "The dispatch table, the usage block in the engine, Aiur.CLI.usage_message/0 and reference/cli.md are four hand-maintained copies of one command list. A 4,179-line bash program is the product front door, which makes every new command a bash+Elixir+docs triple edit.",
+   "loc_saving_estimate": 150,
+   "rewrite_notes": "Declare commands once (name, args, flags, handler, help) and generate dispatch, help and the docs table from it. Ship the CLI as a small client package separate from the daemon.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-02",
+   "name": "Run / attach session lifecycle (bare `aiur`, `aiur run`, `--bg`)",
+   "description": "Starts the release inside a keyed tmux session (foreground TUI or detached headless), or attaches to this repository's live session; directory launch lock, per-instance record, argv tempfile handoff, startup wait for control-plane and dashboard readiness, foreground teardown traps and session cleanup; Elixir side parses argv, selects the config (positional path or discovery) and boots the app.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh (run_session group 427: default_dashboard_host, build_run_argv, run_session, attach_tmux_session, resolve_tmux_conf; startup/probe/cleanup 261; instance record + launch lock 209; minus ~35 flag-handling lines counted under cli-03/cli-04)",
+    "src/lib/aiur/cli.ex (main/dispatch/evaluate/run/start_with_config/runtime_deps/wait_for_shutdown, ~231 of 609)"
+   ],
+   "lib_loc": 1093,
+   "test_loc": 1543,
+   "entry_points": [
+    "aiur",
+    "aiur run [--bg]",
+    "aiur --bg",
+    "aiur <config-path>",
+    "Aiur.CLI.main/1",
+    "run_session"
+   ],
+   "docs": "website/docs-app/reference/cli.md (Start, initialize, and queue); guide/quick-start.md; concepts/operating-aiur.md",
+   "usage": "heavy",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): `run` 45 executor (43 with --bg), bare run 79 executor / 219 agent (includes some `command -v aiur` noise), `--bg` first-token 8; restart re-enters this path 16 times. 40 run-log dirs in ~/.aiur/logs (2026-09-15..09-26) are one launch each. Human shell history: 1 bare `aiurdev` launch.",
+   "recommendation": "simplify",
+   "rationale": "Core, but most of the size is compensation for running a BEAM under a detached tmux with shell-side identity: launch-lock stale-owner recovery, instance-record adoption, attach-without-teardown-ownership, startup probing of epmd and the dashboard. Recurring fixes: #534 (startup failure exits 0), #592 (control command adopted another instance), #2362 (wrong checkout booted).",
+   "loc_saving_estimate": 450,
+   "rewrite_notes": "Let the daemon own its lifecycle (pidfile + health endpoint, or a service manager); the CLI starts it, waits on one readiness URL, and attaches the TUI as a separate client. Keep the per-repository instance key.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-03",
+   "name": "Run flags that are used: --executor, --max-agents, --debug, --host, --port, --pause",
+   "description": "Launch overrides: mark the run Executor-owned (roster principal, alert authority), session agent cap, verbose logs + chat-pane recording, dashboard bind host/port, cold start with the global pause on.",
+   "modules": [
+    "src/lib/aiur/cli.ex (maybe_set_executor/pause/max_agents, warn_if_max_agents_exceeds_config, maybe_set_server_host/port: ~102)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh (--debug strip in run_session, ~10)"
+   ],
+   "lib_loc": 112,
+   "test_loc": 184,
+   "entry_points": [
+    "--executor",
+    "--max-agents <n>",
+    "--debug",
+    "--host <h>",
+    "--port <p>",
+    "--pause"
+   ],
+   "docs": "website/docs-app/reference/cli.md (Start, initialize, and queue)",
+   "usage": "regular",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes), flag counts on run/restart/--bg invocations (executor): --executor 61, --max-agents 57, --bg 62, --debug 38, --host 21, --port 21, --pause 11 (grep of Claude Executor Bash commands alone: --pause 4).",
+   "recommendation": "keep",
+   "rationale": "Each is used by the Executor and is a one-line override of config.",
+   "rewrite_notes": "Keep as plain overrides of config keys; --debug should just set log level + recorder.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-04",
+   "name": "Unused run flags: --interactive, --headless, --no-dashboard, --logs-root, guardrails acknowledgement switch",
+   "description": "Mode flags the launcher injects itself (--interactive for foreground, --headless for --bg), a dashboard suppressor with Remote Control rejection, a per-launch log root override, and the mandatory `--i-understand-that-this-will-be-running-without-the-usual-guardrails` switch the launcher always inserts.",
+   "modules": [
+    "src/lib/aiur/cli.ex (maybe_set_interactive/headless, maybe_disable_dashboard, maybe_set_logs_root/set_logs_root, require_guardrails_acknowledgement + banner: ~96)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh (build_run_argv injection, no_dashboard handling in run_session and print_dashboard_status: ~25)"
+   ],
+   "lib_loc": 121,
+   "test_loc": 198,
+   "entry_points": [
+    "--interactive",
+    "--headless",
+    "--no-dashboard",
+    "--logs-root <path>",
+    "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
+   ],
+   "docs": "website/docs-app/reference/cli.md (Start table rows); AGENTS.md Running section",
+   "usage": "none-found",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 0 operator-typed uses of --interactive, --headless, --no-dashboard, --logs-root in every population; confirmed by a second grep of Claude Executor Bash commands (0 each). The acknowledgement switch is only ever inserted by build_run_argv. AIUR_LOGS_ROOT env (used by the aiurdev agent sandbox) is independent of the flag.",
+   "recommendation": "cut",
+   "rationale": "Nobody passes them. Foreground vs --bg already decides TUI vs headless; the guardrails switch is ceremony the launcher always satisfies; --no-dashboard needs special rejection logic for Remote Control.",
+   "loc_saving_estimate": 110,
+   "rewrite_notes": "Derive UI mode from --bg; keep AIUR_LOGS_ROOT env only if the dev sandbox needs it; drop the acknowledgement switch.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-05",
+   "name": "Control-command RPC transport (distribution identity, `bin/aiur rpc`, exit/error markers, 10s watchdog)",
+   "description": "Every control command resolves the per-repository node name, cookie and tmux socket, spawns a second release BEAM running `bin/aiur rpc \"Aiur.AgentControlCLI.<fn>(...)\"`, kills it after 10 s, parses `__AIUR_CONTROL_EXIT__:`/`__AIUR_CONTROL_ERROR__:` markers from stdout, probes epmd to tell down from wedged, adopts a global-config instance record, and returns code 75 so aiurdev can rebuild and retry. Elixir side: `guarded/2`, timeout budgets, failure/crash formatting and the marker emitters in AgentControlCLI.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh (identity/distribution 226: aiur_project_root, aiur_instance_key, aiur_resolve_identity, ensure_erlang_cookie, prepare_distribution, resolve_release, build_release_cmd; rpc transport 345: run_release_rpc_with_timeout, run_control_rpc(_dispatch), run_control_stream, marker parsing, elixir_list_literal, parse_issue_targets, encode_control_value)",
+    "src/lib/aiur/agent_control_cli.ex (shared helpers lines 1-97 and 3030-3408: guarded, control_query_timeout, report_control_query_failure, exit/error markers: 476)",
+    "(aiur_print_identity, 15 lines, counted under cli-40)",
+    "src/lib/aiur/distribution.ex (counted under subsystems-40)"
+   ],
+   "lib_loc": 1032,
+   "test_loc": 1063,
+   "entry_points": [
+    "run_control_rpc",
+    "run_control_stream",
+    "Aiur.AgentControlCLI.guarded/2",
+    "AIUR_CONTROL_RPC_TIMEOUT",
+    "AIUR_RELEASE_NODE",
+    "AIUR_COOKIE_FILE"
+   ],
+   "docs": "website/docs-app/reference/cli.md (Operational facts: bounded RPC, exit 124, crash marker)",
+   "usage": "heavy",
+   "usage_evidence": "Carries every daemon command: usage_scan.py (Executor + agent tool calls; method and window in coverage_notes) counted ~1,650 executor control invocations (status 647, agents 236, alerts 118, commands 113, github-cost 77, ...). Git: agent_control_cli.ex is the #2 hot file in fixes/merged-fixes.md (63 fix PRs of 86, 73% fix share); control-RPC latency recurred #698 -> #888 -> #2182 -> #2204 -> #2694 with #2519 open; silent failures #1684/#1736.",
+   "recommendation": "simplify",
+   "rationale": "Each command boots a full BEAM (~2 s, per the #1684 comment in agent_control_cli.ex) and speaks a stdout marker protocol through a shell watchdog. The daemon already serves an HTTP API (observability + decision controllers), so the transport duplicates a channel that exists.",
+   "loc_saving_estimate": 700,
+   "rewrite_notes": "CLI = thin HTTP/JSON (or unix-socket) client of the daemon: one request per command, JSON response, exit code from HTTP status. Removes cookie/epmd/marker/watchdog code and the per-command BEAM start. Keep per-repository instance addressing (a port or socket path in the instance record).",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-06",
+   "name": "aiur status",
+   "description": "Daemon-wide report: fleet rows with status reasons, polling cadence/idle backoff, capacity binding and admission samples with age, GitHub quota measurement, build-gate holders, global pause banner, Executor listener/wake cursor, CODEOWNERS trust, CI readiness, supervision health, prewarm state, blocking asks.",
+   "modules": [
+    "src/lib/aiur/agent_control_cli.ex (status/1, fleet view, print_status_report, print_status_table..print_load_status, print_global_pause_banner..tracker_state_sets: 810, minus 44 blocking-ask lines counted under cli-37)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_status (7)"
+   ],
+   "lib_loc": 773,
+   "test_loc": 1576,
+   "entry_points": [
+    "aiur status",
+    "Aiur.AgentControlCLI.status/1"
+   ],
+   "docs": "website/docs-app/reference/cli.md (aiur status row); concepts/operating-aiur.md",
+   "usage": "heavy",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 647 executor invocations (aiur 308, architecture-docs 240, khala 70, archon 29), 30 agent; plus the hourly aiur-run executor-cli-check.sh runs status/agents/alerts on every meta check (93 aiur + 22 archon meta logs; 236 Executor tool calls reference that script or executor-retrospective.sh). Referenced 15 times in skills.",
+   "recommendation": "simplify",
+   "rationale": "Most-used command, but it renders twelve subsystems with its own reason/label logic parallel to status_report.ex, waiting_reason.ex, `agents` and the dashboard; merged-fixes records the surfaces disagreeing (#1801 -> #2700 -> #2706 open).",
+   "loc_saving_estimate": 450,
+   "rewrite_notes": "Render one server-side status projection (the same JSON the dashboard uses) with a generic table/record printer; absorb `usage` as a section.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-07",
+   "name": "aiur agents",
+   "description": "One line per agent: state (including waiting_for_human cause) and current activity; the headless equivalent of the TUI agent list.",
+   "modules": [
+    "src/lib/aiur/agent_control_cli.ex (agents/0, print_agents_table..format_runtime: 166)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_agents (7)"
+   ],
+   "lib_loc": 173,
+   "test_loc": 302,
+   "entry_points": [
+    "aiur agents",
+    "Aiur.AgentControlCLI.agents/0"
+   ],
+   "docs": "website/docs-app/reference/cli.md (aiur agents row); AGENTS.md Running",
+   "usage": "heavy",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 236 executor invocations (aiur 125, archon 78, kevinweaver-dev 16, architecture-docs 10, khala 7), 8 agent; also run by the hourly executor-cli-check.sh.",
+   "recommendation": "keep",
+   "rationale": "Core fleet view the Executor reads constantly; the natural merge target for `watch` and `units`.",
+   "rewrite_notes": "Make it the single fleet table: add --changes (from watch), --json and unit filters (from units).",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-08",
+   "name": "aiur watch (--full | --changes | --once | --interval)",
+   "description": "Server-side status board: per-row state/activity/age, persistent-term baseline to print only changed rows, ACTIONABLE section (attention alerts, blocking asks, stuck > 600 s, PR-ready, removed rows); --interval re-renders.",
+   "modules": [
+    "src/lib/aiur/agent_control_cli.ex (watch/1, print_watch_board, watch_row..print_orchestrator_status_error: 286, minus 9 ask lines counted under cli-37)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_watch + watch_validate_interval (45)"
+   ],
+   "lib_loc": 322,
+   "test_loc": 364,
+   "entry_points": [
+    "aiur watch",
+    "Aiur.AgentControlCLI.watch/1"
+   ],
+   "docs": "website/docs-app/reference/cli.md (watch rows); .claude/skills/aiur-monitor",
+   "usage": "occasional",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 19 executor invocations (all with --full; aiur 10, architecture-docs 9), last seen 2026-09-03; 0 agent. Skills still name `aiurdev watch` as the periodic tick (10 mentions; watch-alerts.sh).",
+   "recommendation": "merge",
+   "rationale": "Duplicates `agents` (same rows, same activity) plus alert/ask lines that `alerts` and `status` already print. The skill calls it the backstop, but the Executor ran it 19 times vs 236 for `agents`.",
+   "loc_saving_estimate": 280,
+   "rewrite_notes": "Merge into `agents --changes`; the ACTIONABLE section becomes `alerts --needs-attention`.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-09",
+   "name": "aiur alerts (--needs-attention)",
+   "description": "Prints the structured alert feed (AlertFeed), optionally only unresolved needs-attention alerts; answered by a different process than the orchestrator, so it doubles as a liveness check.",
+   "modules": [
+    "src/lib/aiur/agent_control_cli.ex alerts/1 (11)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_alerts (25)"
+   ],
+   "lib_loc": 36,
+   "test_loc": 58,
+   "entry_points": [
+    "aiur alerts",
+    "Aiur.AgentControlCLI.alerts/1"
+   ],
+   "docs": "website/docs-app/reference/cli.md (alerts rows)",
+   "usage": "heavy",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 118 executor invocations, 104 of them with --needs-attention (aiur 77, architecture-docs 33, archon 8); also in every hourly executor-cli-check.sh run.",
+   "recommendation": "keep",
+   "rationale": "Small and heavily used.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-10",
+   "name": "aiur usage (provider meter headroom)",
+   "description": "Codex/Claude usage-limit windows from the provider meter projection, each with observation age and reset time; also `usage_bar/\u2026` helpers.",
+   "modules": [
+    "src/lib/aiur/agent_control_cli.ex (usage/0, usage_bar, print_provider_usage..provider_label: 118)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_usage (5)"
+   ],
+   "lib_loc": 123,
+   "test_loc": 202,
+   "entry_points": [
+    "aiur usage",
+    "Aiur.AgentControlCLI.usage/0"
+   ],
+   "docs": "website/docs-app/reference/cli.md (aiur usage row)",
+   "usage": "rare",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 8 executor invocations (all aiur, 2026-08-22..09-09), 1 agent. Grep of Claude Executor Bash lines: 3 invoking, 10 mentions.",
+   "recommendation": "merge",
+   "rationale": "Nine uses in ten weeks; the same meters appear on the dashboard and Stream Deck. A status section is enough.",
+   "loc_saving_estimate": 80,
+   "rewrite_notes": "Fold into `status` (provider headroom section) or `status --json`.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-11",
+   "name": "aiur --todo <ids...> [--only]",
+   "description": "Queues numeric tickets by adding agent:todo through the running daemon and requests a prompt poll; --only also removes agent:todo from other pending tickets (GitHub-only, <=50 targets, stops after 3 rate-limit failures). Aiur.CLI carries a second, unreachable parser for the same flags.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh parse_todo_args + run_todo (~46)",
+    "src/lib/aiur/agent_control_cli.ex (todo/2 .. max_agents_status_suffix: 329, of which maybe_clear_other_todos..clear_other_todo_step ~95)",
+    "src/lib/aiur/cli.ex (evaluate_todo/parse_todo_ids/run_todo_command: ~45; not reachable from the engine, which intercepts --todo)"
+   ],
+   "lib_loc": 420,
+   "test_loc": 471,
+   "entry_points": [
+    "aiur --todo",
+    "Aiur.AgentControlCLI.todo/2"
+   ],
+   "docs": "website/docs-app/reference/cli.md (--todo rows; Operational facts)",
+   "usage": "regular",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 66 executor invocations (aiur 44, archon 11, architecture-docs 7, khala 4), 1 agent; `--only` 3 times.",
+   "recommendation": "simplify",
+   "rationale": "Queueing is core. --only is ~130 lines (plus tests) for 3 uses and is the open #2519 timeout; the Aiur.CLI todo branch is dead because the engine routes --todo to the control RPC.",
+   "loc_saving_estimate": 175,
+   "rewrite_notes": "Keep `aiur todo <ids>` (a subcommand, not a flag); drop --only and the second parser.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-12",
+   "name": "aiur set max-agents <n>",
+   "description": "Changes the live session agent cap without editing config; warns when the orchestrator mailbox is backed up.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_set (20)",
+    "src/lib/aiur/agent_control_cli.ex set_max_agents/1 .. orchestrator_busy_mailbox_threshold (51)"
+   ],
+   "lib_loc": 71,
+   "test_loc": 67,
+   "entry_points": [
+    "aiur set max-agents",
+    "Aiur.AgentControlCLI.set_max_agents/1"
+   ],
+   "docs": "website/docs-app/reference/cli.md; AGENTS.md Running",
+   "usage": "occasional",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 13 executor invocations (aiur 8, khala 3, architecture-docs 2) plus 2 `set --help`.",
+   "recommendation": "keep",
+   "rationale": "Small, used, and the only runtime knob.",
+   "rewrite_notes": "Generalize to `aiur set <key> <value>` only if a second key appears.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-13",
+   "name": "aiur pause | resume (global switch and per-agent <ids|--all>)",
+   "description": "Bare form flips the durable daemon-wide pause; with ids pauses at a safe boundary or resumes (reactivates deactivated/completed agents, starts idle eligible tickets), then polls each agent's control status for up to 4 s to confirm the resume actually applied, classifying queued/dropped/declined/superseded outcomes.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_pause_resume (28)",
+    "src/lib/aiur/agent_control_cli.ex (pause/1, resume/1, pause_global, resume_global, set_global_pause*, control, control_status .. unknown_resume_detail, resume_confirm_timeout_ms: ~546)"
+   ],
+   "lib_loc": 574,
+   "test_loc": 1274,
+   "entry_points": [
+    "aiur pause",
+    "aiur resume",
+    "Aiur.AgentControlCLI.pause/1",
+    "Aiur.AgentControlCLI.resume/1",
+    "pause_global/0",
+    "resume_global/0"
+   ],
+   "docs": "website/docs-app/reference/cli.md (pause/resume rows; Global pause is durable)",
+   "usage": "regular",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): resume 58 executor (architecture-docs 21, aiur 18, khala 17), pause 17 executor, 3 agent. Memory note: \"Aiur global pause survives restart \u2014 run bare aiurdev resume\".",
+   "recommendation": "simplify",
+   "rationale": "Needed, but ~400 lines exist only because the orchestrator resume is asynchronous and the CLI must poll to avoid printing a false \"resumed\" (#1634). Pause/resume is area D in merged-fixes (13 fix PRs).",
+   "loc_saving_estimate": 350,
+   "rewrite_notes": "Have the daemon return the settled outcome of a resume request (or a request id with a final state), and render it; drop CLI-side polling and outcome classification.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-14",
+   "name": "aiur reset-budget <ids>",
+   "description": "Clears a ticket's lifetime dispatch-budget latch (#1453); rejects --all.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_reset_budget (22)",
+    "src/lib/aiur/agent_control_cli.ex reset_budget/1 + reset_budget_one (29)"
+   ],
+   "lib_loc": 51,
+   "test_loc": 71,
+   "entry_points": [
+    "aiur reset-budget",
+    "Aiur.AgentControlCLI.reset_budget/1"
+   ],
+   "docs": "website/docs-app/reference/cli.md (reset-budget row)",
+   "usage": "rare",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 3 executor invocations (aiur, 2026-08-23..08-24); grep check: 2 invoking Bash lines, 7 mentions. None since 08-24.",
+   "recommendation": "merge",
+   "rationale": "A separate verb for one latch that `resume` explicitly cannot clear; used 3 times.",
+   "loc_saving_estimate": 35,
+   "rewrite_notes": "`aiur resume <id> --reset-budget`, or remove the latch if the rewrite drops lifetime budgets.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-15",
+   "name": "aiur message <id> [--message-id ID] <text>",
+   "description": "Base64-transports Executor text to one agent's native queue, waits up to 1.5 s to report delivered vs queued, supports idempotent retry by message id, and prints the exact retry command on timeout.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_message (48)",
+    "src/lib/aiur/agent_control_cli.ex message/2 .. message_confirm_timeout_ms (134)"
+   ],
+   "lib_loc": 182,
+   "test_loc": 310,
+   "entry_points": [
+    "aiur message",
+    "Aiur.AgentControlCLI.message/2"
+   ],
+   "docs": "website/docs-app/reference/cli.md (message rows)",
+   "usage": "regular",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 47 executor invocations (aiur 15, architecture-docs 13, kevinweaver-dev 11, archon 6, khala 2), 1 agent.",
+   "recommendation": "keep",
+   "rationale": "The Executor's main way to steer a running agent; idempotency is justified by #2717.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-16",
+   "name": "aiur stop (agent-tree reap, workspace-cwd sweep, tmux/tmp sweeps)",
+   "description": "Marks a clean stop, TERMs the BEAM with a long grace, reaps agent pid trees and processes rooted in the workspace root, backstops with node-name BEAM kills, sweeps dead tmux sockets and stale /tmp artifacts, and warns about other aiur daemons.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_stop (107)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh reaping helpers not claimed by subsystems-30 (kill_beams_matching, pid_*, agent_pid_tree, reap_aiur_agents, workspace_cwd_pids, reap_workspace_cwd_agents...: ~190 of 305)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh sweep_dead_tmux_sockets, sweep_stale_tmp_artifacts, warn_other_aiur_daemons (163)"
+   ],
+   "lib_loc": 460,
+   "test_loc": 1202,
+   "entry_points": [
+    "aiur stop",
+    "cmd_stop"
+   ],
+   "docs": "website/docs-app/reference/cli.md (stop row); AGENTS.md Running",
+   "usage": "regular",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 53 executor invocations (aiur 35, architecture-docs 17, archon 1), 1 agent; human history 1. restart runs the same path 16 more times.",
+   "recommendation": "simplify",
+   "rationale": "Needed, but process reaping recurred (#426/#458/#501 -> #2080 -> #2179 -> #2391 -> #2406 open, PID reuse). Bash reconstructs process ownership from /proc because the daemon does not own its children in a process group or cgroup.",
+   "loc_saving_estimate": 250,
+   "rewrite_notes": "Daemon spawns agents in its own process group/cgroup and kills the group on stop; CLI sends one stop request and waits. Drop tmp/tmux sweeps once nothing leaks.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-17",
+   "name": "aiur restart [--no-build] [run flags]",
+   "description": "Stop, then (under aiurdev) run the deferred rebuild through AIUR_RESTART_BUILD_CMD, verify a build receipt/stamp names the expected checkout and commit, then start detached; refuses when the stopped daemon still answers; reports the stopped fleet on any failure.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh aiur_restart_report_state, verify_restart_build, cmd_restart (197)",
+    "scripts/aiurdev (write_restart_receipt, builds_after_stop, __ensure-build entry, AIUR_RESTART_BUILD_CMD export: ~70)"
+   ],
+   "lib_loc": 267,
+   "test_loc": 728,
+   "entry_points": [
+    "aiur restart",
+    "aiurdev __ensure-build",
+    "AIUR_RESTART_BUILD_CMD",
+    "AIUR_RESTART_BUILD_VERIFIES"
+   ],
+   "docs": "website/docs-app/reference/cli.md (Restart semantics)",
+   "usage": "occasional",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 16 executor invocations (aiur 11, khala 3, archon 2) carrying --executor 16, --debug 12, --bg 11, --no-build 8 (grep: 13 --no-build Bash lines). Memory: restarting is pre-authorized and routine after merges.",
+   "recommendation": "simplify",
+   "rationale": "Useful, but the receipt/stamp verification protocol (and its 275 lines of aiurdev tests) exists to catch the wrong-checkout rebuild (#2362), which a cwd-targeted dev launcher removes.",
+   "loc_saving_estimate": 120,
+   "rewrite_notes": "restart = stop; build (dev only, same checkout as cwd); start. No cross-process receipt.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-18",
+   "name": "aiur cleanup-stale [--dry-run] and stale manual-smoke inventory",
+   "description": "Inventories orphaned manual-smoke BEAMs, wrapper tmux sockets and opencode attach processes left by `--test` runs; warns at startup, reaps on stop or on demand.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh stale_manual_smoke_beam_inventory, manual_smoke_wrapper_tmux_sockets, orphaned_opencode_attach_inventory, report/preflight/reap_stale_manual_smoke, cmd_cleanup_stale (181)"
+   ],
+   "lib_loc": 181,
+   "test_loc": 189,
+   "entry_points": [
+    "aiur cleanup-stale",
+    "preflight_stale_manual_smoke"
+   ],
+   "docs": "website/docs-app/reference/cli.md (cleanup-stale rows)",
+   "usage": "rare",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 1 executor invocation (architecture-docs, 2026-09-03), 0 agent; grep: 1 Bash line.",
+   "recommendation": "cut",
+   "rationale": "Cleans up after a dev harness that agents are now blocked from running (aiurdev refuses --test in agent workspaces); one use in ten weeks.",
+   "loc_saving_estimate": 181,
+   "rewrite_notes": "If the smoke harness survives (subsystems-36), give it its own teardown.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-19",
+   "name": "Launcher dotenv credential loading",
+   "description": "Loads ./.env then ~/.aiur/.env into unset names (blank = unset), treats GitHub credentials as one group from the first file that sets any, and scrubs run-only names (CI readiness token) before init.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh load_dotenv, github_credential_env_name, parse_dotenv_line, dotenv_file_sets_github_credential, load_dotenv_file, scrub_run_only_env (81)"
+   ],
+   "lib_loc": 81,
+   "test_loc": 153,
+   "entry_points": [
+    "load_dotenv"
+   ],
+   "docs": "AGENTS.md Auth; website/docs-app/reference/configuration.md",
+   "usage": "heavy",
+   "usage_evidence": "Runs on every launch (every run/restart counted in cli-02/cli-17). The same precedence is implemented again in Aiur.Env.read_dotenv (src/lib/aiur/env.ex, config-36) and Aiur.Init.Dotenv (init/dotenv.ex).",
+   "recommendation": "merge",
+   "rationale": "Third copy of one precedence rule (bash engine, Aiur.Env, Aiur.Init.Dotenv); #2638 shows the rule is subtle enough that copies drift.",
+   "loc_saving_estimate": 70,
+   "rewrite_notes": "Resolve credentials once in the daemon (config-36 Aiur.Env) and have the CLI pass nothing but cwd.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-20",
+   "name": "Legacy `.aiurconfig` rejection",
+   "description": "Walks cwd/AIUR_REPO_ROOT/home for a legacy `.aiurconfig` and refuses to start with a pointer to `.aiur/config`; mirrored in Aiur.Workflow, Aiur.CLI and init.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh legacy_config_path, reject_legacy_config (83)",
+    "src/lib/aiur/workflow.ex legacy_config_path?/legacy_config_error/raise_legacy_config! (~30)",
+    "src/lib/aiur/cli.ex (~6)",
+    "src/lib/aiur/init.ex, init/runtime.ex, init/scaffold.ex legacy checks (~15)"
+   ],
+   "lib_loc": 134,
+   "test_loc": 241,
+   "entry_points": [
+    "reject_legacy_config",
+    "Aiur.Workflow.legacy_config_path?/1"
+   ],
+   "docs": "AGENTS.md Layout (legacy .aiurconfig rejected)",
+   "usage": "none-found",
+   "usage_evidence": "`find <local-home>/github/everdred ~ -maxdepth 4 -name .aiurconfig` returns nothing; the `.aiur/` folder replaced it on 2026-06-21 (#391/#392) and support was removed 2026-08-16 (#2023).",
+   "recommendation": "cut",
+   "rationale": "A migration guard for a format no file on the host uses, three months after the rename.",
+   "loc_saving_estimate": 134,
+   "surface": "cli"
+  },
+  {
+   "id": "cli-21",
+   "name": "aiur --version and dispatcher/release version-skew warning",
+   "description": "Prints release version + git rev + npm dispatcher version without claiming the node; on an unknown subcommand compares the dispatcher package version with the checkout's and says to update aiur-cli.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh run_version (15), package_version, cli_package_version, version_is_older, warn_if_cli_behind_release_checkout (73)",
+    "src/lib/aiur/cli.ex version_line/2 (~8)"
+   ],
+   "lib_loc": 96,
+   "test_loc": 118,
+   "entry_points": [
+    "aiur --version",
+    "Aiur.CLI.version_line/2"
+   ],
+   "docs": "website/docs-app/reference/cli.md (--version row)",
+   "usage": "occasional",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 5 executor (architecture-docs 3, khala 2), 20 agent (khala 11, aiur 6).",
+   "recommendation": "simplify",
+   "rationale": "--version is cheap and used; the skew diagnosis exists because the npm dispatcher and the release ship separately.",
+   "loc_saving_estimate": 60,
+   "rewrite_notes": "Ship the CLI and release as one versioned artifact; keep plain --version.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-22",
+   "name": "aiur upgrade [--force]",
+   "description": "Detects npm/bun/Homebrew/dev install method, refuses under aiurdev, Homebrew or a running daemon (unless --force), and installs the newer aiur-cli on the user's channel (latest/next/nightly) without downgrading.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh aiur_install_method, cmd_upgrade (123)",
+    "scripts/aiurdev upgrade refusal (8)",
+    "upgrade notice + src/lib/aiur/upgrade* (counted under subsystems-37)"
+   ],
+   "lib_loc": 131,
+   "test_loc": 222,
+   "entry_points": [
+    "aiur upgrade",
+    "cmd_upgrade"
+   ],
+   "docs": "website/docs-app/reference/cli.md (upgrade rows)",
+   "usage": "none-found",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 0 invocations in every population (grep of Claude Executor transcripts: 5 mentions in Write/Bash text, 0 invoking). The host's global npm aiur-cli is 0.0.3 while packaging/npm/aiur-cli/package.json is 0.0.5, i.e. never upgraded; the operator runs aiurdev (1,960 executor invocations vs 365 for aiur).",
+   "recommendation": "cut",
+   "rationale": "No use; `npm i -g aiur-cli@<channel>` does the same. The channel-comparison logic is the part that breaks.",
+   "loc_saving_estimate": 131,
+   "rewrite_notes": "Document the npm command; drop the subcommand and the in-daemon registry check (subsystems-37).",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-23",
+   "name": "aiur init [--force] (CLI entry)",
+   "description": "Distribution-free boot of the release into Aiur.Init (interactive wizard); `--force` recreates generated files. The wizard itself is inventoried as subsystems-38.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh run_init (9; build_init_cmd is counted in cli-05)",
+    "src/lib/aiur/cli.ex evaluate_standard init + run_init_command (~15)",
+    "src/lib/aiur/init.ex + init/* (counted under subsystems-38)"
+   ],
+   "lib_loc": 24,
+   "test_loc": 53,
+   "entry_points": [
+    "aiur init",
+    "aiur init --force",
+    "Aiur.Init.run/1"
+   ],
+   "docs": "website/docs-app/reference/cli.md (init rows); guide/quick-start.md",
+   "usage": "occasional",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 2 executor + 7 agent invocations; human ~/.zsh_history (281 lines, 41 containing \"aiur\"): 4 `aiurdev init` lines. 5 non-worktree repo configs exist (aiur, archon, kevinweaver-dev, 2 private) plus ~/.aiur/config.",
+   "recommendation": "keep",
+   "rationale": "First-run entry is required for adoption; the size problem is inside the wizard (subsystems-38).",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-24",
+   "name": "aiur units (--scope, --condition, --format, --json)",
+   "description": "Terminal form of the Dashboard Units page: filtered unit catalog with scope/condition filters, auto/table/records layout and the versioned JSON envelope.",
+   "modules": [
+    "src/lib/aiur/units_cli.ex (333)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_units (46)",
+    "src/lib/aiur/agent_control_cli.ex units/1 delegation (~5)"
+   ],
+   "lib_loc": 384,
+   "test_loc": 440,
+   "entry_points": [
+    "aiur units",
+    "Aiur.UnitsCLI"
+   ],
+   "docs": "website/docs-app/reference/cli.md (Dashboard page commands; Output contract)",
+   "usage": "occasional",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 13 executor invocations (architecture-docs 11, aiur 2; --scope 10, --format 9), 2 agent; last 2026-09-10.",
+   "recommendation": "merge",
+   "rationale": "Fourth fleet view beside status, agents and watch; 13 uses vs 236 for agents.",
+   "loc_saving_estimate": 330,
+   "rewrite_notes": "Serve units as `agents --json` with filters from the same server projection the dashboard uses.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-25",
+   "name": "aiur commands [decision-id] (decision inbox)",
+   "description": "Lists durable Executor decisions (Commands) or one record; --filter all|open|blocking|resolved, --blocking, --ticket, --search, --cursor, --limit, --json. CLI renderer commands_cli.ex is inventoried under integrations-35.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_commands (50)",
+    "src/lib/aiur/agent_control_cli.ex commands/1 delegation (~5)",
+    "src/lib/aiur/commands_cli.ex (counted under integrations-35)"
+   ],
+   "lib_loc": 55,
+   "test_loc": 15,
+   "entry_points": [
+    "aiur commands",
+    "Aiur.CommandsCLI"
+   ],
+   "docs": "website/docs-app/reference/cli.md (Decisions, Executor events, and findings)",
+   "usage": "heavy",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 113 executor invocations (aiur 58, architecture-docs 38, archon 14, khala 3; --json 38, --filter 32, --ticket 24), 6 agent. Executor also read decisions by direct RPC 13 times (Aiur.DecisionStore.get).",
+   "recommendation": "keep",
+   "rationale": "The Executor's decision queue; heavily used.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-26",
+   "name": "aiur executor-answer | executor-escalate | executor-moot",
+   "description": "Optimistic-concurrency mutations of one decision: answer (option or custom response, rationale, idempotency key, --supersede), hand back to the human (reason), or retire as void (reason class). Bash parses each flag set separately; executor_command_cli.ex is inventoried under integrations-35.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_executor_answer, cmd_executor_escalate, cmd_executor_moot (130)",
+    "src/lib/aiur/agent_control_cli.ex delegations (~15)",
+    "src/lib/aiur/executor_command_cli.ex (counted under integrations-35)"
+   ],
+   "lib_loc": 145,
+   "test_loc": 120,
+   "entry_points": [
+    "aiur executor-answer",
+    "aiur executor-escalate",
+    "aiur executor-moot"
+   ],
+   "docs": "website/docs-app/reference/cli.md (executor-answer/escalate/moot rows)",
+   "usage": "occasional",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): executor-answer 25 (aiur 17, architecture-docs 6, archon 2), executor-escalate 14, executor-moot 2 (architecture-docs). The Executor also answered by direct RPC Aiur.DecisionStore.answer 9 times (memory note \"use DecisionStore.answer via RPC\").",
+   "recommendation": "simplify",
+   "rationale": "Answering is core; three verbs with near-identical required flags are parsed three times in bash.",
+   "loc_saving_estimate": 70,
+   "rewrite_notes": "One `aiur decide <id> --expected-version N (--option|--custom-response|--escalate|--moot <class>) ...` with shared parsing.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-27",
+   "name": "aiur build-orders [root] [--json]",
+   "description": "Build Order catalog or one root (graph, execution, activity), starting the first GitHub read of a root with no graph; renderer build_orders_cli.ex is inventoried under integrations-44.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_build_orders (35)",
+    "src/lib/aiur/agent_control_cli.ex build_orders/1 delegation (~5)",
+    "src/lib/aiur/build_orders_cli.ex (counted under integrations-44)"
+   ],
+   "lib_loc": 40,
+   "test_loc": 38,
+   "entry_points": [
+    "aiur build-orders",
+    "Aiur.BuildOrdersCLI"
+   ],
+   "docs": "website/docs-app/reference/cli.md (Dashboard page commands; Output contract); concepts/build-orders.md",
+   "usage": "occasional",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 14 executor (aiur 12, archon 2), 5 agent. rpc_mix_scan.py: the Executor bypassed it with direct `bin/aiur rpc` into Aiur.BuildOrder.GraphProjection 76 times (catalog 34, refresh 15, refresh_catalog 14, selected 8, demand 5).",
+   "recommendation": "keep",
+   "rationale": "Used, and the direct-RPC count shows a missing verb (refresh), not a surplus.",
+   "rewrite_notes": "Add `build-orders <root> --refresh`; keep the command wherever Build Orders land (integrations-44 proposes externalizing).",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-28",
+   "name": "aiur analytics (--range, --since, --until, --build-order, --json)",
+   "description": "Terminal form of the Analytics page: fleet/build pressure peaks, binding admission signal, longest build wait, timestamped series in JSON. Renderer analytics_cli.ex is inventoried under subsystems-02.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_analytics (40)",
+    "src/lib/aiur/agent_control_cli.ex analytics/1 delegation (~5)",
+    "src/lib/aiur/analytics_cli.ex (counted under subsystems-02)"
+   ],
+   "lib_loc": 45,
+   "test_loc": 25,
+   "entry_points": [
+    "aiur analytics",
+    "Aiur.AnalyticsCLI"
+   ],
+   "docs": "website/docs-app/reference/cli.md (analytics rows)",
+   "usage": "none-found",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 0 invocations in every population. A second grep of Claude Executor tool_use lines found 13 textual mentions (Write 4, Bash text 6, Agent/SendMessage/StructuredOutput 3), none invoking.",
+   "recommendation": "cut",
+   "rationale": "Never run; the dashboard page and run-telemetry reports cover the need.",
+   "loc_saving_estimate": 45,
+   "surface": "cli"
+  },
+  {
+   "id": "cli-29",
+   "name": "aiur github-cost (--budget graphql|core|all, --format, --json)",
+   "description": "Ranks GitHub API spend by call site in points and points/hour with credential-window reconciliation, from the daemon's meter (no GitHub request). Renderer github_cost_cli.ex is inventoried under integrations-18.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_github_cost (32)",
+    "src/lib/aiur/agent_control_cli.ex github_cost/1 delegation (~5)",
+    "src/lib/aiur/github_cost_cli.ex (counted under integrations-18)"
+   ],
+   "lib_loc": 37,
+   "test_loc": 40,
+   "entry_points": [
+    "aiur github-cost",
+    "Aiur.GitHubCostCLI"
+   ],
+   "docs": "website/docs-app/reference/cli.md; website/docs-app/apis/github.md",
+   "usage": "regular",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 77 executor (aiur 76, khala 1; --budget 24, --format 6, --json 6), 4 agent. AGENTS.md makes it the required measurement for saving claims.",
+   "recommendation": "keep",
+   "rationale": "Used, and required by the saving-claim rule in AGENTS.md.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-30",
+   "name": "aiur github-usage [--json]",
+   "description": "Per-actor (daemon vs each agent workspace) Core/GraphQL/search used/limit from the admission broker. Renderer github_usage_cli.ex is inventoried under integrations-18.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_github_usage (21)",
+    "src/lib/aiur/agent_control_cli.ex github_usage/1 delegation (~5)",
+    "src/lib/aiur/github_usage_cli.ex (counted under integrations-18)"
+   ],
+   "lib_loc": 26,
+   "test_loc": 26,
+   "entry_points": [
+    "aiur github-usage",
+    "Aiur.GitHubUsageCLI"
+   ],
+   "docs": "website/docs-app/reference/cli.md; website/docs-app/apis/github.md",
+   "usage": "occasional",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 14 executor (khala 7, aiur 4, architecture-docs 3).",
+   "recommendation": "merge",
+   "rationale": "A second GitHub-budget view beside github-cost; 14 uses vs 77.",
+   "loc_saving_estimate": 26,
+   "rewrite_notes": "`github-cost --by actor` (merge target: cli-29).",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-31",
+   "name": "aiur executor-wait (--timeout, --json, --as)",
+   "description": "Blocks until durable Executor wake records are pending (or times out quietly), auto-claims the wake stream, renews the lease while blocking, acknowledges for the owner, and reports stage-specific exit codes (0/1/64/69).",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_executor_wait, executor_validate_consumer_id, executor_as_argument/keyword (39)",
+    "src/lib/aiur/agent_control_cli.ex executor_wait/1 .. executor_wait_detail (167)",
+    "wake inbox/claims backend (counted under integrations-33)"
+   ],
+   "lib_loc": 206,
+   "test_loc": 204,
+   "entry_points": [
+    "aiur executor-wait",
+    "Aiur.AgentControlCLI.executor_wait/1"
+   ],
+   "docs": "website/docs-app/reference/cli.md (executor-wait outcomes; Wake ledger bound and lease TTL)",
+   "usage": "regular",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 67 executor invocations (architecture-docs 34, aiur 28, khala 3, archon 2), 66 with --json --timeout. Competing path: 297 Executor tool_use lines reference `executor.wakes.ndjson` (aiur 140, khala 79, archon 56, architecture-docs 22), i.e. tail -F/Monitor on the wake file.",
+   "recommendation": "keep",
+   "rationale": "The supported consumption path for wakes; used regularly even though the Executor more often tails the file.",
+   "rewrite_notes": "Keep; make it the only consumer path so the file-tail workaround is unnecessary.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-32",
+   "name": "aiur executor-fast-forward <wake-id> [--as]",
+   "description": "Recovery command: acknowledges an exact durable wake prefix already covered by other means, refusing a live peer owner.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_executor_fast_forward (27)",
+    "src/lib/aiur/agent_control_cli.ex executor_fast_forward/2 .. announce_executor_peers (72)"
+   ],
+   "lib_loc": 99,
+   "test_loc": 33,
+   "entry_points": [
+    "aiur executor-fast-forward"
+   ],
+   "docs": "website/docs-app/reference/cli.md (executor-fast-forward row)",
+   "usage": "none-found",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 0 invocations; grep of Claude Executor transcripts: 1 textual mention, 0 invoking.",
+   "recommendation": "cut",
+   "rationale": "Never used; executor-wait already consumes and acknowledges.",
+   "loc_saving_estimate": 99,
+   "surface": "cli"
+  },
+  {
+   "id": "cli-33",
+   "name": "aiur executor-roster [--json]",
+   "description": "Lists Executor consumers with evidence-derived state (active/idle/stalled/expired/unknown), lease times, cursor and pending count.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_executor_roster (15)",
+    "src/lib/aiur/agent_control_cli.ex executor_roster/1 (19)",
+    "src/lib/aiur/executor/roster.ex (counted under integrations-33)"
+   ],
+   "lib_loc": 34,
+   "test_loc": 10,
+   "entry_points": [
+    "aiur executor-roster"
+   ],
+   "docs": "website/docs-app/reference/cli.md (Executor roster states)",
+   "usage": "rare",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 8 executor invocations (aiur 4, architecture-docs 3, archon 1; 2 with --json), 2026-09-02..09-20.",
+   "recommendation": "keep",
+   "rationale": "Small read-only diagnostic for the multi-Executor claim model; keep while that model exists.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-34",
+   "name": "aiur executor-claim | executor-release | executor-revoke",
+   "description": "Explicit wake-stream lease management: claim (refused when a live owner renews), release, and operator-only revoke of a named owner.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_executor_claim, cmd_executor_release, cmd_executor_revoke (39)",
+    "src/lib/aiur/agent_control_cli.ex executor_claim/1 .. executor_subscription_result (90)"
+   ],
+   "lib_loc": 129,
+   "test_loc": 39,
+   "entry_points": [
+    "aiur executor-claim",
+    "aiur executor-release",
+    "aiur executor-revoke"
+   ],
+   "docs": "website/docs-app/reference/cli.md (claim/release/revoke rows)",
+   "usage": "none-found",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 0 invocations of all three; grep of Claude Executor transcripts: executor-claim 0, executor-release 1 textual mention, executor-revoke 0.",
+   "recommendation": "cut",
+   "rationale": "executor-wait auto-claims and leases expire on their own (10-minute TTL); the manual verbs were never used.",
+   "loc_saving_estimate": 129,
+   "rewrite_notes": "Keep claim/release semantics inside executor-wait; expose revoke only if a real takeover incident appears.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-35",
+   "name": "aiur executor-listen | executor-emit | executor-subscribe | executor-unsubscribe | executor-subscriptions",
+   "description": "Executor half of the message bus from the terminal: stream persisted-pattern events as JSON lines (bypassing the RPC timeout), publish on `executor.*`, and manage persistent topic bindings.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh cmd_executor_listen, cmd_executor_emit, cmd_executor_subscription(s) (53)",
+    "src/lib/aiur/agent_control_cli.ex executor_emit/2 .. executor_listen/1 (59)",
+    "bus backend (counted under integrations-34)"
+   ],
+   "lib_loc": 112,
+   "test_loc": 14,
+   "entry_points": [
+    "aiur executor-listen",
+    "aiur executor-emit",
+    "aiur executor-subscribe",
+    "aiur executor-unsubscribe",
+    "aiur executor-subscriptions"
+   ],
+   "docs": "website/docs-app/reference/cli.md; concepts/message-bus.md",
+   "usage": "none-found",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 0 invocations of all five in every population; grep of Claude Executor transcripts: executor-listen 0, executor-emit 0, executor-subscribe 1 (Write text), executor-unsubscribe 0, executor-subscriptions 0.",
+   "recommendation": "cut",
+   "rationale": "The Executor consumes wakes through executor-wait or by tailing the wake file; the streaming/bus verbs were never used.",
+   "loc_saving_estimate": 112,
+   "surface": "cli"
+  },
+  {
+   "id": "cli-36",
+   "name": "aiur findings (CLI entry: read, --record, --digest)",
+   "description": "Distribution-free boot into FindingsCLI: read the host-local findings ledger (--unfiled, --slugs, --scope), append one validated record (--record --repo), or render the Markdown digest. Ledger and renderer are inventoried under integrations-40.",
+   "modules": [
+    "src/lib/aiur/cli.ex findings parsing (evaluate_findings*, parse_findings_scope, run_findings_command: ~56)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh run_findings (3)",
+    "src/lib/aiur/findings.ex, findings_cli.ex (counted under integrations-40)"
+   ],
+   "lib_loc": 59,
+   "test_loc": 33,
+   "entry_points": [
+    "aiur findings"
+   ],
+   "docs": "website/docs-app/reference/cli.md (findings rows); .claude/skills/aiur-meta",
+   "usage": "occasional",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 10 executor (8 with --record), 7 agent. Ledgers: `wc -l ~/.aiur/repo/*/*/meta/findings.ndjson` = 73 records (aiur 43, khala 13, kevinweaver-dev 9, archon 8; private 0; plus empty test-pollution dirs acme/widgets, owner/repo, test-org/test-repo).",
+   "recommendation": "externalize",
+   "rationale": "Executor bookkeeping for the aiur-meta skill, not orchestration; follows integrations-40.",
+   "loc_saving_estimate": 59,
+   "rewrite_notes": "A skill-owned script appending NDJSON; remove the subcommand from the daemon CLI.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-37",
+   "name": "aiur ask | aiur asks (CLI entry + blocking-ask lines in status/watch)",
+   "description": "Create/resolve durable operator requests for the current repository (--body/--body-file, --urgency, --blocking, --done/--note) and list them (--open/--all/--json); status and watch print open blocking asks. Store inventoried under integrations-39.",
+   "modules": [
+    "src/lib/aiur/cli.ex ask parsing (evaluate_ask*, evaluate_asks, ask_body, ask_urgency, run_asks_command: ~64)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh run_asks (3)",
+    "src/lib/aiur/agent_control_cli.ex print_blocking_asks..format_ask_store_error + watch_ask_lines (~53)",
+    "src/lib/aiur/asks*.ex (counted under integrations-39)"
+   ],
+   "lib_loc": 120,
+   "test_loc": 33,
+   "entry_points": [
+    "aiur ask",
+    "aiur asks"
+   ],
+   "docs": "website/docs-app/reference/cli.md (ask/asks rows)",
+   "usage": "rare",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 0 executor invocations of ask or asks, 3 agent `ask` (aiur, 2026-08-12). Ledgers: 5 records total (aiur 5; archon, architecture-docs, khala and private 0).",
+   "recommendation": "merge",
+   "rationale": "Five records since 2026-08-09; Decisions/Commands already model a blocking question with delivery. Merge target: `aiur commands` / DecisionStore (as integrations-39 proposes).",
+   "loc_saving_estimate": 120,
+   "surface": "cli"
+  },
+  {
+   "id": "cli-38",
+   "name": "aiur guard-pr-deletions [base-branch]",
+   "description": "Refuses a PR that deletes more than 50 files the branch never touched (exit 1), or has an unusable input (exit 2); agents run it before every push per the prompt builder.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/guard-pr-deletions.sh (70)",
+    "scripts/guard-pr-deletions (5)",
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh dispatch arm (4)"
+   ],
+   "lib_loc": 79,
+   "test_loc": 127,
+   "entry_points": [
+    "aiur guard-pr-deletions",
+    "src/lib/aiur/prompt_builder.ex instruction"
+   ],
+   "docs": "website/docs-app/reference/cli.md; concepts/ticket-lifecycle.md; .claude/skills/aiur-agent/dev-loop.md",
+   "usage": "heavy",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 982 agent invocations (khala 556, aiur 202, architecture-docs 113, archon 83, <private repo> (private) (private) 28), 2026-08-11..09-26; 6 executor.",
+   "recommendation": "keep",
+   "rationale": "Most-invoked command of the whole CLI, 79 lines, no daemon dependency.",
+   "rewrite_notes": "Could live in an agent-tools package with the other pre-PR gates, but keep the behaviour unchanged.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-39",
+   "name": "Release rpc/eval escape hatch (`<release>/bin/aiur rpc` into internals)",
+   "description": "Not an Aiur command: the Mix release's built-in rpc/eval, used by the Executor to call internal functions directly when the CLI lacks a verb.",
+   "modules": [
+    "(mix release boot script; no Aiur code)"
+   ],
+   "lib_loc": 0,
+   "test_loc": 0,
+   "entry_points": [
+    "_build/dev/rel/aiur/bin/aiur rpc",
+    "bin/aiur eval"
+   ],
+   "docs": "none (memory notes: resolving-blocking-decisions, stale-blocked-by-cache-drop-recipe, build-order-publish-recipe)",
+   "usage": "heavy",
+   "usage_evidence": "rpc_mix_scan.py: 242 executor tool calls ran `bin/aiur rpc|eval` (2 agent). Named targets: Aiur.BuildOrder.GraphProjection.* 80 (catalog 34, refresh 15, refresh_catalog 14, selected 8, demand 5, read 1), Aiur.GitHub.ResourceStore.* 74 (key 22, drop_etag 16, drop_data 16, etag 6, data 5, list 4), Aiur.DecisionStore.* 29 (get 13, answer 9, retry_dispatch 3), GitHub.Quota.snapshot 6, Client.hydrate_blocked_by 6, Config.settings! 5, AgentQueueStore.get 5, Orchestrator.request_refresh 3, terminate_running_issue 3.",
+   "recommendation": "keep",
+   "rationale": "Keep as break-glass, but the counts are a gap list: Build Order refresh, GitHub cache invalidation (the stale blocked_by bug), decision answer/retry and queue inspection had no supported verb.",
+   "rewrite_notes": "Add supported commands (or fix the causes) for Build Order refresh, cache drop per key, decision retry-dispatch, and agent queue inspection.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-40",
+   "name": "aiur __identity (internal)",
+   "description": "Prints the resolved instance identity (session prefix, instance key, node) for tooling.",
+   "modules": [
+    "packaging/npm/aiur-cli/libexec/aiur-engine.sh aiur_print_identity (~15)"
+   ],
+   "lib_loc": 15,
+   "test_loc": 0,
+   "entry_points": [
+    "aiur __identity"
+   ],
+   "docs": "none (used by .claude/skills/aiur-run/scripts/executor-cli-check.sh)",
+   "usage": "regular",
+   "usage_evidence": "Run by executor-cli-check.sh on every hourly meta check (93 aiur + 22 archon meta logs); usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): 2 direct executor + 1 agent.",
+   "recommendation": "keep",
+   "rationale": "15 lines that let skills address the right instance.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-41",
+   "name": "npm distribution: aiur.js launcher, postinstall provisioning, platform packages, release packaging scripts",
+   "description": "`aiur-cli` npm package: bin/aiur.js resolves the platform package's OTP release and lazily provisions tmux (>=3.3) and the pinned opencode (mirroring postinstall.mjs because bun/pnpm skip postinstall), verify-install.sh, and packaging/scripts to assemble/stamp/check platform packages.",
+   "modules": [
+    "packaging/npm/aiur-cli/bin/aiur.js (248)",
+    "packaging/npm/aiur-cli/scripts/postinstall.mjs (232)",
+    "packaging/npm/aiur-cli/scripts/verify-install.sh (83)",
+    "packaging/npm/aiur-cli/package.json (42)",
+    "packaging/scripts/*.mjs + build-release.sh (508)"
+   ],
+   "lib_loc": 1113,
+   "test_loc": 1696,
+   "entry_points": [
+    "aiur (npm bin)",
+    "npm postinstall",
+    "packaging/scripts/build-release.sh"
+   ],
+   "docs": "packaging/npm/aiur-cli/README.md; guide/quick-start.md; .claude/skills/release",
+   "usage": "occasional",
+   "usage_evidence": "Host has global npm aiur-cli 0.0.3 (package.json in snapshot: 0.0.5). usage_scan binary counts: executor `aiur` 365 vs `aiurdev` 1,960; per-repo grep of Claude Executor tool lines for control verbs: aiur 60 vs aiurdev 1,413 (aiur 43/812, archon 16/155, architecture-docs 1/302, khala 0/144). External installs: unknown (npm download stats not queried).",
+   "recommendation": "simplify",
+   "rationale": "Needed to ship to anyone but the author, yet the operator himself runs dev builds; aiur.js deliberately duplicates postinstall provisioning.",
+   "loc_saving_estimate": 200,
+   "rewrite_notes": "One provisioning path (first-run check in the launcher), no postinstall mirror; if the CLI becomes a thin HTTP client it can ship as its own small package.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-42",
+   "name": "aiurdev dev shim core (build-if-stale, build lock, build stamp, control release reuse + retry, `aiurdev build [--deps]`, setup)",
+   "description": "Runs the shared engine against the checkout's `_build/dev/rel/aiur`, rebuilding when sources are newer or the stamp names another commit, serializing rebuilds with a directory lock, reusing a complete release for pure control commands and retrying once on exit 75, pinning opencode, capping agent mix schedulers (AIUR_AGENT_MIX_SCHEDULERS); scripts/setup installs mise and symlinks aiurdev.",
+   "modules": [
+    "scripts/aiurdev (~442 of 912: header, require_mise, ensure_pinned_opencode, deps/build/stamp/lock, release_ready, ensure_built*, pure_control_command, ensure_control_surface, build command, exec + retry)",
+    "scripts/setup (46)"
+   ],
+   "lib_loc": 488,
+   "test_loc": 942,
+   "entry_points": [
+    "scripts/aiurdev",
+    "aiurdev build",
+    "aiurdev build --deps",
+    "AIUR_SKIP_BUILD",
+    "AIUR_AGENT_MIX_SCHEDULERS"
+   ],
+   "docs": "website/docs-app/reference/cli.md (aiurdev section); AGENTS.md Layout/Running",
+   "usage": "heavy",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): `aiurdev` 1,960 executor and 327 agent invocations; `build` 45 executor + 19 agent; --deps 0. Human history: 2 `aiurdev build`, 1 stop, 1 --debug, 4 init.",
+   "recommendation": "simplify",
+   "rationale": "The operator's real launcher across all repos. The stamp/lock/retry machinery exists because a control command and a rebuild can race on one release directory.",
+   "loc_saving_estimate": 200,
+   "rewrite_notes": "Build to a versioned directory and switch a symlink atomically (no lock, no exit-75 retry); a plain `mix` task can replace most of the shim.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-43",
+   "name": "aiurdev checkout targeting (script-path vs cwd divergence refusal)",
+   "description": "Resolves the target checkout from the script path (following symlinks), and when cwd is inside a different aiur checkout refuses build/restart/run (exit 64) while letting control commands through without rebuilding; AIUR_REPO_ROOT overrides.",
+   "modules": [
+    "scripts/aiurdev (enclosing_aiur_checkout, effective_command, targets_release_deliberately, refuse_diverging_checkout, guard_checkout_target: ~150)"
+   ],
+   "lib_loc": 150,
+   "test_loc": 414,
+   "entry_points": [
+    "guard_checkout_target",
+    "AIUR_REPO_ROOT"
+   ],
+   "docs": "website/docs-app/reference/cli.md (Which checkout aiurdev targets)",
+   "usage": "heavy",
+   "usage_evidence": "Runs on every aiurdev invocation (1,960 executor + 327 agent). Added for #2362 (a rebuild shipped from a tree the operator never touched); memory notes \"aiurdev AIUR_REPO_ROOT hazard\" and \"aiurdev vs aiur\" record further incidents.",
+   "recommendation": "simplify",
+   "rationale": "The hazard comes from resolving the target from the script path; resolving it from cwd (like git or mix) removes the divergence case.",
+   "loc_saving_estimate": 100,
+   "surface": "cli"
+  },
+  {
+   "id": "cli-44",
+   "name": "aiurdev manual smoke harness: --test, --test3, --clear, --allow-remote, test3 timer and phases",
+   "description": "Dev-only flags: stop the keyed daemon, reset GitHub sandbox tickets (mix aiur.test.reset, subsystems-36), wait for the label index, optionally wipe ~/.aiur/logs, start a detached test3 wall-clock timer, and hand off to a foreground run; phases script extracts per-ticket timings.",
+   "modules": [
+    "scripts/aiurdev (flag loop, --clear, test reset, label settle, test3 timer launch: ~155)",
+    "scripts/aiur-test3-timer (103)",
+    "scripts/aiur-test3-phases (133)"
+   ],
+   "lib_loc": 391,
+   "test_loc": 91,
+   "entry_points": [
+    "aiurdev --test",
+    "aiurdev --test3",
+    "aiurdev --debug --clear",
+    "--allow-remote"
+   ],
+   "docs": "website/docs-app/reference/cli.md (aiurdev section); AGENTS.md Manual testing",
+   "usage": "rare",
+   "usage_evidence": "usage_scan.py (Executor + agent tool calls; method and window in coverage_notes): --test 9 agent (2026-08-09..08-17, 7 with --allow-remote) + 3 executor (last 2026-08-12); --test3 0; explicit --clear 0. AGENTS.md mandates `aiurdev --test` for manual testing, but no run since 2026-08-17 in the transcript window.",
+   "recommendation": "externalize",
+   "rationale": "A dev harness inside the product launcher; --test3 and its timer/phases were never used; agents are now blocked from running it at all.",
+   "loc_saving_estimate": 300,
+   "rewrite_notes": "Move the sandbox reset + smoke launch into a dev script next to the sandbox fixtures (subsystems-36); drop --test3, timer, phases and --clear.",
+   "surface": "cli"
+  },
+  {
+   "id": "cli-45",
+   "name": "aiurdev agent IR sandbox",
+   "description": "When aiurdev runs inside an agent workspace it redirects state, cookie, profiles, XDG dirs and logs into `<workspace>/.aiur-agent-ir` so an agent cannot address or clobber the operator's live daemon, and blocks --test/--test3 there.",
+   "modules": [
+    "scripts/aiurdev (in_agent_workspace_tree, agent_ir_port, enable_agent_ir_sandbox, apply_agent_ir_xdg_env, --test block: ~87)"
+   ],
+   "lib_loc": 87,
+   "test_loc": 236,
+   "entry_points": [
+    "AIUR_AGENT_IR_SANDBOX",
+    "AIUR_AGENT_IR_ROOT"
+   ],
+   "docs": "AGENTS.md Manual testing (agent workspaces blocked)",
+   "usage": "regular",
+   "usage_evidence": "Applies to every agent aiurdev call: usage_scan.py (Executor + agent tool calls; method and window in coverage_notes) counted 327 agent `aiurdev` invocations (e.g. build 19, --help 34, status 30, --test 9).",
+   "recommendation": "keep",
+   "rationale": "Cheap isolation that protects the live fleet from its own agents.",
+   "surface": "cli",
+   "loc_saving_estimate": 0
+  },
+  {
+   "id": "cli-46",
+   "name": "Launcher tmux configuration (two diverged copies) and Ctrl+C bridge",
+   "description": "share/aiur.tmux.conf is what the engine loads; scripts/aiur.tmux.conf is an older diverged copy (extra terminal-features line and C-q binding) read only by verify-ctrlc-binding.sh; aiur-pane-ctrlc bridges Ctrl+C in opencode panes.",
+   "modules": [
+    "packaging/npm/aiur-cli/share/aiur.tmux.conf (86)",
+    "scripts/aiur.tmux.conf (109)",
+    "scripts/aiur-pane-ctrlc (135)"
+   ],
+   "lib_loc": 330,
+   "test_loc": 95,
+   "entry_points": [
+    "resolve_tmux_conf",
+    "AIUR_TMUX_CONF",
+    "~/.config/aiur/tmux.conf"
+   ],
+   "docs": "website/docs-app/reference/cli.md; guide/tui (TUI)",
+   "usage": "regular",
+   "usage_evidence": "Loaded by every foreground/background session (40 run dirs 2026-09-15..09-26). `diff` of the two confs (comments stripped) shows divergence; grep finds scripts/aiur.tmux.conf referenced only by scripts/verify-ctrlc-binding.sh, a comment in pane_manager/anchor.ex, and executor-retrospective.sh.",
+   "recommendation": "merge",
+   "rationale": "Two copies of one config have already drifted, and the regression harness tests the copy the product does not load. Merge target: packaging/npm/aiur-cli/share/aiur.tmux.conf.",
+   "loc_saving_estimate": 109,
+   "rewrite_notes": "One conf; point verify-ctrlc-binding.sh at it (or drop it if the TUI surface cuts the opencode panes, integrations-11).",
+   "surface": "cli"
+  }
+ ]
+}

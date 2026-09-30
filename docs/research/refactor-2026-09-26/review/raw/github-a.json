@@ -1,0 +1,670 @@
+{
+  "unit_id": "github-a",
+  "files_reviewed": 39,
+  "lines_reviewed_estimate": 13900,
+  "coverage_notes": "Read IN FULL all 39 files in the unit (12,452 lines): ci_readiness (1148), config (1090), budget (915), dispatch_authorization (666), comment_poll_batch (595), auth_preflight (544), budget_map (510), code_owners (487), ci_poll_batch (476), client (388), app_token_refresher (366), cache_inspector (341), dependencies_api (314), credential_selector (299), credential_headroom (298), broker_timeout (295), connectivity (293), agent_cache_metrics (289), agent_cache (255), cache_inspector/entry (238), budget_ledger (234), comments (233), bounded_blocked_by (222), app_token (220), app_credentials (210), credential_registry (202), cache_history (191), delivered_pull_request (126), credential (121), bot_identity (116), credential_usage (114), agent_marker (107), agent_cache_bridge (104), cache_inspector/redactor (101), endpoint_policy (100), cache_inspector/resource_store_source (85), cycle_fetch_cache (83), cache_inspector/events (60), cache_inspector/source (16). Outside the unit I read only the slices needed to verify cross-module claims: transport.ex (bounded request, budget flow, pagination helpers, header/1), graphql_errors.ex rate-limit parsing, issues.ex authorize call sites, orchestrator/reconciler.ex revocation branch, orchestrator/dispatcher.ex CI-readiness integration, orchestrator/command_scan.ex since cursor, events/sanitizer.ex and codeowners.ex (Aiur.Codeowners) parser/agent_login, agent_runner/comment_context.ex, quota.ex caller naming and globs, claude/remote_control.ex and agent_resource_guard.ex pgrep walks, poll_snapshots.ex ci_contexts, config/schema/tracker.ex and github_credential.ex, aiur.ex supervision line, aiur_web/live/github_cache_live.ex load/refresh paths, website/docs-app/reference/configuration.md rows. Unit tests for these modules were grep-scanned (not read in full) for the known test bug families; specific test lines cited were read. One behaviour was verified empirically outside the snapshot: in a scratch dir, Path.wildcard(\"ws/*/.aiur-runtime/github-quota/agent-cache.tsv\") returned [] while the same call with match_dot: true returned the file (supports github-a-03). The snapshot has no src/priv, so the Python broker and the gh wrapper shell script were NOT reviewed; claims about the agent-cache.tsv row format rely on agent_github_guard_test.exs (6-column miss rows, coalesced rows). No builds, tests or daemon commands were run.",
+  "findings": [
+    {
+      "id": "github-a-01",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "CODEOWNERS team-resolution failure silently drops the team from dispatch trust, contradicting the moduledoc, and can revoke running agents",
+      "locations": [
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "36-42"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "181-238"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "455-486"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "479-490"},
+        {"path": "src/lib/aiur/github/dispatch_authorization.ex", "lines": "126-146"},
+        {"path": "src/lib/aiur/orchestrator/reconciler.ex", "lines": "521-532"}
+      ],
+      "description": "The moduledoc promises that resolution failures preserve the previous allowlist. The code does not. When GET /orgs/{org}/teams/{team}/members fails, resolve_team logs a warning and returns [], so the refreshed allowlist and state.codeowners lose every member of that team. When tracker.github.allowed_users is unset, Config.allowed_users/0 falls back to codeowners_snapshot. DispatchAuthorization then evaluates membership against the CURRENT allowlist on every call, including cached decisions. A label applier or prior triager who was only trusted through the team becomes a non-member, so the issue is denied (not deferred). Reconciler terminates running agents on a non-deferred denial. The only trace is Logger.warning, which is written nowhere without --debug. The state lasts until the next hourly refresh.",
+      "evidence": "Moduledoc code_owners.ex:39-42: \"Resolution failures preserve the previous allowlist rather than dropping to bot-only — transient API hiccups must not cause every event body to suddenly disappear.\" Code code_owners.ex:482-484: `{:error, reason} -> Logger.warning(\"CodeOwners: failed to resolve @#{org}/#{team}: ...\"); []`, then line 191 `new_allowlist = MapSet.union(resolved, trusted_set)` and line 199 `codeowners: resolved`. config.ex:486-488: `case normalize_logins(section_value(\"allowed_users\")) do [] -> codeowners_users()`. dispatch_authorization.ex:131-133: `member?(allowed_users, actor) -> ...; aiur_actor?(actor, opts) and not is_nil(triaged_by) -> ...; true -> {false, \"label_applier\"}`. reconciler.ex:521-532: `!DispatchPolicy.issue_dispatch_authorized?(issue) and not ...deferred?(issue) -> ... \"Issue dispatch authorization was revoked\" ... terminate_running_issue`.",
+      "recommendation": "Carry per-token resolution state. On a failed team lookup, keep that team's previously resolved members and mark the snapshot degraded. Raise a needs_attention alert (github.codeowners.team_unresolved) rather than Logger.warning. Separately, have DispatchAuthorization treat a degraded or unavailable CODEOWNERS-derived allowlist as {:deferred, :allowlist_unavailable}, never as a membership verdict.",
+      "refactor_hint": "Belongs to a github-trust package (CodeOwners + allowed_users + DispatchAuthorization). Decide at the carve boundary that trust sources return {:ok, set} | {:degraded, set} | :unavailable, not a bare list.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-02",
+      "category": "error-handling",
+      "severity": "P1",
+      "title": "A busy or absent CodeOwners GenServer turns allowed_users into []: every dispatch is denied and running agents can be revoked",
+      "locations": [
+        {"path": "src/lib/aiur/github/config.ex", "lines": "604-612"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "109-113"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "139-171"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "475-486"},
+        {"path": "src/lib/aiur/events/sanitizer.ex", "lines": "199-207"}
+      ],
+      "description": "CodeOwners.do_refresh makes synchronous, possibly paginated GitHub calls (Client.fetch_team_members, which goes through Budget admission and a 30s request deadline) inside handle_continue and handle_info(:refresh_tick). While it runs, every GenServer.call waits in the mailbox. That includes allowed?/2, which the events sanitizer calls per comment, and codeowners_snapshot/1, which GitHub.Config calls per dispatch authorization. Config.codeowners_users/0 catches the resulting exit (5s default call timeout) or a missing process and returns []. [] is a specific answer (\"nobody is allowed\"), not \"unavailable\". It feeds the same denial-then-revocation chain as github-a-01. The sanitizer treats the same exit as untrusted and drops comment bodies. A config reader that makes a blocking GenServer call is also a layering inversion (GitHub.Config -> CodeOwners -> GitHub.Config).",
+      "evidence": "config.ex:604-612: `defp codeowners_users do if Process.whereis(CodeOwners) do CodeOwners.codeowners_snapshot() else [] end catch :exit, _reason -> [] end`. code_owners.ex:111-113: `GenServer.call(server, :codeowners_snapshot)` (default 5000ms). code_owners.ex:140-143 and 168-171 run do_refresh in the server process; 478: `Client.fetch_team_members(org, team, opts)`. sanitizer.ex:199-207: `CodeOwners.allowed?(author) ... catch :exit, _ -> false`.",
+      "recommendation": "Publish the resolved allowlist and codeowners set to ETS or :persistent_term and read them without a call. Run team resolution in a Task and swap the result in on completion. Make Config.allowed_users return {:ok, list} | :unavailable so DispatchAuthorization defers instead of denying. Remove the GenServer dependency from the config module.",
+      "refactor_hint": "Removes a Config<->CodeOwners cycle, so github-config can be a pure leaf package and CodeOwners can move to a trust/events package.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-03",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "BudgetMap re-implements agent-cache.tsv discovery and parsing: its glob never matches in production and its parser has drifted from AgentCacheMetrics",
+      "locations": [
+        {"path": "src/lib/aiur/github/budget_map.ex", "lines": "291-322"},
+        {"path": "src/lib/aiur/github/budget_map.ex", "lines": "455-509"},
+        {"path": "src/lib/aiur/github/agent_cache_metrics.ex", "lines": "211-240"},
+        {"path": "src/lib/aiur/github/agent_cache_metrics.ex", "lines": "268-288"},
+        {"path": "src/lib/aiur/github/quota.ex", "lines": "993-999"},
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "223-237"},
+        {"path": "src/test/aiur/github/budget_map_test.exs", "lines": "219-235"}
+      ],
+      "description": "The same /github-cache page renders two agent-cache hit rates from two independent readers of the same files. (1) BudgetMap.agent_cache_files/0 calls Path.wildcard/1 without match_dot: true. Quota documents (#1805) that this matches nothing through the .aiur-runtime dot directory, and I verified it: the default call returns [] while match_dot: true finds the file. The BudgetMap agent-cache panel therefore always reports available?: false in production. (2) The parser has drifted. BudgetMap accepts exactly 5 columns and the actions hit/miss/store/refused. The writer emits 6-column miss rows with a reason and a coalesced action (AgentCacheMetrics accepts both; agent_github_guard_test asserts both). BudgetMap therefore undercounts misses and over-reports hit rate. It has no time window, reads only .tsv and .tsv.1, and has no read-byte cap. AgentCacheMetrics uses a 24h window, all rotated archives and an 8 MiB cap. (3) The test injects glob_fun and uses only 5-column rows, so the fixture cannot reach either defect.",
+      "evidence": "budget_map.ex:309-316: `root |> Path.expand() |> Layout.issue_workspace_path(\"__github_quota_probe__\") |> Path.dirname() |> Path.join(\"*/.aiur-runtime/github-quota/agent-cache.tsv\") |> Path.wildcard()`. agent_cache_metrics.ex:281: `|> Path.wildcard(match_dot: true)`. quota.ex:993-996: \"`match_dot: true` is mandatory ... without it `Path.wildcard/1` refuses to descend through a dot directory and silently matches nothing\". budget_map.ex:486: `[started_at, _consumer, action, _kind, _id] when action in [\"hit\", \"miss\", \"store\", \"refused\"]` vs agent_cache_metrics.ex:212-214: `[unix, consumer, \"miss\" = event, kind, id, reason] -> ...` and @events ~w(hit miss store coalesced). Test budget_map_test.exs:226: `glob_fun = fn -> [tsv] end`. Scratch run: default: [] / match_dot: [\"ws/123/.aiur-runtime/github-quota/agent-cache.tsv\"].",
+      "recommendation": "Delete BudgetMap.agent_cache/1, agent_cache_files/0, read_workspace_cache/1 and parse_agent_cache_row/1. Have the budget map read AgentCacheMetrics.snapshot() (the cached sampler), adding a per-workspace breakdown to AgentCacheMetrics if the page needs one. Extract the workspace-glob builder shared by Quota (x2), AgentCacheMetrics, BudgetMap and AlertFeed into one Layout helper that always passes match_dot: true.",
+      "refactor_hint": "Agent-cache metrics are part of the agent gh-wrapper contract (shell writer plus Elixir readers). Keep one reader in the same package as AgentCache and the wrapper, and let the dashboard consume it.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-04",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "fetch_classified_issue_comments reads only page 1 (oldest 100): agents silently lose the newest PR conversation comments",
+      "locations": [
+        {"path": "src/lib/aiur/github/comments.ex", "lines": "124-141"},
+        {"path": "src/lib/aiur/github/comments.ex", "lines": "89-122"},
+        {"path": "src/lib/aiur/github/transport.ex", "lines": "676-691"},
+        {"path": "src/lib/aiur/agent_runner/comment_context.ex", "lines": "63-70"},
+        {"path": "src/lib/aiur/agent_runner/comment_context.ex", "lines": "88-95"}
+      ],
+      "description": "Two readers of the same /issues/{n}/comments endpoint handle pagination in opposite ways. fetch_issue_comments_conditional drains every page, and its own comment explains that the list is oldest-first, so new comments land on the LAST page. fetch_classified_issue_comments issues one request with per_page=100 through Transport.fetch_json_list. That helper neither follows nor refuses a rel=next link (unlike fetch_json_list_conditional, which returns :pagination_unexpected). Agent comment context calls it with the PR number and then keeps only comments after the workpad cutoff. On a PR or issue with more than 100 conversation comments, the relevant (newest) comments are silently discarded and the call still returns {:ok, comments}. The function also ignores opts :token (require_token() with no opts), unlike its siblings.",
+      "evidence": "comments.ex:131: `url = \".../issues/#{issue_number}/comments?per_page=100\"`; 133: `Transport.fetch_json_list(request_fun, token, url, caller: \"classified_issue_comments\")`. comments.ex:103-110 (the conditional reader): \"An issue's own comment list is oldest-first, so a new comment lands on the LAST page\" -> conditional_stream_pages drains the next pages. transport.ex:680-682: `{:ok, %{status: 200, body: body}} when is_list(body) -> {:ok, body}` (no Link check). comment_context.ex:66: `fn -> fetchers.issue_comments.(pr_number) end` then `comments_after_workpad(cutoff)`.",
+      "recommendation": "Route fetch_classified_issue_comments through a single paginated issue-comments reader (the one fetch_issue_comments_conditional already uses) and classify the drained list. Make Transport.fetch_json_list refuse a response carrying rel=next (as the conditional variant does) so no other caller can truncate silently.",
+      "refactor_hint": "Comments and issue reads belong to the github-rest client package. One paginated list primitive in Transport should own truncation policy (see github-a-16).",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-05",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "The OS process-tree walk and kill is copied in three places, and one copy keeps the String.to_integer bug that Config.kill_os_process documents fixing",
+      "locations": [
+        {"path": "src/lib/aiur/github/config.ex", "lines": "841-989"},
+        {"path": "src/lib/aiur/claude/remote_control.ex", "lines": "427-440"},
+        {"path": "src/lib/aiur/agent_resource_guard.ex", "lines": "136-160"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "606-622"}
+      ],
+      "description": "GitHub.Config (a configuration module) contains about 150 lines of OS process management: a recursive pgrep -P walk, TERM-then-KILL of every descendant, and a shell fallback for a missing kill binary. Its comments describe a shipped regression: parsing pgrep's stderr-merged output with String.to_integer/1 raised on a non-numeric byte, and the rescue swallowed the whole kill. Config fixed that locally with Integer.parse. The copy in Claude.RemoteControl.collect_descendants still uses String.to_integer on the same stderr_to_stdout pgrep output. AgentResourceGuard has a third copy (defensive, but with no kill sequencing). Budget.terminate_port has a fourth, pid-only kill.",
+      "evidence": "config.ex:874-882: \"the walk parsed pgrep's (stderr-merged) output with `String.to_integer/1`. A single non-numeric byte on that stream raised ... and NO signal was sent at all\"; config.ex:978-987 parse_pids uses Integer.parse. remote_control.ex:434-435: `case System.cmd(pgrep, [\"-P\", Integer.to_string(pid)], stderr_to_stdout: true) do {out, 0} -> out |> String.split() |> Enum.map(&String.to_integer/1)`. agent_resource_guard.ex:136-160: separate `children/1` + `parse_pid_list/1`. budget.ex:608: `System.cmd(\"kill\", [\"-KILL\", Integer.to_string(os_pid)], stderr_to_stdout: true)`.",
+      "recommendation": "Extract an Aiur.OsProcessTree module (descendants/2 with defensive parsing, signal_tree/3 with walk-before-TERM, re-walk, then KILL, never process groups) and replace all four call sites. Move the keyring shell-out itself out of GitHub.Config into Aiur.GitHub.KeyringToken.",
+      "refactor_hint": "OsProcessTree is a platform-level utility (an aiur_os or aiur_core package). GitHub config should not depend on process management at all.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-06",
+      "category": "coupling",
+      "severity": "P1",
+      "title": "The GitHub.Client facade depends on BuildOrder (a package cycle) and carries more than 10 pass-through delegates with no production caller",
+      "locations": [
+        {"path": "src/lib/aiur/github/client.ex", "lines": "1-40"},
+        {"path": "src/lib/aiur/github/client.ex", "lines": "89-97"},
+        {"path": "src/lib/aiur/github/client.ex", "lines": "155-168"},
+        {"path": "src/lib/aiur/github/client.ex", "lines": "248-262"},
+        {"path": "src/lib/aiur/github/client.ex", "lines": "276-284"},
+        {"path": "src/lib/aiur/github/client.ex", "lines": "326-334"}
+      ],
+      "description": "Client is a 388-line module with 53 public functions, almost all one-line delegates into 16 aliased modules. It aliases Aiur.BuildOrder.GitHubGraph (fetch_build_order_catalog/selected_root), and BuildOrder.GitHubGraph aliases Aiur.GitHub.Transport. That creates a github <-> build_order dependency cycle that will block splitting them into packages. The BuildOrder delegates are called only from tests. Other delegates have no lib caller (checked via direct calls, Tracker.client_module() dynamic dispatch and GitHubClient aliases): fetch_recent_repo_review_comments/1, fetch_recent_repo_issue_comments/1, fetch_pull_request_changed_paths/2, fetch_pull_request_review_comments/2, fetch_pull_request_head_ref/2, fetch_pull_request_head_ref_conditional/2, fetch_open_pull_request_conditional/2, fetch_build_order_catalog/1, fetch_build_order_selected_root/2. Client is also dispatched dynamically through Application.get_env(:aiur, :github_client_module) in tracker.ex, human_review.ex and rework_gate.ex, so the facade doubles as an untyped mock seam.",
+      "evidence": "client.ex:6: `alias Aiur.{BuildOrder.GitHubGraph, BuildOrder.ProviderResult, Issue, TrackerIdentity}`; client.ex:92: `def fetch_build_order_catalog(opts \\\\ []), do: GitHubGraph.fetch_catalog(opts)`; build_order/github_graph.ex:5: `alias Aiur.GitHub.Transport`. `grep -c '  def ' client.ex` = 53. Lib callers of fetch_build_order_catalog / fetch_pull_request_head_ref_conditional / fetch_open_pull_request_conditional = 0 (tests: github_client_test.exs:2187, github_graph_test.exs:1450,1469).",
+      "recommendation": "Delete the BuildOrder delegates (tests call GitHubGraph directly) and the other unused delegates. Replace the Client facade plus Application.get_env mock seam with a Tracker-side behaviour (the Aiur.Tracker callbacks already exist) implemented by domain modules. Callers alias the domain module they need (Issues, PullRequests, Comments, ReviewThreads).",
+      "refactor_hint": "Required before carving github and build_order into separate packages. build_order should depend on github, never the reverse.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-07",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "CODEOWNERS is parsed by two modules with different grammars, and team members are fetched by two implementations",
+      "locations": [
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "399-453"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "462-486"},
+        {"path": "src/lib/aiur/codeowners.ex", "lines": "340-375"},
+        {"path": "src/lib/aiur/codeowners.ex", "lines": "428-445"},
+        {"path": "src/lib/aiur/github/teams.ex", "lines": "17-42"}
+      ],
+      "description": "Aiur.GitHub.CodeOwners (the allowlist GenServer) and Aiur.Codeowners (comment classification) both read and tokenise the CODEOWNERS file, and the grammars differ. Aiur.Codeowners drops trailing inline # comments (take_while not \"#\") and ignores rules with ! or [ patterns. GitHub.CodeOwners requires every token after the pattern to contain \"@\", so any line with a trailing comment (\"* @alice # lead\") makes the WHOLE file {:unparseable, line}. That is degraded mode: the allowlist becomes trusted accounts only and a warning alert fires. The same file is thus valid for comment classification and invalid for comment trust. Team expansion is also duplicated: GitHub.CodeOwners goes through Client -> Teams (paginated), while Aiur.Codeowners has its own unpaginated copy, which its own comment admits.",
+      "evidence": "code_owners.ex:424-431: `tokens = String.split(line, ~r/..s+/, trim: true) ... [_pattern | owners] -> Enum.all?(owners, &valid_owner_token?/1)`; 439-440: `defp valid_owner_token?(\"@\" <> rest), do: rest != \"\"; defp valid_owner_token?(token), do: String.contains?(token, \"@\")`. codeowners.ex:357-360: `line |> String.split(...) |> Enum.take_while(&(not String.starts_with?(&1, \"#\")))`. codeowners.ex:428: \"# #2298 item 7: this is a second, unpaginated copy of `Teams.fetch_team_members/3`\".",
+      "recommendation": "Make one CODEOWNERS parser (a pure module returning rules plus diagnostics) the source for both the allowlist and ownership classification. Delete the unpaginated team fetch in Aiur.Codeowners and use Teams. Rename to make the split obvious (e.g. Aiur.GitHub.CodeOwners.Allowlist vs Aiur.GitHub.CodeOwners.Ownership).",
+      "refactor_hint": "Both belong in the same github-trust package; today they live in different namespaces (Aiur.Codeowners vs Aiur.GitHub.CodeOwners) and would likely be carved apart.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-08",
+      "category": "duplication",
+      "severity": "P1",
+      "title": "GitHub login normalisation is repeated in about 11 places with divergent case handling; BotIdentity.agent_login? is case-sensitive while its twin is not",
+      "locations": [
+        {"path": "src/lib/aiur/github/config.ex", "lines": "413-420"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "446-452"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "459-477"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "507-518"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "593-602"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "333-340"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "380-392"},
+        {"path": "src/lib/aiur/github/dispatch_authorization.ex", "lines": "195-210"},
+        {"path": "src/lib/aiur/github/dispatch_authorization.ex", "lines": "585-593"},
+        {"path": "src/lib/aiur/github/bot_identity.ex", "lines": "70-115"},
+        {"path": "src/lib/aiur/codeowners.ex", "lines": "594-599"}
+      ],
+      "description": "The question \"is this login one of ours / allowed\" is answered by hand-rolled trim, downcase and uniq code at each site. The sites disagree: Config.trusted_accounts and normalize_logins preserve case (uniq_by downcase). CodeOwners downcases into a MapSet. DispatchAuthorization.allowed_users downcases but does not trim, while member?/2 trims. BotIdentity.codeowners_classification_opts trims but never downcases, and agent_login?/2 uses exact Enum.member?. Aiur.Codeowners.agent_login? downcases. So BotIdentity.agent_login?(\"aiur-bot\", bot_account: \"Aiur-Bot\") is false while the Codeowners twin answers true. Config.ex:448 claims \"Case-insensitive, matching every consumer of bot_account\". The same trim/reject-empty/uniq pipeline is copy-pasted twice inside config.ex alone (trusted_accounts vs normalize_logins).",
+      "evidence": "bot_identity.ex:107-111 (file lines): `opts |> codeowners_classification_opts() |> Keyword.get(:agent_logins, []) |> Enum.member?(login)`; codeowners.ex:594-599: `normalized_member?(commenter, agent_logins)` / `defp normalize_login(login) when is_binary(login), do: String.downcase(login)`. dispatch_authorization.ex:586-588: `|> Keyword.get(:allowed_users, Config.allowed_users()) |> Enum.map(&String.downcase/1)`. config.ex:448-449: \"Case-insensitive, matching every consumer of bot_account\". review_threads.ex:266-270 consumes BotIdentity.agent_login?.",
+      "recommendation": "Introduce Aiur.GitHub.Login with normalize/1 (trim, strip leading @, downcase, nil for blank), normalize_set/1 and member?/2. Replace all listed sites, and make BotIdentity.agent_login? and every allowlist compare through it. Add one property test asserting that case and whitespace variants are equivalent for every trust predicate.",
+      "refactor_hint": "A tiny leaf module in the github-core package that trust, identity and review-thread code all depend on.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-09",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "CIPollBatch and CommentPollBatch duplicate branch-candidate discovery, GraphQL alias building and PR-node normalisation, and their overflow semantics have already diverged",
+      "locations": [
+        {"path": "src/lib/aiur/github/comment_poll_batch.ex", "lines": "70-121"},
+        {"path": "src/lib/aiur/github/comment_poll_batch.ex", "lines": "193-229"},
+        {"path": "src/lib/aiur/github/comment_poll_batch.ex", "lines": "362-373"},
+        {"path": "src/lib/aiur/github/comment_poll_batch.ex", "lines": "442-476"},
+        {"path": "src/lib/aiur/github/comment_poll_batch.ex", "lines": "539-568"},
+        {"path": "src/lib/aiur/github/ci_poll_batch.ex", "lines": "9-57"},
+        {"path": "src/lib/aiur/github/ci_poll_batch.ex", "lines": "155-192"},
+        {"path": "src/lib/aiur/github/ci_poll_batch.ex", "lines": "233-240"},
+        {"path": "src/lib/aiur/github/ci_poll_batch.ex", "lines": "273-275"},
+        {"path": "src/lib/aiur/github/ci_poll_batch.ex", "lines": "296-343"},
+        {"path": "src/lib/aiur/github/ci_poll_batch.ex", "lines": "374-391"}
+      ],
+      "description": "Byte-identical private copies exist in both files: branch_target_entry/2, guessed_branches/2, known_branch/2, open_pull_request_head_ref/2 (2 clauses), escape_graphql_string/1 and open_pull_request_node?/1, plus the same @pull_requests_per_branch 2 constant and a roughly 40-line rationale comment repeated almost verbatim. The branch-alias GraphQL string, candidate-connection lookup and GraphQL-to-REST PR normalisation (\"head\" => %{\"ref\",\"sha\"}, \"base\" => %{\"ref\"}, downcased state) are near-copies. The divergence is real. CommentPollBatch answers :unknown if ANY candidate connection overflowed. CIPollBatch checks hasNextPage only on the chosen (first non-empty, else first) connection, so the two batches can answer the same target differently. The normalised PR payloads also carry different field sets (draft/review_decision/head_committed_at vs merge_queue). Branch names are interpolated into the GraphQL document with a hand-rolled escaper instead of being passed as variables.",
+      "evidence": "comment_poll_batch.ex:204-212 and ci_poll_batch.ex:167-175 are identical `guessed_branches/2`; comment_poll_batch.ex:371-373 == ci_poll_batch.ex:273-275 `escape_graphql_string`; comment_poll_batch.ex:458-470 `Enum.any?(connections, &(get_in(&1, [\"pageInfo\", \"hasNextPage\"]) == true)) -> :unknown` vs ci_poll_batch.ex:323-331 checks only `Map.get(connection, \"pageInfo\")` of the selected connection.",
+      "recommendation": "Extract Aiur.GitHub.PullRequestDiscovery with target_entries/4 (delivered number / known branch / guessed branches), aliases/3 (with GraphQL variables for headRefName), resolve/3 (one overflow policy) and normalize_node/2 (one base shape, with callers adding their extra fields). Both batches then own only their field selection and post-processing.",
+      "refactor_hint": "Poll batches plus discovery form a github-poll package. Deciding one overflow policy is a behaviour change and needs its own test.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-10",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Every metered GitHub request forks at least two python3 processes synchronously in the calling process (acquire and release, plus reconcile or hold)",
+      "locations": [
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "155-199"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "259-274"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "498-582"},
+        {"path": "src/lib/aiur/github/transport.ex", "lines": "181-205"},
+        {"path": "src/lib/aiur/github/credential_selector.ex", "lines": "33-40"}
+      ],
+      "description": "Budget.acquire, release, the 304 reconcile, hold and the disagreement meter each call command/3. That spawns a fresh python3 interpreter via Port.open against priv/github_budget.py and SQLite. Transport.budget_request runs acquire before the request and release in the after block on the CALLER's process (often an orchestrator or poller GenServer), with a 1.5s admission deadline and Process.sleep retries. CredentialSelector's own moduledoc rejects exactly this cost for usage/1 (\"would trade an API-budget problem for a fork-per-request problem\"), yet the request path already pays it twice per request. Each call is also another place a slow host turns into github_budget_broker_timeout (see BrokerTimeout).",
+      "evidence": "budget.ex:529: `case port_command(python, command_args, command_deadline(opts)) do`; 575-579: `Port.open({:spawn_executable, String.to_charlist(executable)}, [...])`. transport.ex:182-201: `Budget.acquire(request, timeout_ms: min(deadline_ms, @budget_admission_timeout_ms), ...)` ... `after Budget.release(lease, deadline_at: deadline_at_ms)`. credential_selector.ex:35-38: \"`Aiur.GitHub.Budget.usage/1` spawns a Python process against SQLite; running that per request would trade an API-budget problem for a fork-per-request problem.\"",
+      "recommendation": "Run the broker as one long-lived port (a line protocol over stdin/stdout) owned by a supervised Budget.Broker process, or move daemon-side admission into Elixir (Exqlite is already a dependency; BudgetLedger uses it) and keep python only for the shell wrapper. Make release asynchronous (cast) so it does not extend the caller's deadline. Measure calls per hour before and after using the ledger.",
+      "refactor_hint": "A budget-broker package boundary: one Broker client API (acquire/observe/release/usage) with a pluggable backend (port, in-VM SQLite) shared by the daemon and the wrapper contract.",
+      "effort": "L"
+    },
+    {
+      "id": "github-a-11",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "Budget (915 lines) mixes broker process management, settings resolution, response observation and alerting; its settings defaults duplicate the config schema",
+      "locations": [
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "18-48"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "644-709"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "733-852"},
+        {"path": "src/lib/aiur/config/schema/tracker.ex", "lines": "12-21"},
+        {"path": "src/lib/aiur/github/broker_timeout.ex", "lines": "282-294"}
+      ],
+      "description": "Budget holds at least five responsibilities: (a) the Port/guardian/kill machinery for the python broker (542-640), (b) settings resolution with 11 near-identical positive/nonnegative(Keyword.get(opts, k, Map.get(github, k, @default_k)), @default_k) stanzas (settings/1 is 51 lines), (c) admission retry and hold parsing, (d) response observation and rate-limit hold derivation with its own header parsing, (e) meter-disagreement alerting via CredentialHeadroom (a Budget <-> CredentialHeadroom call cycle). All ten @default_* budget constants are duplicated in Config.Schema.Tracker, while BrokerTimeout reads its defaults from the schema struct (\"keeps one source of truth\"), so the codebase uses both approaches.",
+      "evidence": "budget.ex:20-23 and 43-48 (`@default_max_inflight 4`, `@default_daemon_graphql_limit_per_hour 4500`, ...) vs schema/tracker.ex:12-21 (the same ten values). budget.ex:663-692: five repeated `nonnegative(Keyword.get(opts, :x_limit_per_hour, Map.get(github, :x_limit_per_hour, @default_x_limit_per_hour)), @default_x_limit_per_hour)` blocks. broker_timeout.ex:294: `defp schema_default(field), do: AgentConfig |> struct!() |> Map.fetch!(field)`.",
+      "recommendation": "Split into Budget.Broker (port and command transport), Budget.Settings (table-driven: one list of {key, kind} reading defaults from struct!(Schema.Tracker.Github)), Budget.Admission (acquire/retry/hold), and Budget.Observer (response -> holds). Move token_key/identity_key/request_resource into a small leaf (e.g. Budget.Keys or EndpointPolicy) to break the Budget <-> CredentialHeadroom cycle.",
+      "refactor_hint": "Aligns with the budget-broker package in github-a-10. Leaf key helpers let Credential, CredentialSelector and CredentialHeadroom depend on the leaf rather than on Budget.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-12",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "GitHub.Config (1090 lines) is a grab bag on the per-request hot path: repo resolution, token resolution, keyring shell-out plus process killing, identity, allowlists, PR watch/health settings, and a /rate_limit probe",
+      "locations": [
+        {"path": "src/lib/aiur/github/config.ex", "lines": "16-195"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "197-307"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "336-518"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "520-568"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "621-996"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "998-1080"}
+      ],
+      "description": "Config.token/0 is called on every GitHub request, yet the same module owns about 375 lines of keyring shell-out, Task bounding, pgrep walking and kill signalling (621-996), plus a separate /rate_limit validity probe with its own header parsing (998-1080) that bypasses Transport and Budget. The module also exposes pr_watch/pr_health accessors that read non-GitHub settings (Aiur.Config.settings!().pr_watch/.pr_health), and its allowed_users fallback calls the CodeOwners GenServer (github-a-02). Many functions route through section_value/1 -> Aiur.Config.settings!(), which raises when config is unavailable, so callers such as CredentialRegistry and AppTokenRefresher wrap it in rescue/catch.",
+      "evidence": "wc -l config.ex = 1090. Sections: repo/origin resolution 16-195; token/keyring resolution 197-307; identity + allowlists 336-518; `def pr_watch_enabled? do Aiur.Config.settings!().pr_watch.enabled end` 524-527; keyring + kill 621-996; `valid_github_token?/2` using `request_fun.(\"https://api.github.com/rate_limit\", ...)` with Req.get default 1002-1022.",
+      "recommendation": "Split into GitHub.Config (typed section accessors only), GitHub.RepoResolution (explicit vs origin, diagnostic), GitHub.TokenResolution (App vs PAT vs keyring, cached), GitHub.KeyringToken (bounded gh auth token, using OsProcessTree from github-a-05), and GitHub.Identity (bot/app/daemon/identity_mode). Move pr_watch/pr_health accessors to the orchestrator's config. Validate tokens through Transport with AppToken.rate_limit_usable?/2 (one probe).",
+      "refactor_hint": "GitHub.Config should become a dependency-free leaf of the github-core package. Token resolution and keyring depend on HostCommand and process utilities, and belong in a github-auth package.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-13",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "CiReadiness (1148 lines) combines HTTP inspection, a GitHub Actions workflow and matrix interpreter, ruleset evaluation, a two-tier cache and operator copy, and re-implements Transport's bounded request",
+      "locations": [
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "106-347"},
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "349-389"},
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "579-630"},
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "721-766"},
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "850-1094"},
+        {"path": "src/lib/aiur/github/transport.ex", "lines": "237-300"}
+      ],
+      "description": "Responsibilities: (1) cache and persistence of assessments in :persistent_term plus a JSON file, with fingerprint, TTL and encode/decode (106-347); (2) its own spawn_monitor deadline wrapper, await_request_result, around a request_fun that already goes through Transport.off_process_request with request :timeout_ms. That is a second, weaker bound: not linked to the caller, and it drops $callers and logger metadata. (3) Two copy-paste paginators (workflow states and rulesets) differing only in URL prefix and error atoms. (4) A pure interpreter for Actions YAML: triggers, branch globs, matrix include/exclude expansion and job if-conditions (850-1094). (5) Token-type-specific operator guidance text. glob_matches?/2 compiles a Regex on every call.",
+      "evidence": "ci_readiness.ex:367-389 `spawn_monitor(fn -> send(parent, {result_ref, request_fun.(Map.put(request, :timeout_ms, remaining_ms))}) end) ... after remaining_ms -> Process.exit(pid, :kill)`; transport.ex:470-471 already honours `Map.get(request, :timeout_ms, ...)`. ci_readiness.ex:579-630 and 721-766 are structurally identical (pages_left, seen, next-url prefix check). 910: `Regex.match?(Regex.compile!(\"^#{regex}$\"), branch)`.",
+      "recommendation": "Split into CiReadiness (orchestration and result type), CiReadiness.WorkflowAnalyzer (pure YAML semantics, highly testable), CiReadiness.Rulesets, CiReadiness.AssessmentStore (memory plus file cache) and CiReadiness.Messages. Delete bounded_request_fun/await_request_result and pass timeout_ms/deadline through Transport. Use one Transport paginator (github-a-16).",
+      "refactor_hint": "CI readiness is init-time and dispatch-gate functionality. WorkflowAnalyzer has no GitHub dependency and can live in a pure package.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-14",
+      "category": "anti-pattern",
+      "severity": "P2",
+      "title": "DispatchAuthorization rewrites a 1000-entry :persistent_term map on every new decision and lazily creates a named public ETS table owned by whichever process calls first",
+      "locations": [
+        {"path": "src/lib/aiur/github/dispatch_authorization.ex", "lines": "9-17"},
+        {"path": "src/lib/aiur/github/dispatch_authorization.ex", "lines": "405-433"},
+        {"path": "src/lib/aiur/github/dispatch_authorization.ex", "lines": "546-635"}
+      ],
+      "description": "The module comment says only small caches stay in :persistent_term, because each put triggers a global literal-area GC scan. But cache_decision puts a map holding up to 1000 fingerprints and decisions (each decision carries a list of prefix appliers) every time a timeline is evaluated, i.e. on every issue whose updated_at moved. maybe_alert_once rewrites the same term. At 1000 entries the whole cache is dropped at once. The timeline ETS table is created on first use by whatever process calls authorize (the orchestrator, an RPC handler in agent_control_cli, decision_revision_dispatch, ...). If that process is short-lived, the table and its held ETags vanish with it. Two first callers racing between :ets.whereis and :ets.new raise ArgumentError (named table exists) inside issue normalisation. The same lazy-owner pattern appears in opencode/active_turns.ex:173, orchestrator/snapshot_publisher.ex:136, opencode/token_registry.ex:128, orchestrator/tracked_set.ex:109 and workflow_store/cache.ex:36.",
+      "evidence": "dispatch_authorization.ex:10-15: \"Only the small fingerprint/decision/alert caches stay in `:persistent_term`\"; 574-580: `:persistent_term.put(@cache_key, if(map_size(updated.decisions) > @max_cache_entries, do: %{fingerprints: %{}, decisions: %{}, alerted: %{}}, else: updated))`; 428-432: `case :ets.whereis(@timeline_table) do :undefined -> :ets.new(@timeline_table, [:named_table, :public, :set, read_concurrency: true])`. Callers: issues.ex:943 via Tracker.fetch_* from agent_control_cli.ex:1101-1102, issue_context.ex:59, decision_revision_dispatch.ex:200.",
+      "recommendation": "Create both caches in init/1 of a supervised owner (e.g. a DispatchAuthorization.Cache GenServer that owns an ETS table with a bounded LRU by insertion time) and keep decisions and alerts in ETS, not :persistent_term. Replace the wholesale reset with per-entry eviction. Apply the same fix to the other lazily created named tables.",
+      "refactor_hint": "Caches owned by a supervised process are carve-friendly: each package declares its own owner in its supervision tree instead of relying on first-caller ownership.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-15",
+      "category": "error-handling",
+      "severity": "P2",
+      "title": "Dispatch-authorization causes are collapsed: every non-transport failure is labelled \"transient\", and a missing token becomes a provenance denial that revokes agents",
+      "locations": [
+        {"path": "src/lib/aiur/github/dispatch_authorization.ex", "lines": "150-184"},
+        {"path": "src/lib/aiur/github/dispatch_authorization.ex", "lines": "212-238"},
+        {"path": "src/lib/aiur/github/dispatch_authorization.ex", "lines": "360-368"}
+      ],
+      "description": "deferral_cause/1 maps everything other than truncation or the page limit to \"transient\" (`_reason -> \"transient\"`). That includes permanent responses: timeline 403/404/410 (`{:timeline_fetch_failed, ...}`), `:timeline_unexpected_304` from a proxy, and `:invalid_timeline_response`. Such a ticket is deferred on every cycle with only Logger.warning and no alert, so it is never dispatched and nothing surfaces it. This is the AGENTS.md rule 2 anti-pattern: collapsing to a specific cause rather than :unknown. Conversely, a missing token is a \"could not check\" condition, yet fetch_decision returns {:ambiguous, :missing_github_token}. That becomes :denied, which Reconciler treats as revoked (terminating running agents), and it raises one needs_attention alert per issue.",
+      "evidence": "dispatch_authorization.ex:177-179: `defp deferral_cause({:timeline_truncated, _per_page}), do: \"transport_limit\"; ...(:timeline_page_limit_exceeded)...; defp deferral_cause(_reason), do: \"transient\"`; 181-184: only transport_limit alerts. 236-237: `else {:ambiguous, :missing_github_token}`; 148: `apply_label_decision({:ambiguous, reason}, ...) -> deny_ambiguous(issue, reason)`; 607: `dispatch_authorization: :denied`.",
+      "recommendation": "Classify deferrals as transport_limit | rate_limited | transient_network | permanent_http | unknown, and alert with dwell on anything other than transient_network and rate_limited. Return {:deferred, :missing_github_token} instead of :ambiguous. Keep :denied strictly for verdicts derived from a fetched timeline.",
+      "refactor_hint": "Model the result type explicitly (a verified / denied / deferred struct with a cause enum) at the github-trust package boundary, so Reconciler cannot mistake infrastructure failures for provenance.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-16",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Link-header pagination is re-implemented in about 7 places with divergent safety (page cap, cycle detection, origin check); DependenciesApi does not paginate at all",
+      "locations": [
+        {"path": "src/lib/aiur/github/comments.ex", "lines": "150-169"},
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "579-630"},
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "721-766"},
+        {"path": "src/lib/aiur/github/dispatch_authorization.ex", "lines": "326-354"},
+        {"path": "src/lib/aiur/github/teams.ex", "lines": "27-42"},
+        {"path": "src/lib/aiur/github/dependencies_api.ex", "lines": "59-87"},
+        {"path": "src/lib/aiur/github/dependencies_api.ex", "lines": "100-108"},
+        {"path": "src/lib/aiur/github/transport.ex", "lines": "676-691"}
+      ],
+      "description": "The implementations differ. CiReadiness has a page cap (20), cycle detection (seen list) and a same-origin prefix check. DispatchAuthorization has a page budget but no cycle or origin check. Comments.fetch_repo_comment_stream and Teams.fetch_member_logins have no cap, no cycle check and no origin check, and accumulate with acc ++ body (quadratic). Transport.fetch_json_list silently takes page 1 (github-a-04). The DependenciesApi blocked_by and blocking GETs send no per_page and never follow Link, so they return at most GitHub's default of 30 entries. An issue blocked by more than 30 issues is gated on a truncated list, and the store caches that truncated list as the full answer. parse_next_page_url is called at 22 sites across 10 files.",
+      "evidence": "comments.ex:156-158: `next = Transport.parse_next_page_url(headers); fetch_repo_comment_stream(request_fun, token, next, acc ++ body)` (no bound). ci_readiness.ex:581: `(_, _, _, _, 0, _, _), do: {:error, :workflow_pagination_limit}` and 584-585 `if url in seen do {:error, :workflow_pagination_cycle}`. dependencies_api.ex:105: `url = \".../issues/#{issue_number}/dependencies/blocked_by\"` (no per_page, no Link follow). `grep parse_next_page_url src/lib` -> 22 call sites in 10 files.",
+      "recommendation": "Add one Transport.paginate(request_fun, request, max_pages:, same_origin?: true) returning {:ok, list, meta} | {:error, :pagination_limit | :pagination_cycle | ...} with iodata/reverse accumulation, and migrate every call site. Give dependency reads per_page=100 and pagination. Where a page-1 ETag is used, have the helper report single_page? so callers stop re-deriving it.",
+      "refactor_hint": "A single pagination primitive in the github-transport package. Every domain module then depends on it rather than on raw Link parsing.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-17",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "x-ratelimit-* header parsing is implemented four or five times with different strictness, and there are two separate token-usability probes",
+      "locations": [
+        {"path": "src/lib/aiur/github/config.ex", "lines": "998-1080"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "787-852"},
+        {"path": "src/lib/aiur/github/credential_headroom.ex", "lines": "267-297"},
+        {"path": "src/lib/aiur/github/graphql_errors.ex", "lines": "42-51"},
+        {"path": "src/lib/aiur/github/app_token.ex", "lines": "129-148"}
+      ],
+      "description": "Remaining, limit and reset are parsed by: Config.header_remaining/body_remaining/parse_integer (lenient Integer.parse, keeping the rest, plus list-and-map header forms re-implemented despite Transport.header/2 existing); Budget.remaining/parse_integer (strict {int, \"\"}) and nonnegative_parse; CredentialHeadroom.integer_header (lenient); and GraphQLErrors.rate_limit_remaining (canonical, re-exported as Errors.rate_limit_remaining). A header like \"5000 \" parses in some and not others. Separately, AppToken.rate_limit_usable?/2 (through request_fun/Transport) and Config.valid_github_token?/2 (Req.get against a hard-coded URL, bypassing Transport, Budget and Quota attribution) are two implementations of \"is this token usable\". AppToken's doc says it \"Mirrors the daemon's existing PAT posture (#678) exactly\".",
+      "evidence": "config.ex:1037-1057 hand-rolls header lookup for list and map headers; 1073-1076: `case Integer.parse(value) do {integer, _rest} -> integer`. budget.ex:847-851: `case Integer.parse(value) do {integer, \"\"} -> integer; _invalid -> nil`. credential_headroom.ex:289-291: `case Integer.parse(value) do {integer, _rest} -> integer`. config.ex:1004: `request_fun.(\"https://api.github.com/rate_limit\", headers: [...])` with request_fun defaulting to `&Req.get/2` (253).",
+      "recommendation": "Create Aiur.GitHub.RateLimitHeaders.parse(response) -> %{limit, remaining, used, reset_at, resource} using Transport.header/2 with one integer policy, used by Budget, CredentialHeadroom, Quota, Config and GraphQLErrors. Delete Config.valid_github_token? and validate PAT candidates with AppToken.rate_limit_usable?/2 (renamed TokenProbe.usable?/2) through Transport.",
+      "refactor_hint": "A leaf in the github-transport package. It also removes the only direct Req dependency outside Transport in this unit.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-18",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "The rate-limit pool vocabulary is duplicated in 6 lists, and CredentialHeadroom still attributes unmodelled pools to the request's resource (the #2409 misattribution Budget fixed)",
+      "locations": [
+        {"path": "src/lib/aiur/github/credential_headroom.ex", "lines": "31"},
+        {"path": "src/lib/aiur/github/credential_headroom.ex", "lines": "248-265"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "357-374"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "811-825"},
+        {"path": "src/lib/aiur/github/credential_usage.ex", "lines": "27"},
+        {"path": "src/lib/aiur/github/budget_map.ex", "lines": "57"},
+        {"path": "src/lib/aiur/github/endpoint_policy.ex", "lines": "42"}
+      ],
+      "description": "The resource lists disagree: [\"core\",\"graphql\",\"search\"] in Budget (twice), [\"core\",\"graphql\"] in CredentialHeadroom and CredentialUsage, [\"graphql\",\"core\"] in BudgetMap, and [\"core\",\"graphql\",\"search\",\"none\"] in EndpointPolicy. Budget.response_resource returns nil for a header naming a pool it does not model (integration_manifest, code_scanning_upload, ...) and skips the hold, per #2409. CredentialHeadroom.resource/2 instead falls back to Budget.request_resource(request) for any unrecognised header. A response from another pool on a /repos/... URL is therefore recorded as the credential's CORE window, and CredentialSelector will then bench that credential as :blocked on remaining == 0. Search windows are never recorded because \"search\" is not in its list.",
+      "evidence": "budget.ex:819-824: `case Transport.header(headers, \"x-ratelimit-resource\") do resource when resource in [\"core\", \"graphql\", \"search\"] -> resource; nil -> request_resource(request); _other_pool -> nil end` vs credential_headroom.ex:260-264: `case Transport.header(headers, \"x-ratelimit-resource\") do resource when resource in @resources -> resource; _other -> Budget.request_resource(request) end` with `@resources [\"core\", \"graphql\"]` (31).",
+      "recommendation": "Put the pool list and the header -> pool mapping in EndpointPolicy (pools/0, response_pool(headers, request) -> pool | :unmodelled) and have Budget, CredentialHeadroom, CredentialUsage and BudgetMap call it. CredentialHeadroom must skip :unmodelled, exactly like Budget.",
+      "refactor_hint": "EndpointPolicy becomes the single vocabulary module of the budget package.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-19",
+      "category": "config",
+      "severity": "P2",
+      "title": "A configured app_installation credential aliases the one daemon App token under a second accounting identity; the docs claim it \"mints its own\"",
+      "locations": [
+        {"path": "src/lib/aiur/github/credential.ex", "lines": "46-56"},
+        {"path": "src/lib/aiur/github/credential.ex", "lines": "76-90"},
+        {"path": "src/lib/aiur/github/credential_registry.ex", "lines": "100-118"},
+        {"path": "src/lib/aiur/github/credential_registry.ex", "lines": "154-164"},
+        {"path": "src/lib/aiur/config/schema/github_credential.ex", "lines": "55-66"}
+      ],
+      "description": "Credential.token/1 resolves every kind: :app_installation credential through AppTokenRefresher.current_token(), and there is only one refresher and one App (the GITHUB_APP_* env). With App auth configured, the legacy credential is already kind :app_installation using that token. Adding a tracker.github.credentials entry with kind app_installation yields a second pool member holding the SAME token but a different identity_key (the id is part of stable_identity). CredentialSelector then scores two budgets that are really one (an unobserved one gets the optimistic 5000). The broker keys admissions by --identity-key, so the per-actor hourly ceilings are split and effectively doubled. With the App not configured, such an entry silently resolves to nil and is dropped. The configuration reference and schema comment say the credential \"mints its own\" token, which is false.",
+      "evidence": "credential.ex:52: `def token(%__MODULE__{kind: :app_installation}), do: normalize(AppTokenRefresher.current_token())`; 81-84: `stable_identity(%{kind: :app_installation, id: id}) -> \"app_installation:#{normalize_part(id)}:#{app_id}:#{installation_id}\"`. github_credential.ex:56-58: \"An App installation credential mints its own token through the refresher\". website/docs-app/reference/configuration.md:98: \"An `app_installation` credential mints its own and needs none.\"",
+      "recommendation": "Either reject kind: app_installation entries in the changeset until per-credential App config (app_id, installation_id, key path) and per-credential refreshers exist, or implement that properly. At minimum, dedupe pool members by resolved token_key and fix the docs row.",
+      "refactor_hint": "Credential pooling (Registry/Selector/Headroom/Usage) is a coherent github-credentials package. Settle a one-App vs many-Apps model before carving.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-20",
+      "category": "performance",
+      "severity": "P2",
+      "title": "The /github-cache page recomputes the whole budget map (SQLite, tsv reads, read-cache twice) and a full store projection on every ResourceStore change; the projection ceiling does not bound the work",
+      "locations": [
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "151-163"},
+        {"path": "src/lib/aiur_web/live/github_cache_live.ex", "lines": "223-237"},
+        {"path": "src/lib/aiur/github/budget_map.ex", "lines": "119-176"},
+        {"path": "src/lib/aiur/github/budget_ledger.ex", "lines": "105-131"},
+        {"path": "src/lib/aiur/github/cache_inspector.ex", "lines": "49-54"},
+        {"path": "src/lib/aiur/github/cache_inspector.ex", "lines": "96-99"},
+        {"path": "src/lib/aiur/github/cache_inspector/resource_store_source.ex", "lines": "50-59"},
+        {"path": "src/lib/aiur/github/cache_history.ex", "lines": "165-176"}
+      ],
+      "description": "Each {:github_resource_changed, _} message makes the LiveView call load/1 in its own process: CacheInspector.project(), then BudgetMap.snapshot. The latter opens the broker's SQLite and runs 5 queries (two LEFT JOINs) with a 5s busy_timeout each, reads every agent-cache.tsv, and calls read_cache/1 twice (snapshot line 123 and caller_rows line 166). ResourceStore changes happen many times per poll cycle. CacheInspector's comment says @projection_ceiling exists because \"building a struct for every one of them on every re-render would make an open inspector expensive\", but project/1 builds an Entry for EVERY raw row (up to the store's 100,000), sorts them all, and only then takes the ceiling. Each Entry keeps raw_data (the cached body), so up to 5000 bodies sit in every viewer's socket assigns. CacheHistory repeats the full tab2list plus classification every 30s. by_family and by_consumer in BudgetLedger are derivable from rows, so 3 of the 5 queries are redundant.",
+      "evidence": "github_cache_live.ex:151-160: `def handle_info({:github_resource_changed, _change} = message, socket) ... |> load()`; 236: `|> assign(:budget_map, budget_map_snapshot(projection, quota))`. cache_inspector.ex:98-99: `all = Enum.sort_by(Enum.map(raw, &Entry.new(&1, now, thresholds(opts))), &sort_key/1); entries = Enum.take(all, ceiling)`. budget_ledger.ex:49: `@busy_timeout_ms 5_000`; 117-122: five queries. entry.ex:109: `raw_data: if(body?, do: Map.get(raw, :data))`.",
+      "recommendation": "Debounce store-change reloads (e.g. at most once per second per socket) and refresh the budget map only on the quota sampler tick. Build the projection from a cheap tuple view (key, sizes, timestamps) and load raw_data lazily for the one entry being displayed. Derive the family and consumer totals from a single GROUP BY query. Fix the comment, or bound the work with a selection before building structs.",
+      "refactor_hint": "CacheInspector/BudgetMap/BudgetLedger/CacheHistory form a github-observability package whose inputs should be snapshots served by samplers, not synchronous reads from the web process.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-21",
+      "category": "naming-structure",
+      "severity": "P2",
+      "title": "BudgetMap's static caller classification has drifted from the caller names Quota emits and is time-blind",
+      "locations": [
+        {"path": "src/lib/aiur/github/budget_map.ex", "lines": "59-100"},
+        {"path": "src/lib/aiur/github/budget_map.ex", "lines": "207-226"},
+        {"path": "src/lib/aiur/github/quota.ex", "lines": "62"},
+        {"path": "src/lib/aiur/github/quota.ex", "lines": "1050-1056"}
+      ],
+      "description": "@free_by_nature keys the exact string \"agent-shell:gh\" as free by nature (pool :free, \"costs no quota\"). Since #2299, Quota names agent rows \"agent-shell:gh <subcommand>\" (e.g. \"agent-shell:gh pr view\"), so current rows fall through to :unclassified. Legacy rows that still match are wrong the other way: agent-requests.tsv rows are gh API calls that GitHub metered, and Quota bills them (cost: 1), yet the map labels them \"costs no quota\". @wasted_callers pins ci_poll_batch, comment_poll_batch and review_threads_unaddressed as :wasted from the #2265 measurement. Later changes (#2310 delivery displacement, #2355 thread-page cut, #2326 comment inversion, DeliveredPullRequest) changed those callers, but the verdict is declared \"authoritative\" and cannot move. This is a fixed, provenance-blind list of string literals with no link to the producers.",
+      "evidence": "budget_map.ex:78: `\"agent-shell:gh\" => :git`; quota.ex:1081-1082: `do: @agent_shell_caller <> \" \" <> call_site, else: @agent_shell_caller`; quota.ex:1052-1055: \"The caller names that call site (`agent-shell:gh pr view`)\". budget_map.ex:63-64: \"It is authoritative for these three callers\"; 70: `@wasted_callers [\"ci_poll_batch\", \"comment_poll_batch\", \"review_threads_unaddressed\"]`.",
+      "recommendation": "Classify by prefix for agent-shell rows and remove the :git/free label for them (they are metered). Make callers declare their reuse class where they declare caller: (e.g. a caller registry module used by Transport.put_caller and BudgetMap), or compute the verdict from live read-cache and ETag counters and treat the static list as a hint that expires. Add a test that every caller name in the classification is emitted somewhere.",
+      "refactor_hint": "A caller registry (name -> {pool, reuse class}) shared by Quota, ReadCache.Policy and BudgetMap removes three string-keyed tables.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-22",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "CacheInspector.ResourceStoreSource reads ResourceStore's private ETS table and entry map shape directly",
+      "locations": [
+        {"path": "src/lib/aiur/github/cache_inspector/resource_store_source.ex", "lines": "1-84"},
+        {"path": "src/lib/aiur/github/resource_store.ex", "lines": "263"}
+      ],
+      "description": "The source hard-codes Module.concat([ResourceStore, Table]), the store's private @table, and the internal field names (:data, :data_source, :source, :fetched_at_ms, :processed_at_ms, :recorded_at_ms, :data_version). Its moduledoc concedes that the store exposes no enumeration API. Any change to the store's representation silently breaks the inspector and the CacheHistory charts, with no compile-time link. Reading the table also copies every body into the reader process (see github-a-20).",
+      "evidence": "resource_store_source.ex:34: `@table Module.concat([ResourceStore, Table])`; 52-54: `@table |> :ets.tab2list() |> Enum.map(&normalize/1)`; resource_store.ex:263: `@table __MODULE__.Table`.",
+      "recommendation": "Add ResourceStore.stream_entries/1 (or fold/3) that yields a documented projection struct (without bodies, plus body?/byte_size) and have the source call it. It remains an ETS read, so the \"viewing never fetches\" property holds.",
+      "refactor_hint": "ResourceStore (a 2191-line module, outside this unit) will likely be its own package, and consumers must go through its public API.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-23",
+      "category": "config",
+      "severity": "P2",
+      "title": "The documented config key events.codeowners_refresh_seconds is never wired: CodeOwners always refreshes hourly",
+      "locations": [
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "36-42"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "62"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "127"},
+        {"path": "src/lib/aiur.ex", "lines": "421"},
+        {"path": "src/lib/aiur/config.ex", "lines": "570-573"}
+      ],
+      "description": "The schema defines events.codeowners_refresh_seconds, the configuration reference documents it, Aiur.Config exposes events_codeowners_refresh_seconds/0, and the CodeOwners moduledoc says the refresh follows it. But CodeOwners is started with no options (aiur.ex:421) and reads Keyword.get(opts, :refresh_seconds, @default_refresh_seconds). Nothing in lib calls events_codeowners_refresh_seconds/0. Changing the key has no effect.",
+      "evidence": "aiur.ex:421: `Aiur.GitHub.CodeOwners,`; code_owners.ex:127: `refresh_seconds: Keyword.get(opts, :refresh_seconds, @default_refresh_seconds)`; `grep events_codeowners_refresh_seconds src/lib` -> only its definition at config.ex:571. configuration.md:590: \"`events.codeowners_refresh_seconds` | integer | 3600 | CODEOWNERS refresh interval.\"",
+      "recommendation": "Default refresh_seconds to Aiur.Config.events_codeowners_refresh_seconds() inside init (guarded), and add a test that fails when the configured value is ignored.",
+      "refactor_hint": "Each package's supervisor child spec should take its settings explicitly, so unwired keys show up as missing arguments.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-24",
+      "category": "config",
+      "severity": "P2",
+      "title": "The GitHub API base URL is hard-coded in 11 places despite Transport.base_url/0",
+      "locations": [
+        {"path": "src/lib/aiur/github/transport.ex", "lines": "42"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "1004"},
+        {"path": "src/lib/aiur/github/app_token.ex", "lines": "18-23"},
+        {"path": "src/lib/aiur/github/labels.ex", "lines": "21"},
+        {"path": "src/lib/aiur/github/read_cache/identity.ex", "lines": "49"},
+        {"path": "src/lib/aiur/github/quota.ex", "lines": "1212"},
+        {"path": "src/lib/aiur/codeowners.ex", "lines": "32"},
+        {"path": "src/lib/aiur/init/github.ex", "lines": "161"},
+        {"path": "src/lib/aiur/build_order/github_graph/reconciliation.ex", "lines": "179"},
+        {"path": "src/lib/aiur/build_order/ticket_detail_normalizer.ex", "lines": "91"}
+      ],
+      "description": "Transport defines @base_url and exposes base_url/0, but other modules redeclare \"https://api.github.com\" or build full URLs from literals, including the App token exchange and both token probes. A GitHub Enterprise or test base URL cannot be introduced consistently, and ReadCache.Identity and Quota compare URLs against their own literal.",
+      "evidence": "`grep -rn '\"https://api.github.com' src/lib` -> transport.ex:42, config.ex:1004, app_token.ex:18 and 23, labels.ex:21, read_cache/identity.ex:49, quota.ex:1212, codeowners.ex:32, init/github.ex:161, build_order/github_graph/reconciliation.ex:179, build_order/ticket_detail_normalizer.ex:91.",
+      "recommendation": "Make Transport.base_url/0 (backed by config) the only source, and have every site call it. Tests can then point the whole client at a fake server.",
+      "refactor_hint": "A github-transport package concern. It also prerequisites any GHE support.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-25",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Request boilerplate is copy-pasted in every domain module: 59 request_fun defaults, 48 parse_repo calls, 51 identical error-mapping arms",
+      "locations": [
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "463-569"},
+        {"path": "src/lib/aiur/github/dependencies_api.ex", "lines": "63-87"},
+        {"path": "src/lib/aiur/github/dependencies_api.ex", "lines": "232-278"},
+        {"path": "src/lib/aiur/github/comments.ex", "lines": "10-45"},
+        {"path": "src/lib/aiur/github/comments.ex", "lines": "171-199"},
+        {"path": "src/lib/aiur/github/app_token.ex", "lines": "60-73"}
+      ],
+      "description": "Almost every GitHub call repeats the same preamble and tail: with {:ok, {owner, repo}} <- Transport.parse_repo(), {:ok, token} <- Transport.require_token(opts), request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1), then {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}; {:error, reason} -> {:error, Errors.classify_error({:error, reason})}. Sites differ in whether they pass opts to require_token (comments.ex:14 and 128, dependencies_api.ex:65, 102 and 236, teams.ex:18 ignore opts[:token]) and whether they set caller: (DependenciesApi and Comments.create_comment do not, so their spend is unattributed in Quota and BudgetMap).",
+      "evidence": "`grep -c 'Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)'` -> 59 occurrences in 28 files; `grep 'Errors.classify_error({:error, reason})' src/lib | wc -l` -> 51; `Transport.parse_repo()` -> 48. dependencies_api.ex:71-76 request map has no :caller.",
+      "recommendation": "Add Transport.request(opts, method, path, extra) that resolves repo, token and request_fun, stamps caller: (required), and maps errors, returning {:ok, response} | {:error, classified}. Migrate modules incrementally, and make a missing caller a compile-time or test failure.",
+      "refactor_hint": "This is the natural public API of a github-transport package; domain packages stop touching Errors and Transport internals.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-26",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "Async tests mutate the process-global environment, and negative assertions rely on sleeps",
+      "locations": [
+        {"path": "src/test/aiur/github/credential_selector_test.exs", "lines": "2-23"},
+        {"path": "src/test/aiur/github/credential_registry_test.exs", "lines": "2-22"},
+        {"path": "src/test/aiur/github/credential_usage_test.exs", "lines": "2-21"},
+        {"path": "src/test/aiur/github/agent_cache_bridge_test.exs", "lines": "42-47"},
+        {"path": "src/test/aiur/github/agent_cache_bridge_test.exs", "lines": "74-82"},
+        {"path": "src/test/aiur/github/app_token_refresher_test.exs", "lines": "108-113"},
+        {"path": "src/test/aiur/github/cycle_fetch_cache_test.exs", "lines": "53-67"}
+      ],
+      "description": "Three `async: true` suites call System.put_env/delete_env, and System env is VM-global. CredentialRegistry and Credential.token read it, so concurrent suites can see each other's tokens. Several negative tests use Process.sleep(50..120) and then refute. On a loaded CI runner the message may not have been processed yet, so the refute passes vacuously; a `:sys.get_state(pid)` barrier would make them deterministic. cycle_fetch_cache_test uses a bare assert_receive :fetch_started (100ms default) on a Task-driven message. See also github-a-03: BudgetMap's test injects glob_fun and 5-column rows, so it cannot reach the production defects.",
+      "evidence": "credential_selector_test.exs:2: `use ExUnit.Case, async: true` and 22: `System.put_env(credential.token_env, token)` (same pattern in credential_registry_test.exs:2/21 and credential_usage_test.exs:2/20). agent_cache_bridge_test.exs:46-47: `Process.sleep(120); refute File.exists?(...)`. app_token_refresher_test.exs:111-113: `send(pid, :refresh); Process.sleep(50); refute_received {:alert, _, _, _}`. cycle_fetch_cache_test.exs:67: `assert_receive :fetch_started`.",
+      "recommendation": "Inject env via a :env_fun/:token_fun seam (or unique env names plus async: false), replace sleep-then-refute with :sys.get_state/1 synchronisation, and give assert_receive explicit timeouts where the message comes from another process.",
+      "refactor_hint": "Carved packages will run their suites in parallel CI jobs, so global-state tests should be fixed before the split to avoid cross-package flakes.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-27",
+      "category": "complexity",
+      "severity": "P3",
+      "title": "AuthPreflight diagnostics: triplicated message assembly, string-matching an inspect/1 output, and stringly-typed dispatch on display labels",
+      "locations": [
+        {"path": "src/lib/aiur/github/auth_preflight.ex", "lines": "334-341"},
+        {"path": "src/lib/aiur/github/auth_preflight.ex", "lines": "374-438"},
+        {"path": "src/lib/aiur/github/auth_preflight.ex", "lines": "415-423"},
+        {"path": "src/lib/aiur/github/auth_preflight.ex", "lines": "463-523"}
+      ],
+      "description": "token_source/0 maps atoms to display strings (\"GITHUB_APP\", \"GITHUB_TOKEN\", \"gh keyring\"). diagnostic_message/2, pat_source_line/1 and pat_recovery_line/2 then branch on those strings. The first sentence and the reject-nil-join pipeline are repeated in three branches. A local hold is detected partly by String.contains?(error, \"{:aiur, :locally_held,\") on an inspect/1 string. human_auth_reason/1 is a 13-clause case keyed on a mix of :reason and :classification that grows per incident. The :available keyring text (\"Aiur will not use it while GITHUB_TOKEN is set\") contradicts Config.resolve_pat_token, which falls back to the keyring when the env token is invalid.",
+      "evidence": "auth_preflight.ex:420-421: `defp local_hold_request_error?(error) when is_binary(error), do: String.contains?(error, \"{:aiur, :locally_held,\")`; 384-385: `case source do \"GITHUB_APP\" -> ...`; 387, 397 and 432 repeat `\"GitHub auth preflight failed for #{source} while validating #{repo} #{endpoint} access: #{reason}.\"`. config.ex:264-267: `is_binary(env) and validate.(env) -> {env, :env}; (kt = keyring.()) && ... -> {kt, :keyring}`.",
+      "recommendation": "Keep the source as an atom until rendering, carry the raw hold tuple (not its inspect string) in the diagnostic, build messages from one header plus per-source bullet lists, and correct the keyring wording.",
+      "refactor_hint": "Operator-facing copy could move to a messages module per package, so the CLI and dashboard can render it consistently.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-28",
+      "category": "dead-code",
+      "severity": "P3",
+      "title": "Unused public functions, and docs that describe hot-path callers that do not exist",
+      "locations": [
+        {"path": "src/lib/aiur/github/agent_cache.ex", "lines": "97-110"},
+        {"path": "src/lib/aiur/github/agent_cache_bridge.ex", "lines": "101-103"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "276-290"},
+        {"path": "src/lib/aiur/github/credential_registry.ex", "lines": "68-91"},
+        {"path": "src/lib/aiur/github/credential.ex", "lines": "104-109"},
+        {"path": "src/lib/aiur/github/credential_selector.ex", "lines": "98-102"},
+        {"path": "src/lib/aiur/github/comments.ex", "lines": "47-73"},
+        {"path": "src/lib/aiur/github/budget_map.ex", "lines": "297-302"},
+        {"path": "src/lib/aiur/github/dependencies_api.ex", "lines": "59-63"},
+        {"path": "src/lib/aiur/github/dependencies_api.ex", "lines": "232-234"}
+      ],
+      "description": "The following have no caller in src/lib: AgentCache.invalidate_repo/2, AgentCacheBridge.message/0, Budget.snapshot/2 (tests only), CredentialRegistry.pooled?/1, by_token_key/2 and by_id/2 (tests only), Credential.describe/1, CredentialSelector.select/2 (tests only), and Comments.fetch_recent_repo_review_comments/1 and fetch_recent_repo_issue_comments/1 (the unconditional variants; only Client delegates reach them, which themselves have no callers). CredentialRegistry's doc says pooled?/1 is what \"Every hot path checks ... first\". BudgetMap.agent_cache rejects nil workspaces that read_workspace_cache/1 can never return. DependenciesApi.dependency_get/3 and dependency_mutate/4 are public but only used internally.",
+      "evidence": "`grep -rn 'invalidate_repo' src/lib` -> only ReadCache.invalidate_repo in deposit.ex. credential_registry.ex:71-72: \"Every hot path checks this first\"; `grep 'CredentialRegistry.pooled?' src/lib` -> 0. budget_map.ex:301: `workspaces: Enum.reject(workspaces, &(&1 == nil))`.",
+      "recommendation": "Delete them (or make them private), and fix the pooled?/1 doc. Run a periodic xref unused-exports check in CI.",
+      "refactor_hint": "Shrinks package public APIs before they are frozen by a carve.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-29",
+      "category": "config",
+      "severity": "P3",
+      "title": "Budget: per-actor ceilings are tuned by raising static defaults, and a test-only PubSub broadcast runs on every production request",
+      "locations": [
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "28-48"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "181-237"}
+      ],
+      "description": "The GraphQL ceilings were raised in #2299 (the daemon 2000 -> 4500 GraphQL requests per hour) after measured traffic exceeded them. This is the fix-by-raising-a-limit pattern: the ceilings are request counts decoupled from the credential's observed window (CredentialHeadroom already has limit and remaining per credential). release/2 also broadcasts {:github_budget_lease_released, ...} to Aiur.PubSub for every request, and the only subscriber is src/test/aiur/regression/orchestrator_blocking_http_test.exs.",
+      "evidence": "budget.ex:34-38: \"The GraphQL defaults were raised in #2299 ... the pre-fix daemon default of 2,000 would have stalled the fleet on merge\". budget.ex:223-225: `Phoenix.PubSub.broadcast(Aiur.PubSub, @release_topic, {:github_budget_lease_released, event})`; `grep github:budget:lease_release|release_topic` -> subscribers only in the regression test.",
+      "recommendation": "Derive per-actor ceilings as a fraction of the observed window limit (with a floor), and alert when an actor is near its share instead of raising constants. Emit lease-release outcomes via :telemetry (zero cost without handlers) instead of PubSub.",
+      "refactor_hint": "Budget-broker package policy.",
+      "effort": "M"
+    },
+    {
+      "id": "github-a-30",
+      "category": "docs-drift",
+      "severity": "P3",
+      "title": "EndpointPolicy claims to be one enumerated table, but endpoint_family/1 emits an open-ended vocabulary that silently defaults to billable core",
+      "locations": [
+        {"path": "src/lib/aiur/github/endpoint_policy.ex", "lines": "22-25"},
+        {"path": "src/lib/aiur/github/endpoint_policy.ex", "lines": "29-40"},
+        {"path": "src/lib/aiur/github/endpoint_policy.ex", "lines": "50-65"},
+        {"path": "src/lib/aiur/github/endpoint_policy.ex", "lines": "81-95"}
+      ],
+      "description": "For /repos/o/r/<x>/..., endpoint_family returns path segment 3 verbatim, so Aiur's own calls produce families not in @families: branches, contents, rulesets, commits, compare, git, ... (CiReadiness, PullRequests). resource_for/billable_for then fall back to core/true. The broker ledger, BudgetLedger family table and BudgetMap therefore show unlisted families, and the moduledoc's promise that a new family is added as a row is not enforced.",
+      "evidence": "endpoint_policy.ex (file lines 60): `\"/repos/\" <> path -> path |> String.split(\"/\", trim: true) |> Enum.at(2, \"rest\")`; resource_for: `_unknown -> \"core\"`; billable_for: `_unknown -> true`. CiReadiness requests `.../branches/...`, `.../contents/.github/workflows`, `.../rulesets`.",
+      "recommendation": "Map unknown segments to \"rest\" (or an explicit family) inside endpoint_family, so the family set is closed and the table test covers every emitted value.",
+      "refactor_hint": "Keeps the broker's family column a closed enum shared with the shell wrapper.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-31",
+      "category": "performance",
+      "severity": "P3",
+      "title": "CiReadiness.cached_result does file IO and hashing on every dispatch cycle, and its :persistent_term scope map grows with each config edit",
+      "locations": [
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "114-134"},
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "174-204"},
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "210-224"},
+        {"path": "src/lib/aiur/github/ci_readiness.ex", "lines": "251-262"},
+        {"path": "src/lib/aiur/orchestrator/dispatcher.ex", "lines": "281-313"}
+      ],
+      "description": "Dispatcher.reconcile_completed_ci_readiness and reset_ci_readiness_for_config_change call cached_result and readiness_scope on the orchestrator path. Each call reads and SHA-256s the whole workflow config file (config_fingerprint) and, even when the memory entry is fresh, reads and JSON-decodes ci-readiness.json (newest_assessment evaluates both sides). Every config edit changes the fingerprint and therefore the scope key. Old scope entries are never removed from the :persistent_term map (delete_cached_scope only touches the current scope), so each edit leaves a stale entry, and each put triggers a global GC scan.",
+      "evidence": "ci_readiness.ex:125: `case newest_assessment(memory_assessment, load_persisted_assessment(scope, opts)) do`; 199-201: `File.read(path) ... :crypto.hash(:sha256, content)`; 252-253: `:persistent_term.put(@cache_key, Map.put(cached, scope, assessment))`. dispatcher.ex:282 and 304 call readiness_scope/cached_result.",
+      "recommendation": "Cache the fingerprint keyed by file mtime and size, consult the persisted file only on a memory miss, and store a single current-scope entry (replace, not accumulate).",
+      "refactor_hint": "Part of the CiReadiness.AssessmentStore split in github-a-13.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-32",
+      "category": "naming-structure",
+      "severity": "P3",
+      "title": "Budget has two private hold functions with unrelated meanings, and grant_or_hold never holds",
+      "locations": [
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "386-392"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "498-507"},
+        {"path": "src/lib/aiur/github/budget.ex", "lines": "725-727"}
+      ],
+      "description": "hold/5 sends a broker `hold` command (a side effect), while hold/3 builds a hold map for the caller (pure). grant_or_hold/3 either grants or returns broker_unavailable, and its request argument is unused.",
+      "evidence": "budget.ex:498: `defp hold(key, scope, resource, delay_ms, opts) do _ = command([\"hold\", ...])`; 725: `defp hold(request, delay_ms, reason) do %{resource: ..., reset_at: ..., reason: reason}`; 386: `defp grant_or_hold(id, _request, key) do if valid_lease_id?(id) do {:ok, ...} else {:error, :github_budget_broker_unavailable}`.",
+      "recommendation": "Rename to record_broker_hold/5, hold_result/3 and validate_grant/2.",
+      "refactor_hint": "Cheap clarity win during the Budget split.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-33",
+      "category": "performance",
+      "severity": "P3",
+      "title": "AgentCache.invalidate_key writes the same marker twice, and every invalidation does synchronous mkdir/write/rename in the bridge GenServer",
+      "locations": [
+        {"path": "src/lib/aiur/github/agent_cache.ex", "lines": "84-95"},
+        {"path": "src/lib/aiur/github/agent_cache.ex", "lines": "163-181"},
+        {"path": "src/lib/aiur/github/agent_cache.ex", "lines": "240-254"},
+        {"path": "src/lib/aiur/github/agent_cache_bridge.ex", "lines": "84-88"}
+      ],
+      "description": "For :issue and :pull_request keys, invalidate_key marks <kind>/<id>/.invalidated and then calls invalidate/3, which marks pr/<id>, issue/<id> (one of them the same path again) and .collections-invalidated. That is four temp-write-rename sequences with mkdir_p for one change, run serially in AgentCacheBridge for every store deposit of four types.",
+      "evidence": "agent_cache.ex:168: `mark(Path.join(dir, \".invalidated\"))` followed by 171: `invalidate(\"#{owner}/#{repo}\", id, opts)` which at 89-91 marks `pr/id`, `issue/id` and `.collections-invalidated`.",
+      "recommendation": "Compute the set of marker paths once, write each once, and coalesce bursts (e.g. debounce per repo for ~100ms in the bridge).",
+      "refactor_hint": "Stays with the agent gh-wrapper contract package.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-34",
+      "category": "docs-drift",
+      "severity": "P3",
+      "title": "CacheInspector.worst/1 lets :unknown decide a tile's colour, contrary to its comment",
+      "locations": [
+        {"path": "src/lib/aiur/github/cache_inspector.ex", "lines": "320-325"}
+      ],
+      "description": "The comment says :unknown \"never decides a tile's colour on its own\", but with counts of only :fresh and :unknown, the Enum.find over [:expired, :stale, :unknown] returns :unknown. The comment or the code is wrong, and the tests should pin which one is intended.",
+      "evidence": "cache_inspector.ex:320-325: \"`:unknown` is not the worst state, it is an absent measurement, so it never decides a tile's colour on its own.\" / `Enum.find([:expired, :stale, :unknown], :fresh, &(Map.get(counts, &1, 0) > 0))`.",
+      "recommendation": "Decide the rule. If :unknown should not colour a tile, drop it from the list (or only use it when every entry is unknown), and add a test.",
+      "refactor_hint": "none",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-35",
+      "category": "naming-structure",
+      "severity": "P3",
+      "title": "Near-identical module names Aiur.Codeowners and Aiur.GitHub.CodeOwners, and GitHub.Config serves non-GitHub pr_watch/pr_health settings",
+      "locations": [
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "1-60"},
+        {"path": "src/lib/aiur/github/code_owners.ex", "lines": "394-397"},
+        {"path": "src/lib/aiur/github/config.ex", "lines": "520-568"}
+      ],
+      "description": "Two modules differ only by namespace and capitalisation, and both deal with CODEOWNERS; GitHub.CodeOwners even calls Aiur.Codeowners.file_path/0. GitHub.Config exposes pr_watch_enabled?/0, watch_label/0, command_prefix/0 and pr_health_* accessors that read top-level pr_watch and pr_health settings, not the tracker.github section the module documents.",
+      "evidence": "code_owners.ex:395-396: `Aiur.Codeowners.file_path() || Path.join(File.cwd!(), hd(Aiur.Codeowners.standard_paths()))`; config.ex:525-527: `Aiur.Config.settings!().pr_watch.enabled`; 559-561: `Aiur.Config.settings!().pr_health.interval_seconds`.",
+      "recommendation": "Rename by role (see github-a-07) and move the pr_watch/pr_health accessors to the modules that own those features (CommandScan, PrHealthScanner) or to Aiur.Config.",
+      "refactor_hint": "Clarifies which package owns which config section.",
+      "effort": "S"
+    },
+    {
+      "id": "github-a-36",
+      "category": "anti-pattern",
+      "severity": "P3",
+      "title": "AppTokenRefresher does network acquisition in init/1, and current_token/0 serves a token past its expiry",
+      "locations": [
+        {"path": "src/lib/aiur/github/app_token_refresher.ex", "lines": "59-75"},
+        {"path": "src/lib/aiur/github/app_token_refresher.ex", "lines": "98-129"},
+        {"path": "src/lib/aiur/github/app_token_refresher.ex", "lines": "278-290"}
+      ],
+      "description": "When the boot-time resolve did not cache a token, init/1 calls AppToken.acquire. That is a JWT exchange plus a /rate_limit probe, each bounded only by the request timeout, and it blocks supervisor start. During a refresh-failure streak (backoff capped at 5 minutes), current_token/0 keeps returning the cached token even after expires_at. Every request then 401s, and AuthPreflight re-proves auth each cycle rather than the daemon reporting \"no valid App token\".",
+      "evidence": "app_token_refresher.ex:117-123: `if current_token() do state else ensure_token(state) end` inside init; 279: `case AppToken.acquire(request_fun: state.request_fun) do`; 61-64: `current_token` matches `{:installation_token, token, _expires_at, _permissions}` without comparing expires_at.",
+      "recommendation": "Return {:ok, state, {:continue, :acquire}} and acquire in handle_continue. Have current_token/0 return nil (or {:expired, token}) after expires_at so callers surface a precise needs-attention reason.",
+      "refactor_hint": "github-auth package; keeps boot of the supervision tree network-free.",
+      "effort": "S"
+    }
+  ]
+}

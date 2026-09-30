@@ -1,0 +1,1102 @@
+{
+ "unit_id": "tests-5",
+ "files_reviewed": 117,
+ "lines_reviewed_estimate": 17000,
+ "coverage_notes": "All 117 files were measured (wc) and scanned by scripted census over the full 40,602 lines: bare/timed assert_receive and refute_receive (argument-parsing script), Process.sleep, async flags, System/Application env mutation, persistent_term/ets, :sys.get_state/replace_state, Supervisor child restarts, fabricated pids, wall-clock reads, source-file reads, private-helper duplication (defp names cross-referenced against all of src/test), *_for_test usage. Read in full: tool_executor_test.exs, orchestrator_blocking_http_test.exs, parallel_pre_warm_test.exs, chat_open_perf_test.exs, done_agent_detach_test.exs, test_bootstrap_config_test.exs, command_runner_budget_test.exs. Read substantially (major sections): fixture_server.exs (1-512, 905-1000, 2218-2634 plus module/function outline of the rest), run_summary_strip_test.exs (1-350, 800-1040, 1240-1370, helpers), deposit_test.exs (1-260, 1140-1530), opencode_slots_test.exs (1-200 plus source-assert section), queue_drain_test.exs (1-330), engine_control_test.exs (1-200, 400-440, 640-653, 880-997), session_lifecycle_test.exs (outline, 1-45, 150-162, 930-992), github_webhook_test.exs (580-640, 700-745, 921-1002), orchestrator_lifecycle_test.exs (1-120, 740-767), github_comments_poller_test.exs (1-130, 1078-1110, helpers), github_ci_poller_test.exs (1-80, outline), workspace_lifecycle_test.exs (1-108, 284-289, 720-835), github_ingestion_test.exs (1-90, 728-760), shutdown_cleanup_test.exs (1-60), instance_identity_test.exs (1-60, 220-247), branch_ref_store_test.exs (1-170, 316-324), subscription_store_test.exs (1-70), exchange_test.exs (185-229), id_generator_test.exs (1-60), provider_lifecycle_test.exs (1-80), checkpoint_delivery_test.exs (1-60, 110-160), turn_loop_agent_support/turn_loop_noop_bound (headers), agent_list_sort_test (40-70), event_delivery_test (40-78), anchor_test (1-67), tmux/layout_test (1-45), time_to_paint/warm_attach_open (perf sections), coding_agent_test (1-130), message_handler_test (1-60), webhook_poll_reconciliation_test (1-50, helpers), identity-mode tests (headers), projection_test and build_order_breakdown_test (headers), codex_update_relay_test (1-60), session_resume_test (1-60), tools_test (185-215), compile_time_paths/progress_renderer_boundary (headers). Production code was read only where needed to confirm a test finding (session_lifecycle.ex, workspace/ownership/guardian.ex, claude/remote_control.ex, run_summary_strip.ex, provider_meter_probe.ex, publisher.ex, dashboard_live.ex handlers, aiur-engine.sh identity/dotenv sections, slot_policy.ex grep). Skimmed only via grep/outline (not read line by line): the 7 remaining operator_control_center component tests other than run_summary_strip, build_order_grid_model_test, most small agent_runner tests (turn_prompt, events_digest, comment_context, model_label_refresh, bootstrap_digest, turn_alerts, turn_callbacks, turn_streams except 95-130, turn_progress except git helper), events small tests (sanitizer, topic, github_keys, comment_filter, universal_subscriptions, pr_command_scanner, thread_resolver, graph_edge_delivery), github_firehose_test and github_webhook_equivalence_test bodies (helpers read), publisher_test, ls_remote_ticker_test (header + state asserts), open_ai_compat small tests (account_generation, balance_baseline, concurrency, meter_adapter, transcript), pane_manager tests other than anchor/layout helpers, progress_checkin/worker_test (sleep sites), protocol/map_access_test, most regression/* bodies beyond the source-assert and sleep sites. Not independently verified: whether the app's own AttachPool also reacts to the global slot PubSub topics in opencode_slots/shared_prewarm tests (not reported). The snapshot lacks src/config and mix.exs, so config/test.exs overrides (e.g. of guardian reapers) could not be checked; finding tests-5-01 assumes none, since ownership/guardian.ex reads its reap functions only from call opts.",
+ "findings": [
+  {
+   "id": "tests-5-01",
+   "category": "flaky-test",
+   "severity": "P1",
+   "title": "Fabricated OS pid 424242 is registered with the real workspace guardian and can be SIGKILLed on the test host",
+   "locations": [
+    {
+     "path": "src/test/aiur/agent_runner/session_lifecycle_test.exs",
+     "lines": "934-956"
+    },
+    {
+     "path": "src/lib/aiur/agent_runner/session_lifecycle.ex",
+     "lines": "568-625"
+    },
+    {
+     "path": "src/lib/aiur/workspace/ownership/guardian.ex",
+     "lines": "95-112, 441-456, 490-502, 733-756"
+    }
+   ],
+   "description": "The 'workspace containment' test claims a real Ownership lease (default guardian options) and tracks sessions whose provider pid is the literal 424242 (root_pid via os_pid / claude_app_server_pid / codex_app_server_pid). session_provider/2 turns that into %{root_pid: 424242, descendant_pids: RemoteControl.process_tree(424242)}; the guardian captures the process identity with the real RemoteControl.process_identity/1 and on Ownership.release/1 goes maybe_release_or_reap -> maybe_reap_descendants -> live_provider_processes, which treats an identity-matching live pid as :live and start_reap(:processes, ...) with the real RemoteControl.reap_process/2 (pidfd kill). If any process on the developer/CI host holds pid 424242 (well inside Linux pid_max 4194304) during the test, it and its children are killed. The identity check does not help: identity is captured from the same real process moments earlier. This is exactly the 'fabricated OS pids that reach real kill' family.",
+   "evidence": "session_lifecycle_test.exs:937-948: {\"Claude REPL\", %{backend: \"claude-repl\", os_pid: 424_242}, nil} ... assert {:ok, lease} = Ownership.claim(ticket) ... SessionLifecycle.track_session_containment(active_lease, session, worker_host) ... Ownership.release(active_lease). session_lifecycle.ex:622-623: defp maybe_put_provider_processes(%{root_pid: root_pid} = provider, _), do: Map.put(provider, :descendant_pids, RemoteControl.process_tree(root_pid)). guardian.ex:107-111 defaults root_reap_fun/process_reap_fun/process_identity_fun to RemoteControl.* ; guardian.ex:441-443 root_pid+descendant_pids -> maybe_reap_descendants(state).",
+   "recommendation": "Pass guardian options through Ownership.claim/3 (it already accepts opts) with stub process_identity_fun/process_alive_fun/process_reap_fun that record calls, or use a pid obtained from a real spawned `sleep` port (as engine_control_test.spawn_sleeper does) that the test owns. Add a suite-level guard in test/support that refuses integer pids > 0 not owned by the test when the default reapers are in use.",
+   "refactor_hint": "Workspace ownership / process reaping belongs in a 'runtime-host' package; its public API should require injected OS adapters (identity/alive/reap) so tests of callers (agent_runner) cannot reach the real kill path by default.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-02",
+   "category": "coupling",
+   "severity": "P1",
+   "title": "24 test files assert on production source text or hard-coded repo-relative paths; the carve will break them en masse",
+   "locations": [
+    {
+     "path": "src/test/aiur/regression/opencode_slots_test.exs",
+     "lines": "16-19, 79-89, 312-480"
+    },
+    {
+     "path": "src/test/aiur/regression/enter_opens_new_pane_test.exs",
+     "lines": "29-35, 77, 128"
+    },
+    {
+     "path": "src/test/aiur/regression/warm_marker_semantics_test.exs",
+     "lines": "28-30"
+    },
+    {
+     "path": "src/test/aiur/regression/warm_state_transitions_test.exs",
+     "lines": "22-23, 70"
+    },
+    {
+     "path": "src/test/aiur/regression/compile_time_paths_test.exs",
+     "lines": "24-100, 126-155"
+    },
+    {
+     "path": "src/test/aiur/regression/progress_renderer_boundary_test.exs",
+     "lines": "1, 17-40, 86-172"
+    },
+    {
+     "path": "src/test/aiur/regression/shutdown_cleanup_test.exs",
+     "lines": "18-60"
+    },
+    {
+     "path": "src/test/aiur/regression/done_agent_detach_test.exs",
+     "lines": "10-53"
+    },
+    {
+     "path": "src/test/aiur/regression/instance_identity_test.exs",
+     "lines": "24, 226-246"
+    },
+    {
+     "path": "src/test/aiur/regression/engine_control_test.exs",
+     "lines": "4, 640-651"
+    },
+    {
+     "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+     "lines": "1206-1219"
+    },
+    {
+     "path": "src/test/aiur/events/debug_log_test.exs",
+     "lines": "110-121"
+    },
+    {
+     "path": "src/test/aiur/pane_manager/convo_paint_test.exs",
+     "lines": "84-88"
+    }
+   ],
+   "description": "Census across the unit: 24 files contain Path.expand(\"../../../lib/...\"), \"../../../../packaging/...\", \".aiur/...\", \"log/...\" or @lib_root; at least 43 tests read a production .ex (or the 4179-line bash engine) with File.read! and assert regex/substring presence, ordering of substrings (pos!/2), or literal module-attribute values. Examples: opencode_slots_test asserts `@poll_death_threshold 3` in slot/state.ex; convo_paint_test pins `@convo_paint_poll_interval_ms 100`; compile_time_paths_test keeps a 40-line allowlist keyed by `aiur/<file>.ex` paths and literal source lines; progress_renderer_boundary_test keeps a call-site census keyed by src/lib-relative path. Any module move, rename or split during the carve fails these regardless of behaviour, and many of them (substring order, attribute literals) cannot detect a behavioural regression that keeps the text.",
+   "evidence": "opencode_slots_test.exs:16 `@slot_source Path.expand(\"../../../lib/aiur/opencode/slot.ex\", __DIR__)`; :440 `assert state_source =~ ~r/@poll_death_threshold 3/`; convo_paint_test.exs:86-87 `assert source =~ \"@convo_paint_poll_interval_ms 100\"`; deposit_test.exs:1207 `@lib_root Path.expand(\"../../../../lib\", __DIR__)`; compile_time_paths_test.exs:33-40 allowlist `\"aiur/agent_build_guard.ex\" => [\"@script_path Path.expand(...)\" ...]`.",
+   "recommendation": "Before the carve: (1) convert architectural censuses (compile_time_paths, progress_renderer_boundary, deposit reader_sites) to key on module names via Code.fetch_docs/beam chunks or `mix xref` output instead of file paths; (2) replace substring-order characterization tests (opencode_slots, warm_*, enter_opens_new_pane, done_agent_detach, multi_pane_open, preseed_models, time_to_paint, chat_pane_loads_session, shutdown_cleanup) with behavioural tests against the GenServers (several already have behavioural siblings in the same file) or delete them; (3) centralise any remaining source reads behind one helper (e.g. Aiur.TestSupport.source!(Module)) resolving via Module.__info__(:compile)[:source] so moves do not break paths.",
+   "refactor_hint": "These tests encode the current monolith layout (src/lib, packaging/npm, .aiur). Each target package needs its own census, so rewrite them per package boundary as part of the carve, not after.",
+   "effort": "L"
+  },
+  {
+   "id": "tests-5-03",
+   "category": "coupling",
+   "severity": "P1",
+   "title": "Tests mutate shared application singletons: the live Orchestrator, Aiur.Supervisor children, registered names and CodeOwners state",
+   "locations": [
+    {
+     "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+     "lines": "45-67, 131-165, 238-277, 393-421, 617-651, 845-853, 918-945"
+    },
+    {
+     "path": "src/test/aiur/regression/orchestrator_lifecycle_test.exs",
+     "lines": "1-120"
+    },
+    {
+     "path": "src/test/aiur/regression/orchestrator_dispatch_retry_test.exs",
+     "lines": "1-60"
+    },
+    {
+     "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+     "lines": "45-60, 1506-1520"
+    },
+    {
+     "path": "src/test/aiur/events/webhook_poll_reconciliation_test.exs",
+     "lines": "36-47, 696-710"
+    },
+    {
+     "path": "src/test/aiur/events/subscription_store_test.exs",
+     "lines": "60-70"
+    },
+    {
+     "path": "src/test/aiur/events/github_webhook_test.exs",
+     "lines": "586-639, 964-1001"
+    },
+    {
+     "path": "src/test/aiur/regression/github_ingestion_test.exs",
+     "lines": "728-757"
+    },
+    {
+     "path": "src/test/aiur/events/github_comments_poller_test.exs",
+     "lines": "1371-1440"
+    }
+   ],
+   "description": "Across the unit there are 117 :sys.get_state/:sys.replace_state sites in 12 files, most against app-global processes. orchestrator_blocking_http_test rewrites the shared Aiur.Orchestrator's state in setup and parks the real Orchestrator inside a hanging HTTP request executed via :sys.replace_state (lines 146-157) so later cleanup must wait for it to answer again. deposit_test, webhook_poll_reconciliation_test and subscription_store_test terminate and restart children of Aiur.Supervisor by child id; github_webhook_test unregisters the Aiur.Orchestrator name and registers a probe under it, restoring it in on_exit with `rescue ArgumentError -> :ok`, so a failed re-register silently leaves the application without a registered Orchestrator for every later test. ensure_codeowners!/stop_codeowners overwrite the app CodeOwners allowlist in place. All of this assumes one monolithic supervision tree with fixed registered names, which is precisely what the carve splits.",
+   "evidence": "orchestrator_blocking_http_test.exs:53-55 `:sys.replace_state(pid, fn state -> %{state | running: %{}, last_polled_issues: %{}, session_max_concurrent_agents: nil} end)`; deposit_test.exs:1509 `Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)`; github_webhook_test.exs:598 `if is_pid(original), do: Process.unregister(Aiur.Orchestrator)` and 619-624 `Process.register(original, Aiur.Orchestrator) rescue ArgumentError -> :ok`.",
+   "recommendation": "Give every singleton a name/registry option and have tests start_supervised! their own instance (Orchestrator already supports name: + initial_poll?: false, used at orchestrator_blocking_http_test.exs:556). Replace the default-wake global name lookup in GithubWebhook with an injected wake target so the name hijack is unnecessary. Where the app instance must be used, fail loudly (flunk) if the name cannot be restored instead of rescuing.",
+   "refactor_hint": "Blocks the carve: tests of the 'events', 'github' and 'orchestrator' packages currently depend on each other's globally registered processes under Aiur.Supervisor. Define per-package supervisors with injectable names first, then port the tests.",
+   "effort": "L"
+  },
+  {
+   "id": "tests-5-04",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "'control queries add nothing to the orchestrator mailbox' can never fail: it traces the wrong process",
+   "locations": [
+    {
+     "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+     "lines": "190-215, 1119-1136"
+    }
+   ],
+   "description": "The test calls :erlang.trace(pid, true, [:send]) on the Orchestrator. The :send flag reports messages sent BY the traced process ({:trace, Orchestrator, :send, Msg, To}). sends_from_self/2 then counts only {:trace, ^me, :send, _, ^pid}, i.e. trace messages whose traced process is the test process, which is never traced. The count is therefore 0 before and 0 after, and `assert sends_from_self(pid, me) == before` is 0 == 0 whatever AgentControlCLI does. In addition flush_trace/3's catch-all `_other_trace ->` consumes every message in the test mailbox, not only trace messages. The #1837 property it names is only guarded indirectly by the neighbouring CLI-budget tests.",
+   "evidence": ":erlang.trace(pid, true, [:send]) (line 201); defp flush_trace(pid, me, count): receive do {:trace, ^me, :send, _message, ^pid} -> flush_trace(pid, me, count + 1); _other_trace -> flush_trace(pid, me, count) after 10 -> count end (1129-1135).",
+   "recommendation": "Trace the test process instead (:erlang.trace(self(), true, [:send]) and count {:trace, ^me, :send, _, ^pid}), or trace the Orchestrator with [:receive] and match on the message shape. Restrict the flush clause to {:trace, _, _, _, _} tuples. Then revert the read-model change locally and confirm the test fails, per AGENTS.md.",
+   "refactor_hint": "Keep with the control-plane/CLI package tests; the property (read-only commands never message the Orchestrator) is a package boundary contract worth a real guard.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-05",
+   "category": "flaky-test",
+   "severity": "P2",
+   "title": "Bare assert_receive/refute_receive (100 ms default): 163 + 41 sites; a subset waits on genuinely asynchronous senders",
+   "locations": [
+    {
+     "path": "src/test/aiur/agent_runner/queue_drain_test.exs",
+     "lines": "185-186, 218, 305-318, 347-350, 441-442, 531-532, 564-566, 708-729"
+    },
+    {
+     "path": "src/test/aiur/open_ai_compat/coding_agent_test.exs",
+     "lines": "107-127, 168-205, 241-242, 575"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/checkpoint_delivery_test.exs",
+     "lines": "125-154, 196-286, 414"
+    },
+    {
+     "path": "src/test/aiur/tmux/layout_test.exs",
+     "lines": "18-233"
+    },
+    {
+     "path": "src/test/aiur/tmux/query_test.exs",
+     "lines": "18-197"
+    },
+    {
+     "path": "src/test/aiur/tmux/input_test.exs",
+     "lines": "18-109"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+     "lines": "54, 394, 420-421, 467, 1294, 1850"
+    }
+   ],
+   "description": "Parsed census (arguments counted, comments excluded): 558 assert_receive calls, 163 without a timeout in 28 files; 176 refute_receive calls, 41 without a timeout in 9 files. No assert_receive_timeout override exists in test/test_helper.exs. Most bare sites follow a synchronous GenServer.call/closure whose sends happen before the reply, so they are really assert_received and only obscure intent; but some wait on other processes: queue_drain_test.exs:308/312/316/317 wait on messages produced by a Task.async and the FakeQueueOrchestrator it calls; all 36 tmux `assert_receive :ready` sites wait on a freshly spawned Task. Under CI scheduler contention a 100 ms window is the documented flake shape (#459 comment in ls_remote_ticker_test.exs:33-41). Worst files: queue_drain 28+21, coding_agent 26+4, checkpoint_delivery 22+5, tmux/layout 12, tmux/query 10.",
+   "evidence": "queue_drain_test.exs:305-312: send(task.pid, {:pause_agent, 51, 101}); send(task.pid, :start); assert_receive {:worker_control_state, ^worker_issue_id, :paused, %{request_id: 51, generation: 101}} (no timeout); tmux/layout_test.exs:18 `assert_receive :ready` after Task.async.",
+   "recommendation": "Use assert_received/refute_received where the message is already in the mailbox (after a synchronous call), and an explicit, shared timeout constant (e.g. @receive_timeout 2_000 from test/support) where a sender is asynchronous. Add a credo/lint check that flags assert_receive with one argument.",
+   "refactor_hint": "Mechanical; do it per package while moving tests so each package's test helper defines its receive timeout.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-5-06",
+   "category": "flaky-test",
+   "severity": "P2",
+   "title": "Process.sleep used as a synchronisation barrier where a real barrier exists or is documented",
+   "locations": [
+    {
+     "path": "src/test/aiur/regression/shared_prewarm_e2e_test.exs",
+     "lines": "14, 32, 70, 102, 128, 144"
+    },
+    {
+     "path": "src/test/aiur/regression/agent_list_sort_test.exs",
+     "lines": "64-67, 103-106"
+    },
+    {
+     "path": "src/test/aiur/events/event_delivery_test.exs",
+     "lines": "52-55, 68-71"
+    },
+    {
+     "path": "src/test/aiur/progress_checkin/worker_test.exs",
+     "lines": "125-140"
+    },
+    {
+     "path": "src/test/aiur/regression/opencode_slots_test.exs",
+     "lines": "113-123"
+    },
+    {
+     "path": "src/test/aiur/events/github_webhook_test.exs",
+     "lines": "724-736"
+    }
+   ],
+   "description": "44 Process.sleep sites in 18 files. Several are pure timing guesses: shared_prewarm_e2e_test sleeps 20 ms after the asynchronous AttachPool.seed/2 six times, while its sibling opencode_slots_test uses the correct barrier `sync(pool)` (= :sys.get_state). agent_list_sort_test sleeps 50 ms and then calls :sys.get_state(app), which is itself the barrier. event_delivery_test sleeps 50 ms after SubscriptionStore.add_subscription/3 although subscription_store_test.exs:315 documents that bindings are ready synchronously. github_webhook_test sleeps a real 2.4 s to cross a debounce window. opencode_slots_test polls private state with sleep(50) in Enum.any?/2.",
+   "evidence": "shared_prewarm_e2e_test.exs:13-14 `AttachPool.seed(pool, [\"issue-1\", \"issue-2\", \"issue-3\"]); Process.sleep(20)`; agent_list_sort_test.exs:64-67 `send(app, {:running_changed, summaries}); Process.sleep(50); state = :sys.get_state(app)`; subscription_store_test.exs:315 `# No Process.sleep \u2014 bindings must be ready synchronously.`; github_webhook_test.exs:731 `Process.sleep(2_400)`.",
+   "recommendation": "Replace with :sys.get_state barriers (as ls_remote_ticker_test's tick/1 does), explicit acknowledgement messages, or an injected clock for debounce windows (GithubWebhook already takes request_refresh_fun; add now_fun/monotonic_fun).",
+   "refactor_hint": "Debounce/window logic in GithubWebhook should take a clock seam when it moves to the events/github package.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-07",
+   "category": "flaky-test",
+   "severity": "P2",
+   "title": "Wall-clock duration assertions on a loaded CI host",
+   "locations": [
+    {
+     "path": "src/test/aiur/events/exchange_test.exs",
+     "lines": "185-203"
+    },
+    {
+     "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+     "lines": "167-183, 302-322"
+    },
+    {
+     "path": "src/test/aiur/regression/orchestrator_lifecycle_test.exs",
+     "lines": "753-765"
+    }
+   ],
+   "description": "Tests assert elapsed wall time: exchange_test asserts a publish returns in under 100 ms while a slow subscriber sleeps; orchestrator_blocking_http_test asserts CLI status/agents finish in under 5 s and CommentPolling.start_async returns in under 1 s; orchestrator_lifecycle_test asserts a resumed entry's started_at is within 0..2 s of utc_now. The same file (orchestrator_blocking_http_test.exs:768-791) already explains why an earlier elapsed-time assertion was replaced by a budget+outcome assertion because it measured the machine, not the code.",
+   "evidence": "exchange_test.exs:197-200 `start = System.monotonic_time(:millisecond) ... elapsed = ... - start; assert elapsed < 100, \"publish blocked: #{elapsed}ms\"`; orchestrator_blocking_http_test.exs:319 `assert div(elapsed_us, 1_000) < 1_000`; orchestrator_lifecycle_test.exs:761 `assert DateTime.diff(DateTime.utc_now(), operator_state.running[\"l15\"].started_at, :second) in 0..2`.",
+   "recommendation": "Assert ordering/outcome instead: e.g. publish returns before the subscriber acknowledges receipt (message ordering), start_async returns while the fetcher is still blocked (already observable via :comment_poll_started), and inject a clock into resume_paused_issue so started_at can be compared exactly.",
+   "refactor_hint": "Orchestrator resume/overrun logic needs a clock seam when extracted.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-08",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Ad-hoc polling helpers (wait_until / eventually / assert_eventually) re-implemented with divergent failure semantics",
+   "locations": [
+    {
+     "path": "src/test/aiur/events/exchange_test.exs",
+     "lines": "206-222"
+    },
+    {
+     "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+     "lines": "1151-1161"
+    },
+    {
+     "path": "src/test/aiur/regression/warm_marker_semantics_test.exs",
+     "lines": "273-285"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/session_lifecycle_test.exs",
+     "lines": "959-967"
+    },
+    {
+     "path": "src/test/aiur/events/subscription_store_test.exs",
+     "lines": "564-581"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+     "lines": "1927-1948"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/provider_lifecycle_test.exs",
+     "lines": "477-487"
+    },
+    {
+     "path": "src/test/aiur/regression/engine_control_test.exs",
+     "lines": "911-921"
+    }
+   ],
+   "description": "40 files across src/test define their own wait_until/eventually/assert_eventually; test/support has none. In this unit 8 files carry 8 different variants: exchange_test returns :error (callers must `:ok =`), subscription_store_test returns false (caller asserts), orchestrator_blocking_http_test flunks after 100x50 ms, warm_marker_semantics_test flunks after 20x25 ms, session_lifecycle_test asserts after 40x25 ms, tool_executor_test returns :timeout after 400 `receive after 5` loops over private state, provider_lifecycle_test polls a file 1200x25 ms, engine_control_test polls kill -0 50x50 ms. Budgets range from 0.5 s to 30 s with no shared rationale.",
+   "evidence": "exchange_test.exs:216-221 `System.monotonic_time(:millisecond) > deadline -> :error; true -> Process.sleep(10)`; orchestrator_blocking_http_test.exs:1155-1160 `attempts <= 0 -> flunk(\"condition never held\"); true -> Process.sleep(50) && wait_until(predicate, attempts - 1)`; tool_executor_test.exs:1943-1947 `receive do after 5 -> wait_for_coordination_queue(name, key, attempts - 1) end`.",
+   "recommendation": "Add Aiur.TestSupport.Eventually.assert_eventually(fun, timeout: ms, interval: ms, message: ...) that flunks with the last observed value, and replace all 40 copies. Prefer message barriers over polling where the production code can emit one.",
+   "refactor_hint": "Ship as part of a shared 'aiur_test_support' package that every carved package depends on in :test.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-5-09",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Env / application-env save-restore helpers duplicated with three incompatible meanings of restore_env/2",
+   "locations": [
+    {
+     "path": "src/test/support/test_support.exs",
+     "lines": "175-226, 503-504"
+    },
+    {
+     "path": "src/test/aiur_web/components/operator_control_center/run_summary_strip_test.exs",
+     "lines": "12-59, 1658-1664"
+    },
+    {
+     "path": "src/test/aiur/events/branch_ref_store_test.exs",
+     "lines": "75-170, 320-323"
+    },
+    {
+     "path": "src/test/aiur/open_ai_compat/command_runner_budget_test.exs",
+     "lines": "18-28, 122-125"
+    },
+    {
+     "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+     "lines": "1116-1117"
+    },
+    {
+     "path": "src/test/aiur/pane_manager/anchor_test.exs",
+     "lines": "6-13, 66-67"
+    },
+    {
+     "path": "src/test/aiur/pane_manager/screen_grab_test.exs",
+     "lines": "99-100"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/queue_drain_test.exs",
+     "lines": "13-30"
+    },
+    {
+     "path": "src/test/aiur/regression/github_ingestion_test.exs",
+     "lines": "15-55"
+    }
+   ],
+   "description": "TestSupport already exports restore_env/2 (System env) and capture_app_env/restore_app_env/1, yet 30 files across src/test define their own restore_env and 30 define restore_app_env/restore_application_env. Within this unit the same name means different things: run_summary_strip_test/anchor_test/screen_grab_test restore System env; branch_ref_store_test's restore_env restores Application env (and adds restore_system_env); command_runner_budget_test dispatches on atom-vs-string key. 8 files hand-roll capture/restore of :log_file, three of them (github_ingestion_test, event_flow_e2e_test, orchestrator_lifecycle_test) inside `use Aiur.TestSupport`, whose setup already isolates :log_file per test.",
+   "evidence": "branch_ref_store_test.exs:320-321 `defp restore_env(key, nil), do: Application.delete_env(:aiur, key)`; run_summary_strip_test.exs:58-59 `defp restore_env(key, nil), do: System.delete_env(key)`; command_runner_budget_test.exs:122-125 four clauses on is_atom(key); test_support.exs:503-504 `def restore_env(key, nil), do: System.delete_env(key)`.",
+   "recommendation": "Provide with_env/2 and with_app_env/2 (put, run, restore; register on_exit) in test/support and delete the local copies; drop redundant :log_file overrides in TestSupport-based tests.",
+   "refactor_hint": "Part of the shared test-support package; config keys will be namespaced per package after the carve, so a helper taking {app, key} is needed anyway.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-10",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "GitHub-case setup and URL-dispatch HTTP fakes copied into every GitHub-facing test",
+   "locations": [
+    {
+     "path": "src/test/aiur/events/github_comments_poller_test.exs",
+     "lines": "8-43"
+    },
+    {
+     "path": "src/test/aiur/events/github_ci_poller_test.exs",
+     "lines": "7-33, 36-72"
+    },
+    {
+     "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+     "lines": "30-63"
+    },
+    {
+     "path": "src/test/aiur/events/webhook_poll_reconciliation_test.exs",
+     "lines": "26-50"
+    },
+    {
+     "path": "src/test/aiur/regression/github_ingestion_test.exs",
+     "lines": "15-55, 63-72"
+    },
+    {
+     "path": "src/test/aiur/events/publisher_identity_mode_test.exs",
+     "lines": "31-55"
+    }
+   ],
+   "description": "13 files in this unit (56 across src/test) repeat the same setup: capture GITHUB_TOKEN, put \"test-gh-token\", write_workflow_file!(tracker_kind: \"github\", tracker_repo: \"owner/repo\", tracker_label_prefix: ...), Publisher.set_tracked_fn(fn _ -> true end), and an on_exit that restores the token, unsubscribes Exchange bindings and resets the tracked fn. GitHub HTTP is faked per test with hand-written `request_fun = fn %{url: url} -> cond do String.contains?(url, ...)` routers: 68 String.contains?(url...) sites in github_comments_poller_test, 30 in github_ingestion_test, 27 in github_ci_poller_test. An unmatched URL raises CondClauseError inside the poller task rather than a clear failure.",
+   "evidence": "github_comments_poller_test.exs:9-10 `prev_token = System.get_env(\"GITHUB_TOKEN\"); System.put_env(\"GITHUB_TOKEN\", \"test-gh-token\")`; identical at github_ingestion_test.exs:25-26, deposit_test.exs:31-32, webhook_poll_reconciliation_test.exs:27-28. github_ci_poller_test.exs:36-64 `cond do String.contains?(url, \"/pulls?\") -> ... String.contains?(url, \"/check-runs?\") -> ... String.ends_with?(url, \"/status\") -> ...`.",
+   "recommendation": "Create Aiur.GitHubCase (using Aiur.TestSupport) that performs the token/workflow/tracked-fn setup and teardown, and a FakeGitHub request_fun builder that takes a route table, records requests, and flunks with the unmatched URL.",
+   "refactor_hint": "Belongs to the github package's test support; also clarifies the request_fun seam as the package's HTTP boundary.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-5-11",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Webhook test helpers copied across four files, already diverged, and reaching into Publisher's private ETS table",
+   "locations": [
+    {
+     "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+     "lines": "1487-1529"
+    },
+    {
+     "path": "src/test/aiur/events/webhook_poll_reconciliation_test.exs",
+     "lines": "677-727"
+    },
+    {
+     "path": "src/test/aiur/events/github_webhook_equivalence_test.exs",
+     "lines": "942-975"
+    },
+    {
+     "path": "src/test/aiur/events/github_webhook_test.exs",
+     "lines": "921-961"
+    },
+    {
+     "path": "src/test/aiur/events/github_comments_poller_test.exs",
+     "lines": "36-39"
+    },
+    {
+     "path": "src/test/aiur_web/github_webhook_delivery_test.exs",
+     "lines": "(outside unit; also clears Publisher.Dedup)"
+    }
+   ],
+   "description": "restart_store!/1 is byte-identical in deposit_test and webhook_poll_reconciliation_test (both terminate Aiur.Supervisor's ResourceStore child); await_event/1 is identical in three files; refute_event/1 in two. Clearing the publisher's replay window appears in six variants (clear_dedup x3, clear_replay_window x2, inline on_exit), all of which call :ets.delete_all_objects on the private table name Aiur.Events.Publisher.Dedup; equivalence_test's clear_dedup also calls ResourceStore.reset() while the others do not. review_delivery/1 fixtures exist in three shapes (review id 55_001 on PR 901 / caller-supplied review on PR 77 / id param on pull_request()).",
+   "evidence": "deposit_test.exs:1522-1526 and github_webhook_test.exs:954-958 `case :ets.whereis(@dedup_table) do :undefined -> :ok; _table -> :ets.delete_all_objects(@dedup_table) end`; github_webhook_equivalence_test.exs:966-973 same plus `ResourceStore.reset()`; deposit_test.exs:1506-1520 == webhook_poll_reconciliation_test.exs:696-710.",
+   "recommendation": "Add Publisher.reset_replay_window/0 (test-only via a documented reset API, like ResourceStore.reset/0) and a shared Aiur.WebhookCase with await_event/refute_event/restart_store!/delivery fixture builders.",
+   "refactor_hint": "Publisher dedup is internal state of the events package; tests outside it must not know its ETS table name.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-12",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Five hand-written fake Orchestrators implement the raw queue call protocol, which itself has two parallel variants",
+   "locations": [
+    {
+     "path": "src/test/aiur/agent_runner/queue_drain_test.exs",
+     "lines": "55-143"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/checkpoint_delivery_test.exs",
+     "lines": "11-54"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/turn_loop_agent_support_test.exs",
+     "lines": "12-36"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/turn_loop_noop_bound_test.exs",
+     "lines": "16-30"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+     "lines": "(call atoms)"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator.ex",
+     "lines": "(call atoms)"
+    }
+   ],
+   "description": "Agent-runner tests fake the Orchestrator by pattern-matching its private GenServer call tuples. FlakyRestoreQueueOrchestrator duplicates FakeQueueOrchestrator except one clause. The fakes reveal two coexisting queue protocols in production: per-identifier batch calls ({:claim_next_queue_item, id}, {:consume_delivered_queue_items, id}, {:restore_delivered_queue_items, id}, {:fail_delivered_queue_items, id, reason}) and per-item calls ({:claim_next_operator_queue_item, id}, {:claim_next_checkpoint_queue_item, id}, {:claim_blocker_critical_events_digest, id}, {:restore_queue_item_pending, item_id}, {:mark_queue_item_failed, item_id, reason}, {:acknowledge_queue_item_delivery, ...}); all ten atoms live in orchestrator.ex and orchestrator/operator_messages.ex. dashboard_live_test and agent_chat_broadcast_test (outside this unit) carry further fakes.",
+   "evidence": "queue_drain_test.exs:64-66 `def handle_call({:claim_next_queue_item, _identifier}, _from, %{item: item} = state) when is_map(item)` vs checkpoint_delivery_test.exs:27-44 `handle_call({:claim_next_operator_queue_item, _id}, ...)`, `{:restore_queue_item_pending, item_id}`, `{:mark_queue_item_failed, item_id, reason}`.",
+   "recommendation": "Define a behaviour (e.g. Aiur.AgentQueueOwner) with the queue operations as functions, have Orchestrator implement it, pass the implementation to AgentRunner, and ship one configurable in-memory fake in test support. Collapse the two protocols if the batch and per-item paths are the same state machine.",
+   "refactor_hint": "This is the seam between a future 'agent_runner' package and the 'orchestrator' package; making it a behaviour is a prerequisite for carving them apart.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-5-13",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Tests read and poll private GenServer state (117 :sys.get_state/replace_state sites)",
+   "locations": [
+    {
+     "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+     "lines": "1927-1948"
+    },
+    {
+     "path": "src/test/aiur/regression/opencode_slots_test.exs",
+     "lines": "113-123"
+    },
+    {
+     "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+     "lines": "405, 421, 852-853, 913"
+    },
+    {
+     "path": "src/test/aiur/events/exchange_test.exs",
+     "lines": "137"
+    },
+    {
+     "path": "src/test/aiur/events/ls_remote_ticker_test.exs",
+     "lines": "383-437"
+    },
+    {
+     "path": "src/test/aiur/regression/agent_list_sort_test.exs",
+     "lines": "67, 106"
+    }
+   ],
+   "description": "Beyond barrier use, many assertions depend on internal field names: tool_executor_test busy-polls `:sys.get_state(name).queues` of Aiur.CoordinationTasks and inspects the :queue; opencode_slots_test reads state.fanned_out_slots and state.slot_pids of AttachPool; orchestrator_blocking_http_test reads and writes github_comment_poll.started_at_ms; exchange_test asserts `:sys.get_state(exchange).monitors == %{}`; ls_remote_ticker_test asserts next_delay_ms and connectivity[:ls_remote]. Counts: orchestrator_lifecycle 29, orchestrator_blocking_http 28, orchestrator_dispatch_retry 19, github_ingestion 16, ls_remote_ticker 9.",
+   "evidence": "tool_executor_test.exs:1932-1936 `state = :sys.get_state(name); case Map.get(state.queues, key) do queue when not is_nil(queue) -> if :queue.is_empty(queue) ...`; opencode_slots_test.exs:117-119 `not Map.has_key?(state.fanned_out_slots, 1) and not Map.has_key?(state.slot_pids, 1)`.",
+   "recommendation": "Expose small read APIs for the facts tests need (CoordinationTasks.queue_depth/2, AttachPool.slot_assignment/2, LsRemoteTicker.backoff/1) or assert on emitted events; keep :sys.get_state only as a mailbox barrier.",
+   "refactor_hint": "Internal state shapes will change during the carve; decouple tests first so the carve does not require rewriting assertions at the same time.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-5-14",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "20 *_for_test functions in 7 production modules; this unit calls 9 of them at 48 sites",
+   "locations": [
+    {
+     "path": "src/lib/aiur/orchestrator.ex",
+     "lines": "342-363"
+    },
+    {
+     "path": "src/lib/aiur/agent_runner.ex",
+     "lines": "487-566"
+    },
+    {
+     "path": "src/lib/aiur/events/github_ci_poller.ex",
+     "lines": "79"
+    },
+    {
+     "path": "src/lib/aiur/linear/client.ex",
+     "lines": "198-235"
+    },
+    {
+     "path": "src/lib/aiur/opencode/session_writer.ex",
+     "lines": "686-692"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/operator_messages.ex",
+     "lines": "544"
+    },
+    {
+     "path": "src/lib/aiur/codex/app_server_port.ex",
+     "lines": "176"
+    },
+    {
+     "path": "src/test/aiur/events/github_ci_poller_test.exs",
+     "lines": "(18 calls to evaluate_for_test)"
+    },
+    {
+     "path": "src/test/aiur/regression/agent_runner_lifecycle_test.exs",
+     "lines": "205-270"
+    },
+    {
+     "path": "src/test/aiur/regression/orchestrator_lifecycle_test.exs",
+     "lines": "740-765"
+    }
+   ],
+   "description": "Production modules export test-only wrappers around private functions (e.g. Orchestrator.slot_status_for_test/1 delegates to Slots.slot_status/1). Calls from this unit: GithubCIPoller.evaluate_for_test 18, AgentRunner.render_events_digest_for_test 9, Orchestrator.should_dispatch_issue_for_test 6, dispatch_candidate_for_test 6, retry_dispatch_ready_for_test 2, resume_paused_issue_for_test 2, apply_overrun_check_for_test 2, AgentRunner.claim_after_queue_update_for_test 2, Orchestrator.slot_status_for_test 1. These widen the public API of god modules on hot paths and hide which extracted module actually owns the logic.",
+   "evidence": "orchestrator.ex:342 `def slot_status_for_test(%State{} = state), do: Slots.slot_status(state)`; orchestrator.ex:345 `def apply_overrun_check_for_test(%State{} = state, max_seconds)`; agent_runner.ex:560 `def render_events_digest_for_test(events, identifier)`.",
+   "recommendation": "Point the tests at the owning extracted modules (Orchestrator.Slots, the dispatcher, EventsDigest, the CI evaluator) via their real public functions, then delete the wrappers. Where the logic is still private inside the god module, extract it as part of the carve and test the extraction.",
+   "refactor_hint": "Each wrapper marks an extraction candidate: Orchestrator dispatch/overrun/resume, AgentRunner events-digest and prompt building, GithubCIPoller evaluation.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-5-15",
+   "category": "anti-pattern",
+   "severity": "P2",
+   "title": "Global persistent_term closure (Publisher.set_tracked_fn) installed by the Orchestrator and reset 31 times by tests",
+   "locations": [
+    {
+     "path": "src/lib/aiur/events/publisher.ex",
+     "lines": "371-389, 500"
+    },
+    {
+     "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+     "lines": "392"
+    },
+    {
+     "path": "src/test/aiur/regression/workspace_lifecycle_test.exs",
+     "lines": "32-36, 47"
+    },
+    {
+     "path": "src/test/support/test_support.exs",
+     "lines": "208-217"
+    }
+   ],
+   "description": "The events Publisher's contamination filter is a function stored in :persistent_term and installed at runtime by Orchestrator.Lifecycle. Tests must reset it: 31 Publisher.set_tracked_fn calls in 11 files of this unit, on top of TestSupport.reset_global_state!/0 doing it for every TestSupport case. workspace_lifecycle_test documents the leak: 'The contamination filter's tracked_fn is process-global (:persistent_term) and can be left pointed at another test's narrow set'. Each persistent_term.put of a new closure also triggers a global literal-area GC in the VM.",
+   "evidence": "publisher.ex:375-376 `def set_tracked_fn(fun) when is_function(fun, 1) do :persistent_term.put({__MODULE__, :tracked_fn}, fun)`; orchestrator/lifecycle.ex:392 `Publisher.set_tracked_fn(tracked_issue?)`; workspace_lifecycle_test.exs:33-36 comment quoted above.",
+   "recommendation": "Make the tracked-set a query the Publisher performs against an injected tracker/registry (or data kept in an ETS table owned by a process with a reset API), not a closure in persistent_term; pass it via publish opts in tests.",
+   "refactor_hint": "Hidden dependency from the 'events' package back to the 'orchestrator' package; must become an explicit behaviour or callback at the package boundary.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-5-16",
+   "category": "large-module",
+   "severity": "P2",
+   "title": "fixture_server.exs: 2634-line script with 16 modules that re-implements DashboardLive handlers, already diverged",
+   "locations": [
+    {
+     "path": "src/test/browser/fixture_server.exs",
+     "lines": "1-2634"
+    },
+    {
+     "path": "src/test/browser/fixture_server.exs",
+     "lines": "905-1508"
+    },
+    {
+     "path": "src/lib/aiur_web/live/dashboard_live.ex",
+     "lines": "377-390"
+    }
+   ],
+   "description": "One file holds the layout, seven fixture LiveViews, auth plug, a fake STT GenServer, stream-deck control, asset controller, data source, router, endpoint and the server boot (97 defp). UnitsLive (lines 905-1508) re-implements 13 event handlers that production DashboardLive (2858 lines) owns (select-units-scope, toggle-units-condition, inspect-unit, search-tickets, send-operator-message, ...), so the browser suite exercises the fixture's copy of event handling and only the production components' rendering. The copies have already diverged: production keeps selection in :units_selection, builds paths with units_path(socket, selection) and has a malformed-params fallback clause; the fixture uses :selection, units_path(selection) and no fallback. The file also contains four different TrackerIdentity builders (500-510, 886-902, 1451-1461, 1884-1898) with incompatible provider_id formats and owners (owner/repo vs its-everdred/aiur).",
+   "evidence": "fixture_server.exs:966-969 `def handle_event(\"select-units-scope\", %{\"scope\" => scope}, socket) do selection = UnitsPresenter.select_scope(socket.assigns.selection, scope)`; dashboard_live.ex:377-382 `selection = UnitsPresenter.select_scope(socket.assigns.units_selection, scope) ... def handle_event(\"select-units-scope\", _params, socket), do: {:noreply, socket}`.",
+   "recommendation": "Split into test/browser/fixture/*.ex (one module per file). Extract the Units/Tickets event handling from DashboardLive into a function module (e.g. AiurWeb.UnitsEvents) that both DashboardLive and the fixture call, or mount the real DashboardLive against injected data sources (the build_order_data_source pattern at line 2354 already does this for Build Order).",
+   "refactor_hint": "The web/dashboard package's browser harness; decide during the carve whether it lives with aiur_web or in its own test package.",
+   "effort": "L"
+  },
+  {
+   "id": "tests-5-17",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Run-summary strip tests pin stale and unavailable readings as indistinguishable from fresh ones",
+   "locations": [
+    {
+     "path": "src/test/aiur_web/components/operator_control_center/run_summary_strip_test.exs",
+     "lines": "220-244, 647-730, 1245-1335"
+    }
+   ],
+   "description": "AGENTS.md ('Computed ages and collapsed causes', and the unknown-path mutation rule) requires that an unavailable/stale rendering path fail a test when replaced with a plausible default. Here the tests assert the opposite: 'the models pane renders stale and unavailable readings without labels' (Kimi 'reported nothing at all ... the row is just the empty bar'), 'a card standing stale or partial renders windows without qualifiers', 'a stale-stamped window renders its percentage without qualifiers', and 'a credit window past its freshness horizon keeps its balance without a stale label'. The test named 'names unavailable values instead of presenting synthetic zeroes' contains no positive assertion that anything is named; it only refutes '$0.00', 'N/A', 'Tokens' and CSS classes, so rendering an empty bar or 0% for an unavailable reading passes.",
+   "evidence": "run_summary_strip_test.exs:1267-1271 `# Kimi reported nothing at all ... so the row is just the empty bar. refute html =~ ~s(<span class=\"rs-limit-meta\">Unavailable</span>); refute html =~ \"Unavailable\"`; :1306-1308 `assert html =~ \"40% \u00b7 resets in 30m\"; refute html =~ \"stale\"; refute html =~ \"partial\"`.",
+   "recommendation": "Surface the contradiction to the operator: either the strip carries a cause-neutral marker for stale/unavailable (with a test that fails when the branch is replaced by a default) or AGENTS.md records an explicit exception for this surface. At minimum, assert a distinguishing attribute (data-freshness=\"stale\" / aria-label) so the value behind the render is constrained.",
+   "refactor_hint": "Freshness semantics should be a shared presenter contract in the dashboard package, not per-component.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-18",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Tombstone refutes: 21 refutes of removed labels in run_summary_strip_test, which pass on any rename",
+   "locations": [
+    {
+     "path": "src/test/aiur_web/components/operator_control_center/run_summary_strip_test.exs",
+     "lines": "61-83, 125-192, 236-244, 809-831, 1008-1023, 1213-1243"
+    }
+   ],
+   "description": "The file has 53 tests, 158 html =~ assertions of which 83 are refutes. 21 refutes target strings of features that were removed ('Tokens', 'Spend', 'rs-spend', 'rs-token-*', 'Top consumer', 'Attributed', 'N/A'), and whole tests exist only to refute them ('spend figures are removed for every account', 'token glyphs are removed from the model rows', three 'omits attribution and coverage context' tests). A refute of a literal string cannot detect the feature returning under a different class name or wording, so these tests cost render time and maintenance without constraining behaviour. 14 comments cite 'removed'/'operator directive' as the reason.",
+   "evidence": "run_summary_strip_test.exs:1019-1022 `refute html =~ \"Tokens\"; refute html =~ ~s(<span class=\"rs-stat-label\">Tokens</span>); refute html =~ \"rs-token-na\"; refute html =~ \"rs-token-ic\"`; :828-830 `refute html =~ \"$2.50\"; refute html =~ \"$6.25\"; refute html =~ \"rs-spend\"`.",
+   "recommendation": "Delete the tombstone tests; if the removal must stay enforced, assert the component's positive structure (e.g. the exact set of rows/columns via LazyHTML selectors) so any added element fails.",
+   "refactor_hint": "Reduces the size of the largest component test file before it moves with the dashboard package.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-19",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "Provider 'keyed' credential check duplicated in RunSummaryStrip (reads System env at render) and ProviderMeterProbe (injectable) \u2014 forces async:false tests",
+   "locations": [
+    {
+     "path": "src/lib/aiur_web/components/operator_control_center/run_summary_strip.ex",
+     "lines": "434-453"
+    },
+    {
+     "path": "src/lib/aiur/provider_meter_probe.ex",
+     "lines": "108-122"
+    },
+    {
+     "path": "src/test/aiur_web/components/operator_control_center/run_summary_strip_test.exs",
+     "lines": "1-59"
+    }
+   ],
+   "description": "Both modules decide whether an OpenAI-compatible provider is 'keyed' by reading management_api_key_env || api_key_env from CodingAgent.backends(). The probe takes an :api_key_fetcher option; the strip calls System.get_env/1 directly inside a function component's render path. The copies already differ for non-compat providers (strip returns true, probe returns false). Because the component reads process-global env, run_summary_strip_test must be async: false, delete four credential env vars in setup, and carry three near-identical with_deepseek_key/with_kimi_key/with_openrouter_key helpers (lines 25-56) plus nested with_*_key blocks.",
+   "evidence": "run_summary_strip.ex:450 `case System.get_env(env) do value when is_binary(value) and value != \"\" -> true`; provider_meter_probe.ex:115 `case Keyword.get(opts, :api_key_fetcher, &System.get_env/1).(env) do`; run_summary_strip_test.exs:2-4 `# The keyed-card filter reads credential env vars, which are process-global, so these tests must not run concurrently`.",
+   "recommendation": "Compute 'keyed?' once in the provider registry (e.g. Aiur.OpenAICompat.Registry.keyed?(provider, fetcher)) and pass the result into the component via assigns (the presenter), so rendering is pure and the test can be async with a parameter instead of env mutation.",
+   "refactor_hint": "Credential resolution belongs to the provider/open_ai_compat package; the dashboard should receive facts, not read env.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-20",
+   "category": "silent-failure",
+   "severity": "P2",
+   "title": "Sandbox-isolation tests silently pass when bwrap is absent",
+   "locations": [
+    {
+     "path": "src/test/aiur/open_ai_compat/tools_test.exs",
+     "lines": "192-207"
+    },
+    {
+     "path": "src/test/aiur/open_ai_compat/command_runner_budget_test.exs",
+     "lines": "52-72, 74-104"
+    }
+   ],
+   "description": "'real command sandbox cannot read a host sibling' and two budget-sharing sandbox tests branch on System.find_executable(\"bwrap\") and return :ok when it is missing, so on any host without bubblewrap the suite reports these security-relevant tests green without executing them. test_helper.exs already has the right pattern for environment-dependent tests (the :real_proc tag excluded when /proc is absent).",
+   "evidence": "tools_test.exs:193-195 `case System.find_executable(\"bwrap\") do nil -> :ok`; command_runner_budget_test.exs:75-76 `case {System.find_executable(\"bwrap\"), ...} do ... _unavailable -> :ok`.",
+   "recommendation": "Tag these tests @tag :bwrap and exclude the tag in test_helper.exs when bwrap is not on PATH (mirroring real_proc_exclude), so skipped runs are reported as excluded, and make CI install bwrap so the isolation guarantee is actually exercised.",
+   "refactor_hint": "Sandbox execution belongs to the agent-runtime package; its CI must run the real sandbox.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-21",
+   "category": "dead-code",
+   "severity": "P2",
+   "title": "parallel_pre_warm_test is permanently skipped and asserts code that no longer exists",
+   "locations": [
+    {
+     "path": "src/test/aiur/regression/parallel_pre_warm_test.exs",
+     "lines": "1-71"
+    },
+    {
+     "path": "src/lib/aiur/opencode/slot_policy.ex",
+     "lines": "(no start_first_slot / slot_chain_parallel_start)"
+    }
+   ],
+   "description": "The module carries @moduletag :skip (line 19) and its three tests grep slot_policy.ex for `handle_info(:start_first_slot, %{target_count: target`, `Enum.reduce(1..target,` and `Aiur.Perf.event(:slot_chain_parallel_start`. None of these strings exist in the snapshot's slot_policy.ex, so the file is dead weight that would fail if un-skipped.",
+   "evidence": "parallel_pre_warm_test.exs:19 `@moduletag :skip`; grep of src/lib/aiur/opencode/slot_policy.ex for start_first_slot|slot_chain_parallel_start|Enum.reduce(1..target returns nothing.",
+   "recommendation": "Delete the file (or replace with a behavioural test of the current slot-start policy if parallel pre-warm is still a requirement).",
+   "refactor_hint": "Remove before moving the opencode/slot tests into their package.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-22",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Perf regression tests read the live dev log; name/threshold drift; a test reads the operator's dogfood .aiur/hooks",
+   "locations": [
+    {
+     "path": "src/test/aiur/regression/chat_open_perf_test.exs",
+     "lines": "19, 35-80"
+    },
+    {
+     "path": "src/test/aiur/regression/time_to_paint_test.exs",
+     "lines": "27-28, 66-106"
+    },
+    {
+     "path": "src/test/aiur/regression/warm_attach_open_test.exs",
+     "lines": "30-34, 120-205"
+    },
+    {
+     "path": "src/test/aiur/regression/prewarm_complete_time_test.exs",
+     "lines": "32, 73"
+    },
+    {
+     "path": "src/test/aiur/regression/workspace_lifecycle_test.exs",
+     "lines": "284-289"
+    }
+   ],
+   "description": "Four :perf_regression tests parse src/log/aiur.log (whatever the last aiurdev run wrote) and assert thresholds against the latest matching line; they are excluded by default and their result depends on developer history, not the code under test. warm_attach_open_test's test is named 'under 750 ms threshold' while @warm_convo_paint_threshold_ms is 400 and the failure message says 'about 400 ms'. workspace_lifecycle_test's 'checked-in .aiur/hooks pins exit 65' reads ../../../../.aiur/hooks, the operator's dogfood hooks file that AGENTS.md describes as operational config, not a portable default.",
+   "evidence": "chat_open_perf_test.exs:35 `@log_path Path.expand(\"../../../log/aiur.log\", __DIR__)`; warm_attach_open_test.exs:34 `@warm_convo_paint_threshold_ms 400` vs test name 'warm-path opens render opencode under 750 ms threshold'; workspace_lifecycle_test.exs:285 `hooks_path = Path.expand(\"../../../../.aiur/hooks\", __DIR__)`.",
+   "recommendation": "Move log-reading perf checks into a script/mix task (evidence gathering, like :external) rather than ExUnit tests; fix the name drift; assert the exit-65 contract against .aiur/examples/hooks.example (the shipped template) or a fixture.",
+   "refactor_hint": "Perf evidence tooling belongs with the dev launcher, not a library package's test suite.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-23",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "ensure_codeowners!/1 ignores its contents when the app CodeOwners runs; a 'multiple trusted reviewers' test never trusts the second reviewer",
+   "locations": [
+    {
+     "path": "src/test/aiur/events/github_comments_poller_test.exs",
+     "lines": "1084-1105, 1371-1440"
+    },
+    {
+     "path": "src/test/aiur/regression/github_ingestion_test.exs",
+     "lines": "728-757"
+    }
+   ],
+   "description": "When Aiur.GitHub.CodeOwners is already running (the normal TestSupport case), ensure_codeowners!(contents) replaces the allowlist with the hard-coded MapSet.new([\"its-everdred\"]) and discards `contents`; only the fallback branch writes the file. The test 'publishes one review per reviewer when multiple trusted reviewers' passes \"* @its-everdred @other-reviewer\\n\", so other-reviewer is untrusted in practice and the test passes only because publishing does not gate on trust. The helper is duplicated verbatim in github_ingestion_test.",
+   "evidence": "github_comments_poller_test.exs:1372-1377 `pid when is_pid(pid) -> previous_allowlist = CodeOwners.snapshot(pid); :sys.replace_state(pid, &%{&1 | allowlist: MapSet.new([\"its-everdred\"])})`; :1086 `codeowners = ensure_codeowners!(\"* @its-everdred @other-reviewer\\n\")`.",
+   "recommendation": "Parse `contents` into the allowlist in both branches (or start a private CodeOwners with name injection), move the helper to test support, and assert author_trusted?: true for both reviews in that test.",
+   "refactor_hint": "CodeOwners trust is part of the github package; its test helper should live there.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-24",
+   "category": "test-quality",
+   "severity": "P2",
+   "title": "Assertions that cannot fail or constrain nothing",
+   "locations": [
+    {
+     "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+     "lines": "9-14, 1320, 1753"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/queue_drain_test.exs",
+     "lines": "267-273"
+    },
+    {
+     "path": "src/test/aiur/regression/shutdown_cleanup_test.exs",
+     "lines": "50-54"
+    },
+    {
+     "path": "src/test/aiur/regression/github_ingestion_test.exs",
+     "lines": "157-162"
+    },
+    {
+     "path": "src/test/aiur/pane_manager/convo_paint_test.exs",
+     "lines": "84-88"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/message_handler_test.exs",
+     "lines": "10-18"
+    }
+   ],
+   "description": "`assert Process.alive?(self())` (tool_executor_test 1320, 1753) is always true inside a running test. 'returns a 2-arity closure' asserts only is_function(executor, 2). queue_drain_test's fallback test asserts only is_binary(result). shutdown_cleanup_test asserts the 4179-line engine contains `kill -TERM` and `kill -KILL` anywhere. github_ingestion_test asserts the private persistent_term value {Publisher, :ttl_ms} == 3_600_000 (a constant, per AGENTS.md's 'asserting a constant' anti-pattern). convo_paint_test pins module-attribute literals by source grep. message_handler_test's forwarding test matches `_normalized`, so the normalised payload is unchecked.",
+   "evidence": "tool_executor_test.exs:1320 `assert Process.alive?(self())`; queue_drain_test.exs:272 `assert is_binary(result)`; shutdown_cleanup_test.exs:50 `assert File.read!(@engine) =~ ~r/kill -TERM/`; github_ingestion_test.exs:161 `assert :persistent_term.get({Publisher, :ttl_ms}) == 3_600_000`.",
+   "recommendation": "Replace with behaviour assertions (the caller received a failure response and the store was not called; the fallback text contains inspect(item); the dedup expires after the TTL using an injected clock; the cleanup block contains TERM before KILL for the session node) or delete.",
+   "refactor_hint": "Cheap cleanup to do while moving each file.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-25",
+   "category": "duplication",
+   "severity": "P2",
+   "title": "TrackerIdentity and git fixtures re-built by hand in dozens of files",
+   "locations": [
+    {
+     "path": "src/test/browser/fixture_server.exs",
+     "lines": "500-510, 886-902, 1451-1461, 1884-1898"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+     "lines": "649-654, 1014-1019, 1056-1061, 1096-1101"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/session_lifecycle_test.exs",
+     "lines": "969-991"
+    },
+    {
+     "path": "src/test/support/grouped_scopes_support.ex",
+     "lines": "20-35"
+    },
+    {
+     "path": "src/test/aiur/regression/workspace_lifecycle_test.exs",
+     "lines": "827-835"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/turn_progress_test.exs",
+     "lines": "156-158"
+    }
+   ],
+   "description": "90 files under src/test construct %TrackerIdentity{} literals; in this unit 13 files (fixture_server 17 sites, tool_executor_test four identical TrackerIdentity.from_github(%{\"node_id\" => ..., \"number\" => 42}, {\"owner\",\"repo\"}, {\"owner\",\"repo\"}) calls). The only shared factory is GroupedScopesSupport.identity/1,3. Likewise a private git!/1 helper exists in 13 test files and shell_quote/1 in 3.",
+   "evidence": "tool_executor_test.exs:649-654 and 1014-1019 differ only in node_id: `TrackerIdentity.from_github(%{\"node_id\" => \"I_kwDOObservation\", \"number\" => 42}, {\"owner\", \"repo\"}, {\"owner\", \"repo\"})`.",
+   "recommendation": "Add Aiur.Factory.tracker_identity/1 (keyword overrides) and Aiur.TestSupport.Git (init/commit/clone with isolated HOME/GIT_CONFIG_GLOBAL) and migrate callers.",
+   "refactor_hint": "TrackerIdentity is a core type every package uses; its factory belongs in the shared test-support package.",
+   "effort": "M"
+  },
+  {
+   "id": "tests-5-26",
+   "category": "large-module",
+   "severity": "P3",
+   "title": "Oversized test modules and test bodies",
+   "locations": [
+    {
+     "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+     "lines": "1-1949 (737-742, 781-786 duplicate publication_records/1 at 1919-1925)"
+    },
+    {
+     "path": "src/test/aiur_web/components/operator_control_center/run_summary_strip_test.exs",
+     "lines": "1-1665"
+    },
+    {
+     "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+     "lines": "1-1530"
+    },
+    {
+     "path": "src/test/aiur/events/github_comments_poller_test.exs",
+     "lines": "1-1508"
+    },
+    {
+     "path": "src/test/aiur/events/github_ci_poller_test.exs",
+     "lines": "800-921, 1046-1169"
+    },
+    {
+     "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+     "lines": "1-1162"
+    }
+   ],
+   "description": "Largest files in the unit: fixture_server 2634, tool_executor_test 1949 (8 describes, decision/attention/publication concerns mixed), run_summary_strip_test 1665 (53 tests, 46 render_component calls, flat \u2014 no describe blocks), deposit_test 1530, github_comments_poller_test 1508 (51 tests/helpers), github_ci_poller_test 1227, orchestrator_blocking_http_test 1162, github_webhook_test 1002, engine_control_test 997, session_lifecycle_test 992. Longest single tests: github_ci_poller_test 1046 (124 lines) and 800 (122 lines), coding_agent_test 24 (107), queue_drain_test 492 (94), tool_executor_test 1548 (93), orchestrator_blocking_http_test 715 (90). tool_executor_test inlines the publication_records/1 pipeline twice (737-742, 781-786) despite the helper at 1919-1925.",
+   "evidence": "wc -l on the unit; longest-test census by matching `test \"...\" do` to its closing `end`.",
+   "recommendation": "Split by describe/concern when moving: tool_executor_test into blocker/emit_event/decision files; run_summary_strip_test into github/models/elevenlabs/compact files; github_ci_poller_test's repair tests into their own module with a scenario builder.",
+   "refactor_hint": "Split along the same package boundaries as the production modules (ToolExecutor's blocker vs decision paths are likely separate packages).",
+   "effort": "M"
+  },
+  {
+   "id": "tests-5-27",
+   "category": "performance",
+   "severity": "P3",
+   "title": "~29 s of guaranteed refute_receive waiting in this unit, much of it after a synchronous barrier",
+   "locations": [
+    {
+     "path": "src/test/aiur/regression/opencode_slots_test.exs",
+     "lines": "97, 146, 169, 185, 188, 267-268, 286-287"
+    },
+    {
+     "path": "src/test/aiur/events/ls_remote_ticker_test.exs",
+     "lines": "59, 81, 125, 201, 231, 344, 359-360"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/checkpoint_delivery_test.exs",
+     "lines": "141, 153"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/queue_drain_test.exs",
+     "lines": "186, 350, 441-442"
+    }
+   ],
+   "description": "176 refute_receive calls sum to ~29 s of fixed wait (default 100 ms for 41 bare calls). opencode_slots_test alone waits 7 s (seven 1_000 ms refutes). ls_remote_ticker_test drives each tick through a :sys.get_state barrier (tick/1) and then still waits 100-200 ms per refute; checkpoint_delivery_test refutes after a synchronous GenServer.call whose sends have already landed. refute_received would express the same property with zero wait.",
+   "evidence": "ls_remote_ticker_test.exs:33-42 explains tick/1 is a barrier; :59 `refute_receive {:published, _topic, _payload, _opts}, 100`; opencode_slots_test.exs:97 `refute_receive {:slot_call, _, _, _}, 1000`.",
+   "recommendation": "Use refute_received after barriers; where asynchronous absence must be proven, send a sentinel through the same process and refute before it arrives.",
+   "refactor_hint": "Suite-time win that compounds when each package runs its own suite in CI.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-28",
+   "category": "config",
+   "severity": "P3",
+   "title": "async: false on modules with no shared state",
+   "locations": [
+    {
+     "path": "src/test/aiur/tmux/layout_test.exs",
+     "lines": "2"
+    },
+    {
+     "path": "src/test/aiur/tmux/exec_test.exs",
+     "lines": "2"
+    },
+    {
+     "path": "src/test/aiur/tmux/input_test.exs",
+     "lines": "2"
+    },
+    {
+     "path": "src/test/aiur/tmux/style_test.exs",
+     "lines": "2"
+    },
+    {
+     "path": "src/test/aiur/tmux/mock_transport_test.exs",
+     "lines": "2"
+    },
+    {
+     "path": "src/test/aiur/events/id_generator_test.exs",
+     "lines": "2"
+    }
+   ],
+   "description": "30 of 93 ExUnit.Case modules in the unit are async: false and 23 more use Aiur.TestSupport (synchronous). The five tmux modules above use only a {:mock, self()} transport and no env/app/global state; id_generator_test starts every generator with name: nil on a per-test tmp path. They serialize the suite for no isolation benefit.",
+   "evidence": "grep of `async: false` in src/test/aiur/tmux/*.exs; tmux tests' only state is `defp mock_state(parent), do: %{transport: {:mock, parent}, session: \"test\"}`.",
+   "recommendation": "Flip these to async: true; add a short comment on each remaining async: false stating the shared resource it protects.",
+   "refactor_hint": "The tmux adapter is a natural standalone package; its tests are already pure and should run async there.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-29",
+   "category": "duplication",
+   "severity": "P3",
+   "title": "tmux mock boilerplate repeated ~40 times and the mock transport ships in production lib",
+   "locations": [
+    {
+     "path": "src/test/aiur/tmux/layout_test.exs",
+     "lines": "6-29"
+    },
+    {
+     "path": "src/test/aiur/tmux/query_test.exs",
+     "lines": "6-20"
+    },
+    {
+     "path": "src/test/aiur/pane_manager/anchor_test.exs",
+     "lines": "54-64"
+    },
+    {
+     "path": "src/test/aiur/pane_manager/layout_test.exs",
+     "lines": "251-261"
+    },
+    {
+     "path": "src/test/aiur/pane_manager/close_test.exs",
+     "lines": "1-20"
+    },
+    {
+     "path": "src/test/aiur/pane_manager/slot_attach_test.exs",
+     "lines": "1-7"
+    },
+    {
+     "path": "src/lib/aiur/tmux/mock_transport.ex",
+     "lines": "(whole file)"
+    },
+    {
+     "path": "src/lib/aiur/tmux/exec.ex",
+     "lines": "13-62"
+    }
+   ],
+   "description": "mock_state/1 is defined in 5 tmux test files; the Task.async + send(parent, :ready) + assert_receive {:tmux_mock_out, cmd} + send(task.pid, {:tmux_mock_data, \"%begin ...%end\"}) sequence appears in 41 Task.async blocks across tmux/*; start_tmux/0 is identical in pane_manager/anchor_test and pane_manager/layout_test; two different FakeSlot GenServers live in close_test and slot_attach_test. The {:mock, pid} transport itself is compiled into the release (lib/aiur/tmux/mock_transport.ex, with {:mock, ...} clauses in Tmux.Exec).",
+   "evidence": "tmux/layout_test.exs:6 and query_test.exs:6 `defp mock_state(parent), do: %{transport: {:mock, parent}, session: \"test\"}`; exec.ex:13-17 `def run_command(%{transport: {:mock, pid, response_timeout}}, cmd)`.",
+   "recommendation": "Add Aiur.TmuxCase with run_mock(fun, replies) that performs the Task/ready/reply dance; move MockTransport under test/support and select the transport through a behaviour instead of pattern clauses in Exec.",
+   "refactor_hint": "Makes the tmux adapter carve cleaner: production package exposes a Transport behaviour, tests supply the mock.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-30",
+   "category": "coupling",
+   "severity": "P2",
+   "title": "Launcher control-protocol markers are a cross-language contract defined only by string literals in bash and Elixir",
+   "locations": [
+    {
+     "path": "src/test/aiur/regression/engine_control_test.exs",
+     "lines": "640-651"
+    },
+    {
+     "path": "src/test/aiur/regression/orchestrator_blocking_http_test.exs",
+     "lines": "171-172, 290-291"
+    }
+   ],
+   "description": "The control RPC protocol between the bash launcher (packaging/npm/aiur-cli/libexec/aiur-engine.sh) and Aiur.AgentControlCLI is the marker strings __AIUR_CONTROL_EXIT__:, __AIUR_CONTROL_ERROR__:, __AIUR_CONTROL_READY__ and __AIUR_CONTROL_NOT_READY__. Their only single source of truth is a test that greps both source files for the literals; other tests assert the markers in captured output. If the launcher moves to its own repository (as the carve plans), this cross-file grep stops working and the contract has no home.",
+   "evidence": "engine_control_test.exs:641-650 `cli = File.read!(Path.expand(\"../../../lib/aiur/agent_control_cli.ex\", __DIR__)) ... assert cli =~ ~s|@exit_marker \"__AIUR_CONTROL_EXIT__:\"| ... assert engine =~ ~s|marker=\"__AIUR_CONTROL_EXIT__:\"|`.",
+   "recommendation": "Put the markers in a small versioned contract file (JSON, like packages/streamdeck/src/key-face-contract.json already referenced by compile_time_paths_test) read by both the Elixir module at compile time and the launcher at build time, and test each side against the contract file.",
+   "refactor_hint": "Required before splitting the launcher/CLI package from the daemon.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-31",
+   "category": "anti-pattern",
+   "severity": "P3",
+   "title": "Fixture-only branches compiled into production LiveView/projection code",
+   "locations": [
+    {
+     "path": "src/lib/aiur_web/live/streamdeck_live.ex",
+     "lines": "260, 1498-1499, 1646"
+    },
+    {
+     "path": "src/lib/aiur_web/streamdeck_projection.ex",
+     "lines": "201"
+    },
+    {
+     "path": "src/test/browser/fixture_server.exs",
+     "lines": "2390-2431, 2568-2609"
+    }
+   ],
+   "description": "StreamdeckLive subscribes to a \"streamdeck:fixture\" PubSub topic and handles :streamdeck_fixture_fleet_changed when endpoint config streamdeck_fixture_fleet is set, and StreamdeckProjection/StreamdeckLive consult streamdeck_snapshot_fun; these exist only for the browser fixture server, which drives them through :persistent_term-backed pause state and a hand-built fleet.",
+   "evidence": "streamdeck_live.ex:1498-1499 `if endpoint_config(:streamdeck_fixture_fleet) do Phoenix.PubSub.subscribe(Aiur.PubSub, \"streamdeck:fixture\")`; fixture_server.exs:2581 `streamdeck_fixture_fleet: true`.",
+   "recommendation": "Replace the fixture flag with the same data-source injection used elsewhere (a snapshot source behaviour that can broadcast its own change topic), so production code has no fixture-named branch.",
+   "refactor_hint": "Stream Deck surface is a candidate standalone package; keep test seams generic (source behaviour) rather than fixture-specific flags.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-32",
+   "category": "test-quality",
+   "severity": "P3",
+   "title": "Engine test helpers isolate the node name but not HOME / AIUR_BG_STATE_DIR; git helpers inherit the user's global git config",
+   "locations": [
+    {
+     "path": "src/test/aiur/regression/engine_control_test.exs",
+     "lines": "166-194, 925-942"
+    },
+    {
+     "path": "src/test/aiur/regression/instance_identity_test.exs",
+     "lines": "26-40"
+    },
+    {
+     "path": "src/test/aiur/regression/workspace_lifecycle_test.exs",
+     "lines": "827-830"
+    },
+    {
+     "path": "src/test/aiur/agent_runner/turn_progress_test.exs",
+     "lines": "110-117, 156-158"
+    }
+   ],
+   "description": "run_sourced_engine/2 pins AIUR_RELEASE_NODE when the caller omits it but leaves HOME and AIUR_BG_STATE_DIR to each caller; the engine defaults AIUR_BG_STATE_DIR to ${XDG_CONFIG_HOME:-$HOME/.config}/aiur (cookie, instance records) and load_dotenv reads $HOME/.aiur/.env. Most callers pass AIUR_BG_STATE_DIR (21 occurrences), but the reap tests and instance_identity_test's identity/1 run with the real HOME, so isolation is by convention. Similarly the git!/1 helpers run `git commit` with the developer's ~/.gitconfig (commit signing, hooks, templates) in effect.",
+   "evidence": "engine_control_test.exs:931-936 only defaults `AIUR_RELEASE_NODE`; aiur-engine.sh:281-286 `local config_home=\"${XDG_CONFIG_HOME:-$HOME/.config}\" ... : \"${AIUR_BG_STATE_DIR:=$config_home/aiur}\"`; turn_progress_test.exs:117 `git!(workspace, [\"-c\", \"user.name=T\", ... \"commit\", ...])` with inherited env.",
+   "recommendation": "Make run_sourced_engine default HOME and AIUR_BG_STATE_DIR to a per-test tmp root (callers may override), and set GIT_CONFIG_GLOBAL=/dev/null, GIT_CONFIG_NOSYSTEM=1 in a shared git helper.",
+   "refactor_hint": "Launcher tests travel with the launcher package; make them hermetic before they run in another repository's CI.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-33",
+   "category": "docs-drift",
+   "severity": "P3",
+   "title": "deposit_test's reachability table cites source line numbers that have drifted",
+   "locations": [
+    {
+     "path": "src/test/aiur/events/github_webhook/deposit_test.exs",
+     "lines": "208-239"
+    }
+   ],
+   "description": "The reachability table documents each consumer with a file:line. At the snapshot 4 of 6 are wrong: issues.ex:179 is a comment (fetch_issue_raw_conditional/2 is at 153, key at 156); github_comments_poller.ex:587/602/650 point at unrelated lines while the :pr_review, :issue_comment and :pr_review_comment keys are built at 693, 708/722 and 756. human_review_gate.ex:106 and reconciliation.ex:143 are still accurate. The strings are never checked, so they rot silently and will all be wrong after the carve.",
+   "evidence": "deposit_test.exs:211 `\"Aiur.GitHub.Issues.fetch_issue_raw_conditional/2 (issues.ex:179)\"`; :218 `(github_comments_poller.ex:602)`; github_comments_poller.ex:708 `resource: ResourceStore.key_for_repo(:issue_comment, repo, Map.get(comment, \"id\"))`.",
+   "recommendation": "Replace file:line with Module.function/arity only (the test already scans for reader sites via reader_sites/1), or assert the cited function exists with function_exported?/3.",
+   "refactor_hint": "Line references in tests should be banned project-wide before files move.",
+   "effort": "S"
+  },
+  {
+   "id": "tests-5-34",
+   "category": "complexity",
+   "severity": "P3",
+   "title": "ToolExecutor.build/5 exposes 13 injection seams plus four positional arguments",
+   "locations": [
+    {
+     "path": "src/test/aiur/agent_runner/tool_executor_test.exs",
+     "lines": "41-48, 100-106, 122-132, 180-197, 513-536, 708-716, 1555-1568"
+    }
+   ],
+   "description": "Tests configure ToolExecutor.build(issue, workspace, worker_host, session, opts) with up to seven closures at once; across the file the distinct option keys are coordination_enqueuer (21 uses), blocker_subscriber (10), dependency_declarer (9), event_publication_recorder (7), event_bus_publisher (7), dependency_present (6), coordination_runner (6), attention_opener (5), blocker_unsubscriber (4), dependency_unblocker (3), ticket_state_writer (2), attention_resolver (2), decision_lifecycle_recorder (1), plus decision_requester. The executor spans blocker coordination, event publication/recording, attention/decision projection and ticket state writes \u2014 several responsibilities behind one closure.",
+   "evidence": "tool_executor_test.exs:513-536 build with coordination_enqueuer, coordination_runner, blocker_subscriber, dependency_declarer, dependency_unblocker in one call; census via grep of `^\\s+<key>: fn` in the file.",
+   "recommendation": "Group the seams into 3-4 behaviours (Coordination, Dependencies, EventSink, Decisions) passed as modules/structs, and split ToolExecutor per tool family so each test configures only its collaborator.",
+   "refactor_hint": "The tool families map onto different future packages (coordination/github dependencies vs decisions vs events); splitting the executor is a carve prerequisite.",
+   "effort": "M"
+  }
+ ]
+}

@@ -1,0 +1,40 @@
+{
+  "source_sha256": {
+    "website/src/dashboard.ts": "7faa14929487ecfe944d930fda251ea3af8820110f5ebb7983f5bbcf70157dc9",
+    "website/src/simData.ts": "5cb2250e64007ae96adafa89fa5909cff86e7c2edbb37b2627a84d219c79b781",
+    "website/scripts/assert-sim.ts": "c4c3d87eaf9d91c7dbedcff51084df4e8704d3736db17cb1d26f06a7dcd1a6ac",
+    "website/scripts/dashboard-golden.json": "34dd510012159b4022553872605abd7a1eb543a10875171afba25342e9fdd5fe",
+    "website/scripts/capture-dashboard.mjs": "411df891468bf4491c5de8842f8764cd3953c0ea73b9910350c8e627dfbc05aa",
+    "website/src/main.ts": "950ebc7101053a27861eb1116c1b0962e8349fc512294b0f4a81d4f916a07148"
+  },
+  "node": "v24.18.0",
+  "reduced_motion": {
+    "baseline": {
+      "suite_exit": 0,
+      "suite_stdout": "ok: full-width golden matches (6 frames)\nok: abbreviated rows uniform at 30 cols (21 rows)\nok: human beat closes (t=25) before #318→#319 receive (t=29)\nok: removed #321 publish / #324 receive (no stale causal tie)\nok: opencode rows uniform at 57 cols (270 rows across beat)\nok: opencode pane fixed at 18 rows across beat\nok: OC_TOTAL_ROWS=18 fits under dashboard height (21)\nok: reduced-motion freeze (t=22) lands in [replyAt, close)\nok: side-by-side join uniform at 88 cols (21 rows)\n\nall assertions passed",
+      "render": {
+        "hasPostedUserText": true
+      }
+    },
+    "freeze_at_zero_mutation": {
+      "suite_exit": 0,
+      "suite_stdout": "ok: full-width golden matches (6 frames)\nok: abbreviated rows uniform at 30 cols (21 rows)\nok: human beat closes (t=25) before #318→#319 receive (t=29)\nok: removed #321 publish / #324 receive (no stale causal tie)\nok: opencode rows uniform at 57 cols (270 rows across beat)\nok: opencode pane fixed at 18 rows across beat\nok: OC_TOTAL_ROWS=18 fits under dashboard height (21)\nok: reduced-motion freeze (t=22) lands in [replyAt, close)\nok: side-by-side join uniform at 88 cols (21 rows)\n\nall assertions passed",
+      "render": {
+        "hasPostedUserText": false
+      }
+    }
+  },
+  "readiness": {
+    "fake_elapsed_ms": 31000,
+    "settled_while_fetch_pending": false,
+    "fetch_has_abort_signal": false,
+    "accepted_response_after_deadline": true
+  },
+  "clipboard": {
+    "primary": "rejected",
+    "fallback_return": false,
+    "fallback_calls": 1,
+    "copy_function": "resolved despite both clipboard paths failing"
+  },
+  "limits": "Synthetic source-level probes only. The reduced-motion harness checks generated HTML with a minimal DOM, not layout or a browser. Readiness uses a fake clock and fetch promise, not a live stalled fixture. Clipboard uses API doubles. No production files modified and no live Aiur or shared release executed."
+}

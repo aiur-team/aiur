@@ -1,0 +1,1267 @@
+{
+  "unit_id": "tests-6",
+  "files_reviewed": 143,
+  "lines_reviewed_estimate": 9000,
+  "coverage_notes": "READ IN FULL: src/test/support/test_support.exs (1663), build_order_github_graph_test_adapter.ex, snapshot_support.exs, snapshot_fence_support.ex, decision_dispatch_test_support.ex, claude_meter_test_support.exs, github_cache_source_support.ex, awaiting_commands_support.ex, usage_aggregate_support.ex, usage_ledger_support.ex, fake_usage_adapter.ex, test_boot_guard.exs, webhook_mode_contract.exs, remote_test.exs, ownership_runner_test.exs (most), test_helper.exs (outside the unit, for context). READ SUBSTANTIALLY (header, setup, helpers, and the test bodies each finding cites): github_graph_test (about 700 of 1781 lines: head, authority describe, all helpers), graph_projection_test (about 500: head, 890-1000, full harness 1188-1433), ticket_detail_coordinator_test (head, 135-160, 370-505, 1110-1279), streamdeck_channel_test (1-120, 525-660, 1060-1332), ownership_test (outline, 1-60, 316-472, 560-700, 1060-1075), schema_test (outline, 1-60, 577-700), pack_status_test (1-115, 270-330, 518-580, 665-790), ticket_detail_test (outline, 1-60, 220-258, 664-720), presenter_test (outline, 210-312, 441-480), graph_projection_recovery_test (1-45, 70-110, 286-345), graph_projection_catalog_on_demand_test (40-100), graph_projection_idle_cadence_test (25-92), github_webhook_test (1-60, 150-186), github_webhook_delivery_test (425-443), voice_channel_test (1-30, 200-280), financial_data_test (1-70), financial_data_access_test (285-326), ownership_reconciler_test (1-30, 60-100, 175-190, 290-334), shared_resource_store_test (60-100, 205-225), ad_hoc_source_test (140-180, 330-344), hooks_test (1-60), agent_worktree_test (1-60), guard_pr_deletions_test (1-40), aiur_saturation_repro_test (1-40), streamdeck_projection_test (170-250), streamdeck_voice_latency_test, stream_deck_grid_test (380-465), manual/executor_control_center_docs_fixture.exs (1-335, 920-946), manual/pause_resume_scenarios.exs (1-50, 180-245), manual/github_cache_usage_fixture.exs (header), grouped_scopes_support.ex (1-80), cadence_effective_test (1-40), max_turns_by_complexity_test (1-30), decision_provider_test (220-260), ticket_history_provider_test (1-50, 205-222, 400-415), supervisor_auth_test (1-60), usage_aggregate/store_test (1-50, 150-165), provisioner_lifecycle_test, host_lock_test (80-112, 205-213). SKIMMED (header, helper list, grep only): the remaining roughly 80 smaller files, including config/* tests, usage_aggregate/{checkpoint,projection,query}_test, workspace/{bootstrap_image,checkout,context,git_metadata,layout,materialize,provisioner,reconstruction,refresh,remove}_test, most aiur_web/operator_control_center/* presenter tests, build_order/{bounded,cadence,catalog,catalog_store,dependency_chain,graph_analysis,home_repository_snapshot,icon,lifecycle,metadata,progress_renderer,provider_result,reconciliation,root_summary_progress,selected_root_status,ticket_history_normalizer}_test, codeowners/edit_test, streamdeck_{commands,control_agreement,key_face_contract,logs,strip}_test, dashboard_css_theme_test, markdown_test, router_auth_test, control_center_cache_test, executor_control_center_docs_meter_source.exs, progress_renderer_census.exs. Their per-test bodies were covered only by the cross-file greps below and were not read line by line. CROSS-FILE GREPS run over all 143 files (and over the whole src/test tree where a finding quotes a suite-wide count): bare assert_receive/refute_receive (a balanced-paren parser, not a line grep), Process.sleep, :sys.get_state/replace_state, System.put_env/delete_env, Application.put_env, async flags, TestSupport use, %{} match patterns, refute inspect, flunk inside callbacks, DateTime.utc_now, tmp_dir without pid, duplicated helper names (identity, restore_env, eventually, GraphProjection harness, graphql/pageInfo, Endpoint setup, DecisionStore fakes, PubSub start_supervised). NOT DONE: no tests were run (read-only rule), so the flakiness findings rest on mechanism and code evidence, not on observed failures. The Phoenix.LiveView.Socket Inspect claim (tests-6-09) was verified against the dep source vendored in a local worktree (aiur-worktrees/aiur-2117/src/deps), because the frozen snapshot does not include deps/ or config/.",
+  "findings": [
+    {
+      "id": "tests-6-01",
+      "category": "silent-failure",
+      "severity": "P1",
+      "title": "TestSupport setup discards the result of every shared-child recovery, so a missing app child fails later and elsewhere",
+      "locations": [
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "207-217"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "340-348"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "363-373"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "788-797"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "813-826"
+        }
+      ],
+      "description": "The ensure_*_running/0 family returns :ok | :error, but the per-case setup and reset_global_state!/0 ignore it. reset_global_state! calls ensure_resource_store_running() and then GitHubResourceStore.reset(). The module's own doc says that reset is a no-op when the store is down and 'cannot distinguish an empty store from a missing one'. So when recovery fails, the reset is skipped without a signal and state leaks into the next case. The setup at 346 has the same problem, and on_exit at 371-373 ignores the result of Application.ensure_all_started(:aiur). This harness is shared by 194 test modules, and its own comments cite the flakes this pattern produced (#589, #780, #2397).",
+      "evidence": "211: `ensure_resource_store_running()` (result dropped) then 212: `GitHubResourceStore.reset()`; 814-816 doc: \"A stopped store deliberately makes writes no-ops, so merely calling `ResourceStore.reset/0` cannot distinguish an empty store from a missing one.\"; 346: `Aiur.TestSupport.ensure_runtime_children_running()` (result dropped); 371-373: `unless Process.whereis(Aiur.Supervisor) do Application.ensure_all_started(:aiur) end` (result dropped).",
+      "recommendation": "Make setup fail fast and name the child: `:ok = ensure_runtime_children_running()` should return {:error, {:child_down, name}}, which setup turns into a flunk that names the child. Make reset_global_state! assert that the resource store is running before it resets.",
+      "refactor_hint": "When the case template is split per package, each package's case should assert the children it needs, and only those, with named failures.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-02",
+      "category": "large-module",
+      "severity": "P1",
+      "title": "Aiur.TestSupport is a 1,663-line god module that couples all 194 users to the full Aiur.Supervisor tree and forces them to run synchronously",
+      "locations": [
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "1-1663"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "228-379"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "788-1143"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "1145-1662"
+        }
+      ],
+      "description": "One module holds six jobs. (1) The ExUnit case template and per-case setup (228-379). (2) App-env capture, restore and global persistent_term resets (61-226). (3) Recovery of about 8 supervisor children, about 350 lines (788-1143). (4) Endpoint ownership (602-711). (5) A hand-written YAML workflow fixture generator, about 520 lines (1145-1662). (6) Miscellany: pgrep probe, tmp_root!, safe_stop, receive_barrier. `defmacro __using__(_opts)` expands to a bare `use ExUnit.Case`, so the options are thrown away and every user runs async: false. 7 callers pass `async: false`, which is discarded without a signal, and an `async: true` would be dropped the same way. Every case writes a workflow file, force-reloads WorkflowStore (15 s timeout), checks the application supervisor and stops HttpServer, whether or not it needs any of that.",
+      "evidence": "228-230: `defmacro __using__(_opts) do quote do use ExUnit.Case`; `grep -rn 'use Aiur.TestSupport' src/test` = 194 sites, and 7 of them pass `, async: false` (shutdown_test, codex/app_server_port_test, opencode/config_test, opencode/token_registry_test, github/app_identity_test, opencode/protocol_test, opencode/bridge_test); `@workflow_reload_timeout_ms 15_000` (381).",
+      "recommendation": "Split it into: Aiur.TestSupport.AppCase (the case template; it passes opts through to ExUnit.Case and makes app isolation opt-in), Aiur.TestSupport.AppEnv (capture, restore, put_app_env!/put_system_env!), Aiur.TestSupport.AppChildren (one generic ensure_child_running/2), Aiur.TestSupport.WorkflowFixture (the YAML builder), Aiur.TestSupport.Endpoint and Aiur.TestSupport.Tmp. Pure tests should `use ExUnit.Case, async: true` and import only what they need.",
+      "refactor_hint": "The carve cannot give packages independent test suites while every test enters through one template that boots the whole application. Each future package (core/orchestrator, aiur_web, build_order, workspace, config) needs its own thin case template.",
+      "effort": "L"
+    },
+    {
+      "id": "tests-6-03",
+      "category": "flaky-test",
+      "severity": "P1",
+      "title": "17 sites start a temporary Aiur.PubSub under the ExUnit supervisor, the pattern TestSupport documents as the #2397 cause; a shared helper repeats it",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "lines": "14-22"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_recovery_test.exs",
+          "lines": "12-20"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_pubsub_test.exs",
+          "lines": "28"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_structural_test.exs",
+          "lines": "16"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs",
+          "lines": "35"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_idle_cadence_test.exs",
+          "lines": "22"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+          "lines": "22-30"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_history_provider_test.exs",
+          "lines": "8-14"
+        },
+        {
+          "path": "src/test/support/claude_meter_test_support.exs",
+          "lines": "14-20"
+        },
+        {
+          "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
+          "lines": "33"
+        },
+        {
+          "path": "src/test/aiur/open_ticket_source_test.exs",
+          "lines": "511"
+        },
+        {
+          "path": "src/test/aiur/provider_meter_projection_integration_test.exs",
+          "lines": "18"
+        },
+        {
+          "path": "src/test/aiur/provider_account_generation_test.exs",
+          "lines": "10"
+        },
+        {
+          "path": "src/test/aiur/provider_meters_test.exs",
+          "lines": "474"
+        },
+        {
+          "path": "src/test/aiur/codex/account_generation_test.exs",
+          "lines": "10"
+        },
+        {
+          "path": "src/test/aiur/github/view_state_sweep_test.exs",
+          "lines": "598"
+        },
+        {
+          "path": "src/test/aiur/webhooks/mode_registry_test.exs",
+          "lines": "33"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "844-879"
+        }
+      ],
+      "description": "If Aiur.PubSub is missing, these sites start a replacement Phoenix.PubSub named Aiur.PubSub under the test or setup_all supervisor. The replacement dies when the test or module ends, and the shared name is left unregistered for every later module. TestSupport.ensure_pubsub_running/1 exists to prevent this, and its doc names the failure. Two helpers now do the same job in different ways: Aiur.Claude.MeterTestSupport.ensure_pubsub/0 and Aiur.TestSupport.ensure_pubsub_running/1. ticket_history_provider_test is the worst case: it does this in a per-test `setup`, not in setup_all.",
+      "evidence": "graph_projection_test.exs 17-19: `unless Process.whereis(Aiur.PubSub) do start_supervised!({Phoenix.PubSub, name: Aiur.PubSub}) end`; claude_meter_test_support.exs 15-17: `unless Process.whereis(Aiur.PubSub) do ExUnit.Callbacks.start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})`; test_support.exs 851-854: \"Prefer this over `start_supervised!`-ing a replacement `Phoenix.PubSub` under the ExUnit supervisor: a temporary replacement dies at module end and can leave the shared name permanently unregistered for every later test in the suite.\"",
+      "recommendation": "Replace all 17 sites with `:ok = Aiur.TestSupport.ensure_pubsub_running()`. Delete MeterTestSupport.ensure_pubsub/0 or make it delegate. Add a lint test that rejects `start_supervised!({Phoenix.PubSub, name: Aiur.PubSub}`. Tests that need isolation should keep using a uniquely named PubSub, as current_run_projections_test does.",
+      "refactor_hint": "PubSub is a cross-package seam. Each carved package should get the pubsub name it uses from its test case instead of hard-coding the Aiur.PubSub singleton.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-04",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "GraphProjection test harness is copied across 7 files (about 10 helpers each) with diverged signatures",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "lines": "1188-1290,1356-1435"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_recovery_test.exs",
+          "lines": "286-377"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_pubsub_test.exs",
+          "lines": "178-270"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_structural_test.exs",
+          "lines": "145-260"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs",
+          "lines": "147-235"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_idle_cadence_test.exs",
+          "lines": "93-160"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_policy_test.exs",
+          "lines": "305-330"
+        },
+        {
+          "path": "src/test/aiur/build_orders_cli_first_read_test.exs",
+          "lines": "150-230"
+        }
+      ],
+      "description": "Each GraphProjection test file defines its own start_projection, blocking_read, blocking_reader, await_reader, finish, authority, catalog, selected, root, identity and (in 3 files) supervised_agent. The bodies of await_reader/finish/blocking_read and catalog/1 are identical. start_projection and authority have drifted: different arities, and different defaults for catalog_refresh_ms, max_inflight and max_selected_roots. graph_projection_test and graph_projection_idle_cadence_test also hand-build the ResourceStore change-event map, which is a private shape.",
+      "evidence": "`defp finish(reader, result), do: send(reader, {:finish, result})` appears verbatim at graph_projection_test:1242, recovery:343, pubsub:235, structural:206, catalog_on_demand:206, idle_cadence:141, build_orders_cli_first_read_test:193. `defp catalog(roots), do: Catalog.new(roots, ProviderHealth.new(1, :healthy, true))` at graph_projection_test:1356, recovery:365, pubsub:252, structural:236, catalog_on_demand:212, idle_cadence:143, policy:305. start_projection arities: graph_projection_test:1188 (opts), recovery:286 (repository, opts), pubsub:178 (repository), structural:145 (opts), catalog_on_demand:147 (opts), idle_cadence:93 (0-arity), build_orders_cli_first_read_test:150 (0-arity). authority arities: graph_projection_test:1275 /3, recovery:345 /3 with opts, pubsub:237 /1, structural:208 /0, catalog_on_demand:175 /1, idle_cadence:115 /0. Hand-built change events: graph_projection_test:1339-1354 and idle_cadence_test:59-74.",
+      "recommendation": "Extract Aiur.TestSupport.GraphProjectionHarness with start_projection/1 (keyword opts covering repository, authority, clock, readers and timing), plus blocking_reader/2, await_reader/1, finish/2, fixture builders (catalog/1, selected/2, root/2, identity/3) and a resource_change/2 builder backed by a public ResourceStore constructor.",
+      "refactor_hint": "This belongs in a build_order package test-support module that ships with the Build Order carve.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-05",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "github_graph_test mostly tests a copy of production GitHubGraph (97 of 104 calls), and the copy has already diverged",
+      "locations": [
+        {
+          "path": "src/test/support/build_order_github_graph_test_adapter.ex",
+          "lines": "1-84"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph.ex",
+          "lines": "13-50"
+        },
+        {
+          "path": "src/lib/aiur/build_order/github_graph/settings.ex",
+          "lines": "7-9,40-61,135-147"
+        },
+        {
+          "path": "src/test/aiur/build_order/github_graph_test.exs",
+          "lines": "7,1582-1598"
+        }
+      ],
+      "description": "Aiur.BuildOrder.GitHubGraph.TestAdapter rewrites fetch_catalog/1 and fetch_selected_root/2 against the internal Pager, Result and Settings modules. It has its own repository/limits validation, with copied @member_limit/@max_page_budget/@max_call_budget constants, valid_limits? and page_size. The test file aliases the adapter as `GitHubGraph`. Production wiring (Settings.authority/1 reading config, the member_labels? plumbing) is only reached by the 7 calls in the 'public repository authority' describe. The check order has already drifted. The adapter checks repository, then token, then limits. Production checks Settings.authority (repository plus limits from config), then token. So with invalid bounds and a missing token, the two return different errors.",
+      "evidence": "Adapter 17-18: `# Mirrors GitHubGraph.fetch_catalog/1: per-member labels are opt-in`; adapter 8-10 `@member_limit 100 @max_page_budget 4 @max_call_budget 4` duplicates settings.ex 7-9; adapter 74-83 valid_limits?/page_size duplicate settings.ex 135-147; adapter 14-16 `with {:ok, repository} <- repository(opts), {:ok, token} <- Transport.require_token(opts), {:ok, limits} <- limits(opts)` vs github_graph.ex 14-15 `with {:ok, repository, limits} <- Settings.authority(opts), {:ok, token} <- Transport.require_token(opts)`; grep in the test: `GitHubGraph.fetch_` 97 calls vs `ProductionGraph.fetch_|Client.fetch_build_order` 7.",
+      "recommendation": "Give production an explicit seam: Settings.authority/1 accepts an `:authority` override of {repository, limits} that is still validated by valid_limits?, or a `:config` reader function. Then point every test at Aiur.BuildOrder.GitHubGraph and delete the adapter.",
+      "refactor_hint": "A test-support module that depends on Pager/Result/Settings internals must move with the build_order package. Removing it now makes that carve simpler.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-06",
+      "category": "flaky-test",
+      "severity": "P2",
+      "title": "async: true schema_test changes process-global OS env, and one deletion of LINEAR_API_KEY is never restored",
+      "locations": [
+        {
+          "path": "src/test/aiur/config/schema_test.exs",
+          "lines": "2"
+        },
+        {
+          "path": "src/test/aiur/config/schema_test.exs",
+          "lines": "577-619"
+        },
+        {
+          "path": "src/test/aiur/config/schema_test.exs",
+          "lines": "621-670"
+        },
+        {
+          "path": "src/test/aiur/config/schema_test.exs",
+          "lines": "672-680"
+        }
+      ],
+      "description": "System.put_env/delete_env act on the whole VM, and while this async module runs, other async modules run at the same time. The test 'linear api_key set in config overrides absent env var' deletes LINEAR_API_KEY and never puts it back, so the variable is gone for the rest of the run (live_e2e_test builds configs with `$LINEAR_API_KEY`). The ELEVENLABS_API_KEY tests set the real shared name, which init/templates_test and init/resume_test (both async) render as `$ELEVENLABS_API_KEY`, and which Schema.parse(%{}) resolves as a default. env_resolver_test (async) is safe only because it uses unique variable names.",
+      "evidence": "line 2 `use ExUnit.Case, async: true`; 578-579 `test \"linear api_key set in config overrides absent env var\" do System.delete_env(\"LINEAR_API_KEY\")` (no on_exit); 647 `System.put_env(\"ELEVENLABS_API_KEY\", \"env-token\")`; 674 `System.delete_env(\"AIUR_TEST_ROOT_MISSING\")`; live_e2e_test.exs:458 `tracker_api_token: \"$LINEAR_API_KEY\"`.",
+      "recommendation": "Move the env-reading describes into a separate async: false module, or better, pass an env reader into Schema.parse/2 (EnvResolver already isolates the lookup) and test with a map. At minimum, restore LINEAR_API_KEY in on_exit.",
+      "refactor_hint": "Config is a natural standalone package. Injecting the env source makes its tests pure and fully async.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-07",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "flunk sentinels inside callbacks that run in other processes cannot fail the test",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+          "lines": "135-143"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+          "lines": "1118-1131"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+          "lines": "1239-1255"
+        }
+      ],
+      "description": "start_cache/1 runs the coordinator's reader under a Task.Supervisor that the test does not link to or await. A `reader: fn _ -> flunk(\"...\") end` guard raises ExUnit.AssertionError in the task, not in the test process, so the test passes even when the reader is called. In 'restart loses in-memory detail until a new demand succeeds' the only real check is the return value of current/2, so 'current must not fetch' is not enforced. In 'rejects another repository before cache admission' the fallback check `%{entries: %{}}` matches any map (see tests-6-08), so neither guard can fail.",
+      "evidence": "139: `start_cache(reader: fn _identity -> flunk(\"reader must not be invoked\") end)`; 142: `assert %{entries: %{}} = :sys.get_state(cache)`; 1127: `start_cache(reader: fn _identity -> flunk(\"current must not fetch\") end)`; 1240: `{:ok, task_supervisor} = Task.Supervisor.start_link()`.",
+      "recommendation": "Use `fn _ -> send(parent, :unexpected_read); ... end` with `refute_received :unexpected_read` after a synchronous barrier (cache_barrier/1 already exists), or count calls with :counters and assert 0.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-08",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "Eight assertions use %{} in match position meaning 'empty', but %{} matches any map",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+          "lines": "142,385,422,501"
+        },
+        {
+          "path": "src/test/aiur/workspace/ownership_reconciler_test.exs",
+          "lines": "86,187,305"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_recovery_test.exs",
+          "lines": "42"
+        }
+      ],
+      "description": "AGENTS.md names `assert %{} = ...` as a shape that has shipped and cost review rounds. Each of these assertions means 'nothing retained' (a store emptied after corruption or failed persistence, no cache entries after eviction, no inflight work). Each still passes when the map has entries. ownership_reconciler_test:305 should prove that a claim whose receipt could not be made durable left nothing in the store. It passes even if the claim was persisted.",
+      "evidence": "ticket_detail_coordinator_test.exs:385 `assert %{entries: %{}} = :sys.get_state(cache)`; ownership_reconciler_test.exs:301-305 `assert {:error, {:workspace_ownership_unavailable, {:persist_failed, :disk_full}}} = ... assert {:ok, %{}} = Store.all(store)`; graph_projection_recovery_test.exs:42 `assert %{catalog: %{health: %{failure: :configuration}}, inflight_by_ref: %{}} =`.",
+      "recommendation": "Replace with `assert {:ok, entries} = Store.all(store); assert entries == %{}` or `map_size(...) == 0`. Add a Credo check or grep test that rejects `: %{}}` and `{:ok, %{}}` in the match side of assert.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-09",
+      "category": "test-quality",
+      "severity": "P2",
+      "title": "36 redaction/leak guards use `refute inspect(x) =~ secret`, which Inspect truncation and custom Inspect impls can make pass without checking",
+      "locations": [
+        {
+          "path": "src/test/aiur_web/financial_data_access_test.exs",
+          "lines": "44-45,140,178,285-295"
+        },
+        {
+          "path": "src/test/aiur_web/financial_data_test.exs",
+          "lines": "56,110,121,152,168,198,273,304"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_history_normalizer_test.exs",
+          "lines": "22-25,62-63"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_history_provider_test.exs",
+          "lines": "218-222"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/decision_provider_test.exs",
+          "lines": "140-141,213-214"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/provider_meters_presenter_test.exs",
+          "lines": "25-28,107"
+        },
+        {
+          "path": "src/test/aiur_web/build_order_presenter_test.exs",
+          "lines": "90,481"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/units_row_test.exs",
+          "lines": "485"
+        }
+      ],
+      "description": "inspect/1 truncates by default (limit: 50 elements per collection, printable_limit: 4096 bytes) and follows any custom Inspect implementation. None of the 36 sites passes limit: :infinity. financial_data_access_test:295 runs `refute inspect(socket) =~ sentinel` on a %Phoenix.LiveView.Socket{}, and that struct derives Inspect with `only: [:id, :endpoint, :router, :view, :parent_pid, :root_pid, :assigns, :transport_pid, :sticky?]`. So the `private` map, where FinancialDataAccess keeps its state (asserted at 294), is never part of the string being checked. These guards protect credential and payload redaction, a security property.",
+      "evidence": "financial_data_access_test.exs 294-295: `assert socket.private.aiur_financial_data_access == nil` / `refute inspect(socket) =~ sentinel`; phoenix_live_view socket.ex (dep, as vendored in a local worktree): `@derive {Inspect, only: [:id, :endpoint, :router, :view, :parent_pid, :root_pid, :assigns, :transport_pid, :sticky?]}`; grep `refute inspect(.*limit: :infinity` in unit = 0 of 36.",
+      "recommendation": "Add Aiur.TestSupport.refute_term_contains(term, needle), which walks maps, lists, tuples and structs (via Map.from_struct), or at least uses `inspect(term, limit: :infinity, printable_limit: :infinity, structs: false)`. Replace all 36 sites with it.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-10",
+      "category": "flaky-test",
+      "severity": "P2",
+      "title": "75 bare assert_receive/refute_receive sites use the 100 ms default; 297 others hard-code timeouts, mostly 2_000",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/pack_status_test.exs",
+          "lines": "111,290,300,324-325,369,400-401,425-431,472-473,515,566-568,634"
+        },
+        {
+          "path": "src/test/aiur_web/streamdeck_channel_test.exs",
+          "lines": "552,599,624,915,1071,1075,1081,1105,1126,1134,1158,1165,1177,1181,1184"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_recovery_test.exs",
+          "lines": "32,49,54,69,127,211,234,257"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+          "lines": "55,597,626,947,1010,1076,1112"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_history_provider_test.exs",
+          "lines": "30,214,217,337,410"
+        },
+        {
+          "path": "src/test/aiur_web/github_webhook_test.exs",
+          "lines": "161,168,177,183"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/decision_provider_test.exs",
+          "lines": "238,240,254,256"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_pubsub_test.exs",
+          "lines": "109,125,167"
+        },
+        {
+          "path": "src/test/aiur/workspace/ownership_test.exs",
+          "lines": "141,163,433"
+        },
+        {
+          "path": "src/test/aiur/usage_aggregate/store_test.exs",
+          "lines": "158,162"
+        },
+        {
+          "path": "src/test/aiur_web/voice_channel_test.exs",
+          "lines": "212,274"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs",
+          "lines": "76"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "lines": "382"
+        },
+        {
+          "path": "src/test/aiur/workspace/hooks_test.exs",
+          "lines": "183"
+        },
+        {
+          "path": "src/test/aiur/workspace/host_lock_test.exs",
+          "lines": "107"
+        },
+        {
+          "path": "src/test/aiur/workspace/provisioner_lifecycle_test.exs",
+          "lines": "25"
+        }
+      ],
+      "description": "A parser count over the unit's 143 files (multi-line calls handled) found 47 assert_receive and 28 refute_receive calls with no timeout, in 16 files. Most follow a synchronous call and should be assert_received/refute_received, which states that intent. Some cross asynchronous hops and can flake under load: streamdeck_channel_test 1075/1126 (`push` goes to the channel process, then GenServer.cast to the fake session, then `send` to the observer, with no reply awaited), 1081 (commit cast), voice_channel_test 212/274 (`push(\"speak\")` then the TTS fun), and usage_aggregate/store_test 158 (a publish during aggregate boot). The explicit timeouts are 260x `2_000`, 14x 200, 14x 100, 9x 500, 9x 5_000, 7x @async_assert_timeout, plus others, all hard-coded per call.",
+      "evidence": "Counts from a balanced-paren parser over the 143 files: {assert_receive, timeout}: 297, {assert_receive, bare}: 47, {refute_receive, timeout}: 52, {refute_receive, bare}: 28. voice_channel_test.exs 210-212: `push(joined, \"speak\", %{\"text\" => \"Agent reply\"})` / `assert_receive {:fake_tts_request, \"Agent reply\"}`; streamdeck_channel_test.exs 1073-1075: `push(socket, \"voice_audio\", ...)` / `assert_receive {:voice_push, ^pid, \"Zm9vYmFy\"}`.",
+      "recommendation": "Convert post-synchronous-call sites to assert_received/refute_received. Put one shared `@receive_timeout` (from the case template or an env var for slow CI) on the rest, and ban bare assert_receive with a Credo check.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-11",
+      "category": "flaky-test",
+      "severity": "P2",
+      "title": "Wall-clock quiescence windows and sleeps stand in for barriers; several can pass a regression under load",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "lines": "893-958,1256-1267,1303-1320"
+        },
+        {
+          "path": "src/test/aiur/build_order/ad_hoc_source_test.exs",
+          "lines": "159-165"
+        },
+        {
+          "path": "src/test/aiur/build_order/shared_resource_store_test.exs",
+          "lines": "78-88,213-216"
+        },
+        {
+          "path": "src/test/aiur/workspace/ownership_test.exs",
+          "lines": "562-582"
+        },
+        {
+          "path": "src/test/aiur_web/presenter_test.exs",
+          "lines": "272-310"
+        }
+      ],
+      "description": "(1) count_selected_reads/4 counts reads until the mailbox has been quiet for 500 ms. The 'costs exactly one selected read' / 'costs no selected read' tests (902, 917, 957) therefore miss any extra read that arrives after 500 ms, which is the regression they exist to catch. The burst test (924-938) depends on a real 2,000 ms debounce timer and 10 x 20 ms windows, so it is slow and sensitive to timing. (2) await_reconciliation_idle polls :sys.get_state with Process.sleep(10) x 200. (3) ad_hoc_source_test sleeps 100 ms and then asserts that nothing happened, which passes whenever processing is slower than 100 ms. (4) shared_resource_store_test sleeps 5 ms to age a body past `freshness_ms: 1` on the real clock. (5) ownership_test sleeps 150 ms before asserting fail-closed. (6) presenter_test asserts exact `held_for_seconds: 12, sample_age_seconds: 4`, computed from System.monotonic_time/DateTime.utc_now at test time, so it breaks if more than 1 s passes before the presenter runs.",
+      "evidence": "graph_projection_test.exs 1303-1306: `# Answers every read the projection starts until it has been quiet for quiet_ms` / `defp count_selected_reads(identity, catalog, quiet_ms \\\\ 500, count \\\\ 0)`; 928 `start_projection(member_debounce_ms: 2_000)`; 1262 `Process.sleep(10)`; ad_hoc_source_test.exs 163-164 `Process.sleep(100)` / `assert AdHocSource.snapshot(server).members == []`; shared_resource_store_test.exs 82-83 `freshness_ms: 1` ... `Process.sleep(5)`; ownership_test.exs 580 `Process.sleep(150)`; presenter_test.exs 280 `held_at = System.monotonic_time(:millisecond) - 12_000` and 292 `measured_at: DateTime.add(DateTime.utc_now(), -4, :second)`, asserted `held_for_seconds: 12, sample_age_seconds: 4`.",
+      "recommendation": "Inject a clock (clock_ms/now funs already exist on GraphProjection) and timer scheduling (a send_after fun) so debounce and backoff advance deterministically. Count reads with a synchronous projection call as the barrier, not silence. For negative checks, deposit a positive sentinel after the negative case and wait for it. Give Presenter a `now` option.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-12",
+      "category": "silent-failure",
+      "severity": "P2",
+      "title": "github_webhook_delivery_test await_deliveries/1 waits on the global Aiur.TaskSupervisor and gives up with :ok",
+      "locations": [
+        {
+          "path": "src/test/aiur_web/github_webhook_delivery_test.exs",
+          "lines": "427-442"
+        }
+      ],
+      "description": "The helper polls Task.Supervisor.children(Aiur.TaskSupervisor), the app-wide supervisor that other subsystems also use, every 5 ms for up to 200 tries. When the tries run out it returns :ok, and it also returns :ok on any exit. An unrelated long-running task keeps it spinning for the full budget. A delivery that never finishes is reported as finished, and the assertions after it run against partial state.",
+      "evidence": "`defp await_deliveries(0), do: :ok` ... `_running -> Process.sleep(5); await_deliveries(remaining - 1)` ... `catch :exit, _reason -> :ok`.",
+      "recommendation": "Wait on the specific delivery: have the delivery path accept a completion callback or task supervisor option, or monitor the returned task pid. Flunk on timeout.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-13",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Polling helpers (eventually/assert_eventually/wait_until) are defined 103 times in 45 files with different budgets and failure semantics",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/ad_hoc_source_test.exs",
+          "lines": "337-343"
+        },
+        {
+          "path": "src/test/aiur/workspace/ownership_test.exs",
+          "lines": "1065-1073"
+        },
+        {
+          "path": "src/test/aiur/workspace/ownership_reconciler_test.exs",
+          "lines": "308-316"
+        },
+        {
+          "path": "src/test/aiur/workspace/ownership_runner_test.exs",
+          "lines": "177-188"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "lines": "1256-1267"
+        }
+      ],
+      "description": "Each copy picks its own attempts and sleep interval: 100 x 10 ms returning a boolean (ad_hoc_source), 40 x 25 ms with `assert attempts > 0` (ownership_test), 80 x 25 ms (ownership_reconciler_test, ownership_runner_test with flunk), and 200 x 10 ms (graph_projection_test). None reports what condition failed.",
+      "evidence": "`grep -rn 'defp assert_eventually\\|defp eventually\\|defp wait_until\\|defp wait_for(\\|defp await_until\\|defp poll_until' src/test` = 103 definitions in 45 files. ownership_test.exs 1065-1070 `defp assert_eventually(fun, attempts \\\\ 40) ... Process.sleep(25)`; ad_hoc_source_test.exs 337-341 `defp eventually(fun, attempts \\\\ 100) ... Process.sleep(10) && eventually(fun, attempts - 1)`.",
+      "recommendation": "Add Aiur.TestSupport.Eventually.assert_eventually(fun, opts), with a deadline based on monotonic time, a failure message that includes the last value, and one timeout that can be tuned. Replace the copies. Where possible, replace polling with a synchronous barrier.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-14",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Save/restore boilerplate for app env and OS env is copied everywhere instead of one put_app_env!/put_system_env! helper",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_test.exs",
+          "lines": "220-244,664-682,684-704"
+        },
+        {
+          "path": "src/test/aiur/build_order/pack_status_test.exs",
+          "lines": "33-57,518-548,572-600,649-673"
+        },
+        {
+          "path": "src/test/aiur/workspace/hooks_test.exs",
+          "lines": "101-107,132-141,351-357,375-381,396-402"
+        },
+        {
+          "path": "src/test/aiur/config/schema_test.exs",
+          "lines": "916-917"
+        },
+        {
+          "path": "src/test/aiur/workspace/remote_test.exs",
+          "lines": "50-51"
+        },
+        {
+          "path": "src/test/aiur_web/financial_data_access_test.exs",
+          "lines": "343-346"
+        },
+        {
+          "path": "src/test/aiur_web/financial_data_test.exs",
+          "lines": "471-474"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/provider_meter_source_test.exs",
+          "lines": "139-143"
+        },
+        {
+          "path": "src/test/aiur_web/router_auth_test.exs",
+          "lines": "298-302"
+        },
+        {
+          "path": "src/test/aiur_web/streamdeck_channel_test.exs",
+          "lines": "1330-1331"
+        },
+        {
+          "path": "src/test/aiur_web/streamdeck_projection_test.exs",
+          "lines": "306-307"
+        },
+        {
+          "path": "src/test/aiur_web/supervisor_auth_test.exs",
+          "lines": "165-166"
+        },
+        {
+          "path": "src/test/aiur_web/voice_channel_test.exs",
+          "lines": "474-475"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "130-142,503-504"
+        }
+      ],
+      "description": "TestSupport already exports restore_env/2 and a one-key put_runtime_state_dir!/1, yet `defp restore_env` is redefined 61 times in 30 files suite-wide (10 files in this unit), and restore_app_env-style helpers 59 times. In this unit there are 118 Application.put_env calls, most paired with a hand-written `previous = get_env ... on_exit case previous`. ticket_detail_test repeats a 3-way save/restore of GITHUB_TOKEN, a :persistent_term key and a transport app key three times. pack_status_test repeats a 4-app-key + 1-OS-var block three times. hooks_test hand-restores :repo_base_root three times even though the TestSupport case it uses already restores that key.",
+      "evidence": "`grep -rn 'defp restore_env' src/test | wc -l` = 61 (30 files); `grep -rn 'defp restore_app_env\\|defp restore_application_env' src/test | wc -l` = 59; unit `Application.put_env` = 118 sites; pack_status_test.exs 541-545: four `if previous_X, do: Application.put_env(...), else: Application.delete_env(...)` lines plus one for AIUR_BUILD_ORDER_DIRS.",
+      "recommendation": "Add Aiur.TestSupport.put_app_env!(key, value) and put_system_env!(name, value). Each captures the prior value (or its absence) and registers an on_exit restore. Add a with_persistent_term!/2 helper for the one :persistent_term key. Replace the copies.",
+      "refactor_hint": "The helper should live in a dependency-free test-support package that every carved package can depend on.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-15",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Endpoint test setup is copied in 21 files; streamdeck_channel_test repeats its own config swap 5 times next to a helper that does it differently",
+      "locations": [
+        {
+          "path": "src/test/aiur_web/streamdeck_channel_test.exs",
+          "lines": "83-118,531-543,633-644,713-724,753-764,819-830,1262-1276"
+        },
+        {
+          "path": "src/test/aiur_web/voice_channel_test.exs",
+          "lines": "93"
+        },
+        {
+          "path": "src/test/aiur_web/github_webhook_test.exs",
+          "lines": "24-57"
+        },
+        {
+          "path": "src/test/aiur_web/github_webhook_delivery_test.exs",
+          "lines": "63"
+        },
+        {
+          "path": "src/test/aiur_web/financial_data_access_test.exs",
+          "lines": "246,337"
+        },
+        {
+          "path": "src/test/aiur_web/financial_data_test.exs",
+          "lines": "465"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/add_agent_submission_test.exs",
+          "lines": "10-19"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/provider_meter_source_test.exs",
+          "lines": "128"
+        },
+        {
+          "path": "src/test/aiur/decision_api_integration_test.exs",
+          "lines": "259"
+        },
+        {
+          "path": "src/test/aiur/extensions_test.exs",
+          "lines": "1630"
+        },
+        {
+          "path": "src/test/aiur_web/live/github_cache_zero_fetch_test.exs",
+          "lines": "67"
+        },
+        {
+          "path": "src/test/aiur_web/live/dashboard_live_test.exs",
+          "lines": "6013"
+        },
+        {
+          "path": "src/test/aiur_web/controllers/observability_api_controller_test.exs",
+          "lines": "108"
+        },
+        {
+          "path": "src/test/aiur_web/live/build_order_live_test.exs",
+          "lines": "168"
+        },
+        {
+          "path": "src/test/aiur_web/live/github_cache_live_test.exs",
+          "lines": "135"
+        },
+        {
+          "path": "src/test/aiur_web/live/streamdeck_live_test.exs",
+          "lines": "24"
+        },
+        {
+          "path": "src/test/aiur_web/live/analytics_live_test.exs",
+          "lines": "74"
+        },
+        {
+          "path": "src/test/aiur_web/live/zero_fetch_page_open_test.exs",
+          "lines": "89"
+        },
+        {
+          "path": "src/test/browser/fixture_server.exs",
+          "lines": "2378"
+        },
+        {
+          "path": "src/test/manual/github_cache_usage_fixture.exs",
+          "lines": "141"
+        },
+        {
+          "path": "src/test/manual/executor_control_center_docs_fixture.exs",
+          "lines": "344"
+        }
+      ],
+      "description": "21 files (22 sites) build an Endpoint config with `server: false, secret_key_base: String.duplicate(...)`, put it into app env and start or adopt the endpoint, each with its own restore. In streamdeck_channel_test the Commands describe and three tests repeat `previous_config = Application.get_env(:aiur, Endpoint); Endpoint.config_change(...); on_exit(Application.put_env ...)` inline. The file's own put_endpoint_config/1 (1262-1276) restores differently, because it also calls Endpoint.config_change on exit when the endpoint is alive. So the file has two restore semantics.",
+      "evidence": "`grep -rn 'secret_key_base: String.duplicate(' src/test` = 22 sites / 21 files; streamdeck_channel_test.exs 534-538 `previous_config = Application.get_env(:aiur, Endpoint); Endpoint.config_change(%{Endpoint => Keyword.put(previous_config, :decision_store, store)}, []) ... on_exit(fn -> Application.put_env(:aiur, Endpoint, previous_config)`; the same shape at 636-640, 716-720, 756-760 and 822-826.",
+      "recommendation": "Create AiurWeb.EndpointCase (or Aiur.TestSupport.Endpoint.configure!/1) that merges test config, calls start_owned_endpoint!, and restores through one path. Use put_endpoint_config/1 in streamdeck_channel_test for the decision_store swaps.",
+      "refactor_hint": "This is the natural test-support seed for an aiur_web package.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-16",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "TrackerIdentity fixture builders are copied 73 times in 71 files (27 in this unit); a shared one exists but is unused",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/bounded_test.exs",
+          "lines": "65"
+        },
+        {
+          "path": "src/test/aiur/build_order/catalog_test.exs",
+          "lines": "391"
+        },
+        {
+          "path": "src/test/aiur/build_order/github_graph_test.exs",
+          "lines": "1762"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs",
+          "lines": "229"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_idle_cadence_test.exs",
+          "lines": "154"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_policy_test.exs",
+          "lines": "320"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_pubsub_test.exs",
+          "lines": "263"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_recovery_test.exs",
+          "lines": "377"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_structural_test.exs",
+          "lines": "255"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "lines": "1423"
+        },
+        {
+          "path": "src/test/aiur/build_order/selected_root_status_test.exs",
+          "lines": "112"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+          "lines": "1257"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_test.exs",
+          "lines": "875"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_history_normalizer_test.exs",
+          "lines": "91"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_history_provider_test.exs",
+          "lines": "537"
+        },
+        {
+          "path": "src/test/aiur/usage_aggregate/query_test.exs",
+          "lines": "8"
+        },
+        {
+          "path": "src/test/aiur_web/build_order_presenter_test.exs",
+          "lines": "623"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/agent_log_modal_test.exs",
+          "lines": "66"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/build_order_ticket_context_test.exs",
+          "lines": "296"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/conversation_drawer/presenter_test.exs",
+          "lines": "9"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/conversation_drawer_test.exs",
+          "lines": "13"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/run_summary_presenter_test.exs",
+          "lines": "284"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/ticket_context_test.exs",
+          "lines": "346"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/units_presenter_test.exs",
+          "lines": "474"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/units_row_test.exs",
+          "lines": "499"
+        },
+        {
+          "path": "src/test/aiur_web/presenter_test.exs",
+          "lines": "37"
+        },
+        {
+          "path": "src/test/aiur_web/streamdeck_control_agreement_test.exs",
+          "lines": "268"
+        },
+        {
+          "path": "src/test/support/grouped_scopes_support.ex",
+          "lines": "19-37"
+        }
+      ],
+      "description": "Every module builds %TrackerIdentity{} or calls TrackerIdentity.from_github/3 through its own private identity/N, with arities 0 to 4 and different default repositories (\"owner\"/\"repo\" vs \"its-everdred\"/\"aiur\" vs \"acme\"). There are also 45 direct TrackerIdentity.from_github calls in 26 files. Aiur.TestSupport.GroupedScopes.identity/1,3 already exists but only usage tests use it. When the TrackerIdentity struct changes (a new required field, a different status), every copy has to be edited.",
+      "evidence": "`grep -rn '^  defp identity(\\|^  defp identity do\\|^  defp tracker_identity(' src/test` = 73 definitions in 71 files; `grep -rn 'TrackerIdentity.from_github(' src/test` = 45 in 26 files; grouped_scopes_support.ex 19-31 `def identity(number) do %TrackerIdentity{status: :joinable, kind: :github, owner: \"its-everdred\", ...}`.",
+      "recommendation": "Create Aiur.TestSupport.Factory with identity(number, opts) (owner, repo, provider_id, status), root_summary/2, member/2 and catalog/1. Migrate the copies file by file.",
+      "refactor_hint": "TrackerIdentity is used across packages (core, build_order, aiur_web), so the factory belongs in a shared test-support package.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-17",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "The private DecisionStore call protocol is re-implemented by at least 10 fake GenServers, and one copy has already drifted from production",
+      "locations": [
+        {
+          "path": "src/test/manual/executor_control_center_docs_fixture.exs",
+          "lines": "58-104,178-203"
+        },
+        {
+          "path": "src/lib/aiur/decision_store/retained_snapshot/query_plan.ex",
+          "lines": "8-14"
+        },
+        {
+          "path": "src/test/aiur_web/streamdeck_channel_test.exs",
+          "lines": "22-59"
+        },
+        {
+          "path": "src/test/support/awaiting_commands_support.ex",
+          "lines": "61-69"
+        },
+        {
+          "path": "src/test/aiur/decision_api_test.exs",
+          "lines": "23,57"
+        },
+        {
+          "path": "src/test/aiur/decision_query_test.exs",
+          "lines": "30-49"
+        },
+        {
+          "path": "src/test/aiur/extensions_test.exs",
+          "lines": "125-137"
+        },
+        {
+          "path": "src/test/aiur_web/live/dashboard_live_test.exs",
+          "lines": "208-505"
+        }
+      ],
+      "description": "Tests stand in for Aiur.DecisionStore by answering its raw GenServer messages ({:retained_query, q}, :retained_counts, {:retained_lookup, id}, {:answer, id, payload, opts}, :health). The docs fixture also copies the lifecycle filter, and its @historic_statuses lacks :moot, which production QueryPlan includes. So moot decisions disappear from the docs fixture's history view. Any change to the store's call protocol breaks every fake without a compile-time signal.",
+      "evidence": "docs fixture 179: `@historic_statuses [:expired, :dismissed, :decided, :acknowledged, :resolved]` vs query_plan.ex 10: `@historic_statuses [:expired, :dismissed, :moot, :decided, :acknowledged, :resolved]`; `grep -rn 'handle_call({:retained_query\\|handle_call(:retained_counts\\|handle_call({:retained_lookup' src/test` = 28 clauses across decision_api_test, decision_query_test, extensions_test, streamdeck_channel_test, dashboard_live_test (5 fake modules), docs fixture, awaiting_commands_support.",
+      "recommendation": "Define a behaviour for the retained-decision read API (DecisionStore.Retained) with a public client module, and provide one configurable in-memory implementation in test support that reuses QueryPlan for filtering. Fakes then implement callbacks, not message shapes.",
+      "refactor_hint": "If DecisionStore moves into its own package, this behaviour becomes that package's public contract, and the shared fake ships as its test double.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-18",
+      "category": "coupling",
+      "severity": "P2",
+      "title": "Tests read and write private GenServer state, private message shapes, private function traces and private :persistent_term keys",
+      "locations": [
+        {
+          "path": "src/test/aiur_web/presenter_test.exs",
+          "lines": "50-53,95,236,259,282,322,360-400,427-438,441-478"
+        },
+        {
+          "path": "src/test/aiur_web/financial_data_test.exs",
+          "lines": "56-304"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_recovery_test.exs",
+          "lines": "42,325-328"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+          "lines": "142,370,385"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_catalog_on_demand_test.exs",
+          "lines": "65-83"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "lines": "457,553,626,707,760-788,1059,1166,1258"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_test.exs",
+          "lines": "22-23,220-244,664-682"
+        }
+      ],
+      "description": "This unit has 89 :sys.get_state/replace_state calls in 13 files (760 in 87 files suite-wide). The worst are presenter_test (16), financial_data_test (16), graph_projection_recovery_test (15), ticket_detail_coordinator_test (13) and graph_projection_test (12). presenter_test replaces and suspends the state of the application singleton TicketActivity (`%{state | projection: ...}`). catalog_on_demand_test sets a local-call trace on the private GraphProjection.no_schedule?/3. recovery_test sends the internal `{:graph_projection_due, scope, token}` timer message. ticket_detail_test erases and restores the private :persistent_term key {Aiur.GitHub.Config, :resolved_token} but never restores the companion :resolved_token_source key that config.ex writes alongside it.",
+      "evidence": "presenter_test.exs 393: `:sys.replace_state(TicketActivity, fn state -> %{state | projection: activity_projection} end)`; 436 `:sys.suspend(TicketActivity)`; catalog_on_demand_test.exs 65: `:erlang.trace_pattern({GraphProjection, :no_schedule?, 3}, [{:_, [], [{:return_trace}]}], [:local])`; graph_projection_recovery_test.exs 327: `send(projection, {:graph_projection_due, scope, entry.timer_token})`; ticket_detail_test.exs 22 `@token_cache_key {Aiur.GitHub.Config, :resolved_token}`; github/config.ex 273-274 writes both `:resolved_token` and `:resolved_token_source`.",
+      "recommendation": "Add narrow test seams: an introspection function (e.g. GraphProjection.debug_state/1 returning a documented map), a public `fire_due/2`, and GitHub.Config.reset_token_cache/0 that clears both keys. Give Presenter and Orchestrator a way to take an injected snapshot instead of having tests replace Orchestrator state. Keep :sys state reads for last-resort cases, and wrap them in one helper per module.",
+      "refactor_hint": "Tests coupled to private state and message shapes will break on every internal reshuffle during the carve. Public seams make the carve safe to refactor underneath.",
+      "effort": "L"
+    },
+    {
+      "id": "tests-6-19",
+      "category": "flaky-test",
+      "severity": "P2",
+      "title": "presenter_test starts Orchestrators that begin polling immediately against the default Linear fixture, and its on_exit cleanup does nothing",
+      "locations": [
+        {
+          "path": "src/test/aiur_web/presenter_test.exs",
+          "lines": "214-243,245-270,510-532"
+        },
+        {
+          "path": "src/test/aiur_web/presenter_test.exs",
+          "lines": "61,219,252,277,317,349,369,433,449,486,517,600"
+        },
+        {
+          "path": "src/lib/aiur/orchestrator/lifecycle.ex",
+          "lines": "83,164,367-368"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "1149-1151"
+        }
+      ],
+      "description": "Three tests call `Orchestrator.start_link(name: ...)` without `initial_poll?: false`. Lifecycle then calls schedule_tick(state, 0), so a real poll cycle starts at once. It runs against the TestSupport default tracker (kind linear, endpoint https://api.linear.app/graphql, api_key \"token\"), and presenter_test does not override :linear_client_module. That poll races the :sys.replace_state these tests apply next. Separately, all 12 on_exit blocks call `Process.exit(pid, :normal)`. Orchestrator traps exits (lifecycle.ex:83), so this only delivers a message and never stops the process. Cleanup actually happens through the start_link link.",
+      "evidence": "presenter_test.exs 216: `{:ok, pid} = Orchestrator.start_link(name: orchestrator_name)` (also 247, 512) vs 57/274/314: `initial_poll?: false`; lifecycle.ex 367-368 `defp schedule_initial_tick(state, false), do: %{state | next_poll_due_at_ms: nil}` / `defp schedule_initial_tick(state, _initial_poll?), do: schedule_tick(state, 0)`; test_support.exs 1149-1151 `tracker_kind: \"linear\", tracker_endpoint: \"https://api.linear.app/graphql\", tracker_api_token: \"token\"`; lifecycle.ex 83 `Process.flag(:trap_exit, true)`.",
+      "recommendation": "Pass initial_poll?: false at every Orchestrator start in presenter tests, or make the TestSupport default tracker `memory`. Replace `Process.exit(pid, :normal)` with Aiur.TestSupport.safe_stop(pid), or start through start_supervised.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-20",
+      "category": "flaky-test",
+      "severity": "P2",
+      "title": "streamdeck_projection_test points the global :workflow_file_path at a config file it never writes (the #589 shape)",
+      "locations": [
+        {
+          "path": "src/test/aiur_web/streamdeck_projection_test.exs",
+          "lines": "176-209,211-235,240-270"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "65-71"
+        }
+      ],
+      "description": "Three tests set `Application.put_env(:aiur, :workflow_file_path, workflow_path)` where workflow_path is `<tmp>/config.yaml`, and never create that file. They only need the path to locate the ModelAvailability ledger next to it. TestSupport documents that the global config resolving to a missing file makes any Config.settings!/0 read raise missing_workflow_file while WorkflowStore reloads or restarts, and that this crash-looped Aiur.Supervisor (#589). The module is not a TestSupport case, so nothing reloads or guards the store while the path is wrong.",
+      "evidence": "streamdeck_projection_test.exs 179 `workflow_path = Path.join(dir, \"config.yaml\")`, 184 `Application.put_env(:aiur, :workflow_file_path, workflow_path)` (no File.write! of workflow_path); test_support.exs 65-71: \"deleting it leaves the global config resolving to a possibly-missing run-folder path, so any later read of `Config.settings!/0` while `WorkflowStore` is mid-reload/restart raises `missing_workflow_file` ... the #589 cascade\".",
+      "recommendation": "Pass the ledger location to ModelAvailability.observe and StreamdeckProjection.provider_meters explicitly (a :ledger_path option). Otherwise, write a valid config first with write_workflow_file_atomic!/2 and use Workflow.set_workflow_file_path/1, which is pinned per process.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-21",
+      "category": "performance",
+      "severity": "P2",
+      "title": "Pure render/presenter tests take the heavy TestSupport setup and run synchronously; one 1,781-line module is async: false because of one describe block",
+      "locations": [
+        {
+          "path": "src/test/aiur_web/operator_control_center_components_test.exs",
+          "lines": "1-2"
+        },
+        {
+          "path": "src/test/aiur_web/control_center_presenter_test.exs",
+          "lines": "1-2"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/ticket_context_test.exs",
+          "lines": "1-2"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/conversation_drawer_test.exs",
+          "lines": "1-2"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/conversation_drawer/presenter_test.exs",
+          "lines": "1-2"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/build_order_analytics_test.exs",
+          "lines": "1-2"
+        },
+        {
+          "path": "src/test/aiur/build_order/bounded_test.exs",
+          "lines": "1-2"
+        },
+        {
+          "path": "src/test/aiur/build_order/github_graph_test.exs",
+          "lines": "2,1413-1437"
+        }
+      ],
+      "description": "Seven modules totalling 2,889 lines `use Aiur.TestSupport` but contain no reference to config, WorkflowStore, Application env, PubSub, the filesystem or registered processes. They are pure render_component and presenter calls. Every case still writes a workflow file, force-reloads WorkflowStore, checks the supervisor tree and stops HttpServer, and the whole module is forced to run synchronously. github_graph_test is async: false for 66 tests because the 'public repository authority' describe block (3 tests) sets the global :workflow_file_path directly and reloads the shared WorkflowStore, bypassing TestSupport.",
+      "evidence": "A grep of those 7 files for `write_workflow_file|Config\\.|WorkflowStore|Workflow\\.|Orchestrator|Application.put_env|settings!` returns 0, and a grep for `Process.whereis|Aiur.PubSub|ResourceStore|IssueLog|Application\\.|start_supervised|Endpoint|Paths\\.|File\\.` also returns 0 (components 1550, control_center_presenter 407, ticket_context 357, conversation_drawer 235, conversation_drawer/presenter 173, build_order_analytics 92, bounded 75 lines). github_graph_test.exs 1415-1419: `Application.put_env(:aiur, :workflow_file_path, fixture); Aiur.WorkflowStore.force_reload()`.",
+      "recommendation": "Switch the 7 modules to `use ExUnit.Case, async: true`. Move the 3 authority tests of github_graph_test into their own sync module (or a TestSupport case), and make the other 63 async.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-22",
+      "category": "large-module",
+      "severity": "P2",
+      "title": "Oversized test modules, and a component test that relies on loose HTML substring checks",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/github_graph_test.exs",
+          "lines": "1-1781"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center_components_test.exs",
+          "lines": "1-1550"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "lines": "1-1433"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_coordinator_test.exs",
+          "lines": "1-1339"
+        },
+        {
+          "path": "src/test/aiur_web/streamdeck_channel_test.exs",
+          "lines": "1-1332"
+        },
+        {
+          "path": "src/test/aiur/workspace/ownership_test.exs",
+          "lines": "1-1146"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center_components_test.exs",
+          "lines": "28-79"
+        }
+      ],
+      "description": "github_graph_test has 66 tests mixing catalog, selected-root, dependency-endpoint, envelope and authority concerns. operator_control_center_components_test has 52 tests over 14 components (BuildOrderGraph, DecisionCard, DecisionInbox, History, FleetTable, ...), with 293 `html =~` substring assertions against 27 LazyHTML queries. Substring checks match class names and duplicates: line 50 asserts `class=\"bo-node is-merged\"`, then line 52 asserts `html =~ \"merged\"`, which the class already satisfies. `\"agent live\"` is asserted twice (53 and 64). streamdeck_channel_test (57 tests) mixes socket auth, logs, Commands, control, say and voice. The in-file test doubles FakeDecisionStore, FakeVoiceSession and UnconfiguredVoiceSession are defined inside it.",
+      "evidence": "Line counts from wc -l; `grep -cE '(assert|refute) [a-z_]+ =~'` on the components test = 293, `grep -c 'LazyHTML|Floki'` = 27; components_test.exs 50 `assert html =~ ~s(class=\"bo-node is-merged\")`, 52 `assert html =~ \"merged\"`, 53 and 64 `assert html =~ \"agent live\"`.",
+      "recommendation": "Split per component or per concern: components into one file per component; github_graph_test into catalog / selected_root / dependency_endpoints / envelope / authority; streamdeck_channel_test into auth / commands / control / voice, with shared doubles in support. In component tests prefer LazyHTML selectors that assert element and attribute, not substrings.",
+      "refactor_hint": "Splitting along concern boundaries lets each file move with its package (build_order vs aiur_web).",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-23",
+      "category": "complexity",
+      "severity": "P2",
+      "title": "TestSupport's workflow fixture is a 215-line function around a hand-written YAML emitter, with copied helpers and duplicate or dead config",
+      "locations": [
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "1145-1359"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "1276"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "1487-1491,1507-1511,1635-1639"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "86-101"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "306-308,334-338"
+        }
+      ],
+      "description": "workflow_content/1 merges about 55 defaults, pulls about 45 of them into locals one Keyword.get at a time, then emits YAML by string concatenation through about 15 section helpers and a custom yaml_value/1. Every schema key has to be mirrored here. Specific defects: (a) dead bindings silenced with `_ = {agent_turn_timeout_ms, agent_read_timeout_ms, agent_stall_timeout_ms}`; (b) alerts_line/3, pr_watch_line/3 and decisions_line/3 are identical; (c) @isolated_app_env_keys lists :github_cache_inspector_source twice; (d) setup puts :global_pause_store_path at 308 and then overwrites it with a different path at 334-338, so the first write is dead.",
+      "evidence": "1276: `_ = {agent_turn_timeout_ms, agent_read_timeout_ms, agent_stall_timeout_ms}`; 1487-1491 `defp alerts_line(key, overrides, override_key) do if Keyword.has_key?(overrides, override_key) do \"  #{key}: #{yaml_value(Keyword.get(overrides, override_key))}\"` is identical to pr_watch_line (1507-1511) and decisions_line (1635-1639); 91 and 93 both `:github_cache_inspector_source,`; 308 `Path.join(workflow_root, \"global-pause.json\")` vs 337 `Path.join([workflow_root, \"state\", \"global-pause.json\"])`.",
+      "recommendation": "Build a nested map (defaults deep-merged with overrides), drop nil or absent optional sections, and encode it with the project's YAML writer, or a small generic map-to-YAML function. Collapse the three *_line helpers into optional_section(name, overrides, mapping). Remove the duplicate key and the dead put_env.",
+      "refactor_hint": "The config package could expose a `Schema.to_yaml/1` or a fixture builder, so tests stop mirroring the schema by hand.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-24",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "Six hand-copied ensure/restart families for app children have diverged in retry semantics",
+      "locations": [
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "799-1068"
+        }
+      ],
+      "description": "ensure_branch_ref_store_running, ensure_resource_store_running, ensure_workflow_store_running, ensure_pubsub_running, ensure_subscription_store_supervisor_running and ensure_read_cache_running each come with their own restart_X, restart_X_child (a try/catch around Supervisor.restart_child) and sometimes an X_status. The copies differ. ensure_pubsub_running/1 does not call ensure_aiur_supervisor_running first, but the others do. The workflow, branch-ref and resource-store restarts end with `{:error, _} -> whereis-check`, while pubsub, subscription-store and read-cache fall through to `_ -> X_status()`. Some retry by recursing into ensure_X_running(retries - 1), others into restart_X(retries - 1).",
+      "evidence": "858-877 ensure_pubsub_running has no leading ensure_aiur_supervisor_running(), while 888-889 ensure_subscription_store_supervisor_running starts with `ensure_aiur_supervisor_running()`; 975-980 `:supervisor_unavailable when retries > 0 -> ... restart_workflow_store(retries - 1)` / `:supervisor_unavailable -> :error` vs 871-876 `:supervisor_unavailable when retries > 0 -> ensure_aiur_supervisor_running(); ensure_pubsub_running(retries - 1)` / `_ -> pubsub_status()`; six `defp restart_*_child do Supervisor.restart_child(Aiur.Supervisor, X) catch :exit, _ -> :supervisor_unavailable end` (1014-1068).",
+      "recommendation": "Replace them with one `ensure_app_child_running(registered_name, child_id, retries \\\\ 1)` and a table of {name, child_id}. ensure_runtime_children_running/0 then becomes Enum.reduce_while over the table and returns the first failure by name (see tests-6-01).",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-25",
+      "category": "flaky-test",
+      "severity": "P2",
+      "title": "Temp paths shared across VMs: the default fixture workspace root and 6 hand-built tmp roots in this unit (19 suite-wide)",
+      "locations": [
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "148-171,1173"
+        },
+        {
+          "path": "src/test/aiur_web/operator_control_center/analytics/latest_run_test.exs",
+          "lines": "87"
+        },
+        {
+          "path": "src/test/aiur_web/streamdeck_channel_test.exs",
+          "lines": "747,813"
+        },
+        {
+          "path": "src/test/aiur_web/streamdeck_commands_test.exs",
+          "lines": "22"
+        },
+        {
+          "path": "src/test/scripts/agent_worktree_test.exs",
+          "lines": "53,364"
+        },
+        {
+          "path": "src/test/aiur/workspace/remote_test.exs",
+          "lines": "44-49"
+        }
+      ],
+      "description": "TestSupport.tmp_root!/1 explains that System.unique_integer is only unique within a node, and that two concurrent `mix test` VMs routinely pick the same name (measured at 60 shared names in 2 x 320 draws). Even so, the default workflow fixture sets workspace.root to the shared `/tmp/aiur_workspaces`, so any case that does not override it writes workspaces there across VMs and cases. This is the path the #2287 regression comment in workspace_and_config_test names. Six roots in this unit are still built as `System.tmp_dir!() <> unique_integer` without System.pid. remote_test compares a glob of the shared tmp dir (`aiur-ssh-script-*.sh`) before and after, which another VM staging a script can break.",
+      "evidence": "test_support.exs 1173 `workspace_root: Path.join(System.tmp_dir!(), \"aiur_workspaces\")`; 152-162 doc on cross-VM collisions; latest_run_test.exs 87 `Path.join(System.tmp_dir!(), \"aiur-latest-run-#{System.unique_integer([:positive])}\")`; `grep -rn 'System.tmp_dir!()' src/test | grep unique_integer | grep -v System.pid` = 19 sites vs 710 tmp_root! uses; remote_test.exs 44-47 `System.tmp_dir!() |> Path.join(\"aiur-ssh-script-*.sh\") |> Path.wildcard()`.",
+      "recommendation": "Default the fixture workspace root to Path.join(workflow_root, \"workspaces\") inside the per-case root. Replace the 19 hand-built roots with tmp_root!/1. Have Remote stage scripts under an injectable dir so remote_test can use a private one.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-26",
+      "category": "test-quality",
+      "severity": "P3",
+      "title": "The missing-credentials test in ticket_detail_test depends on ambient GITHUB_APP_* env",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_test.exs",
+          "lines": "664-682"
+        },
+        {
+          "path": "src/lib/aiur/github/config.ex",
+          "lines": "197-207"
+        },
+        {
+          "path": "src/test/test_helper.exs",
+          "lines": "1-19"
+        }
+      ],
+      "description": "'maps missing production GitHub credentials to an auth failure' deletes GITHUB_TOKEN and erases the cached token. GitHub.Config.token/0 checks AppCredentials.configured?() first, though, and test_helper's contaminating_env_vars list does not clear GITHUB_APP_*. In a shell with App credentials exported, the test goes through AppTokenRefresher, not the missing-token path. The test also restores :resolved_token but not :resolved_token_source.",
+      "evidence": "config.ex 198-201 `def token do if AppCredentials.configured?() do AppTokenRefresher.current_token() else case :persistent_term.get({__MODULE__, :resolved_token}, :unset)`; test_helper.exs 1-15 contaminating_env_vars covers TMUX..AIUR_LOGS_ROOT only.",
+      "recommendation": "Add GITHUB_TOKEN, GH_TOKEN and GITHUB_APP_* to test_helper's contaminating list (tests that need them already set them explicitly), or inject a credentials source into TicketDetail.fetch.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-27",
+      "category": "dead-code",
+      "severity": "P3",
+      "title": "Two manual scripts are referenced nowhere and have their own assert/sleep harness",
+      "locations": [
+        {
+          "path": "src/test/manual/pause_resume_scenarios.exs",
+          "lines": "1-369"
+        },
+        {
+          "path": "src/test/manual/github_cache_usage_fixture.exs",
+          "lines": "1-151"
+        }
+      ],
+      "description": "pause_resume_scenarios.exs (a `mix run` driver with a hand-built PASS/FAIL framework and 4x Process.sleep(50) as synchronization) and github_cache_usage_fixture.exs are not referenced by any script, doc, website test or CI job. Of the manual scripts, only executor_control_center_docs_fixture.exs is wired in (website/tests/gui-docs.spec.ts, website/scripts/capture-dashboard.mjs). Nothing runs them, so they will rot quietly as the Orchestrator API changes during the carve.",
+      "evidence": "`grep -rl pause_resume_scenarios` and `grep -rl github_cache_usage_fixture` across the snapshot return only the files themselves; pause_resume_scenarios.exs 190/199/211/238 `Process.sleep(50)`; 30-44 custom `assert_eq/3` printing PASS/FAIL.",
+      "recommendation": "Delete them, or turn the pause/resume scenarios into ExUnit tests with barriers and link the cache fixture from the docs that describe it.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-28",
+      "category": "naming-structure",
+      "severity": "P3",
+      "title": "Test support and script tests have inconsistent placement and conventions",
+      "locations": [
+        {
+          "path": "src/test/aiur_saturation_repro_test.exs",
+          "lines": "1-10"
+        },
+        {
+          "path": "src/test/scripts/agent_worktree_test.exs",
+          "lines": "1-15"
+        },
+        {
+          "path": "src/test/test_helper.exs",
+          "lines": "60-73"
+        },
+        {
+          "path": "src/test/support/fake_usage_adapter.ex",
+          "lines": "1-5"
+        },
+        {
+          "path": "src/test/support/progress_renderer_census.exs",
+          "lines": "1"
+        }
+      ],
+      "description": "Script tests live both at the test root (aiur_saturation_repro_test.exs tests scripts/aiur-saturation-repro.sh) and in src/test/scripts/. test/support mixes .ex and .exs, all loaded through Code.require_file in test_helper, except progress_renderer_census.exs, which one test requires separately. support/fake_usage_adapter.ex defines a test double under the production namespace Aiur.Usage.Headless.Fake.RequestUsage.",
+      "evidence": "test_helper.exs 60-73: 14 `Code.require_file(\"support/...\")` lines with mixed .ex/.exs; progress_renderer_census.exs is required only by test/aiur/regression/progress_renderer_boundary_test.exs; fake_usage_adapter.ex 1 `defmodule Aiur.Usage.Headless.Fake.RequestUsage do`.",
+      "recommendation": "Move script tests under src/test/scripts/, which carves out with the launcher/scripts. Compile test/support through elixirc_paths for :test with .ex files only. Namespace doubles under Aiur.TestSupport.*.",
+      "refactor_hint": "The bash launcher and scripts are expected to split out, and their tests should be in one directory that moves with them.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-29",
+      "category": "test-quality",
+      "severity": "P3",
+      "title": "receive_barrier/1 is an unbounded receive (156 uses); a missing message hangs until ExUnit's per-test timeout",
+      "locations": [
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "26-51"
+        }
+      ],
+      "description": "The macro deliberately has no `after` clause. When the expected message never arrives, the test hangs for the whole ExUnit timeout (60 s by default), and the failure names neither the pattern nor the mailbox contents. With 156 call sites, one regression can burn minutes of CI time per case with little diagnostic value.",
+      "evidence": "27-47: `defmacro receive_barrier(pattern) do ... receive do unquote(match) -> {received, unquote(generated_vars)} end`; `grep -rn receive_barrier src/test | wc -l` = 156.",
+      "recommendation": "Keep the no-wall-clock intent, but add a generous safety bound (e.g. 30 s, configurable) that flunks with the pattern and `Process.info(self(), :messages)`.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-30",
+      "category": "flaky-test",
+      "severity": "P3",
+      "title": "Tests that depend on the host OS: GNU-only stat -c and real kill -0 on a recycled pid",
+      "locations": [
+        {
+          "path": "src/test/aiur/workspace/ownership_runner_test.exs",
+          "lines": "42,58,137-138"
+        },
+        {
+          "path": "src/test/aiur/workspace/host_lock_test.exs",
+          "lines": "82-89,207-212"
+        }
+      ],
+      "description": "ownership_runner_test reads inodes with `stat -c %d:%i`, which only GNU coreutils supports, so it fails on macOS dev machines that the pgrep_skip_reason machinery otherwise accommodates. host_lock_test builds a 'dead pid' by running `sh -c 'echo $$'` and then probes it with the real `kill -0`. Its comment says 'Nothing else on the host can have taken it in between', but on a busy fleet host a recycled pid owned by the same user makes the probe say alive and the test fail.",
+      "evidence": "ownership_runner_test.exs 42 `System.cmd(\"stat\", [\"-c\", \"%d:%i\", workspace], stderr_to_stdout: true)`; host_lock_test.exs 207-211 `# Nothing else on the host can have taken it in between within this test.` / `System.cmd(\"sh\", [\"-c\", \"echo $$\"])`; process_identity.ex 5-6 `System.cmd(\"kill\", [\"-0\", ...])`.",
+      "recommendation": "Use File.stat!/1 (inode and major_device) instead of shelling out to stat. For the dead-pid case, inject alive_fun returning false and keep one :real_proc-tagged test for the real probe.",
+      "effort": "S"
+    },
+    {
+      "id": "tests-6-31",
+      "category": "duplication",
+      "severity": "P2",
+      "title": "GitHub GraphQL payload builders (connection/pageInfo/graphql_response) are copied across 14 test files",
+      "locations": [
+        {
+          "path": "src/test/aiur/build_order/github_graph_test.exs",
+          "lines": "1626-1656,1729-1780"
+        },
+        {
+          "path": "src/test/aiur/build_order/reconciliation_test.exs",
+          "lines": "112-145"
+        },
+        {
+          "path": "src/test/aiur/build_order/graph_projection_test.exs",
+          "lines": "1388-1421"
+        },
+        {
+          "path": "src/test/aiur/build_order/ticket_detail_test.exs",
+          "lines": "822-900"
+        },
+        {
+          "path": "src/test/manual/github_cache_usage_fixture.exs",
+          "lines": "100"
+        }
+      ],
+      "description": "The GraphQL connection envelope (nodes/totalCount/pageInfo{hasNextPage,endCursor}), the issue-node shape and the rateLimit envelope are rebuilt by hand in each file. Two `defp connection` copies already differ in arity and options: github_graph_test takes opts with has_next?/cursor, and reconciliation_test hard-codes hasNextPage false. Five `graphql_response` variants take different arguments. Parsing GitHub payload shapes in more than one place is a known bug family in this codebase. Hand-built fixtures that drift from the real query shape have caused cost regressions before, as the #1766 comments in github_graph_test show.",
+      "evidence": "`grep -rln '\"pageInfo\"' src/test` = 14 files (github_issue_dependencies_test, agent_github_guard_test, reconciliation_test, github_client_test, ticket_detail_test, human_review_gate_test, github_comments_poller_test, orchestrator_deactivate_test, github_graph_test, graph_projection_test, ci_poll_batch_test, github_ingestion_test, comment_poll_batch_test, review_threads_test); github_graph_test.exs 1647 `defp connection(nodes, total, opts)` vs reconciliation_test.exs 122 `defp connection(nodes, total)`; graphql_response defs: github_graph_test:1644 /1, quota_caller_attribution_test:266 /2, quota_test:959 /2, github_cache_live_test:1625 /1, github_cache_usage_fixture:100 /2.",
+      "recommendation": "Create Aiur.TestSupport.GitHubFixtures with connection/3, issue_node/2, graphql_ok/2 (with an optional rateLimit) and queued_request_fun/1, derived where possible from recorded real responses under test/fixtures. Use it for every GraphQL test.",
+      "refactor_hint": "This is the seed of a github-client package's test support.",
+      "effort": "M"
+    },
+    {
+      "id": "tests-6-32",
+      "category": "test-quality",
+      "severity": "P3",
+      "title": "max_turns_by_complexity_test writes the active workflow non-atomically and bypasses the WorkflowStore contract",
+      "locations": [
+        {
+          "path": "src/test/aiur/config/max_turns_by_complexity_test.exs",
+          "lines": "6-24"
+        },
+        {
+          "path": "src/test/support/test_support.exs",
+          "lines": "427-473"
+        }
+      ],
+      "description": "setup writes the config with plain File.write! and repoints Workflow at it. TestSupport documents that a truncate-then-write lets the WorkflowStore poll read an empty intermediate file and commit it as last-known-good (#1635), and provides write_workflow_file_atomic!/2 for this case. The test uses neither the atomic writer nor the TestSupport case.",
+      "evidence": "max_turns_by_complexity_test.exs 10-12 `path = Path.join(dir, \"config.yaml\"); File.write!(path, config); Workflow.set_workflow_file_path(path)`; test_support.exs 431-435: \"a plain `File.write!/2` truncates before writing, so the `WorkflowStore` background poll can read the empty intermediate ... (#1635)\".",
+      "recommendation": "Use Aiur.TestSupport.write_workflow_file_atomic!/2, or better, test Config against a parsed Schema struct without touching the global WorkflowStore.",
+      "effort": "S"
+    }
+  ]
+}

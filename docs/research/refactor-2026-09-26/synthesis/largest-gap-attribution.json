@@ -1,0 +1,96 @@
+{
+  "claim": "gaps-04",
+  "status": "bounded_verification",
+  "sources": [
+    {
+      "path": "scratch/gaps/gap_rows30.jsonl",
+      "sha256": "2de9a3d9218e268b6b9ad0a3c44e3ae25fbc2e522877edc944519f40229dae4d"
+    },
+    {
+      "path": "scratch/gaps/gh/aiur-team_aiur.issue_events.jsonl",
+      "sha256": "52fb3fee82567b6e61d36b7ed726aaf41f196a1b1cd63cf73705f180f601f6ef"
+    },
+    {
+      "path": "scratch/gaps/gh/aiur-team_aiur.pulls2.jsonl",
+      "sha256": "d000e9bad2cede61cb7bb2b9e71a1ca7284b95afbc749bd5cf8057605742b7d5"
+    },
+    {
+      "path": "scratch/gaps/analyze.py",
+      "sha256": "ea557940c18d8679cf3e5026a8dba9498d6dc4cd1cc4b75c0d5a2293277aa8b0"
+    }
+  ],
+  "largest_retained_gap": {
+    "start": "2026-08-25T23:04Z",
+    "end": "2026-09-01T06:26Z",
+    "exact_hours": 151.36214414278666,
+    "category_bins": {
+      "d": 9082
+    },
+    "historical_attended_fraction": 0.004
+  },
+  "three_retained_gaps": {
+    "count": 3,
+    "sum_exact_hours": 173.28400909086068,
+    "enclosing_span_hours": 173.75436636500888,
+    "intervening_non_gap_hours": 0.4703572741481993,
+    "note": "The enclosing span is not one uninterrupted no-progress gap; selected progress events split it."
+  },
+  "label_replay_at_largest_gap_start": {
+    "ci-wait": [
+      2117,
+      2118,
+      2220
+    ],
+    "human-review": [
+      2212,
+      2313,
+      2357,
+      2373,
+      2393,
+      2439,
+      2453,
+      2454,
+      2458,
+      2461,
+      2464,
+      2467
+    ],
+    "paused": [
+      2216
+    ],
+    "rework": [
+      1767,
+      2245,
+      2352,
+      2397,
+      2413
+    ],
+    "todo": [
+      2394
+    ]
+  },
+  "todo_issue": {
+    "issue": 2394,
+    "linked_pr": 2396,
+    "pr_created_at": "2026-08-23T09:09:59Z",
+    "pr_merged_at": null,
+    "pr_closed_at": null,
+    "assessment": "A cached linked PR predates the gap. This does not by itself make the issue non-dispatchable, but proves that a todo label cannot establish a fresh runnable task or no existing work."
+  },
+  "classifier_contract": {
+    "source_ranges": [
+      "analyze.py:304-365",
+      "analyze.py:381-405",
+      "analyze.py:418-462",
+      "analyze.py:567-626"
+    ],
+    "assessment": "Dispatchability is absence of selected recorded declines and attention, not a positive scheduler admission result. A later decline is projected backward across its label-state episode. If any modeled dispatchable todo/rework exists and an infrastructure window is open, d wins before human-waiting state is considered. Unresolved starvation is extended to the ID-group endpoint, whose boot meaning is unproved."
+  },
+  "interpretation": "The data supports a large model gap with concurrent waiting work. It does not distinguish 151 hours of active infrastructure failure from a stale alert, missing progress evidence or unobserved Executor availability. Nor does it establish that the whole interval should be moved to human-blocked b. The raw historical attendance fraction is0.004, displayed as0.00 at two decimals. That predicate does not prove zero observed activity or a six-day operator absence.",
+  "unresolved": [
+    "Positive scheduler eligibility and complete decline history for issue2394 and rework at each relevant time",
+    "Historical loaded prewarm repair/configuration and real daemon/host lifetime",
+    "Independent operator/Executor availability and action history",
+    "Causal allocation of the largest interval and neighboring gaps"
+  ]
+}
