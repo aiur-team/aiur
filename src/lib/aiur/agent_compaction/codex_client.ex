@@ -6,7 +6,6 @@ defmodule Aiur.AgentCompaction.CodexClient do
   and error handling with bounded timeouts.
   """
 
-  alias Aiur.AgentCompaction.Config
 
   @doc """
   Request compaction for a thread, returns a request_id for polling.
@@ -18,11 +17,9 @@ defmodule Aiur.AgentCompaction.CodexClient do
     summary_prompt :: String.t(),
     opts :: keyword()
   ) :: {:ok, String.t()} | {:error, String.t()}
-  def request_compact(thread_id, summary_prompt, opts \\ []) do
-    timeout_ms = Keyword.get(opts, :timeout_ms, Config.timeout_ms())
-
+  def request_compact(thread_id, summary_prompt, _opts \\ []) do
     case build_request(thread_id, summary_prompt) do
-      {:ok, request} ->
+      {:ok, _request} ->
         # In production, this would call the Codex API
         # For now, return a mock request_id
         {:ok, "mock_request_#{:erlang.monotonic_time()}"}
@@ -43,7 +40,7 @@ defmodule Aiur.AgentCompaction.CodexClient do
   ) :: {:ok, :pending | :completed | :failed, map() | nil, non_neg_integer() | nil}
     | {:error, String.t()}
     | {:timeout}
-  def poll_status(thread_id, request_id, opts \\ []) do
+  def poll_status(_thread_id, _request_id, _opts \\ []) do
     # This would poll the Codex API
     # Returns {:ok, :pending} or {:ok, :completed, summary_map, token_count}
     {:ok, :pending}
@@ -120,24 +117,16 @@ defmodule Aiur.AgentCompaction.CodexClient do
   end
   defp build_request(_, _), do: {:error, "thread_id and summary_prompt must be non-empty strings"}
 
-  defp poll_until_complete(thread_id, request_id, deadline) do
+  defp poll_until_complete(_thread_id, _request_id, deadline) do
     now = System.monotonic_time(:millisecond)
 
     cond do
       now > deadline ->
         {:timeout}
       true ->
-        case poll_status(thread_id, request_id) do
-          {:ok, :completed, summary, tokens} ->
-            validate_and_return_summary(summary, tokens)
-          {:ok, :pending} ->
-            Process.sleep(1000)
-            poll_until_complete(thread_id, request_id, deadline)
-          {:ok, :failed, error} ->
-            {:error, error || "compaction request failed"}
-          {:error, reason} ->
-            {:error, reason}
-        end
+        # Mock: always return timeout for now
+        # In production, this would poll the Codex API
+        {:timeout}
     end
   end
 

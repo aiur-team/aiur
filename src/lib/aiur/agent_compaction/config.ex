@@ -21,6 +21,7 @@ defmodule Aiur.AgentCompaction.Config do
   @default_token_threshold 50_000
   @default_message_count_threshold 20
   @default_elapsed_time_minutes 60
+  @default_timeout_ms 30_000
 
   @spec enabled?() :: boolean()
   def enabled? do
@@ -84,6 +85,14 @@ defmodule Aiur.AgentCompaction.Config do
     end
   end
 
+  @spec timeout_ms() :: non_neg_integer()
+  def timeout_ms do
+    case section_value("timeout_ms") do
+      value when is_integer(value) and value > 0 -> value
+      _ -> @default_timeout_ms
+    end
+  end
+
   @spec validate!() :: :ok | {:error, String.t()}
   def validate! do
     with :ok <- validate_enabled(),
@@ -128,6 +137,8 @@ defmodule Aiur.AgentCompaction.Config do
   end
 
   defp section_value(key) do
-    Aiur.Config.section("compaction", key)
+    settings = Aiur.Config.settings()
+    compaction_config = settings[:compaction] || %{}
+    Map.get(compaction_config, key)
   end
 end
