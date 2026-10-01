@@ -1,0 +1,56 @@
+name: aiur-style
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'packages/aiur-style/**'
+      - '.github/workflows/aiur-style.yml'
+  pull_request:
+    paths:
+      - 'packages/aiur-style/**'
+      - '.github/workflows/aiur-style.yml'
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: ['20.x']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: 'packages/aiur-style/package-lock.json'
+
+      - name: Install dependencies
+        run: cd packages/aiur-style && npm ci
+
+      - name: Build
+        run: cd packages/aiur-style && npm run build
+
+      - name: Check dist
+        run: cd packages/aiur-style && npm run check-dist
+
+      - name: Run tests
+        run: cd packages/aiur-style && npm test
+
+      - name: Install Playwright browsers
+        run: cd packages/aiur-style && npx playwright install --with-deps
+
+      - name: Run visual tests
+        run: cd packages/aiur-style && npm run test:visual
+
+      - name: Upload Playwright test results
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: playwright-report
+          path: packages/aiur-style/test-results/
+          retention-days: 7

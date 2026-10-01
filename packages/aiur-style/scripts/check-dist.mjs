@@ -12,80 +12,71 @@ const distDir = path.join(packageRoot, 'dist');
 const tempDir = path.join(tmpdir(), `aiur-style-check-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 const tempDistDir = path.join(tempDir, 'dist');
 
+// Helper: Build files into a directory
+function buildToDir(outputDir) {
+  // Create dist dir
+  fs.mkdirSync(outputDir, { recursive: true });
+  fs.mkdirSync(path.join(outputDir, 'css'), { recursive: true });
+  fs.mkdirSync(path.join(outputDir, 'js'), { recursive: true });
+
+  // Run TypeScript compiler
+  execSync(`tsc --project ${path.join(packageRoot, 'tsconfig.json')} --outDir ${path.join(outputDir, 'js')}`, {
+    cwd: packageRoot,
+    stdio: 'pipe'
+  });
+
+  // Build CSS
+  const srcCssDir = path.join(packageRoot, 'src', 'css');
+  const cssFiles = fs.readdirSync(srcCssDir)
+    .filter(f => f.endsWith('.css'))
+    .sort();
+
+  const cssContent = cssFiles
+    .map(file => {
+      const content = fs.readFileSync(path.join(srcCssDir, file), 'utf8');
+      return content.replace(/\r\n/g, '\n');
+    })
+    .join('\n');
+
+  fs.writeFileSync(path.join(outputDir, 'aiur-style.css'), cssContent, { encoding: 'utf8' });
+
+  cssFiles.forEach(file => {
+    const srcPath = path.join(srcCssDir, file);
+    const destPath = path.join(outputDir, 'css', file);
+    const content = fs.readFileSync(srcPath, 'utf8').replace(/\r\n/g, '\n');
+    fs.writeFileSync(destPath, content, { encoding: 'utf8' });
+  });
+}
+
+// Helper: Get all files from directory
+function getAllFiles(dir) {
+  const files = [];
+  const walk = (currentPath) => {
+    fs.readdirSync(currentPath).forEach(file => {
+      const fullPath = path.join(currentPath, file);
+      const relativePath = path.relative(dir, fullPath);
+      if (fs.statSync(fullPath).isDirectory()) {
+        walk(fullPath);
+      } else {
+        files.push(relativePath);
+      }
+    });
+  };
+  walk(dir);
+  return files.sort();
+}
+
 try {
   // Create temp directory
   fs.mkdirSync(tempDir, { recursive: true });
 
   // Build into temp directory
   console.log('Building into temporary directory...');
-  process.env.DIST_DIR = tempDistDir;
-
-  // Temporarily set DIST_DIR for build script
-  const buildScript = path.join(packageRoot, 'scripts', 'build.mjs');
-
-  // Run build with custom dist directory
-  execSync(`node -e "
-    import fs from 'fs';
-    import path from 'path';
-    import { execSync } from 'child_process';
-
-    const packageRoot = '${packageRoot}';
-    const tempDistDir = '${tempDistDir}';
-
-    // Create dist dir
-    fs.mkdirSync(tempDistDir, { recursive: true });
-    fs.mkdirSync(path.join(tempDistDir, 'css'), { recursive: true });
-
-    // Run tsc with outDir override
-    execSync(\`tsc --project \${path.join(packageRoot, 'tsconfig.json')} --outDir \${path.join(tempDistDir, 'js')}\`, {
-      cwd: packageRoot,
-      stdio: 'inherit'
-    });
-
-    // Build CSS
-    const srcCssDir = path.join(packageRoot, 'src', 'css');
-    const cssFiles = fs.readdirSync(srcCssDir)
-      .filter(f => f.endsWith('.css'))
-      .sort();
-
-    const cssContent = cssFiles
-      .map(file => {
-        const content = fs.readFileSync(path.join(srcCssDir, file), 'utf8');
-        return content.replace(/\\r\\n/g, '\\n');
-      })
-      .join('\\n');
-
-    fs.writeFileSync(path.join(tempDistDir, 'aiur-style.css'), cssContent, { encoding: 'utf8' });
-
-    cssFiles.forEach(file => {
-      const srcPath = path.join(srcCssDir, file);
-      const destPath = path.join(tempDistDir, 'css', file);
-      const content = fs.readFileSync(srcPath, 'utf8').replace(/\\r\\n/g, '\\n');
-      fs.writeFileSync(destPath, content, { encoding: 'utf8' });
-    });
-  "`, { stdio: 'inherit' });
+  buildToDir(tempDistDir);
 
   // Compare files
   console.log('Comparing dist/ with build output...');
   const diffs = [];
-
-  // Get all files from both directories
-  function getAllFiles(dir) {
-    const files = [];
-    const walk = (currentPath) => {
-      fs.readdirSync(currentPath).forEach(file => {
-        const fullPath = path.join(currentPath, file);
-        const relativePath = path.relative(dir, fullPath);
-        if (fs.statSync(fullPath).isDirectory()) {
-          walk(fullPath);
-        } else {
-          files.push(relativePath);
-        }
-      });
-    };
-    walk(dir);
-    return files.sort();
-  }
 
   const actualFiles = getAllFiles(distDir);
   const tempFiles = getAllFiles(tempDistDir);
