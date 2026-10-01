@@ -476,6 +476,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     case Integer.parse(id) do
       {number, ""} when number > 0 ->
         ReadCache.invalidate([{:number, String.downcase(owner), String.downcase(repo), number}])
+        invalidate_timeline_cache(id)
 
       _other ->
         :ok
@@ -483,6 +484,16 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   end
 
   defp invalidate_incomplete_timeline(_id, _owner, _repo), do: :ok
+
+  defp invalidate_timeline_cache(issue_id) when is_binary(issue_id) do
+    table = timeline_table()
+
+    try do
+      :ets.delete(table, issue_id)
+    rescue
+      ArgumentError -> :ok
+    end
+  end
 
   # Every actor who has ever applied a `<prefix>:*` state label to this issue.
   # This is the evidence that someone put the ticket into the agent pipeline,
