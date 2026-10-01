@@ -31,6 +31,10 @@ defmodule Aiur.ModelAvailability do
   @repeat_window_seconds 2 * @unknown_reset_ttl_seconds
   # The second refusal holds for twice this; each repeat doubles the hold.
   @backoff_base_seconds 300
+  # Stale threshold: refresh cached limit when older than 5 minutes
+  @stale_threshold_seconds 300
+  # Retry delay: reschedule probe after 2 minutes on failure
+  @retry_delay_seconds 120
 
   @spec path() :: Path.t()
   def path, do: Path.join(Path.dirname(Workflow.workflow_file_path()), "model-usage.json")
@@ -120,6 +124,78 @@ defmodule Aiur.ModelAvailability do
   def first_available(backends, opts \\ []) when is_list(backends) do
     state = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path())))
     Enum.find(backends, &available?(&1, Keyword.put(opts, :state, state)))
+  end
+
+  @doc """
+  Whether a cached usage limit is stale (observed more than 5 minutes ago).
+  Used to determine if a probe should be scheduled to refresh the reading.
+  """
+  @spec stale?(String.t(), keyword()) :: boolean()
+  def stale?(backend, opts \\ []) when is_binary(backend) do
+    backend = backend_key(backend)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    state = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path())))
+    entry = get_in(state, ["backends", backend]) || %{}
+
+    case parse_time(Map.get(entry, "observed_at")) do
+      %DateTime{} = observed_at -> DateTime.diff(now, observed_at, :second) > @stale_threshold_seconds
+      nil -> false
+    end
+  end
+
+  @doc """
+  Schedule a retry probe for this backend after the retry delay (2 minutes).
+  Returns updated state to be persisted.
+  """
+  @spec schedule_retry(String.t(), DateTime.t(), keyword()) :: :ok | {:error, term()}
+  def schedule_retry(backend, now, opts \\ []) when is_binary(backend) do
+    backend = backend_key(backend)
+    path = Keyword.get(opts, :path, path())
+
+    :global.trans({__MODULE__, path}, fn ->
+      state = load(path)
+      backends = Map.get(state, "backends", %{})
+      entry = Map.get(backends, backend, %{})
+
+      retry_at = now |> DateTime.add(@retry_delay_seconds, :second) |> DateTime.to_iso8601()
+      updated_entry = Map.put(entry, "retry_scheduled_at", retry_at)
+
+      write(path, Map.put(state, "backends", Map.put(backends, backend, updated_entry)))
+    end)
+  end
+
+  @doc """
+  Clear the retry schedule for a backend (called after a successful probe).
+  """
+  @spec clear_retry_schedule(String.t(), keyword()) :: :ok | {:error, term()}
+  def clear_retry_schedule(backend, opts \\ []) when is_binary(backend) do
+    backend = backend_key(backend)
+    path = Keyword.get(opts, :path, path())
+
+    :global.trans({__MODULE__, path}, fn ->
+      state = load(path)
+      backends = Map.get(state, "backends", %{})
+      entry = Map.get(backends, backend, %{})
+
+      updated_entry = Map.delete(entry, "retry_scheduled_at")
+      write(path, Map.put(state, "backends", Map.put(backends, backend, updated_entry)))
+    end)
+  end
+
+  @doc """
+  Check if a retry probe is currently due (scheduled time has arrived).
+  """
+  @spec retry_scheduled?(String.t(), keyword()) :: boolean()
+  def retry_scheduled?(backend, opts \\ []) when is_binary(backend) do
+    backend = backend_key(backend)
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    state = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path())))
+    entry = get_in(state, ["backends", backend]) || %{}
+
+    case parse_time(Map.get(entry, "retry_scheduled_at")) do
+      %DateTime{} = retry_at -> DateTime.compare(now, retry_at) != :lt
+      nil -> false
+    end
   end
 
   defp limited?(entry, now) do

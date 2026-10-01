@@ -268,4 +268,43 @@ defmodule Aiur.ModelAvailabilityTest do
       assert ModelAvailability.available?("claude", path: path, now: DateTime.add(@reset, 600))
     end
   end
+
+  describe "stale detection and retry scheduling" do
+    test "detects stale limits (> 5 minutes old)", %{path: path} do
+      now = DateTime.utc_now()
+      fresh_time = DateTime.add(now, -60, :second)
+      stale_time = DateTime.add(now, -301, :second)
+
+      # Fresh observation
+      assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 5, limit: 10}}, path: path, now: fresh_time)
+      refute ModelAvailability.stale?("codex", path: path, now: now)
+
+      # Stale observation
+      assert :ok = ModelAvailability.observe("claude", %{hourly: %{used: 5, limit: 10}}, path: path, now: stale_time)
+      assert ModelAvailability.stale?("claude", path: path, now: now)
+    end
+
+    test "schedules and clears retry", %{path: path} do
+      now = DateTime.utc_now()
+
+      # No retry initially
+      assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 5, limit: 10}}, path: path, now: now)
+      refute ModelAvailability.retry_scheduled?("codex", path: path, now: now)
+
+      # Schedule retry
+      assert :ok = ModelAvailability.schedule_retry("codex", now, path: path)
+      assert ModelAvailability.retry_scheduled?("codex", path: path, now: now)
+
+      # Retry time is 2 minutes in future
+      future = DateTime.add(now, 119, :second)
+      refute ModelAvailability.retry_scheduled?("codex", path: path, now: future)
+
+      future_past = DateTime.add(now, 120, :second)
+      assert ModelAvailability.retry_scheduled?("codex", path: path, now: future_past)
+
+      # Clear retry schedule
+      assert :ok = ModelAvailability.clear_retry_schedule("codex", path: path)
+      refute ModelAvailability.retry_scheduled?("codex", path: path, now: future_past)
+    end
+  end
 end
