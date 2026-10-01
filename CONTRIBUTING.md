@@ -139,6 +139,18 @@ not fail a build on line count alone.
   error, log it with issue/session context (`docs/logging.md`), or propagate
   it. "Completed" is wrong if anything was skipped silently.
 
+## Attention alerts
+
+- **Attention alerts must have both fire and clear paths.** When a condition
+  occurs that needs operator action, emit an alert with `needs_attention: true`.
+  When the condition resolves, emit a matching `.resolved` alert with
+  `needs_attention: false`. Both emissions must happen in the same module that
+  owns the condition check. A missing resolution leaves the alert active in the
+  durable ledger forever, training operators to discount future alerts. Atomicity
+  matters: guard both emissions together so partial failure does not leave the
+  system in an inconsistent state (use `with`, `case`, or similar structures to
+  ensure coherence).
+
 ## Documentation
 
 - **Functionality ships with its documentation, in the same PR.** Docs are
