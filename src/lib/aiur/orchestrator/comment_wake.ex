@@ -599,7 +599,15 @@ defmodule Aiur.Orchestrator.CommentWake do
   def maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
     case idle_rework_decision(state, issue_number, event) do
       {:skip, reason} ->
-        Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+        Alerts.emit_custom(
+          "ticket.#{issue_number}.agent.attention.comment_wake_idle_issue",
+          "Comment on idle issue #{issue_number} was ignored (#{inspect(reason)})",
+          issue: to_string(issue_number),
+          reason: "Idle issues are dispatch candidates that pick up comments on their own. Reason: #{inspect(reason)}. Remedy: wait for dispatch to pick up the issue, or change its state.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
 
         state = cancel_comment_rework_retry(state, issue_number, source)
 
@@ -630,7 +638,15 @@ defmodule Aiur.Orchestrator.CommentWake do
             |> seed_idle_comment_wake_event(issue_number, event)
 
           {{:skip, reason}, state} ->
-            Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
+            Alerts.emit_custom(
+              "ticket.#{issue_number}.agent.attention.comment_wake_idle_issue",
+              "Comment on idle issue #{issue_number} was ignored (#{inspect(reason)})",
+              issue: to_string(issue_number),
+              reason: "Idle issues are dispatch candidates that pick up comments on their own. Reason: #{inspect(reason)}. Remedy: wait for dispatch to pick up the issue, or change its state.",
+              needs_attention: false,
+              severity: "info",
+              event_source: :system
+            )
 
             # No seeding here, deliberately. An IDLE ticket in an active state
             # is still a dispatch candidate, so the poll loop picks it up and
@@ -867,7 +883,15 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       emit_refused_review_rework_alert(issue_number, event, reason)
     else
-      Logger.info("#{source} rework write skipped for active issue: #{context}")
+      Alerts.emit_custom(
+        "ticket.#{issue_number}.agent.attention.comment_wake_rework_skipped",
+        "Comment on active issue #{issue_number} did not trigger rework (#{inspect(reason)})",
+        issue: to_string(issue_number),
+        reason: "The comment was recognized as not requiring rework (#{inspect(reason)}). It will be available to the agent on next dispatch.",
+        needs_attention: false,
+        severity: "info",
+        event_source: :system
+      )
     end
 
     state
@@ -1137,8 +1161,24 @@ defmodule Aiur.Orchestrator.CommentWake do
       # log at all — a paused, parked, already-running or unauthorized ticket
       # simply never woke and nothing said why. #2797 owns the general
       # silent-decline pattern; this is the one on the rework-comment path.
-      Logger.info(
-        "Trusted comment dispatch declined: issue_identifier=#{issue.identifier} state=#{inspect(issue.state)} paused=#{issue.paused} parked=#{issue.parked} running=#{Map.has_key?(state.running, issue.id)} reason=dispatch_policy_refused"
+      paused = issue.paused
+      parked = issue.parked
+      running = Map.has_key?(state.running, issue.id)
+      reason_details = case {paused, parked, running} do
+        {true, _, _} -> "issue is paused"
+        {_, true, _} -> "issue is parked"
+        {_, _, true} -> "issue is already running"
+        _ -> "dispatch policy does not permit this state"
+      end
+
+      Alerts.emit_custom(
+        "ticket.#{issue.identifier}.agent.attention.comment_wake_dispatch_declined",
+        "Comment on issue #{issue.identifier} was not acted on: #{reason_details}",
+        issue: issue.identifier,
+        reason: "Dispatch policy refused to wake the issue (#{reason_details}, state=#{inspect(issue.state)}). Remedy: resolve the pause/park/running state, or wait for the state to change.",
+        needs_attention: false,
+        severity: "info",
+        event_source: :system
       )
 
       Orchestrator.schedule_poll_cycle_start()
@@ -1252,20 +1292,44 @@ defmodule Aiur.Orchestrator.CommentWake do
         #
         # No `rework` write happens here, so #2422's loop stays closed.
         if wake_without_rework_write?(reason) do
-          Logger.info("#{source} waking without rework write: #{context} reason=#{inspect(reason)}")
+          Alerts.emit_custom(
+            "ticket.#{issue_number}.agent.attention.comment_wake_wake_no_rework",
+            "Comment on issue #{issue_number} triggered wake without rework write (#{inspect(reason)})",
+            issue: to_string(issue_number),
+            reason: "Comment reactivated the issue but did not request rework (#{inspect(reason)}). The agent will see the comment on next dispatch.",
+            needs_attention: false,
+            severity: "info",
+            event_source: :system
+          )
 
           state
           |> Orchestrator.enqueue_event_digest_item(to_string(issue_number), [event], event)
           |> revalidate_comment_reactivation(running_entry, issue_number, source, require_state: "rework")
         else
-          Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
+          Alerts.emit_custom(
+            "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue",
+            "Comment on inactive issue #{issue_number} was ignored (#{inspect(reason)})",
+            issue: to_string(issue_number),
+            reason: "Inactive issues are not dispatch candidates and do not accept comment-based reactivation (#{inspect(reason)}). Remedy: change the issue's state manually, or wait for a state change.",
+            needs_attention: false,
+            severity: "info",
+            event_source: :system
+          )
           state
         end
 
       {{:error, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
 
-        Logger.warning("#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}")
+        Alerts.emit_custom(
+          "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_state_failed",
+          "Reactivation for issue #{issue_number} failed (#{inspect(reason)})",
+          issue: to_string(issue_number),
+          reason: "Could not update issue state during reactivation (#{inspect(reason)}). Remedy: check the issue's current state, or retry the reactivation.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
 
         state
     end
@@ -1483,11 +1547,27 @@ defmodule Aiur.Orchestrator.CommentWake do
         reactivate_when_state_matches(state, running_entry, refreshed_issue, issue_number, source, opts)
 
       {:skip, reason} ->
-        Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
+        Alerts.emit_custom(
+          "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue_reactivation",
+          "Reactivation for inactive issue #{issue_number} was ignored (#{inspect(reason)})",
+          issue: to_string(issue_number),
+          reason: "Inactive issues cannot be reactivated by comments (#{inspect(reason)}). Remedy: change the issue's state manually, or wait for the state to change.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
         state
 
       {:error, reason} ->
-        Logger.warning("#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}")
+        Alerts.emit_custom(
+          "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_refresh_failed",
+          "Reactivation for issue #{issue_number} failed - could not refresh state (#{inspect(reason)})",
+          issue: to_string(issue_number),
+          reason: "Could not fetch the current issue state during reactivation (#{inspect(reason)}). Remedy: retry the reactivation, or check if the issue is accessible.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
 
         state
     end
