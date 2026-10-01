@@ -72,7 +72,7 @@ defmodule Aiur.CodexProber do
     # Create a temporary workspace for the probe session
     workspace = System.tmp_dir() <> "/codex-probe-#{:erlang.unique_integer([:positive])}"
 
-    with {:ok, _} <- File.mkdir_p(workspace),
+    with :ok <- File.mkdir_p(workspace),
          {:ok, session} <- start_probe_session(workspace) do
       try do
         # Read limits through the established session
