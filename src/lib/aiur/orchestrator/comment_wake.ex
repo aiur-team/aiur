@@ -788,7 +788,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   # `:deactivated` reactivation path (#2814).
   defp protect_active_comment_delivery(state, running_entry, issue_number, source, event, attempt) do
     cond do
-      not trusted_comment_event?(event) ->
+      not trusted_comment_event?(event) and not changes_requested_review?(event) ->
         state
 
       benign_review_pass_comment?(event) ->
