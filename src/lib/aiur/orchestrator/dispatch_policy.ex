@@ -243,11 +243,19 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # failing open when no limits are observed or there is nothing dispatchable.
   # Per-issue provider selection (`CodingAgent.select_for_dispatch/1`) still owns
   # the mixed-backend case; this gate only surfaces the fleet-wide saturation.
+  # As a side effect, when we would hold due to all backends being limited,
+  # trigger probes for any stale limits to refresh the cached readings.
   @spec provider_gate([String.t()]) :: :dispatch | :hold
   def provider_gate(backends) when is_list(backends) and backends != [] do
     case ModelAvailability.first_available(backends) do
-      nil -> :hold
-      _backend -> :dispatch
+      nil ->
+        # All backends are limited; trigger probes for any stale limits
+        # This is a non-blocking side effect that happens in the background
+        ModelAvailability.probe_stale_limits(backends)
+        :hold
+
+      _backend ->
+        :dispatch
     end
   end
 
