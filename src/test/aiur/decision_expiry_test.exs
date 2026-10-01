@@ -40,9 +40,9 @@ defmodule Aiur.DecisionExpiryTest do
                attention_reconcile_fun: fn _decisions, _stale, _expired, _occurred_at -> :ok end
              )
 
-    assert_received {:expired, orphan_id, "agent_not_running", @now}
+    assert_received {:expired, orphan_id, "agent_not_running", @now}, 1000
     assert orphan_id == Enum.at(decisions, 1).decision_id
-    refute_received {:expired, _decision_id, _reason, _occurred_at}
+    refute_received {:expired, _decision_id, _reason, _occurred_at}, 0
   end
 
   test "does not expire a blocking human-required Decision whose agent is idle waiting on it" do
@@ -64,7 +64,7 @@ defmodule Aiur.DecisionExpiryTest do
                end
              )
 
-    refute_received {:expired, _decision_id, _reason, _occurred_at}
+    refute_received {:expired, _decision_id, _reason, _occurred_at}, 0
   end
 
   test "still expires a blocking supervisor-answerable Decision whose ticket is no longer active" do
@@ -92,7 +92,7 @@ defmodule Aiur.DecisionExpiryTest do
                attention_reconcile_fun: fn _decisions, _stale, _expired, _occurred_at -> :ok end
              )
 
-    assert_received {:expired, _decision_id, "agent_not_running", @now}
+    assert_received {:expired, _decision_id, "agent_not_running", @now}, 1000
   end
 
   test "raises one attention when a blocking Command is older than a day" do
@@ -112,7 +112,7 @@ defmodule Aiur.DecisionExpiryTest do
                end
              )
 
-    assert_received {:attention, decision_id, :stale_blocking, @now}
+    assert_received {:attention, decision_id, :stale_blocking, @now}, 1000
     assert decision_id == stale.decision_id
   end
 
@@ -135,7 +135,7 @@ defmodule Aiur.DecisionExpiryTest do
                end
              )
 
-    assert_received {:attention, decision_id, :expired_unanswerable, @now}
+    assert_received {:attention, decision_id, :expired_unanswerable, @now}, 1000
     assert decision_id == command.decision_id
   end
 
@@ -155,7 +155,7 @@ defmodule Aiur.DecisionExpiryTest do
                end
              )
 
-    assert_received {:reconciled, decisions, [], [replayed_expired], @now}
+    assert_received {:reconciled, decisions, [], [replayed_expired], @now}, 1000
     assert Enum.map(decisions, & &1.decision_id) == [suspicious.decision_id, expired.decision_id]
     assert replayed_expired.decision_id == expired.decision_id
   end
@@ -232,7 +232,7 @@ defmodule Aiur.DecisionExpiryTest do
     assert_receive :sweep_started, @async_assert_timeout
     send(pid, :continue_sweep)
     :sys.get_state(pid)
-    assert_received {:expired, _decision_id, "agent_not_running", @now}
+    assert_received {:expired, _decision_id, "agent_not_running", @now}, 1000
   end
 
   defp decision(source_id, ticket_identifier, created_at, overrides \\ []) do

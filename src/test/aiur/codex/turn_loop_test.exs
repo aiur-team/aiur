@@ -26,7 +26,7 @@ defmodule Aiur.Codex.TurnLoopTest do
                  "turn/completed"
                )
 
-      assert_received {:event, :turn_completed}
+      assert_received {:event, :turn_completed}, 1000
       close_port(port)
     end
 
@@ -92,7 +92,7 @@ defmodule Aiur.Codex.TurnLoopTest do
                  "turn/completed"
                )
 
-      assert_received {:event, :turn_completed}
+      assert_received {:event, :turn_completed}, 1000
       close_port(port)
     end
 
@@ -121,8 +121,8 @@ defmodule Aiur.Codex.TurnLoopTest do
                  "turn/failed"
                )
 
-      assert_received {:failed, {:turn_failed, ^params}}
-      assert_received {:event, :turn_failed}
+      assert_received {:failed, {:turn_failed, ^params}}, 1000
+      assert_received {:event, :turn_failed}, 1000
       close_port(port)
     end
 
@@ -136,7 +136,7 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert {:paused, %{control: ^control, turn_id: "turn-1", details: ^params}} =
                TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/cancelled")
 
-      assert_received {:event, :turn_cancelled}
+      assert_received {:event, :turn_cancelled}, 1000
       close_port(port)
     end
 
@@ -154,7 +154,7 @@ defmodule Aiur.Codex.TurnLoopTest do
                  "turn/cancelled"
                )
 
-      assert_received {:event, :turn_cancelled}
+      assert_received {:event, :turn_cancelled}, 1000
       close_port(port)
     end
 
@@ -212,7 +212,7 @@ defmodule Aiur.Codex.TurnLoopTest do
 
       frame = read_one_frame(port)
       assert frame == %{"id" => 77, "result" => %{"success" => true, "output" => "ok"}}
-      assert_received {:event, :tool_call_completed}
+      assert_received {:event, :tool_call_completed}, 1000
       close_port(port)
     end
 
@@ -234,7 +234,7 @@ defmodule Aiur.Codex.TurnLoopTest do
                TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "item/tool/call")
 
       assert_receive :tool_executed
-      refute_received {:event, :tool_call_completed}
+      refute_received {:event, :tool_call_completed}, 0
     end
 
     @tag :tmp_dir
@@ -298,7 +298,7 @@ defmodule Aiur.Codex.TurnLoopTest do
                  payload["method"]
                )
 
-      assert_received {:full_event, message}
+      assert_received {:full_event, message}, 1000
       refute Map.has_key?(message, :workspace)
       refute Map.has_key?(message, "workspace")
       close_port(port)
@@ -322,7 +322,7 @@ defmodule Aiur.Codex.TurnLoopTest do
                  payload["method"]
                )
 
-      assert_received {:event, :approval_required}
+      assert_received {:event, :approval_required}, 1000
       close_port(port)
     end
 
@@ -339,7 +339,7 @@ defmodule Aiur.Codex.TurnLoopTest do
                  payload["method"]
                )
 
-      assert_received {:event, :turn_input_required}
+      assert_received {:event, :turn_input_required}, 1000
       close_port(port)
     end
 
@@ -356,7 +356,7 @@ defmodule Aiur.Codex.TurnLoopTest do
                  payload["method"]
                )
 
-      assert_received {:event, :notification}
+      assert_received {:event, :notification}, 1000
       close_port(port)
     end
 
@@ -759,8 +759,8 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert next_state.outstanding_turns == 2
       # Single-writer guard: with a turn already live, the turn/started checkpoint
       # is deferred (not delivered mid-turn), so no second turn/start can spawn.
-      assert_received {:event, :notification}
-      refute_received {:checkpoint, _}
+      assert_received {:event, :notification}, 1000
+      refute_received {:checkpoint, _}, 0
       close_port(port)
     end
 
@@ -899,15 +899,15 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert {:continue, _state} =
                TurnLoop.handle_malformed(base_state(), "plain text warning", port)
 
-      refute_received {:event, :malformed}
+      refute_received {:event, :malformed}, 0
 
       assert {:continue, _state} =
                TurnLoop.handle_malformed(base_state(), "  {\"method\":\"turn/completed\"", port)
 
-      assert_received {:event, :malformed}
+      assert_received {:event, :malformed}, 1000
 
       assert {:continue, _state} = TurnLoop.handle_malformed(base_state(), " [not-json", port)
-      assert_received {:event, :malformed}
+      assert_received {:event, :malformed}, 1000
 
       close_port(port)
     end

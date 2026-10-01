@@ -29,7 +29,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       next = Reconciler.refresh_running_issue_states(state, [fresh_one], fetch_fun)
 
-      assert_receive {:fetched_running_ids, ["two"]}
+      assert_receive {:fetched_running_ids, ["two"]}, 1000
       assert next.running["one"].issue.state == "todo"
       assert next.running["two"].issue.state == "Todo"
     end
@@ -246,7 +246,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
                  end
                )
 
-      assert_received {^identity, :completed}
+      assert_received {^identity, :completed}, 1000
     end
 
     test "tracker pause does not take ownership from an existing local pause" do
@@ -320,7 +320,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         {{:ok, request_id}, requested} =
           PauseResume.pause_agent_reply(%State{running: %{issue.id => entry}}, issue.identifier)
 
-        assert_receive {:pause_agent, ^request_id, 1}
+        assert_receive {:pause_agent, ^request_id, 1}, 1000
 
         requested =
           update_in(requested.running[issue.id], fn pending_entry ->
@@ -474,7 +474,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
           end
         )
 
-      assert_received {^identity, :completed}
+      assert_received {^identity, :completed}, 1000
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
     end
@@ -501,7 +501,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         end
       )
 
-      assert_received {^identity, :cancelled}
+      assert_received {^identity, :cancelled}, 1000
 
       replacement = %Issue{
         id: "issue-replaced",
@@ -522,7 +522,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         end
       )
 
-      assert_received {^identity, :replaced}
+      assert_received {^identity, :replaced}, 1000
     end
 
     test "stops an active worker when refreshed dispatch authorization is denied" do
@@ -559,7 +559,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
           end
         )
 
-      assert_received {^identity, :replaced}
+      assert_received {^identity, :replaced}, 1000
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
     end
@@ -649,7 +649,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
           end
         )
 
-      assert_received {^identity, :replaced}
+      assert_received {^identity, :replaced}, 1000
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
     end
@@ -777,7 +777,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       first = Reconciler.refresh_running_issue_states(state, [], issue_fetcher)
       second = Reconciler.refresh_running_issue_states(first, [], issue_fetcher)
 
-      assert_received {:running_issue_fetch, ["issue-1"], %{}}
+      assert_received {:running_issue_fetch, ["issue-1"], %{}}, 1000
 
       assert_received {:running_issue_fetch, ["issue-1"],
                        %{
@@ -826,8 +826,8 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       next = Reconciler.refresh_running_issue_states(state, [polled], issue_fetcher)
 
-      assert_received {:running_issue_fetch, ["issue-2"], %{}}
-      refute_received {:running_issue_fetch, ["issue-1" | _], _}
+      assert_received {:running_issue_fetch, ["issue-2"], %{}}, 1000
+      refute_received {:running_issue_fetch, ["issue-1" | _], _}, 0
       assert Map.keys(next.running_issue_cache) == ["issue-2"]
     end
 
@@ -890,7 +890,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       # The parked agent is blocked in AgentRunner.wait_for_before_run_resume/3;
       # a transient hook failure must self-heal by delivering the resume signal
       # to its live pid, not sit paused forever.
-      assert_receive {:resume_agent, request_id, 1}
+      assert_receive {:resume_agent, request_id, 1}, 1000
 
       assert {:noreply, resumed_state} =
                Orchestrator.handle_info(

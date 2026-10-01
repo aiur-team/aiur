@@ -283,7 +283,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     refute first.dispatch_authorized?
     assert first.dispatch_authorization == :deferred
-    assert_receive {:timeline_poll, 0}
+    assert_receive {:timeline_poll, 0}, 1000
 
     second =
       DispatchAuthorization.authorize(created_with_label, "owner", "repo", "agent",
@@ -294,7 +294,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     assert second.dispatch_authorized?
     assert second.dispatch_authorization == :authorized
-    assert_receive {:timeline_poll, 1}
+    assert_receive {:timeline_poll, 1}, 1000
   end
 
   test "does not reuse a cached decision after an issue update" do

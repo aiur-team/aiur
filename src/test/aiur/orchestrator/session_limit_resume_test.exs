@@ -13,18 +13,18 @@ defmodule Aiur.Orchestrator.SessionLimitResumeTest do
     assert PauseResume.resume_paused_issue_preflight(state, running["1"]) == :ok
     assert TrackerIdentity.joinable?(running["1"].issue.tracker_identity)
     first = RateLimitFallback.reconcile(state, opts)
-    assert_received {:resume_agent, first_id, 1}
-    refute_received {:resume_agent, _, _}
+    assert_received {:resume_agent, first_id, 1}, 1000
+    refute_received {:resume_agent, _, _}, 0
     assert ControlLifecycle.current_pending(first.control_lifecycle, "1").request_id == first_id
     assert first.running["1"].control.status == :paused
 
     second = RateLimitFallback.reconcile(first, opts)
-    assert_received {:resume_agent, second_id, 1}
-    refute_received {:resume_agent, _, _}
+    assert_received {:resume_agent, second_id, 1}, 1000
+    refute_received {:resume_agent, _, _}, 0
     assert ControlLifecycle.current_pending(second.control_lifecycle, "2").request_id == second_id
 
     polled = Enum.reduce(1..4, second, fn _, acc -> RateLimitFallback.reconcile(acc, opts) end)
-    refute_received {:resume_agent, _, _}
+    refute_received {:resume_agent, _, _}, 0
     assert ControlLifecycle.current_pending(polled.control_lifecycle, "1").request_id == first_id
     assert ControlLifecycle.current_pending(polled.control_lifecycle, "2").request_id == second_id
 
@@ -39,7 +39,7 @@ defmodule Aiur.Orchestrator.SessionLimitResumeTest do
       end)
 
     assert RateLimitFallback.reconcile(final, opts) == final
-    refute_received {:resume_agent, _, _}
+    refute_received {:resume_agent, _, _}, 0
   end
 
   defp paused_entry(id) do

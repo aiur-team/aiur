@@ -119,7 +119,7 @@ defmodule Aiur.Init.GitHubTest do
       }
 
       assert :ok = GitHub.ensure_ci_readiness(io, deps, %{kind: "github", repo: "o/r"})
-      assert_received {:io_puts, message}
+      assert_received {:io_puts, message}, 1000
       assert message =~ plan_limit_message
       assert String.downcase(message) =~ "make the repository public"
       assert String.downcase(message) =~ "upgrade the plan"
@@ -160,7 +160,7 @@ defmodule Aiur.Init.GitHubTest do
       end)
 
       assert :ok = GitHub.ensure_ci_readiness(io, deps, tracker)
-      assert_received {:io_puts, msg}
+      assert_received {:io_puts, msg}, 1000
       assert msg =~ "CI readiness: ready for main"
       assert File.exists?(Path.join([root, "aiur", "ci-readiness.json"]))
     end
@@ -195,10 +195,10 @@ defmodule Aiur.Init.GitHubTest do
       assert message =~ "Repository CI readiness is incomplete"
       assert File.exists?(Path.join([root, ".github", "workflows", "ci.yml"]))
 
-      assert_received {:io_puts, setup_msg}
+      assert_received {:io_puts, setup_msg}, 1000
       assert setup_msg =~ "CI readiness setup error"
 
-      assert_received {:io_puts, created_msg}
+      assert_received {:io_puts, created_msg}, 1000
       assert created_msg =~ "Created"
     end
 
@@ -242,10 +242,10 @@ defmodule Aiur.Init.GitHubTest do
 
       assert {:error, _message} = GitHub.ensure_ci_readiness(io, deps, tracker)
 
-      assert_received {:io_puts, setup_msg}
+      assert_received {:io_puts, setup_msg}, 1000
       assert setup_msg =~ "CI readiness setup error"
 
-      assert_received {:io_puts, skipped_msg}
+      assert_received {:io_puts, skipped_msg}, 1000
       assert skipped_msg =~ "CI scaffold skipped"
       assert File.read!(workflow_path) == "name: existing\n"
     end
@@ -281,10 +281,10 @@ defmodule Aiur.Init.GitHubTest do
 
       assert {:error, _message} = GitHub.ensure_ci_readiness(io, deps, tracker)
 
-      assert_received {:io_puts, setup_msg}
+      assert_received {:io_puts, setup_msg}, 1000
       assert setup_msg =~ "CI readiness setup error"
 
-      assert_received {:io_puts, error_msg}
+      assert_received {:io_puts, error_msg}, 1000
       assert error_msg =~ "CI scaffold could not be written"
     end
   end

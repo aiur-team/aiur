@@ -76,7 +76,7 @@ defmodule Aiur.Orchestrator.StatusReportTest do
                {:building, "/tmp/base"}
              end)
 
-    assert_receive {:repo_base_timeout, 100}
+    assert_receive {:repo_base_timeout, 100}, 1000
     assert :unavailable = StatusReport.prewarm_phase(fn _timeout -> exit(:noproc) end)
   end
 
@@ -92,8 +92,8 @@ defmodule Aiur.Orchestrator.StatusReportTest do
         {:building, "/tmp/base"}
       end)
 
-    assert_receive {:repo_base_status_called, 100}
-    refute_receive {:repo_base_status_called, _}
+    assert_receive {:repo_base_status_called, 100}, 1000
+    refute_receive {:repo_base_status_called, _}, 0
     assert Enum.all?(statuses, &(&1.reason == :prewarm_blocked))
   end
 

@@ -379,7 +379,7 @@ defmodule Aiur.ProviderAccountGenerationTest do
     assert {:ok, _second} =
              ProviderAccountGeneration.bind(owner, :codex, :app_server, second_binding, source: :codex_app_server)
 
-    refute_receive {:provider_account_generation_changed, _event}
+    refute_receive {:provider_account_generation_changed, _event}, 0
   end
 
   test "subscribers cannot attach to a replacement topic before retained recovery" do

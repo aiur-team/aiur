@@ -36,7 +36,7 @@ defmodule Aiur.ProviderMeterProbeWorkspaceTest do
 
       ProviderMeterProbe.observe(:codex, probe_agent: RecordingAgent, backend_configs: %{})
 
-      assert_received {:probe_workspace, workspace}
+      assert_received {:probe_workspace, workspace}, 1000
       assert workspace == Path.join(root, "usage-probe")
       assert File.dir?(workspace)
     end

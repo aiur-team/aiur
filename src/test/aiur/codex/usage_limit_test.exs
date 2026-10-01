@@ -63,7 +63,7 @@ defmodule Aiur.Codex.UsageLimitTest do
     assert pause.reason =~ "usage limit"
     assert pause.reset_hint == "Sep 21st, 2026 6:26 PM"
     assert pause.reset_at == @reset_at
-    refute_received {:agent_message, :turn_ended_with_error}
+    refute_received {:agent_message, :turn_ended_with_error}, 0
 
     # 2. The paused turn's own failed completion arrives late, inside the
     # resumed turn. It belongs to the first pause and must not pause again.
@@ -133,9 +133,9 @@ defmodule Aiur.Codex.UsageLimitTest do
              :engage
 
     assert RateLimitFallback.reconcile(paused, Keyword.put(opts, :now, DateTime.add(reset, -1))) == paused
-    refute_received {:resume_agent, _request_id}
+    refute_received {:resume_agent, _request_id}, 0
     resumed = RateLimitFallback.reconcile(paused, Keyword.put(opts, :now, reset))
-    assert_received {:resume_agent, _request_id}
+    assert_received {:resume_agent, _request_id}, 1000
     assert resumed.running[issue.id].control.status == :working
     assert resumed.running[issue.id].retry_attempt == 2
   end
@@ -171,7 +171,7 @@ defmodule Aiur.Codex.UsageLimitTest do
         assert RateLimitFallback.decide(paused_entry, issue, Keyword.merge(opts, fallback_backend: "claude", now: DateTime.add(reset, -1))) == :noop
 
         after_reset = RateLimitFallback.reconcile(paused, Keyword.merge(opts, fallback_backend: nil, now: DateTime.add(reset, 3600)))
-        refute_received {:resume_agent, _request_id}
+        refute_received {:resume_agent, _request_id}, 0
         assert after_reset.running[issue.id].control.status == :paused
         assert after_reset.running[issue.id].paused_reason == reason
       end

@@ -52,7 +52,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
       assert {:ok, %State{health: :unavailable, generation: 1}} = TicketDetailCoordinator.request(cache, identity)
     end
 
-    refute_receive {:reader_started, _reader_pid}
+    refute_receive {:reader_started, _reader_pid}, 0
     send(reader_pid, :finish)
 
     assert_receive(
@@ -594,7 +594,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
     refute Process.alive?(reader_pid)
     send(cache, {ref, {:ok, snapshot(identity, "late")}})
     cache_barrier(cache)
-    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
+    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}, 0
   end
 
   test "fences an in-flight completion with one atomic configuration snapshot" do
@@ -623,7 +623,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
     send(cache, {ref, {:ok, snapshot(identity, "stale-generation")}})
     cache_barrier(cache)
 
-    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "stale-generation"}}}
+    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "stale-generation"}}}, 0
     refute Process.alive?(reader_pid)
 
     assert {:ok, %State{health: :unavailable, detail: nil, generation: :unknown}} =
@@ -944,7 +944,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
 
     send(cache, {ref, {:ok, snapshot(identity, "late")}})
     cache_barrier(cache)
-    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
+    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}, 0
 
     assert {:ok, %State{health: :unavailable, failure: %Failure{kind: :timeout}}} =
              TicketDetailCoordinator.current(cache, identity)
@@ -1007,7 +1007,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
     refute Process.alive?(reader_pid)
     send(cache, {ref, {:ok, snapshot(identity, "late")}})
     cache_barrier(cache)
-    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
+    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}, 0
   end
 
   test "keeps last-known-good detail when a timeout races a task-supervisor restart" do
@@ -1073,7 +1073,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
     send(reader_pid, :finish)
     assert_receive {:DOWN, ^reader_ref, :process, ^reader_pid, _reason}, 2_000
     cache_barrier(cache)
-    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
+    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}, 0
   end
 
   test "ignores a delayed completion from an older generation" do
@@ -1109,7 +1109,7 @@ defmodule Aiur.BuildOrder.TicketDetailCoordinatorTest do
 
     send(cache, {first_ref, {:ok, snapshot(identity, "late")}})
     cache_barrier(cache)
-    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}
+    refute_receive {:ticket_detail_updated, %State{detail: %Snapshot{title: "late"}}}, 0
 
     send(second_reader, :finish)
     assert_receive {:ticket_detail_updated, %State{generation: 2, detail: %Snapshot{title: "second"}}}, 2_000

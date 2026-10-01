@@ -179,8 +179,8 @@ defmodule Aiur.CLITest do
     output = capture_io(:stderr, fn -> assert :ok = CLI.evaluate([@ack_flag, workflow_path], deps) end)
 
     assert output == "__AIUR_CONFIG_PATH__:#{expanded_path}\n"
-    assert_received {:workflow_checked, ^expanded_path}
-    assert_received {:workflow_set, ^expanded_path}
+    assert_received {:workflow_checked, ^expanded_path}, 1000
+    assert_received {:workflow_set, ^expanded_path}, 1000
   end
 
   test "announces the selected config before application startup" do
@@ -202,7 +202,7 @@ defmodule Aiur.CLITest do
 
     assert capture_io(:stderr, fn ->
              assert :ok = CLI.evaluate([@ack_flag], deps)
-             assert_received {:workflow_set, ^expanded_path}
+             assert_received {:workflow_set, ^expanded_path}, 1000
              assert_received :started
            end) ==
              "__AIUR_CONFIG_PATH__:#{expanded_path}\n__AIUR_APPLICATION_STARTED__\n"
@@ -224,7 +224,7 @@ defmodule Aiur.CLITest do
     }
 
     assert :ok = CLI.evaluate([@ack_flag, "--logs-root", "tmp/custom-logs", "config.yaml"], deps)
-    assert_received {:logs_root, expanded_path}
+    assert_received {:logs_root, expanded_path}, 1000
     assert expanded_path == Path.expand("tmp/custom-logs")
   end
 
@@ -244,7 +244,7 @@ defmodule Aiur.CLITest do
     }
 
     assert :ok = CLI.evaluate([@ack_flag, "--host", "127.0.0.1", "config.yaml"], deps)
-    assert_received {:host, "127.0.0.1"}
+    assert_received {:host, "127.0.0.1"}, 1000
   end
 
   test "rejects --host with an empty value" do
@@ -328,7 +328,7 @@ defmodule Aiur.CLITest do
       })
 
     assert :ok = CLI.evaluate([@ack_flag, "some/config.yaml"], deps)
-    assert_received {:workflow_checked, _path}
+    assert_received {:workflow_checked, _path}, 1000
   end
 
   test "routes variadic todo IDs and only without starting the workflow" do

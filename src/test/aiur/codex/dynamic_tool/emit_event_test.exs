@@ -39,7 +39,7 @@ defmodule Aiur.Codex.DynamicTool.EmitEventTest do
         )
 
       assert response["success"] == true
-      assert_received {:published, "progress", "30%", %{"percent" => 30}}
+      assert_received {:published, "progress", "30%", %{"percent" => 30}}, 1000
     end
 
     test "accepts progress.<slug>" do
@@ -76,7 +76,7 @@ defmodule Aiur.Codex.DynamicTool.EmitEventTest do
           )
 
         assert response["success"] == true
-        assert_received {:published, ^name, "lifecycle", ^payload}
+        assert_received {:published, ^name, "lifecycle", ^payload}, 1000
       end
     end
 
@@ -158,7 +158,7 @@ defmodule Aiur.Codex.DynamicTool.EmitEventTest do
         event_publisher: publisher()
       )
 
-      assert_received {:published, "blocked", "x", %{}}
+      assert_received {:published, "blocked", "x", %{}}, 1000
     end
   end
 

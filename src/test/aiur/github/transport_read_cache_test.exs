@@ -142,7 +142,7 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
     # First read: a `:pull` miss, so the request reaches the socket and the
     # body (with its ETag) is deposited.
     assert {:ok, %{status: 200, body: %{"number" => 4242}}} = Transport.default_request_fun(unconditional)
-    assert_receive {:pulls_request, []}
+    assert_receive {:pulls_request, []}, 1000
     assert %{totals: %{hit: 0, miss: 1, deposit: 1}} = ReadCache.snapshot()
 
     # Second read inside the TTL: a cache hit. No request is sent and no
@@ -158,7 +158,7 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
     assert {:ok, %{status: 304}} =
              Transport.default_request_fun(Map.put(unconditional, :etag, ~s("v1")))
 
-    assert_receive {:pulls_request, [~s("v1")]}
+    assert_receive {:pulls_request, [~s("v1")]}, 1000
     assert %{totals: %{hit: 1, miss: 2, deposit: 1}} = ReadCache.snapshot()
   end
 

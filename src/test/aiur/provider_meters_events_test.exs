@@ -34,8 +34,8 @@ defmodule Aiur.ProviderMeters.EventsTest do
 
     # Both subscriptions are held by this process, so a correct broadcast
     # delivers exactly twice — once per topic.
-    assert_receive {:provider_meter_changed, ^snapshot}
-    assert_receive {:provider_meter_changed, ^snapshot}
+    assert_receive {:provider_meter_changed, ^snapshot}, 1000
+    assert_receive {:provider_meter_changed, ^snapshot}, 1000
     refute_receive {:provider_meter_changed, _other}, 50
   end
 
@@ -47,8 +47,8 @@ defmodule Aiur.ProviderMeters.EventsTest do
     :ok = Events.broadcast(snapshot("gen-a"))
     :ok = Events.broadcast(snapshot("gen-b"))
 
-    assert_receive {:provider_meter_changed, %{provider_account_generation: "gen-a"}}
-    assert_receive {:provider_meter_changed, %{provider_account_generation: "gen-b"}}
+    assert_receive {:provider_meter_changed, %{provider_account_generation: "gen-a"}}, 1000
+    assert_receive {:provider_meter_changed, %{provider_account_generation: "gen-b"}}, 1000
   end
 
   test "an account-wide observation without a generation only reaches fan-out" do
@@ -58,8 +58,8 @@ defmodule Aiur.ProviderMeters.EventsTest do
     snapshot = snapshot(nil)
     :ok = Events.broadcast(snapshot)
 
-    assert_receive {:provider_meter_changed, ^snapshot}
-    refute_received {:provider_meter_changed, ^snapshot}
+    assert_receive {:provider_meter_changed, ^snapshot}, 1000
+    refute_received {:provider_meter_changed, ^snapshot}, 0
   end
 
   test "a generation-scoped subscriber only sees its own generation" do

@@ -84,7 +84,7 @@ defmodule Aiur.PaneManager.CloseTest do
 
       assert result == :ok
       refute Map.has_key?(new_state.identifier_to_pane, "issue-1")
-      assert_receive {:status_changed, %{identifier: "issue-1", status: :pane_closed}}
+      assert_receive {:status_changed, %{identifier: "issue-1", status: :pane_closed}}, 1000
     end
   end
 

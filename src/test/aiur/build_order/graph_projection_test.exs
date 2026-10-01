@@ -379,7 +379,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     Agent.update(clock, fn _ -> 1_200_003 end)
     GraphProjection.refresh_catalog(projection)
 
-    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{data: %Catalog{entries: [expired]}}}}
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{data: %Catalog{entries: [expired]}}}}, 1000
                    when expired.epic_count == nil,
                    3_000
 

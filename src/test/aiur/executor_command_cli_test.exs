@@ -32,7 +32,7 @@ defmodule Aiur.ExecutorCommandCLITest do
 
       output = capture_io(fn -> assert ExecutorCommandCLI.answer(params, deps) == 0 end)
 
-      assert_received {:answer, "decision:42", payload, [actor: actor], :decision_store}
+      assert_received {:answer, "decision:42", payload, [actor: actor], :decision_store}, 1000
       assert actor == %{kind: :executor, id: "codex-executor"}
 
       assert payload == %{
@@ -114,7 +114,7 @@ defmodule Aiur.ExecutorCommandCLITest do
                  error_fun: &send(test_pid, {:error, &1})
                ) == 1
 
-        assert_received {:error, "aiur: cannot answer Command: stale version 3; current version is 4"}
+        assert_received {:error, "aiur: cannot answer Command: stale version 3; current version is 4"}, 1000
       end
     end
 
@@ -142,7 +142,7 @@ defmodule Aiur.ExecutorCommandCLITest do
 
       output = capture_io(fn -> assert ExecutorCommandCLI.answer(params, deps) == 0 end)
 
-      assert_received {:supersede, "decision:42", payload, [actor: %{kind: :executor, id: "codex-executor"}], :decision_store}
+      assert_received {:supersede, "decision:42", payload, [actor: %{kind: :executor, id: "codex-executor"}], :decision_store}, 1000
 
       assert payload == %{
                "expected_version" => 3,
@@ -267,7 +267,7 @@ defmodule Aiur.ExecutorCommandCLITest do
                error_fun: &send(test_pid, {:error, &1})
              ) == 1
 
-      assert_received {:error, "aiur: cannot escalate Command because it is not open (:resolved)"}
+      assert_received {:error, "aiur: cannot escalate Command because it is not open (:resolved)"}, 1000
     end
 
     test "reports a non-open Command as a command error" do
@@ -410,7 +410,7 @@ defmodule Aiur.ExecutorCommandCLITest do
                error_fun: &send(test_pid, {:error, &1})
              ) == 1
 
-      assert_received {:error, "aiur: failed to moot Command (:store_unavailable)"}
+      assert_received {:error, "aiur: failed to moot Command (:store_unavailable)"}, 1000
     end
 
     test "reports a stale version as a command error" do

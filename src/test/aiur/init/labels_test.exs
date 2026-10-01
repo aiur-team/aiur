@@ -82,7 +82,7 @@ defmodule Aiur.Init.LabelsTest do
     InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"])
     assert_received :create_called
     # Press Enter prompt goes through io.input, which sends {:input_label, ...}
-    assert_received {:input_label, "Press Enter to create them"}
+    assert_received {:input_label, "Press Enter to create them"}, 1000
   end
 
   test "codex-only setup provisions fallback labels with the configured prefix" do
@@ -108,12 +108,12 @@ defmodule Aiur.Init.LabelsTest do
     tracker = %{kind: "github", repo: "o/r", label_prefix: "team"}
     assert :ok = InitLabels.setup_labels(io(parent, answers), deps, tracker, ["codex"])
 
-    assert_received {:create_called, required}
+    assert_received {:create_called, required}, 1000
     assert "team:todo" in required
     assert "team:rate-limit-fallback" in required
     assert "model:claude" in required
     refute Enum.any?(required, &String.starts_with?(&1, "agent:"))
-    refute_received {:create_called, _optional}
+    refute_received {:create_called, _optional}, 0
   end
 
   test "setup provisions the configured rate-limit fallback label" do
@@ -132,7 +132,7 @@ defmodule Aiur.Init.LabelsTest do
 
     assert :ok = InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"], {"claude", "codex"})
 
-    assert_received {:create_called, required}
+    assert_received {:create_called, required}, 1000
     assert "model:codex" in required
     refute "model:claude-repl" in required
   end
@@ -178,7 +178,7 @@ defmodule Aiur.Init.LabelsTest do
     }
 
     InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"])
-    assert_received {:create_called, created}
+    assert_received {:create_called, created}, 1000
     assert Enum.all?(Labels.complexity_labels(), &(&1 in created))
   end
 
@@ -204,7 +204,7 @@ defmodule Aiur.Init.LabelsTest do
     }
 
     InitLabels.setup_labels(io(parent, answers), deps, %{kind: "github", repo: "o/r"}, ["claude"])
-    assert_received {:create_called, created}
+    assert_received {:create_called, created}, 1000
     assert Enum.all?(Labels.effort_labels(), &(&1 in created))
   end
 
@@ -250,7 +250,7 @@ defmodule Aiur.Init.LabelsTest do
       assert :ok =
                InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["claude", "codex"])
 
-      assert_received {:create_called, created}
+      assert_received {:create_called, created}, 1000
 
       # `model:claude` is already a required rate-limit-fallback label, so it is
       # offered but not re-created.
@@ -264,8 +264,8 @@ defmodule Aiur.Init.LabelsTest do
 
       InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["claude", "codex"])
 
-      assert_received {:confirm, "Create the effort labels?"}
-      assert_received {:confirm, "Create the model:remote label?"}
+      assert_received {:confirm, "Create the effort labels?"}, 1000
+      assert_received {:confirm, "Create the model:remote label?"}, 1000
     end
 
     test "an existing version tag is left in place and nothing is deleted" do
@@ -275,9 +275,9 @@ defmodule Aiur.Init.LabelsTest do
 
       InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["claude", "codex"])
 
-      assert_received {:create_called, created}
+      assert_received {:create_called, created}, 1000
       refute "model:claude-opus-4-8" in created
-      refute_received {:delete_called, _labels}
+      refute_received {:delete_called, _labels}, 0
     end
 
     test "when a CLI cannot answer, its registry families stand in and init completes" do
@@ -295,7 +295,7 @@ defmodule Aiur.Init.LabelsTest do
       assert :ok =
                InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["codex"])
 
-      assert_received {:create_called, created}
+      assert_received {:create_called, created}, 1000
       assert "model:sol" in created
       refute Enum.any?(created, &(&1 =~ ~r/\d/))
     end
@@ -306,8 +306,8 @@ defmodule Aiur.Init.LabelsTest do
 
       InitLabels.setup_labels(io(parent, accept_model_stage_only()), deps, %{kind: "github", repo: "o/r"}, ["claude", "claude-repl"])
 
-      assert_received {:discovered, "claude"}
-      refute_received {:discovered, "claude-repl"}
+      assert_received {:discovered, "claude"}, 1000
+      refute_received {:discovered, "claude-repl"}, 0
     end
   end
 

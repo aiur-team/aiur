@@ -35,18 +35,18 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
 
     assert length(observations) == 11
 
-    assert_received {"I-running", :running}
-    assert_received {"I-paused", :paused}
-    assert_received {"I-waiting", :waiting}
-    assert_received {"I-awaiting-dispatch", :waiting}
-    assert_received {"I-tracker-unavailable", :waiting}
-    assert_received {"I-unresponsive", :waiting}
-    assert_received {"I-replaced", :replaced}
-    assert_received {"I-retrying", :retrying}
-    assert_received {"I-queued", :queued}
-    assert_received {"I-completed", :completed}
-    assert_received {"I-cancelled", :cancelled}
-    refute_received {nil, _}
+    assert_received {"I-running", :running}, 1000
+    assert_received {"I-paused", :paused}, 1000
+    assert_received {"I-waiting", :waiting}, 1000
+    assert_received {"I-awaiting-dispatch", :waiting}, 1000
+    assert_received {"I-tracker-unavailable", :waiting}, 1000
+    assert_received {"I-unresponsive", :waiting}, 1000
+    assert_received {"I-replaced", :replaced}, 1000
+    assert_received {"I-retrying", :retrying}, 1000
+    assert_received {"I-queued", :queued}, 1000
+    assert_received {"I-completed", :completed}, 1000
+    assert_received {"I-cancelled", :cancelled}, 1000
+    refute_received {nil, _}, 0
   end
 
   test "accepts explicit lifecycle facts from a compatibility StatusReport adapter" do
@@ -60,7 +60,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
                MapSet.new()
              )
 
-    assert_received {"I-allocated", :allocated}
+    assert_received {"I-allocated", :allocated}, 1000
   end
 
   test "projects an orphaned claim as waiting rather than queued" do
@@ -74,8 +74,8 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
                MapSet.new()
              )
 
-    assert_received {"I-orphaned", :waiting}
-    refute_received {"I-orphaned", :queued}
+    assert_received {"I-orphaned", :waiting}, 1000
+    refute_received {"I-orphaned", :queued}, 0
   end
 
   test "a reconciliation snapshot never removes an absent terminal store member" do
@@ -141,14 +141,14 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       )
 
     Process.unlink(reconciler)
-    assert_receive {:reconciled, "I-recovered", :queued}
+    assert_receive {:reconciled, "I-recovered", :queued}, 1000
     GenServer.stop(first_store)
 
     {:ok, recovered_store} =
       Store.start_link(name: store_name, state_dir: dir, run_id: "reconciler-restart-run")
 
     Process.unlink(recovered_store)
-    assert_receive {:reconciled, "I-recovered", :queued}
+    assert_receive {:reconciled, "I-recovered", :queued}, 1000
     assert Process.alive?(reconciler)
     assert Process.alive?(recovered_store)
   end
@@ -196,7 +196,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       )
 
     Process.unlink(reconciler)
-    assert_receive {:reconciliation, :fresh}
+    assert_receive {:reconciliation, :fresh}, 1000
     assert %{run_id: "current-run", members: []} = Store.snapshot(server: current_store)
 
     Agent.update(snapshot, fn _ -> %{running: [current_row], retrying: [], idle: []} end)
@@ -227,7 +227,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       )
 
     Process.unlink(reconciler)
-    assert_receive {:reconciliation, :unavailable}
+    assert_receive {:reconciliation, :unavailable}, 1000
     assert Process.alive?(reconciler)
   end
 
@@ -253,7 +253,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       )
 
     Process.unlink(reconciler)
-    assert_receive {:reconciliation, :unavailable}
+    assert_receive {:reconciliation, :unavailable}, 1000
     assert Process.alive?(reconciler)
   end
 

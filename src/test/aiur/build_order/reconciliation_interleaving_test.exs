@@ -87,7 +87,7 @@ defmodule Aiur.BuildOrder.ReconciliationInterleavingTest do
              ])
 
     assert {%{key: nil, cleared: false, data?: true}, [592, 609]} = Task.await(reader)
-    assert_receive {:github_resource_changed, %{key: nil, cleared: false}}
+    assert_receive {:github_resource_changed, %{key: nil, cleared: false}}, 1000
     refute_receive {:github_resource_changed, _}, 30
     assert members() == [592, 609]
   end

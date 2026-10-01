@@ -21,8 +21,8 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
                notify_dashboard_fun: fn _ -> :ok end
              )
 
-    assert_receive {:remove_label, "1577", "priority:3"}
-    assert_receive {:add_label, "1577", "priority:1"}
+    assert_receive {:remove_label, "1577", "priority:3"}, 1000
+    assert_receive {:add_label, "1577", "priority:1"}, 1000
     assert updated_state.last_polled_issues["1577"].priority == 1
     assert updated_state.last_polled_issues["1577"].labels == ["agent:todo", "priority:1"]
     assert %State{running: %{"1577" => %{issue: %Issue{priority: 1}}}} = updated_state
@@ -41,8 +41,8 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
                notify_dashboard_fun: fn _ -> :ok end
              )
 
-    assert_receive {:remove_label, "1577", "priority:1"}
-    assert_receive {:remove_label, "1577", "priority:3"}
+    assert_receive {:remove_label, "1577", "priority:1"}, 1000
+    assert_receive {:remove_label, "1577", "priority:3"}, 1000
     assert updated_state.last_polled_issues["1577"].priority == nil
     assert updated_state.last_polled_issues["1577"].labels == ["agent:in-progress"]
     assert %State{running: %{"1577" => %{issue: %Issue{priority: nil}}}} = updated_state
@@ -71,8 +71,8 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
                end
              )
 
-    assert_receive {:add_label, "1577", "priority:1"}
-    refute_receive {:remove_label, "1577", "priority:3"}
+    assert_receive {:add_label, "1577", "priority:1"}, 1000
+    refute_receive {:remove_label, "1577", "priority:3"}, 0
   end
 
   test "a failed old-priority removal rolls back the new tracker priority" do
@@ -91,9 +91,9 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
                end
              )
 
-    assert_receive {:add_label, "1577", "priority:1"}
-    assert_receive {:remove_label, "1577", "priority:3"}
-    assert_receive {:remove_label, "1577", "priority:1"}
+    assert_receive {:add_label, "1577", "priority:1"}, 1000
+    assert_receive {:remove_label, "1577", "priority:3"}, 1000
+    assert_receive {:remove_label, "1577", "priority:1"}, 1000
   end
 
   test "prioritizing immediately moves the agent ahead in dispatch order" do

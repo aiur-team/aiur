@@ -96,7 +96,7 @@ defmodule Aiur.BuildOrdersCLIFirstReadTest do
     await_status(projection, "1", "provider_unavailable")
     # Drain any read the polling above may have started, so the refute below
     # measures only the next poll.
-    refute_received {:reader_started, {:selected, ^root_identity}, _reader}
+    refute_received {:reader_started, {:selected, ^root_identity}, _reader}, 0
 
     assert cli_read(projection, "1")["data"]["graph"]["status"] == "provider_unavailable"
     refute_receive {:reader_started, {:selected, ^root_identity}, _reader}, 200

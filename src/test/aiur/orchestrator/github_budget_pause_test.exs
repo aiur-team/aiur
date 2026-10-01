@@ -191,7 +191,7 @@ defmodule Aiur.Orchestrator.GithubBudgetPauseTest do
       result = GithubBudgetPause.recover_observed(state, now_ms)
 
       assert result == state
-      refute_received {:resume_agent, _request_id}
+      refute_received {:resume_agent, _request_id}, 0
       assert_receive {:github_budget_pause_expired, "ISSUE-1", 2}, 500
     end
 
@@ -210,8 +210,8 @@ defmodule Aiur.Orchestrator.GithubBudgetPauseTest do
 
       result = GithubBudgetPause.recover_observed(state, now_ms)
       assert result == state
-      refute_received {:github_budget_pause_expired, "ISSUE-1", _generation}
-      refute_received {:resume_agent, _request_id}
+      refute_received {:github_budget_pause_expired, "ISSUE-1", _generation}, 0
+      refute_received {:resume_agent, _request_id}, 0
     end
   end
 

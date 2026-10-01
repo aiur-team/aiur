@@ -181,7 +181,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
         CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event, 1)
       end)
 
-    refute_received {:memory_tracker_state_update, @issue_number, "rework"}
+    refute_received {:memory_tracker_state_update, @issue_number, "rework"}, 0
 
     assert_receive {:alert, "ticket.2814.agent.attention.review_rework_refused", opts}, 1_000
     assert Keyword.get(opts, :needs_attention) == true
@@ -206,7 +206,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
       CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event, 1)
     end)
 
-    refute_received {:alert, "ticket.2814.agent.attention.review_rework_refused", _opts}
-    refute_received {:memory_tracker_state_update, @issue_number, "rework"}
+    refute_received {:alert, "ticket.2814.agent.attention.review_rework_refused", _opts}, 0
+    refute_received {:memory_tracker_state_update, @issue_number, "rework"}, 0
   end
 end

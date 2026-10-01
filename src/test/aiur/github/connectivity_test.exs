@@ -236,7 +236,7 @@ defmodule Aiur.GitHub.ConnectivityTest do
           repo: "o/r"
         )
 
-      refute_received {:alert, _, _, _}
+      refute_received {:alert, _, _, _}, 0
 
       {streaks, _delay} =
         Connectivity.record_failure(streaks, :ls_remote, :dns, 30_000,
@@ -256,7 +256,7 @@ defmodule Aiur.GitHub.ConnectivityTest do
         repo: "o/r"
       )
 
-      refute_received {:alert, _, _, _}
+      refute_received {:alert, _, _, _}, 0
     end
 
     test ":auth normalizes :escalate to max_backoff_ms" do

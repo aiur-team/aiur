@@ -449,7 +449,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
 
       ViewStateSweep.sweep_now(pid)
 
-      assert_received {:view_state_diverged, "owner/repo"}
+      assert_received {:view_state_diverged, "owner/repo"}, 1000
     end
 
     # The reverse: a store that already holds GitHub's newest open issue is not
@@ -475,7 +475,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
 
       ViewStateSweep.sweep_now(pid)
 
-      refute_received {:view_state_diverged, "owner/repo"}
+      refute_received {:view_state_diverged, "owner/repo"}, 0
     end
 
     # Cold start: the store has no evidence of the repo yet, so there is nothing
@@ -498,7 +498,7 @@ defmodule Aiur.GitHub.ViewStateSweepTest do
 
       ViewStateSweep.sweep_now(pid)
 
-      refute_received {:view_state_diverged, "owner/repo"}
+      refute_received {:view_state_diverged, "owner/repo"}, 0
     end
 
     # The head check records poller-observed activity through

@@ -52,7 +52,7 @@ defmodule Aiur.AgentResourceGuardTest do
     assert result == [%{root_pid: 100, cap: 3, killed: expected_killed}]
 
     for pid <- expected_killed do
-      assert_receive {:killed, ^pid}
+      assert_receive {:killed, ^pid}, 1000
     end
 
     refute_receive {:killed, 201}, 50

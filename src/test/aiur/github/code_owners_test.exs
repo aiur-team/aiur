@@ -108,7 +108,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
         alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
         {_pid, name} = start_owners(path, alert_fun: alert_fun)
 
-        assert_receive {:codeowners_alert, "github.codeowners.degraded", message, opts}
+        assert_receive {:codeowners_alert, "github.codeowners.degraded", message, opts}, 1000
         assert message =~ unquote(expected_message)
         assert Keyword.get(opts, :needs_attention) == true
         assert CodeOwners.trust_snapshot(name).source == :fallback
@@ -123,7 +123,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
       {_pid, name} = start_owners(path, alert_fun: alert_fun)
 
-      assert_receive {:codeowners_alert, "github.codeowners.degraded", message, _opts}
+      assert_receive {:codeowners_alert, "github.codeowners.degraded", message, _opts}, 1000
       assert message =~ "unparseable near line 2"
       assert CodeOwners.trust_snapshot(name).degradation == {:unparseable, 2}
     end
@@ -136,7 +136,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
       {_pid, name} = start_owners(path, alert_fun: alert_fun)
 
-      refute_receive {:codeowners_alert, "github.codeowners.degraded", _, _}
+      refute_receive {:codeowners_alert, "github.codeowners.degraded", _, _}, 0
       trust = CodeOwners.trust_snapshot(name)
       assert trust.codeowners == ["alice"]
       assert trust.source == :file
@@ -156,8 +156,8 @@ defmodule Aiur.GitHub.CodeOwnersTest do
           alert_fun: alert_fun
         )
 
-      assert_receive {:codeowners_alert, "github.codeowners.degraded", _, _}
-      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}
+      assert_receive {:codeowners_alert, "github.codeowners.degraded", _, _}, 1000
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 0
       assert CodeOwners.trust_snapshot(name).drift == nil
     end
 
@@ -171,19 +171,19 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       {_pid, matching_name} =
         start_owners(path, allowed_users_fun: fn -> ["bob", "alice"] end, alert_fun: alert_fun)
 
-      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 0
       assert CodeOwners.trust_snapshot(matching_name).drift == nil
 
       {_pid, fallback_name} =
         start_owners(path, allowed_users_fun: fn -> [] end, alert_fun: alert_fun)
 
-      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 0
       assert CodeOwners.trust_snapshot(fallback_name).drift == nil
 
       {_pid, drifted_name} =
         start_owners(path, allowed_users_fun: fn -> ["alice", "mallory"] end, alert_fun: alert_fun)
 
-      assert_receive {:codeowners_alert, "github.codeowners.allowlist_drift", message, opts}
+      assert_receive {:codeowners_alert, "github.codeowners.allowlist_drift", message, opts}, 1000
       assert message =~ "CODEOWNERS trust [@alice, @bob]"
       assert message =~ "allowed_users [@alice, @mallory]"
       assert Keyword.get(opts, :needs_attention) == true
@@ -202,11 +202,11 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       {_pid, name} =
         start_owners(path, allowed_users_fun: fn -> ["alice"] end, alert_fun: alert_fun)
 
-      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 0
       File.write!(path, "* @bob\n")
       :ok = CodeOwners.refresh(name)
 
-      assert_receive {:codeowners_alert, "github.codeowners.allowlist_drift", message, _opts}
+      assert_receive {:codeowners_alert, "github.codeowners.allowlist_drift", message, _opts}, 1000
       assert message =~ "CODEOWNERS trust [@bob]"
       assert CodeOwners.trust_snapshot(name).codeowners == ["bob"]
     end

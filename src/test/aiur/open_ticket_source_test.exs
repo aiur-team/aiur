@@ -51,7 +51,7 @@ defmodule Aiur.OpenTicketSourceTest do
 
       OpenTicketSource.refresh_sync(start_source(request_fun: request_fun))
 
-      assert_received {:requested, url}
+      assert_received {:requested, url}, 1000
       assert url =~ "state=open"
       refute url =~ "labels="
     end

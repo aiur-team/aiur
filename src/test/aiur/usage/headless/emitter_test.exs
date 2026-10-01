@@ -17,7 +17,7 @@ defmodule Aiur.Usage.Headless.EmitterTest do
     assert envelope.provider == :claude
     assert envelope.backend == :app_server
     assert envelope.account_generation.generation == "gen-known"
-    assert_received {:published, %UsageEnvelope{} = published}
+    assert_received {:published, %UsageEnvelope{} = published}, 1000
     assert published == envelope
   end
 
