@@ -113,7 +113,9 @@ defmodule Aiur.AgentCompaction.CodexClient do
     end
   end
 
-  defp build_request(thread_id, summary_prompt) when is_binary(thread_id) and is_binary(summary_prompt) do
+  defp build_request(thread_id, summary_prompt)
+       when is_binary(thread_id) and byte_size(thread_id) > 0 and
+            is_binary(summary_prompt) and byte_size(summary_prompt) > 0 do
     {:ok, %{
       "thread_id" => thread_id,
       "summary_prompt" => summary_prompt,
