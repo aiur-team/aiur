@@ -9,7 +9,8 @@ defmodule Aiur.CodexProber do
 
   require Logger
 
-  alias Aiur.{CodingAgent, ModelAvailability}
+  alias Aiur.ModelAvailability
+  alias Aiur.Codex.{Frames, Rpc}
 
   @timeout_ms 5_000
 
@@ -67,53 +68,77 @@ defmodule Aiur.CodexProber do
     end
   end
 
-  defp probe_codex_limits(opts) do
-    timeout = Keyword.get(opts, :timeout_ms, @timeout_ms)
+  defp probe_codex_limits(_opts) do
+    # Create a temporary workspace for the probe session
+    workspace = System.tmp_dir() <> "/codex-probe-#{:erlang.unique_integer([:positive])}"
 
-    with {:ok, app_server_pid} <- start_app_server(),
-         {:ok, result} <- read_limits(app_server_pid, timeout),
-         :ok <- stop_app_server(app_server_pid) do
-      normalize_codex_limits(result)
+    with {:ok, _} <- File.mkdir_p(workspace),
+         {:ok, session} <- start_probe_session(workspace) do
+      try do
+        # Read limits through the established session
+        case read_limits_from_session(session) do
+          {:ok, limits} -> normalize_codex_limits(limits)
+          error -> error
+        end
+      after
+        # Always clean up the session
+        stop_probe_session(session)
+        # Clean up the temporary workspace directory
+        File.rm_rf(workspace)
+      end
     else
-      error ->
-        {:error, error}
+      {:error, reason} -> {:error, reason}
     end
   end
 
-  defp start_app_server do
-    case CodingAgent.app_server(nil, %{}, %{"_backend" => "codex"}) do
-      {:ok, pid} -> {:ok, pid}
+  # Start a temporary probe session using the Codex backend
+  defp start_probe_session(workspace) do
+    agent_module = Aiur.Codex.CodingAgent
+
+    case agent_module.start_session(workspace, identifier: "model-usage-probe") do
+      {:ok, session} -> {:ok, session}
       error -> error
     end
+  rescue
+    _error -> {:error, :failed_to_start_session}
   catch
-    _kind, error -> {:error, error}
+    _kind, _reason -> {:error, :failed_to_start_session}
   end
 
-  defp stop_app_server(pid) when is_pid(pid) do
-    try do
-      GenServer.stop(pid, :normal)
-      :ok
-    catch
-      _kind, _error -> :ok
-    end
+  # Stop the probe session
+  defp stop_probe_session(session) when is_map(session) do
+    agent_module = Aiur.Codex.CodingAgent
+    agent_module.stop_session(session)
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
-  defp stop_app_server(_pid), do: :ok
+  # Read limits from an established Codex session via account/rateLimits/read
+  defp read_limits_from_session(session) when is_map(session) do
+    port = Map.get(session, :port)
 
-  defp read_limits(pid, timeout) when is_pid(pid) and is_integer(timeout) and timeout > 0 do
-    try do
-      response =
-        GenServer.call(
-          pid,
-          {:call_method, "account/rateLimits/read", %{}},
-          timeout
-        )
+    case port do
+      port when is_port(port) ->
+        try do
+          # Send the rate limits read frame
+          Rpc.send_message(port, Frames.rate_limits_read_frame())
 
-      {:ok, response}
-    catch
-      :exit, {:timeout, _} -> {:error, :timeout}
-      :exit, reason -> {:error, reason}
-      kind, error -> {:error, {kind, error}}
+          # Wait for the response
+          case Rpc.await_response(port, Frames.rate_limits_read_id(), @timeout_ms) do
+            {:ok, response} -> {:ok, response}
+            {:error, reason} -> {:error, reason}
+          end
+        rescue
+          ArgumentError -> {:error, :port_closed}
+        catch
+          :exit, {:timeout, _} -> {:error, :timeout}
+          :exit, reason -> {:error, reason}
+          kind, error -> {:error, {kind, error}}
+        end
+
+      _ -> {:error, :invalid_session}
     end
   end
 

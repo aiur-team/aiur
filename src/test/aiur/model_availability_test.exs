@@ -291,14 +291,16 @@ defmodule Aiur.ModelAvailabilityTest do
       assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 5, limit: 10}}, path: path, now: now)
       refute ModelAvailability.retry_scheduled?("codex", path: path, now: now)
 
-      # Schedule retry
+      # Schedule retry (will be due in 2 minutes)
       assert :ok = ModelAvailability.schedule_retry("codex", now, path: path)
-      assert ModelAvailability.retry_scheduled?("codex", path: path, now: now)
+      # Retry is pending but not yet due
+      refute ModelAvailability.retry_scheduled?("codex", path: path, now: now)
 
-      # Retry time is 2 minutes in future
+      # Retry time is 2 minutes in future - still not due
       future = DateTime.add(now, 119, :second)
       refute ModelAvailability.retry_scheduled?("codex", path: path, now: future)
 
+      # At retry time (2 minutes later), retry is now due
       future_past = DateTime.add(now, 120, :second)
       assert ModelAvailability.retry_scheduled?("codex", path: path, now: future_past)
 
