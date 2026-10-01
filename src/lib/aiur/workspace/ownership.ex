@@ -244,7 +244,6 @@ defmodule Aiur.Workspace.Ownership do
     else
       :none -> :already_released
       nil -> :already_released
-      {:error, _} = error -> error
       _ -> {:error, :cannot_release_without_proof}
     end
   end
