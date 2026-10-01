@@ -3,7 +3,6 @@ defmodule Aiur.BuildOrderFunnelHealthTest do
 
   alias Aiur.BuildOrderFunnelHealth
 
-
   describe "bound_port and base_url" do
     test "returns current bound port" do
       # Test that these functions exist and can be called
@@ -33,8 +32,10 @@ defmodule Aiur.BuildOrderFunnelHealthTest do
 
       # The result will be error if no server is listening at the bound port
       case result do
-        {:ok, _port} -> :ok  # Server is running, that's fine for this test
-        {:error, _reason} -> :ok  # Server not running, expected in test environment
+        # Server is running, that's fine for this test
+        {:ok, _port} -> :ok
+        # Server not running, expected in test environment
+        {:error, _reason} -> :ok
       end
     end
   end

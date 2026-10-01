@@ -81,7 +81,8 @@ defmodule Aiur.BuildOrderRestartScenarioTest do
       case {result1, result2} do
         {{:ok, port1}, {:ok, port2}} -> assert port1 == port2
         {{:error, reason1}, {:error, reason2}} -> assert reason1 == reason2
-        _ -> :ok  # Either case is acceptable
+        # Either case is acceptable
+        _ -> :ok
       end
     end
   end
