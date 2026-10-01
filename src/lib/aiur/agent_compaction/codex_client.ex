@@ -32,14 +32,14 @@ defmodule Aiur.AgentCompaction.CodexClient do
   @doc """
   Poll for compaction status and completion.
 
-  Returns {:ok, status, summary, tokens} or {:error, reason} or {:timeout}.
+  Returns {:ok, status} or {:error, reason} or {:timeout}.
   """
   @spec poll_status(
           thread_id :: String.t(),
           request_id :: String.t(),
           opts :: keyword()
         ) ::
-          {:ok, :pending | :completed | :failed, map() | nil, non_neg_integer() | nil}
+          {:ok, :pending | :completed | :failed}
           | {:error, String.t()}
           | {:timeout}
   def poll_status(thread_id, request_id, _opts \\ []) do

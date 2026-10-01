@@ -111,7 +111,7 @@ defmodule Aiur.AgentCompaction.Schema do
   @doc """
   Check if a session has unchanged compaction state (no new messages since last attempt).
   """
-  @spec unchanged_since_last_compaction?(t(), non_neg_integer()) :: boolean()
+  @spec unchanged_since_last_compaction?(map(), non_neg_integer()) :: boolean()
   def unchanged_since_last_compaction?(%{message_count_at_compaction: last_count}, current_count)
       when is_integer(last_count) and is_integer(current_count) do
     current_count == last_count
