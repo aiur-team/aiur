@@ -1385,4 +1385,72 @@ defmodule Aiur.AlertsTest do
       assert_receive {:played, ^expected}
     end
   end
+
+  describe "attention resolution patterns" do
+    test "all emitted attentions have corresponding resolution paths or are explicitly deferred" do
+      # Attention types that are intentionally emitted without resolutions (deferred to follow-up PR)
+      known_deferred = MapSet.new([
+        "unsupported_model",
+        "model_label_unresolved",
+        "state-label-missing-no-evidence"
+      ])
+
+      src_path = Path.expand("src/lib/aiur", __DIR__ <> "/../..")
+      lib_files = Path.wildcard(Path.join(src_path, "**/*.ex"))
+
+      # Find all attention emissions and collect attention names
+      attention_patterns = [:emit_system, :emit_custom]
+
+      emitted_attentions =
+        lib_files
+        |> Enum.flat_map(fn file ->
+          File.read!(file)
+          |> String.split("\n")
+          |> Enum.with_index(1)
+          |> Enum.flat_map(fn {line, _line_num} ->
+            Enum.flat_map(attention_patterns, fn pattern ->
+              pattern_str = "Alerts.#{pattern}"
+
+              if String.contains?(line, pattern_str) and String.contains?(line, ".agent.attention.") do
+                case Regex.scan(~r/\.agent\.attention\.([a-z0-9\-_]+)/, line) do
+                  [[_, attention_name] | _] -> [{file, attention_name}]
+                  _ -> []
+                end
+              else
+                []
+              end
+            end)
+          end)
+        end)
+        |> Enum.uniq_by(fn {_file, attention_name} -> attention_name end)
+
+      # Collect all resolution patterns from the codebase
+      resolved_attentions =
+        lib_files
+        |> Enum.flat_map(fn file ->
+          File.read!(file)
+          |> String.split("\n")
+          |> Enum.flat_map(fn line ->
+            case Regex.scan(~r/\.agent\.attention\.([a-z0-9\-_]+)\.resolved/, line) do
+              [[_, attention_name] | _] -> [attention_name]
+              _ -> []
+            end
+          end)
+        end)
+        |> Enum.uniq()
+        |> MapSet.new()
+
+      # Verify each emitted attention has a resolution or is deferred
+      missing_resolutions =
+        emitted_attentions
+        |> Enum.reject(fn {_file, attention_name} ->
+          MapSet.member?(resolved_attentions, attention_name) or
+            MapSet.member?(known_deferred, attention_name)
+        end)
+
+      assert missing_resolutions == [],
+             "Emitted attentions without resolution paths (add resolution or add to known_deferred): " <>
+               inspect(Enum.map(missing_resolutions, &elem(&1, 1)))
+    end
+  end
 end
