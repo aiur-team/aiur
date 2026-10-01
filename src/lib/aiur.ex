@@ -449,6 +449,7 @@ defmodule Aiur.Application do
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,
+      Aiur.DaemonHeartbeatWriter,
       Aiur.Logs.Retention,
       # The daemon-resident Executor recording path is armed on EVERY run, with
       # or without `--executor`. Recording is the only part that cannot be added
