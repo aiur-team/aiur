@@ -1389,11 +1389,12 @@ defmodule Aiur.AlertsTest do
   describe "attention resolution patterns" do
     test "all emitted attentions have corresponding resolution paths or are explicitly deferred" do
       # Attention types that are intentionally emitted without resolutions (deferred to follow-up PR)
-      known_deferred = MapSet.new([
-        "unsupported_model",
-        "model_label_unresolved",
-        "state-label-missing-no-evidence"
-      ])
+      known_deferred =
+        MapSet.new([
+          "unsupported_model",
+          "model_label_unresolved",
+          "state-label-missing-no-evidence"
+        ])
 
       src_path = Path.expand("src/lib/aiur", __DIR__ <> "/../..")
       lib_files = Path.wildcard(Path.join(src_path, "**/*.ex"))
