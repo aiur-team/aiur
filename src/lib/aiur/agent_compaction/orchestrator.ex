@@ -6,6 +6,8 @@ defmodule Aiur.AgentCompaction.Orchestrator do
   manage state transitions, and prevent repeat compaction on unchanged sessions.
   """
 
+  require Logger
+
   alias Aiur.AgentCompaction.{Schema, Config, CodexClient}
 
   @doc """
@@ -13,6 +15,7 @@ defmodule Aiur.AgentCompaction.Orchestrator do
 
   Returns one of:
   - `{:ok, :skipped, reason}` - compaction not applicable
+  - `{:ok, :unsupported, reason}` - backend or config doesn't support compaction
   - `{:ok, :pending, state}` - compaction request submitted
   - `{:error, reason}` - blocker or error
   """
@@ -20,14 +23,14 @@ defmodule Aiur.AgentCompaction.Orchestrator do
     session :: map(),
     backend :: String.t(),
     current_message_count :: non_neg_integer()
-  ) :: {:ok, :skipped | :pending, Schema.t() | String.t()} | {:error, String.t()}
+  ) :: {:ok, :skipped | :unsupported | :pending, Schema.t() | String.t()} | {:error, String.t()}
   def evaluate_trigger(session, backend, current_message_count) do
     cond do
       !Config.enabled?() ->
-        {:ok, :skipped, "compaction disabled in config"}
+        {:ok, :unsupported, "compaction disabled in config"}
 
       !backend_supported?(backend) ->
-        {:ok, :skipped, "unsupported backend: #{backend}"}
+        {:ok, :unsupported, "unsupported backend: #{backend}"}
 
       session_unchanged?(session, current_message_count) ->
         {:ok, :skipped, "no new messages since last compaction"}
@@ -35,6 +38,26 @@ defmodule Aiur.AgentCompaction.Orchestrator do
       true ->
         trigger_compaction(session, backend, current_message_count)
     end
+  end
+
+  @doc """
+  Evaluate threshold-based triggers for auto-compaction.
+
+  Returns true if all thresholds are met (AND logic).
+  """
+  @spec threshold_met?(
+    tokens :: non_neg_integer(),
+    message_count :: non_neg_integer(),
+    elapsed_minutes :: non_neg_integer()
+  ) :: boolean()
+  def threshold_met?(tokens, message_count, elapsed_minutes) do
+    token_threshold = Config.token_threshold()
+    message_threshold = Config.message_count_threshold()
+    time_threshold = Config.elapsed_time_minutes()
+
+    tokens >= token_threshold and
+      message_count >= message_threshold and
+      elapsed_minutes >= time_threshold
   end
 
   @doc """
@@ -66,28 +89,22 @@ defmodule Aiur.AgentCompaction.Orchestrator do
     # Submit async request to Codex
     case submit_compaction_request(session, state) do
       {:ok, _request_id} ->
+        Logger.info(
+          "Compaction triggered for session",
+          session_id: session_id,
+          backend: backend,
+          message_count: current_message_count
+        )
         {:ok, :pending, %{state | status: :pending}}
+
       {:error, reason} ->
+        Logger.error(
+          "Compaction request failed",
+          session_id: session_id,
+          error: reason
+        )
         {:error, "failed to submit compaction request: #{reason}"}
     end
-  end
-
-  @doc """
-  Check if compaction threshold criteria are met.
-  """
-  @spec threshold_met?(
-    tokens :: non_neg_integer(),
-    message_count :: non_neg_integer(),
-    elapsed_minutes :: non_neg_integer()
-  ) :: boolean()
-  def threshold_met?(tokens, message_count, elapsed_minutes) do
-    token_threshold = Config.token_threshold()
-    message_threshold = Config.message_count_threshold()
-    time_threshold = Config.elapsed_time_minutes()
-
-    tokens >= token_threshold and
-      message_count >= message_threshold and
-      elapsed_minutes >= time_threshold
   end
 
   @doc """
@@ -110,13 +127,10 @@ defmodule Aiur.AgentCompaction.Orchestrator do
   defp submit_compaction_request(session, _state) do
     # Build summary prompt from session context
     summary_prompt = build_summary_prompt(session)
+    thread_id = Map.get(session, :thread_id, "unknown")
 
-    # Submit to Codex API (mock for now)
-    CodexClient.request_compact(
-      Map.get(session, :thread_id, "unknown"),
-      summary_prompt,
-      timeout_ms: 30_000
-    )
+    # Submit to Codex API
+    CodexClient.request_compact(thread_id, summary_prompt, timeout_ms: Config.timeout_ms())
   end
 
   defp build_summary_prompt(_session) do
