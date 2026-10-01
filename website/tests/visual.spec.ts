@@ -207,8 +207,16 @@ test.describe('Visual regression detection (selftest)', () => {
       document.documentElement.style.backgroundColor = '#ff00ff'
     })
 
-    // Wait for repaint
-    await page.waitForTimeout(50)
+    // Wait for the change to be painted via animation frames
+    await page.evaluate(() => {
+      return new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve()
+          })
+        })
+      })
+    })
 
     // This should FAIL because the magenta background doesn't match the original
     // test.fail() makes this a pass (failed assertion is expected)
@@ -233,8 +241,16 @@ test.describe('Visual regression detection (selftest)', () => {
       }
     })
 
-    // Wait for repaint
-    await page.waitForTimeout(50)
+    // Wait for the change to be painted via animation frames
+    await page.evaluate(() => {
+      return new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve()
+          })
+        })
+      })
+    })
 
     // This should FAIL because the padding/color changed
     // test.fail() makes this a pass (failed assertion is expected)
