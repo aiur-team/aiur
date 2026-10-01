@@ -649,6 +649,47 @@ The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` refer
 
 Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/concepts/units#api-meters) for what each figure does and does not measure.
 
+## compaction
+
+Optional thread compaction at the implementation-to-human-review handoff, supported for Codex backend only; preserves the original transcript and prevents repeat compaction on unchanged sessions.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `compaction.enabled` | boolean | false | Master switch for compaction; must be true to enable any compaction features. |
+| `compaction.backends` | array | [] | Backends eligible for compaction (e.g., `["codex"]`). Other backends are not compacted. |
+| `compaction.manual_approval` | boolean | false | When true, manual approval at CLI/TUI is available (requires `compaction.enabled`). |
+| `compaction.auto_trigger.enabled` | boolean | false | When true, compaction fires automatically if thresholds are met. |
+| `compaction.auto_trigger.token_threshold` | integer | 50000 | Minimum tokens consumed before auto-compaction fires (must be >= 1000). |
+| `compaction.auto_trigger.message_count_threshold` | integer | 20 | Minimum messages in thread before auto-compaction fires (must be >= 1). |
+| `compaction.auto_trigger.elapsed_time_minutes` | integer | 60 | Minimum elapsed time in minutes before auto-compaction fires (must be >= 1). |
+| `compaction.timeout_ms` | integer | 30000 | Timeout in milliseconds for compaction API calls. |
+
+**Compaction state transitions:** pending → completed/failed. Failed compaction does not block handoff; the session remains resumable. Repeating compaction on the same unchanged session is prevented by tracking message count at the last compaction attempt.
+
+**Example: manual-only compaction**
+```yaml
+compaction:
+  enabled: true
+  backends:
+    - codex
+  manual_approval: true
+  auto_trigger:
+    enabled: false
+```
+
+**Example: threshold-based auto-compaction**
+```yaml
+compaction:
+  enabled: true
+  backends:
+    - codex
+  auto_trigger:
+    enabled: true
+    token_threshold: 50000
+    message_count_threshold: 20
+    elapsed_time_minutes: 60
+```
+
 ## observability
 
 | Key | Type | Default | Controls |

@@ -140,3 +140,17 @@ prewarm:
   # even though dispatch-time freshness checks and the idle watchdog cover the
   # hold on their own.
   poll_seconds: 30
+# Optional thread compaction at review handoff (Codex only).
+# Compaction summarizes intermediate work while preserving task constraints,
+# decisions, revision markers, and validation evidence for human review.
+# See /reference/configuration#compaction for full options.
+compaction:
+  enabled: false
+  backends: []
+  manual_approval: false
+  auto_trigger:
+    enabled: false
+    token_threshold: 50000
+    message_count_threshold: 20
+    elapsed_time_minutes: 60
+  timeout_ms: 30000
