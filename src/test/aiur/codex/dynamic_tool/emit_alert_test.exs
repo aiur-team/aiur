@@ -23,7 +23,7 @@ defmodule Aiur.Codex.DynamicTool.EmitAlertTest do
         )
 
       assert response["success"] == true
-      assert_received {:emitted, "phase.work.start", "Working", "started", false, "info"}
+      assert_received {:emitted, "phase.work.start", "Working", "started", false, "info"}, 1000
     end
 
     test "legacy 2-arity emitter succeeds" do
@@ -40,7 +40,7 @@ defmodule Aiur.Codex.DynamicTool.EmitAlertTest do
         )
 
       assert response["success"] == true
-      assert_received {:legacy, "phase.plan.start", "Planning"}
+      assert_received {:legacy, "phase.plan.start", "Planning"}, 1000
     end
 
     test "reason defaults to message when absent" do
@@ -55,7 +55,7 @@ defmodule Aiur.Codex.DynamicTool.EmitAlertTest do
         end
       )
 
-      assert_received {:reason, "Planning"}
+      assert_received {:reason, "Planning"}, 1000
     end
 
     test "needs_attention defaults to false when absent" do
@@ -70,7 +70,7 @@ defmodule Aiur.Codex.DynamicTool.EmitAlertTest do
         end
       )
 
-      assert_received {:na, false}
+      assert_received {:na, false}, 1000
     end
 
     test "explicit severity is passed through" do
@@ -91,7 +91,7 @@ defmodule Aiur.Codex.DynamicTool.EmitAlertTest do
         end
       )
 
-      assert_received {:sev, "critical"}
+      assert_received {:sev, "critical"}, 1000
     end
 
     test "needs_attention: true defaults severity to warning" do
@@ -106,7 +106,7 @@ defmodule Aiur.Codex.DynamicTool.EmitAlertTest do
         end
       )
 
-      assert_received {:sev, "warning"}
+      assert_received {:sev, "warning"}, 1000
     end
 
     test "needs_attention: false defaults severity to info" do
@@ -121,7 +121,7 @@ defmodule Aiur.Codex.DynamicTool.EmitAlertTest do
         end
       )
 
-      assert_received {:sev, "info"}
+      assert_received {:sev, "info"}, 1000
     end
 
     test "explicit non-boolean needs_attention returns error" do

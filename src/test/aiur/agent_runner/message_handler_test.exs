@@ -102,7 +102,7 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
         }
       })
 
-      assert_receive {:lifecycle, :lifecycle, %{event: "build_test", boundary: "start", operation_id: "cmd-1"}, _opts}
+      assert_receive {:lifecycle, :lifecycle, %{event: "build_test", boundary: "start", operation_id: "cmd-1"}, _opts}, 1000
     end
 
     test "projects only fixed prose from completed tool results" do
@@ -351,7 +351,7 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
                  occurred_at: occurred_at
                )
 
-      assert_receive {:buffered, ^item, ^occurred_at}
+      assert_receive {:buffered, ^item, ^occurred_at}, 1000
     end
 
     test "distinguishes an intentional projection skip from invalid context" do

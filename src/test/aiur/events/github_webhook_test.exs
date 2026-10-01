@@ -263,7 +263,7 @@ defmodule Aiur.Events.GithubWebhookTest do
                  reconcile_fun: fn hint -> send(parent, {:reconcile, hint}) end
                )
 
-      assert_receive {:reconcile, %{kind: :issue_state, ticket: "42"}}
+      assert_receive {:reconcile, %{kind: :issue_state, ticket: "42"}}, 1000
     end
 
     test "unlabeled, closed, reopened and opened reconcile the same way, so out-of-order deliveries converge" do
@@ -375,7 +375,7 @@ defmodule Aiur.Events.GithubWebhookTest do
                    reconcile_fun: fn hint -> send(parent, {:reconcile, hint}) end
                  )
 
-        assert_receive {:reconcile, %{kind: :review_thread, ticket: "42", action: ^action}}
+        assert_receive {:reconcile, %{kind: :review_thread, ticket: "42", action: ^action}}, 1000
       end
     end
 

@@ -34,7 +34,7 @@ defmodule Aiur.Muse.TransportTest do
     assert {:ok, %{"grantedCapabilities" => ["sessionMcp"]}} =
              Transport.request(port, request, 5_000, &send(owner, {:notification, &1}))
 
-    assert_received {:notification, %{"method" => "session/started", "params" => %{"sessionId" => "native-session"}}}
+    assert_received {:notification, %{"method" => "session/started", "params" => %{"sessionId" => "native-session"}}}, 1000
   end
 
   test "a disconnected provider reports its exit instead of accepting a write as success" do

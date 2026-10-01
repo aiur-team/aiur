@@ -99,6 +99,6 @@ defmodule Aiur.Muse.TurnFailureTest do
   test "another session's input request cannot interrupt the active turn", %{tmp_dir: dir} do
     assert {:ok, %{result: :turn_completed}} = Task.await(run_fixture(dir, "user_input_foreign"), :infinity)
     refute Enum.any?(frames(dir), &(&1["method"] == "turn/interrupt" or &1["id"] == "input-1"))
-    refute_received {:event, %{reason: :native_user_input_required}}
+    refute_received {:event, %{reason: :native_user_input_required}}, 0
   end
 end

@@ -231,7 +231,7 @@ defmodule Aiur.ElevenLabs.QuotaTest do
         {:ok, response(%{"character_count" => 0, "character_limit" => 10})}
       end)
 
-    assert_received {:requested, "xi-secret"}
+    assert_received {:requested, "xi-secret"}, 1000
     assert {:ok, %{status: 200}} = result
   end
 

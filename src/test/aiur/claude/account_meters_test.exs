@@ -115,7 +115,7 @@ defmodule Aiur.Claude.AccountMetersTest do
     assert {:error, :malformed} =
              AccountMeters.handle_notification(failing_session, fixture("rate-limit-subscription.json"), observed_at: @now)
 
-    assert_received {:meter_failure, %{reason: :malformed, account_generation_binding: binding}}
+    assert_received {:meter_failure, %{reason: :malformed, account_generation_binding: binding}}, 1000
     assert binding == session.account_generation_binding
   end
 

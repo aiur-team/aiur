@@ -123,7 +123,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         end
       )
 
-    assert_received {:linear_client_called, "query Viewer { viewer { id } }", %{"includeTeams" => false}, []}
+    assert_received {:linear_client_called, "query Viewer { viewer { id } }", %{"includeTeams" => false}, []}, 1000
 
     assert response["success"] == true
     assert Jason.decode!(response["output"]) == %{"data" => %{"viewer" => %{"id" => "usr_123"}}}
@@ -146,7 +146,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         end
       )
 
-    assert_received {:reply_review_thread_called, "PRRT_verified", "Verified on this branch.", []}
+    assert_received {:reply_review_thread_called, "PRRT_verified", "Verified on this branch.", []}, 1000
     assert response["success"] == true
 
     assert Jason.decode!(response["output"]) == %{
@@ -190,7 +190,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         end
       )
 
-    assert_received {:resolve_review_thread_called, "PRRT_done", [terminal_reply_body: "Done, no further changes."]}
+    assert_received {:resolve_review_thread_called, "PRRT_done", [terminal_reply_body: "Done, no further changes."]}, 1000
 
     assert response["success"] == true
 
@@ -248,7 +248,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         end
       )
 
-    assert_received {:alert_emitted, "phase.work.start", "Entered implementation", "work phase started", false, "info"}
+    assert_received {:alert_emitted, "phase.work.start", "Entered implementation", "work phase started", false, "info"}, 1000
 
     assert response["success"] == true
   end
@@ -269,7 +269,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         end
       )
 
-    assert_received {:alert_emitted, "phase.plan.start", "Planning", "Planning", false, "info"}
+    assert_received {:alert_emitted, "phase.plan.start", "Planning", "Planning", false, "info"}, 1000
     assert response["success"] == true
   end
 
@@ -291,7 +291,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         end
       )
 
-    assert_received {:legacy_alert_emitted, "phase.review.start", "Reviewing"}
+    assert_received {:legacy_alert_emitted, "phase.review.start", "Reviewing"}, 1000
     assert response["success"] == true
   end
 
@@ -351,7 +351,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         end
       )
 
-    assert_received {:linear_client_called, "query Viewer { viewer { id } }", %{}, []}
+    assert_received {:linear_client_called, "query Viewer { viewer { id } }", %{}, []}, 1000
     assert response["success"] == true
   end
 
@@ -368,7 +368,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         end
       )
 
-    assert_received {:linear_client_called, "query Viewer { viewer { id } }", %{}, []}
+    assert_received {:linear_client_called, "query Viewer { viewer { id } }", %{}, []}, 1000
     assert response["success"] == true
   end
 
@@ -398,7 +398,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         end
       )
 
-    assert_received {:linear_client_called, forwarded_query, %{}, []}
+    assert_received {:linear_client_called, forwarded_query, %{}, []}, 1000
     assert forwarded_query == String.trim(query)
     assert response["success"] == false
   end
@@ -914,7 +914,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         end
       )
 
-      assert_received {:emitted, "phase.work.start", "Working", "started", false, "critical"}
+      assert_received {:emitted, "phase.work.start", "Working", "started", false, "critical"}, 1000
     end
 
     test "needs_attention: true defaults severity to warning" do
@@ -936,7 +936,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         )
 
       assert response["success"] == true
-      assert_received {:emitted, "phase.work.start", "Urgent", "urgent reason", true, "warning"}
+      assert_received {:emitted, "phase.work.start", "Urgent", "urgent reason", true, "warning"}, 1000
     end
   end
 
@@ -955,7 +955,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         )
 
       assert response["success"] == true
-      assert_received {:subscribed, "ticket.42.#"}
+      assert_received {:subscribed, "ticket.42.#"}, 1000
     end
 
     test "emit_alert accepts atom-key name and message" do
@@ -972,7 +972,7 @@ defmodule Aiur.Codex.DynamicToolTest do
         )
 
       assert response["success"] == true
-      assert_received {:emitted, "phase.plan.start", "Planning"}
+      assert_received {:emitted, "phase.plan.start", "Planning"}, 1000
     end
 
     test "aiur_declare_blocker accepts atom-key issue_number" do

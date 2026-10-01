@@ -44,7 +44,7 @@ defmodule Aiur.PaneManager.ConvoPaintTest do
 
       assert_receive {:convo_first_paint, "issue-1", "%10", wall_ms} when is_integer(wall_ms)
 
-      assert_receive {:aiur_perf, %{phase: :convo_first_paint, meta: %{identifier: "issue-1", pane_id: "%10", slot: 1}}}
+      assert_receive {:aiur_perf, %{phase: :convo_first_paint, meta: %{identifier: "issue-1", pane_id: "%10", slot: 1}}}, 1000
     end
 
     test "retries when tmux returns no marker, eventually sends paint on second attempt", %{
@@ -75,9 +75,9 @@ defmodule Aiur.PaneManager.ConvoPaintTest do
 
       Task.await(task, 5000)
 
-      assert_receive {:convo_first_paint, "issue-2", "%20", _wall_ms}
+      assert_receive {:convo_first_paint, "issue-2", "%20", _wall_ms}, 1000
 
-      assert_receive {:aiur_perf, %{phase: :convo_first_paint, meta: %{identifier: "issue-2", pane_id: "%20", slot: 2}}}
+      assert_receive {:aiur_perf, %{phase: :convo_first_paint, meta: %{identifier: "issue-2", pane_id: "%20", slot: 2}}}, 1000
     end
   end
 

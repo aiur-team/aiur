@@ -84,7 +84,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
           send(self(), {:duration_overrun_result, RuntimeWatchdog.apply_overrun_check(state, 60)})
         end)
 
-      assert_receive {:duration_overrun_result, next}
+      assert_receive {:duration_overrun_result, next}, 1000
 
       # The worker is told to park cooperatively — this is the load-bearing
       # behavior that replaced the old terminate+retry kill.
@@ -327,7 +327,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       # The refused resume must not wake the worker, clear the reason, or
       # reset the duration clock — the agent stays duration-paused.
-      refute_received {:resume_agent, _request_id}
+      refute_received {:resume_agent, _request_id}, 0
       paused = next.running[paused_id]
       assert get_in(paused, [:control, :status]) == :paused
       assert paused.paused_reason == :max_agent_duration

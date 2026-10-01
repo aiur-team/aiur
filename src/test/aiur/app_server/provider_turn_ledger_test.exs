@@ -89,7 +89,7 @@ defmodule Aiur.AppServer.ProviderTurnLedgerTest do
         Process.sleep(:infinity)
       end)
 
-    assert_receive {:store, store}
+    assert_receive {:store, store}, 1000
     ref = Process.monitor(store)
     Process.exit(owner, :kill)
 

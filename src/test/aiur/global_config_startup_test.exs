@@ -29,7 +29,7 @@ defmodule Aiur.GlobalConfigStartupTest do
     output = capture_io(:stderr, fn -> assert :ok = GlobalConfigStartup.prepare(c.path, c.opts) end)
     assert output =~ "Using global config"
     assert output =~ "team/consumer"
-    assert_received {:request, :get, "https://api.github.com/repos/team/consumer/labels?per_page=100&page=1", nil}
+    assert_received {:request, :get, "https://api.github.com/repos/team/consumer/labels?per_page=100&page=1", nil}, 1000
     requests = collect_posts([])
     names = Enum.map(requests, & &1["name"])
     assert "agent:todo" in names
@@ -65,7 +65,7 @@ defmodule Aiur.GlobalConfigStartupTest do
       assert message =~ "~/.aiur/.env"
     end)
 
-    refute_received {:request, _, _, _}
+    refute_received {:request, _, _, _}, 0
   end
 
   test "different explicit global repo fails before any label request", c do
@@ -77,7 +77,7 @@ defmodule Aiur.GlobalConfigStartupTest do
       assert message =~ "team/consumer"
     end)
 
-    refute_received {:request, _, _, _}
+    refute_received {:request, _, _, _}, 0
   end
 
   test "label creation denial returns failure before startup", c do
@@ -101,7 +101,7 @@ defmodule Aiur.GlobalConfigStartupTest do
       assert message =~ "origin"
     end)
 
-    refute_received {:request, _, _, _}
+    refute_received {:request, _, _, _}, 0
   end
 
   test "blank and padded label prefixes match dispatcher normalization", c do
@@ -122,7 +122,7 @@ defmodule Aiur.GlobalConfigStartupTest do
         assert message =~ "origin"
       end)
 
-      refute_received {:request, _, _, _}
+      refute_received {:request, _, _, _}, 0
     end
   end
 
@@ -130,7 +130,7 @@ defmodule Aiur.GlobalConfigStartupTest do
     for remote <- ["https://github.com/team/consumer.git", "git@github.com:team/consumer.git", "ssh://git@github.com/team/consumer.git"] do
       opts = c.opts |> Keyword.delete(:origin_fun) |> Keyword.put(:origin_url_fun, fn -> remote end)
       capture_io(:stderr, fn -> assert :ok = GlobalConfigStartup.prepare(c.path, opts) end)
-      assert_received {:request, :get, "https://api.github.com/repos/team/consumer/labels?per_page=100&page=1", nil}
+      assert_received {:request, :get, "https://api.github.com/repos/team/consumer/labels?per_page=100&page=1", nil}, 1000
       assert "agent:todo" in Enum.map(collect_posts([]), & &1["name"])
     end
   end
@@ -138,13 +138,13 @@ defmodule Aiur.GlobalConfigStartupTest do
   # Future guards for preexisting local-config and non-GitHub behavior.
   test "future guard: repository-local config does not bootstrap", c do
     assert :ok = GlobalConfigStartup.prepare(Path.join(c.home, "repo/.aiur/config"), c.opts)
-    refute_received {:request, _, _, _}
+    refute_received {:request, _, _, _}, 0
   end
 
   test "future guard: global non-GitHub config does not bootstrap", c do
     File.write!(c.path, "tracker:\n  kind: memory\n")
     capture_io(:stderr, fn -> assert :ok = GlobalConfigStartup.prepare(c.path, c.opts) end)
-    refute_received {:request, _, _, _}
+    refute_received {:request, _, _, _}, 0
   end
 
   defp collect_posts(acc) do

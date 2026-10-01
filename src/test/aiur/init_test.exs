@@ -270,7 +270,7 @@ defmodule Aiur.InitTest do
     d = deps(self(), dir, target, %{backend_descriptors: descriptors})
     assert :ok = Init.run(%{force: false}, io(self(), answers), d)
     assert written_config(target)["agent"]["backend_configs"]["fake"]["region"] == "east"
-    assert_received {:input_label, "Synthetic backend region"}
+    assert_received {:input_label, "Synthetic backend region"}, 1000
   end
 
   defp assert_filled_alert_template(template, sound_path_regex) do
@@ -524,7 +524,7 @@ defmodule Aiur.InitTest do
 
       # init writes the command to the sibling .aiur/prewarm script and runs the
       # first warm-base build on opt-in
-      assert_received {:prewarm_build, _url, "mise exec -- mix compile"}
+      assert_received {:prewarm_build, _url, "mise exec -- mix compile"}, 1000
       assert File.read!(Path.join([dir, ".aiur", "prewarm"])) == "mise exec -- mix compile\n"
 
       config = File.read!(target)
@@ -561,7 +561,7 @@ defmodule Aiur.InitTest do
              ] = Enum.drop_while(events, &(&1 != {:select, @prewarm_command_label}))
 
       assert build_message =~ "Building the warm base now"
-      assert_received {:prewarm_build, _url, ^edited_command}
+      assert_received {:prewarm_build, _url, ^edited_command}, 1000
       assert File.read!(Path.join([dir, ".aiur", "prewarm"])) == edited_command <> "\n"
     end
 
@@ -587,8 +587,8 @@ defmodule Aiur.InitTest do
                _event -> false
              end)
 
-      refute_received {:prewarm_build, _url, _command}
-      refute_received {:prewarm_file, _command}
+      refute_received {:prewarm_build, _url, _command}, 0
+      refute_received {:prewarm_file, _command}, 0
       refute File.exists?(Path.join([dir, ".aiur", "prewarm"]))
 
       config = File.read!(target)
@@ -938,7 +938,7 @@ defmodule Aiur.InitTest do
       assert message =~ "#{legacy} is no longer supported"
       assert message =~ "Move it to #{target}"
       assert message =~ "relative prompt_file and hooks_file paths"
-      refute_received {:repo_state, _tracker}
+      refute_received {:repo_state, _tracker}, 0
     end
 
     test "resume verifies an existing enabled prewarm config", %{target: target} do
@@ -960,7 +960,7 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self()), deps(self(), Path.dirname(target), target))
 
-      assert_received {:prewarm_build, "https://github.com/octo/repo.git", "mise exec -- npm ci && mise exec -- npm run build"}
+      assert_received {:prewarm_build, "https://github.com/octo/repo.git", "mise exec -- npm ci && mise exec -- npm run build"}, 1000
 
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ "Building the warm base now"))
@@ -1042,10 +1042,10 @@ defmodule Aiur.InitTest do
       # setup; the appended block points at it via base_build_file.
       assert config =~ "base_build_file: prewarm"
       refute config =~ ~s(base_build: ")
-      assert_received {:prewarm_file, "mise exec -- mix compile"}
-      assert_received {:append, ^target}
+      assert_received {:prewarm_file, "mise exec -- mix compile"}, 1000
+      assert_received {:append, ^target}, 1000
       # Reuses the existing first-build flow.
-      assert_received {:prewarm_build, _url, "mise exec -- mix compile"}
+      assert_received {:prewarm_build, _url, "mise exec -- mix compile"}, 1000
     end
 
     test "does not prompt when the registered section is already present", %{dir: dir, target: target} do
@@ -1058,7 +1058,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self()), d)
 
       refute Enum.any?(confirm_prompts(), &(&1 =~ ~r/pre-warmed copy/))
-      refute_received {:append, ^target}
+      refute_received {:append, ^target}, 0
     end
 
     test "does not run the section's first build when the append fails", %{dir: dir, target: target} do
@@ -1076,7 +1076,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
       # The append failed, so the warm base must not be built (no orphaned base).
-      refute_received {:prewarm_build, _url, _cmd}
+      refute_received {:prewarm_build, _url, _cmd}, 0
       assert Enum.any?(puts_log(), &(&1 =~ ~r/Couldn't update/))
     end
 
@@ -1096,8 +1096,8 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
       assert File.read!(target) == before
-      refute_received {:append, ^target}
-      refute_received {:prewarm_build, _url, _cmd}
+      refute_received {:append, ^target}, 0
+      refute_received {:prewarm_build, _url, _cmd}, 0
     end
   end
 
@@ -1141,14 +1141,14 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
-      assert_received {:select_opts, "Issue tracker", opts}
+      assert_received {:select_opts, "Issue tracker", opts}, 1000
       assert opts == ["github", "linear"]
     end
 
     test "github writes tracker.github.* and a routing table", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
-      assert_received {:repo_state, %{kind: "github", repo: "octo/repo"}}
+      assert_received {:repo_state, %{kind: "github", repo: "octo/repo"}}, 1000
 
       config = written_config(target)
       assert config["tracker"]["kind"] == "github"
@@ -1187,7 +1187,7 @@ defmodule Aiur.InitTest do
         })
 
       assert {:error, _} = Init.run(%{force: false}, io(self(), answers), deps)
-      assert_received {:readiness_tracker, %{repo: "octo/current-repo", base_branch: "main"}}
+      assert_received {:readiness_tracker, %{repo: "octo/current-repo", base_branch: "main"}}, 1000
       refute Map.has_key?(written_config(target)["tracker"]["github"] || %{}, "repo")
     end
 
@@ -1244,7 +1244,7 @@ defmodule Aiur.InitTest do
       answers = github_answers(%{select: %{@location_label => "global"}})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
-      refute_received {:gitignore, _entry}
+      refute_received {:gitignore, _entry}, 0
     end
 
     test "init does not clobber an existing .aiur/hooks", %{dir: dir, target: target} do
@@ -1467,7 +1467,7 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
-      assert_received {:multiselect_opts, "Which agents to support", opts}
+      assert_received {:multiselect_opts, "Which agents to support", opts}, 1000
       assert opts == ["claude", "codex", "kimi", "openrouter", "muse", "fake"]
       refute "claude-repl" in opts
       # DeepSeek is registered but not dispatch-enabled by default, so it must
@@ -1490,7 +1490,7 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
-      assert_received {:select_opts, "Where will you store aiur settings for this project?", opts}
+      assert_received {:select_opts, "Where will you store aiur settings for this project?", opts}, 1000
       assert opts == ["repo (./.aiur/)", "global (~/.aiur/)"]
     end
 
@@ -1560,9 +1560,9 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
-      refute_received {:select_opts, "complexity:1 claude effort", _claude_efforts}
+      refute_received {:select_opts, "complexity:1 claude effort", _claude_efforts}, 0
 
-      assert_received {:select_opts, "complexity:2 codex effort", codex_efforts}
+      assert_received {:select_opts, "complexity:2 codex effort", codex_efforts}, 1000
       assert codex_efforts == ["default effort", "none", "low", "medium", "high", "xhigh", "max"]
     end
 
@@ -1648,7 +1648,7 @@ defmodule Aiur.InitTest do
       refute log =~ "GITHUB_APP_ID"
       refute log =~ "Generate and download a private key"
       refute File.exists?(Path.join(dir, ".env"))
-      refute_received {:labels, _tracker, _labels}
+      refute_received {:labels, _tracker, _labels}, 0
     end
 
     test "scaffolds only .env and walks through the bot-account token", %{dir: dir, target: target} do
@@ -1686,7 +1686,7 @@ defmodule Aiur.InitTest do
 
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ ~r/run `aiur init` again/i))
-      refute_received {:labels, _tracker, _labels}
+      refute_received {:labels, _tracker, _labels}, 0
     end
 
     test "no-token instructions recommend fine-grained and label classic as broad", %{
@@ -1790,7 +1790,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps)
 
       # Nothing created, and no label stage prompted — every group was present.
-      refute_received {:labels, _tracker, _labels}
+      refute_received {:labels, _tracker, _labels}, 0
       prompts = confirm_prompts()
       refute "Create the complexity labels?" in prompts
       refute "Create the model labels?" in prompts
@@ -1918,7 +1918,7 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
 
-      assert_received {:install, :claude}
+      assert_received {:install, :claude}, 1000
       refute Enum.any?(puts_log(), &(&1 =~ ~r/not found on PATH/))
     end
 
@@ -1936,7 +1936,7 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
 
-      refute_received {:install, :claude}
+      refute_received {:install, :claude}, 0
     end
 
     test "never installs when claude is not selected", %{dir: dir, target: target} do
@@ -1954,7 +1954,7 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(parent, answers), d)
 
-      refute_received {:install, :claude}
+      refute_received {:install, :claude}, 0
     end
 
     test "an aiur-claude older than the minimum warns and init still completes", %{
@@ -2103,7 +2103,7 @@ defmodule Aiur.InitTest do
       assert label =~ "repo-local .aiur/config for octo/repo"
       refute asked_location?()
 
-      assert_received {:write, ^target}
+      assert_received {:write, ^target}, 1000
       assert get_in(written_config(target), ["tracker", "github", "repo"]) == "octo/repo"
       assert File.read!(global_target) == global_before
       refute Enum.any?(puts_log(), &(&1 =~ "resuming setup"))
@@ -2116,7 +2116,7 @@ defmodule Aiur.InitTest do
 
       assert {_label, _opts, @global_option} = scope_prompt()
       refute asked_location?()
-      refute_received {:write, _path}
+      refute_received {:write, _path}, 0
       refute File.exists?(target)
 
       log = puts_log()
@@ -2138,7 +2138,7 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
-      refute_received {:write, _path}
+      refute_received {:write, _path}, 0
       assert Enum.any?(puts_log(), &(&1 =~ "resuming setup"))
     end
 
@@ -2153,7 +2153,7 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
-      assert_received {:write, ^target}
+      assert_received {:write, ^target}, 1000
       assert File.read!(global_target) == global_before
       refute asked_location?()
     end
@@ -2197,7 +2197,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: true}, io(self(), github_answers()), d)
 
       assert scope_prompt() == nil
-      assert_received {:write, ^target}
+      assert_received {:write, ^target}, 1000
       assert File.read!(global_target) == global_before
     end
 
@@ -2210,7 +2210,7 @@ defmodule Aiur.InitTest do
       assert {_label, _opts, @global_option} = scope_prompt()
       assert message =~ "Couldn't read the existing config at #{global_target}"
       assert message =~ "--force"
-      refute_received {:write, _path}
+      refute_received {:write, _path}, 0
     end
 
     test "a legacy global config still offers a repo-local setup", %{dir: dir, target: target} do
@@ -2227,7 +2227,7 @@ defmodule Aiur.InitTest do
 
       answers = github_answers(%{select: %{"#{@scope_label_prefix}#{legacy}, or create a repo-local .aiur/config for octo/repo?" => "repo"}})
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
-      assert_received {:write, ^target}
+      assert_received {:write, ^target}, 1000
     end
   end
 end

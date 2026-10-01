@@ -80,7 +80,7 @@ defmodule Aiur.FindingsCLITest do
 
     assert :ok = Findings.append(repo, finding(nil))
     assert 1 == FindingsCLI.run(%{unfiled: true, slugs: false, scope: nil}, &send(self(), {:line, &1}))
-    assert_received {:line, line}
+    assert_received {:line, line}, 1000
     assert line =~ "unfiled"
 
     filed = finding(1464, "filed") |> Map.put("observed_at", "2026-08-02T04:31:00Z")
@@ -107,7 +107,7 @@ defmodule Aiur.FindingsCLITest do
   test "--slugs emits de-duplicated join keys", %{repo: repo} do
     assert :ok = Findings.append(repo, finding(1464, "filed"))
     assert 0 == FindingsCLI.run(%{unfiled: false, slugs: true, scope: "aiur"}, &send(self(), {:slug, &1}))
-    assert_received {:slug, "unfiled"}
+    assert_received {:slug, "unfiled"}, 1000
   end
 
   defp finding(ticket, status \\ "open") do

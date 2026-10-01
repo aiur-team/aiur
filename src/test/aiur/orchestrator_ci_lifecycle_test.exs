@@ -160,7 +160,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
           draft_stall_alert_loader: fn -> MapSet.new() end
         )
 
-      assert_received {:rest_request, _url}
+      assert_received {:rest_request, _url}, 1000
       assert Map.has_key?(next.ci_lifecycle.poll_cache, identifier)
     end
 
@@ -196,8 +196,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       ref = Process.monitor(recorder)
       next = CiLifecycle.pause_issue_for_ci_wait(state, issue)
 
-      assert_receive {:DOWN, ^ref, :process, ^recorder, :killed}
-      refute_received {:recorded, _sequence, {:pause_agent, _request_id}}
+      assert_receive {:DOWN, ^ref, :process, ^recorder, :killed}, 1000
+      refute_received {:recorded, _sequence, {:pause_agent, _request_id}}, 0
 
       entry = Map.fetch!(next.running, identifier)
       assert entry.control.status == :deactivated
@@ -239,8 +239,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       next = poll_ci(state, issue, %{decision: :pending, head_sha: "pending-head"})
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "ci-wait", [expected_state: "human-review"]}}
-      assert_received {:recorded, 2, {:pause_agent, request_id, _generation}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "ci-wait", [expected_state: "human-review"]}}, 1000
+      assert_received {:recorded, 2, {:pause_agent, request_id, _generation}}, 1000
       assert is_integer(request_id)
 
       entry = Map.fetch!(next.running, identifier)
@@ -282,8 +282,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
-      refute_received {:recorded, 2, _message}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}, 1000
+      refute_received {:recorded, 2, _message}, 0
 
       # The OCC-5 CI/PR projection still caches even when the tracker write
       # itself fails and the transition is left untouched.
@@ -335,7 +335,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       # The transition resolves the contradictory pair to its real disposition
       # (`rework`) for the `expected_state` guard instead of passing `nil`
       # (which used to fail validation and skip the swap entirely).
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "rework"]}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "rework"]}}, 1000
       assert next.running[identifier].issue.state == "rework"
     end
 
@@ -363,8 +363,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       # The pair resolves to human-review, so the review disposition is kept and
       # the stale `ci-wait` marker is removed directly — the ticket must end with
       # exactly one state label (#2366).
-      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
-      assert_received {:recorded, _position, {:label_removed, ^identifier, "agent:ci-wait"}}
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}, 0
+      assert_received {:recorded, _position, {:label_removed, ^identifier, "agent:ci-wait"}}, 1000
       assert next.running[identifier].issue.state == "human-review"
     end
 
@@ -396,7 +396,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       # The poll completed without raising and the review disposition is
       # retained; no terminal transition happened.
-      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}, 0
       assert next.running[identifier].issue.state == "human-review"
     end
 
@@ -421,7 +421,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}, 1000
 
       assert_received {:recorded, 2,
                        {:event,
@@ -433,8 +433,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                           message: "CI passed for the current PR head"
                         }}}
 
-      assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
-      assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}
+      assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}, 1000
+      assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}, 1000
 
       assert next.running[identifier].issue.state == "in-progress"
       assert next.running[identifier].control.status == :paused
@@ -456,16 +456,16 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       first = poll_ci(running_state(issue, recorder, :working, []), issue, %{decision: :passed, head_sha: "draft-head", pr_number: 941, draft?: true})
       sync_recorder(recorder)
-      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}, 0
 
       next = poll_ci(first, issue, %{decision: :passed, head_sha: "ready-head", pr_number: 941, draft?: false})
       sync_recorder(recorder)
 
-      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review", pr: %{"number" => 941, "draft" => false, "head" => %{"sha" => "ready-head"}}}}}
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review", pr: %{"number" => 941, "draft" => false, "head" => %{"sha" => "ready-head"}}}}}, 1000
 
       _unchanged = poll_ci(next, issue, %{decision: :passed, head_sha: "ready-head", pr_number: 941, draft?: false})
       sync_recorder(recorder)
-      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}, 0
     end
 
     # #2707: the CI poll saw the draft while the ticket sat in ci-wait. CI
@@ -492,17 +492,17 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       refute Map.has_key?(state.ci_lifecycle.poll_cache, identifier)
       sync_recorder(recorder)
-      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}, 0
 
       state = poll_ci(state, review_issue, %{decision: :passed, head_sha: "draft-head", pr_number: 942, draft?: false})
       sync_recorder(recorder)
 
-      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review", pr: %{"number" => 942, "head" => %{"sha" => "draft-head"}}}}}
-      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review", pr: %{"number" => 942, "head" => %{"sha" => "draft-head"}}}}}, 1000
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}, 0
 
       _state = poll_ci(state, review_issue, %{decision: :passed, head_sha: "draft-head", pr_number: 942, draft?: false})
       sync_recorder(recorder)
-      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}, 0
     end
 
     test "alerts once when an approved, green PR is still a draft (#1974)" do
@@ -530,7 +530,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       # Approved + green + draft is always wrong: the daemon alerts so the
       # stall is loud instead of an indistinguishable BLOCKED.
-      assert_received {:parked_alert, ^ref, ^alert_topic, alert_opts}
+      assert_received {:parked_alert, ^ref, ^alert_topic, alert_opts}, 1000
       assert Keyword.get(alert_opts, :needs_attention) == true
 
       # The projection records draft state so the Executor queue surfaces DRAFT.
@@ -549,7 +549,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       # Re-polling the identical stalled head must not re-alert every cycle.
       _again = poll_ci(next, issue, result, alert_emitter: emitter)
       sync_recorder(recorder)
-      refute_received {:parked_alert, ^ref, ^alert_topic, _opts}
+      refute_received {:parked_alert, ^ref, ^alert_topic, _opts}, 0
     end
 
     test "does not alert for a ready (non-draft) green PR" do
@@ -572,7 +572,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         })
 
       sync_recorder(recorder)
-      refute_received {:recorded, _position, {:event, %{topic: ^alert_topic}}}
+      refute_received {:recorded, _position, {:event, %{topic: ^alert_topic}}}, 0
     end
 
     test "does not alert for an approved draft that is still pending CI" do
@@ -595,7 +595,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         })
 
       sync_recorder(recorder)
-      refute_received {:recorded, _position, {:event, %{topic: ^alert_topic}}}
+      refute_received {:recorded, _position, {:event, %{topic: ^alert_topic}}}, 0
     end
 
     test "failing CI queues failed-check context before resuming into rework" do
@@ -622,10 +622,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
-      assert_received {:recorded, 2, {:event, %{topic: ^topic}}}
-      assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
-      assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}, 1000
+      assert_received {:recorded, 2, {:event, %{topic: ^topic}}}, 1000
+      assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}, 1000
+      assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}, 1000
 
       assert next.running[identifier].issue.state == "rework"
       assert next.running[identifier].control.status == :paused
@@ -660,7 +660,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       next = Enum.reduce(1..3, state, fn _replay, acc -> poll_ci(acc, issue, failure) end)
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}, 0
       assert next.running[identifier].issue.state == "human-review"
       assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
     end
@@ -689,7 +689,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}, 0
       assert next.running[identifier].issue.state == "ci-wait"
       assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
     end
@@ -714,7 +714,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}, 1000
       assert next.running[identifier].issue.state == "rework"
       assert next.ci_lifecycle.approved_heads == %{}
     end
@@ -738,7 +738,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}, 0
       assert next.running[identifier].issue.state == "human-review"
       assert next.ci_lifecycle.approved_heads == %{identifier => "dismissed-head"}
       assert CIApprovalStore.load().approved_heads == %{identifier => "dismissed-head"}
@@ -765,7 +765,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "human-review"]}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "human-review"]}}, 1000
       assert next.running[identifier].issue.state == "rework"
       assert next.ci_lifecycle.approved_heads == %{}
     end
@@ -781,7 +781,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       next = poll_ci(armed, issue, %{decision: :pending, head_sha: "same-head"})
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, _message}
+      refute_received {:recorded, _position, _message}, 0
 
       # A redundant poll still caches the OCC-5 CI/PR projection without
       # changing the running entry or the already-armed fallback timer.
@@ -821,7 +821,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       refute Map.has_key?(next.running[identifier], :blocker_pause)
       refute Map.has_key?(next.running[identifier], :pending_auto_resume)
       assert next.ci_lifecycle.rewakes == %{}
-      refute_received {:recorded, _position, _message}
+      refute_received {:recorded, _position, _message}, 0
     end
 
     test "an unclassified worker pause preserves the pending CI-wait cause" do
@@ -845,11 +845,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         |> running_state(recorder, :working, [])
         |> CiLifecycle.pause_issue_for_ci_wait(issue)
 
-      assert_receive {:recorded, 1, {:pause_agent, request_id, 101}}
+      assert_receive {:recorded, 1, {:pause_agent, request_id, 101}}, 1000
       assert pending.running[identifier].pending_pause_reason == %{request_id: request_id, reason: :ci_wait}
 
       MessageHandler.send_control_state(self(), issue, :paused, %{})
-      assert_receive {:worker_control_state, ^identifier, :paused, payload}
+      assert_receive {:worker_control_state, ^identifier, :paused, payload}, 1000
 
       assert {:noreply, paused} =
                Orchestrator.handle_info(
@@ -881,7 +881,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         |> running_state(recorder, :working, [])
         |> CiLifecycle.pause_issue_for_ci_wait(issue)
 
-      assert_receive {:recorded, 1, {:pause_agent, _request_id, 101}}
+      assert_receive {:recorded, 1, {:pause_agent, _request_id, 101}}, 1000
 
       assert {:noreply, paused} =
                Orchestrator.handle_info(
@@ -910,9 +910,9 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
-      assert_received {:recorded, 2, {:agent_queue_updated, ^identifier, _item_id, false}}
-      assert_received {:recorded, 3, {:resume_agent, request_id, 101}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}, 1000
+      assert_received {:recorded, 2, {:agent_queue_updated, ^identifier, _item_id, false}}, 1000
+      assert_received {:recorded, 3, {:resume_agent, request_id, 101}}, 1000
       assert is_integer(request_id)
 
       assert next.running[identifier].issue.state == "in-progress"
@@ -945,7 +945,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       sync_recorder(recorder)
 
       assert next == armed
-      refute_received {:recorded, _position, _message}
+      refute_received {:recorded, _position, _message}, 0
     end
 
     test "a failed fallback transition replaces the expired timer token" do
@@ -967,8 +967,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
-      refute_received {:recorded, _position, {:resume_agent, _request_id}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}, 1000
+      refute_received {:recorded, _position, {:resume_agent, _request_id}}, 0
       assert %{token: replacement_token} = next.ci_lifecycle.rewakes[identifier]
       assert is_reference(replacement_token)
       refute replacement_token == expired_token
@@ -994,7 +994,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, _position, {:resume_agent, request_id, 101}}
+      assert_received {:recorded, _position, {:resume_agent, request_id, 101}}, 1000
       assert is_integer(request_id)
       assert next.running[identifier].issue.state == "rework"
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
@@ -1019,7 +1019,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, {:resume_agent, _request_id, _generation}}
+      refute_received {:recorded, _position, {:resume_agent, _request_id, _generation}}, 0
       assert next.running[identifier].control.status == :paused
       assert next.running[identifier].issue.state == "human-review"
     end
@@ -1042,7 +1042,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, _message}
+      refute_received {:recorded, _position, _message}, 0
       assert next.running[identifier].control.status == :paused
       assert next.running[identifier].issue.paused
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
@@ -1066,7 +1066,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, _message}
+      refute_received {:recorded, _position, _message}, 0
       assert next.running[identifier].control.status == :paused
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
@@ -1118,7 +1118,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}, 1000
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
 
@@ -1147,7 +1147,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}, 0
       # The live agent can still be handed the item, so the fence re-arms
       # rather than stranding the ticket.
       assert Map.has_key?(next.ci_lifecycle.rewakes, identifier)
@@ -1168,7 +1168,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}, 1000
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
 
@@ -1188,7 +1188,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, _message}
+      refute_received {:recorded, _position, _message}, 0
       assert next.running[identifier].control.status == :deactivated
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
@@ -1208,7 +1208,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, _message}
+      refute_received {:recorded, _position, _message}, 0
       assert next.running[identifier].control.status == :deactivated
       assert next.running[identifier].issue.paused
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
@@ -1229,7 +1229,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, _message}
+      refute_received {:recorded, _position, _message}, 0
       assert next.running[identifier].control.status == :deactivated
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
@@ -1242,7 +1242,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                |> Task.await()
 
       sync_recorder(recorder)
-      refute_received {:recorded, _position, _message}
+      refute_received {:recorded, _position, _message}, 0
     end
   end
 
@@ -1345,7 +1345,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       next = poll_ci(state, issue, parked_observation(), alert_emitter: capture_alert_emitter(self(), ref))
       topic = "ticket.#{identifier}.pr.parked_ready"
 
-      assert_received {:parked_alert, ^ref, ^topic, opts}
+      assert_received {:parked_alert, ^ref, ^topic, opts}, 1000
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :central) == true
       assert MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
@@ -1363,8 +1363,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       second = poll_ci(first, issue, parked_observation(), alert_emitter: emitter)
 
-      assert_received {:parked_alert, ^ref, _topic, _opts}
-      refute_received {:parked_alert, ^ref, _topic, _opts}
+      assert_received {:parked_alert, ^ref, _topic, _opts}, 1000
+      refute_received {:parked_alert, ^ref, _topic, _opts}, 0
       assert second.ci_lifecycle.parked_ready_alerts == first.ci_lifecycle.parked_ready_alerts
     end
 
@@ -1377,13 +1377,13 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       first = poll_ci(state, issue, parked_observation(), alert_emitter: emitter)
       assert MapSet.member?(first.ci_lifecycle.parked_ready_alerts, identifier)
-      assert_received {:parked_alert, ^ref, _topic, _opts}
+      assert_received {:parked_alert, ^ref, _topic, _opts}, 1000
 
       armed = parked_observation(%{auto_merge_request: %{"enabledAt" => "2026-08-13T20:00:00Z"}})
       next = poll_ci(first, issue, armed, alert_emitter: emitter)
       resolved_topic = "ticket.#{identifier}.pr.parked_ready.resolved"
 
-      assert_received {:parked_alert, ^ref, ^resolved_topic, resolve_opts}
+      assert_received {:parked_alert, ^ref, ^resolved_topic, resolve_opts}, 1000
       assert Keyword.get(resolve_opts, :needs_attention) == false
       refute MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
     end
@@ -1397,7 +1397,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       result = %{decision: :pending, pending_reason: :ci_lookup_unavailable, error: :test}
       next = poll_ci(state, issue, result, alert_emitter: capture_alert_emitter(self(), ref))
 
-      refute_received {:parked_alert, ^ref, _topic, _opts}
+      refute_received {:parked_alert, ^ref, _topic, _opts}, 0
       assert next.ci_lifecycle.parked_ready_alerts == MapSet.new()
     end
 
@@ -1410,13 +1410,13 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       first = poll_ci(state, issue, parked_observation(), alert_emitter: emitter)
       assert MapSet.member?(first.ci_lifecycle.parked_ready_alerts, identifier)
-      assert_received {:parked_alert, ^ref, _topic, _opts}
+      assert_received {:parked_alert, ^ref, _topic, _opts}, 1000
 
       gone = %{decision: :pending, pending_reason: :open_pr_not_yet_visible}
       next = poll_ci(first, issue, gone, alert_emitter: emitter)
       resolved_topic = "ticket.#{identifier}.pr.parked_ready.resolved"
 
-      assert_received {:parked_alert, ^ref, ^resolved_topic, _resolve_opts}
+      assert_received {:parked_alert, ^ref, ^resolved_topic, _resolve_opts}, 1000
       refute MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
     end
 
@@ -1439,7 +1439,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       resolved_topic = "ticket.#{identifier}.pr.parked_ready.resolved"
 
-      assert_received {:parked_alert, ^ref, ^resolved_topic, _resolve_opts}
+      assert_received {:parked_alert, ^ref, ^resolved_topic, _resolve_opts}, 1000
       refute MapSet.member?(next.ci_lifecycle.parked_ready_alerts, identifier)
     end
   end
@@ -1467,12 +1467,12 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       first = poll_ci(state, issue, draft_stall_observation(), alert_emitter: emitter)
       assert MapSet.member?(first.ci_lifecycle.draft_stall_alerts, identifier)
-      assert_received {:parked_alert, ^ref, _topic, _opts}
+      assert_received {:parked_alert, ^ref, _topic, _opts}, 1000
 
       next = poll_ci(first, issue, draft_stall_observation(%{draft?: false}), alert_emitter: emitter)
       resolved_topic = "ticket.#{identifier}.pr.draft_approved_green.resolved"
 
-      assert_received {:parked_alert, ^ref, ^resolved_topic, resolve_opts}
+      assert_received {:parked_alert, ^ref, ^resolved_topic, resolve_opts}, 1000
       assert Keyword.get(resolve_opts, :needs_attention) == false
       refute MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
     end
@@ -1485,7 +1485,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       emitter = capture_alert_emitter(self(), ref)
 
       first = poll_ci(state, issue, draft_stall_observation(), alert_emitter: emitter)
-      assert_received {:parked_alert, ^ref, _topic, _opts}
+      assert_received {:parked_alert, ^ref, _topic, _opts}, 1000
 
       transient = %{decision: :pending, pending_reason: :ci_lookup_unavailable, error: :test}
       second = poll_ci(first, issue, transient, alert_emitter: emitter)
@@ -1494,7 +1494,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       third = poll_ci(second, issue, draft_stall_observation(), alert_emitter: emitter)
 
-      refute_received {:parked_alert, ^ref, _topic, _opts}
+      refute_received {:parked_alert, ^ref, _topic, _opts}, 0
       assert MapSet.member?(third.ci_lifecycle.draft_stall_alerts, identifier)
     end
 
@@ -1506,12 +1506,12 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       emitter = capture_alert_emitter(self(), ref)
 
       first = poll_ci(state, issue, draft_stall_observation(), alert_emitter: emitter)
-      assert_received {:parked_alert, ^ref, _topic, _opts}
+      assert_received {:parked_alert, ^ref, _topic, _opts}, 1000
 
       fallback = draft_stall_observation(%{review_decision: nil})
       next = poll_ci(first, issue, fallback, alert_emitter: emitter)
 
-      refute_received {:parked_alert, ^ref, _topic, _opts}
+      refute_received {:parked_alert, ^ref, _topic, _opts}, 0
       assert MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
     end
 
@@ -1523,12 +1523,12 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       emitter = capture_alert_emitter(self(), ref)
 
       first = poll_ci(state, issue, draft_stall_observation(), alert_emitter: emitter)
-      assert_received {:parked_alert, ^ref, _topic, _opts}
+      assert_received {:parked_alert, ^ref, _topic, _opts}, 1000
 
       transient = %{decision: :pending, pending_reason: :open_pr_not_yet_visible}
       next = poll_ci(first, issue, transient, alert_emitter: emitter)
 
-      refute_received {:parked_alert, ^ref, _topic, _opts}
+      refute_received {:parked_alert, ^ref, _topic, _opts}, 0
       assert MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
     end
 
@@ -1540,13 +1540,13 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       emitter = capture_alert_emitter(self(), ref)
 
       first = poll_ci(state, issue, draft_stall_observation(), alert_emitter: emitter)
-      assert_received {:parked_alert, ^ref, _topic, _opts}
+      assert_received {:parked_alert, ^ref, _topic, _opts}, 1000
 
       gone = %{decision: :pending, pending_reason: :open_pr_no_longer_visible}
       next = poll_ci(first, issue, gone, alert_emitter: emitter)
       resolved_topic = "ticket.#{identifier}.pr.draft_approved_green.resolved"
 
-      assert_received {:parked_alert, ^ref, ^resolved_topic, _opts}
+      assert_received {:parked_alert, ^ref, ^resolved_topic, _opts}, 1000
       refute MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
       assert next.ci_lifecycle.poll_cache[identifier].draft? == false
       assert next.ci_lifecycle.poll_cache[identifier].review_decision == nil
@@ -1570,7 +1570,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
           draft_stall_alert_loader: fn -> MapSet.new() end
         )
 
-      refute_received {:parked_alert, ^ref, _topic, _opts}
+      refute_received {:parked_alert, ^ref, _topic, _opts}, 0
       assert MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
 
       ready_issue = issue(identifier, "human-review")
@@ -1579,7 +1579,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         poll_ci(next, ready_issue, draft_stall_observation(%{draft?: false}), alert_emitter: emitter)
 
       resolved_topic = "ticket.#{identifier}.pr.draft_approved_green.resolved"
-      assert_received {:parked_alert, ^ref, ^resolved_topic, _opts}
+      assert_received {:parked_alert, ^ref, ^resolved_topic, _opts}, 1000
       refute MapSet.member?(resolved.ci_lifecycle.draft_stall_alerts, identifier)
     end
 
@@ -1595,7 +1595,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
           draft_stall_alert_loader: fn -> MapSet.new([identifier]) end
         )
 
-      refute_received {:parked_alert, ^ref, _topic, _opts}
+      refute_received {:parked_alert, ^ref, _topic, _opts}, 0
       assert MapSet.member?(next.ci_lifecycle.draft_stall_alerts, identifier)
     end
   end

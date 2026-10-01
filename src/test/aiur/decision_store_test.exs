@@ -2629,7 +2629,7 @@ defmodule Aiur.DecisionStoreTest do
       end)
 
       receive_barrier({:trace, ^pid, :receive, {:"$gen_call", _from, {:answer, ^decision_id, _payload, _opts}}})
-      refute_received {:answer_result, _result}
+      refute_received {:answer_result, _result}, 0
     after
       :erlang.trace(pid, false, [:receive])
     end
@@ -3118,8 +3118,8 @@ defmodule Aiur.DecisionStoreTest do
       # The dispatcher sends before it returns, and the store only reaches
       # `:queued` after it returns, so this message is already in the mailbox:
       # a zero-timeout check, not a race.
-      assert_received {:reconciled, ^reconciled_action_id, _attempt_id}
-      refute_received {:reconciled, _, _}
+      assert_received {:reconciled, ^reconciled_action_id, _attempt_id}, 1000
+      refute_received {:reconciled, _, _}, 0
     end
 
     test "transient dispatch failure is retried after request enrichment", %{dir: dir} do
@@ -4164,7 +4164,7 @@ defmodule Aiur.DecisionStoreTest do
       assert :ok = DecisionStore.deliver_pending_answers("979", pid)
       refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
 
-      assert_receive {:worker_queue_item, ^id, item_id}
+      assert_receive {:worker_queue_item, ^id, item_id}, 1000
       assert {:ok, :accepted} = DecisionStore.record_delivery(correlated_queue_item(queued, action, attempt_id, item_id), pid)
       assert :ok = DecisionStore.deliver_pending_answers("979", pid)
       refute_receive {:worker_received, ^id, _action_id, _attempt_id}, 200
@@ -4293,7 +4293,7 @@ defmodule Aiur.DecisionStoreTest do
       payload = %{"idempotency_key" => "confirmed-1", "expected_version" => 1, "option_id" => "ship"}
       assert {:ok, %{action: action}} = answer(pid, id, payload)
       assert_receive {:worker_received, ^id, _action_id, attempt_id}, 1_000
-      assert_receive {:worker_queue_item, ^id, item_id}
+      assert_receive {:worker_queue_item, ^id, item_id}, 1000
       queued = wait_for_decision(pid, id, &(&1.delivery_status == :queued))
 
       # The provider confirms the answer, then the worker's turn fails.
@@ -4369,7 +4369,7 @@ defmodule Aiur.DecisionStoreTest do
       payload = %{"idempotency_key" => "handoff-1", "expected_version" => 1, "option_id" => "ship"}
       assert {:ok, %{action: action}} = answer(pid, id, payload)
       assert_receive {:worker_received, ^id, _action_id, attempt_id}, 1_000
-      assert_receive {:worker_queue_item, ^id, item_id}
+      assert_receive {:worker_queue_item, ^id, item_id}, 1000
       queued = wait_for_decision(pid, id, &(&1.delivery_status == :queued))
 
       # The delivery gate hands the answer to the worker, and the send fails
@@ -4680,13 +4680,13 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, %{decision: decision}} =
                request(pid, %{"question" => "Recover this Command?", "blocking" => true})
 
-      assert_receive {:publish_failed, decision_id, 1}
+      assert_receive {:publish_failed, decision_id, 1}, 1000
       assert decision_id == decision.decision_id
 
-      assert_receive {:retry_scheduled, ^pid, {:retry_executor_request_notification, ^decision_id, 1, 1} = retry_message}
+      assert_receive {:retry_scheduled, ^pid, {:retry_executor_request_notification, ^decision_id, 1, 1} = retry_message}, 1000
 
       send(pid, retry_message)
-      assert_receive {:reconciled, ^decision_id, 1}
+      assert_receive {:reconciled, ^decision_id, 1}, 1000
     end
 
     test "an accepted expiration fans out on the owning ticket's decision.expired topic", %{dir: dir} do

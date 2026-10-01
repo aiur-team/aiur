@@ -61,7 +61,7 @@ defmodule Aiur.Init.PrewarmTest do
                %{enabled: true, base_build: "mise exec -- mix compile"}
              )
 
-    assert_received {:build, "https://github.com/owner/repo.git", "mise exec -- mix compile"}
+    assert_received {:build, "https://github.com/owner/repo.git", "mise exec -- mix compile"}, 1000
     assert puts_log() =~ "✅ Warm base ready."
 
     failing_deps = deps(%{prewarm_build: fn _url, _cmd -> {:error, {:base_build_failed, 1, "boom"}} end})

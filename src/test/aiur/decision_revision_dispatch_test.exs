@@ -28,7 +28,7 @@ defmodule Aiur.DecisionRevisionDispatchTest do
 
       assert refreshed.state == "in-progress"
 
-      assert_receive {:revalidated, issue, ^fetcher, @terminal_states}
+      assert_receive {:revalidated, issue, ^fetcher, @terminal_states}, 1000
       assert issue.id == "tracker-id-985"
       assert issue.identifier == "tracker-id-985"
       assert issue.title == "OCC-8"
@@ -95,8 +95,8 @@ defmodule Aiur.DecisionRevisionDispatchTest do
                  terminal_states: @terminal_states
                )
 
-      assert_receive {:step, :revalidated, "tracker-id-985"}
-      assert_receive {:step, :sent, :orchestrator, "985", payload}
+      assert_receive {:step, :revalidated, "tracker-id-985"}, 1000
+      assert_receive {:step, :sent, :orchestrator, "985", payload}, 1000
       revision = List.last(decision.revisions)
       assert payload.action_id == revision.action_id
       assert payload.delivery_policy == :interrupt
@@ -155,7 +155,7 @@ defmodule Aiur.DecisionRevisionDispatchTest do
                  attention_opener: opener
                )
 
-      assert_receive {:opened, :attention, %Issue{id: "tracker-id-985"}, nil, nil, slug, question}
+      assert_receive {:opened, :attention, %Issue{id: "tracker-id-985"}, nil, nil, slug, question}, 1000
       assert slug == follow_up.slug
       assert question == follow_up.question
 
@@ -177,7 +177,7 @@ defmodule Aiur.DecisionRevisionDispatchTest do
                  attention_resolver: resolver
                )
 
-      assert_receive {:resolved, :attention, %Issue{id: "tracker-id-985"}, ^slug}
+      assert_receive {:resolved, :attention, %Issue{id: "tracker-id-985"}, ^slug}, 1000
     end
   end
 

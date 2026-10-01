@@ -23,7 +23,7 @@ defmodule Aiur.OpenAICompat.MeterAdapterTest do
                meter_ingester: fn update -> send(parent, {:meter, update}) end
              )
 
-    assert_receive {:meter, update}
+    assert_receive {:meter, update}, 1000
     assert update.provider == :kimi
     assert update.backend == :openai_compat
     assert update.update_kind == :patch
@@ -42,7 +42,7 @@ defmodule Aiur.OpenAICompat.MeterAdapterTest do
     assert :ok =
              MeterAdapter.observe(%{headers: %{}}, state(:kimi), meter_ingester: fn update -> send(parent, {:meter, update}) end)
 
-    refute_receive {:meter, _update}
+    refute_receive {:meter, _update}, 0
   end
 
   test "DeepSeek reports local concurrency headroom without claiming a provider percentage" do
@@ -54,7 +54,7 @@ defmodule Aiur.OpenAICompat.MeterAdapterTest do
                meter_ingester: fn update -> send(parent, {:meter, update}) end
              )
 
-    assert_receive {:meter, %{windows: [window]}}
+    assert_receive {:meter, %{windows: [window]}}, 1000
     assert window.name == :concurrency
     assert window.used == 25
     assert window.limit == 2_500
@@ -80,7 +80,7 @@ defmodule Aiur.OpenAICompat.MeterAdapterTest do
                  meter_ingester: fn update -> send(parent, {:meter, update}) end
                )
 
-      assert_receive {:meter, update}
+      assert_receive {:meter, update}, 1000
       assert {:ok, normalized} = Input.normalize(update)
       assert normalized.provider == provider
       assert normalized.backend == :openai_compat

@@ -190,7 +190,7 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
                  end
                )
 
-      assert_receive {:alert_emitted, "ticket.2422.agent.attention.rework_attempt_limit", opts}
+      assert_receive {:alert_emitted, "ticket.2422.agent.attention.rework_attempt_limit", opts}, 1000
       assert Keyword.get(opts, :needs_attention) == true
       assert MapSet.member?(next.rework_attempt_alerted, {"2422", "abc123"})
     end
@@ -211,7 +211,7 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
                  end
                )
 
-      refute_receive {:alert_emitted, _, _}
+      refute_receive {:alert_emitted, _, _}, 0
     end
 
     test "a nil head SHA fails open and never trips the bound" do

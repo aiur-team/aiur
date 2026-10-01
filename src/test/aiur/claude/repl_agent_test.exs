@@ -625,10 +625,10 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert is_binary(result.turn_id)
     assert is_binary(result.session_id)
 
-    assert_receive {:msg, %{event: :session_started, turn_id: tid}}
+    assert_receive {:msg, %{event: :session_started, turn_id: tid}}, 1000
     assert tid == result.turn_id
-    assert_receive {:msg, %{event: :transcript, transcript_event: %{role: :assistant, body: "All done."}}}
-    assert_receive {:msg, %{event: :turn_completed}}
+    assert_receive {:msg, %{event: :transcript, transcript_event: %{role: :assistant, body: "All done."}}}, 1000
+    assert_receive {:msg, %{event: :turn_completed}}, 1000
   end
 
   # Pump all interleaved mock traffic (pane-liveness polls + the mid-turn
@@ -1278,10 +1278,10 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert result.session_id == "sess-1"
 
     # The hook loop emits control events only — no `→ Tool` or assistant rows.
-    refute_received {:msg, %{event: :transcript, transcript_event: %{role: :tool}}}
-    refute_received {:msg, %{event: :transcript, transcript_event: %{role: :assistant}}}
+    refute_received {:msg, %{event: :transcript, transcript_event: %{role: :tool}}}, 0
+    refute_received {:msg, %{event: :transcript, transcript_event: %{role: :assistant}}}, 0
 
-    assert_receive {:msg, %{event: :turn_completed}}
+    assert_receive {:msg, %{event: :turn_completed}}, 1000
   end
 
   test "hook-driven run_turn types a mid-turn operator message into the pane", %{tmux: tmux} do

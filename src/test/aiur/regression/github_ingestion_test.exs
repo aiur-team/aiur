@@ -92,7 +92,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
                  request_fun: request_fun
                )
 
-      refute_received {:event, _}
+      refute_received {:event, _}, 0
     end
 
     test "review-thread wake dedups on the stable thread node id" do
@@ -287,7 +287,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
                GithubFirehose.poll(request_fun: stub, boot_time: boot_time, repo: repo)
 
       assert_receive {:event, %{topic: "system.main.branch.push"}}, 2000
-      refute_received {:event, _}
+      refute_received {:event, _}, 0
     end
   end
 
@@ -497,7 +497,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
       :sys.get_state(pid)
       send(pid, :tick)
       :sys.get_state(pid)
-      refute_received {:event, %{topic: "system.github.connectivity_lost"}}
+      refute_received {:event, %{topic: "system.github.connectivity_lost"}}, 0
 
       send(pid, :tick)
       :sys.get_state(pid)
@@ -506,7 +506,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
       # Past the threshold stays silent until a success re-arms.
       send(pid, :tick)
       :sys.get_state(pid)
-      refute_received {:event, %{topic: "system.github.connectivity_lost"}}
+      refute_received {:event, %{topic: "system.github.connectivity_lost"}}, 0
     end
   end
 
@@ -544,7 +544,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
       # Bootstrap tick records refs without publishing.
       send(pid, :tick)
       :sys.get_state(pid)
-      refute_received {:published, _, _, _}
+      refute_received {:published, _, _, _}, 0
 
       # Second tick: only valid ticket refs publish; malformed and unchanged refs do not.
       send(pid, :tick)
@@ -555,7 +555,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
       assert opts_77[:issue_number] == "77"
 
       assert_receive {:published, "ticket.88.branch.push", _, _}, 2000
-      refute_received {:published, _, _, _}
+      refute_received {:published, _, _, _}, 0
     end
 
     test "error ticks never fake a bootstrap baseline" do
@@ -574,7 +574,7 @@ defmodule Aiur.Regression.GithubIngestionTest do
       # First SUCCESS is the baseline — no phantom-push storm.
       send(pid, :tick)
       assert :sys.get_state(pid).bootstrapped? == true
-      refute_received {:published, _, _, _}
+      refute_received {:published, _, _, _}, 0
 
       send(pid, :tick)
       :sys.get_state(pid)

@@ -138,7 +138,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert_receive {:claimed, {:ok, _lease}}, 2_000
     monitor = Process.monitor(owner)
     Process.exit(owner, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}, 1000
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
   end
 
@@ -160,7 +160,7 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     monitor = Process.monitor(owner)
     Process.exit(owner, :kill)
-    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}, 1000
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
     assert {:error, :workspace_ownership_lost} = Ownership.holder(lease)
     refute Enum.any?(Ownership.leases(), &(&1.ticket == ticket))

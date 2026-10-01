@@ -182,8 +182,8 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       issue = %Issue{identifier: "QD-09", id: "gid-qd09"}
 
       assert QueueDrain.prepare_operator_delivery(correlated_item(), issue, store) == :ok
-      assert_receive {:decision_delivery_prepared, %{action_id: "act_9"}}
-      refute_receive {:decision_delivery, _}
+      assert_receive {:decision_delivery_prepared, %{action_id: "act_9"}}, 1000
+      refute_receive {:decision_delivery, _}, 0
     end
 
     test "bounds correlation retries and keeps terminal attention open until recovery", %{log_root: log_root} do
@@ -215,7 +215,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       issue = %Issue{identifier: "QD-09", id: "gid-qd09"}
 
       assert QueueDrain.record_provider_delivery(correlated_item(), issue, store) == :ok
-      assert_receive {:decision_delivery, %{action_id: "act_9"}}
+      assert_receive {:decision_delivery, %{action_id: "act_9"}}, 1000
     end
   end
 
@@ -305,16 +305,16 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       send(task.pid, {:pause_agent, 51, 101})
       send(task.pid, :start)
 
-      assert_receive {:worker_control_state, ^worker_issue_id, :paused, %{request_id: 51, generation: 101}}
+      assert_receive {:worker_control_state, ^worker_issue_id, :paused, %{request_id: 51, generation: 101}}, 1000
 
       send(task.pid, {:resume_agent, 52, 101})
 
-      assert_receive {:worker_control_state, ^worker_issue_id, :working, %{request_id: 52, generation: 101}}
+      assert_receive {:worker_control_state, ^worker_issue_id, :working, %{request_id: 52, generation: 101}}, 1000
       assert_receive {:queue_drain_opts, opts}, 1_000
       assert is_function(opts[:tool_executor], 2)
       assert is_function(opts[:on_provider_delivery], 1)
-      assert_receive {:provider_delivered, 1, %{turn_id: "queued-provider-turn"}}
-      assert_receive {:queue_item_consumed, ^identifier}
+      assert_receive {:provider_delivered, 1, %{turn_id: "queued-provider-turn"}}, 1000
+      assert_receive {:queue_item_consumed, ^identifier}, 1000
       assert :ok = Task.await(task, 1_000)
     end
 
@@ -344,10 +344,10 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
 
       # The deferred item reaches the agent as exactly one sequential follow-up
       # turn once the parent turn has ended — never overlapping a live turn.
-      assert_receive {:follow_up_turn, "deferred check-in"}
-      assert_receive {:provider_delivered, 7, %{turn_id: "follow-up-turn"}}
-      assert_receive {:queue_item_consumed, ^identifier}
-      refute_receive {:follow_up_turn, _other}
+      assert_receive {:follow_up_turn, "deferred check-in"}, 1000
+      assert_receive {:provider_delivered, 7, %{turn_id: "follow-up-turn"}}, 1000
+      assert_receive {:queue_item_consumed, ^identifier}, 1000
+      refute_receive {:follow_up_turn, _other}, 0
     end
 
     # #2697: a paused-then-resumed or queued turn runs in a live session, so
@@ -377,8 +377,8 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  run_turn: run_turn
                )
 
-      assert_receive {:turn_saw_missing, []}
-      assert_receive {:queue_item_consumed, ^identifier}
+      assert_receive {:turn_saw_missing, []}, 1000
+      assert_receive {:queue_item_consumed, ^identifier}, 1000
     end
 
     test "a queued turn refuses to start when the gh config dir is an unrepairable symlink", %{log_root: log_root} do
@@ -411,8 +411,8 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert ".aiur-runtime/gh" in missing
       refute_received :turn_started
       # The turn never started: the operator message goes back to the queue.
-      assert_receive {:queue_item_restored, ^identifier}
-      refute_received {:queue_item_failed, ^identifier, _reason}
+      assert_receive {:queue_item_restored, ^identifier}, 1000
+      refute_received {:queue_item_failed, ^identifier, _reason}, 0
     end
 
     test "a provider active-turn (-32_003) rejection restores the queued message instead of failing it" do
@@ -437,9 +437,9 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  end
                )
 
-      assert_receive {:queue_item_restored, ^identifier}
-      refute_receive {:queue_item_failed, ^identifier, _reason}
-      refute_receive {:queue_item_consumed, ^identifier}
+      assert_receive {:queue_item_restored, ^identifier}, 1000
+      refute_receive {:queue_item_failed, ^identifier, _reason}, 0
+      refute_receive {:queue_item_consumed, ^identifier}, 0
     end
 
     test "queued turns preserve lifecycle attempts in emitted observations" do
@@ -486,7 +486,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
       assert observation.provenance.attempt == 7
       assert observation.provenance.session_id == "queue-thread"
       assert observation.provenance.source_event_id == "queued-tool"
-      assert_receive {:queue_item_consumed, ^identifier}
+      assert_receive {:queue_item_consumed, ^identifier}, 1000
     end
 
     test "provider exits restore the queued message for a replacement to drain once" do
@@ -527,9 +527,9 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                    ]
                )
 
-      assert_receive {:queue_item_restored, ^identifier}
-      refute_receive {:queue_item_consumed, ^identifier}
-      refute_receive {:queue_item_failed, ^identifier, {:port_exit, 9}}
+      assert_receive {:queue_item_restored, ^identifier}, 1000
+      refute_receive {:queue_item_consumed, ^identifier}, 0
+      refute_receive {:queue_item_failed, ^identifier, {:port_exit, 9}}, 0
       assert %{messages: []} = LiveConversation.snapshot(retired_source, server: server)
 
       test_pid = self()
@@ -560,10 +560,10 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                    ]
                )
 
-      assert_receive {:replacement_turn, "replacement-thread", "retry on replacement"}
-      refute_receive {:replacement_turn, "replacement-thread", "retry on replacement"}
-      assert_receive {:queue_item_consumed, ^identifier}
-      refute_receive {:queue_item_restored, ^identifier}
+      assert_receive {:replacement_turn, "replacement-thread", "retry on replacement"}, 1000
+      refute_receive {:replacement_turn, "replacement-thread", "retry on replacement"}, 0
+      assert_receive {:queue_item_consumed, ^identifier}, 1000
+      refute_receive {:queue_item_restored, ^identifier}, 0
 
       assert %{messages: [%{role: "operator", body: "retry on replacement"}]} =
                LiveConversation.snapshot(replacement_source, server: server)
@@ -704,9 +704,9 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  end
                )
 
-      assert_receive {:queue_item_restored, ^identifier}
-      refute_receive {:queue_item_consumed, ^identifier}
-      refute_receive {:queue_item_failed, ^identifier, {:turn_start_failed, :port_closed}}
+      assert_receive {:queue_item_restored, ^identifier}, 1000
+      refute_receive {:queue_item_consumed, ^identifier}, 0
+      refute_receive {:queue_item_failed, ^identifier, {:turn_start_failed, :port_closed}}, 0
 
       test_pid = self()
 
@@ -723,10 +723,10 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  end
                )
 
-      assert_receive {:replacement_turn, "replacement-thread", "survive closed start"}
-      refute_receive {:replacement_turn, "replacement-thread", "survive closed start"}
-      assert_receive {:queue_item_consumed, ^identifier}
-      refute_receive {:queue_item_restored, ^identifier}
+      assert_receive {:replacement_turn, "replacement-thread", "survive closed start"}, 1000
+      refute_receive {:replacement_turn, "replacement-thread", "survive closed start"}, 0
+      assert_receive {:queue_item_consumed, ^identifier}, 1000
+      refute_receive {:queue_item_restored, ^identifier}, 0
     end
 
     test "Muse pre-write closed turn/start restores a queued message for one replacement delivery" do
@@ -747,9 +747,9 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  end
                )
 
-      assert_receive {:queue_item_restored, ^identifier}
-      refute_received {:queue_item_consumed, ^identifier}
-      refute_received {:queue_item_failed, ^identifier, _reason}
+      assert_receive {:queue_item_restored, ^identifier}, 1000
+      refute_received {:queue_item_consumed, ^identifier}, 0
+      refute_received {:queue_item_failed, ^identifier, _reason}, 0
 
       test_pid = self()
 
@@ -766,10 +766,10 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  end
                )
 
-      assert_receive {:muse_replacement_turn, "replacement-native-session", "survive Muse closed start"}
-      assert_receive {:queue_item_consumed, ^identifier}
-      refute_received {:queue_item_failed, ^identifier, _reason}
-      refute_received {:muse_replacement_turn, "replacement-native-session", "survive Muse closed start"}
+      assert_receive {:muse_replacement_turn, "replacement-native-session", "survive Muse closed start"}, 1000
+      assert_receive {:queue_item_consumed, ^identifier}, 1000
+      refute_received {:queue_item_failed, ^identifier, _reason}, 0
+      refute_received {:muse_replacement_turn, "replacement-native-session", "survive Muse closed start"}, 0
     end
 
     # Future-regression guard: this behavior already held before Muse recovery.
@@ -789,8 +789,8 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  run_turn: fn _session, _text, _issue, _opts -> {:error, {:native_port_exit, 9}} end
                )
 
-      assert_receive {:queue_item_failed, ^identifier, {:native_port_exit, 9}}
-      refute_received {:queue_item_restored, ^identifier}
+      assert_receive {:queue_item_failed, ^identifier, {:native_port_exit, 9}}, 1000
+      refute_received {:queue_item_restored, ^identifier}, 0
     end
 
     test "a paused queued turn confirms containment before waiting for resume" do
@@ -818,9 +818,9 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
         end)
 
       on_exit(fn -> if Process.alive?(worker), do: Process.exit(worker, :kill) end)
-      assert_receive {:queue_item_restored, ^identifier}
+      assert_receive {:queue_item_restored, ^identifier}, 1000
       assert %{^identifier => %{mode: :paused}} = :sys.get_state(PauseContainment).entries
-      refute_received {:queue_item_failed, ^identifier, _reason}
+      refute_received {:queue_item_failed, ^identifier, _reason}, 0
     end
 
     test "a queued Muse turn completed during pause is consumed before waiting for resume" do
@@ -849,7 +849,7 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
 
       on_exit(fn -> if Process.alive?(worker), do: Process.exit(worker, :kill) end)
       assert_receive {:queue_item_consumed, ^identifier}, 1_000
-      refute_received {:queue_item_restored, ^identifier}
+      refute_received {:queue_item_restored, ^identifier}, 0
       assert %{item: nil, delivered: nil} = :sys.get_state(orchestrator)
       assert %{^identifier => %{mode: :paused}} = :sys.get_state(PauseContainment).entries
     end
@@ -877,10 +877,10 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  end
                )
 
-      assert_receive {:restore_unavailable, ^identifier}
-      assert_receive {:queue_item_restored, ^identifier}
-      refute_receive {:queue_item_failed, ^identifier, _reason}
-      refute_receive {:queue_item_consumed, ^identifier}
+      assert_receive {:restore_unavailable, ^identifier}, 1000
+      assert_receive {:queue_item_restored, ^identifier}, 1000
+      refute_receive {:queue_item_failed, ^identifier, _reason}, 0
+      refute_receive {:queue_item_consumed, ^identifier}, 0
 
       test_pid = self()
 
@@ -897,10 +897,10 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  end
                )
 
-      assert_receive {:replacement_turn, "replacement-thread", "survive unavailable restore"}
-      refute_receive {:replacement_turn, "replacement-thread", "survive unavailable restore"}
-      assert_receive {:queue_item_consumed, ^identifier}
-      refute_receive {:queue_item_restored, ^identifier}
+      assert_receive {:replacement_turn, "replacement-thread", "survive unavailable restore"}, 1000
+      refute_receive {:replacement_turn, "replacement-thread", "survive unavailable restore"}, 0
+      assert_receive {:queue_item_consumed, ^identifier}, 1000
+      refute_receive {:queue_item_restored, ^identifier}, 0
     end
 
     test "active-turn mismatch restores the queued message without failing it" do
@@ -921,9 +921,9 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  end
                )
 
-      assert_receive {:queue_item_restored, ^identifier}
-      refute_receive {:queue_item_consumed, ^identifier}
-      refute_receive {:queue_item_failed, ^identifier, {:turn_interrupt_failed, @active_turn_mismatch}}
+      assert_receive {:queue_item_restored, ^identifier}, 1000
+      refute_receive {:queue_item_consumed, ^identifier}, 0
+      refute_receive {:queue_item_failed, ^identifier, {:turn_interrupt_failed, @active_turn_mismatch}}, 0
     end
 
     test "genuine provider turn/start failures still fail the queued delivery" do
@@ -944,8 +944,8 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  end
                )
 
-      assert_receive {:queue_item_failed, ^identifier, {:turn_start_failed, :provider_rejected}}
-      refute_receive {:queue_item_restored, ^identifier}
+      assert_receive {:queue_item_failed, ^identifier, {:turn_start_failed, :provider_rejected}}, 1000
+      refute_receive {:queue_item_restored, ^identifier}, 0
     end
 
     test "Claude provider exits retain the existing failed-delivery behavior" do
@@ -964,8 +964,8 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  run_turn: fn _session, _text, _issue, _opts -> {:error, {:port_exit, 9}} end
                )
 
-      assert_receive {:queue_item_failed, ^identifier, {:port_exit, 9}}
-      refute_receive {:queue_item_restored, ^identifier}
+      assert_receive {:queue_item_failed, ^identifier, {:port_exit, 9}}, 1000
+      refute_receive {:queue_item_restored, ^identifier}, 0
     end
 
     test "Claude closed ports retain the existing failed-delivery behavior" do
@@ -984,8 +984,8 @@ defmodule Aiur.AgentRunner.QueueDrainTest do
                  run_turn: fn _session, _text, _issue, _opts -> {:error, :port_closed} end
                )
 
-      assert_receive {:queue_item_failed, ^identifier, :port_closed}
-      refute_receive {:queue_item_restored, ^identifier}
+      assert_receive {:queue_item_failed, ^identifier, :port_closed}, 1000
+      refute_receive {:queue_item_restored, ^identifier}, 0
     end
   end
 

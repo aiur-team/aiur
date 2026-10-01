@@ -94,7 +94,7 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
         )
 
       assert response["success"] == true
-      assert_received {:reply, "PRRT_abc", "Fixed.", []}
+      assert_received {:reply, "PRRT_abc", "Fixed.", []}, 1000
       assert Jason.decode!(response["output"]) == %{"verified" => true}
     end
 
@@ -128,7 +128,7 @@ defmodule Aiur.Codex.DynamicTool.ReviewThreadsTest do
         )
 
       assert response["success"] == true
-      assert_received {:resolve, "PRRT_done", [terminal_reply_body: "Done."]}
+      assert_received {:resolve, "PRRT_done", [terminal_reply_body: "Done."]}, 1000
     end
 
     test "review_thread_resolution_not_permitted renders explicit failure" do

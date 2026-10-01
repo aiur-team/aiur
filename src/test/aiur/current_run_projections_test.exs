@@ -21,8 +21,8 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert :ok = CurrentRunOutcomeSnapshot.subscribe(pubsub: pubsub)
     assert :ok = CurrentRunProjections.refresh(owner)
 
-    assert_receive {:current_run_summary_changed, summary}
-    assert_receive {:current_run_outcome_snapshot_changed, outcomes}
+    assert_receive {:current_run_summary_changed, summary}, 1000
+    assert_receive {:current_run_outcome_snapshot_changed, outcomes}, 1000
 
     assert summary.health.status == :healthy
     assert summary.freshness.status == :fresh
@@ -63,8 +63,8 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert state.readers.status.() == snapshot
     assert state.readers.status_facts.() == snapshot.statuses
 
-    assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, []}
-    assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, [fleet_rows?: true]}
+    assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, []}, 1000
+    assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, [fleet_rows?: true]}, 1000
     refute_receive _message
   end
 
@@ -98,7 +98,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
     assert state.readers.status.() == :unavailable
     assert state.readers.status_facts.() == :unavailable
-    refute_receive {:orchestrator_message, _message}
+    refute_receive {:orchestrator_message, _message}, 0
   end
 
   test "cached status readers preserve routing facts through the Units projection" do

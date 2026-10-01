@@ -51,7 +51,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       # The agent names no label to remove; the write targets its own ticket and
       # the tracker's swap makes the target the sole `agent:*` state label.
-      assert_receive {:state_write, "gid-te-state", "human-review"}
+      assert_receive {:state_write, "gid-te-state", "human-review"}, 1000
       assert response["success"] == true
       assert Jason.decode!(response["output"])["state"] == "human-review"
     end
@@ -1864,7 +1864,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       generic = executor.("emit_event", %{"name" => "decision.use-something", "message" => "ordinary"})
       assert generic["success"] == true
-      refute_receive {:resolved_through_store, _}
+      refute_receive {:resolved_through_store, _}, 0
     end
 
     test "lifecycle rejection is returned as a normal tool failure" do

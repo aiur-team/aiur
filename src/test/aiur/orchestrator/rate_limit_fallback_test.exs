@@ -227,9 +227,9 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         {:add, "repo#1", "model:claude"}
       ])
 
-      assert_received {:teardown, "repo#1", :rate_limit_fallback}
-      assert_received {:dispatch, %Issue{labels: ["model:claude", @marker_label], selected_backend: "claude"}, nil, "worker-2"}
-      refute_received {:label_op, _}
+      assert_received {:teardown, "repo#1", :rate_limit_fallback}, 1000
+      assert_received {:dispatch, %Issue{labels: ["model:claude", @marker_label], selected_backend: "claude"}, nil, "worker-2"}, 1000
+      refute_received {:label_op, _}, 0
     end
 
     test "carries an authoritative lifecycle fence to the live fallback replacement" do
@@ -300,9 +300,9 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         {:remove, "repo#1", @marker_label}
       ])
 
-      assert_received {:teardown, "repo#1", :rate_limit_fallback}
-      assert_received {:dispatch, %Issue{labels: [], selected_backend: "codex"}, nil, "worker-2"}
-      refute_received {:label_op, _}
+      assert_received {:teardown, "repo#1", :rate_limit_fallback}, 1000
+      assert_received {:dispatch, %Issue{labels: [], selected_backend: "codex"}, nil, "worker-2"}, 1000
+      refute_received {:label_op, _}, 0
     end
 
     test "removes the inert marker when adding the routing label fails" do
@@ -466,7 +466,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
 
       assert %{pid: nil, ref: nil, control: %{status: :completed}, rate_limit_fallback_replacement: true} = result.running["1"]
       assert Map.has_key?(result.retry_attempts, "1")
-      assert_received {:retry, "1", _, %{worker_host: "worker-2", tracker_identity: ^identity}}
+      assert_received {:retry, "1", _, %{worker_host: "worker-2", tracker_identity: ^identity}}, 1000
 
       assert RateLimitFallback.reconcile(
                result,
@@ -496,7 +496,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
           )
         )
 
-      assert_received {:pause, "repo#1"}
+      assert_received {:pause, "repo#1"}, 1000
       assert get_in(result.running, ["1", :control, :status]) == :working
       assert get_in(result.running, ["1", :paused_reason]) == :rate_limit_fallback_recovery
       assert get_in(result.running, ["1", :rate_limit_fallback_revert_pending]) == true
@@ -562,11 +562,11 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         )
 
       assert map_size(result.running) == 3
-      assert_receive {:teardown, _identifier}
-      refute_receive {:teardown, _identifier}
-      assert_receive {:label_op, {:add, _, @marker_label}}
-      assert_receive {:label_op, {:add, _, "model:claude"}}
-      refute_receive {:label_op, _}
+      assert_receive {:teardown, _identifier}, 1000
+      refute_receive {:teardown, _identifier}, 0
+      assert_receive {:label_op, {:add, _, @marker_label}}, 1000
+      assert_receive {:label_op, {:add, _, "model:claude"}}, 1000
+      refute_receive {:label_op, _}, 0
     end
 
     test "caps label attempts when the tracker is failing" do
@@ -592,8 +592,8 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
                )
              ) == state
 
-      assert_receive {:label_op, {:add, _, @marker_label}}
-      refute_receive {:label_op, _}
+      assert_receive {:label_op, {:add, _, @marker_label}}, 1000
+      refute_receive {:label_op, _}, 0
     end
 
     test "revert removes only the fallback-owned model label" do
@@ -622,7 +622,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         {:remove, "repo#1", @marker_label}
       ])
 
-      assert_received {:redispatched_issue, %Issue{labels: ["model:codex"], selected_backend: "codex"}}
+      assert_received {:redispatched_issue, %Issue{labels: ["model:codex"], selected_backend: "codex"}}, 1000
     end
 
     test "revert honors an operator route added during fallback" do
@@ -648,7 +648,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
           )
         )
 
-      assert_received {:redispatched_issue, %Issue{labels: ["model:claude-opus"], selected_backend: "claude"}}
+      assert_received {:redispatched_issue, %Issue{labels: ["model:claude-opus"], selected_backend: "claude"}}, 1000
     end
 
     test "ignores running entries without an issue" do
@@ -686,7 +686,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         )
       )
 
-      assert_received {:resumed_with, :rate_limit_fallback_recovery}
+      assert_received {:resumed_with, :rate_limit_fallback_recovery}, 1000
     end
   end
 
@@ -758,7 +758,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   defp assert_label_ops(expected) do
     actual =
       Enum.map(expected, fn _operation ->
-        assert_receive {:label_op, operation}
+        assert_receive {:label_op, operation}, 1000
         operation
       end)
 

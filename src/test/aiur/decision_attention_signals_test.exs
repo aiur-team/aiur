@@ -20,7 +20,7 @@ defmodule Aiur.DecisionAttentionSignalsTest do
                end
              )
 
-    assert_received {:alert, topic, opts}
+    assert_received {:alert, topic, opts}, 1000
     assert topic =~ "ticket.42.agent.attention.decision-classification-"
     assert opts[:needs_attention] == true
     assert opts[:reason] =~ "supervisor_allowed"
@@ -38,7 +38,7 @@ defmodule Aiur.DecisionAttentionSignalsTest do
                end
              )
 
-    assert_received {:resolved, resolved_topic, resolved_opts}
+    assert_received {:resolved, resolved_topic, resolved_opts}, 1000
     assert resolved_topic == topic <> ".resolved"
     assert resolved_opts[:needs_attention] == false
   end
@@ -79,7 +79,7 @@ defmodule Aiur.DecisionAttentionSignalsTest do
                end
              )
 
-    assert_received {:resolved, topic, opts}
+    assert_received {:resolved, topic, opts}, 1000
     assert topic =~ "decision-stale"
     assert String.ends_with?(topic, ".resolved")
     assert opts[:needs_attention] == false
@@ -101,10 +101,10 @@ defmodule Aiur.DecisionAttentionSignalsTest do
                end
              )
 
-    assert_received {:topics, topics}
+    assert_received {:topics, topics}, 1000
     assert length(Enum.uniq(topics)) == 2
-    assert_received {:alert, classification_topic}
-    assert_received {:alert, stale_topic}
+    assert_received {:alert, classification_topic}, 1000
+    assert_received {:alert, stale_topic}, 1000
     assert classification_topic =~ "decision-classification"
     assert stale_topic =~ "decision-stale"
 
@@ -128,7 +128,7 @@ defmodule Aiur.DecisionAttentionSignalsTest do
                end
              )
 
-    assert_received {:alert, stale_topic, stale_opts}
+    assert_received {:alert, stale_topic, stale_opts}, 1000
     assert stale_topic =~ "decision-stale"
     assert stale_opts[:reason] =~ "older than one day"
     assert stale_opts[:needs_attention] == true
@@ -150,7 +150,7 @@ defmodule Aiur.DecisionAttentionSignalsTest do
                end
              )
 
-    assert_received {:resolved, expired_topic, expired_opts}
+    assert_received {:resolved, expired_topic, expired_opts}, 1000
     assert expired_topic =~ "decision-expired-unanswerable"
     assert String.ends_with?(expired_topic, ".resolved")
     assert expired_opts[:needs_attention] == false
@@ -188,11 +188,11 @@ defmodule Aiur.DecisionAttentionSignalsTest do
                end
              )
 
-    assert_received {:alert, stale_topic, stale_opts}
+    assert_received {:alert, stale_topic, stale_opts}, 1000
     assert stale_topic =~ "decision-stale"
     assert stale_opts[:needs_attention] == true
 
-    assert_received {:alert, expired_topic, expired_opts}
+    assert_received {:alert, expired_topic, expired_opts}, 1000
     assert expired_topic =~ "decision-expired-unanswerable"
     assert String.ends_with?(expired_topic, ".resolved")
     assert expired_opts[:needs_attention] == false

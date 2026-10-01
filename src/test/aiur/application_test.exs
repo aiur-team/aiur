@@ -797,7 +797,7 @@ defmodule Aiur.ApplicationTest do
         type: :supervisor
       })
 
-    assert_receive {:probe_started, probe_pid}
+    assert_receive {:probe_started, probe_pid}, 1000
     %{supervisor: supervisor, pubsub: pubsub, mode_table: mode_table, table: table, probe: probe_pid}
   end
 

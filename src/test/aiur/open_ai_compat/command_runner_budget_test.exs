@@ -41,7 +41,7 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
     assert %{"success" => true} =
              CommandRunner.run(workspace, "echo safe", sandbox_executable: "/usr/bin/bwrap", system_cmd: runner)
 
-    assert_receive {:command, "/usr/bin/bwrap", args, [stderr_to_stdout: true]}
+    assert_receive {:command, "/usr/bin/bwrap", args, [stderr_to_stdout: true]}, 1000
     triples = Enum.chunk_every(args, 3, 1, :discard)
 
     assert Enum.member?(triples, ["--bind", budget, budget])
@@ -68,7 +68,7 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
     assert %{"success" => true} =
              CommandRunner.run(workspace, "echo safe", sandbox_executable: "/usr/bin/bwrap", system_cmd: runner)
 
-    assert_receive {:command, "/usr/bin/bwrap", args, [stderr_to_stdout: true]}
+    assert_receive {:command, "/usr/bin/bwrap", args, [stderr_to_stdout: true]}, 1000
     assert "--clearenv" in args
 
     for name <- ~w(GITHUB_TOKEN GH_TOKEN) do

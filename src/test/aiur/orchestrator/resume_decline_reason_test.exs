@@ -62,7 +62,7 @@ defmodule Aiur.Orchestrator.ResumeDeclineReasonTest do
     assert translate(:blocked_on_decision, %State{blocked_ticket_ids: MapSet.new(["52"])}, decision_lookup: lookup) ==
              {:blocked_on_decision, %{decision_ids: ["dec-7"], store: :available}}
 
-    assert_received {:looked_up, ["52"]}
+    assert_received {:looked_up, ["52"]}, 1000
   end
 
   test "blocked_on_decision says when the decision store could not be read" do

@@ -172,12 +172,12 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
       |> RuntimeWatchdog.apply_runtime_health_check(now, emit_alert: alert_recorder(self()))
 
     assert Map.has_key?(first_state.running, "issue-1")
-    refute_received {:watchdog_alert, _, _, _}
+    refute_received {:watchdog_alert, _, _, _}, 0
 
     next_state =
       RuntimeWatchdog.apply_runtime_health_check(first_state, DateTime.add(now, 2, :second), emit_alert: alert_recorder(self()))
 
-    assert_received {:watchdog_alert, "ticket.repo#1.agent.frozen-runtime", message, opts}
+    assert_received {:watchdog_alert, "ticket.repo#1.agent.frozen-runtime", message, opts}, 1000
     assert message =~ "runtime remained frozen"
     assert opts[:needs_attention] == true
     refute Map.has_key?(next_state.running, "issue-1")
@@ -197,7 +197,7 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
 
     assert Map.has_key?(next_state.running, "issue-1")
     assert next_state.retry_attempts == %{}
-    refute_received {:watchdog_alert, _, _, _}
+    refute_received {:watchdog_alert, _, _, _}, 0
   end
 
   defp running_entry(now) do

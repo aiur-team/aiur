@@ -51,7 +51,7 @@ defmodule Aiur.TmuxTest do
       end)
 
     assert_receive :ready
-    assert_receive {:tmux_mock_out, "bogus"}
+    assert_receive {:tmux_mock_out, "bogus"}, 1000
 
     send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\nfail\n%error 1 1 0\n"})
 

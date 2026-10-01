@@ -130,7 +130,7 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
         CommentWake.maybe_transition_idle_issue_to_rework(state, @issue_number, :pr_review, event, 1)
       end)
 
-    refute_received {:memory_tracker_state_update, @issue_number, "rework"}
+    refute_received {:memory_tracker_state_update, @issue_number, "rework"}, 0
     assert log =~ "ignored for idle issue"
     assert log =~ ":approved_pull_request"
   end

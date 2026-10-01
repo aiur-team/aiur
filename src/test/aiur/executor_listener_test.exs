@@ -100,7 +100,7 @@ defmodule Aiur.ExecutorListenerTest do
 
     first = command_decision("dec-gap-first")
     assert {:ok, first_id, 1} = ExecutorEvents.publish_requested(first)
-    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => first_message}}
+    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => first_message}}, 1000
     assert first_message =~ "dec-gap-first"
     assert :sys.get_state(pid).watermark >= first_id
     assert watermark() >= first_id
@@ -114,7 +114,7 @@ defmodule Aiur.ExecutorListenerTest do
 
     second = command_decision("dec-gap-second")
     assert {:ok, second_id, 0} = ExecutorEvents.publish_requested(second)
-    refute_received {:event, %{"topic" => "executor.command.requested"}}
+    refute_received {:event, %{"topic" => "executor.command.requested"}}, 0
 
     # Drive the next re-subscribe tick and use the state read as a mailbox
     # barrier. It replays the missed Command and advances both watermarks, but
@@ -124,9 +124,9 @@ defmodule Aiur.ExecutorListenerTest do
 
     assert state.health == :present
     assert state.watermark >= second_id
-    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => replayed}}
+    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => replayed}}, 1000
     assert replayed =~ "dec-gap-second"
-    refute_received {:event, %{"topic" => "executor.command.requested"}}
+    refute_received {:event, %{"topic" => "executor.command.requested"}}, 0
     assert watermark() >= second_id
   end
 

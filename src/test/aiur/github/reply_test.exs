@@ -223,7 +223,7 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
         sleep_fun: sleep_fun
       )
 
-      assert_received {:sleep, 50}
+      assert_received {:sleep, 50}, 1000
     end
   end
 

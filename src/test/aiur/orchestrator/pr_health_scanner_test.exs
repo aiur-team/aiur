@@ -115,8 +115,8 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
         )
 
       state = PRHealthScanner.tick(state)
-      assert_receive {:alert, "system.pr_health.unmergeable_author"}
-      assert_receive {:comment, :ok}
+      assert_receive {:alert, "system.pr_health.unmergeable_author"}, 1000
+      assert_receive {:comment, :ok}, 1000
 
       # Second tick: deduped — no new alert or comment.
       PRHealthScanner.tick(state)
@@ -154,7 +154,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
         )
 
       state = PRHealthScanner.tick(state)
-      assert_receive {:alert, "system.pr_health.stale_unreviewed"}
+      assert_receive {:alert, "system.pr_health.stale_unreviewed"}, 1000
 
       PRHealthScanner.tick(state)
       refute_receive {:alert, _}, 100
@@ -238,7 +238,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
         )
 
       PRHealthScanner.tick(state)
-      assert_receive {:alert_opts, opts}
+      assert_receive {:alert_opts, opts}, 1000
 
       # stale.created_at is 2026-08-18T00:00:00Z and the injected now is
       # 2026-08-22T22:00:00Z (~4.9 days), so the rendered age must be 118 hours,
@@ -272,7 +272,7 @@ defmodule Aiur.Orchestrator.PRHealthScannerTest do
       assert alerted == MapSet.new()
 
       PRHealthScanner.tick(state)
-      assert_receive {:alert, "system.pr_health.stale_unreviewed"}
+      assert_receive {:alert, "system.pr_health.stale_unreviewed"}, 1000
     end
   end
 

@@ -11,17 +11,17 @@ defmodule Aiur.Opencode.Slot.EventsTest do
 
   test "session_changed broadcasts {:slot_session_changed, index, id}" do
     Events.session_changed(11, "issue-11")
-    assert_receive {:slot_session_changed, 11, "issue-11"}
+    assert_receive {:slot_session_changed, 11, "issue-11"}, 1000
   end
 
   test "attach_added broadcasts {:slot_attach_added, index, id}" do
     Events.attach_added(22, "issue-22")
-    assert_receive {:slot_attach_added, 22, "issue-22"}
+    assert_receive {:slot_attach_added, 22, "issue-22"}, 1000
   end
 
   test "attach_removed broadcasts {:slot_attach_removed, index, id}" do
     Events.attach_removed(33, "issue-33")
-    assert_receive {:slot_attach_removed, 33, "issue-33"}
+    assert_receive {:slot_attach_removed, 33, "issue-33"}, 1000
   end
 
   test "slot_ready broadcasts {:slot_ready, index, pid}" do
@@ -34,7 +34,7 @@ defmodule Aiur.Opencode.Slot.EventsTest do
     slot_index = 97
     SlotRegistry.register_self(slot_index)
     Events.visible_changed(slot_index, "issue-x", "%5")
-    assert_receive {:slot_visible_changed, ^slot_index, "issue-x"}
+    assert_receive {:slot_visible_changed, ^slot_index, "issue-x"}, 1000
     assert {:ok, %{visible_identifier: "issue-x", pane_id: "%5"}} = SlotRegistry.pane_state(slot_index)
   end
 end

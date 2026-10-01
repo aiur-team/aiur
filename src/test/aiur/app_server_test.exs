@@ -1025,9 +1025,9 @@ defmodule Aiur.AppServerTest do
                  tool_executor: tool_executor
                )
 
-      assert_received {:tool_called, "linear_graphql", %{"query" => "query Viewer { viewer { id } }"}}
+      assert_received {:tool_called, "linear_graphql", %{"query" => "query Viewer { viewer { id } }"}}, 1000
 
-      assert_received {:app_server_message, %{event: :tool_call_failed, payload: %{"params" => %{"tool" => "linear_graphql"}}}}
+      assert_received {:app_server_message, %{event: :tool_call_failed, payload: %{"params" => %{"tool" => "linear_graphql"}}}}, 1000
     after
       File.rm_rf(test_root)
     end
@@ -1156,8 +1156,8 @@ defmodule Aiur.AppServerTest do
                    AppServer.run(workspace, "Capture stderr log", issue, on_message: on_message)
         end)
 
-      assert_received {:app_server_message, %{event: :turn_completed}}
-      refute_received {:app_server_message, %{event: :malformed}}
+      assert_received {:app_server_message, %{event: :turn_completed}}, 1000
+      refute_received {:app_server_message, %{event: :malformed}}, 0
       assert log =~ "Codex turn stream output: warning: this is stderr noise"
     after
       File.rm_rf(test_root)
@@ -1224,8 +1224,8 @@ defmodule Aiur.AppServerTest do
       assert {:ok, _result} =
                AppServer.run(workspace, "Capture malformed protocol line", issue, on_message: on_message)
 
-      assert_received {:app_server_message, %{event: :malformed, payload: "{\"method\":\"turn/completed\""}}
-      assert_received {:app_server_message, %{event: :turn_completed}}
+      assert_received {:app_server_message, %{event: :malformed, payload: "{\"method\":\"turn/completed\""}}, 1000
+      assert_received {:app_server_message, %{event: :turn_completed}}, 1000
     after
       File.rm_rf(test_root)
     end

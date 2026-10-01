@@ -140,8 +140,8 @@ defmodule Aiur.GitHub.LabelsTest do
       assert :ok =
                Labels.ensure("octo", "repo", "tok", ["complexity:1", "complexity:2"], request_fun: stub)
 
-      assert_received {:created, "https://api.github.com/repos/octo/repo/labels", "complexity:1"}
-      assert_received {:created, _, "complexity:2"}
+      assert_received {:created, "https://api.github.com/repos/octo/repo/labels", "complexity:1"}, 1000
+      assert_received {:created, _, "complexity:2"}, 1000
     end
 
     test "an already-existing label (422) counts as success" do

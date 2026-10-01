@@ -55,7 +55,7 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
 
       result = PushRouting.maybe_pause_on_request(state, "ISSUE-1")
 
-      refute_receive {:pause_agent, _request_id}
+      refute_receive {:pause_agent, _request_id}, 0
       assert result.running["issue-1"].control.status == :working
       refute Map.has_key?(result.running["issue-1"], :paused_reason)
     end
@@ -152,7 +152,7 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
 
       recovered = PushRouting.recover_github_budget_pause(result, "ISSUE-1", 1)
 
-      assert_receive {:resume_agent, _request_id}
+      assert_receive {:resume_agent, _request_id}, 1000
       assert recovered.running["issue-1"].control.status == :working
       refute Map.has_key?(recovered.running["issue-1"], :paused_reason)
     end
@@ -175,7 +175,7 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       state = %{base_state() | running: %{"issue-1" => entry}, max_concurrent_agents: 2}
       result = PushRouting.recover_github_budget_pause(state, "ISSUE-1", 1, now_ms)
 
-      assert_receive {:resume_agent, _request_id}
+      assert_receive {:resume_agent, _request_id}, 1000
       assert result.running["issue-1"].control.status == :working
       refute Map.has_key?(result.running["issue-1"], :paused_reason)
 
@@ -186,7 +186,7 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
 
       unchanged = PushRouting.recover_github_budget_pause(%{state | running: %{"issue-1" => newer}}, "ISSUE-1", 1, now_ms)
       assert unchanged.running["issue-1"] == newer
-      refute_receive {:resume_agent, _request_id}
+      refute_receive {:resume_agent, _request_id}, 0
     end
 
     test "observed quota recovery waits for the recorded reset and wakes per entry" do
@@ -206,23 +206,23 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
       unchanged = PushRouting.recover_github_budget_pause(state, "ISSUE-1", 3, now_ms)
 
       assert unchanged == state
-      refute_receive {:resume_agent, _request_id}
+      refute_receive {:resume_agent, _request_id}, 0
 
       result = PushRouting.recover_github_budget_pauses(state, now_ms)
 
       assert result == state
-      refute_receive {:resume_agent, _request_id}
+      refute_receive {:resume_agent, _request_id}, 0
 
       # Fleet recovery does not resume synchronously: it wakes each eligible
       # entry on its own jittered timer, and the expiry path resumes it. This
       # keeps a recovered fleet from stampeding the same credential at once.
       woken = PushRouting.recover_github_budget_pauses(state, now_ms + 60_000)
       assert woken == state
-      refute_receive {:resume_agent, _request_id}
+      refute_receive {:resume_agent, _request_id}, 0
 
       recovered = PushRouting.recover_github_budget_pause(woken, "ISSUE-1", 3, now_ms + 60_000)
 
-      assert_receive {:resume_agent, _request_id}
+      assert_receive {:resume_agent, _request_id}, 1000
       assert recovered.running["issue-1"].control.status == :working
       refute Map.has_key?(recovered.running["issue-1"], :paused_reason)
     end
@@ -336,7 +336,7 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
 
       result = PushRouting.maybe_resume_blockees_on_merged_ticket(state, blocker_identifier)
 
-      assert_receive {:resume_agent, _request_id}
+      assert_receive {:resume_agent, _request_id}, 1000
       assert result.running[blockee.id].control.status == :working
       refute Map.has_key?(result.running[blockee.id], :paused_reason)
     end

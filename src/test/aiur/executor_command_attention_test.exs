@@ -25,7 +25,7 @@ defmodule Aiur.ExecutorCommandAttentionTest do
                end
              )
 
-    assert_received {:opened, topic, message, open_opts}
+    assert_received {:opened, topic, message, open_opts}, 1000
     assert topic == ExecutorCommandAttention.topic("decision:42", "42")
     assert message =~ "Executor executor-1 escalated"
     assert open_opts[:needs_attention] == true
@@ -45,7 +45,7 @@ defmodule Aiur.ExecutorCommandAttentionTest do
                end
              )
 
-    assert_received {:resolved, topic, opts}
+    assert_received {:resolved, topic, opts}, 1000
     assert String.ends_with?(topic, ".resolved")
     assert opts[:needs_attention] == false
     assert opts[:issue] == "42"

@@ -24,15 +24,15 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         send(parent, {:result, result})
       end)
 
-    assert_receive {:transition, "2076", "todo", "in-progress"}
-    assert_receive {:alert, "ticket.2076.agent.startup_orphan_claim_released", alert_opts}
+    assert_receive {:transition, "2076", "todo", "in-progress"}, 1000
+    assert_receive {:alert, "ticket.2076.agent.startup_orphan_claim_released", alert_opts}, 1000
     refute alert_opts[:needs_attention]
     assert alert_opts[:message] =~ "released"
     assert alert_opts[:reason] =~ "no live runtime"
     assert alert_opts[:reason] =~ "guarded update"
     assert alert_opts[:severity] == "warning"
 
-    assert_receive {:result, {state, [%Issue{state: "todo"}]}}
+    assert_receive {:result, {state, [%Issue{state: "todo"}]}}, 1000
     assert state.startup_claim_reconciliation_complete?
     assert log =~ "Released orphaned startup claim to todo"
     assert log =~ "issue_id=issue-2076 issue_identifier=2076"
@@ -52,7 +52,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         emit_alert_fun: fn _topic, _opts -> :ok end
       )
 
-    assert_receive {:transition, "LIN-2076", "Todo", "In Progress"}
+    assert_receive {:transition, "LIN-2076", "Todo", "In Progress"}, 1000
     assert state.startup_claim_reconciliation_complete?
   end
 
@@ -104,7 +104,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
   test "releases a claim whose matching registry entry is no longer alive" do
     issue = issue("2076", "in-progress")
     {dead_pid, monitor} = spawn_monitor(fn -> :ok end)
-    assert_receive {:DOWN, ^monitor, :process, ^dead_pid, :normal}
+    assert_receive {:DOWN, ^monitor, :process, ^dead_pid, :normal}, 1000
 
     state = %State{
       running: %{
@@ -152,7 +152,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         emit_alert_fun: fn _topic, _opts -> :ok end
       )
 
-    assert_receive {:claimed_boot, ^boot_id}
+    assert_receive {:claimed_boot, ^boot_id}, 1000
     assert state.startup_claim_reconciliation_complete?
   end
 
@@ -240,13 +240,13 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         send(parent, {:failed_result, result})
       end)
 
-    assert_receive {:failed_result, {failed_state, [^issue]}}
+    assert_receive {:failed_result, {failed_state, [^issue]}}, 1000
     refute failed_state.startup_claim_reconciliation_complete?
     assert failed_state.startup_claim_reconciliation_failures["2076"].attempts == 1
     assert log =~ "Failed to release orphaned startup claim"
     assert log =~ "retry 1/3"
 
-    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", alert_opts}
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", alert_opts}, 1000
     assert alert_opts[:needs_attention]
     assert alert_opts[:reason] =~ "guarded update"
     assert alert_opts[:reason] =~ "tracker_unavailable"
@@ -264,11 +264,11 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         send(parent, {:repeated_result, result})
       end)
 
-    assert_receive {:repeated_result, {repeated_state, [^issue]}}
+    assert_receive {:repeated_result, {repeated_state, [^issue]}}, 1000
     refute repeated_state.startup_claim_reconciliation_complete?
     assert repeated_state.startup_claim_reconciliation_failures["2076"].attempts == 2
     assert repeated_log =~ "retry 2/3"
-    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}
+    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 0
 
     # The third failure reaches the per-ticket cap: the claim is latched and
     # the pass completes instead of reaping forever.
@@ -286,11 +286,11 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         )
       end)
 
-    assert_receive {:final_result, {final_state, [^issue]}}
+    assert_receive {:final_result, {final_state, [^issue]}}, 1000
     assert final_state.startup_claim_reconciliation_complete?
     assert final_state.startup_claim_reconciliation_failures["2076"].attempts == 3
     assert final_log =~ "exhausted 3 attempts"
-    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}
+    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 0
 
     # The completed pass never re-attempts the latched ticket.
     assert {^final_state, [^issue]} =
@@ -322,7 +322,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
         emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
       )
 
-    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 1000
 
     {recovered_state, [%Issue{state: "todo"}]} =
       StartupClaimReconciler.reconcile(failed_state, [issue],
@@ -333,9 +333,9 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert recovered_state.startup_claim_reconciliation_complete?
     assert recovered_state.startup_claim_reconciliation_failures == %{}
 
-    assert_receive {:alert, "ticket.2076.agent.startup_orphan_claim_released", _opts}
+    assert_receive {:alert, "ticket.2076.agent.startup_orphan_claim_released", _opts}, 1000
 
-    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed.resolved", resolved_opts}
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed.resolved", resolved_opts}, 1000
     refute resolved_opts[:needs_attention]
   end
 
@@ -359,7 +359,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert reconciled.startup_claim_reconciliation_complete?
     assert reconciled.startup_claim_reconciliation_failures == %{}
 
-    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed.resolved", opts}
+    assert_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed.resolved", opts}, 1000
     assert opts[:reason] =~ "no longer reports an orphaned"
   end
 

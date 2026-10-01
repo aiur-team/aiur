@@ -154,7 +154,7 @@ defmodule Aiur.Codex.ApprovalsTest do
 
         frame = read_one_frame(port)
         assert frame["result"]["success"] == true
-        assert_received {:event, %{event: :tool_call_completed}}
+        assert_received {:event, %{event: :tool_call_completed}}, 1000
       after
         Port.close(port)
       end
@@ -180,7 +180,7 @@ defmodule Aiur.Codex.ApprovalsTest do
                    false
                  )
 
-        assert_received {:event, %{event: :unsupported_tool_call}}
+        assert_received {:event, %{event: :unsupported_tool_call}}, 1000
       after
         Port.close(port)
       end
@@ -211,7 +211,7 @@ defmodule Aiur.Codex.ApprovalsTest do
                    false
                  )
 
-        assert_receive {:invocation_id, "call-stable"}
+        assert_receive {:invocation_id, "call-stable"}, 1000
       after
         Port.close(port)
       end
@@ -496,7 +496,7 @@ defmodule Aiur.Codex.ApprovalsTest do
 
         frame = read_one_frame(port)
         assert frame["result"]["answers"]["q1"]["answers"] == ["Approve this Session"]
-        assert_received {:event, %{event: :approval_auto_approved}}
+        assert_received {:event, %{event: :approval_auto_approved}}, 1000
       after
         Port.close(port)
       end
@@ -529,7 +529,7 @@ defmodule Aiur.Codex.ApprovalsTest do
 
         frame = read_one_frame(port)
         assert is_map(frame["result"]["answers"]["q1"])
-        assert_received {:event, %{event: :tool_input_auto_answered}}
+        assert_received {:event, %{event: :tool_input_auto_answered}}, 1000
       after
         Port.close(port)
       end

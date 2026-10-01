@@ -230,8 +230,8 @@ defmodule Aiur.AgentControlCLITest do
         send(parent, {ref, :stdout, stdout})
       end)
 
-    assert_receive {^ref, :stdout, stdout}
-    assert_receive {^ref, :exit_code, exit_code}
+    assert_receive {^ref, :stdout, stdout}, 1000
+    assert_receive {^ref, :exit_code, exit_code}, 1000
     {stdout, stderr, exit_code}
   end
 
@@ -514,7 +514,7 @@ defmodule Aiur.AgentControlCLITest do
 
       # The queued identifiers ride along so the daemon keeps polling at the
       # base interval until it has actually seen them (#2640).
-      assert_receive {:todo_request_refresh, ["11"]}
+      assert_receive {:todo_request_refresh, ["11"]}, 1000
       assert stderr == ""
     end
 
@@ -527,7 +527,7 @@ defmodule Aiur.AgentControlCLITest do
 
       {stdout, stderr, 0} = capture_todo(["11"], deps: todo_deps(issues, request_refresh_result: :unavailable))
 
-      assert_receive {:todo_request_refresh, ["11"]}
+      assert_receive {:todo_request_refresh, ["11"]}, 1000
       assert stdout =~ "queued 1 ticket(s)"
       assert stderr =~ "the daemon did not accept a poll refresh; queued tickets wait for its next scheduled poll"
     end
@@ -547,7 +547,7 @@ defmodule Aiur.AgentControlCLITest do
 
       {stdout, stderr, 0} = capture_todo(~w(138 139), deps: todo_deps(issues))
 
-      assert_receive {:todo_request_refresh, ["138", "139"]}
+      assert_receive {:todo_request_refresh, ["138", "139"]}, 1000
       assert stdout =~ "• #138 kept sym:rework"
       assert stdout =~ "kept 2 in flight"
       assert stderr == ""
@@ -566,7 +566,7 @@ defmodule Aiur.AgentControlCLITest do
       assert stderr == ""
       assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
       assert stdout =~ "__AIUR_CONTROL_EXIT__:0"
-      assert_received {:todo_add_label, "11", "sym:todo"}
+      assert_received {:todo_add_label, "11", "sym:todo"}, 1000
     end
 
     test "emits a failure marker when tracker mutation fails" do
@@ -606,9 +606,9 @@ defmodule Aiur.AgentControlCLITest do
       assert stdout =~ "✓ #12 → sym:todo"
       assert stdout =~ "✓ #13 → sym:todo"
       assert stdout =~ "queued 3 ticket(s); cleared 0 other(s)"
-      assert_received {:todo_add_label, "11", "sym:todo"}
-      assert_received {:todo_add_label, "12", "sym:todo"}
-      assert_received {:todo_add_label, "13", "sym:todo"}
+      assert_received {:todo_add_label, "11", "sym:todo"}, 1000
+      assert_received {:todo_add_label, "12", "sym:todo"}, 1000
+      assert_received {:todo_add_label, "13", "sym:todo"}, 1000
     end
 
     test "treats an existing todo as idempotent and preserves configured mid-flight states" do
@@ -624,7 +624,7 @@ defmodule Aiur.AgentControlCLITest do
       assert stdout =~ "✓ #11 already sym:todo"
       assert stdout =~ "• #12 kept sym:working"
       assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
-      refute_received {:todo_add_label, _, _}
+      refute_received {:todo_add_label, _, _}, 0
     end
 
     test "only clears custom todo labels from other pending tickets" do
@@ -646,11 +646,11 @@ defmodule Aiur.AgentControlCLITest do
       assert stderr == ""
       assert stdout =~ "– #20 cleared sym:todo"
       assert stdout =~ "queued 1 ticket(s); cleared 1 other(s)"
-      assert_received {:todo_fetch_active, ["todo", "working", "rework"]}
-      assert_received {:todo_remove_label, "20", "sym:todo"}
-      refute_received {:todo_remove_label, "11", _}
-      refute_received {:todo_remove_label, "21", _}
-      refute_received {:todo_remove_label, "22", _}
+      assert_received {:todo_fetch_active, ["todo", "working", "rework"]}, 1000
+      assert_received {:todo_remove_label, "20", "sym:todo"}, 1000
+      refute_received {:todo_remove_label, "11", _}, 0
+      refute_received {:todo_remove_label, "21", _}, 0
+      refute_received {:todo_remove_label, "22", _}, 0
     end
 
     test "continues requested IDs but fails closed before only cleanup" do
@@ -672,8 +672,8 @@ defmodule Aiur.AgentControlCLITest do
       assert stderr =~ "✗ #13 terminal ticket"
       assert stderr =~ "✗ #14 terminal ticket"
       assert stderr =~ "--only cleanup skipped because 4 requested ticket(s) failed"
-      assert_received {:todo_add_label, "15", "sym:todo"}
-      refute_received {:todo_fetch_active, _}
+      assert_received {:todo_add_label, "15", "sym:todo"}, 1000
+      refute_received {:todo_fetch_active, _}, 0
     end
 
     test "continues requested IDs after an add failure and skips only cleanup" do
@@ -695,9 +695,9 @@ defmodule Aiur.AgentControlCLITest do
       assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
       assert stderr =~ "✗ #11 failed to add sym:todo: orchestrator timed out"
       assert stderr =~ "--only cleanup skipped because 1 requested ticket(s) failed"
-      assert_received {:todo_add_label, "11", "sym:todo"}
-      assert_received {:todo_add_label, "12", "sym:todo"}
-      refute_received {:todo_fetch_active, _}
+      assert_received {:todo_add_label, "11", "sym:todo"}, 1000
+      assert_received {:todo_add_label, "12", "sym:todo"}, 1000
+      refute_received {:todo_fetch_active, _}, 0
     end
 
     test "reports active-ticket enumeration failures and exits non-zero" do
@@ -715,8 +715,8 @@ defmodule Aiur.AgentControlCLITest do
       assert stdout =~ "✓ #11 already sym:todo"
       assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
       assert stderr =~ "aiur: failed to enumerate active tickets (orchestrator timed out)"
-      assert_received {:todo_fetch_active, ["todo", "working", "rework"]}
-      refute_received {:todo_remove_label, _, _}
+      assert_received {:todo_fetch_active, ["todo", "working", "rework"]}, 1000
+      refute_received {:todo_remove_label, _, _}, 0
     end
 
     test "continues clearing after a removal failure and exits non-zero" do
@@ -742,8 +742,8 @@ defmodule Aiur.AgentControlCLITest do
       assert stdout =~ "– #21 cleared sym:todo"
       assert stdout =~ "queued 1 ticket(s); cleared 1 other(s)"
       assert stderr =~ "✗ #20 failed to clear sym:todo: orchestrator timed out"
-      assert_received {:todo_remove_label, "20", "sym:todo"}
-      assert_received {:todo_remove_label, "21", "sym:todo"}
+      assert_received {:todo_remove_label, "20", "sym:todo"}, 1000
+      assert_received {:todo_remove_label, "21", "sym:todo"}, 1000
     end
 
     test "caps --only cleanup at a batch size and reports what was left untouched" do
@@ -765,8 +765,8 @@ defmodule Aiur.AgentControlCLITest do
       assert exit_code == 0
       assert stdout =~ "queued 1 ticket(s); cleared 50 other(s)"
       assert stderr =~ "aiur: --only cleanup capped at 50 ticket(s); 1 other ticket(s) left untouched"
-      assert_received {:todo_remove_label, "70", "sym:todo"}
-      refute_received {:todo_remove_label, "71", "sym:todo"}
+      assert_received {:todo_remove_label, "70", "sym:todo"}, 1000
+      refute_received {:todo_remove_label, "71", "sym:todo"}, 0
     end
 
     test "stops --only cleanup after repeated rate-limit failures mid-stream" do
@@ -795,10 +795,10 @@ defmodule Aiur.AgentControlCLITest do
       assert exit_code == 1
       assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
       assert stderr =~ "aiur: --only cleanup stopped after 3 consecutive rate-limit failures"
-      assert_received {:todo_remove_label, "20", "sym:todo"}
-      assert_received {:todo_remove_label, "21", "sym:todo"}
-      assert_received {:todo_remove_label, "22", "sym:todo"}
-      refute_received {:todo_remove_label, "23", "sym:todo"}
+      assert_received {:todo_remove_label, "20", "sym:todo"}, 1000
+      assert_received {:todo_remove_label, "21", "sym:todo"}, 1000
+      assert_received {:todo_remove_label, "22", "sym:todo"}, 1000
+      refute_received {:todo_remove_label, "23", "sym:todo"}, 0
     end
   end
 
@@ -3005,7 +3005,7 @@ defmodule Aiur.AgentControlCLITest do
     stderr =
       capture_io(:stderr, fn ->
         output = capture_io(fn -> AgentControlCLI.message("44", "don't stop") end)
-        assert_receive {:message_id, "cli-" <> _ = message_id}
+        assert_receive {:message_id, "cli-" <> _ = message_id}, 1000
 
         assert output =~ "aiur: outcome unknown for message to #44"
         assert output =~ "(message id #{message_id})"
@@ -3040,9 +3040,9 @@ defmodule Aiur.AgentControlCLITest do
       AgentControlCLI.message("44", "continue")
     end)
 
-    assert_receive {:sent, "continue", "retry-1"}
-    assert_receive {:sent, "continue", "cli-" <> _ = second}
-    assert_receive {:sent, "continue", "cli-" <> _ = third}
+    assert_receive {:sent, "continue", "retry-1"}, 1000
+    assert_receive {:sent, "continue", "cli-" <> _ = second}, 1000
+    assert_receive {:sent, "continue", "cli-" <> _ = third}, 1000
     refute second == third
   end
 

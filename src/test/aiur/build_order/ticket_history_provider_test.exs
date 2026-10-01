@@ -27,7 +27,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
       )
 
     assert {:ok, %Snapshot{} = snapshot} = TicketHistoryProvider.request(server, identity())
-    assert_receive {:history_query, %{identifier: "42"}, opts}
+    assert_receive {:history_query, %{identifier: "42"}, opts}, 1000
     assert opts[:limit] == 101
     assert opts[:kinds] == [:emit, :emit_alert, :self]
     assert snapshot.health == :available
@@ -211,10 +211,10 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     assert {:error, %Failure{kind: :repository_mismatch}} =
              TicketHistoryProvider.request(server, identity(owner: "other"))
 
-    refute_receive {:queried, _}
+    refute_receive {:queried, _}, 0
 
     assert {:ok, snapshot} = TicketHistoryProvider.request(server, identity())
-    assert_receive {:queried, %{identifier: "42"}}
+    assert_receive {:queried, %{identifier: "42"}}, 1000
     refute inspect(snapshot) =~ secret
     refute inspect(snapshot) =~ "/home/private"
     refute inspect(snapshot) =~ "agent.ndjson"

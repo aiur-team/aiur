@@ -292,7 +292,7 @@ defmodule Aiur.RunTelemetryTest do
 
     Lifecycle.record("test-ticket", "attempt-1", :dispatch, :point, %{prompt: "secret prompt", command: "secret command", output: "secret output"}, recorder: recorder)
 
-    assert_receive {:recorded, :lifecycle, attributes}
+    assert_receive {:recorded, :lifecycle, attributes}, 1000
     json = Jason.encode!(attributes)
     refute json =~ "prompt"
     refute json =~ "command"

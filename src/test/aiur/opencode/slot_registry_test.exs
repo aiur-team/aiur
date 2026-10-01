@@ -67,7 +67,7 @@ defmodule Aiur.Opencode.SlotRegistryTest do
     assert_receive {^ref, {:second_result, {:error, :already_registered}}}, 1_000
 
     send(pid1, :exit)
-    refute_received {^ref, _other}
+    refute_received {^ref, _other}, 0
     _ = pid2
   end
 
