@@ -632,6 +632,10 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser
         run: npm test
+      - name: Run visual regression baselines
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        working-directory: src/browser
+        run: npm run test:visual
       - name: Verify browser failure evidence, redaction, and teardown
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser

@@ -16,7 +16,15 @@ export default defineConfig({
   retries: 0,
   workers: 1,
   timeout: 30_000,
-  expect: { timeout: 10_000 },
+  expect: {
+    timeout: 10_000,
+    toHaveScreenshot: {
+      animations: 'disabled',
+      maxDiffPixels: 0,
+      threshold: 0.2
+    }
+  },
+  snapshotPathTemplate: '{dir}/{testFileDir}/{testFileName}-snapshots/{arg}{platform}{ext}',
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     trace: 'retain-on-failure',
