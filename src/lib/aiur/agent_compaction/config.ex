@@ -13,132 +13,76 @@ defmodule Aiur.AgentCompaction.Config do
         token_threshold: 50000
         message_count_threshold: 20
         elapsed_time_minutes: 60
+      timeout_ms: 30000
   """
-
-  @behaviour Aiur.AgentConfig
-
-  # Default thresholds (locked after analysis)
-  @default_token_threshold 50_000
-  @default_message_count_threshold 20
-  @default_elapsed_time_minutes 60
-  @default_timeout_ms 30_000
 
   @spec enabled?() :: boolean()
   def enabled? do
-    case section_value("enabled") do
-      true -> true
-      _ -> false
-    end
+    compaction_config = get_compaction_config()
+    compaction_config.enabled || false
   end
 
   @spec backends() :: [String.t()]
   def backends do
-    case section_value("backends") do
-      list when is_list(list) ->
-        Enum.filter(list, &is_binary/1)
-      _ ->
-        []
-    end
+    compaction_config = get_compaction_config()
+    compaction_config.backends || []
   end
 
   @spec manual_approval_enabled?() :: boolean()
   def manual_approval_enabled? do
-    case section_value("manual_approval") do
-      true -> true
-      _ -> false
-    end
+    compaction_config = get_compaction_config()
+    compaction_config.manual_approval || false
   end
 
   @spec auto_trigger_enabled?() :: boolean()
   def auto_trigger_enabled? do
-    auto = section_value("auto_trigger") || %{}
-    case auto["enabled"] do
-      true -> true
-      _ -> false
+    compaction_config = get_compaction_config()
+    case compaction_config.auto_trigger do
+      %{enabled: enabled} -> enabled || false
+      nil -> false
     end
   end
 
   @spec token_threshold() :: non_neg_integer()
   def token_threshold do
-    auto = section_value("auto_trigger") || %{}
-    case auto["token_threshold"] do
-      value when is_integer(value) and value >= 1000 -> value
-      _ -> @default_token_threshold
+    compaction_config = get_compaction_config()
+    case compaction_config.auto_trigger do
+      %{token_threshold: threshold} when is_integer(threshold) and threshold >= 1000 -> threshold
+      _ -> 50_000
     end
   end
 
   @spec message_count_threshold() :: non_neg_integer()
   def message_count_threshold do
-    auto = section_value("auto_trigger") || %{}
-    case auto["message_count_threshold"] do
-      value when is_integer(value) and value >= 1 -> value
-      _ -> @default_message_count_threshold
+    compaction_config = get_compaction_config()
+    case compaction_config.auto_trigger do
+      %{message_count_threshold: threshold} when is_integer(threshold) and threshold >= 1 -> threshold
+      _ -> 20
     end
   end
 
   @spec elapsed_time_minutes() :: non_neg_integer()
   def elapsed_time_minutes do
-    auto = section_value("auto_trigger") || %{}
-    case auto["elapsed_time_minutes"] do
-      value when is_integer(value) and value >= 1 -> value
-      _ -> @default_elapsed_time_minutes
+    compaction_config = get_compaction_config()
+    case compaction_config.auto_trigger do
+      %{elapsed_time_minutes: minutes} when is_integer(minutes) and minutes >= 1 -> minutes
+      _ -> 60
     end
   end
 
   @spec timeout_ms() :: non_neg_integer()
   def timeout_ms do
-    case section_value("timeout_ms") do
-      value when is_integer(value) and value > 0 -> value
-      _ -> @default_timeout_ms
+    compaction_config = get_compaction_config()
+    case compaction_config.timeout_ms do
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _ -> 30_000
     end
   end
 
-  @spec validate!() :: :ok | {:error, String.t()}
-  def validate! do
-    with :ok <- validate_enabled(),
-         :ok <- validate_backends(),
-         :ok <- validate_thresholds() do
-      :ok
+  defp get_compaction_config do
+    case Aiur.Config.settings() do
+      {:ok, settings} -> settings.compaction || %Aiur.Config.Schema.Compaction{}
+      {:error, _} -> %Aiur.Config.Schema.Compaction{}
     end
-  end
-
-  defp validate_enabled do
-    case enabled?() do
-      true -> :ok
-      false ->
-        # Compaction disabled is valid; no error
-        :ok
-    end
-  end
-
-  defp validate_backends do
-    backends = backends()
-    cond do
-      Enum.empty?(backends) and enabled?() ->
-        {:error, "compaction.backends must not be empty when compaction is enabled"}
-      Enum.any?(backends, &(&1 not in ["codex", "claude"])) ->
-        {:error, "compaction.backends contains unrecognized backend; only 'codex' and 'claude' are valid"}
-      true ->
-        :ok
-    end
-  end
-
-  defp validate_thresholds do
-    cond do
-      token_threshold() < 1000 ->
-        {:error, "compaction.auto_trigger.token_threshold must be >= 1000"}
-      message_count_threshold() < 1 ->
-        {:error, "compaction.auto_trigger.message_count_threshold must be >= 1"}
-      elapsed_time_minutes() < 1 ->
-        {:error, "compaction.auto_trigger.elapsed_time_minutes must be >= 1"}
-      true ->
-        :ok
-    end
-  end
-
-  defp section_value(key) do
-    settings = Aiur.Config.settings()
-    compaction_config = settings[:compaction] || %{}
-    Map.get(compaction_config, key)
   end
 end
