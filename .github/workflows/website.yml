@@ -62,8 +62,7 @@ jobs:
             mcr.microsoft.com/playwright:v1.54.1-noble \
             bash -c "npm ci && npm run typecheck && npm run assert && \
                      npm install -g bun && \
-                     bun install --frozen-lockfile --cwd docs-app && \
-                     bun run build --cwd docs-app && \
+                     (cd docs-app && bun install --frozen-lockfile && bun run build) && \
                      npm run build && npm run test:visual"
       - name: Upload visual test results on failure
         if: failure()
