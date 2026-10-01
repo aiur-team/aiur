@@ -202,9 +202,17 @@ test.describe('Visual regression detection (selftest)', () => {
     await page.goto('/')
     await settle(page)
 
-    // Inject a clearly visible background color change
+    // Inject a large visible box that covers significant screen area
     await page.evaluate(() => {
-      document.documentElement.style.backgroundColor = '#ff00ff'
+      const box = document.createElement('div')
+      box.style.position = 'fixed'
+      box.style.top = '100px'
+      box.style.left = '100px'
+      box.style.width = '200px'
+      box.style.height = '200px'
+      box.style.backgroundColor = '#ff0000'
+      box.style.zIndex = '99999'
+      document.body.appendChild(box)
     })
 
     // Wait for the change to be painted via animation frames
@@ -218,7 +226,7 @@ test.describe('Visual regression detection (selftest)', () => {
       })
     })
 
-    // This should FAIL because the magenta background doesn't match the original
+    // This should FAIL because the red box was injected
     // test.fail() makes this a pass (failed assertion is expected)
     await expect(page).toHaveScreenshot('landing-top-light-desktop.png')
   })
@@ -232,13 +240,27 @@ test.describe('Visual regression detection (selftest)', () => {
     await page.goto('/')
     await settle(page)
 
-    // Inject a large padding change on the install box
+    // Inject multiple large colored boxes covering different areas
     await page.evaluate(() => {
-      const box = document.querySelector('.install-box') as HTMLElement
-      if (box) {
-        box.style.padding = '50px'
-        box.style.backgroundColor = '#ff00ff'
-      }
+      const box1 = document.createElement('div')
+      box1.style.position = 'fixed'
+      box1.style.top = '10px'
+      box1.style.left = '10px'
+      box1.style.width = '150px'
+      box1.style.height = '80px'
+      box1.style.backgroundColor = '#0000ff'
+      box1.style.zIndex = '99999'
+      document.body.appendChild(box1)
+
+      const box2 = document.createElement('div')
+      box2.style.position = 'fixed'
+      box2.style.bottom = '50px'
+      box2.style.right = '50px'
+      box2.style.width = '180px'
+      box2.style.height = '120px'
+      box2.style.backgroundColor = '#00ff00'
+      box2.style.zIndex = '99998'
+      document.body.appendChild(box2)
     })
 
     // Wait for the change to be painted via animation frames
@@ -252,7 +274,7 @@ test.describe('Visual regression detection (selftest)', () => {
       })
     })
 
-    // This should FAIL because the padding/color changed
+    // This should FAIL because multiple colored boxes were injected
     // test.fail() makes this a pass (failed assertion is expected)
     await expect(page).toHaveScreenshot('landing-top-light-desktop.png')
   })
