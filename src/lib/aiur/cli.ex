@@ -360,6 +360,12 @@ defmodule Aiur.CLI do
       :ok = deps.set_workflow_file_path.(expanded_path)
       IO.puts(:stderr, "__AIUR_CONFIG_PATH__:#{expanded_path}")
 
+      # Check daemon heartbeat early in Executor boot, after config is loaded but before
+      # daemon connection. This detects if the daemon has stopped and emits a durable alert.
+      if Application.get_env(:aiur, :executor_mode, false) do
+        Aiur.DaemonHeartbeatChecker.check_and_alert!()
+      end
+
       case deps.ensure_all_started.() do
         {:ok, _started_apps} ->
           warn_if_max_agents_exceeds_config(opts, deps)
