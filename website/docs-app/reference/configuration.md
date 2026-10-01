@@ -172,6 +172,12 @@ Freshness thresholds follow this cadence. You do not set them separately.
   dispatchable tickets keeps the base interval so work is not left waiting
   behind a backed-off sweep (#2138).
 
+## monitoring
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for detecting daemon downtime. When the daemon heartbeat file age exceeds this value, the Executor emits a durable alert (`system.daemon.stopped`) on boot. Default is 1 hour (3,600,000 ms). Increase if you have planned maintenance windows or long daemon restarts; decrease for tighter monitoring. |
+
 ## webhooks
 
 | Key | Type | Default | Controls |
