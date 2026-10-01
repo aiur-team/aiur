@@ -212,6 +212,11 @@ defmodule Aiur.Workspace.Ownership.Guardian do
           loop(state)
         end
 
+      {:workspace_guardian_call, from, ref, {:release_with_provider_exit_proof, generation}} ->
+        {reply_value, next} = release_with_provider_exit_proof(state, generation)
+        reply(from, ref, reply_value)
+        if reply_value == :ok, do: maybe_release_or_reap(next), else: loop(next)
+
       {:workspace_guardian_call, from, ref, {:wait_for_release, recipient}} when is_pid(recipient) ->
         # Store the waiter before acknowledging it. The acknowledgement carries
         # this exact generation so a subscriber can reject an ABA replacement.
@@ -658,6 +663,19 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp request_release(state, waiter) do
     %{state | release_requested?: true, release_waiters: [waiter | state.release_waiters]}
   end
+
+  defp release_with_provider_exit_proof(%{lease: %{generation: generation, phase: :reaping}, provider: nil, provider_expected?: true} = state, generation) do
+    if local_provider_exited_after_reboot?(state) do
+      Logger.warning("Releasing workspace ownership after operator-confirmed provider exit ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
+
+      emit_telemetry(state, :point, :operator_release_after_provider_exit_proof)
+      {:ok, state}
+    else
+      {{:error, :cannot_release_without_exit_proof}, state}
+    end
+  end
+
+  defp release_with_provider_exit_proof(state, _generation), do: {{:error, :workspace_ownership_lost}, state}
 
   defp persist_state(state) do
     Store.put(state.lease.ticket, receipt(state), state.store)

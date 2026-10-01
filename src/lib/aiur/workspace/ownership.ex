@@ -6,7 +6,7 @@ defmodule Aiur.Workspace.Ownership do
   stays thin so callers cannot bypass generation checks or release ordering.
   """
 
-  alias Aiur.Workspace.Ownership.{Guardian, Store, Waiter}
+  alias Aiur.Workspace.Ownership.{Guardian, HoldStatus, Store, Waiter}
 
   @registry Aiur.Workspace.Ownership.Registry
   @guardian_call_timeout 5_000
@@ -143,6 +143,13 @@ defmodule Aiur.Workspace.Ownership do
   def release_and_wait(_lease), do: {:error, :workspace_ownership_lost}
 
   @doc false
+  @spec release_with_provider_exit_proof(lease()) :: :ok | {:error, :workspace_ownership_lost | :cannot_release_without_exit_proof}
+  def release_with_provider_exit_proof(%{guardian: guardian, generation: generation}) when is_pid(guardian),
+    do: call(guardian, {:release_with_provider_exit_proof, generation})
+
+  def release_with_provider_exit_proof(_lease), do: {:error, :workspace_ownership_lost}
+
+  @doc false
   @spec wait_for_release(String.t(), pid(), registry()) ::
           {:waiting, pid(), pos_integer()} | :available
   def wait_for_release(ticket, recipient, registry \\ @registry) when is_binary(ticket) and is_pid(recipient),
@@ -211,6 +218,36 @@ defmodule Aiur.Workspace.Ownership do
   @spec telemetry_metadata(lease()) :: map()
   def telemetry_metadata(%{owner_id: owner_id, generation: generation, phase: phase}),
     do: %{workspace_owner: owner_id, workspace_generation: generation, workspace_phase: phase}
+
+  @doc """
+  Releases a workspace if independent provider-exit proof is available.
+
+  Only releases when the workspace is held with proof that the provider is
+  definitely gone (e.g., host reboot after provider was expected). Returns
+  `:already_released` if no hold exists, `:cannot_release_without_proof` if
+  the hold lacks independent exit proof, or `:ok` on successful release.
+
+  This is a narrow, audited recovery path for operator-driven recovery when
+  the workspace hold cannot self-clear but independent evidence proves the
+  provider is gone.
+  """
+  @spec release_if_held_with_exit_proof(String.t(), registry()) :: :ok | :already_released | {:error, :cannot_release_without_proof | term()}
+  def release_if_held_with_exit_proof(ticket, registry \\ @registry) when is_binary(ticket) do
+    with {:ok, lease} <- current(ticket, registry),
+         %{proof: :boot_changed_release_pending} <- HoldStatus.for_ticket(ticket, registry) do
+      release_with_provider_exit_proof(lease)
+      |> case do
+        :ok -> :ok
+        {:error, :cannot_release_without_exit_proof} -> {:error, :cannot_release_without_proof}
+        error -> error
+      end
+    else
+      :none -> :already_released
+      nil -> :already_released
+      {:error, _} = error -> error
+      _ -> {:error, :cannot_release_without_proof}
+    end
+  end
 
   defp call(guardian, message) do
     ref = make_ref()
