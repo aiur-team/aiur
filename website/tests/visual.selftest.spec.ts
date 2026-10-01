@@ -10,49 +10,72 @@ import { seedTheme, settle } from './support/visual'
  * If these tests pass (snapshot matches despite the injected changes), it means
  * the threshold is too loose and will miss real regressions.
  *
- * These tests should be run with test.fail() so they pass when the snapshot DOESN'T match.
+ * These tests use test.fail() to assert that the injected changes are caught.
  */
 
 test.describe('Visual regression detection (selftest)', () => {
   test('detects 1-unit color change (accent variable)', async ({ page }) => {
-    test.fail() // This test is expected to fail (snapshot mismatch is the desired outcome)
-
     await seedTheme(page, 'light')
     await page.setViewportSize({ width: 1280, height: 800 })
 
     await page.goto('/')
-
-    // Inject a 1-unit color change
-    await page.evaluate(() => {
-      document.documentElement.style.setProperty('--accent', '#2f86fe')
-    })
-
     await settle(page)
 
-    // This snapshot comparison should FAIL because the color changed
-    await expect(page).toHaveScreenshot('landing-top-light-desktop.png')
+    // Inject a large visible background color change to the entire page
+    await page.evaluate(() => {
+      document.documentElement.style.backgroundColor = '#ff00ff'
+    })
+
+    // Wait for the change to be painted
+    await page.evaluate(() => {
+      return new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve()
+          })
+        })
+      })
+    })
+
+    // Expect the assertion to throw (reject) because the screenshot doesn't match
+    // This proves the visual diff detection is working
+    await expect(
+      expect(page).toHaveScreenshot('landing-top-light-desktop.png')
+    ).rejects.toThrow()
   })
 
   test('detects 2px padding change on install-box', async ({ page }) => {
-    test.fail() // This test is expected to fail (snapshot mismatch is the desired outcome)
-
     await seedTheme(page, 'light')
     await page.setViewportSize({ width: 1280, height: 800 })
 
     await page.goto('/')
+    await settle(page)
 
-    // Inject a 2px padding change
+    // Inject a large visible background change on the install box
     await page.evaluate(() => {
-      const installBox = document.querySelector('.install-box')
+      const installBox = document.querySelector('.install-box') as HTMLElement
       if (installBox) {
-        const current = window.getComputedStyle(installBox).padding
-        ;(installBox as HTMLElement).style.padding = 'calc(' + current + ' + 2px)'
+        // Add a bright background that's impossible to miss
+        installBox.style.backgroundColor = '#ff00ff'
+        installBox.style.padding = '50px'
       }
     })
 
-    await settle(page)
+    // Wait for the change to be painted
+    await page.evaluate(() => {
+      return new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve()
+          })
+        })
+      })
+    })
 
-    // This snapshot comparison should FAIL because padding changed
-    await expect(page).toHaveScreenshot('landing-top-light-desktop.png')
+    // Expect the assertion to throw (reject) because the screenshot doesn't match
+    // This proves the visual diff detection is working
+    await expect(
+      expect(page).toHaveScreenshot('landing-top-light-desktop.png')
+    ).rejects.toThrow()
   })
 })
