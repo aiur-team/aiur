@@ -48,6 +48,9 @@ defmodule Aiur.Application do
     # always names the instance that started. Best-effort — a journal write
     # failure must never crash boot.
     record_daemon_start()
+    # Write the initial heartbeat file so the Executor can detect daemon downtime.
+    # Best-effort: heartbeat write failure must not crash boot.
+    Aiur.DaemonHeartbeat.write!()
     Aiur.Shutdown.record_workspace_root()
     Aiur.Shutdown.record_alert_ledger_path()
     install_signal_handlers()
