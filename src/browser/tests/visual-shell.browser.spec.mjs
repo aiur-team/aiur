@@ -161,14 +161,11 @@ for (const theme of THEMES) {
         }
 
         /**
-         * Nav state variations: expanded sidebar on desktop
+         * Nav state variations: expanded sidebar on desktop (desktop only)
          */
-        test('desktop: expanded nav sidebar state', async ({ page }) => {
-          if (viewport.width <= 959) {
-            test.skip()
-          }
-
-          await setupThemeAndNavigate(page, theme, '/')
+        if (viewport.width > 959) {
+          test('desktop: expanded nav sidebar state', async ({ page }) => {
+            await setupThemeAndNavigate(page, theme, '/')
 
           // Ensure nav is expanded (no localStorage marker)
           await page.evaluate(() => {
@@ -187,17 +184,15 @@ for (const theme of THEMES) {
             `${theme}-${viewport.width}x${viewport.height}-nav-expanded.png`,
             { mask: getMaskConfig() }
           )
-        })
+          })
+        }
 
         /**
-         * Nav state variations: collapsed sidebar on desktop
+         * Nav state variations: collapsed sidebar on desktop (desktop only)
          */
-        test('desktop: collapsed nav sidebar state', async ({ page }) => {
-          if (viewport.width <= 959) {
-            test.skip()
-          }
-
-          await setupThemeAndNavigate(page, theme, '/')
+        if (viewport.width > 959) {
+          test('desktop: collapsed nav sidebar state', async ({ page }) => {
+            await setupThemeAndNavigate(page, theme, '/')
 
           // Collapse nav
           await page.evaluate(() => {
@@ -215,7 +210,8 @@ for (const theme of THEMES) {
             `${theme}-${viewport.width}x${viewport.height}-nav-collapsed.png`,
             { mask: getMaskConfig() }
           )
-        })
+          })
+        }
       })
     }
   })
