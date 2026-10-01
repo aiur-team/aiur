@@ -114,8 +114,10 @@ defmodule Aiur.Agent.UsageSnapshotTest do
     test "handles invalid floats safely" do
       assert UsageSnapshot.format_cached_proportion(nil) == "—"
       assert UsageSnapshot.format_cached_proportion("50%") == "—"
-      assert UsageSnapshot.format_cached_proportion(1.5) == "—"  # > 1.0
-      assert UsageSnapshot.format_cached_proportion(-0.1) == "—"  # < 0.0
+      # > 1.0
+      assert UsageSnapshot.format_cached_proportion(1.5) == "—"
+      # < 0.0
+      assert UsageSnapshot.format_cached_proportion(-0.1) == "—"
     end
   end
 

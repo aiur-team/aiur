@@ -26,33 +26,33 @@ defmodule Aiur.Agent.UsageSnapshot do
   @type token_value :: non_neg_integer() | {:unknown, atom()}
 
   @type context_occupancy :: %{
-    used_tokens: non_neg_integer(),
-    window_tokens: non_neg_integer() | nil,
-    pressure: atom() | nil
-  }
+          used_tokens: non_neg_integer(),
+          window_tokens: non_neg_integer() | nil,
+          pressure: atom() | nil
+        }
 
   @type cumulative_metrics :: %{
-    input: token_value(),
-    output: token_value(),
-    cached_input: token_value(),
-    uncached_input: token_value(),
-    cached_proportion: float() | {:unknown, atom()}
-  }
+          input: token_value(),
+          output: token_value(),
+          cached_input: token_value(),
+          uncached_input: token_value(),
+          cached_proportion: float() | {:unknown, atom()}
+        }
 
   @type scope :: :session | :attempt | :ticket
 
   @type freshness :: :current | :stale | :unknown
 
   @type t :: %__MODULE__{
-    agent_id: String.t(),
-    backend: atom() | String.t(),
-    context_occupancy: context_occupancy() | nil,
-    cumulative_metrics: cumulative_metrics(),
-    scope: scope(),
-    scope_id: String.t(),
-    observed_at: DateTime.t() | nil,
-    freshness_assessment: freshness()
-  }
+          agent_id: String.t(),
+          backend: atom() | String.t(),
+          context_occupancy: context_occupancy() | nil,
+          cumulative_metrics: cumulative_metrics(),
+          scope: scope(),
+          scope_id: String.t(),
+          observed_at: DateTime.t() | nil,
+          freshness_assessment: freshness()
+        }
 
   @doc """
   Calculate cached proportion as a float between 0.0 and 1.0.
@@ -139,8 +139,10 @@ defmodule Aiur.Agent.UsageSnapshot do
     now = DateTime.utc_now()
 
     case DateTime.diff(now, observed_at, :second) do
-      diff when diff < 300 -> :current  # < 5 minutes
-      _diff -> :stale  # >= 5 minutes
+      # < 5 minutes
+      diff when diff < 300 -> :current
+      # >= 5 minutes
+      _diff -> :stale
     end
   end
 

@@ -35,7 +35,7 @@ defmodule Aiur.Agent.UsageSnapshotService do
   # Resolve the scope (run_id, ticket) for querying the aggregate
   # If not provided in opts, attempts to look up from agent state
   @spec resolve_scope(String.t(), Keyword.t()) ::
-    {:ok, %{run_id: String.t() | nil, ticket: any()}} | {:error, atom()}
+          {:ok, %{run_id: String.t() | nil, ticket: any()}} | {:error, atom()}
   defp resolve_scope(agent_id, opts) do
     run_id = Keyword.get(opts, :run_id)
     ticket = Keyword.get(opts, :ticket)
@@ -67,7 +67,7 @@ defmodule Aiur.Agent.UsageSnapshotService do
 
   # Query UsageAggregate for cells matching the scope
   @spec fetch_aggregate_cells(%{run_id: String.t() | nil, ticket: any()}) ::
-    {:ok, list()} | {:error, atom()}
+          {:ok, list()} | {:error, atom()}
   defp fetch_aggregate_cells(scope_params) do
     query_scope = build_aggregate_query(scope_params)
 
@@ -114,7 +114,7 @@ defmodule Aiur.Agent.UsageSnapshotService do
   # Assemble the snapshot from aggregate cells
   # This extracts token dimensions and computes derived values
   @spec assemble_snapshot(String.t(), map(), %{run_id: String.t() | nil, ticket: any()}) ::
-    {:ok, UsageSnapshot.t()} | {:error, atom()}
+          {:ok, UsageSnapshot.t()} | {:error, atom()}
   defp assemble_snapshot(agent_id, cells, scope_params) do
     # Extract cumulative metrics from cells
     # Cells are keyed by their relationship revision and partitions
@@ -135,7 +135,8 @@ defmodule Aiur.Agent.UsageSnapshotService do
      %UsageSnapshot{
        agent_id: agent_id,
        backend: backend,
-       context_occupancy: nil,  # Will be populated separately if needed
+       # Will be populated separately if needed
+       context_occupancy: nil,
        cumulative_metrics: metrics,
        scope: scope,
        scope_id: scope_id,
@@ -186,7 +187,8 @@ defmodule Aiur.Agent.UsageSnapshotService do
 
           case value do
             {:unknown, reason} -> {:error, {:unknown, reason}}
-            nil -> {:ok, total}  # Missing field = treat as zero contribution
+            # Missing field = treat as zero contribution
+            nil -> {:ok, total}
             n when is_integer(n) and n >= 0 -> {:ok, total + n}
             _ -> {:error, {:unknown, :invalid_value}}
           end
@@ -219,9 +221,9 @@ defmodule Aiur.Agent.UsageSnapshotService do
 
   # Derive uncached_input = input - cached_input
   @spec derive_uncached_input(
-    non_neg_integer() | {:unknown, atom()},
-    non_neg_integer() | {:unknown, atom()}
-  ) :: non_neg_integer() | {:unknown, atom()}
+          non_neg_integer() | {:unknown, atom()},
+          non_neg_integer() | {:unknown, atom()}
+        ) :: non_neg_integer() | {:unknown, atom()}
   defp derive_uncached_input({:unknown, _}, _), do: {:unknown, :missing_input}
   defp derive_uncached_input(_, {:unknown, _}), do: {:unknown, :missing_cached_input}
 
@@ -237,7 +239,7 @@ defmodule Aiur.Agent.UsageSnapshotService do
   # Extract scope information from cells
   # Returns {scope, scope_id}
   @spec extract_scope_info(map(), %{run_id: String.t() | nil, ticket: any()}) ::
-    {UsageSnapshot.scope(), String.t()}
+          {UsageSnapshot.scope(), String.t()}
   defp extract_scope_info(_cells, scope_params) do
     # Determine scope based on what was queried
     scope =
