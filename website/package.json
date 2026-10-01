@@ -5,16 +5,20 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && npm run copy:docs",
+    "copy:docs": "cp -r docs-app/.vitepress/dist dist/docs 2>/dev/null || true",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "assert": "tsx scripts/assert-sim.ts",
     "shot": "tsx scripts/shot.ts",
     "shot:dashboard": "node scripts/capture-dashboard.mjs",
-    "test:brand": "playwright test"
+    "test:brand": "playwright test --project=brand",
+    "test:visual": "playwright test --project=visual",
+    "test:visual:update": "playwright test --project=visual --update-snapshots",
+    "test:visual:docker": "docker run --rm -v $(pwd):/work -w /work/website mcr.microsoft.com/playwright:v1.54.1-noble npm run test:visual:update"
   },
   "devDependencies": {
-    "@playwright/test": "^1.54.1",
+    "@playwright/test": "1.54.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"
