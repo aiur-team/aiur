@@ -148,7 +148,7 @@ The Khala Aiur daemon stopped on 2026-09-20 at 03:20Z and did not restart until 
 **Approach:**
 - Create `Aiur.DaemonHeartbeat` module with a `write!/0` function that writes current timestamp to the heartbeat file
 - Write format: single line with ISO 8601 timestamp (e.g., `2026-10-01T12:34:56.789Z\n`)
-- Call `Aiur.DaemonHeartbeat.write!()` early in `Aiur.Application.start/2`, right after `record_daemon_start()` (line 50)
+- Call `Aiur.DaemonHeartbeat.write!()` early in `Aiur.Application.start/2`, immediately after the daemon lifecycle journal recording (the `record_daemon_start()` call)
 - Best-effort: heartbeat write failure must not crash boot — catch and log, continue
 - Use file operations that work cross-platform (not POSIX-specific)
 
@@ -159,7 +159,7 @@ The Khala Aiur daemon stopped on 2026-09-20 at 03:20Z and did not restart until 
 **Test scenarios:**
 - Heartbeat file is created with a valid timestamp on write
 - File is readable and contains an ISO 8601 timestamp
-- Write fails gracefully if the parent directory doesn't exist (create it first, or log and continue)
+- Write fails gracefully if the parent directory doesn't exist: create parent directories automatically; if creation fails, log and continue without raising
 - Multiple writes overwrite the previous timestamp
 
 **Verification:** Heartbeat file exists after daemon boot with a recent timestamp.
@@ -221,10 +221,10 @@ The Khala Aiur daemon stopped on 2026-09-20 at 03:20Z and did not restart until 
   3. Calculate age: `DateTime.utc_now() - parsed_timestamp`
   4. Get threshold from config (`Aiur.Config.daemon_heartbeat_stale_ms()`)
   5. If age > threshold: emit alert via `Aiur.Alerts.emit_system("system.daemon.stopped", ...)`
-  6. If age <= threshold: check if there's an existing alert with that topic and clear it (emit resolved alert)
+  6. If age <= threshold: emit a resolved alert with topic `system.daemon.stopped.resolved` to signal the condition has cleared. The alert ledger will deduplicate and handle state transitions.
 - Best-effort: checker failures (missing file, parse errors, config errors) are logged and continue — do not block Executor boot
 - Call `Aiur.DaemonHeartbeatChecker.check_and_alert!()` in Executor boot path, after config is loaded but before attempting daemon connection
-- Alert message: descriptive, e.g., "Daemon heartbeat is stale (age: 5 hours). Last activity: 2026-09-30T12:00:00Z"
+- Alert message: descriptive, including the age of the heartbeat in human-readable format (e.g., "Daemon heartbeat is 2h0m old (threshold: 1h0m); daemon may have stopped")
 
 **Patterns to follow:**
 - Alert emission pattern from `Aiur.BuildGateHoldMonitor` (check, emit, track alerted topic, clear when condition resolves)
@@ -236,9 +236,9 @@ The Khala Aiur daemon stopped on 2026-09-20 at 03:20Z and did not restart until 
 - Checker does not emit alert when heartbeat is recent
 - Checker handles missing heartbeat file gracefully (treats as old)
 - Checker handles unparseable heartbeat file gracefully
-- Checker clears alert when heartbeat becomes recent again
-- Alert topic is consistent (`system.daemon.stopped`)
-- Multiple check calls do not spam duplicate alerts (idempotent)
+- Checker emits resolved alert when heartbeat transitions from stale to recent
+- Alert topic is consistent (`system.daemon.stopped` for stale, `system.daemon.stopped.resolved` for clear)
+- Checker is stateless and computes output based solely on current heartbeat age (no internal state affects repeated calls)
 
 **Verification:** Alert appears in alert feed when daemon heartbeat is stale; clears when heartbeat refreshes.
 
