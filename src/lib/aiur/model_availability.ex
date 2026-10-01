@@ -21,7 +21,7 @@ defmodule Aiur.ModelAvailability do
   fleet-wide limit from holding a backend for an hour past its own reset.
   """
 
-  alias Aiur.{CodingAgent, CodexProber, Workflow}
+  alias Aiur.{CodexProber, CodingAgent, Workflow}
   alias Aiur.Config.RoutingValue
 
   @windows ~w(hourly weekly monthly)

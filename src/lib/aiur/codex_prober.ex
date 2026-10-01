@@ -9,8 +9,8 @@ defmodule Aiur.CodexProber do
 
   require Logger
 
-  alias Aiur.ModelAvailability
   alias Aiur.Codex.{Frames, Rpc}
+  alias Aiur.ModelAvailability
 
   @timeout_ms 5_000
 
