@@ -88,17 +88,17 @@ defmodule Aiur.CodexProber do
       end
     else
       {:error, reason} -> {:error, reason}
-      other -> {:error, other}
     end
   end
 
   # Start a temporary probe session using the Codex backend
+  @spec start_probe_session(String.t()) :: {:ok, map()} | {:error, term()}
   defp start_probe_session(workspace) do
     agent_module = Aiur.Codex.CodingAgent
 
     case agent_module.start_session(workspace, identifier: "model-usage-probe") do
       {:ok, session} -> {:ok, session}
-      error -> error
+      {:error, reason} -> {:error, reason}
     end
   rescue
     _error -> {:error, :failed_to_start_session}
@@ -144,7 +144,8 @@ defmodule Aiur.CodexProber do
     end
   end
 
-  defp normalize_codex_limits(%{} = result) do
+  @spec normalize_codex_limits(map()) :: {:ok, map()} | {:error, term()}
+  defp normalize_codex_limits(result) do
     # Codex returns a structure like:
     # {
     #   "primary": {"usedPercent": N, "windowDurationMins": M, "resetsAt": "..."},
@@ -163,6 +164,4 @@ defmodule Aiur.CodexProber do
       {:error, :no_usage_data}
     end
   end
-
-  defp normalize_codex_limits(_), do: {:error, :invalid_response}
 end
