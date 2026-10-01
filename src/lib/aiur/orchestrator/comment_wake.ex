@@ -1321,7 +1321,15 @@ defmodule Aiur.Orchestrator.CommentWake do
       {{:error, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
 
-        Logger.warning("#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}")
+        Alerts.emit_custom(
+          "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_state_failed",
+          "Reactivation for issue #{issue_number} failed (#{inspect(reason)})",
+          issue: to_string(issue_number),
+          reason: "Could not update issue state during reactivation (#{inspect(reason)}). Remedy: check the issue's current state, or retry the reactivation.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
 
         state
     end
@@ -1551,7 +1559,15 @@ defmodule Aiur.Orchestrator.CommentWake do
         state
 
       {:error, reason} ->
-        Logger.warning("#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}")
+        Alerts.emit_custom(
+          "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_refresh_failed",
+          "Reactivation for issue #{issue_number} failed - could not refresh state (#{inspect(reason)})",
+          issue: to_string(issue_number),
+          reason: "Could not fetch the current issue state during reactivation (#{inspect(reason)}). Remedy: retry the reactivation, or check if the issue is accessible.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
 
         state
     end
