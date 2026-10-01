@@ -62,8 +62,10 @@ defmodule Aiur.Config.Schema.Compaction do
 
   defp validate_thresholds(changeset) do
     auto_trigger = get_embed(changeset, :auto_trigger)
+
     if auto_trigger do
       token_threshold = get_change(auto_trigger, :token_threshold) || auto_trigger.changes[:token_threshold] || 50_000
+
       if is_integer(token_threshold) and token_threshold < 1000 do
         add_error(changeset, :auto_trigger, "token_threshold must be >= 1000")
       else

@@ -37,6 +37,7 @@ defmodule Aiur.AgentCompaction.Config do
   @spec auto_trigger_enabled?() :: boolean()
   def auto_trigger_enabled? do
     compaction_config = get_compaction_config()
+
     case compaction_config.auto_trigger do
       %{enabled: enabled} -> enabled || false
       nil -> false
@@ -46,6 +47,7 @@ defmodule Aiur.AgentCompaction.Config do
   @spec token_threshold() :: non_neg_integer()
   def token_threshold do
     compaction_config = get_compaction_config()
+
     case compaction_config.auto_trigger do
       %{token_threshold: threshold} when is_integer(threshold) and threshold >= 1000 -> threshold
       _ -> 50_000
@@ -55,6 +57,7 @@ defmodule Aiur.AgentCompaction.Config do
   @spec message_count_threshold() :: non_neg_integer()
   def message_count_threshold do
     compaction_config = get_compaction_config()
+
     case compaction_config.auto_trigger do
       %{message_count_threshold: threshold} when is_integer(threshold) and threshold >= 1 -> threshold
       _ -> 20
@@ -64,6 +67,7 @@ defmodule Aiur.AgentCompaction.Config do
   @spec elapsed_time_minutes() :: non_neg_integer()
   def elapsed_time_minutes do
     compaction_config = get_compaction_config()
+
     case compaction_config.auto_trigger do
       %{elapsed_time_minutes: minutes} when is_integer(minutes) and minutes >= 1 -> minutes
       _ -> 60
@@ -73,6 +77,7 @@ defmodule Aiur.AgentCompaction.Config do
   @spec timeout_ms() :: non_neg_integer()
   def timeout_ms do
     compaction_config = get_compaction_config()
+
     case compaction_config.timeout_ms do
       timeout when is_integer(timeout) and timeout > 0 -> timeout
       _ -> 30_000

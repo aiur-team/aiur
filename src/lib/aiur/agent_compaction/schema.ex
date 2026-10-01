@@ -7,22 +7,22 @@ defmodule Aiur.AgentCompaction.Schema do
   @type trigger_type :: :manual | :auto_threshold
 
   @type t :: %{
-    session_id: String.t(),
-    backend: String.t(),
-    trigger_type: trigger_type(),
-    status: status(),
-    started_at: DateTime.t() | nil,
-    completed_at: DateTime.t() | nil,
-    summary_tokens: non_neg_integer() | nil,
-    error_reason: String.t() | nil,
-    compacted_transcript_ref: String.t() | nil,
-    original_transcript_ref: String.t() | nil,
-    message_count_at_compaction: non_neg_integer() | nil,
-    triggered_by: String.t() | nil,
-    triggered_context: String.t() | nil,
-    created_at: DateTime.t(),
-    updated_at: DateTime.t()
-  }
+          session_id: String.t(),
+          backend: String.t(),
+          trigger_type: trigger_type(),
+          status: status(),
+          started_at: DateTime.t() | nil,
+          completed_at: DateTime.t() | nil,
+          summary_tokens: non_neg_integer() | nil,
+          error_reason: String.t() | nil,
+          compacted_transcript_ref: String.t() | nil,
+          original_transcript_ref: String.t() | nil,
+          message_count_at_compaction: non_neg_integer() | nil,
+          triggered_by: String.t() | nil,
+          triggered_context: String.t() | nil,
+          created_at: DateTime.t(),
+          updated_at: DateTime.t()
+        }
 
   @doc """
   Validate a compaction state map.
@@ -51,11 +51,10 @@ defmodule Aiur.AgentCompaction.Schema do
   defp validate_status(_), do: {:error, "status must be :pending, :completed, :failed, or :unsupported"}
 
   defp validate_timestamps(%{started_at: started, completed_at: completed}) do
-    cond do
-      started && completed && DateTime.compare(started, completed) == :gt ->
-        {:error, "completed_at cannot be before started_at"}
-      true ->
-        :ok
+    if started && completed && DateTime.compare(started, completed) == :gt do
+      {:error, "completed_at cannot be before started_at"}
+    else
+      :ok
     end
   end
 
@@ -65,6 +64,7 @@ defmodule Aiur.AgentCompaction.Schema do
   @spec new(session_id :: String.t(), backend :: String.t(), trigger :: trigger_type()) :: t()
   def new(session_id, backend, trigger_type) do
     now = DateTime.utc_now()
+
     %{
       session_id: session_id,
       backend: backend,
@@ -89,13 +89,14 @@ defmodule Aiur.AgentCompaction.Schema do
   """
   @spec mark_completed(t(), String.t(), String.t(), non_neg_integer()) :: t()
   def mark_completed(state, compacted_ref, original_ref, tokens) do
-    %{state |
-      status: :completed,
-      completed_at: DateTime.utc_now(),
-      compacted_transcript_ref: compacted_ref,
-      original_transcript_ref: original_ref,
-      summary_tokens: tokens,
-      updated_at: DateTime.utc_now()
+    %{
+      state
+      | status: :completed,
+        completed_at: DateTime.utc_now(),
+        compacted_transcript_ref: compacted_ref,
+        original_transcript_ref: original_ref,
+        summary_tokens: tokens,
+        updated_at: DateTime.utc_now()
     }
   end
 
@@ -104,12 +105,7 @@ defmodule Aiur.AgentCompaction.Schema do
   """
   @spec mark_failed(t(), String.t()) :: t()
   def mark_failed(state, reason) do
-    %{state |
-      status: :failed,
-      error_reason: reason,
-      completed_at: DateTime.utc_now(),
-      updated_at: DateTime.utc_now()
-    }
+    %{state | status: :failed, error_reason: reason, completed_at: DateTime.utc_now(), updated_at: DateTime.utc_now()}
   end
 
   @doc """
@@ -120,5 +116,6 @@ defmodule Aiur.AgentCompaction.Schema do
       when is_integer(last_count) and is_integer(current_count) do
     current_count == last_count
   end
+
   def unchanged_since_last_compaction?(_, _), do: false
 end

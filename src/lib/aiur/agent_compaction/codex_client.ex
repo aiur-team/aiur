@@ -16,17 +16,13 @@ defmodule Aiur.AgentCompaction.CodexClient do
   Returns {:ok, request_id} or {:error, reason}.
   """
   @spec request_compact(
-    thread_id :: String.t(),
-    summary_prompt :: String.t(),
-    opts :: keyword()
-  ) :: {:ok, String.t()} | {:error, String.t()}
+          thread_id :: String.t(),
+          summary_prompt :: String.t(),
+          opts :: keyword()
+        ) :: {:ok, String.t()} | {:error, String.t()}
   def request_compact(thread_id, summary_prompt, _opts \\ []) do
     with {:ok, _request} <- build_request(thread_id, summary_prompt) do
-      Logger.info(
-        "Compaction request submitted",
-        thread_id: thread_id,
-        prompt_length: String.length(summary_prompt)
-      )
+      Logger.info("Compaction request submitted thread_id=#{thread_id} prompt_length=#{String.length(summary_prompt)}")
       # Mock: Return a mock request_id
       # In production: POST to Codex /thread/compact/start, return request_id from response
       {:ok, "req_#{:erlang.monotonic_time()}"}
@@ -39,18 +35,15 @@ defmodule Aiur.AgentCompaction.CodexClient do
   Returns {:ok, status, summary, tokens} or {:error, reason} or {:timeout}.
   """
   @spec poll_status(
-    thread_id :: String.t(),
-    request_id :: String.t(),
-    opts :: keyword()
-  ) :: {:ok, :pending | :completed | :failed, map() | nil, non_neg_integer() | nil}
-    | {:error, String.t()}
-    | {:timeout}
+          thread_id :: String.t(),
+          request_id :: String.t(),
+          opts :: keyword()
+        ) ::
+          {:ok, :pending | :completed | :failed, map() | nil, non_neg_integer() | nil}
+          | {:error, String.t()}
+          | {:timeout}
   def poll_status(thread_id, request_id, _opts \\ []) do
-    Logger.debug(
-      "Polling compaction status",
-      thread_id: thread_id,
-      request_id: request_id
-    )
+    Logger.debug("Polling compaction status thread_id=#{thread_id} request_id=#{request_id}")
     # Mock: Always return pending for now
     # In production: GET from Codex /thread/compact/start/{request_id}, return status
     {:ok, :pending}
@@ -63,12 +56,13 @@ defmodule Aiur.AgentCompaction.CodexClient do
   or {:error, reason} or {:timeout}.
   """
   @spec wait_for_completion(
-    thread_id :: String.t(),
-    request_id :: String.t(),
-    timeout_ms :: non_neg_integer()
-  ) :: {:ok, map(), non_neg_integer(), String.t(), String.t()}
-    | {:error, String.t()}
-    | {:timeout}
+          thread_id :: String.t(),
+          request_id :: String.t(),
+          timeout_ms :: non_neg_integer()
+        ) ::
+          {:ok, map(), non_neg_integer(), String.t(), String.t()}
+          | {:error, String.t()}
+          | {:timeout}
   def wait_for_completion(thread_id, request_id, timeout_ms \\ 60_000) do
     deadline = System.monotonic_time(:millisecond) + timeout_ms
     poll_until_complete(thread_id, request_id, deadline)
@@ -104,29 +98,29 @@ defmodule Aiur.AgentCompaction.CodexClient do
 
   defp validate_summary_content(summary) do
     # Ensure all sections contain non-empty content
-    cond do
-      is_binary(Map.get(summary, "task_constraints", "")) and
-        Map.get(summary, "task_constraints", "") != "" ->
-        :ok
-      true ->
-        {:error, "summary sections cannot be empty"}
+    if is_binary(Map.get(summary, "task_constraints", "")) and
+         Map.get(summary, "task_constraints", "") != "" do
+      :ok
+    else
+      {:error, "summary sections cannot be empty"}
     end
   end
 
   defp build_request(thread_id, summary_prompt)
        when is_binary(thread_id) and byte_size(thread_id) > 0 and
-            is_binary(summary_prompt) and byte_size(summary_prompt) > 0 do
-    {:ok, %{
-      "thread_id" => thread_id,
-      "summary_prompt" => summary_prompt,
-      "required_sections" => [
-        "task_constraints",
-        "decisions_made",
-        "revision_markers",
-        "validation_evidence",
-        "remaining_review_work"
-      ]
-    }}
+              is_binary(summary_prompt) and byte_size(summary_prompt) > 0 do
+    {:ok,
+     %{
+       "thread_id" => thread_id,
+       "summary_prompt" => summary_prompt,
+       "required_sections" => [
+         "task_constraints",
+         "decisions_made",
+         "revision_markers",
+         "validation_evidence",
+         "remaining_review_work"
+       ]
+     }}
   end
 
   defp build_request(_, _) do
@@ -136,15 +130,13 @@ defmodule Aiur.AgentCompaction.CodexClient do
   defp poll_until_complete(_thread_id, _request_id, deadline) do
     now = System.monotonic_time(:millisecond)
 
-    cond do
-      now > deadline ->
-        Logger.warning("Compaction poll timeout reached")
-        {:timeout}
-
-      true ->
-        # Mock: always return timeout for now
-        # In production: GET /thread/compact/start/{request_id}, check status, retry with backoff
-        {:timeout}
+    if now > deadline do
+      Logger.warning("Compaction poll timeout reached")
+      {:timeout}
+    else
+      # Mock: always return timeout for now
+      # In production: GET /thread/compact/start/{request_id}, check status, retry with backoff
+      {:timeout}
     end
   end
 end

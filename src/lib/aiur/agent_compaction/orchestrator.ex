@@ -8,7 +8,7 @@ defmodule Aiur.AgentCompaction.Orchestrator do
 
   require Logger
 
-  alias Aiur.AgentCompaction.{Schema, Config, CodexClient}
+  alias Aiur.AgentCompaction.{CodexClient, Config, Schema}
 
   @doc """
   Evaluate whether compaction should trigger for a session at handoff.
@@ -20,10 +20,10 @@ defmodule Aiur.AgentCompaction.Orchestrator do
   - `{:error, reason}` - blocker or error
   """
   @spec evaluate_trigger(
-    session :: map(),
-    backend :: String.t(),
-    current_message_count :: non_neg_integer()
-  ) :: {:ok, :skipped | :unsupported | :pending, Schema.t() | String.t()} | {:error, String.t()}
+          session :: map(),
+          backend :: String.t(),
+          current_message_count :: non_neg_integer()
+        ) :: {:ok, :skipped | :unsupported | :pending, Schema.t() | String.t()} | {:error, String.t()}
   def evaluate_trigger(session, backend, current_message_count) do
     cond do
       !Config.enabled?() ->
@@ -46,10 +46,10 @@ defmodule Aiur.AgentCompaction.Orchestrator do
   Returns true if all thresholds are met (AND logic).
   """
   @spec threshold_met?(
-    tokens :: non_neg_integer(),
-    message_count :: non_neg_integer(),
-    elapsed_minutes :: non_neg_integer()
-  ) :: boolean()
+          tokens :: non_neg_integer(),
+          message_count :: non_neg_integer(),
+          elapsed_minutes :: non_neg_integer()
+        ) :: boolean()
   def threshold_met?(tokens, message_count, elapsed_minutes) do
     token_threshold = Config.token_threshold()
     message_threshold = Config.message_count_threshold()
@@ -68,6 +68,7 @@ defmodule Aiur.AgentCompaction.Orchestrator do
     case Map.get(session, :last_compaction_state) do
       %{message_count_at_compaction: last_count} when is_integer(last_count) ->
         Schema.unchanged_since_last_compaction?(%{message_count_at_compaction: last_count}, current_count)
+
       _ ->
         false
     end
@@ -77,10 +78,10 @@ defmodule Aiur.AgentCompaction.Orchestrator do
   Trigger a compaction request for a session.
   """
   @spec trigger_compaction(
-    session :: map(),
-    backend :: String.t(),
-    current_message_count :: non_neg_integer()
-  ) :: {:ok, :pending, Schema.t()} | {:error, String.t()}
+          session :: map(),
+          backend :: String.t(),
+          current_message_count :: non_neg_integer()
+        ) :: {:ok, :pending, Schema.t()} | {:error, String.t()}
   def trigger_compaction(session, backend, current_message_count) do
     session_id = Map.get(session, :id) || "unknown"
     state = Schema.new(session_id, backend, :auto_threshold)
@@ -89,20 +90,11 @@ defmodule Aiur.AgentCompaction.Orchestrator do
     # Submit async request to Codex
     case submit_compaction_request(session, state) do
       {:ok, _request_id} ->
-        Logger.info(
-          "Compaction triggered for session",
-          session_id: session_id,
-          backend: backend,
-          message_count: current_message_count
-        )
+        Logger.info("Compaction triggered for session session_id=#{session_id} backend=#{backend} message_count=#{current_message_count}")
         {:ok, :pending, %{state | status: :pending}}
 
       {:error, reason} ->
-        Logger.error(
-          "Compaction request failed",
-          session_id: session_id,
-          error: reason
-        )
+        Logger.error("Compaction request failed session_id=#{session_id} error=#{inspect(reason)}")
         {:error, "failed to submit compaction request: #{reason}"}
     end
   end
@@ -111,9 +103,9 @@ defmodule Aiur.AgentCompaction.Orchestrator do
   Prevent duplicate in-flight compaction requests for the same session.
   """
   @spec deduplicate_request?(
-    session_id :: String.t(),
-    pending_requests :: map()
-  ) :: boolean()
+          session_id :: String.t(),
+          pending_requests :: map()
+        ) :: boolean()
   def deduplicate_request?(session_id, pending_requests) do
     # Return true if a compaction is already pending for this session
     Map.has_key?(pending_requests, session_id)

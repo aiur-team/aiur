@@ -20,12 +20,13 @@ defmodule Aiur.AgentCompaction.SchemaTest do
     test "marks state as completed with summary details" do
       state = Schema.new("session-123", "codex", :manual)
 
-      completed = Schema.mark_completed(
-        state,
-        "compacted_ref_123",
-        "original_ref_123",
-        4_500
-      )
+      completed =
+        Schema.mark_completed(
+          state,
+          "compacted_ref_123",
+          "original_ref_123",
+          4_500
+        )
 
       assert completed.status == :completed
       assert completed.compacted_transcript_ref == "compacted_ref_123"
