@@ -495,8 +495,6 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     end
   end
 
-  defp invalidate_timeline_cache(_issue_id), do: :ok
-
   # Every actor who has ever applied a `<prefix>:*` state label to this issue.
   # This is the evidence that someone put the ticket into the agent pipeline,
   # and it is what an Aiur-applied state transition carries forward (see
