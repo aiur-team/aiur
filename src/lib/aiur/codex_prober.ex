@@ -88,6 +88,7 @@ defmodule Aiur.CodexProber do
       end
     else
       {:error, reason} -> {:error, reason}
+      other -> {:error, other}
     end
   end
 
