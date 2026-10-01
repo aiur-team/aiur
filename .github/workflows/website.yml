@@ -63,7 +63,7 @@ jobs:
             bash -c "npm ci && npm run test:visual"
       - name: Upload visual test results on failure
         if: failure()
-        uses: actions/upload-artifact@50c72a3b5d07b50ca4e1ff1a3fb29e3fb19d8756 # v4.3.6
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-visual-results
           path: website/test-results/
