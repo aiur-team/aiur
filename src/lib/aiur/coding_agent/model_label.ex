@@ -50,6 +50,7 @@ defmodule Aiur.CodingAgent.ModelLabel do
     cond do
       spec in dispatchable -> {:backend, spec}
       flag?(spec, flags) -> :not_a_selector
+      spec in registered -> :not_a_selector
       prefixed = prefixed(spec, dispatchable) -> prefixed
       names_backend?(spec, registered) -> :not_a_selector
       true -> bare(spec, dispatchable, opts)
