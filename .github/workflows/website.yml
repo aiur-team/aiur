@@ -56,6 +56,18 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Test brand accessibility and theme navigation
         run: npm run test:brand
+      - name: Test visual regressions
+        run: |
+          docker run --rm -v ${{ github.workspace }}:/work -w /work/website \
+            mcr.microsoft.com/playwright:v1.54.1-noble \
+            bash -c "npm ci && npm run test:visual"
+      - name: Upload visual test results on failure
+        if: failure()
+        uses: actions/upload-artifact@50c72a3b5d07b50ca4e1ff1a3fb29e3fb19d8756 # v4.3.6
+        with:
+          name: playwright-visual-results
+          path: website/test-results/
+          retention-days: 7
       - name: Post-deploy docs smoke check
         if: github.event_name == 'push'
         # Runs only after a push to main (the merged commit is what Netlify
