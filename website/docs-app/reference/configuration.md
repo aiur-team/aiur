@@ -651,7 +651,7 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 
 ## compaction
 
-Optional thread compaction at the implementation-to-human-review handoff, supported for Codex backend only. Other backends show "unsupported" state but do not error. Compaction preserves the original transcript and is never repeated on an unchanged session.
+Optional thread compaction at the implementation-to-human-review handoff, supported for Codex backend only; preserves the original transcript and prevents repeat compaction on unchanged sessions.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
