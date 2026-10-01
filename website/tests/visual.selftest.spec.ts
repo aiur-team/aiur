@@ -4,78 +4,61 @@ import { seedTheme, settle } from './support/visual'
 /**
  * Self-test: Prove that the snapshot threshold catches visual regressions
  *
- * These tests are intentionally expected to fail. They inject small visual changes
- * (1-unit color change, 2px padding) and verify that toHaveScreenshot() detects them.
+ * Injects visible changes (background colors, padding) and verifies that
+ * toHaveScreenshot() detects them using strict maxDiffPixelRatio (0.002).
  *
- * If these tests pass (snapshot matches despite the injected changes), it means
- * the threshold is too loose and will miss real regressions.
- *
- * These tests use test.fail() to assert that the injected changes are caught.
+ * Skipped during baseline generation (--update-snapshots) since it tests
+ * that visual changes are caught, not that baselines match.
  */
 
 test.describe('Visual regression detection (selftest)', () => {
-  test('detects 1-unit color change (accent variable)', async ({ page }) => {
+  test.skip(process.env.PW_TEST_REPORTER_JSON !== undefined, 'Skip during update-snapshots')
+
+  test('detects color change (0.002 ratio threshold)', async ({ page }) => {
+    test.fail() // Injected change should cause screenshot to fail
+
     await seedTheme(page, 'light')
     await page.setViewportSize({ width: 1280, height: 800 })
 
     await page.goto('/')
     await settle(page)
 
-    // Inject a large visible background color change to the entire page
+    // Inject a clearly visible background color change
     await page.evaluate(() => {
       document.documentElement.style.backgroundColor = '#ff00ff'
     })
 
-    // Wait for the change to be painted
-    await page.evaluate(() => {
-      return new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            resolve()
-          })
-        })
-      })
-    })
+    // Wait for repaint
+    await page.waitForTimeout(50)
 
-    // Expect the assertion to throw (reject) because the screenshot doesn't match
-    // This proves the visual diff detection is working
-    await expect(
-      expect(page).toHaveScreenshot('landing-top-light-desktop.png')
-    ).rejects.toThrow()
+    // This should FAIL because the magenta background doesn't match the original
+    // test.fail() makes this a pass (failed assertion is expected)
+    await expect(page).toHaveScreenshot('landing-top-light-desktop.png')
   })
 
-  test('detects 2px padding change on install-box', async ({ page }) => {
+  test('detects padding change (0.002 ratio threshold)', async ({ page }) => {
+    test.fail() // Injected change should cause screenshot to fail
+
     await seedTheme(page, 'light')
     await page.setViewportSize({ width: 1280, height: 800 })
 
     await page.goto('/')
     await settle(page)
 
-    // Inject a large visible background change on the install box
+    // Inject a large padding change on the install box
     await page.evaluate(() => {
-      const installBox = document.querySelector('.install-box') as HTMLElement
-      if (installBox) {
-        // Add a bright background that's impossible to miss
-        installBox.style.backgroundColor = '#ff00ff'
-        installBox.style.padding = '50px'
+      const box = document.querySelector('.install-box') as HTMLElement
+      if (box) {
+        box.style.padding = '50px'
+        box.style.backgroundColor = '#ff00ff'
       }
     })
 
-    // Wait for the change to be painted
-    await page.evaluate(() => {
-      return new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            resolve()
-          })
-        })
-      })
-    })
+    // Wait for repaint
+    await page.waitForTimeout(50)
 
-    // Expect the assertion to throw (reject) because the screenshot doesn't match
-    // This proves the visual diff detection is working
-    await expect(
-      expect(page).toHaveScreenshot('landing-top-light-desktop.png')
-    ).rejects.toThrow()
+    // This should FAIL because the padding/color changed
+    // test.fail() makes this a pass (failed assertion is expected)
+    await expect(page).toHaveScreenshot('landing-top-light-desktop.png')
   })
 })
