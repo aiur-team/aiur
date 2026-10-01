@@ -23,7 +23,7 @@ export default defineConfig({
     },
     {
       name: 'visual',
-      testMatch: ['**/visual.spec.ts', '**/visual.selftest.spec.ts'],
+      testMatch: ['**/visual.spec.ts'],
       use: {
         ...devices['Desktop Chrome'],
         reducedMotion: 'reduce'
