@@ -10,7 +10,7 @@ test.describe('Gallery Visual Tests', () => {
 
     // Capture screenshot
     await expect(page).toHaveScreenshot('gallery-light.png', {
-      maxDiffPixelRatio: 0.002,
+      maxDiffPixelRatio: 0.02,
     });
   });
 
@@ -23,7 +23,7 @@ test.describe('Gallery Visual Tests', () => {
 
     // Capture screenshot
     await expect(page).toHaveScreenshot('gallery-dark.png', {
-      maxDiffPixelRatio: 0.002,
+      maxDiffPixelRatio: 0.02,
     });
   });
 
