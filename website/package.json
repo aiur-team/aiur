@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && vite build && npm run copy:docs",
+    "copy:docs": "cp -r docs-app/.vitepress/dist dist/docs 2>/dev/null || true",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "assert": "tsx scripts/assert-sim.ts",
