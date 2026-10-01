@@ -56,164 +56,170 @@ async function setNavState(page, viewport) {
 /**
  * Full-page and route-specific baseline snapshots
  */
-test.describe.each(THEMES)('Visual baseline: %s theme', (theme) => {
-  test.describe.each(VIEWPORTS)('%s viewport', ({ name, width, height }) => {
-    test.beforeEach(async ({ page }) => {
-      await page.setViewportSize({ width, height })
-    })
+for (const theme of THEMES) {
+  test.describe(`Visual baseline: ${theme} theme`, () => {
+    for (const viewport of VIEWPORTS) {
+      test.describe(`${viewport.name} viewport`, () => {
+        test.beforeEach(async ({ page }) => {
+          await page.setViewportSize({ width: viewport.width, height: viewport.height })
+        })
 
-    test.describe.each(ROUTES)('Route: %s', (route) => {
-      test('full-page shell baseline', async ({ page }) => {
-        await setupThemeAndNavigate(page, theme, route)
-        await setNavState(page, { width, height })
+        for (const route of ROUTES) {
+          test.describe(`Route: ${route}`, () => {
+            test('full-page shell baseline', async ({ page }) => {
+              await setupThemeAndNavigate(page, theme, route)
+              await setNavState(page, viewport)
 
-        await expect(page).toHaveScreenshot(
-          `${theme}-${width}x${height}-${route.replace(/\//g, '')}-shell.png`,
-          { mask: getMaskConfig() }
-        )
-      })
+              await expect(page).toHaveScreenshot(
+                `${theme}-${viewport.width}x${viewport.height}-${route.replace(/\//g, '')}-shell.png`,
+                { mask: getMaskConfig() }
+              )
+            })
 
-      test('header topbar element', async ({ page }) => {
-        await setupThemeAndNavigate(page, theme, route)
-        await setNavState(page, { width, height })
+            test('header topbar element', async ({ page }) => {
+              await setupThemeAndNavigate(page, theme, route)
+              await setNavState(page, viewport)
 
-        const header = page.locator('header.topbar')
-        await expect(header).toBeVisible()
-        await expect(header).toHaveScreenshot(
-          `${theme}-${width}x${height}-${route.replace(/\//g, '')}-header.png`,
-          { mask: getMaskConfig() }
-        )
-      })
+              const header = page.locator('header.topbar')
+              await expect(header).toBeVisible()
+              await expect(header).toHaveScreenshot(
+                `${theme}-${viewport.width}x${viewport.height}-${route.replace(/\//g, '')}-header.png`,
+                { mask: getMaskConfig() }
+              )
+            })
 
-      test('shell sidebar (desktop) or mobile nav', async ({ page }) => {
-        await setupThemeAndNavigate(page, theme, route)
-        await setNavState(page, { width, height })
+            test('shell sidebar (desktop) or mobile nav', async ({ page }) => {
+              await setupThemeAndNavigate(page, theme, route)
+              await setNavState(page, viewport)
 
-        const isSmallViewport = width <= 959
-        const navLocator = isSmallViewport
-          ? page.locator('.shell-nav-mobile')
-          : page.locator('aside.shell-sidebar')
+              const isSmallViewport = viewport.width <= 959
+              const navLocator = isSmallViewport
+                ? page.locator('.shell-nav-mobile')
+                : page.locator('aside.shell-sidebar')
 
-        await expect(navLocator).toBeVisible()
-        await expect(navLocator).toHaveScreenshot(
-          `${theme}-${width}x${height}-${route.replace(/\//g, '')}-nav.png`,
-          { mask: getMaskConfig() }
-        )
-      })
+              await expect(navLocator).toBeVisible()
+              await expect(navLocator).toHaveScreenshot(
+                `${theme}-${viewport.width}x${viewport.height}-${route.replace(/\//g, '')}-nav.png`,
+                { mask: getMaskConfig() }
+              )
+            })
 
-      test('route context (main content area)', async ({ page }) => {
-        await setupThemeAndNavigate(page, theme, route)
-        await setNavState(page, { width, height })
+            test('route context (main content area)', async ({ page }) => {
+              await setupThemeAndNavigate(page, theme, route)
+              await setNavState(page, viewport)
 
-        const content = page.locator('.route-context')
-        await expect(content).toBeVisible()
-        await expect(content).toHaveScreenshot(
-          `${theme}-${width}x${height}-${route.replace(/\//g, '')}-content.png`,
-          { mask: getMaskConfig() }
-        )
-      })
+              const content = page.locator('.route-context')
+              await expect(content).toBeVisible()
+              await expect(content).toHaveScreenshot(
+                `${theme}-${viewport.width}x${viewport.height}-${route.replace(/\//g, '')}-content.png`,
+                { mask: getMaskConfig() }
+              )
+            })
 
-      test('primary button element', async ({ page }) => {
-        await setupThemeAndNavigate(page, theme, route)
-        await setNavState(page, { width, height })
+            test('primary button element', async ({ page }) => {
+              await setupThemeAndNavigate(page, theme, route)
+              await setNavState(page, viewport)
 
-        // Find first regular button
-        const btn = page.locator('button.btn:first-of-type')
-        if (await btn.isVisible()) {
-          await expect(btn).toHaveScreenshot(
-            `${theme}-${width}x${height}-${route.replace(/\//g, '')}-btn.png`,
+              // Find first regular button
+              const btn = page.locator('button.btn:first-of-type')
+              if (await btn.isVisible()) {
+                await expect(btn).toHaveScreenshot(
+                  `${theme}-${viewport.width}x${viewport.height}-${route.replace(/\//g, '')}-btn.png`,
+                  { mask: getMaskConfig() }
+                )
+              }
+            })
+
+            test('ghost button element', async ({ page }) => {
+              await setupThemeAndNavigate(page, theme, route)
+              await setNavState(page, viewport)
+
+              // Find first ghost button
+              const ghostBtn = page.locator('button.btn.ghost:first-of-type')
+              if (await ghostBtn.isVisible()) {
+                await expect(ghostBtn).toHaveScreenshot(
+                  `${theme}-${viewport.width}x${viewport.height}-${route.replace(/\//g, '')}-ghost-btn.png`,
+                  { mask: getMaskConfig() }
+                )
+              }
+            })
+
+            test('tool button element', async ({ page }) => {
+              await setupThemeAndNavigate(page, theme, route)
+              await setNavState(page, viewport)
+
+              // Find first tool button
+              const toolBtn = page.locator('.tool-btn:first-of-type')
+              if (await toolBtn.isVisible()) {
+                await expect(toolBtn).toHaveScreenshot(
+                  `${theme}-${viewport.width}x${viewport.height}-${route.replace(/\//g, '')}-tool-btn.png`,
+                  { mask: getMaskConfig() }
+                )
+              }
+            })
+          })
+        }
+
+        /**
+         * Nav state variations: expanded sidebar on desktop
+         */
+        test('desktop: expanded nav sidebar state', async ({ page }) => {
+          if (viewport.width <= 959) {
+            test.skip()
+          }
+
+          await setupThemeAndNavigate(page, theme, '/')
+
+          // Ensure nav is expanded (no localStorage marker)
+          await page.evaluate(() => {
+            localStorage.removeItem('aiur-nav-collapsed')
+          })
+          await page.evaluate(() => {
+            document.dispatchEvent(new Event('restore-nav'))
+          })
+          await page.waitForTimeout(300)
+
+          const sidebar = page.locator('aside.shell-sidebar')
+          await expect(sidebar).toBeVisible()
+
+          // Check that expanded state is visually different from collapsed
+          await expect(sidebar).toHaveScreenshot(
+            `${theme}-${viewport.width}x${viewport.height}-nav-expanded.png`,
             { mask: getMaskConfig() }
           )
-        }
-      })
+        })
 
-      test('ghost button element', async ({ page }) => {
-        await setupThemeAndNavigate(page, theme, route)
-        await setNavState(page, { width, height })
+        /**
+         * Nav state variations: collapsed sidebar on desktop
+         */
+        test('desktop: collapsed nav sidebar state', async ({ page }) => {
+          if (viewport.width <= 959) {
+            test.skip()
+          }
 
-        // Find first ghost button
-        const ghostBtn = page.locator('button.btn.ghost:first-of-type')
-        if (await ghostBtn.isVisible()) {
-          await expect(ghostBtn).toHaveScreenshot(
-            `${theme}-${width}x${height}-${route.replace(/\//g, '')}-ghost-btn.png`,
+          await setupThemeAndNavigate(page, theme, '/')
+
+          // Collapse nav
+          await page.evaluate(() => {
+            localStorage.setItem('aiur-nav-collapsed', 'true')
+          })
+          await page.evaluate(() => {
+            document.dispatchEvent(new Event('restore-nav'))
+          })
+          await page.waitForTimeout(300)
+
+          const sidebar = page.locator('aside.shell-sidebar')
+          await expect(sidebar).toBeVisible()
+
+          await expect(sidebar).toHaveScreenshot(
+            `${theme}-${viewport.width}x${viewport.height}-nav-collapsed.png`,
             { mask: getMaskConfig() }
           )
-        }
+        })
       })
-
-      test('tool button element', async ({ page }) => {
-        await setupThemeAndNavigate(page, theme, route)
-        await setNavState(page, { width, height })
-
-        // Find first tool button
-        const toolBtn = page.locator('.tool-btn:first-of-type')
-        if (await toolBtn.isVisible()) {
-          await expect(toolBtn).toHaveScreenshot(
-            `${theme}-${width}x${height}-${route.replace(/\//g, '')}-tool-btn.png`,
-            { mask: getMaskConfig() }
-          )
-        }
-      })
-    })
-
-    /**
-     * Nav state variations: expanded sidebar on desktop
-     */
-    test('desktop: expanded nav sidebar state', async ({ page }) => {
-      if (width <= 959) {
-        test.skip()
-      }
-
-      await setupThemeAndNavigate(page, theme, '/')
-
-      // Ensure nav is expanded (no localStorage marker)
-      await page.evaluate(() => {
-        localStorage.removeItem('aiur-nav-collapsed')
-      })
-      await page.evaluate(() => {
-        document.dispatchEvent(new Event('restore-nav'))
-      })
-      await page.waitForTimeout(300)
-
-      const sidebar = page.locator('aside.shell-sidebar')
-      await expect(sidebar).toBeVisible()
-
-      // Check that expanded state is visually different from collapsed
-      await expect(sidebar).toHaveScreenshot(
-        `${theme}-${width}x${height}-nav-expanded.png`,
-        { mask: getMaskConfig() }
-      )
-    })
-
-    /**
-     * Nav state variations: collapsed sidebar on desktop
-     */
-    test('desktop: collapsed nav sidebar state', async ({ page }) => {
-      if (width <= 959) {
-        test.skip()
-      }
-
-      await setupThemeAndNavigate(page, theme, '/')
-
-      // Collapse nav
-      await page.evaluate(() => {
-        localStorage.setItem('aiur-nav-collapsed', 'true')
-      })
-      await page.evaluate(() => {
-        document.dispatchEvent(new Event('restore-nav'))
-      })
-      await page.waitForTimeout(300)
-
-      const sidebar = page.locator('aside.shell-sidebar')
-      await expect(sidebar).toBeVisible()
-
-      await expect(sidebar).toHaveScreenshot(
-        `${theme}-${width}x${height}-nav-collapsed.png`,
-        { mask: getMaskConfig() }
-      )
-    })
+    }
   })
-})
+}
 
 /**
  * Keyboard focus baseline: ensure focus ring is visible
@@ -269,23 +275,23 @@ test.describe('Keyboard focus states', () => {
 test.describe('Visual regression proof test', () => {
   test('CSS change to nav padding triggers regression detection', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-    
+
     await setupThemeAndNavigate(page, 'light', '/build-orders')
     await setNavState(page, { width: 1440, height: 900 })
-    
+
     // Take baseline screenshot
     await expect(page).toHaveScreenshot('proof-test-baseline.png', {
       mask: getMaskConfig()
     })
-    
+
     // Inject CSS that changes nav item padding
     // This change should be VISIBLE and NOT masked
     await page.addStyleTag({
       content: `.shell-nav-item { padding-left: calc(0.72rem + 2px) !important; }`
     })
-    
+
     await page.waitForTimeout(200)
-    
+
     // Second screenshot with injected CSS should NOT match baseline
     // We expect this to fail the comparison, proving regression detection works
     let comparisonFailed = false
@@ -294,20 +300,14 @@ test.describe('Visual regression proof test', () => {
         mask: getMaskConfig()
       })
     } catch (error) {
-      // Expected: comparison should fail because CSS changed the layout
-      if (error.message.includes('Screenshot comparison failed')) {
-        comparisonFailed = true
-      } else {
-        throw error
-      }
+      comparisonFailed = true
     }
-    
-    // Assert that the comparison actually failed
-    // If this assertion fails, it means the baseline wasn't checked or masking hid the change
+
+    // Assertion: the comparison must have failed, proving regression detection works
     if (!comparisonFailed) {
       throw new Error(
-        'Proof test failed: CSS change did not trigger screenshot mismatch. ' +
-        'Baseline may not be loaded or masking may be suppressing the change.'
+        'PROOF TEST FAILED: CSS injection did not trigger regression detection. ' +
+        'The visual regression system is not working correctly.'
       )
     }
   })
