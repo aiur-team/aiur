@@ -253,6 +253,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         # This is a non-blocking side effect that happens in the background
         ModelAvailability.probe_stale_limits(backends)
         :hold
+
       _backend ->
         :dispatch
     end

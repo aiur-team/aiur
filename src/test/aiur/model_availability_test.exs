@@ -339,6 +339,7 @@ defmodule Aiur.ModelAvailabilityTest do
 
       # Setup: cached limit at 100% from 5+ minutes ago (stale)
       reset_time = DateTime.add(now, 3600, :second) |> DateTime.to_iso8601()
+
       assert :ok =
                ModelAvailability.observe(
                  "codex",
@@ -352,6 +353,7 @@ defmodule Aiur.ModelAvailabilityTest do
 
       # Simulate a successful probe: provider now reports 4% usage with a new reset time
       new_reset_time = DateTime.add(now, 3600, :second) |> DateTime.to_iso8601()
+
       assert :ok =
                ModelAvailability.observe(
                  "codex",
@@ -376,6 +378,7 @@ defmodule Aiur.ModelAvailabilityTest do
 
       # Setup: cached limit at 100% from 5+ minutes ago (stale)
       reset_time = DateTime.add(now, 3600, :second) |> DateTime.to_iso8601()
+
       assert :ok =
                ModelAvailability.observe(
                  "codex",

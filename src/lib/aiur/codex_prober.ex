@@ -138,7 +138,8 @@ defmodule Aiur.CodexProber do
           kind, error -> {:error, {kind, error}}
         end
 
-      _ -> {:error, :invalid_session}
+      _ ->
+        {:error, :invalid_session}
     end
   end
 
