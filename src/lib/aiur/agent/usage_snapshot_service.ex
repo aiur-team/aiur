@@ -26,9 +26,8 @@ defmodule Aiur.Agent.UsageSnapshotService do
   @spec current(String.t(), Keyword.t()) :: {:ok, UsageSnapshot.t()} | {:error, atom()}
   def current(agent_id, opts \\ []) do
     with {:ok, scope_params} <- resolve_scope(agent_id, opts),
-         {:ok, cells} <- fetch_aggregate_cells(scope_params),
-         {:ok, snapshot} <- assemble_snapshot(agent_id, cells, scope_params) do
-      {:ok, snapshot}
+         {:ok, cells} <- fetch_aggregate_cells(scope_params) do
+      assemble_snapshot(agent_id, cells, scope_params)
     end
   end
 
@@ -57,58 +56,27 @@ defmodule Aiur.Agent.UsageSnapshotService do
   end
 
   # Look up agent's current run/ticket from agent state
-  # This is a placeholder that would integrate with Aiur's agent tracking
+  # Scope must be provided explicitly via options for now
   @spec lookup_agent_scope(String.t()) :: {:error, :unable_to_resolve_scope}
   defp lookup_agent_scope(_agent_id) do
-    # TODO: Integrate with Aiur.AgentQueue or similar to resolve current scope
-    # For now, return error to indicate scope must be provided explicitly
     {:error, :unable_to_resolve_scope}
   end
 
   # Query UsageAggregate for cells matching the scope
   @spec fetch_aggregate_cells(%{run_id: String.t() | nil, ticket: any()}) ::
-          {:ok, list()} | {:error, atom()}
-  defp fetch_aggregate_cells(scope_params) do
-    query_scope = build_aggregate_query(scope_params)
+          {:ok, map()} | {:error, atom()}
+  defp fetch_aggregate_cells(_scope_params) do
+    %{cells: cells} = UsageAggregate.cells_snapshot()
 
-    try do
-      result = UsageAggregate.query(query_scope)
+    case cells do
+      cells when is_map(cells) and map_size(cells) > 0 ->
+        {:ok, cells}
 
-      # UsageAggregate.query returns a map with cells or an error indicator
-      case result do
-        %{cells: cells} when is_map(cells) and map_size(cells) > 0 ->
-          {:ok, cells}
-
-        %{cells: _} ->
-          {:error, :no_usage_data}
-
-        _other ->
-          {:error, :unable_to_query_aggregate}
-      end
-    rescue
-      _ -> {:error, :aggregate_query_failed}
+      _ ->
+        {:error, :no_usage_data}
     end
-  end
-
-  # Build the query scope for UsageAggregate.query/1
-  defp build_aggregate_query(scope_params) do
-    scope = %{}
-
-    scope =
-      if scope_params.run_id do
-        Map.put(scope, :runs, [scope_params.run_id])
-      else
-        scope
-      end
-
-    scope =
-      if scope_params.ticket do
-        Map.put(scope, :tickets, [scope_params.ticket])
-      else
-        scope
-      end
-
-    scope
+  rescue
+    _ -> {:error, :aggregate_query_failed}
   end
 
   # Assemble the snapshot from aggregate cells
@@ -175,28 +143,25 @@ defmodule Aiur.Agent.UsageSnapshotService do
   defp sum_or_unknown(field, cells) do
     cells
     |> Map.values()
-    |> Enum.reduce({:ok, 0}, fn cell, acc ->
-      case acc do
-        {:error, _reason} = err ->
-          err
-
-        {:ok, total} ->
-          # Each cell might be a nested map or a direct token value
-          # Follow the structure from UsageAggregate
-          value = extract_token_field(cell, field)
-
-          case value do
-            {:unknown, reason} -> {:error, {:unknown, reason}}
-            # Missing field = treat as zero contribution
-            nil -> {:ok, total}
-            n when is_integer(n) and n >= 0 -> {:ok, total + n}
-            _ -> {:error, {:unknown, :invalid_value}}
-          end
-      end
-    end)
+    |> Enum.reduce_while({:ok, 0}, &sum_field_step(&1, &2, field))
     |> case do
       {:ok, total} -> total
       {:error, reason} -> reason
+    end
+  end
+
+  # Step function for summing a field across cells
+  @spec sum_field_step(any(), tuple(), atom()) :: {:cont, tuple()} | {:halt, tuple()}
+  defp sum_field_step(_cell, {:error, _} = err, _field), do: {:halt, err}
+
+  defp sum_field_step(cell, {:ok, total}, field) do
+    value = extract_token_field(cell, field)
+
+    case value do
+      {:unknown, reason} -> {:halt, {:error, {:unknown, reason}}}
+      nil -> {:cont, {:ok, total}}
+      n when is_integer(n) and n >= 0 -> {:cont, {:ok, total + n}}
+      _ -> {:halt, {:error, {:unknown, :invalid_value}}}
     end
   end
 

@@ -208,7 +208,7 @@ defmodule Aiur.Agent.UsageSnapshotTest do
         backend: :codex,
         context_occupancy: %{used_tokens: 1000, window_tokens: 4000, pressure: nil},
         cumulative_metrics: %{
-          input: 10000,
+          input: 10_000,
           output: 5000,
           cached_input: 3000,
           uncached_input: 7000,
