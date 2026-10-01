@@ -306,5 +306,27 @@ defmodule Aiur.ModelAvailabilityTest do
       assert :ok = ModelAvailability.clear_retry_schedule("codex", path: path)
       refute ModelAvailability.retry_scheduled?("codex", path: path, now: future_past)
     end
+
+    test "triggers probes for stale limits", %{path: path} do
+      now = DateTime.utc_now()
+      stale_time = DateTime.add(now, -301, :second)
+      fresh_time = DateTime.add(now, -60, :second)
+
+      # Setup: one stale limit, one fresh, one already scheduled
+      assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 10, limit: 10}}, path: path, now: stale_time)
+      assert :ok = ModelAvailability.observe("claude", %{hourly: %{used: 5, limit: 10}}, path: path, now: fresh_time)
+      assert :ok = ModelAvailability.schedule_retry("openrouter", now, path: path)
+
+      # Probe stale limits (should only trigger for codex)
+      # Note: this test verifies the filtering logic; probe_async is mocked by the test suite
+      state = ModelAvailability.load(path)
+      backends = ["codex", "claude", "openrouter"]
+
+      # The function will return count of stale backends without retry scheduled
+      # In this case: codex is stale and no retry scheduled (count = 1)
+      # claude is fresh (not stale), openrouter has retry scheduled
+      count = ModelAvailability.probe_stale_limits(backends, state: state, now: now, path: path)
+      assert count == 1
+    end
   end
 end

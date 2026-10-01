@@ -21,7 +21,7 @@ defmodule Aiur.ModelAvailability do
   fleet-wide limit from holding a backend for an hour past its own reset.
   """
 
-  alias Aiur.{CodingAgent, Workflow}
+  alias Aiur.{CodingAgent, CodexProber, Workflow}
   alias Aiur.Config.RoutingValue
 
   @windows ~w(hourly weekly monthly)
@@ -196,6 +196,31 @@ defmodule Aiur.ModelAvailability do
       %DateTime{} = retry_at -> DateTime.compare(now, retry_at) != :lt
       nil -> false
     end
+  end
+
+  @doc """
+  Trigger probes for any stale limits in the given list of backends.
+  Non-blocking: spawns probes asynchronously in the background.
+  Returns the number of probes scheduled.
+  """
+  @spec probe_stale_limits([String.t()], keyword()) :: non_neg_integer()
+  def probe_stale_limits(backends, opts \\ []) when is_list(backends) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    path = Keyword.get(opts, :path, path())
+    state = Keyword.get(opts, :state, load(path))
+
+    stale_backends =
+      backends
+      |> Enum.filter(fn backend ->
+        stale?(backend, state: state, now: now, path: path) and
+          not retry_scheduled?(backend, state: state, now: now, path: path)
+      end)
+
+    Enum.each(stale_backends, fn backend ->
+      CodexProber.probe_async(backend, path: path, now: now)
+    end)
+
+    Enum.count(stale_backends)
   end
 
   defp limited?(entry, now) do
