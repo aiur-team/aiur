@@ -31,13 +31,21 @@ defmodule Aiur.ExecutorWakeProjection do
          "count" => 1,
          "first_seen_at" => now,
          "last_seen_at" => now
-       }}
+       }
+       |> observation_marker(event)}
     else
       :ignore
     end
   end
 
   def project(_event), do: :ignore
+
+  defp observation_marker(record, event) do
+    case value(event, :observation) do
+      "initial_sync" -> Map.put(record, "observation", "initial_sync")
+      _ -> record
+    end
+  end
 
   defp topic_class("ticket." <> rest) do
     case String.split(rest, ".", parts: 2) do
