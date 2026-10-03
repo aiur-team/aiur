@@ -409,9 +409,13 @@ defmodule Aiur.Orchestrator.IssueSync do
 
     case update_state_fun.(issue.identifier, restored) do
       :ok ->
-        alert_missing_state_label_repaired(issue, restored)
+        case alert_missing_state_label_repaired(issue, restored) do
+          :ok ->
+            Logger.warning("Healing missing state label for #{State.issue_context(issue)} -> #{restored}")
 
-        Logger.warning("Healing missing state label for #{State.issue_context(issue)} -> #{restored}")
+          {:error, reason} ->
+            Logger.warning("Alert emission failed after healing missing state label for #{State.issue_context(issue)}: #{inspect(reason)}")
+        end
 
         {healed_issue, %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, healed_issue)}}
 
@@ -513,16 +517,32 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp alert_missing_state_label_repaired(%Issue{} = issue, restored) do
-    Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.state-label-missing",
-      issue: issue.identifier,
-      message: "Ticket #{issue.identifier} had no agent state label and was invisible to dispatch; repaired to #{restored}.",
-      reason:
-        "Ticket #{issue.identifier} carried zero agent:* state labels (a broken remove-then-add swap left it stranded); " <>
-          "restored #{restored} so dispatch can see it again.",
-      needs_attention: true,
-      severity: "warning",
-      central: true
-    )
+    topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing"
+
+    with :ok <-
+           Alerts.emit_system(topic,
+             issue: issue.identifier,
+             message: "Ticket #{issue.identifier} had no agent state label and was invisible to dispatch; repaired to #{restored}.",
+             reason:
+               "Ticket #{issue.identifier} carried zero agent:* state labels (a broken remove-then-add swap left it stranded); " <>
+                 "restored #{restored} so dispatch can see it again.",
+             needs_attention: true,
+             severity: "warning",
+             central: true
+           ),
+         :ok <-
+           Alerts.emit_system("#{topic}.resolved",
+             issue: issue.identifier,
+             message: "Ticket state label repaired; dispatch visibility restored.",
+             reason: "State label has been restored to #{restored}.",
+             needs_attention: false,
+             severity: "info",
+             central: true
+           ) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   # Collects the polled tickets that carry more than one `agent:*` state label —
@@ -1130,25 +1150,48 @@ defmodule Aiur.Orchestrator.IssueSync do
       MapSet.member?(state.observed_error_alerts, issue.id) or
         active_attention?(state, topic)
 
-    cond do
-      cause == :lifetime_latch and lifetime_latch_status(state, issue.id) != :inactive ->
-        mark_observed_error_alert(state, issue.id, cause)
+    state =
+      cond do
+        cause == :lifetime_latch and lifetime_latch_status(state, issue.id) != :inactive ->
+          mark_observed_error_alert(state, issue.id, cause)
 
-      active? ->
-        case Alerts.emit_system("#{topic}.resolved",
-               issue: issue,
-               worker_host: Orchestrator.running_worker_host(state, issue.id),
-               reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
-               needs_attention: false,
-               severity: "info",
-               central: true
-             ) do
-          :ok -> clear_observed_error_alert(state, issue.id)
-          {:error, _reason} -> state
-        end
+        active? ->
+          case Alerts.emit_system("#{topic}.resolved",
+                 issue: issue,
+                 worker_host: Orchestrator.running_worker_host(state, issue.id),
+                 reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
+                 needs_attention: false,
+                 severity: "info",
+                 central: true
+               ) do
+            :ok -> clear_observed_error_alert(state, issue.id)
+            {:error, _reason} -> state
+          end
 
-      true ->
-        state
+        true ->
+          state
+      end
+
+    resolve_retry_exhausted_alert(state, issue)
+  end
+
+  defp resolve_retry_exhausted_alert(%State{} = state, %Issue{} = issue) do
+    retry_exhausted_topic = "ticket.#{issue.identifier}.agent.attention.error-retry_exhausted"
+
+    if active_attention?(state, retry_exhausted_topic) do
+      case Alerts.emit_system("#{retry_exhausted_topic}.resolved",
+             issue: issue,
+             worker_host: Orchestrator.running_worker_host(state, issue.id),
+             reason: "Ticket moved out of error state; retry exhaustion condition is resolved.",
+             needs_attention: false,
+             severity: "info",
+             central: true
+           ) do
+        :ok -> state
+        {:error, _reason} -> state
+      end
+    else
+      state
     end
   end
 
