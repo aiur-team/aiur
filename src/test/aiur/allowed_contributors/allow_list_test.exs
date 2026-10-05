@@ -12,7 +12,7 @@ defmodule Aiur.AllowedContributors.AllowListTest do
     """
 
     assert {:ok, %{users: users, orgs: orgs}} = AllowList.parse(body)
-    assert users == MapSet.new([583_231])
+    assert users == %{583_231 => true}
     assert orgs == %{9919 => "github"}
   end
 
@@ -64,7 +64,7 @@ defmodule Aiur.AllowedContributors.AllowListTest do
   test "this repository's own allow-list parses" do
     path = Path.expand("../../../../.github/ALLOWED-CONTRIBUTORS", __DIR__)
     assert {:ok, %{users: users}} = path |> File.read!() |> AllowList.parse()
-    assert MapSet.size(users) > 0
+    assert map_size(users) > 0
   end
 
   test "diff names added and removed entries" do

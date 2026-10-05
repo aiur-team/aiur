@@ -30,8 +30,8 @@ defmodule Aiur.AllowedContributors.Policy do
   end
 
   @doc "Whether the author's numeric id is listed as an individual."
-  @spec user_listed?(%{users: MapSet.t()}, pos_integer()) :: boolean()
-  def user_listed?(%{users: users}, author_id), do: MapSet.member?(users, author_id)
+  @spec user_listed?(%{users: map()}, pos_integer()) :: boolean()
+  def user_listed?(%{users: users}, author_id), do: Map.has_key?(users, author_id)
 
   defp positive?(value), do: is_integer(value) and value > 0
 

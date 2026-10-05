@@ -40,12 +40,12 @@ defmodule Aiur.AllowedContributors.AllowList do
   def valid_login?(login) when is_binary(login), do: Regex.match?(@login, login)
   def valid_login?(_login), do: false
 
-  @type t :: %{users: MapSet.t(pos_integer()), orgs: %{pos_integer() => String.t()}}
+  @type t :: %{users: %{optional(pos_integer()) => true}, orgs: %{optional(pos_integer()) => String.t()}}
   @type error :: {:line, pos_integer(), atom()} | :too_large | :not_utf8
 
   @doc "An allow-list that admits nobody."
   @spec empty() :: t()
-  def empty, do: %{users: MapSet.new(), orgs: %{}}
+  def empty, do: %{users: %{}, orgs: %{}}
 
   @doc "Parses the file body. Any malformed line fails the whole file."
   @spec parse(binary()) :: {:ok, t()} | {:error, error()}
@@ -78,7 +78,7 @@ defmodule Aiur.AllowedContributors.AllowList do
   end
 
   defp entries(%{users: users, orgs: orgs}) do
-    user_entries = Enum.map(users, &"user:#{&1}")
+    user_entries = Enum.map(users, fn {id, true} -> "user:#{id}" end)
     org_entries = Enum.map(orgs, fn {id, login} -> "org:#{id}:#{login}" end)
     MapSet.new(user_entries ++ org_entries)
   end
@@ -101,7 +101,7 @@ defmodule Aiur.AllowedContributors.AllowList do
 
   defp add_user(acc, id, number) do
     case parse_id(id) do
-      {:ok, int} -> {:cont, {:ok, %{acc | users: MapSet.put(acc.users, int)}}}
+      {:ok, int} -> {:cont, {:ok, %{acc | users: Map.put(acc.users, int, true)}}}
       :error -> {:halt, {:error, {:line, number, :invalid_id}}}
     end
   end

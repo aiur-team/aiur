@@ -36,7 +36,7 @@ defmodule Aiur.AllowedContributors.SourceTest do
 
   test "reads the file at the default branch's head SHA and audits the commit that touched it" do
     assert {:ok, %{sha: @sha, allowlist: %{users: users}}} = fetch(github())
-    assert MapSet.member?(users, 42)
+    assert Map.has_key?(users, 42)
 
     assert_received {:get, repo_url}
     assert repo_url =~ ~r{/repos/acme/app$}
@@ -54,7 +54,7 @@ defmodule Aiur.AllowedContributors.SourceTest do
   # The branch name must never be used as a ref; only the branch head SHA is.
   test "a same-named tag cannot shadow the default branch" do
     assert {:ok, %{allowlist: %{users: users}}} = fetch(github())
-    refute MapSet.member?(users, 666)
+    refute Map.has_key?(users, 666)
 
     refs =
       for {:get, url} <- collect_gets([]), String.contains?(url, "ref=") or String.contains?(url, "sha="), do: url
