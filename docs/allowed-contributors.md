@@ -73,7 +73,8 @@ An issue is admitted only when all of these hold:
 3. it was created less than seven days ago, so a late redelivery of an old
    webhook cannot wake you again;
 4. the creator's numeric id is listed, **or** they are an `active` member of a
-   listed org (`state: active`, and `user.id` and `organization.id` matching);
+   listed org (`state: active`, `role` `admin` or `member` — a billing manager
+   is not a member — and `user.id` and `organization.id` matching);
 5. that author has had fewer than 5 accepted wakes in the past hour. The count
    is persisted, so it survives a daemon restart.
 
@@ -89,9 +90,9 @@ keeps it to one wake per issue across both producers and across restarts.
 | --- | --- | --- |
 | Allow-list file | refreshed every 10 minutes | the previous snapshot is kept; with none, intake defers |
 | Org membership, positive | 5 minutes | n/a |
-| Org membership, negative (404, mismatch, pending) | 60 seconds | n/a |
+| Org membership, negative (404, mismatch, pending, billing manager) | 60 seconds | n/a |
 | Org membership, error (403, 429, 5xx, transport) | 60 seconds | never admits; the issue is deferred and re-evaluated on a later sighting |
-| Wake publish | n/a | an accept that fails to publish is deferred and retried, never audited as accepted |
+| Wake publish | n/a | an accept that fails to publish is deferred and retried, never audited as accepted, and does not spend the author's hourly cap |
 
 Membership is checked over REST with the operator's GitHub credential. That
 credential must be able to see the org's membership: for private members, the

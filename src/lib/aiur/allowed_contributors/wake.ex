@@ -20,15 +20,14 @@ defmodule Aiur.AllowedContributors.Wake do
   def publish(%State{} = state, candidate, via) do
     payload = %{action: "opened", author_id: candidate.author_id, via: via, allowlist_sha: sha(state.snapshot)}
     topic = "ticket.#{candidate.number}.issue.opened.allowed_contributor"
-    dedup = {"#{state.owner}/#{state.repo}", "allowed_contributor", Integer.to_string(candidate.number)}
-
-    case state.publish_fun.(topic, payload, bypass_contamination: true, dedup_key: dedup) do
-      # Zero subscribers means the Executor listener was not bound, so nothing
-      # recorded the wake: retry on a later sighting instead.
+    # No Publisher `dedup_key`: the durable seen set already gives one wake per
+    # issue, and a dedup key would be recorded even by an undelivered publish,
+    # so the deferred retry would come back `:deduped` and be counted as sent.
+    case state.publish_fun.(topic, payload, bypass_contamination: true) do
+      # Zero subscribers means nothing recorded the wake: retry on a later
+      # sighting instead.
       {:ok, _id, 0} -> {:error, :no_subscribers}
       {:ok, _id, _subscribers} -> :ok
-      # Already published for this issue within the dedup window.
-      :deduped -> :ok
       other -> {:error, other}
     end
   rescue

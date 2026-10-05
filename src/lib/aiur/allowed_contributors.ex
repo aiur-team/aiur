@@ -27,7 +27,7 @@ defmodule Aiur.AllowedContributors do
 
   require Logger
 
-  alias Aiur.AllowedContributors.{Audit, Candidate, Intake, Ledger, Refresh, State, Wake}
+  alias Aiur.AllowedContributors.{Audit, Candidate, Intake, Ledger, RateLimit, Refresh, State, Wake}
   alias Aiur.GitHub.Transport
 
   @on_demand_refresh_ms 60_000
@@ -139,7 +139,8 @@ defmodule Aiur.AllowedContributors do
       {:error, reason} ->
         deferred = {:deferred, {:publish_failed, reason}}
         audit(state, :deferred, candidate, elem(deferred, 1))
-        {deferred, state}
+        rate = RateLimit.refund(state.ledger.rate, candidate.author_id)
+        {deferred, %{state | ledger: Ledger.put_rate(state.ledger, rate)}}
     end
   end
 

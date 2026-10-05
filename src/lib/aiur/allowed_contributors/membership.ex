@@ -8,6 +8,8 @@ defmodule Aiur.AllowedContributors.Membership do
   membership, and its body carries the ids this check binds to. A member
   counts only when **all** of these hold on a `200`:
 
+    * `role` is `admin` or `member` — the endpoint also answers for billing
+      managers, who are not org members;
     * `state == "active"` — an invitation (`pending`) is not membership;
     * `user.id` equals the issue author's numeric id — a login renamed or
       re-registered between the event and this call answers for someone else;
@@ -32,6 +34,7 @@ defmodule Aiur.AllowedContributors.Membership do
   @negative_ttl_ms 60_000
   @unverified_ttl_ms 60_000
   @max_entries 1_000
+  @member_roles ["admin", "member"]
 
   @type org :: %{id: pos_integer(), login: String.t()}
   @type author :: %{id: pos_integer(), login: String.t()}
@@ -72,6 +75,8 @@ defmodule Aiur.AllowedContributors.Membership do
       get_in(body, ["organization", "id"]) != org.id -> {:not_member, :org_id_mismatch}
       get_in(body, ["user", "id"]) != author.id -> {:not_member, :user_id_mismatch}
       body["state"] != "active" -> {:not_member, :membership_pending}
+      # The endpoint also answers for billing managers, who are not members.
+      body["role"] not in @member_roles -> {:not_member, :not_org_member_role}
       true -> :member
     end
   end

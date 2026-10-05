@@ -20,6 +20,20 @@ defmodule Aiur.AllowedContributors.RateLimit do
       else: {:ok, Map.put(state, author_id, [now_ms | recent])}
   end
 
+  @doc """
+  Returns the slot `admit/5` just granted `author_id` (its newest stamp), for a
+  wake that was admitted but never delivered: a deferred retry must not spend
+  the author's budget, or the retries alone would rate-limit the issue away.
+  """
+  @spec refund(t(), pos_integer()) :: t()
+  def refund(state, author_id) do
+    case Map.get(state, author_id) do
+      [_newest] -> Map.delete(state, author_id)
+      [_newest | older] -> Map.put(state, author_id, older)
+      _none -> state
+    end
+  end
+
   defp prune(state, now_ms, window_ms) do
     state
     |> Enum.map(fn {author, stamps} -> {author, Enum.filter(stamps, &(now_ms - &1 < window_ms))} end)

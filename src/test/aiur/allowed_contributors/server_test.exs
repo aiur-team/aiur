@@ -152,6 +152,50 @@ defmodule Aiur.AllowedContributors.ServerTest do
     refute :duplicate == AllowedContributors.observe(Fixture.candidate(source: :poll), server)
   end
 
+  # Independent review of #2958: the rate slot was taken before the publish,
+  # so every deferred retry of one undelivered wake spent the author's hourly
+  # budget, and after `rate_limit` retries the issue was rejected
+  # `:rate_limited` and marked seen — lost for good.
+  test "a wake that fails to publish does not spend the author's hourly budget", context do
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    publish = fn _topic, _payload, _opts ->
+      if Agent.get_and_update(attempts, &{&1, &1 + 1}) < 3, do: {:ok, 9, 0}, else: {:ok, 9, 1}
+    end
+
+    {server, _gh} = Fixture.start(context, body: "user 42\n", rate_limit: 2, publish_fun: publish)
+
+    for _attempt <- 1..3 do
+      assert {:deferred, {:publish_failed, :no_subscribers}} =
+               AllowedContributors.observe(Fixture.candidate(source: :poll), server)
+    end
+
+    assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(source: :poll), server)
+  end
+
+  # Independent review of #2958: the wake carried a Publisher `dedup_key`,
+  # which the Publisher records before it knows whether anyone received the
+  # event. The retry of a zero-subscriber wake then came back `:deduped`, and
+  # intake audited an accept and marked the issue seen for a wake nobody got.
+  test "a retried wake is never counted as delivered on the Publisher's dedup answer", context do
+    test = self()
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    publish = fn _topic, _payload, opts ->
+      send(test, {:publish_opts, opts})
+      if Agent.get_and_update(attempts, &{&1, &1 + 1}) == 0, do: {:ok, 9, 0}, else: :deduped
+    end
+
+    {server, _gh} = Fixture.start(context, body: "user 42\n", publish_fun: publish)
+
+    assert {:deferred, {:publish_failed, :no_subscribers}} = AllowedContributors.observe(Fixture.candidate(), server)
+    assert_received {:publish_opts, opts}
+    refute Keyword.has_key?(opts, :dedup_key)
+
+    refute match?({:accept, _}, AllowedContributors.observe(Fixture.candidate(source: :poll), server))
+    refute Enum.any?(audit_lines(server), &(&1["decision"] == "accept"))
+  end
+
   test "an unwritable state directory never crashes intake", context do
     blocker = Path.join(System.tmp_dir!(), "aiur-ac-blocker-#{System.unique_integer([:positive])}")
     File.write!(blocker, "not a directory")

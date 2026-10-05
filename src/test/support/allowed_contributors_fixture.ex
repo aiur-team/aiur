@@ -71,7 +71,7 @@ defmodule Aiur.AllowedContributorsFixture do
   @doc "A member response for `user_id` in org `org_id`."
   @spec member(pos_integer(), pos_integer(), String.t()) :: {:ok, map()}
   def member(org_id, user_id, state \\ "active"),
-    do: {:ok, %{status: 200, body: %{"state" => state, "user" => %{"id" => user_id}, "organization" => %{"id" => org_id}}}}
+    do: {:ok, %{status: 200, body: %{"state" => state, "role" => "member", "user" => %{"id" => user_id}, "organization" => %{"id" => org_id}}}}
 
   defp answer(gh, test, %{url: url} = req) do
     send(test, {:github_get, url})

@@ -7,7 +7,7 @@ defmodule Aiur.AllowedContributors.MembershipTest do
   @author %{id: 42, login: "alice"}
 
   defp member_body(overrides \\ %{}) do
-    Map.merge(%{"state" => "active", "user" => %{"id" => 42}, "organization" => %{"id" => 9919}}, overrides)
+    Map.merge(%{"state" => "active", "role" => "member", "user" => %{"id" => 42}, "organization" => %{"id" => 9919}}, overrides)
   end
 
   # Answers from a list of canned responses and records each URL asked.
@@ -33,6 +33,25 @@ defmodule Aiur.AllowedContributors.MembershipTest do
   test "a pending invitation is not membership" do
     {get, _urls} = scripted([{:ok, %{status: 200, body: member_body(%{"state" => "pending"})}}])
     assert {{:not_member, :membership_pending}, _cache} = Membership.check(%{}, @org, @author, 0, get)
+  end
+
+  # Independent review of #2958: the memberships endpoint also answers for
+  # billing managers (`role: "billing_manager"`, `state: "active"`), who are
+  # not members of the org. Only `admin` and `member` count, and a missing or
+  # unknown role fails closed.
+  test "an org billing manager is not a member" do
+    {get, _urls} = scripted([{:ok, %{status: 200, body: member_body(%{"role" => "billing_manager"})}}])
+    assert {{:not_member, :not_org_member_role}, _cache} = Membership.check(%{}, @org, @author, 0, get)
+  end
+
+  test "a membership answer with no role fails closed" do
+    {get, _urls} = scripted([{:ok, %{status: 200, body: Map.delete(member_body(), "role")}}])
+    assert {{:not_member, :not_org_member_role}, _cache} = Membership.check(%{}, @org, @author, 0, get)
+  end
+
+  test "an org admin is a member" do
+    {get, _urls} = scripted([{:ok, %{status: 200, body: member_body(%{"role" => "admin"})}}])
+    assert {:member, _cache} = Membership.check(%{}, @org, @author, 0, get)
   end
 
   test "an outside collaborator (404) is negative, cached briefly, and re-asked after a minute" do
