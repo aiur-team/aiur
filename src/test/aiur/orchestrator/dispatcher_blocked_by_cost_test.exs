@@ -369,6 +369,39 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     assert MapSet.to_list(open) == ["99"]
   end
 
+  # #2957: the open-issue listing is intake's second producer. It offers only
+  # issues created in the last 24 hours, carrying the API's numeric author id,
+  # type and App provenance — never the title or body.
+  test "the open-issue listing offers fresh issues to allowed-contributor intake" do
+    fresh = DateTime.utc_now() |> DateTime.add(-3600) |> DateTime.to_iso8601()
+    stale = DateTime.utc_now() |> DateTime.add(-3 * 86_400) |> DateTime.to_iso8601()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      Req.Test.json(conn, [
+        %{"number" => 98, "state" => "open", "labels" => [], "created_at" => fresh, "user" => %{"id" => 42, "login" => "alice", "type" => "User"}},
+        %{"number" => 97, "state" => "open", "labels" => [], "created_at" => stale, "user" => %{"id" => 42, "login" => "alice", "type" => "User"}},
+        %{
+          "number" => 96,
+          "state" => "open",
+          "labels" => [],
+          "created_at" => fresh,
+          "user" => %{"id" => 43, "login" => "bob", "type" => "User"},
+          "performed_via_github_app" => %{"id" => 1}
+        }
+      ])
+    end)
+
+    true = Process.register(self(), Aiur.AllowedContributors)
+    on_exit(fn -> if Process.whereis(Aiur.AllowedContributors), do: Process.unregister(Aiur.AllowedContributors) end)
+
+    assert {:ok, _candidates} = Issues.fetch_candidate_issues()
+    Process.unregister(Aiur.AllowedContributors)
+
+    assert_received {:"$gen_cast", {:observe, %{number: 98, author_id: 42, author_type: "User", via_app?: false, source: :poll}}}
+    assert_received {:"$gen_cast", {:observe, %{number: 96, via_app?: true}}}
+    refute_received {:"$gen_cast", {:observe, %{number: 97}}}
+  end
+
   test "a snapshot written by a short-lived process outlives it" do
     # `IssueContext` and the comment wake list open issues from processes that
     # exit right after; the table must not belong to them.
