@@ -15,15 +15,16 @@ defmodule Aiur.AllowedContributors.Refresh do
 
   require Logger
 
-  alias Aiur.AllowedContributors.{AllowList, Ledger, Source}
+  alias Aiur.AllowedContributors.{AllowList, Ledger, Source, State}
 
-  @spec run(map()) :: map()
+  @spec run(State.t()) :: State.t()
   def run(state) do
     case state.token_fun.() do
       token when is_binary(token) and token != "" ->
         state.owner |> Source.fetch(state.repo, request_fun: state.request_fun, token: token) |> apply_fetch(state)
 
       _missing ->
+        Logger.warning("allowed_contributors refresh_skipped reason=missing_github_token; intake defers until a token is available")
         state
     end
   end
@@ -37,7 +38,7 @@ defmodule Aiur.AllowedContributors.Refresh do
     {sha, entries} = describe(snapshot)
     if sha != state.ledger.sha or entries != state.ledger.entries, do: alert_change(state, snapshot, sha, entries)
     ledger = Ledger.put_allowlist(state.ledger, sha, entries)
-    :ok = Ledger.save(ledger, state.ledger_path)
+    _ = Ledger.save(ledger, state.ledger_path)
     %{state | snapshot: snapshot, ledger: ledger}
   end
 

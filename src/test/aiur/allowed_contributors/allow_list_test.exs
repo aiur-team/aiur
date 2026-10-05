@@ -36,7 +36,10 @@ defmodule Aiur.AllowedContributors.AllowListTest do
     assert {:error, {:line, 1, :unrecognized_entry}} = AllowList.parse("org 9919\n")
     # Cyrillic "а" in place of the Latin "a".
     assert {:error, {:line, 1, :invalid_login}} = AllowList.parse("org 9919 аiur-team\n")
-    assert {:error, {:line, 1, :invalid_login}} = AllowList.parse("org 9919 bad--login\n")
+    assert {:error, {:line, 1, :invalid_login}} = AllowList.parse("org 9919 -leading\n")
+    assert {:error, {:line, 1, :invalid_login}} = AllowList.parse("org 9919 acme/evil\n")
+    # Legacy GitHub logins with doubled or trailing hyphens are real accounts.
+    assert {:ok, %{orgs: %{9919 => "old--org-"}}} = AllowList.parse("org 9919 old--org-\n")
   end
 
   test "no transitive or team forms exist" do

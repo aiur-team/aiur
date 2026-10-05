@@ -5,7 +5,6 @@ defmodule Aiur.GitHub.Issues do
 
   require Logger
   alias Aiur.AllowedContributors
-  alias Aiur.AllowedContributors.Candidate
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
@@ -437,22 +436,17 @@ defmodule Aiur.GitHub.Issues do
   # the close signal the dispatch gate's blocker states use (#2714).
   defp record_open_issues(owner, repo, issues) do
     OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id))
-    offer_allowed_contributor_intake(issues)
+    # Second producer for allowed-contributor intake (#2957).
+    AllowedContributors.offer_open_issues(issues)
   end
 
-  # The poll is the second producer for allowed-contributor intake (#2957),
-  # covering a lost or unconfigured webhook. Only issues created in the last
-  # 24 hours are offered, so a first boot does not wake the Executor for the
-  # whole backlog; intake's durable seen set makes a re-sighting a no-op. The
-  # cast never blocks the poll, and a missing intake process drops it.
-  @allowed_contributor_horizon_s 24 * 3600
-
-  defp offer_allowed_contributor_intake(issues) do
-    now = DateTime.utc_now()
-
-    issues
-    |> Enum.filter(&(match?(%DateTime{}, &1.created_at) and DateTime.diff(now, &1.created_at) < @allowed_contributor_horizon_s))
-    |> Enum.each(&AllowedContributors.observe_async(Candidate.from_issue(&1)))
+  # GitHub reports `performed_via_github_app` (null when not App-created) on
+  # every issue. An absent key is unknown provenance, which allowed-contributor
+  # intake treats as App-created (fail closed).
+  defp created_via_app(gh_issue) do
+    if Map.has_key?(gh_issue, "performed_via_github_app"),
+      do: not is_nil(gh_issue["performed_via_github_app"]),
+      else: nil
   end
 
   defp filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix) do
@@ -1004,7 +998,7 @@ defmodule Aiur.GitHub.Issues do
       creator_login: get_in(gh_issue, ["user", "login"]),
       creator_id: get_in(gh_issue, ["user", "id"]),
       creator_type: get_in(gh_issue, ["user", "type"]),
-      created_via_app?: not is_nil(gh_issue["performed_via_github_app"]),
+      created_via_app?: created_via_app(gh_issue),
       dispatch_revision: dispatch_revision,
       # `dispatch_authorized?: false` means "not verified to dispatch", and the
       # tri-state `dispatch_authorization` starts `:deferred` ("not yet checked")

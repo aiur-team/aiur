@@ -378,7 +378,9 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
 
     Req.Test.stub(__MODULE__, fn conn ->
       Req.Test.json(conn, [
-        %{"number" => 98, "state" => "open", "labels" => [], "created_at" => fresh, "user" => %{"id" => 42, "login" => "alice", "type" => "User"}},
+        %{"number" => 98, "state" => "open", "labels" => [], "created_at" => fresh, "performed_via_github_app" => nil, "user" => %{"id" => 42, "login" => "alice", "type" => "User"}},
+        # No provenance key at all: unknown, so intake must see it as App-created.
+        %{"number" => 95, "state" => "open", "labels" => [], "created_at" => fresh, "user" => %{"id" => 42, "login" => "alice", "type" => "User"}},
         %{"number" => 97, "state" => "open", "labels" => [], "created_at" => stale, "user" => %{"id" => 42, "login" => "alice", "type" => "User"}},
         %{
           "number" => 96,
@@ -399,6 +401,7 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
 
     assert_received {:"$gen_cast", {:observe, %{number: 98, author_id: 42, author_type: "User", via_app?: false, source: :poll}}}
     assert_received {:"$gen_cast", {:observe, %{number: 96, via_app?: true}}}
+    assert_received {:"$gen_cast", {:observe, %{number: 95, via_app?: true}}}
     refute_received {:"$gen_cast", {:observe, %{number: 97}}}
   end
 

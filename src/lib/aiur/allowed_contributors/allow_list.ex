@@ -27,10 +27,18 @@ defmodule Aiur.AllowedContributors.AllowList do
   # GitHub ids are positive int64s. ASCII digits only — `String.to_integer/1`
   # would happily accept a sign, and a lookalike digit must never parse.
   @id ~r/\A[1-9][0-9]{0,18}\z/
-  # GitHub org/user login charset: ASCII alphanumerics and single interior
-  # hyphens, at most 39 characters. Anything else (unicode lookalikes
-  # included) is rejected rather than normalized.
-  @login ~r/\A[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}\z/
+  # The one GitHub login shape this feature accepts anywhere (the allow-list's
+  # org lines and every login placed in an API path): ASCII alphanumerics and
+  # hyphens, not starting with a hyphen, at most 39 characters. Legacy logins
+  # with doubled or trailing hyphens are accepted; anything else — unicode
+  # lookalikes, `/`, `.`, whitespace — is rejected, never normalized. A login
+  # is only ever an API address here, never an identity.
+  @login ~r/\A[A-Za-z0-9][A-Za-z0-9-]{0,38}\z/
+
+  @doc "Whether `login` is a plain ASCII GitHub login, safe to place in an API path."
+  @spec valid_login?(term()) :: boolean()
+  def valid_login?(login) when is_binary(login), do: Regex.match?(@login, login)
+  def valid_login?(_login), do: false
 
   @type t :: %{users: MapSet.t(pos_integer()), orgs: %{pos_integer() => String.t()}}
   @type error :: {:line, pos_integer(), atom()} | :too_large | :not_utf8

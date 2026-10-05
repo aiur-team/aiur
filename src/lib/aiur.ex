@@ -468,7 +468,12 @@ defmodule Aiur.Application do
       # Chat-pane machinery — UI-only, never read by a headless run.
       unless(headless?, do: Aiur.Opencode.PaneSupervisor),
       Aiur.Opencode.SessionSupervisor,
-      Aiur.Opencode.BridgeSupervisor
+      Aiur.Opencode.BridgeSupervisor,
+      # Allowed-contributor intake (#2957) feeds the Executor wake path armed
+      # above, so it runs whenever recording does. It is last in this
+      # `:rest_for_one` list so a restart of it can never cascade into the
+      # dashboard, the Principal, or the opencode supervisors.
+      if(recording?, do: Aiur.AllowedContributors)
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
@@ -491,7 +496,7 @@ defmodule Aiur.Application do
   defp maybe_ls_remote_ticker(enabled?) when enabled? in [nil, false], do: nil
   defp maybe_ls_remote_ticker(_enabled?), do: Aiur.Events.LsRemoteTicker
 
-  defp recording_children(true), do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener, Aiur.AllowedContributors]
+  defp recording_children(true), do: [Aiur.Executor.Claims, Aiur.ExecutorWakeInbox, Aiur.ExecutorListener]
   defp recording_children(false), do: []
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal

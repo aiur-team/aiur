@@ -69,7 +69,7 @@ defmodule Aiur.AllowedContributors.ServerTest do
     Agent.update(gh, &%{&1 | body: "user 42\n"})
     assert {:deferred, :allowlist_unavailable} = AllowedContributors.observe(Fixture.candidate(), server)
 
-    Agent.update(gh, &%{&1 | mono: 60_000})
+    Fixture.advance(gh, 60_000)
     assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(), server)
   end
 
@@ -100,6 +100,83 @@ defmodule Aiur.AllowedContributors.ServerTest do
     assert :duplicate = AllowedContributors.observe(Fixture.candidate(source: :poll), again)
   end
 
+  test "revoking an entry on the default branch stops admitting that author at the next refresh", context do
+    {server, gh} = Fixture.start(context, body: "user 42\nuser 43\n")
+    _ = :sys.get_state(server)
+    assert_received {:alert, "allowed_contributors.changed", _first_load}
+    assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(number: 1), server)
+
+    Agent.update(gh, &%{&1 | body: "user 43\n"})
+    :ok = AllowedContributors.refresh(server)
+    assert_received {:alert, "allowed_contributors.changed", message}
+    assert message =~ ~s(removed ["user:42"])
+
+    assert {:reject, :not_allowed} = AllowedContributors.observe(Fixture.candidate(number: 2), server)
+  end
+
+  test "a failed refresh keeps the last good allow-list rather than flipping trust", context do
+    {server, gh} = Fixture.start(context, body: "user 42\n")
+    _ = :sys.get_state(server)
+    Agent.update(gh, &%{&1 | body: {:error, :timeout}})
+    :ok = AllowedContributors.refresh(server)
+
+    assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(), server)
+  end
+
+  test "a wake that fails to publish is deferred and retried, never audited as accepted", context do
+    test = self()
+    {:ok, attempts} = Agent.start_link(fn -> 0 end)
+
+    publish = fn topic, _payload, _opts ->
+      case Agent.get_and_update(attempts, &{&1, &1 + 1}) do
+        0 -> {:error, :executor_namespace_rejects_github_source}
+        _n -> send(test, {:published, topic}) && {:ok, 7, 1}
+      end
+    end
+
+    {server, _gh} = Fixture.start(context, body: "user 42\n", publish_fun: publish)
+
+    assert {:deferred, {:publish_failed, _}} = AllowedContributors.observe(Fixture.candidate(), server)
+    refute_received {:published, _}
+    assert [%{"decision" => "deferred"}] = audit_lines(server)
+
+    assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(source: :poll), server)
+    assert_received {:published, @topic}
+  end
+
+  test "a wake published while no Executor listener is bound is deferred, not lost", context do
+    {server, _gh} = Fixture.start(context, body: "user 42\n", publish_fun: fn _topic, _payload, _opts -> {:ok, 9, 0} end)
+
+    assert {:deferred, {:publish_failed, :no_subscribers}} = AllowedContributors.observe(Fixture.candidate(), server)
+    # Not remembered, so the next sighting tries again.
+    refute :duplicate == AllowedContributors.observe(Fixture.candidate(source: :poll), server)
+  end
+
+  test "an unwritable state directory never crashes intake", context do
+    blocker = Path.join(System.tmp_dir!(), "aiur-ac-blocker-#{System.unique_integer([:positive])}")
+    File.write!(blocker, "not a directory")
+    on_exit(fn -> File.rm(blocker) end)
+
+    {server, _gh} = Fixture.start(context, state_dir: Path.join(blocker, "state"))
+
+    assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(), server)
+    assert Process.alive?(server)
+    # The in-memory seen set stays authoritative for the process lifetime.
+    assert :duplicate = AllowedContributors.observe(Fixture.candidate(source: :poll), server)
+  end
+
+  test "the per-author hourly cap survives a daemon restart", context do
+    dir = Path.join(System.tmp_dir!(), "aiur-ac-rate-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    {server, _gh} = Fixture.start(context, state_dir: dir, rate_limit: 2, id: :rate_first_boot)
+    for n <- 1..2, do: assert({:accept, _} = AllowedContributors.observe(Fixture.candidate(number: n), server))
+    stop_supervised!(:rate_first_boot)
+
+    {again, _gh} = Fixture.start(context, state_dir: dir, rate_limit: 2)
+    assert {:reject, :rate_limited} = AllowedContributors.observe(Fixture.candidate(number: 3), again)
+  end
+
   test "the rate limit caps accepted wakes per author per hour", context do
     {server, gh} = Fixture.start(context, body: "user 42\nuser 50\n", rate_limit: 2)
 
@@ -110,7 +187,7 @@ defmodule Aiur.AllowedContributors.ServerTest do
     assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(number: 9, author_id: 50), server)
 
     # The window rolls.
-    Agent.update(gh, &%{&1 | mono: 3_600_001})
+    Fixture.advance(gh, 3_600_001)
     assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(number: 10), server)
   end
 end

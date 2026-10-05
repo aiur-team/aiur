@@ -1,36 +1,40 @@
 defmodule Aiur.AllowedContributors.Intake do
   @moduledoc """
   The allowed-contributor admission decision, as a function of the intake
-  server's state.
+  server's `State`.
 
   Order matters and every step fails closed:
 
     1. an issue that already has a terminal decision is a duplicate;
     2. the shape screen (`Policy.screen/2`) rejects non-users, App-created
        issues, Aiur's own accounts, and malformed candidates;
-    3. no allow-list snapshot → deferred; no file → rejected; an unparseable
+    3. an issue older than the seen-set retention (or with no creation time)
+       is refused, so a pruned issue number can never be woken a second time
+       by a late webhook redelivery;
+    4. no allow-list snapshot → deferred; no file → rejected; an unparseable
        file → rejected;
-    4. the author's numeric id listed as a user → allowed;
-    5. otherwise each listed org, in id order, via `Membership.check/5` —
+    5. the author's numeric id listed as a user → allowed;
+    6. otherwise each listed org, in id order, via `Membership.check/5` —
        the first verified membership admits; an unverifiable answer with no
        admission defers;
-    6. the per-author rate limit drops surplus.
+    7. the per-author rate limit drops surplus.
 
   `:deferred` is the only non-terminal outcome: the issue is re-evaluated the
   next time a producer sees it, so a transient GitHub failure never turns
   into a permanent miss — and never into an admission either.
   """
 
-  alias Aiur.AllowedContributors.{Ledger, Membership, Policy, RateLimit}
+  alias Aiur.AllowedContributors.{Ledger, Membership, Policy, RateLimit, State}
 
   @rate_window_ms 3_600_000
 
   @type outcome :: :duplicate | {:accept, String.t()} | {:reject, term()} | {:deferred, term()}
 
-  @spec decide(map(), map()) :: {outcome(), map()}
-  def decide(state, candidate) do
+  @spec decide(State.t(), map()) :: {outcome(), State.t()}
+  def decide(%State{} = state, candidate) do
     with :fresh <- freshness(state, candidate),
          :ok <- Policy.screen(candidate, state.aiur_logins_fun.()),
+         :ok <- within_horizon(candidate, state.clock_fun.()),
          {:ok, allowlist} <- usable_allowlist(state.snapshot),
          {{:allowed, via}, state} <- admission(state, allowlist, candidate) do
       rate_limit(state, candidate, via)
@@ -38,7 +42,7 @@ defmodule Aiur.AllowedContributors.Intake do
       :duplicate -> {:duplicate, state}
       {:reject, _reason} = outcome -> {outcome, state}
       {:deferred, _reason} = outcome -> {outcome, state}
-      {outcome, %{} = state} -> {outcome, state}
+      {outcome, %State{} = state} -> {outcome, state}
     end
   end
 
@@ -47,6 +51,14 @@ defmodule Aiur.AllowedContributors.Intake do
   end
 
   defp freshness(_state, _candidate), do: :fresh
+
+  defp within_horizon(%{created_at: %DateTime{} = created_at}, now_ms) do
+    if now_ms - DateTime.to_unix(created_at, :millisecond) < Ledger.retention_ms(),
+      do: :ok,
+      else: {:reject, :stale_issue}
+  end
+
+  defp within_horizon(_candidate, _now_ms), do: {:reject, :missing_created_at}
 
   defp usable_allowlist(nil), do: {:deferred, :allowlist_unavailable}
   defp usable_allowlist(:absent), do: {:reject, :allowlist_absent}
@@ -66,7 +78,7 @@ defmodule Aiur.AllowedContributors.Intake do
   defp check_orgs([{org_id, org_login} | rest], state, candidate, fallback) do
     org = %{id: org_id, login: org_login}
     author = %{id: candidate.author_id, login: candidate.author_login || ""}
-    {verdict, cache} = Membership.check(state.membership, org, author, state.mono_fun.(), membership_get(state))
+    {verdict, cache} = Membership.check(state.membership, org, author, state.clock_fun.(), membership_get(state))
     state = %{state | membership: cache}
 
     case verdict do
@@ -80,9 +92,9 @@ defmodule Aiur.AllowedContributors.Intake do
   defp fallback_outcome(reason), do: {:reject, reason}
 
   defp rate_limit(state, candidate, via) do
-    case RateLimit.admit(state.rate, candidate.author_id, state.mono_fun.(), state.rate_limit, @rate_window_ms) do
-      {:ok, rate} -> {{:accept, via}, %{state | rate: rate}}
-      {:limited, rate} -> {{:reject, :rate_limited}, %{state | rate: rate}}
+    case RateLimit.admit(state.ledger.rate, candidate.author_id, state.clock_fun.(), state.rate_limit, @rate_window_ms) do
+      {:ok, rate} -> {{:accept, via}, %{state | ledger: Ledger.put_rate(state.ledger, rate)}}
+      {:limited, rate} -> {{:reject, :rate_limited}, %{state | ledger: Ledger.put_rate(state.ledger, rate)}}
     end
   end
 

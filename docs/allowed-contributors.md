@@ -51,11 +51,15 @@ gh api orgs/<org> --jq .id
 ## Precedence
 
 Aiur reads the file only from the default branch reported by
-`GET /repos/{owner}/{repo}`, at the newest commit on that branch that touched
-the file. It never reads a PR branch, a fork, `tracker.base_branch`, an issue,
-or a comment. A PR that edits the file has no effect until it is merged. Each
-merged change raises an `allowed_contributors.changed` alert listing the added
-and removed entries and the commit SHA.
+`GET /repos/{owner}/{repo}`. It resolves that branch's head commit with
+`GET /repos/{owner}/{repo}/branches/{branch}` and reads the file at that SHA.
+It never uses the branch *name* as a ref, because a tag with the same name
+could shadow it. It also never reads a PR branch, a fork,
+`tracker.base_branch`, an issue, or a comment. Audit records and alerts name
+the newest commit that touched the file. A PR that edits the file has no
+effect until it is merged. Each merged change raises an
+`allowed_contributors.changed` alert listing the added and removed entries and
+the commit SHA.
 
 An issue is admitted only when all of these hold:
 
@@ -63,11 +67,15 @@ An issue is admitted only when all of these hold:
    Edits, labels, comments, reactions, reopenings, transfers out, and pull
    requests never produce a wake, whoever sends them;
 2. GitHub reports its creator (`issue.user`, never the delivery's `sender`)
-   with `type: "User"` and no `performed_via_github_app`, and the creator is
-   not Aiur's own bot or daemon account;
-3. the creator's numeric id is listed, **or** they are an `active` member of a
+   with `type: "User"` and `performed_via_github_app: null` (a missing field
+   counts as App-created), and the creator is not Aiur's own bot or daemon
+   account. Issues filed through a GitHub App integration are never admitted;
+3. it was created less than seven days ago, so a late redelivery of an old
+   webhook cannot wake you again;
+4. the creator's numeric id is listed, **or** they are an `active` member of a
    listed org (`state: active`, and `user.id` and `organization.id` matching);
-4. that author has had fewer than 5 accepted wakes in the past hour.
+5. that author has had fewer than 5 accepted wakes in the past hour. The count
+   is persisted, so it survives a daemon restart.
 
 Webhook deliveries must pass HMAC verification (`AIUR_GITHUB_WEBHOOK_SECRET`)
 before any of this runs. Unsigned or mismatched deliveries are rejected with
@@ -82,7 +90,8 @@ keeps it to one wake per issue across both producers and across restarts.
 | Allow-list file | refreshed every 10 minutes | the previous snapshot is kept; with none, intake defers |
 | Org membership, positive | 5 minutes | n/a |
 | Org membership, negative (404, mismatch, pending) | 60 seconds | n/a |
-| Org membership, error (403, 429, 5xx, transport) | never | rejected now and re-evaluated on the next sighting |
+| Org membership, error (403, 429, 5xx, transport) | 60 seconds | never admits; the issue is deferred and re-evaluated on a later sighting |
+| Wake publish | n/a | an accept that fails to publish is deferred and retried, never audited as accepted |
 
 Membership is checked over REST with the operator's GitHub credential. That
 credential must be able to see the org's membership: for private members, the

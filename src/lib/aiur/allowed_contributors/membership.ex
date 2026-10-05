@@ -17,18 +17,21 @@ defmodule Aiur.AllowedContributors.Membership do
   Fail closed everywhere else. A `404` (outside collaborator, non-member, or
   an org the token cannot see) is a negative answer, cached for
   60 seconds so a flood cannot turn into a request per issue. A
-  rate limit, `403`, `5xx`, or transport error is `:unverified` and is never
-  cached: it rejects now and is asked again next time. A positive answer is
+  rate limit, `403`, `5xx`, or transport error is `:unverified`: it never
+  admits, the issue is deferred and re-evaluated on a later sighting, and the
+  answer is held for 60 seconds so an outage is not re-asked once per open
+  issue per poll on the shared GitHub budget. A positive answer is
   cached for 300 seconds — that TTL is the longest a user who left the org
   can still count.
   """
 
+  alias Aiur.AllowedContributors.AllowList
   alias Aiur.GitHub.Transport
 
   @positive_ttl_ms 300_000
   @negative_ttl_ms 60_000
+  @unverified_ttl_ms 60_000
   @max_entries 1_000
-  @login ~r/\A[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}\z/
 
   @type org :: %{id: pos_integer(), login: String.t()}
   @type author :: %{id: pos_integer(), login: String.t()}
@@ -55,7 +58,7 @@ defmodule Aiur.AllowedContributors.Membership do
 
   defp ask(cache, key, org, author, now_ms, get) do
     verdict =
-      if Regex.match?(@login, author.login) and Regex.match?(@login, org.login),
+      if AllowList.valid_login?(author.login) and AllowList.valid_login?(org.login),
         do: interpret(get.(url(org.login, author.login)), org, author),
         else: {:not_member, :invalid_login}
 
@@ -78,13 +81,15 @@ defmodule Aiur.AllowedContributors.Membership do
   defp interpret({:error, reason}, _org, _author), do: {:unverified, {:transport, reason}}
   defp interpret(_other, _org, _author), do: {:unverified, :invalid_response}
 
-  defp store(cache, _key, {:unverified, _reason}, _now_ms), do: cache
-
   defp store(cache, key, verdict, now_ms) do
-    ttl = if verdict == :member, do: @positive_ttl_ms, else: @negative_ttl_ms
+    ttl = ttl_for(verdict)
     cache = if map_size(cache) >= @max_entries, do: prune(cache, now_ms), else: cache
     Map.put(cache, key, {verdict, now_ms + ttl})
   end
+
+  defp ttl_for(:member), do: @positive_ttl_ms
+  defp ttl_for({:not_member, _reason}), do: @negative_ttl_ms
+  defp ttl_for({:unverified, _reason}), do: @unverified_ttl_ms
 
   defp prune(cache, now_ms) do
     live = Map.filter(cache, fn {_key, {_verdict, expires_at}} -> expires_at > now_ms end)

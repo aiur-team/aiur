@@ -62,11 +62,16 @@ defmodule Aiur.AllowedContributors.MembershipTest do
     assert {{:not_member, :org_id_mismatch}, _cache} = Membership.check(%{}, @org, @author, 0, get)
   end
 
-  test "rate limits, forbidden, server and transport errors fail closed and are never cached" do
+  test "rate limits, forbidden, server and transport errors fail closed and are held only briefly" do
     for response <- [{:ok, %{status: 429}}, {:ok, %{status: 403}}, {:ok, %{status: 503}}, {:error, :timeout}, :garbage] do
-      {get, _urls} = scripted([response])
+      {get, urls} = scripted([response, {:ok, %{status: 200, body: member_body()}}])
       assert {{:unverified, _reason}, cache} = Membership.check(%{}, @org, @author, 0, get)
-      assert cache == %{}, "cached #{inspect(response)}"
+      # Within a minute the outage answer is reused — no request per sighting —
+      # and it still never admits.
+      assert {{:unverified, _reason}, cache} = Membership.check(cache, @org, @author, 59_000, get)
+      assert length(urls.()) == 1, "re-asked during an outage for #{inspect(response)}"
+      # After it expires the next sighting asks again and can recover.
+      assert {:member, _cache} = Membership.check(cache, @org, @author, 61_000, get)
     end
   end
 

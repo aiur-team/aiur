@@ -4,10 +4,10 @@ defmodule Aiur.AllowedContributors.Candidate do
 
   Only authenticated, structural GitHub fields are read: `issue.user.id`,
   `issue.user.login`, `issue.user.type`, `issue.performed_via_github_app`,
-  and the issue number. The title, body, labels, comments, and the delivery's
-  `sender` are never read — the author is who GitHub says *created* the issue,
-  not who sent this delivery (a transfer is sent by the transferrer) and not a
-  login mentioned anywhere in the text.
+  `issue.created_at`, and the issue number. The title, body, labels, comments,
+  and the delivery's `sender` are never read — the author is who GitHub says
+  *created* the issue, not who sent this delivery (a transfer is sent by the
+  transferrer) and not a login mentioned anywhere in the text.
   """
 
   alias Aiur.Issue
@@ -19,6 +19,7 @@ defmodule Aiur.AllowedContributors.Candidate do
           author_login: String.t() | nil,
           author_type: String.t() | nil,
           via_app?: boolean(),
+          created_at: DateTime.t() | nil,
           source: source()
         }
 
@@ -32,7 +33,9 @@ defmodule Aiur.AllowedContributors.Candidate do
       author_id: positive(user["id"]),
       author_login: string(user["login"]),
       author_type: string(user["type"]),
-      via_app?: not is_nil(issue["performed_via_github_app"]),
+      # A missing provenance key is unknown, and unknown fails closed.
+      via_app?: not Map.has_key?(issue, "performed_via_github_app") or not is_nil(issue["performed_via_github_app"]),
+      created_at: datetime(issue["created_at"]),
       source: :webhook
     }
   end
@@ -46,6 +49,7 @@ defmodule Aiur.AllowedContributors.Candidate do
       author_login: string(issue.creator_login),
       author_type: string(issue.creator_type),
       via_app?: issue.created_via_app? != false,
+      created_at: issue.created_at,
       source: :poll
     }
   end
@@ -58,6 +62,15 @@ defmodule Aiur.AllowedContributors.Candidate do
   end
 
   defp parse_number(_id), do: nil
+
+  defp datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _error -> nil
+    end
+  end
+
+  defp datetime(_value), do: nil
 
   defp positive(value) when is_integer(value) and value > 0, do: value
   defp positive(_value), do: nil
