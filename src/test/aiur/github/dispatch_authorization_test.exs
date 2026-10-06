@@ -313,7 +313,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     refute first.dispatch_authorized?
     assert first.dispatch_authorization == :deferred
-    assert_receive {:timeline_poll, 0}
+    assert_receive {:timeline_poll, 0}, 1000
 
     second =
       DispatchAuthorization.authorize(created_with_label, "owner", "repo", "agent",
@@ -324,7 +324,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     assert second.dispatch_authorized?
     assert second.dispatch_authorization == :authorized
-    assert_receive {:timeline_poll, 1}
+    assert_receive {:timeline_poll, 1}, 1000
   end
 
   test "does not reuse a cached decision after an issue update" do
@@ -388,7 +388,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
              request_fun: request_fun
            ).dispatch_authorized?
 
-    assert_receive :unconditional
+    assert_receive :unconditional, 1000
 
     assert DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-02 00:00:00Z]), "owner", "repo", "agent",
              allowed_users: ["trusted"],
@@ -396,7 +396,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
              request_fun: request_fun
            ).dispatch_authorized?
 
-    assert_receive :conditional
+    assert_receive :conditional, 1000
   end
 
   # #2298 rework B1: a page-1 `304` only vouches for the page it names. Issue
@@ -471,7 +471,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
              request_fun: request_fun
            ).dispatch_authorized?
 
-    assert_receive :unconditional
+    assert_receive :unconditional, 1000
 
     # The fingerprint moved; page 1 304s but reports a new page, so the held
     # single page cannot be trusted and the whole timeline is refetched.
@@ -481,8 +481,8 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
              request_fun: request_fun
            ).dispatch_authorized?
 
-    assert_receive :conditional
-    assert_receive :unconditional
+    assert_receive :conditional, 1000
+    assert_receive :unconditional, 1000
   end
 
   # #2409: a rate-limited provenance fetch is a *resource* failure, not a

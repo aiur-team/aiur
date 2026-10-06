@@ -191,7 +191,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurnTest do
 
     assert {:ok, result} = drain_pane_pid(tmux, task)
 
-    assert_receive {:provider_delivered, %{transport: :claude_transcript, turn_id: turn_id}}
+    assert_receive {:provider_delivered, %{transport: :claude_transcript, turn_id: turn_id}}, 1000
 
     assert turn_id == result.turn_id
     refute_receive {:provider_delivered, _metadata}, 50

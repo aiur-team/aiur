@@ -77,7 +77,9 @@ The order is the same in the browser emulator and on the physical deck.
 
 ## Physical sidecar status
 
-The Linux x64 archive installs the sidecar, a systemd **user** service, and the udev rule required to access the device.
+Download the Linux x64 archive from the rolling [`streamdeck-nightly`](https://github.com/aiur-team/aiur/releases/tag/streamdeck-nightly) pre-release, which is rebuilt in place whenever the sidecar changes. The `/streamdeck` page's setup dialog links the same asset.
+
+The archive installs the sidecar, a systemd **user** service, and the udev rule required to access the device.
 
 | Requirement | Value |
 | --- | --- |

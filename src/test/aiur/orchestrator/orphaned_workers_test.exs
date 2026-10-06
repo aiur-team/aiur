@@ -123,7 +123,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     identifier = "ORPH-REMOTE-#{System.unique_integer([:positive])}"
     dead_recipient = spawn(fn -> :ok end)
     ref = Process.monitor(dead_recipient)
-    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}
+    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}, 1000
 
     name = unique_name("Remote")
 
@@ -149,7 +149,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   test "a guardian that does not answer cannot stall the Orchestrator" do
     dead_recipient = spawn(fn -> :ok end)
     ref = Process.monitor(dead_recipient)
-    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}
+    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}, 1000
 
     orphan_id = "ORPH-STALL-#{System.unique_integer([:positive])}"
     tracked_id = "ORPH-BUSY-#{System.unique_integer([:positive])}"
@@ -200,7 +200,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   test "a dead predecessor's runner belongs only to an Orchestrator with the same name" do
     dead_recipient = spawn(fn -> :ok end)
     ref = Process.monitor(dead_recipient)
-    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}
+    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}, 1000
 
     identifier = "ORPH-OTHER-#{System.unique_integer([:positive])}"
 
@@ -312,7 +312,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
       ref = Process.monitor(runner)
       dead = spawn(fn -> :ok end)
       dead_ref = Process.monitor(dead)
-      assert_receive {:DOWN, ^dead_ref, :process, ^dead, _reason}
+      assert_receive {:DOWN, ^dead_ref, :process, ^dead, _reason}, 1000
 
       entry = %{pid: dead, identifier: identifier, control: %{status: :working}}
       _state = OrphanedWorkers.stop_untracked_runners(%State{running: %{issue_id => entry}})

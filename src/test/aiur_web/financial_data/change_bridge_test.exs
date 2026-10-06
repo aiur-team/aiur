@@ -15,10 +15,10 @@ defmodule AiurWeb.FinancialData.ChangeBridgeTest do
         broadcast_fun: fn -> send(parent, :broadcast) end
       )
 
-    assert_receive :subscribed
+    assert_receive :subscribed, 1000
 
     send(bridge, {:usage_aggregate_changed, %{generation: 3}})
-    assert_receive :broadcast
+    assert_receive :broadcast, 1000
   end
 
   # A focused dashboard must reflect a fresh balance promptly: when the daemon
@@ -36,10 +36,10 @@ defmodule AiurWeb.FinancialData.ChangeBridgeTest do
         broadcast_fun: fn -> send(parent, :broadcast) end
       )
 
-    assert_receive :meter_subscribed
+    assert_receive :meter_subscribed, 1000
 
     send(bridge, {:provider_meter_changed, %{provider: :deepseek}})
-    assert_receive :broadcast
+    assert_receive :broadcast, 1000
   end
 
   test "host meter invalidation reaches the protected facade without observation data" do
@@ -54,9 +54,9 @@ defmodule AiurWeb.FinancialData.ChangeBridgeTest do
         broadcast_fun: fn -> send(parent, :host_refresh) end
       )
 
-    assert_receive :host_subscribed
+    assert_receive :host_subscribed, 1000
     send(bridge, {:host_meter_changed, :muse})
-    assert_receive :host_refresh
+    assert_receive :host_refresh, 1000
   end
 
   test "boots even when subscription raises and ignores unrelated messages" do

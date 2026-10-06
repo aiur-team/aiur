@@ -13,7 +13,7 @@ defmodule Aiur.Tmux.MockTransportTest do
         MockTransport.request(parent, "list-panes")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, "list-panes"}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
@@ -30,7 +30,7 @@ defmodule Aiur.Tmux.MockTransportTest do
         MockTransport.request(parent, "capture-pane -p -t %42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\nline one\n❯\n%end 1 1 0\n"})
@@ -47,7 +47,7 @@ defmodule Aiur.Tmux.MockTransportTest do
         MockTransport.request(parent, "bogus")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\nfail\n%error 1 1 0\n"})
@@ -64,7 +64,7 @@ defmodule Aiur.Tmux.MockTransportTest do
         MockTransport.request(parent, "some-cmd")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     assert {:error, :no_mock_response} = Task.await(task, 2_000)

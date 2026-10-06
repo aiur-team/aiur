@@ -764,7 +764,7 @@ defmodule Aiur.CoreTest do
           send(self(), {:updated_state, Reconciler.reconcile_running_issue_states([issue], state)})
         end)
 
-      assert_receive {:updated_state, updated_state}
+      assert_receive {:updated_state, updated_state}, 1000
 
       assert Map.has_key?(updated_state.running, issue_id)
       assert MapSet.member?(updated_state.claimed, issue_id)
@@ -1143,7 +1143,7 @@ defmodule Aiur.CoreTest do
     assert log =~ "ticket.MT-EX.agent.attention.error-retry_exhausted"
     assert log =~ "automatic retry is no longer scheduled"
 
-    assert_receive {:memory_tracker_state_update, "MT-EX", "error"}
+    assert_receive {:memory_tracker_state_update, "MT-EX", "error"}, 1000
   end
 
   test "first abnormal worker exit waits before retrying" do
@@ -1214,7 +1214,7 @@ defmodule Aiur.CoreTest do
       busy_worker_ref = Process.monitor(busy_worker_pid)
       send(busy_worker_pid, :done)
 
-      assert_receive {:DOWN, ^busy_worker_ref, :process, ^busy_worker_pid, reason}
+      assert_receive {:DOWN, ^busy_worker_ref, :process, ^busy_worker_pid, reason}, 1000
       assert reason in [:normal, :noproc]
     end)
 
@@ -2243,8 +2243,8 @@ defmodule Aiur.CoreTest do
       }
 
       assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
-      assert_receive {:issue_state_fetch, 1}
-      assert_receive {:issue_state_fetch, 2}
+      assert_receive {:issue_state_fetch, 1}, 1000
+      assert_receive {:issue_state_fetch, 2}, 1000
 
       lines = File.read!(trace_file) |> String.split("\n", trim: true)
 
@@ -2758,7 +2758,7 @@ defmodule Aiur.CoreTest do
         %{state | queue_store: queue_store}
       end)
 
-      assert_receive {:queued_request_id, request_id}
+      assert_receive {:queued_request_id, request_id}, 1000
       send(task.pid, {:agent_queue_updated, identifier, request_id, true})
 
       assert {:ok, :ok} = Task.yield(task, 15_000)
@@ -3172,7 +3172,7 @@ defmodule Aiur.CoreTest do
         %{state | queue_store: queue_store}
       end)
 
-      assert_receive {:queued_request_id, request_id}
+      assert_receive {:queued_request_id, request_id}, 1000
 
       send(task.pid, {:agent_queue_updated, "MT-251", request_id})
 
@@ -3514,7 +3514,7 @@ defmodule Aiur.CoreTest do
         %{state | queue_store: queue_store}
       end)
 
-      assert_receive {:queued_request_id, _request_id}
+      assert_receive {:queued_request_id, _request_id}, 1000
       # The paused worker no longer eagerly claims restored items on its
       # own — that was the bug behind the pause→auto-unpause loop reported
       # in issue #15. Explicit resume drains the operator queue so both

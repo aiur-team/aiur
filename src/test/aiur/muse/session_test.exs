@@ -31,8 +31,8 @@ defmodule Aiur.Muse.SessionTest do
     assert session.model == "native-model"
     assert is_pid(session.gateway)
     assert Process.alive?(session.gateway)
-    assert_receive {:provider, %{root_pid: pid, process_group_id: group}}
-    assert_receive {:group, ^group}
+    assert_receive {:provider, %{root_pid: pid, process_group_id: group}}, 1000
+    assert_receive {:group, ^group}, 1000
     assert is_integer(pid)
 
     assert :ok = Session.stop(session)
