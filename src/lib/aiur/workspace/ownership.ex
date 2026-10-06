@@ -220,21 +220,25 @@ defmodule Aiur.Workspace.Ownership do
     do: %{workspace_owner: owner_id, workspace_generation: generation, workspace_phase: phase}
 
   @doc """
-  Releases a workspace if independent provider-exit proof is available.
+  Releases a held workspace if independent provider-exit proof is available.
 
-  Only releases when the workspace is held with proof that the provider is
-  definitely gone (e.g., host reboot after provider was expected). Returns
-  `:already_released` if no hold exists, `:cannot_release_without_proof` if
-  the hold lacks independent exit proof, or `:ok` on successful release.
+  Only releases the requested generation when the workspace is held with proof
+  that the provider is definitely gone (e.g., host reboot after provider was
+  expected). Returns `:already_released` if no lease exists,
+  `:not_held_for_reaping` if a lease is live, `:cannot_release_without_proof`
+  if the hold lacks independent exit proof, or `:ok` on successful release.
 
   This is a narrow, audited recovery path for operator-driven recovery when
   the workspace hold cannot self-clear but independent evidence proves the
   provider is gone.
   """
-  @spec release_if_held_with_exit_proof(String.t(), registry()) :: :ok | :already_released | {:error, :cannot_release_without_proof | term()}
-  def release_if_held_with_exit_proof(ticket, registry \\ @registry) when is_binary(ticket) do
+  @spec release_if_held_with_exit_proof(String.t(), pos_integer(), registry()) ::
+          :ok | :already_released | :not_held_for_reaping | {:error, :cannot_release_without_proof | :generation_mismatch | term()}
+  def release_if_held_with_exit_proof(ticket, generation, registry \\ @registry)
+      when is_binary(ticket) and is_integer(generation) and generation > 0 do
     with {:ok, lease} <- current(ticket, registry),
-         %{proof: :boot_changed_release_pending} <- HoldStatus.for_ticket(ticket, registry) do
+         true <- lease.generation == generation,
+         %{generation: ^generation, proof: :boot_changed_release_pending} <- HoldStatus.for_ticket(ticket, registry) do
       release_with_provider_exit_proof(lease)
       |> case do
         :ok -> :ok
@@ -243,7 +247,8 @@ defmodule Aiur.Workspace.Ownership do
       end
     else
       :none -> :already_released
-      nil -> :already_released
+      false -> {:error, :generation_mismatch}
+      nil -> {:error, :not_held_for_reaping}
       _ -> {:error, :cannot_release_without_proof}
     end
   end
@@ -274,5 +279,6 @@ defmodule Aiur.Workspace.Ownership do
        do: {:error, :workspace_ownership_lost}
 
   defp timeout_result({:release_and_wait, _generation}), do: {:error, :workspace_ownership_lost}
+  defp timeout_result({:release_with_provider_exit_proof, _generation}), do: {:error, :workspace_ownership_lost}
   defp timeout_result(_message), do: :ok
 end

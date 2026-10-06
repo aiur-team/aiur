@@ -214,8 +214,13 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
       {:workspace_guardian_call, from, ref, {:release_with_provider_exit_proof, generation}} ->
         {reply_value, next} = release_with_provider_exit_proof(state, generation)
-        reply(from, ref, reply_value)
-        if reply_value == :ok, do: maybe_release_or_reap(next), else: loop(next)
+
+        if reply_value == :ok do
+          maybe_release_or_reap(request_release(next, {from, ref, :release}))
+        else
+          reply(from, ref, reply_value)
+          loop(next)
+        end
 
       {:workspace_guardian_call, from, ref, {:wait_for_release, recipient}} when is_pid(recipient) ->
         # Store the waiter before acknowledging it. The acknowledgement carries
@@ -427,12 +432,14 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp maybe_release_or_reap(%{provider_cleanup: :succeeded} = state),
     do: release_guardian(state)
 
+  defp maybe_release_or_reap(%{provider: nil, provider_expected?: true, release_requested?: true} = state) do
+    if local_provider_exited_after_reboot?(state), do: release_guardian(state), else: loop(update_phase(state, :reaping))
+  end
+
   defp maybe_release_or_reap(%{provider: nil, provider_expected?: true} = state) do
     if local_provider_exited_after_reboot?(state) do
-      Logger.warning("Releasing workspace ownership after verified local host reboot ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
-
-      emit_telemetry(state, :point, :local_provider_exited_after_reboot)
-      release_guardian(state)
+      Logger.warning("Workspace ownership has verified provider-exit proof and awaits operator recovery ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
+      loop(update_phase(state, :reaping))
     else
       loop(update_phase(state, :reaping))
     end
@@ -666,7 +673,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp release_with_provider_exit_proof(%{lease: %{generation: generation, phase: :reaping}, provider: nil, provider_expected?: true} = state, generation) do
     if local_provider_exited_after_reboot?(state) do
-      Logger.warning("Releasing workspace ownership after operator-confirmed provider exit ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
+      Logger.warning("Operator released workspace ownership with verified provider-exit proof ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
 
       emit_telemetry(state, :point, :operator_release_after_provider_exit_proof)
       {:ok, state}

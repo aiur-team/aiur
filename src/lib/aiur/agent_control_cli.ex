@@ -2,6 +2,7 @@ defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
   alias Aiur.ProviderMeters.CLI
+  alias Aiur.Workspace.Ownership
 
   alias Aiur.{
     AgentChat,
@@ -1317,6 +1318,27 @@ defmodule Aiur.AgentControlCLI do
         print_failure(:reset_budget, %{identifier: target, issue_id: target}, reason)
         {:error, reason}
     end
+  end
+
+  @doc """
+  Releases one workspace ownership generation after the daemon verifies
+  independent local provider-exit proof. The caller must name the generation
+  shown by status so a stale recovery command cannot release a replacement.
+  """
+  @spec recover_workspace(String.t(), pos_integer()) :: :ok
+  def recover_workspace(ticket, generation) when is_binary(ticket) and is_integer(generation) and generation > 0 do
+    guarded("workspace-recover", fn ->
+      result = Ownership.release_if_held_with_exit_proof(ticket, generation)
+
+      case result do
+        :ok -> IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
+        :already_released -> IO.puts("aiur: workspace hold for #{ticket} is already released")
+        :not_held_for_reaping -> print_failure(:workspace_recover, %{identifier: ticket, generation: generation}, :not_held_for_reaping)
+        {:error, reason} -> print_failure(:workspace_recover, %{identifier: ticket, generation: generation}, reason)
+      end
+
+      exit_marker(if result in [:ok, :already_released], do: 0, else: 1)
+    end)
   end
 
   # The global pause switch — `aiur pause` / `aiur resume` with no targets. A

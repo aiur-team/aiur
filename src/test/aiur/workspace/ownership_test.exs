@@ -1,6 +1,9 @@
 defmodule Aiur.Workspace.OwnershipTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+
+  alias Aiur.AgentControlCLI
   alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.Workspace.{HostLock, Ownership}
   alias Aiur.Workspace.Ownership.{Guardian, HoldStatus, Store}
@@ -270,7 +273,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
   end
 
-  test "a local unknown provider releases only after a verified host reboot" do
+  test "a local unknown provider awaits explicit recovery after a verified host reboot" do
     ticket = "ownership-reboot-proof-#{System.unique_integer([:positive])}"
     {:ok, boot} = Agent.start_link(fn -> "boot-before" end)
 
@@ -317,8 +320,15 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
     Agent.update(boot, fn _ -> "boot-after" end)
 
-    assert {:ok, released} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
-    assert released.generation == lease.generation
+    assert {:ok, _recovered} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+
+    assert %{generation: generation, proof: :boot_changed_release_pending} =
+             HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store, boot_id_fun)
+
+    assert generation == lease.generation
+    assert {:error, {:workspace_owned, {:ok, %{generation: generation}}}} = Ownership.claim(ticket)
+    assert generation == lease.generation
+    assert :ok = Ownership.release_if_held_with_exit_proof(ticket, generation)
     assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
     assert {:ok, replacement} = Ownership.claim(ticket)
     assert replacement.generation > lease.generation
@@ -1279,14 +1289,25 @@ defmodule Aiur.Workspace.OwnershipTest do
     # Workspace is held - cannot redispatch
     assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
 
-    # Host reboots (simulated by changing boot ID)
+    # Host reboots (simulated by changing boot ID). Proof is retained until an
+    # operator explicitly releases this exact generation.
     Process.exit(held.guardian, :kill)
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
     Agent.update(boot, fn _ -> "boot-after" end)
 
     # Daemon restores guardian with new boot proof
-    assert {:ok, _released} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
-    # Guardian auto-releases when it detects boot changed
+    assert {:ok, _recovered} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+
+    assert %{generation: ^generation, proof: :boot_changed_release_pending} =
+             HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store, boot_id_fun)
+
+    assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+    assert {:error, :generation_mismatch} = Ownership.release_if_held_with_exit_proof(ticket, generation + 1)
+    assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+
+    output = capture_io(fn -> AgentControlCLI.recover_workspace(ticket, generation) end)
+    assert output =~ "released workspace hold for #{ticket} generation #{generation}"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
 
     # Redispatch can now claim the workspace with a new generation
@@ -1321,7 +1342,7 @@ defmodule Aiur.Workspace.OwnershipTest do
       end)
 
     owner_monitor = Process.monitor(owner)
-    assert_receive {:expected, _lease}, 2_000
+    assert_receive {:expected, lease}, 2_000
 
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^owner_monitor, :process, ^owner, :killed}, 2_000
@@ -1332,10 +1353,20 @@ defmodule Aiur.Workspace.OwnershipTest do
              HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store, boot_id_fun)
 
     # Operator cannot force release without proof
-    assert {:error, :cannot_release_without_proof} = Ownership.release_if_held_with_exit_proof(ticket)
+    assert {:error, :cannot_release_without_proof} = Ownership.release_if_held_with_exit_proof(ticket, lease.generation)
 
     # Workspace remains held
     assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+  end
+
+  test "workspace recovery reports a live generation as not held for reaping" do
+    ticket = "ownership-live-recovery-#{System.unique_integer([:positive])}"
+    assert {:ok, lease} = Ownership.claim(ticket)
+
+    assert {:error, :not_held_for_reaping} = Ownership.release_if_held_with_exit_proof(ticket, lease.generation)
+    assert {:ok, %{generation: generation, phase: :provisioning}} = Ownership.current(ticket)
+    assert generation == lease.generation
+    assert :ok = Ownership.release(lease)
   end
 
   defp telemetry_events(telemetry), do: Agent.get(telemetry, &Enum.reverse/1)
