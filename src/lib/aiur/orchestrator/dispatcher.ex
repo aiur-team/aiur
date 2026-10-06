@@ -29,6 +29,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     CiLifecycle,
     CommandScan,
     CommentPolling,
+    DispatchOutcome,
     DispatchPolicy,
     IssueSync,
     Lifecycle,
@@ -598,7 +599,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> maybe_emit_prewarm_blocked_alert(phase)
       end
 
-    Aiur.Orchestrator.DispatchOutcome.record(state, next, issues, log_fun)
+    DispatchOutcome.record(state, next, issues, log_fun)
   end
 
   # Raises `system.dispatch.prewarm_blocked` only once a prewarm hold has
