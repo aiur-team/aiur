@@ -96,6 +96,25 @@ defmodule Aiur.Orchestrator.CommentRefusalAlertTest do
     assert alert["reason"] =~ "check tracker access and retry"
   end
 
+  test "missing open PR refusal recommends opening a PR" do
+    issue = %Issue{id: "r3-no-pr", identifier: "r3-no-pr", state: "human-review", labels: ["agent:human-review"]}
+
+    event =
+      comment_event(issue, %{
+        open_pr_fetcher: fn _issue_key -> {:ok, nil} end
+      })
+
+    CommentWake.maybe_transition_idle_issue_to_rework(state(), "r3-no-pr", :pr_review, event, 1)
+
+    assert [alert] =
+             Enum.filter(
+               alerts(),
+               &(&1["topic"] == "ticket.r3-no-pr.agent.attention.comment_wake_idle_issue")
+             )
+
+    assert alert["reason"] =~ "open a pull request before requesting rework"
+  end
+
   test "inactive issue reactivation refusal recommends activating the issue" do
     number = "r3-inactive"
     state = reactivation_state(number)
