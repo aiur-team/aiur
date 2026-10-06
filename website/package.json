@@ -14,10 +14,10 @@
     "test:brand": "playwright test --project=brand",
     "test:visual": "playwright test --project=visual",
     "test:visual:update": "playwright test --project=visual --update-snapshots -g",
-    "test:visual:docker": "docker run --rm --ipc=host -v \"$PWD\":/work -w /work mcr.microsoft.com/playwright:v1.54.1-noble bash -c 'npm ci && npm run build && npm install -g bun@1.3.5 && (cd docs-app && bun install --frozen-lockfile && bun run build) && npm run test:visual -- \"$@\"' --"
+    "test:visual:docker": "docker run --rm --ipc=host -v \"$PWD\":/work -w /work mcr.microsoft.com/playwright:v1.61.1-noble bash -c 'npm ci && npm run build && npm install -g bun@1.3.5 && (cd docs-app && bun install --frozen-lockfile && bun run build) && npm run test:visual -- \"$@\"' --"
   },
   "devDependencies": {
-    "@playwright/test": "1.54.1",
+    "@playwright/test": "1.61.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.7"
