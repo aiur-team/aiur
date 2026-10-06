@@ -116,11 +116,13 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
     test "does not route a ticket whose CHANGES_REQUESTED review predates the head commit" do
       state = base_state()
+      test_pid = self()
 
       event =
         "1583"
         |> labelled_issue()
         |> then(&state_fetcher(stale_review_event(%{"review_decision" => "CHANGES_REQUESTED", "head_committed_at" => @head_committed_at}), &1))
+        |> Map.put(:lifecycle_recorder, fn kind, attributes, _opts -> send(test_pid, {:lifecycle, kind, attributes}) end)
 
       log =
         capture_log(fn ->
@@ -129,6 +131,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       assert log =~ "ignored for idle issue"
       assert log =~ ":stale_review"
+      assert_receive {:lifecycle, :lifecycle, %{event: "comment_wake_skipped", reason_class: "stale_review"}}
     end
 
     test "does not route a ticket whose pull request is APPROVED" do
@@ -183,6 +186,28 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         end)
 
       refute log =~ "ignored for idle issue"
+    end
+
+    test "records lifecycle telemetry for the idle APPROVED aggregate skip" do
+      test_pid = self()
+      issue = labelled_issue("1747")
+
+      event =
+        %{
+          author_trusted?: true,
+          comment: %{"id" => 5_424_650_936, "state" => "COMMENTED", "body" => "FYI"},
+          pull_request: %{"review_decision" => "APPROVED", "head_committed_at" => @head_committed_at},
+          lifecycle_recorder: fn kind, attributes, _opts -> send(test_pid, {:lifecycle, kind, attributes}) end
+        }
+        |> state_fetcher(issue)
+
+      CommentWake.maybe_transition_idle_issue_to_rework(base_state(), "1747", :pr_review, event, 1)
+
+      assert_receive {:lifecycle, :lifecycle, attributes}
+      assert attributes.event == "comment_wake_skipped"
+      assert attributes.reason_class == "approved_pull_request"
+      assert attributes.source_id == "comment:5424650936"
+      refute Map.has_key?(attributes, :body)
     end
   end
 
@@ -403,13 +428,15 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     # `agent:rework` forever. Unresolved review threads are the routing signal.
     test "does not route a CHANGES_REQUESTED PR with zero unresolved review threads to rework" do
       state = base_state()
+      test_pid = self()
 
       event = %{
         author_trusted?: true,
-        comment: %{"body" => "rework complete"},
+        comment: %{"id" => 5_424_650_936, "body" => "rework complete", "state" => "COMMENTED"},
         issue_state_fetcher: fn _ids -> {:ok, [rework_labelled_issue("2422")]} end,
         open_pr_fetcher: fn _issue_key -> {:ok, %{"number" => 42, "head" => %{"sha" => "abc123"}}} end,
-        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end,
+        lifecycle_recorder: fn kind, attributes, _opts -> send(test_pid, {:lifecycle, kind, attributes}) end
       }
 
       {result, log} =
@@ -427,6 +454,11 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       refute log =~ "rework transition skipped"
       assert result == state
       assert state.comment_rework_retries == %{}
+      assert_receive {:lifecycle, :lifecycle, attributes}
+      assert attributes.event == "comment_wake_skipped"
+      assert attributes.reason_class == "no_unresolved_review_threads"
+      assert attributes.source_id == "comment:5424650936"
+      refute Map.has_key?(attributes, :body)
     end
 
     # #2473 acceptance: a `CHANGES_REQUESTED` review submitted with a body and
@@ -699,6 +731,44 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     test "delay is 2000-based (at attempt 1 returns base delay)" do
       assert CommentWake.comment_rework_retry_delay_ms(5) == 32_000
     end
+  end
+
+  test "records terminal telemetry when an idle rework retry fails permanently" do
+    test_pid = self()
+
+    event = %{
+      author_trusted?: true,
+      comment: %{"id" => 5_424_650_936, "body" => "please fix"},
+      issue_state_fetcher: fn _ids -> {:error, :missing_github_token} end,
+      lifecycle_recorder: fn kind, attributes, _opts -> send(test_pid, {:lifecycle, kind, attributes}) end
+    }
+
+    CommentWake.maybe_transition_idle_issue_to_rework(base_state(), "2817", :pr_review, event, 1)
+
+    assert_receive {:lifecycle, :lifecycle, attributes}
+    assert attributes.event == "comment_wake_skipped"
+    assert attributes.reason_class == "permanent_failure"
+    assert attributes.source_id == "comment:5424650936"
+    refute Map.has_key?(attributes, :body)
+  end
+
+  test "records terminal telemetry when an idle rework retry chain is exhausted" do
+    test_pid = self()
+
+    event = %{
+      author_trusted?: true,
+      comment: %{"id" => 5_424_650_936, "body" => "please fix"},
+      issue_state_fetcher: fn _ids -> {:error, {:github, :http, %{status: 503}}} end,
+      lifecycle_recorder: fn kind, attributes, _opts -> send(test_pid, {:lifecycle, kind, attributes}) end
+    }
+
+    CommentWake.maybe_transition_idle_issue_to_rework(base_state(), "2817", :pr_review, event, 5)
+
+    assert_receive {:lifecycle, :lifecycle, attributes}
+    assert attributes.event == "comment_wake_skipped"
+    assert attributes.reason_class == "retry_exhausted"
+    assert attributes.source_id == "comment:5424650936"
+    refute Map.has_key?(attributes, :body)
   end
 
   # Regression coverage for #1747. A comment-rework retry chain runs on the

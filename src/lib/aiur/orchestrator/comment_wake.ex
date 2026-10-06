@@ -997,11 +997,13 @@ defmodule Aiur.Orchestrator.CommentWake do
     cond do
       not retryable_comment_rework_failure?(reason) ->
         Logger.warning("#{source} rework transition failed permanently: issue_identifier=#{issue_number} attempts=#{attempt} reason=#{inspect(reason)}")
+        record_comment_wake_skip(issue_number, nil, source, event, {:permanent_failure, reason})
 
         state
 
       attempt >= max_attempts ->
         Logger.warning("#{source} rework transition retry exhausted: issue_identifier=#{issue_number} attempts=#{attempt} reason=#{inspect(reason)}")
+        record_comment_wake_skip(issue_number, nil, source, event, {:retry_exhausted, reason})
 
         state
 
@@ -1466,10 +1468,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   # re-enter `agent:rework` indefinitely (#2422). When a head has already been
   # routed to rework `State.rework_attempt_limit/0` times without moving, a
   # sticky or non-review routing signal is a stuck condition — raise attention
-  # once and stop instead of looping. A new, identified CHANGES_REQUESTED
-  # submission is distinct reviewer input and may route once even on that head;
-  # the durable review identity prevents the same submission from being
-  # re-derived. `head_sha` is nil when PR context cannot be read; the bound then
+  # once and stop instead of looping. `head_sha` is nil when PR context cannot be read; the bound then
   # fails open (the rework write proceeds, exactly as before #2422).
   defp write_bounded_comment_rework(
          %State{} = state,
@@ -1481,7 +1480,7 @@ defmodule Aiur.Orchestrator.CommentWake do
          head_sha
        ) do
     identifier = to_string(issue_key)
-    opts = rework_attempt_alert_opts(event) ++ fresh_review_submission_opts(event)
+    opts = rework_attempt_alert_opts(event)
 
     case ReworkGate.verify_rework_attempt(state, identifier, head_sha, opts) do
       {:ok, state} ->
@@ -1539,25 +1538,6 @@ defmodule Aiur.Orchestrator.CommentWake do
       _other -> false
     end
   end
-
-  defp fresh_review_submission_opts(event) do
-    comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
-    review_id = if is_map(comment), do: Map.get(comment, :id) || Map.get(comment, "id")
-
-    if fresh_trusted_review_submission?(event, review_id) do
-      [review_submission_id: review_id]
-    else
-      []
-    end
-  end
-
-  defp fresh_trusted_review_submission?(event, review_id) do
-    trusted_comment_event?(event) and changes_requested_review?(event) and identifiable_review_id?(review_id)
-  end
-
-  defp identifiable_review_id?(id) when is_integer(id), do: true
-  defp identifiable_review_id?(id) when is_binary(id), do: String.trim(id) != ""
-  defp identifiable_review_id?(_id), do: false
 
   # Every terminal gate refusal gets a body-free lifecycle point so a delivered
   # comment can be followed through the reason it did not change ticket state.

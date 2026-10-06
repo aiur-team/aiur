@@ -178,13 +178,6 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
       assert ReworkGate.verify_rework_attempt(state, "2422", "newhead") == {:ok, state}
     end
 
-    test "allows a uniquely identified new review on a head already at the rework limit" do
-      state = %State{rework_attempts: %{{"2422", "abc123"} => State.rework_attempt_limit()}}
-
-      assert ReworkGate.verify_rework_attempt(state, "2422", "abc123", review_submission_id: 987) ==
-               {:ok, state}
-    end
-
     test "refuses and raises attention once when the same head exceeds the bound" do
       state = %State{rework_attempts: %{{"2422", "abc123"} => State.rework_attempt_limit()}}
       parent = self()
