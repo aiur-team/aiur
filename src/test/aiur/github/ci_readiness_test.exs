@@ -302,7 +302,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:required_check_not_produced, ["ci / required"]} in readiness.issues
   end
 
-  test "reports a missing configured base branch only after establishing repository visibility" do
+  test "regression guard: reports a missing configured base branch only after establishing repository visibility" do
     parent = self()
 
     request_fun = fn %{url: url} ->
@@ -326,7 +326,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
     refute_receive {:requested, _url}, 100
   end
 
-  test "classifies repository HTTP 403 as access failure without probing the branch" do
+  test "regression guard: classifies repository HTTP 403 as access failure without probing the branch" do
     parent = self()
 
     request_fun = fn %{url: url} ->
