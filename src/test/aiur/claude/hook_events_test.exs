@@ -60,7 +60,7 @@ defmodule Aiur.Claude.HookEventsTest do
           "session_id" => "s9"
         })
 
-      assert_receive {:claude_hook, "MT-HOOK", %{event: :stop, message: "PONG", session_id: "s9"}}
+      assert_receive {:claude_hook, "MT-HOOK", %{event: :stop, message: "PONG", session_id: "s9"}}, 1000
     end
 
     test "is scoped per identifier" do

@@ -22,9 +22,9 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert is_reference(next.tick_timer_ref)
     assert is_reference(next.tick_token)
     refute next.tick_token == old_token
-    assert_receive {:tick, token}
+    assert_receive {:tick, token}, 1000
     assert token == next.tick_token
-    refute_receive :superseded_tick
+    refute_receive :superseded_tick, 100
   end
 
   test "handle_tick clears the clock and starts one poll cycle" do
@@ -105,7 +105,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
              Lifecycle.request_refresh(refreshed)
 
     assert coalesced.tick_token == refreshed.tick_token
-    assert_receive {:tick, token}
+    assert_receive {:tick, token}, 1000
     assert token == refreshed.tick_token
   end
 
@@ -124,7 +124,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
 
     refute coalesced
     assert refreshed.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
-    assert_receive {:tick, token}
+    assert_receive {:tick, token}, 1000
     assert token == refreshed.tick_token
   end
 
@@ -165,7 +165,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
 
     assert refreshed.queued_demand_hints == %{"3" => 3, "4" => 3}
     assert refreshed.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
-    assert_receive {:tick, token}
+    assert_receive {:tick, token}, 1000
     assert token == refreshed.tick_token
   end
 
@@ -182,7 +182,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
 
     assert refreshed.queued_demand_hints == %{"3" => 3}
     assert refreshed.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
-    assert_receive {:tick, _token}
+    assert_receive {:tick, _token}, 1000
   end
 
   test "a refresh publishes the collapsed countdown before its poll runs" do
@@ -212,7 +212,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert new_version > old_version
     assert new_input.next_poll_due_at_ms == refreshed.next_poll_due_at_ms
     assert new_input.next_poll_due_at_ms < old_input.next_poll_due_at_ms
-    assert_receive {:tick, token}
+    assert_receive {:tick, token}, 1000
     assert token == refreshed.tick_token
   end
 
@@ -237,7 +237,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert {:noreply, refreshed} = Orchestrator.handle_info(:github_quota_recovered, state)
     assert is_reference(refreshed.tick_token)
     assert refreshed.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
-    assert_receive {:tick, token}
+    assert_receive {:tick, token}, 1000
     assert token == refreshed.tick_token
   end
 

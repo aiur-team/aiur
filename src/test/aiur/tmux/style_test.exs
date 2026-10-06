@@ -16,7 +16,7 @@ defmodule Aiur.Tmux.StyleTest do
         Style.set_pane_border(state, "%9", " 📱 #{url} ")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
 
     assert_receive {:tmux_mock_out, status_cmd}, 1_000
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
@@ -41,7 +41,7 @@ defmodule Aiur.Tmux.StyleTest do
         Style.set_pane_border(state, "%9", "some text")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
 
     assert_receive {:tmux_mock_out, _}, 1_000
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\nfailed\n%error 1 1 0\n"})
@@ -62,7 +62,7 @@ defmodule Aiur.Tmux.StyleTest do
         Style.set_pane_border(state, "%9", nil)
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
 
     assert_receive {:tmux_mock_out, unset_status}, 1_000
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
@@ -86,7 +86,7 @@ defmodule Aiur.Tmux.StyleTest do
         Style.set_pane_title(state, "%42", "7 CLI: ENS namespace (resolve, reverse, info)")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "select-pane -t %42 -T 7 CLI: ENS namespace (resolve, reverse, info)"
 

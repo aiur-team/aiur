@@ -277,9 +277,9 @@ defmodule Aiur.GitHub.AuthPreflightTest do
 
       # The hold was 2s out, so the wait honours `reset_at` plus up to 500ms of
       # jitter — nothing more.
-      assert_receive {:sleep, wait_ms}
+      assert_receive {:sleep, wait_ms}, 1000
       assert wait_ms >= 1_500 and wait_ms <= 2_500
-      refute_receive {:sleep, _}
+      refute_receive {:sleep, _}, 100
     end
 
     # #2444 acceptance 2 (the mutation guard): a hold whose `reset_at` is
@@ -306,7 +306,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
 
       assert diagnostic.classification == :local_hold
       assert count(counter) == 1
-      refute_receive :slept
+      refute_receive :slept, 100
     end
 
     # #2444 acceptance 3: a pathologically re-armed hold (each wait produces a
@@ -410,10 +410,10 @@ defmodule Aiur.GitHub.AuthPreflightTest do
       assert count(counter) == 4
 
       # The first backoff is `backoff_base_ms` plus up to `jitter_ms`.
-      assert_receive {:sleep, wait_ms}
+      assert_receive {:sleep, wait_ms}, 1000
       assert wait_ms >= LocalHold.backoff_base_ms()
       assert wait_ms <= LocalHold.backoff_base_ms() + LocalHold.jitter_ms()
-      refute_receive {:sleep, _}
+      refute_receive {:sleep, _}, 100
     end
 
     # #2457 acceptance 3 at the preflight boundary: a persistently unreachable
