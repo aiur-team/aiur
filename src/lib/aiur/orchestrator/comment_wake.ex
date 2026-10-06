@@ -1544,13 +1544,20 @@ defmodule Aiur.Orchestrator.CommentWake do
     comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
     review_id = if is_map(comment), do: Map.get(comment, :id) || Map.get(comment, "id")
 
-    if trusted_comment_event?(event) and changes_requested_review?(event) and
-         (is_integer(review_id) or (is_binary(review_id) and String.trim(review_id) != "")) do
+    if fresh_trusted_review_submission?(event, review_id) do
       [review_submission_id: review_id]
     else
       []
     end
   end
+
+  defp fresh_trusted_review_submission?(event, review_id) do
+    trusted_comment_event?(event) and changes_requested_review?(event) and identifiable_review_id?(review_id)
+  end
+
+  defp identifiable_review_id?(id) when is_integer(id), do: true
+  defp identifiable_review_id?(id) when is_binary(id), do: String.trim(id) != ""
+  defp identifiable_review_id?(_id), do: false
 
   # Every terminal gate refusal gets a body-free lifecycle point so a delivered
   # comment can be followed through the reason it did not change ticket state.
