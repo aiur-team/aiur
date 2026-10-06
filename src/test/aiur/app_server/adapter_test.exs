@@ -3,8 +3,8 @@ defmodule Aiur.AppServer.AdapterTest do
 
   alias Aiur.AppServer.Adapter
   alias Aiur.AppServer.Rpc.StreamDiagnostics
-  alias Aiur.Codex.{Interrupts, TurnLoop}
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
+  alias Aiur.Codex.{Interrupts, TurnLoop}
 
   defmodule StubBackend do
     @behaviour Aiur.AppServer.Adapter
