@@ -33,7 +33,7 @@ Import the main CSS file in your document:
 Or in JavaScript/TypeScript:
 
 ```javascript
-import 'aiur-style/css';
+import 'aiur-style/aiur-style.css';
 ```
 
 ### JavaScript
@@ -66,7 +66,7 @@ To build locally:
 npm run build        # Compile TypeScript and concatenate CSS
 npm run check-dist   # Verify dist/ matches the build
 npm test             # Run node tests
-npm run test:visual  # Run Playwright visual tests (requires display)
+npm run test:visual:docker # Run visual tests in the pinned CI container
 ```
 
 ## License

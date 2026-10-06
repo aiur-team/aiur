@@ -14,14 +14,17 @@ const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
 
 describe('dist/ validation', () => {
   test('all export targets exist', () => {
-    const exports = pkgJson.exports;
-    for (const [exportKey, exportValue] of Object.entries(exports)) {
-      let target = exportValue;
-      if (typeof exportValue === 'object') {
-        target = exportValue.default || exportValue.types;
+    assert.deepStrictEqual(Object.keys(pkgJson.exports).sort(),
+      ['.', './aiur-style.css', './css/*', './package.json'].sort());
+    const targets = Object.values(pkgJson.exports).flatMap(value =>
+      typeof value === 'object' ? Object.values(value) : [value]);
+    for (const target of targets) {
+      if (target.includes('*')) {
+        const directory = path.join(packageRoot, target.slice(0, target.indexOf('*')));
+        assert.ok(fs.readdirSync(directory).length > 0, `Empty export directory: ${target}`);
+      } else {
+        assert.ok(fs.existsSync(path.join(packageRoot, target)), `Missing export: ${target}`);
       }
-      const filePath = path.join(packageRoot, target);
-      assert.ok(fs.existsSync(filePath), `Export target does not exist: ${target}`);
     }
   });
 

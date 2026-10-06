@@ -14,6 +14,7 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.56.1-noble
 
     strategy:
       matrix:
@@ -32,17 +33,14 @@ jobs:
       - name: Install dependencies
         run: cd packages/aiur-style && npm ci
 
-      - name: Build
-        run: cd packages/aiur-style && npm run build
-
       - name: Check dist
         run: cd packages/aiur-style && npm run check-dist
 
+      - name: Build
+        run: cd packages/aiur-style && npm run build
+
       - name: Run tests
         run: cd packages/aiur-style && npm test
-
-      - name: Install Playwright browsers
-        run: cd packages/aiur-style && npx playwright install --with-deps
 
       - name: Run visual tests
         run: cd packages/aiur-style && npm run test:visual
