@@ -37,7 +37,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | --- | --- | --- |
 | `aiur` | Attaches to this repository's live tmux session when one exists; otherwise starts a foreground interactive run. Attachment does not create a second run or take teardown ownership, so detaching leaves the daemon healthy. | `aiur` |
 | `aiur run` | Explicit foreground launch form. `--bg` makes it headless; `--interactive` restores terminal panes in a background session. | `aiur run --bg` |
-| `aiur init` | Interactive setup detects the tracker and toolchain, writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, `.aiur/alerts`, and prewarm support when selected, then creates the repository state-node tree and warms the base build. For GitHub trackers it verifies repository access before offering CI and label setup, with token-specific recovery guidance when an organization-owned repository is hidden by GitHub's authorization-masked 404; it then asks once whether to use an App for the daemon and defaults to No (`GITHUB_TOKEN`), and choosing Yes points to the existing App setup guide. It also asks whether to enable Stream Deck voice input with ElevenLabs speech-to-text; answering yes writes the `elevenlabs` section, defaulting the key to the `$ELEVENLABS_API_KEY` environment reference. A resumed `aiur init` offers the same question when the saved config predates the section. When the repository has no `.aiur/config` but `~/.aiur/config` exists, it asks whether to resume the global config or create a repo-local one: repo-local is the default when the checkout's `origin` remote differs from the global config's `tracker.github.repo`, and global when they match, no repo is pinned, or no `origin` remote can be detected. | `aiur init` |
+| `aiur init` | Interactive setup detects the tracker and toolchain, writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, `.aiur/alerts`, and prewarm support when selected, then creates the repository state-node tree and warms the base build. For GitHub trackers it verifies repository access before offering CI and label setup, with token-specific recovery guidance when an organization-owned repository is hidden by GitHub's authorization-masked 404; it then asks once whether to use an App for the daemon and defaults to No (`GITHUB_TOKEN`), and choosing Yes points to the existing App setup guide. It also asks whether to enable Stream Deck voice input with ElevenLabs speech-to-text; answering yes writes the `elevenlabs` section, defaulting the key to the `$ELEVENLABS_API_KEY` environment reference. A resumed `aiur init` offers the same question when the saved config predates the section. When the repository has no `.aiur/config` but `~/.aiur/config` exists, it asks whether to resume the global config or create a repo-local one: repo-local is the default when the checkout's `origin` remote differs from the global config's `tracker.github.repo`, and global when they match, no repo is pinned, or no `origin` remote can be detected. For GitHub repositories, Aiur waits for required CI checks before merging agent work, so setup checks whether the repository has a pull-request workflow and required checks. A missing configured branch stops setup with guidance to update `tracker.base_branch`; access errors also stop before a lower-priority CI scaffold question. If a workflow is created, replace its failing placeholder with the real test command, require `ci / required` in GitHub Settings → Rules → Rulesets for the base branch, then rerun `aiur init`. | `aiur init` |
 | `aiur init --force` | Recreates generated configuration for the location you choose at the first prompt; picking repo-local leaves an existing `~/.aiur/config` untouched. Re-running without it preserves existing scaffold files. | `aiur init --force` |
 | `aiur --todo 142 143` | Requires a running daemon and one or more numeric IDs, with commas also accepted. A stopped daemon exits nonzero. | `aiur --todo 142,143` |
 | `aiur --todo 142 --only` | Queues the named IDs and asks GitHub to remove `agent:todo` from other pending tickets. It is GitHub-only, is bounded to 50 cleanup targets, and stops after three consecutive rate-limit failures. Cleanup is skipped if a requested ID fails, so the operation does not silently dequeue work after a bad request. | `aiur --todo 142 --only` |
@@ -55,6 +55,16 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --logs-root /var/log/aiur` | Overrides the daemon log root for this launch. | `aiur --logs-root /var/log/aiur` |
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
+
+Background runs persist daemon Logger messages at `<logs-root>/log/aiur.log` without `--debug`.
+`--debug` additionally enables debug-level messages. The default background root is
+`~/.aiur/logs/<launch-id>/`; `log/boot.out.log` captures release stdout and stderr.
+
+When ready work has free slots, status names a tracker preflight hold and its duration,
+reports a stale dispatch poll, `awaiting dispatch`, or the last empty selection cycle's reasons and sample age. Known prewarm holds keep their cause; unexplained empty selections report `unknown`.
+
+The `POLL` line reports the age and freshness of the last dispatch poll attempt. A daemon that has not started a dispatch poll says so; unavailable age is never rendered as zero.
+
 
 On Linux, `aiur init` probes the Codex command sandbox when Codex is selected. A failure shows the command output and offers a retry; see the [Linux setup steps](/guide/quick-start#codex-on-linux).
 
@@ -75,7 +85,7 @@ Launch mode determines which interfaces remain available:
 | --- | --- |
 | Foreground | Shows the terminal board and chat panes. A later bare `aiur` from the same repository reattaches to that session. |
 | `--bg` | Runs headlessly but keeps the dashboard unless paired with `--no-dashboard`. |
-| Host precedence | `--host` wins over `server.host`, which wins over the loopback or safe Tailscale default. |
+| Host precedence | `--host` wins over `server.host`, which wins over `AIUR_DEFAULT_DASHBOARD_HOST` or the `127.0.0.1` default. |
 | Startup output | Reports the usable dashboard URL and effective bind host and port. |
 
 When an unknown subcommand is routed through a release built from a checkout, Aiur also compares the dispatcher and checkout package versions. If the dispatcher is older, the error tells you to update `aiur-cli` instead of presenting the command as simply unavailable.

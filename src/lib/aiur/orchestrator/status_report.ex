@@ -209,6 +209,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :candidate_snapshot_fresh?,
       :dispatch_declines,
       :dispatch_hold,
+      :dispatch_selection_hold,
       # `agent_statuses/1` reads the codex thrash budget to explain why an idle
       # ticket is not dispatching. Projecting without it would fall back to the
       # struct default and render a confident wrong *reason* on every idle row.
@@ -217,6 +218,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :global_pause,
       :globally_paused,
       :last_polled_issues,
+      :last_dispatch_poll_at_ms,
       :load_envelope_state,
       :max_concurrent_agents,
       :next_poll_due_at_ms,
@@ -410,6 +412,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       },
       rate_limits: Map.get(state, :agent_rate_limits),
       polling: %{
+        last_dispatch_poll_age_ms: dispatch_poll_age_ms(state.last_dispatch_poll_at_ms, now_ms),
         checking?: state.poll_check_in_progress == true,
         next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
         poll_interval_ms: state.poll_interval_ms,
@@ -420,6 +423,9 @@ defmodule Aiur.Orchestrator.StatusReport do
       }
     }
   end
+
+  defp dispatch_poll_age_ms(last_ms, now_ms) when is_integer(last_ms), do: max(now_ms - last_ms, 0)
+  defp dispatch_poll_age_ms(_last_ms, _now_ms), do: nil
 
   defp capacity_hold_active?(%State{} = state) do
     match?(%{signal: _signal}, state.capacity_hold)
@@ -432,6 +438,7 @@ defmodule Aiur.Orchestrator.StatusReport do
           held?: true,
           signal: signal,
           measured: measured,
+          detail: Map.get(hold, :detail),
           threshold: threshold,
           held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0),
           # How long the hold has lasted and how old its measurement is are
@@ -442,24 +449,19 @@ defmodule Aiur.Orchestrator.StatusReport do
         }
 
       _other ->
-        %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0, sample_age_seconds: nil}
-    end
-  end
-
-  defp dispatch_hold_payload(%State{} = state, now_ms) do
-    case state.dispatch_hold do
-      %{reason: reason, detail: detail, held_since_ms: held_since_ms} ->
         %{
-          held?: true,
-          reason: reason,
-          detail: detail,
-          held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0)
+          held?: false,
+          signal: nil,
+          measured: nil,
+          detail: nil,
+          threshold: nil,
+          held_for_seconds: 0,
+          sample_age_seconds: nil
         }
-
-      _other ->
-        %{held?: false, reason: nil, detail: nil, held_for_seconds: 0}
     end
   end
+
+  defp dispatch_hold_payload(state, now_ms), do: Slots.dispatch_hold_status(state, now_ms)
 
   defp running_snapshot(
          %State{} = state,

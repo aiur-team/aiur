@@ -92,12 +92,20 @@ defmodule Aiur.Orchestrator.GlobalPause do
   @spec set_global_pause_call(State.t(), boolean()) ::
           {:reply, {:ok, map()} | {:error, term()}, State.t()}
   def set_global_pause_call(state, on?) when is_boolean(on?),
-    do: set_global_pause_call(state, on?, "CLI")
+    do: set_global_pause_call(state, on?, "CLI", [])
 
   @spec set_global_pause_call(State.t(), boolean(), String.t()) ::
           {:reply, {:ok, map()} | {:error, term()}, State.t()}
-  def set_global_pause_call(%State{globally_paused: current} = state, on?, source)
+  def set_global_pause_call(%State{} = state, on?, source)
       when is_boolean(on?) do
+    set_global_pause_call(state, on?, source, [])
+  end
+
+  @doc false
+  @spec set_global_pause_call(State.t(), boolean(), String.t(), keyword()) ::
+          {:reply, {:ok, map()} | {:error, term()}, State.t()}
+  def set_global_pause_call(%State{globally_paused: current} = state, on?, source, opts)
+      when is_boolean(on?) and is_list(opts) do
     source = normalize_source(source)
     next_state = next_global_pause_state(state, current, on?, source)
 
@@ -105,7 +113,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
       :ok ->
         state =
           next_state
-          |> apply_global_pause_transition(current, on?)
+          |> apply_global_pause_transition(current, on?, opts)
           |> maybe_wake_after_unpause(current, on?)
 
         publish_global_pause(state)
@@ -131,13 +139,13 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   defp next_global_pause_state(state, _current, _on?, _source), do: state
 
-  defp apply_global_pause_transition(state, false, true),
+  defp apply_global_pause_transition(state, false, true, _opts),
     do: PauseResume.pause_running_for_global(state)
 
-  defp apply_global_pause_transition(state, true, false),
-    do: PauseResume.resume_running_from_global(state)
+  defp apply_global_pause_transition(state, true, false, opts),
+    do: PauseResume.resume_running_from_global(state, opts)
 
-  defp apply_global_pause_transition(state, _current, _on?), do: state
+  defp apply_global_pause_transition(state, _current, _on?, _opts), do: state
 
   # An idle fleet may have a substantially widened timer. Unpausing is an
   # explicit admission request, so cancel that timer and reconcile fresh state

@@ -510,6 +510,9 @@ defmodule Aiur.AgentControlCLITest do
           startup_claim_reconciliation_complete?: false,
           session_max_concurrent_agents: nil,
           capacity_hold: nil,
+          # Capacity fixtures start without dispatch holds from earlier polls.
+          dispatch_hold: nil,
+          dispatch_selection_hold: nil,
           dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil}
       }
     end)
@@ -1009,6 +1012,19 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~ "WAKES unavailable (cursor and pending count could not be read)"
     refute output =~ "WAKES CURSOR 0 PENDING 0"
+  end
+
+  test "status renders dispatch poll age and honest missing observations" do
+    for {polling, expected} <- [
+          {%{last_dispatch_poll_age_ms: 481_000, effective_interval_ms: 240_000}, "481s ago (stale)"},
+          {%{last_dispatch_poll_age_ms: 20_000, effective_interval_ms: 240_000}, "20s ago (fresh)"},
+          {%{last_dispatch_poll_age_ms: nil}, "never polled"},
+          {%{}, "unavailable"}
+        ] do
+      snapshot = %{statuses: [], polling: polling}
+      output = capture_io(fn -> AgentControlCLI.status(fleet_view: {:ok, snapshot, %{status: :current, reason: nil, age_seconds: 0}}) end)
+      assert output =~ "POLL last dispatch: #{expected}"
+    end
   end
 
   test "status surfaces an active idle polling backoff" do
@@ -1520,6 +1536,35 @@ defmodule Aiur.AgentControlCLITest do
     assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
   end
 
+  test "status shows provider freshness detail for a provider capacity hold" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity:
+        unconstrained_capacity(%{
+          capacity_hold: %{
+            signal: :provider,
+            measured: ["codex"],
+            detail: "backends=codex=stale observed_at=2026-10-06T10:00:00Z next_probe=unknown",
+            threshold: :all_usage_limited,
+            held_since_ms: System.monotonic_time(:millisecond),
+            measured_at: DateTime.utc_now()
+          }
+        }),
+      polling: %{}
+    }
+
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
+      end)
+
+    assert output =~
+             "AGENTS 0/2 (binding: provider, backends=codex=stale observed_at=2026-10-06T10:00:00Z next_probe=unknown sampled=0s ago)"
+  end
+
   test "status reports only the daemon's own admission hold as the binding constraint", %{orchestrator: pid} do
     local_schedulers = System.schedulers_online()
     local_load = local_schedulers * 2.0
@@ -1671,7 +1716,7 @@ defmodule Aiur.AgentControlCLITest do
 
     fallback_output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert fallback_output =~ "AGENTS 0/10 (binding: none; ceiling: config max_concurrent_agents)"
+    assert fallback_output =~ "AGENTS 0/10 (binding: awaiting dispatch; ceiling: config max_concurrent_agents)"
     refute fallback_output =~ "AGENTS 0/10 (binding: load"
 
     assert fallback_output =~
@@ -1742,6 +1787,7 @@ defmodule Aiur.AgentControlCLITest do
           # off / failed-fetch fleet is "has not polled yet", never a claim
           # about ticket supply (#2138).
           candidate_snapshot_fresh?: true,
+          last_dispatch_poll_at_ms: System.monotonic_time(:millisecond),
           idle_poll_backoff: %{active?: false, factor: 5.0},
           last_polled_issues: %{
             "issue-paused" => Map.put(queued_issue(), :paused, true),
@@ -1915,7 +1961,7 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
-    assert output =~ "AGENTS 0/10 (binding: none; ceiling: config max_concurrent_agents)"
+    assert output =~ "AGENTS 0/10 (binding: awaiting dispatch; ceiling: config max_concurrent_agents)"
     assert output =~ "BUILD GATE 1/#{Config.max_concurrent_builds()} active, 1 queued"
     assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"test\" held="
     assert output =~ "BUILD GATE QUEUED pid=2 command=\"test\" waiting="
