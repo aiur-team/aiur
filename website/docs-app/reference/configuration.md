@@ -674,7 +674,13 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 
 A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set. A dashboard bound beyond loopback refuses to start without both credentials.
 
-When `observability.build_order_funnel_health_check` is enabled, Aiur checks the local `/build-orders/1` endpoint and reads `tailscale funnel status --json` once after dashboard startup. The HTTP receive timeout and Tailscale command timeout are five seconds; a timed-out Tailscale process is closed. HTTP 200, redirects 301/302/304/307/308, and 401 (authentication required) count as reachable; other statuses, including 201, 204, and 303, do not. A stale proxy target raises `system.build_order_funnel.target_mismatch`; an unreachable endpoint raises `system.build_order_funnel.target_unreachable`; an endpoint timeout raises `system.build_order_funnel.target_timeout`; and an unavailable or unparseable status raises `system.build_order_funnel.health_check_error`. Tailscale is not detected or queried unless this setting is explicitly enabled.
+When `observability.build_order_funnel_health_check` is enabled, Aiur checks the local `/build-orders/1` endpoint and reads `tailscale funnel status --json` once after dashboard startup. Both the HTTP receive and Tailscale command timeouts are five seconds; a timed-out process is closed.
+
+HTTP 200, redirects 301/302/304/307/308, and 401 (authentication required) count as reachable. Other statuses, including 201, 204, and 303, do not.
+
+A stale proxy target raises `system.build_order_funnel.target_mismatch`; an unreachable endpoint raises `system.build_order_funnel.target_unreachable`; and an endpoint timeout raises `system.build_order_funnel.target_timeout`.
+
+An unavailable or unparseable Tailscale status raises `system.build_order_funnel.health_check_error`. Tailscale is not detected or queried unless this setting is explicitly enabled.
 
 The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential. Generate it with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the repository `.env` (project-local).
 
