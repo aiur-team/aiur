@@ -182,10 +182,6 @@ config_value() {
 
 read_identity() {
   local identity_file="$1"
-  if [ -n "${AIUR_TMUX_SOCKET:-}" ] && [ -n "${AIUR_TMUX_SESSION:-}" ]; then
-    return 0
-  fi
-
   local identity_output
   identity_output="$(cd "$repo_root" && env -u AIUR_REPO_ROOT "${cli_parts[@]}" __identity 2>/dev/null || true)"
   while IFS='=' read -r key value; do

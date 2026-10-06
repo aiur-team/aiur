@@ -310,6 +310,24 @@ url_missing_report="$(find "$state_root/url-missing-retrospective.md.d" -name re
 jq -e '.verdict == "did-not-run" and (.pages | length) == 0 and (.precondition | contains("AIUR_DASHBOARD_URL"))' "$url_missing_report" >/dev/null ||
   fail "missing dashboard URL report.json did not say did-not-run"
 
+# A browser process can exit successfully without producing its verdict.
+empty_capture="$state_root/empty-capture.mjs"
+printf '// intentionally produces no artifacts\n' > "$empty_capture"
+set +e
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=empty-capture \
+  AIUR_EXECUTOR_RETRO_FILE="$state_root/empty-capture-retrospective.md" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$empty_capture" \
+  AIUR_DASHBOARD_URL=http://127.0.0.1:4019 \
+  AIUR_DASHBOARD_USERNAME=test-user \
+  AIUR_DASHBOARD_PASSWORD=test-password \
+  "$script" visual-check > "$state_root/empty-capture.out" 2> "$state_root/empty-capture.err"
+empty_capture_status=$?
+set -e
+[ "$empty_capture_status" -eq 70 ] || fail "empty successful browser capture did not fail"
+grep -q 'Overall:.*attention' "$state_root/empty-capture-retrospective.md" ||
+  fail "empty capture did not retain an attention verdict"
+
 # The missing password is the third precondition, with its own code (69), its
 # own stderr line, and a did-not-run verdict — distinct from a missing URL (67)
 # or a missing run ID (68). Without the daemon environment fallback it is a

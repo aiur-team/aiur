@@ -808,7 +808,9 @@ visual_check() {
   fi
 
   verdict="$capture_dir/verdict.md"
-  if [ "$capture_status" -ne 0 ] && [ ! -s "$verdict" ]; then
+  if [ ! -s "$verdict" ]; then
+    # A successful browser exit without evidence is still an incomplete check.
+    [ "$capture_status" -ne 0 ] || capture_status=70
     cat > "$verdict" <<EOF
 # Dashboard visual check
 

@@ -142,6 +142,24 @@ jq -e '
   ([.findings[] | select(.reason == "agent_list_surface_incomplete")] | length == 0)
 ' <<< "$headless" >/dev/null || fail "headless run was reported as an incomplete AgentList"
 
+explicit_headless="$(
+  env -u AIUR_RELEASE_NODE -u AIUR_BG_STATE_DIR \
+  AIUR_TMUX_SOCKET=aiur-test-instance \
+  AIUR_TMUX_SESSION=aiur-test-instance-default \
+  FAKE_BG_STATE_DIR="$fixture/state" \
+  FAKE_TMUX_MODE=headless \
+  AIUR_CMD="$fixture/fake-cli" \
+  AIUR_EXECUTOR_REPO_ROOT="$fixture" \
+  AIUR_EXECUTOR_CONFIG="$fixture/config" \
+  AIUR_EXECUTOR_TMUX="$fixture/fake-tmux" \
+  "$script"
+)"
+jq -e '
+  (.tui_surface.expected == false) and
+  (.tui_surface.mode == "headless") and
+  ([.findings[] | select(.reason == "agent_list_surface_incomplete")] | length == 0)
+' <<< "$explicit_headless" >/dev/null || fail "explicit tmux identity skipped headless record discovery"
+
 sed -i 's/AIUR_RECORD_SURFACE_MODE=headless/AIUR_RECORD_SURFACE_MODE=interactive/' \
   "$fixture/state/instances/aiur-test_127.0.0.1.instance"
 interactive_incomplete="$(
