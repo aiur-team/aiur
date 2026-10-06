@@ -74,16 +74,18 @@ defmodule Aiur.DaemonHeartbeatChecker do
   @doc false
   @spec gap_start(DateTime.t(), [map()]) :: {:ok, :unknown | :clean_shutdown, DateTime.t()} | {:error, atom()}
   def gap_start(heartbeat_at, events) do
-    open_starts = unmatched_starts(events)
-
-    cond do
-      open_starts != [] ->
+    case latest_event(events) do
+      %{kind: :start} ->
         {:ok, :unknown, heartbeat_at}
 
-      stop = latest_stop_after(events, heartbeat_at) ->
-        {:ok, :clean_shutdown, stop.at}
+      %{kind: :stop, at: stopped_at} ->
+        if DateTime.compare(stopped_at, heartbeat_at) == :gt do
+          {:ok, :clean_shutdown, stopped_at}
+        else
+          {:error, :no_gap_evidence}
+        end
 
-      true ->
+      _ ->
         {:error, :no_gap_evidence}
     end
   end
@@ -100,22 +102,8 @@ defmodule Aiur.DaemonHeartbeatChecker do
     end
   end
 
-  defp unmatched_starts(events) do
-    events
-    |> Enum.reduce(%{}, fn
-      %{kind: :start, run_id: run_id} = event, open -> Map.put(open, run_id, event)
-      %{kind: :stop, run_id: run_id}, open -> Map.delete(open, run_id)
-      _, open -> open
-    end)
-    |> Map.values()
-  end
-
-  defp latest_stop_after(events, heartbeat_at) do
-    events
-    |> Enum.filter(fn event ->
-      event.kind == :stop and DateTime.compare(event.at, heartbeat_at) == :gt
-    end)
-    |> Enum.max_by(&DateTime.to_unix(&1.at, :microsecond), fn -> nil end)
+  defp latest_event(events) do
+    Enum.max_by(events, &DateTime.to_unix(&1.at, :microsecond), fn -> nil end)
   end
 
   defp safe_call(fun) do
