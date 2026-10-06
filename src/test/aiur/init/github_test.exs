@@ -3,6 +3,18 @@ defmodule Aiur.Init.GitHubTest do
 
   alias Aiur.Init.GitHub
 
+  describe "detect_github_login/1" do
+    test "clears the governed credential file for the human-only lookup" do
+      command_fun = fn ["api", "user", "--jq", ".login"], opts ->
+        assert opts[:stderr_to_stdout]
+        assert opts[:env] == [{"AIUR_GITHUB_CREDENTIAL_FILE", nil}, {"GH_TOKEN", nil}, {"GITHUB_TOKEN", nil}]
+        {"operator\n", 0}
+      end
+
+      assert GitHub.detect_github_login(command_fun) == "operator"
+    end
+  end
+
   describe "parse_repo/1" do
     test "parses SSH URL" do
       assert GitHub.parse_repo("git@github.com:o/r.git") == "o/r"

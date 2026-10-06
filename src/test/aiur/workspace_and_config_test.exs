@@ -2895,7 +2895,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert remote_policy == %{
              "type" => "workspaceWrite",
-             "writableRoots" => ["~/.aiur-workspaces", "~/.aiur-workspaces/.git"],
+             "writableRoots" => ["~/.aiur-workspaces", "~/.aiur-workspaces/.git", "~/.aiur-workspaces/.agents"],
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
@@ -2954,7 +2954,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
                "type" => "workspaceWrite",
                "writableRoots" => [
                  issue_workspace,
-                 Path.join(issue_workspace, ".git")
+                 Path.join(issue_workspace, ".git"),
+                 Path.join(issue_workspace, ".agents")
                ],
                "networkAccess" => true
              }
@@ -3354,7 +3355,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert remote_workspace_write_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git")]
+               "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git"), Path.join(remote_workspace, ".agents")]
              }
 
       read_only_settings = %{
