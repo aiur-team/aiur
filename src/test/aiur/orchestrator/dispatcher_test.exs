@@ -16,6 +16,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     def fetch_candidate_issues, do: {:error, :candidate_fetch_failed}
   end
 
+  defmodule CandidateFetchFailureGitHubClient do
+    def ensure_preflight, do: :ok
+    def fetch_candidate_issues, do: {:error, :candidate_fetch_failed}
+  end
+
   # A stand-in Orchestrator whose poll outlasts a delivery call into it. It
   # handles the spawn's redelivery message as `Aiur.Orchestrator` does.
   defmodule SlowPollOrchestrator do
@@ -334,6 +339,39 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     refute next.startup_claim_reconciliation_complete?
     assert next.last_polled_issues == state.last_polled_issues
     assert next.initial_dispatch_cycle
+  end
+
+  test "the initial GitHub dispatch cycle starts the state-label preflight" do
+    restore_workflow_file_after_test()
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo"
+    )
+
+    previous_client = Application.get_env(:aiur, :github_client_module)
+    previous_check = Application.get_env(:aiur, :state_label_preflight_fun)
+    previous_token = System.get_env("GITHUB_TOKEN")
+    parent = self()
+
+    System.put_env("GITHUB_TOKEN", "test-gh-token")
+    Application.put_env(:aiur, :github_client_module, CandidateFetchFailureGitHubClient)
+
+    Application.put_env(:aiur, :state_label_preflight_fun, fn ->
+      send(parent, :state_label_preflight_started)
+      {:ok, %{repo: "owner/repo", missing: [], present: []}}
+    end)
+
+    on_exit(fn ->
+      restore_app_env(:github_client_module, previous_client)
+      restore_app_env(:state_label_preflight_fun, previous_check)
+      restore_env("GITHUB_TOKEN", previous_token)
+    end)
+
+    next = Dispatcher.maybe_dispatch(%State{initial_dispatch_cycle: true})
+
+    assert_receive :state_label_preflight_started, 1_000
+    assert is_pid(next.state_label_preflight_check_pid)
   end
 
   test "a successful candidate poll starts the DecisionStore outage alert dwell" do
