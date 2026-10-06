@@ -358,7 +358,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     # The stale snapshot still renders — that is the SnapshotStore contract —
     # but never unmarked. A ten-minute-old cap read as current is #1564.
-    assert html =~ "3 cap (stale, 10m old)"
+    assert html =~ "3 cap (binding: awaiting dispatch, stale, 10m old)"
     refute html =~ "3 cap<"
   end
 
@@ -474,7 +474,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "Build Order #77, latest run"
     # The Build Order strip renders the same effective cap as the run strip;
     # without this the whole Build Order cap path is uncovered.
-    assert html =~ "now / 3 cap (session 8, configured 16)"
+    assert html =~ "now / 3 cap (binding: awaiting dispatch, session 8, configured 16)"
     refute html =~ "now / 16 cap"
     assert html =~ ">#941<"
     refute html =~ ">#942<"
