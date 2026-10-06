@@ -79,6 +79,10 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
       reply_with_state(OperatorMessages.consume_delivered_queue_items_call(state, identifier))
     end
 
+    def handle_call({:fail_delivered_queue_items, identifier, reason}, _from, state) do
+      reply_with_state(OperatorMessages.fail_delivered_queue_items_call(state, identifier, reason))
+    end
+
     def handle_call({:acknowledge_queue_item_delivery, item_id, metadata}, _from, state) do
       reply_with_state(OperatorMessages.acknowledge_queue_item_delivery_call(state, item_id, metadata))
     end
