@@ -124,6 +124,37 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
   end
 
   describe "set_global_pause_call/2 unpause" do
+    test "refreshes stale provider limits when globally resuming an idle fleet" do
+      path = Aiur.TestSupport.tmp_root!("global-resume-provider-refresh") <> ".json"
+      on_exit(fn -> File.rm(path) end)
+      now = DateTime.utc_now()
+      stale_at = DateTime.add(now, -301, :second)
+      reset_at = DateTime.add(now, 3_600, :second) |> DateTime.to_iso8601()
+
+      assert :ok =
+               Aiur.ModelAvailability.observe(
+                 "codex",
+                 %{hourly: %{used: 100, limit: 100, reset_at: reset_at}},
+                 path: path,
+                 now: stale_at
+               )
+
+      state = base_state(globally_paused: true, running: %{})
+
+      assert {:reply, {:ok, %{globally_paused: false}}, resumed} =
+               GlobalPause.set_global_pause_call(state, false, "test",
+                 path: path,
+                 now: now,
+                 backends: ["codex"],
+                 probe_fun: fn backend, opts -> send(self(), {:provider_probe_scheduled, backend, opts}) end
+               )
+
+      refute resumed.globally_paused
+      assert_receive {:provider_probe_scheduled, "codex", opts}, 1_000
+      assert Keyword.fetch!(opts, :path) == path
+      assert Keyword.fetch!(opts, :now) == now
+    end
+
     test "resumes only globally held agents and leaves individually paused agents paused" do
       individual = unique_id("gp-keep")
       held = unique_id("gp-held")
