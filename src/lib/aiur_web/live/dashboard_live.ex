@@ -2137,10 +2137,8 @@ defmodule AiurWeb.DashboardLive do
 
   defp open_conversation(socket, row, token, handle, snapshot) do
     composer = agent_log_composer(socket.assigns.payload, row)
-    running_entry = AgentLogModal.find_running_entry(socket.assigns.payload, Map.get(row, :identity))
-
     usage_opts = [ticket: Map.get(row, :identity)]
-    attempt_id = Map.get(running_entry || %{}, :telemetry_attempt_id)
+    attempt_id = Map.get(row, :telemetry_attempt_id)
     usage_opts = if is_binary(attempt_id), do: Keyword.put(usage_opts, :attempt_id, attempt_id), else: usage_opts
 
     {usage_snapshot, usage_error} =

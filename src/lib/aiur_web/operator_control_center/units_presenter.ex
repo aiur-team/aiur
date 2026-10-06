@@ -187,6 +187,31 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   defp status_source(payload) do
+    case Map.get(payload, :units_status_snapshot) do
+      %{running: running} = snapshot when is_list(running) ->
+        freshness = Map.get(snapshot, :snapshot_freshness, %{})
+
+        %{
+          generation: Map.get(payload, :generated_at),
+          health: source_health(payload, :fleet, %{}),
+          freshness: snapshot_freshness(freshness, payload),
+          running: running,
+          retrying: safe_snapshot_rows(snapshot, :retrying),
+          idle: safe_snapshot_rows(snapshot, :idle)
+        }
+
+      _missing_snapshot ->
+        presenter_status_source(payload)
+    end
+  end
+
+  defp snapshot_freshness(%{status: status} = freshness, _payload) when status in [:current, :stale] do
+    %{status: if(status == :current, do: :fresh, else: :stale), observed_at: Map.get(freshness, :observed_at), age_seconds: Map.get(freshness, :age_seconds)}
+  end
+
+  defp snapshot_freshness(_freshness, payload), do: source_freshness(payload)
+
+  defp presenter_status_source(payload) do
     fleet = Map.get(payload, :fleet, %{})
     health = source_health(payload, :fleet, fleet)
 
@@ -198,6 +223,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
       retrying: safe_rows(fleet, :retrying),
       idle: safe_rows(fleet, :idle)
     }
+  end
+
+  defp safe_snapshot_rows(snapshot, bucket) do
+    case Map.get(snapshot, bucket) do
+      rows when is_list(rows) -> rows
+      _rows -> []
+    end
   end
 
   defp issue_source(status) do
