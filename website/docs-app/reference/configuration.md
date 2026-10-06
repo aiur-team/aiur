@@ -720,9 +720,9 @@ Set `server.tailscale_funnel: true` only when this node already has a Funnel rou
 
 Before changing a different target, Aiur probes that target's `/build-orders/1`. Any HTTP response makes the reconciler leave the route unchanged and raise `system.build_order_funnel.target_mismatch`.
 
-An unreachable target may be stale and can be updated. Wildcard binds (`0.0.0.0` and `::`) map to loopback for the Funnel target.
+Only a connection-refused probe counts as stale and permits an update. Timeouts, TLS failures, and other probe errors leave the route unchanged and raise `system.build_order_funnel.health_check_error` with cause `unknown`. Wildcard binds (`0.0.0.0` and `::`) map to loopback for the Funnel target.
 
-Enable this on only one Aiur daemon per node so multiple reconcilers do not compete for HTTPS 443. When `server.tailscale_funnel` is enabled, the reconciler suppresses the separate `observability.build_order_funnel_health_check` startup check and reports its own failures after each reconciliation attempt.
+Enable this on only one Aiur daemon per node. A second daemon with this key enabled can repoint the route while the owning dashboard restarts and its old target refuses connections. When `server.tailscale_funnel` is enabled, the reconciler suppresses the separate `observability.build_order_funnel_health_check` startup check and reports its own failures after each reconciliation attempt.
 
 A non-root account needs Tailscale operator access before Aiur can manage the route. Grant it once with `sudo tailscale set --operator=$USER`; then run Aiur as that account.
 

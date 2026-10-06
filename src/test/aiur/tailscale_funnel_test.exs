@@ -48,6 +48,17 @@ defmodule Aiur.TailscaleFunnelTest do
     assert Agent.get(state, & &1.writes) == [@new_target]
   end
 
+  test "updates a target when Req reports a refused connection" do
+    old_target = "http://127.0.0.1:35017"
+    expected_target = "http://127.0.0.1:43971"
+    {state, runner} = fake_command(status(old_target), self())
+    probe = fn _url, _timeout -> {:error, %Req.TransportError{reason: :econnrefused}} end
+
+    assert :ok = TailscaleFunnel.reconcile("127.0.0.1", 43_971, funnel_opts(runner, target_probe: probe))
+    assert_receive {:funnel_update, ^expected_target}, 1_000
+    assert Agent.get(state, & &1.writes) == [expected_target]
+  end
+
   test "leaves an already-current Funnel target unchanged" do
     {state, runner} = fake_command(status(@new_target), self())
 

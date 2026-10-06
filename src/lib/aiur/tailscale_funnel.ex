@@ -114,7 +114,6 @@ defmodule Aiur.TailscaleFunnel do
       :ok
     else
       false -> {:error, {:target_verification_failed, :target_mismatch}}
-      {:ok, other} -> {:error, {:target_verification_failed, other}}
       {:error, _reason} = error -> error
     end
   end
