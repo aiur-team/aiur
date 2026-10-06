@@ -887,7 +887,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       emit_refused_review_rework_alert(issue_number, event, reason)
     else
-      :ok
+      Logger.info("#{source} active comment rework skipped: #{context}")
     end
 
     state
@@ -1155,11 +1155,11 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     state
     |> Orchestrator.enqueue_event_digest_item(identifier, [event], event)
-    |> dispatch_reworked_comment_issue(identifier)
+    |> dispatch_reworked_comment_issue(identifier, event)
   end
 
-  defp dispatch_reworked_comment_issue(%State{} = state, identifier) when is_binary(identifier) do
-    case fetch_comment_dispatch_issue(identifier) do
+  defp dispatch_reworked_comment_issue(%State{} = state, identifier, event) when is_binary(identifier) do
+    case fetch_comment_dispatch_issue(identifier, event) do
       {:ok, %Issue{} = issue} ->
         dispatch_reworked_comment_issue(state, issue)
 
@@ -1255,8 +1255,10 @@ defmodule Aiur.Orchestrator.CommentWake do
     state
   end
 
-  defp fetch_comment_dispatch_issue(identifier) do
-    case Tracker.fetch_issue_states_by_ids([identifier]) do
+  defp fetch_comment_dispatch_issue(identifier, event) do
+    fetcher = Map.get(event, :comment_dispatch_issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
+
+    case fetcher.([identifier]) do
       {:ok, [%Issue{} = issue | _]} ->
         {:ok, issue}
 
@@ -1528,8 +1530,10 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp write_comment_rework(issue_key, telemetry_ticket, source, _event, attempt_id) do
-    case Tracker.update_issue_state(to_string(issue_key), "rework") do
+  defp write_comment_rework(issue_key, telemetry_ticket, source, event, attempt_id) do
+    update_issue_state_fun = Map.get(event, :comment_update_issue_state_fun, &Tracker.update_issue_state/2)
+
+    case update_issue_state_fun.(to_string(issue_key), "rework") do
       :ok ->
         Lifecycle.record(
           to_string(telemetry_ticket),
@@ -1621,11 +1625,13 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp fetch_current_reactivation_issue(%{issue: %Issue{id: issue_id} = issue})
+  defp fetch_current_reactivation_issue(%{issue: %Issue{id: issue_id} = issue} = running_entry)
        when is_binary(issue_id) do
+    fetcher = Map.get(running_entry, :comment_reactivation_issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
+
     case Dispatcher.revalidate_issue_for_dispatch(
            issue,
-           &Tracker.fetch_issue_states_by_ids/1,
+           fetcher,
            DispatchPolicy.terminal_state_set()
          ) do
       {:ok, %Issue{} = refreshed_issue} -> {:ok, refreshed_issue}
