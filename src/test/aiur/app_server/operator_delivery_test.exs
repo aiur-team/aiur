@@ -3,7 +3,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
 
   alias Aiur.AgentQueue
   alias Aiur.AgentQueueStore
-  alias Aiur.AgentRunner.{CheckpointDelivery, QueueDrain}
+  alias Aiur.AgentRunner.{CheckpointDelivery, TurnLoop}
   alias Aiur.AppServer.{Interrupts, OperatorDelivery}
   alias Aiur.Orchestrator.{OperatorMessages, State}
 
@@ -209,24 +209,48 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     refute_receive {:operator_message, _}, 100
     assert GenServer.call(orch, {:get_item, item.id}).status == :pending
 
-    test_session = %{backend: "codex", workspace: "/path/that/does/not/exist"}
+    test_root = Aiur.TestSupport.tmp_root!("retired-turn-queue-drain")
+    workspace = Path.join(test_root, "workspace")
+    File.mkdir_p!(workspace)
+    assert :ok = Aiur.Workspace.Provisioner.maybe_install_agent_support(workspace, nil)
+    on_exit(fn -> File.rm_rf!(test_root) end)
 
-    assert :ok =
-             QueueDrain.drain_operator_messages(
-               test_session,
-               issue,
-               fn _ -> :ok end,
-               orch,
+    parent = self()
+    call_key = {__MODULE__, :retired_turn_queue_drain, self()}
+
+    run_turn = fn _session, text, _issue, opts ->
+      case Process.get(call_key, 0) do
+        0 ->
+          Process.put(call_key, 1)
+          {:ok, %{result: interrupt_result, session_id: "completed-parent-turn"}}
+
+        1 ->
+          Process.put(call_key, 2)
+          send(parent, {:queued_turn, text})
+          opts[:on_provider_delivery].(%{turn_id: "interrupt-boundary-turn"})
+          {:ok, %{result: :turn_completed, session_id: "interrupt-boundary-turn"}}
+      end
+    end
+
+    assert {:completed, _completed_issue} =
+             TurnLoop.run_turns(
+               %{backend: "codex", workspace: workspace, worker_host: nil},
+               workspace,
+               %{issue | state: "in-progress"},
                self(),
-               run_turn: fn _session, text, _issue, opts ->
-                 send(self(), {:queued_turn, text})
-                 opts[:on_provider_delivery].(%{turn_id: "interrupt-boundary-turn"})
-                 {:ok, %{result: interrupt_result}}
-               end
+               [resumed: true, run_turn: run_turn],
+               fn _identifiers -> {:ok, [%{issue | state: "in-progress"}]} end,
+               orch,
+               nil,
+               1,
+               1
              )
 
     assert_receive {:queued_turn, "deliver after turn boundary"}, 1000
     refute_receive {:queued_turn, "deliver after turn boundary"}, 100
+
+    assert Process.get(call_key) == 2
+    Process.delete(call_key)
 
     delivered_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), retired_state, %{kind: :notification})
     after_second_checkpoint = OperatorDelivery.maybe_process_safe_checkpoint(session(), delivered_state, %{kind: :notification})
