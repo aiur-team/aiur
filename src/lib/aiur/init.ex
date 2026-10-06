@@ -339,6 +339,8 @@ defmodule Aiur.Init do
     io.puts.("     Classic token (compatibility fallback):")
     io.puts.("       • Click `Generate new token (classic)`")
     io.puts.("       • Check `repo` (broad access that includes Administration)")
+    io.puts.("     For the one-shot CI readiness preflight, use an operator-only #{Aiur.GitHub.CiReadiness.operator_token_env()} with Contents, Actions, and Administration: Read-only.")
+    io.puts.("     Do not add that operator token to #{@env_file_name} or the daemon environment.")
     io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))
     io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token> (aiur's bot account).")
     io.puts.("  3. Run `aiur init` again to continue creating repo tags.")
