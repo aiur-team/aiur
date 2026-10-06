@@ -7,6 +7,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
   alias Aiur.AppServer.OperatorDelivery
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Orchestrator.{OperatorMessages, State}
+  alias Aiur.Workspace.Provisioner
 
   defmodule StubBackend do
     def send_operator_message(session, message) do
@@ -214,7 +215,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     test_root = Aiur.TestSupport.tmp_root!("retired-turn-queue-drain")
     workspace = Path.join(test_root, "workspace")
     File.mkdir_p!(workspace)
-    assert :ok = Aiur.Workspace.Provisioner.maybe_install_agent_support(workspace, nil)
+    assert :ok = Provisioner.maybe_install_agent_support(workspace, nil)
     on_exit(fn -> File.rm_rf!(test_root) end)
 
     parent = self()
