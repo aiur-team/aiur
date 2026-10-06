@@ -1,79 +1,53 @@
 defmodule Aiur.BuildOrderRestartScenarioTest do
   @moduledoc """
-  Integration test for Build Order Funnel target durability across restarts.
-
-  Simulates a real restart scenario where:
-  1. Dashboard runs on port X with Funnel target pointing to X
-  2. Daemon restarts, dashboard now on port Y (due to port change/randomization)
-  3. Funnel target still points to stale port X
-  4. Health check detects the mismatch and alerts operator
-
-  This test verifies that the health check can detect this condition.
+  Exercises the startup health-check path with the dashboard port changing
+  across a restart while the persisted Funnel target remains unchanged.
   """
 
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.BuildOrderFunnelHealth
 
-  describe "port change detection across restarts" do
-    test "detects when Funnel target points to wrong port after restart" do
-      # Scenario: Khala dashboard was running on port 41513 (Funnel target)
-      # After restart, it's running on port 41514 (new port assigned)
-      # Funnel target hasn't been updated yet - still points to 41513
+  test "restart with an old Funnel target returns an actionable mismatch" do
+    old_port = 41_513
+    new_port = 41_514
+    status_json = Jason.encode!(funnel_status(old_port))
+    alerts = self()
 
-      stale_status = funnel_status(41_513)
+    opts = [
+      bound_port: new_port,
+      http_client: fn url, timeout ->
+        send(alerts, {:endpoint_probe, url, timeout})
+        {:ok, %Req.Response{status: 401}}
+      end,
+      tailscale_executable: "/fake/tailscale",
+      tailscale_runner: fn "/fake/tailscale", ["funnel", "status", "--json"], timeout ->
+        send(alerts, {:tailscale_probe, timeout})
+        {status_json, 0}
+      end,
+      alert: fn failure -> send(alerts, {:alert, failure}) end
+    ]
 
-      assert {:error, {:funnel_target_mismatch, 41_513}} =
-               BuildOrderFunnelHealth.funnel_target_status(stale_status, 41_514)
-    end
+    failure = %{cause: :funnel_target_mismatch, reasons: [{:target_port, old_port}]}
+    assert {:error, ^failure} = BuildOrderFunnelHealth.check(opts)
+    assert_received {:endpoint_probe, "http://127.0.0.1:41514/build-orders/1", 5_000}
+    assert_received {:tailscale_probe, 5_000}
+    assert_received {:alert, ^failure}
+    refute_received {:alert, %{cause: :unknown}}
+  end
 
-    test "bound_port reflects current port assignment" do
-      # This test verifies that the health check can access the current
-      # bound port and use it for determining the correct endpoint
-      port = BuildOrderFunnelHealth.bound_port()
+  test "same-port restart returns healthy without an alert" do
+    current_port = 41_514
 
-      case port do
-        nil ->
-          # Not bound, which is OK for test environment
-          :ok
+    assert {:ok, ^current_port} =
+             BuildOrderFunnelHealth.check(
+               bound_port: current_port,
+               http_client: fn _url, _timeout -> {:ok, %Req.Response{status: 200}} end,
+               funnel_status: funnel_status(current_port),
+               alert: fn failure -> send(self(), {:alert, failure}) end
+             )
 
-        port when is_integer(port) and port > 0 ->
-          # Port is correctly identified
-          # In production, this would be used to verify/repair Funnel target
-          assert port > 0
-      end
-    end
-
-    test "base_url shows operator-readable address for diagnostics" do
-      # When health check detects stale target, it includes the
-      # operator-readable address for manual Funnel target repair
-      url = BuildOrderFunnelHealth.base_url()
-
-      case url do
-        nil ->
-          # Not bound
-          :ok
-
-        url when is_binary(url) ->
-          # URL is correctly formatted for operator to identify current target
-          assert String.starts_with?(url, "http://")
-      end
-    end
-
-    test "health check is idempotent - can be called repeatedly" do
-      # Verify that calling the health check multiple times doesn't
-      # cause side effects (aside from alert emission, which is expected)
-
-      result1 = BuildOrderFunnelHealth.check(timeout_ms: 100, funnel_status: %{"AllowFunnel" => %{}})
-      result2 = BuildOrderFunnelHealth.check(timeout_ms: 100, funnel_status: %{"AllowFunnel" => %{}})
-
-      # Results should be consistent (same port or both errors)
-      case {result1, result2} do
-        {{:ok, port1}, {:ok, port2}} -> assert port1 == port2
-        {{:error, reason1}, {:error, reason2}} -> assert reason1 == reason2
-        _ -> flunk("health check results changed between identical checks: #{inspect({result1, result2})}")
-      end
-    end
+    refute_received {:alert, _failure}
   end
 
   defp funnel_status(target_port) do

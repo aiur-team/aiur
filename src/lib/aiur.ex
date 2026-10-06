@@ -108,7 +108,7 @@ defmodule Aiur.Application do
       |> tap(fn
         {:ok, _supervisor} ->
           start_upgrade_check()
-          start_build_order_funnel_check(not no_dashboard?)
+          start_build_order_funnel_check(not no_dashboard? and Aiur.Config.build_order_funnel_health_check_enabled?(settings))
 
         _error ->
           :ok
@@ -144,7 +144,7 @@ defmodule Aiur.Application do
 
   defp start_build_order_funnel_check(true) do
     if Application.get_env(:aiur, :env) != :test and
-         is_integer(Aiur.BuildOrderFunnelHealth.bound_port()) do
+         is_integer(Aiur.HttpServer.bound_port()) do
       Task.start(&Aiur.BuildOrderFunnelHealth.check/0)
     end
 

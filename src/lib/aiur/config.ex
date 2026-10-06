@@ -1108,6 +1108,15 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc "Whether startup should verify the persisted Tailscale Funnel target."
+  @spec build_order_funnel_health_check_enabled?(term()) :: boolean()
+  def build_order_funnel_health_check_enabled?(settings \\ settings_uncached()) do
+    case settings do
+      {:ok, %{observability: %{build_order_funnel_health_check: enabled?}}} -> enabled?
+      _other -> false
+    end
+  end
+
   @doc """
   Whether the `aiur run` upgrade-version notice is enabled. True by default;
   set `upgrade.check_enabled: false` to suppress the registry check entirely.
