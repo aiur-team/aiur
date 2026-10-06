@@ -223,6 +223,44 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       assert DispatchPolicy.provider_gate(["codex", "claude"]) == :dispatch
     end
+
+    test "refreshes a stale Codex limit through the gate and resumes dispatch" do
+      path = Aiur.TestSupport.tmp_root!("aiur-provider-gate-refresh") <> ".json"
+      on_exit(fn -> File.rm(path) end)
+      now = DateTime.utc_now()
+      stale_time = DateTime.add(now, -301, :second)
+      reset_at = DateTime.add(now, 3_600, :second) |> DateTime.to_iso8601()
+
+      assert :ok =
+               ModelAvailability.observe(
+                 "codex",
+                 %{hourly: %{usedPercent: 100, windowDurationMins: 60, resetsAt: reset_at}},
+                 path: path,
+                 now: stale_time
+               )
+
+      probe = fn backend, _opts ->
+        Aiur.CodexProber.probe_sync(backend, now,
+          path: path,
+          fetch_limits_fun: fn ->
+            {:ok,
+             %{
+               "rateLimits" => %{
+                 "primary" => %{
+                   "usedPercent" => 4,
+                   "windowDurationMins" => 60,
+                   "resetsAt" => DateTime.to_unix(DateTime.add(now, 7_200, :second))
+                 }
+               }
+             }}
+          end
+        )
+      end
+
+      assert DispatchPolicy.provider_gate(["codex"], path: path, now: now, probe_fun: probe) == :hold
+      assert DispatchPolicy.provider_gate(["codex"], path: path, now: now, probe_fun: probe) == :dispatch
+      assert ModelAvailability.available?("codex", path: path, now: now)
+    end
   end
 
   describe "read_build_status/0" do
