@@ -806,9 +806,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   def complexity_count_ticks(tiers) do
     maximum = tiers |> Enum.map(& &1.count) |> Enum.max(fn -> 0 end) |> max(1)
     step = nice_tick_step(div(maximum + 4, 5))
-    ticks = for tick <- 0..maximum, rem(tick, step) == 0, do: tick
+    axis_max = div(maximum + step - 1, step) * step
 
-    if List.last(ticks) == maximum, do: ticks, else: ticks ++ [maximum]
+    Enum.to_list(0..axis_max//step)
   end
 
   defp nice_tick_step(target) do

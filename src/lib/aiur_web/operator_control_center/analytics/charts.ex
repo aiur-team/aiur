@@ -345,12 +345,12 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   @doc "Ticket count and average observed wall-clock by dispatch-time complexity tier."
   @spec complexity_breakdown(map()) :: String.t()
-  def complexity_breakdown(%{complexity_breakdown: tiers} = model) do
+  def complexity_breakdown(%{complexity_breakdown: tiers, complexity_count_ticks: ticks}) do
     h = 250
     {ml, mr, mt, mb} = {40, 18, 20, 62}
     pw = @w - ml - mr
     ph = h - mt - mb
-    vmax = tiers |> Enum.map(& &1.count) |> Enum.max(fn -> 1 end) |> max(1)
+    vmax = List.last(ticks)
     groupw = pw / max(length(tiers), 1)
     barw = min(groupw * 0.48, 64)
 
@@ -372,13 +372,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
           text(center, mt + ph + 34, average_label, anchor: "middle", fill: "var(--muted)")
       end)
 
-    ticks = Map.get(model, :complexity_count_ticks, Enum.to_list(0..vmax))
-
     tick_marks =
       Enum.map_join(ticks, "", fn value ->
         y = mt + ph - value / vmax * ph
 
-        ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{r2(y)}" y2="#{r2(y)}" stroke="var(--muted)" stroke-opacity="0.18"/>| <>
+        ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{r2(y)}" y2="#{r2(y)}" stroke="var(--hairline)"/>| <>
           text(ml - 7, y + 3, to_string(value), anchor: "end", fill: "var(--muted)")
       end)
 
