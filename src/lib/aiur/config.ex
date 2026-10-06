@@ -1132,8 +1132,8 @@ defmodule Aiur.Config do
     end
   end
 
-  # Whether the dashboard may drive agents (Executor chat, pause). Read-only by
-  # default until a deliberate dashboard parity pass — see issue #371.
+  # Whether the dashboard may drive agents (Executor chat, pause). Writes are
+  # enabled by default; set observability.dashboard_writable: false to disable.
   @spec dashboard_writable?() :: boolean()
   def dashboard_writable? do
     settings!().observability.dashboard_writable
