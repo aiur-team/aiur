@@ -58,6 +58,23 @@ Draft members carry local ticket document paths and no invented GitHub issue URL
 
 <img src="/images/dashboard/build-orders-dark.png" alt="Desktop Build Order graph with synthetic example member tickets">
 
+### A worked example
+
+<img src="/images/dashboard/build-order-waves-lanes-dark.png" alt="Synthetic Build Order example with four lanes and four waves of member tickets">
+
+This synthetic 16-member pack has four lanes and four waves, part way through execution.
+
+| Where | What it tells you |
+| --- | --- |
+| Lane headers | Members and completion for each lane. Each lane has four members; the first two are completed. |
+| Wave rows | How wide the front is at each depth. This pack has 4, 4, 4, then 4 members. |
+| Card badges | The tracker number and complexity for one member. |
+| Edges | Dependencies. Each member depends on the preceding wave's member in its lane. |
+| Card tone | Completed and open members. Waves 1–2 are completed; waves 3–4 are open. Wave 4 still depends on unfinished wave 3 work. |
+
+Wave width helps you judge how much work can run in parallel. Equal widths here reflect four independent chains;
+a wider later wave can represent work opening up after a shared prerequisite lands.
+
 ## The repository state node
 
 Aiur separates the repository's tracked code from daemon-owned state under `~/.aiur/repo/<owner>/<repo>/`.
