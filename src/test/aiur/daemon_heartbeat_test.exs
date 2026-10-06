@@ -3,6 +3,7 @@ defmodule Aiur.DaemonHeartbeatTest do
 
   alias Aiur.Config.Paths
   alias Aiur.DaemonHeartbeat
+  alias Aiur.DaemonHeartbeatWriter
 
   setup do
     temp_root = Aiur.TestSupport.tmp_root!("aiur-daemon-heartbeat")
@@ -28,6 +29,24 @@ defmodule Aiur.DaemonHeartbeatTest do
   end
 
   describe "write!/0" do
+    test "the supervised writer tick refreshes the durable heartbeat file" do
+      {:ok, heartbeat_path} = Paths.daemon_heartbeat_path()
+      old_time = DateTime.add(DateTime.utc_now(), -7_200, :second)
+      File.mkdir_p!(Path.dirname(heartbeat_path))
+      File.write!(heartbeat_path, DateTime.to_iso8601(old_time) <> "\n")
+
+      name = {:global, {:heartbeat_writer_tick, System.unique_integer()}}
+      {:ok, pid} = DaemonHeartbeatWriter.start_link(name: name, start_paused?: true)
+      on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid, :shutdown) end)
+
+      send(pid, :tick)
+      _state = :sys.get_state(pid)
+
+      assert {:ok, refreshed_at, 0} = heartbeat_path |> File.read!() |> String.trim() |> DateTime.from_iso8601()
+      assert DateTime.diff(DateTime.utc_now(), refreshed_at, :second) < 5
+      assert DateTime.compare(refreshed_at, old_time) == :gt
+    end
+
     test "creates heartbeat file with valid ISO 8601 timestamp" do
       assert :ok = DaemonHeartbeat.write!()
 

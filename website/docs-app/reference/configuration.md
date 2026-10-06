@@ -177,7 +177,7 @@ Freshness thresholds follow this cadence. You do not set them separately.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for detecting daemon downtime. When the daemon heartbeat file age exceeds this value, the Executor emits a durable alert (`system.daemon.stopped`) on boot. Default is 1 hour (3,600,000 ms). Increase if you have planned maintenance windows or long daemon restarts; decrease for tighter monitoring. |
+| `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for recording a retrospective daemon heartbeat gap on Executor startup. A durable `system.daemon.gap` informational event is emitted only when a stale heartbeat is corroborated by the lifecycle journal; its cause is `clean_shutdown` when a stop was recorded and `unknown` for an unclosed start. Missing heartbeat files are ignored. This is not live monitoring and cannot alert while Aiur is stopped. Default is 1 hour (3,600,000 ms). |
 
 ## webhooks
 

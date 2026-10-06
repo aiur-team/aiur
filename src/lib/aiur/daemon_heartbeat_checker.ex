@@ -1,50 +1,32 @@
 defmodule Aiur.DaemonHeartbeatChecker do
   @moduledoc """
-  Checks daemon heartbeat staleness and emits durable alerts when the daemon appears down.
+  Reports a past daemon heartbeat gap when an Executor starts.
 
-  This module runs during Executor boot to detect if the daemon has stopped responding.
-  It reads the heartbeat file written by the daemon, calculates its age, and compares
-  against a configured staleness threshold. If the heartbeat is stale or missing, it
-  emits a system alert to notify the Executor operator.
+  This is a retrospective notice, not a live monitor: while the daemon is down,
+  nothing in this application is running to inspect its heartbeat. At the next
+  Executor startup, the checker compares the last heartbeat with the durable
+  daemon lifecycle journal. Missing heartbeat files are ignored because they
+  may mean first boot, an upgrade, or a changed state directory.
 
-  The alert uses a topic (`system.daemon.stopped`) that the alert ledger tracks,
-  allowing the Executor to detect that daemon downtime has been recorded. When the
-  heartbeat becomes recent again (i.e., the daemon restarts), a resolved alert is
-  emitted to clear the condition.
-
-  All operations are best-effort: file reads, parse errors, config errors, and
-  alert emission failures are logged and do not block Executor boot. The function
-  never raises; it always returns `:ok`.
+  A journaled clean stop is reported as `clean_shutdown`; an unmatched start
+  with a stale heartbeat has cause `unknown`. Both notices describe a completed
+  gap and are informational, never open critical attentions.
   """
 
   require Logger
 
-  alias Aiur.{Alerts, Config}
+  alias Aiur.{Alerts, Config, DaemonLifecycle}
   alias Aiur.Config.Paths
 
-  @alert_topic "system.daemon.stopped"
+  @alert_topic "system.daemon.gap"
 
-  @doc """
-  Check daemon heartbeat staleness and emit alert if necessary.
-
-  This function:
-  1. Reads the heartbeat file (if it exists)
-  2. Parses the ISO 8601 timestamp
-  3. Calculates age and compares to the configured threshold
-  4. Emits an alert if the heartbeat is stale or missing
-  5. Emits a resolved alert if the heartbeat is recent (clearing a prior stale condition)
-
-  Returns `:ok` in all cases. All errors are logged as warnings and do not raise.
-
-  The alert message includes the timestamp and age for debugging. The alert topic
-  (`system.daemon.stopped`) allows the alert ledger to deduplicate repeated firings
-  and track the stale → resolved transition.
-  """
+  @doc "Checks for and records a retrospective gap on Executor startup."
   @spec check_and_alert!() :: :ok
   def check_and_alert! do
     check_and_alert!(
       &Paths.daemon_heartbeat_path/0,
       &Config.daemon_heartbeat_stale_ms/0,
+      &DaemonLifecycle.daemon_events/0,
       &Alerts.emit_system/2
     )
   end
@@ -52,11 +34,33 @@ defmodule Aiur.DaemonHeartbeatChecker do
   @doc false
   @spec check_and_alert!(
           (-> {:ok, String.t()} | {:error, term()}),
-          (-> non_neg_integer()),
+          (-> pos_integer()),
+          (-> [map()]),
           (String.t(), keyword() -> :ok | {:error, term()})
         ) :: :ok
-  def check_and_alert!(path_fun, threshold_fun, emit_fun) do
-    evaluate_heartbeat(read_heartbeat_age(path_fun), safe_call_threshold(threshold_fun), emit_fun)
+  def check_and_alert!(path_fun, threshold_fun, events_fun, emit_fun) do
+    with {:ok, heartbeat_at} <- read_heartbeat(path_fun),
+         threshold when is_integer(threshold) and threshold > 0 <- safe_call(threshold_fun),
+         {:ok, cause, gap_start} <- gap_start(heartbeat_at, safe_call(events_fun)),
+         now <- DateTime.utc_now(),
+         age_ms when age_ms > threshold <- DateTime.diff(now, gap_start, :millisecond) do
+      emit_gap(emit_fun, cause, gap_start, now, age_ms)
+    else
+      {:error, reason} ->
+        Logger.debug("daemon_heartbeat_checker skipped reason=#{inspect(reason)}")
+        :ok
+
+      :invalid ->
+        Logger.warning("daemon_heartbeat_checker config_error reason=invalid_threshold threshold=:invalid")
+        :ok
+
+      threshold when not is_integer(threshold) or threshold <= 0 ->
+        Logger.warning("daemon_heartbeat_checker config_error reason=invalid_threshold threshold=#{inspect(threshold)}")
+        :ok
+
+      age_ms when is_integer(age_ms) ->
+        :ok
+    end
   rescue
     error ->
       Logger.warning("daemon_heartbeat_checker check_and_alert_crashed error=#{inspect(error)}")
@@ -67,157 +71,80 @@ defmodule Aiur.DaemonHeartbeatChecker do
       :ok
   end
 
-  defp evaluate_heartbeat({:ok, age_ms}, threshold_ms, emit_fun)
-       when is_integer(threshold_ms) and threshold_ms > 0 do
-    if age_ms > threshold_ms do
-      emit_stale_alert(emit_fun, age_ms, threshold_ms)
-    else
-      emit_resolved_alert(emit_fun)
+  @doc false
+  @spec gap_start(DateTime.t(), [map()]) :: {:ok, :unknown | :clean_shutdown, DateTime.t()} | {:error, atom()}
+  def gap_start(heartbeat_at, events) do
+    open_starts = unmatched_starts(events)
+
+    cond do
+      open_starts != [] ->
+        {:ok, :unknown, heartbeat_at}
+
+      stop = latest_stop_after(events, heartbeat_at) ->
+        {:ok, :clean_shutdown, stop.at}
+
+      true ->
+        {:error, :no_gap_evidence}
     end
   end
 
-  defp evaluate_heartbeat({:ok, _age_ms}, invalid_threshold, _emit_fun) do
-    Logger.warning("daemon_heartbeat_checker config_error reason=invalid_threshold threshold=#{inspect(invalid_threshold)}")
-    :ok
-  end
-
-  defp evaluate_heartbeat({:error, reason}, _threshold_ms, emit_fun) do
-    Logger.debug("daemon_heartbeat_checker heartbeat_read_failed reason=#{inspect(reason)}")
-    emit_stale_alert(emit_fun, nil, nil)
-  end
-
-  # Read the heartbeat file and calculate its age in milliseconds.
-  # Returns {:ok, age_ms} on success, or {:error, reason} if the file does not exist,
-  # cannot be read, or the timestamp cannot be parsed.
-  @spec read_heartbeat_age((-> {:ok, String.t()} | {:error, term()})) :: {:ok, non_neg_integer()} | {:error, term()}
-  defp read_heartbeat_age(path_fun) do
+  defp read_heartbeat(path_fun) do
     with {:ok, path} <- path_fun.(),
          {:ok, content} <- File.read(path),
-         timestamp_str <- String.trim(content),
-         {:ok, parsed_dt, _offset} <- DateTime.from_iso8601(timestamp_str),
-         now <- DateTime.utc_now(),
-         age_duration <- DateTime.diff(now, parsed_dt, :millisecond) do
-      {:ok, age_duration}
+         {:ok, datetime, _offset} <- DateTime.from_iso8601(String.trim(content)) do
+      {:ok, datetime}
     else
+      {:error, :enoent} -> {:error, :heartbeat_missing}
       {:error, reason} -> {:error, reason}
-      _other -> {:error, :unparseable}
+      _ -> {:error, :heartbeat_unparseable}
     end
   end
 
-  # Safely call the threshold function, catching any errors.
-  @spec safe_call_threshold((-> non_neg_integer())) :: non_neg_integer() | :invalid
-  defp safe_call_threshold(threshold_fun) do
-    threshold_fun.()
-  rescue
-    _error -> :invalid
-  catch
-    _kind, _reason -> :invalid
+  defp unmatched_starts(events) do
+    events
+    |> Enum.reduce(%{}, fn
+      %{kind: :start, run_id: run_id} = event, open -> Map.put(open, run_id, event)
+      %{kind: :stop, run_id: run_id}, open -> Map.delete(open, run_id)
+      _, open -> open
+    end)
+    |> Map.values()
   end
 
-  # Emit an alert indicating the daemon heartbeat is stale.
-  # age_ms and threshold_ms are used to construct a descriptive message.
-  @spec emit_stale_alert(
-          (String.t(), keyword() -> :ok | {:error, term()}),
-          non_neg_integer() | nil,
-          non_neg_integer() | nil
-        ) :: :ok
-  defp emit_stale_alert(emit_fun, age_ms, threshold_ms) do
-    message = format_stale_message(age_ms, threshold_ms)
-    reason = "Daemon heartbeat is stale; daemon may have stopped"
+  defp latest_stop_after(events, heartbeat_at) do
+    events
+    |> Enum.filter(fn event ->
+      event.kind == :stop and DateTime.compare(event.at, heartbeat_at) == :gt
+    end)
+    |> Enum.max_by(&DateTime.to_unix(&1.at, :microsecond), fn -> nil end)
+  end
+
+  defp safe_call(fun) do
+    fun.()
+  rescue
+    _ -> :invalid
+  catch
+    _, _ -> :invalid
+  end
+
+  defp emit_gap(emit_fun, cause, gap_start, gap_end, age_ms) do
+    message =
+      "Retrospective daemon availability gap from #{DateTime.to_iso8601(gap_start)} " <>
+        "to #{DateTime.to_iso8601(gap_end)} (cause: #{cause}). Detected at the next Executor startup; " <>
+        "this notice does not monitor a stopped daemon live."
 
     case emit_fun.(@alert_topic,
            message: message,
-           reason: reason,
-           needs_attention: true,
-           severity: "critical"
-         ) do
-      :ok ->
-        Logger.info("daemon_heartbeat_checker stale_alert_emitted age_ms=#{inspect(age_ms)}")
-        :ok
-
-      {:error, alert_error} ->
-        Logger.warning("daemon_heartbeat_checker stale_alert_emit_failed error=#{inspect(alert_error)}")
-        :ok
-    end
-  end
-
-  # Emit a resolved alert to clear a prior stale condition.
-  @spec emit_resolved_alert((String.t(), keyword() -> :ok | {:error, term()})) :: :ok
-  defp emit_resolved_alert(emit_fun) do
-    message = "Daemon heartbeat is healthy again"
-    reason = "Daemon heartbeat is now within acceptable staleness threshold"
-
-    case emit_fun.("#{@alert_topic}.resolved",
-           message: message,
-           reason: reason,
+           reason: Atom.to_string(cause),
            needs_attention: false,
            severity: "info"
          ) do
       :ok ->
-        Logger.info("daemon_heartbeat_checker resolved_alert_emitted")
+        Logger.info("daemon_heartbeat_checker retrospective_gap_emitted cause=#{cause} age_ms=#{age_ms}")
         :ok
 
-      {:error, alert_error} ->
-        Logger.warning("daemon_heartbeat_checker resolved_alert_emit_failed error=#{inspect(alert_error)}")
+      {:error, error} ->
+        Logger.warning("daemon_heartbeat_checker retrospective_gap_emit_failed error=#{inspect(error)}")
         :ok
     end
   end
-
-  @doc """
-  Format a descriptive message for the stale heartbeat alert.
-
-  If age_ms or threshold_ms is nil, a simple message is returned. Otherwise,
-  the message includes the age and threshold in human-readable format.
-  """
-  @spec format_stale_message(non_neg_integer() | nil, non_neg_integer() | nil) :: String.t()
-  def format_stale_message(nil, _threshold_ms) do
-    "Daemon heartbeat file not found or unreadable; daemon may have never started or files were deleted"
-  end
-
-  def format_stale_message(age_ms, nil) when is_integer(age_ms) do
-    "Daemon heartbeat is #{format_duration_ms(age_ms)} old; daemon may have stopped"
-  end
-
-  def format_stale_message(age_ms, threshold_ms)
-      when is_integer(age_ms) and is_integer(threshold_ms) do
-    age_str = format_duration_ms(age_ms)
-    threshold_str = format_duration_ms(threshold_ms)
-    "Daemon heartbeat is #{age_str} old (threshold: #{threshold_str}); daemon may have stopped"
-  end
-
-  @doc """
-  Format a duration in milliseconds as a human-readable string.
-
-  Examples:
-    iex> format_duration_ms(5_400_000)
-    "1h30m"
-    iex> format_duration_ms(125_000)
-    "2m5s"
-    iex> format_duration_ms(45_000)
-    "45s"
-  """
-  @spec format_duration_ms(non_neg_integer()) :: String.t()
-  def format_duration_ms(ms) when is_integer(ms) and ms >= 0 do
-    cond do
-      ms >= 3_600_000 ->
-        hours = div(ms, 3_600_000)
-        remainder_ms = rem(ms, 3_600_000)
-        minutes = div(remainder_ms, 60_000)
-        "#{hours}h#{minutes}m"
-
-      ms >= 60_000 ->
-        minutes = div(ms, 60_000)
-        seconds = div(rem(ms, 60_000), 1_000)
-        "#{minutes}m#{seconds}s"
-
-      ms >= 1_000 ->
-        seconds = div(ms, 1_000)
-        "#{seconds}s"
-
-      true ->
-        "#{ms}ms"
-    end
-  end
-
-  def format_duration_ms(_ms), do: "unknown"
 end

@@ -54,7 +54,9 @@ defmodule Aiur.CLI do
           required(:set_server_port_override) => (non_neg_integer() | nil -> :ok | {:error, term()}),
           required(:set_server_host_override) => (String.t() | nil -> :ok | {:error, term()}),
           required(:ensure_all_started) => (-> ensure_started_result()),
-          optional(:configured_max_agents) => (-> pos_integer())
+          optional(:configured_max_agents) => (-> pos_integer()),
+          optional(:executor_mode?) => (-> boolean()),
+          optional(:check_daemon_gap) => (-> :ok)
         }
 
   @spec main([String.t()]) :: :ok | no_return()
@@ -360,10 +362,12 @@ defmodule Aiur.CLI do
       :ok = deps.set_workflow_file_path.(expanded_path)
       IO.puts(:stderr, "__AIUR_CONFIG_PATH__:#{expanded_path}")
 
-      # Check daemon heartbeat early in Executor boot, after config is loaded but before
-      # daemon connection. This detects if the daemon has stopped and emits a durable alert.
-      if Application.get_env(:aiur, :executor_mode, false) do
-        Aiur.DaemonHeartbeatChecker.check_and_alert!()
+      # This is deliberately a retrospective report on the next Executor boot,
+      # not a live monitor: the daemon cannot run a check while it is stopped.
+      executor_mode? = Map.get(deps, :executor_mode?, fn -> Application.get_env(:aiur, :executor_mode, false) end)
+
+      if executor_mode?.() do
+        Map.get(deps, :check_daemon_gap, &Aiur.DaemonHeartbeatChecker.check_and_alert!/0).()
       end
 
       case deps.ensure_all_started.() do
@@ -393,7 +397,9 @@ defmodule Aiur.CLI do
       set_server_port_override: &set_server_port_override/1,
       set_server_host_override: &set_server_host_override/1,
       ensure_all_started: fn -> Application.ensure_all_started(:aiur) end,
-      configured_max_agents: &Aiur.Config.max_concurrent_agents/0
+      configured_max_agents: &Aiur.Config.max_concurrent_agents/0,
+      executor_mode?: fn -> Application.get_env(:aiur, :executor_mode, false) end,
+      check_daemon_gap: &Aiur.DaemonHeartbeatChecker.check_and_alert!/0
     }
   end
 

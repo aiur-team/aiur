@@ -128,6 +128,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.TicketActivity,
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
+      Aiur.DaemonHeartbeatWriter,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -139,6 +140,15 @@ defmodule Aiur.ApplicationTest do
         {mod, _opts} -> mod
         %{id: id} -> id
       end)
+    end
+
+    test "daemon heartbeat writer is supervised in interactive and headless run shapes" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        assert Aiur.DaemonHeartbeatWriter in modules(AiurApp.child_specs(opts))
+      end
     end
 
     test "interactive run starts the full UI stack" do
