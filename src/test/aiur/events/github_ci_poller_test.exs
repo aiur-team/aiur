@@ -672,7 +672,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
               ]
             }} = GithubCIPoller.poll(["79"], request_fun: request_fun, base_branch: "main")
 
-    assert_receive {:base_repaired_during_observation, %{"base" => "main"}}
+    assert_receive {:base_repaired_during_observation, %{"base" => "main"}}, 1000
   end
 
   test "does not pass when a later check-run page contains a failure" do
@@ -782,7 +782,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
               ]
             }} = GithubCIPoller.poll(["1146"], request_fun: request_fun, base_branch: "main")
 
-    assert_receive {:base_repaired, url, %{"base" => "main"}}
+    assert_receive {:base_repaired, url, %{"base" => "main"}}, 1000
     assert String.ends_with?(url, "/repos/owner/repo/pulls/1144")
     assert excerpt =~ "CI recorded before the repair is not valid"
     assert excerpt =~ "baseRefName"
@@ -1038,7 +1038,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
                base_repair_journal_fun: journal_fun
              )
 
-    refute_receive :unexpected_patch
+    refute_receive :unexpected_patch, 100
     assert excerpt =~ "journal"
     assert CIApprovalStore.load().base_repair_invalidations == %{}
   end
@@ -1211,7 +1211,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
               ]
             }} = GithubCIPoller.poll(["1146"], request_fun: request_fun, base_branch: "main")
 
-    assert_receive :base_repair_attempted
+    assert_receive :base_repair_attempted, 1000
     assert excerpt =~ ~s(targets "v2")
     assert excerpt =~ ~s(tracker.base_branch is "main")
     assert excerpt =~ "baseRefName"

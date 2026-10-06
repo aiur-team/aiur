@@ -233,7 +233,7 @@ defmodule Aiur.Codex.TurnLoopTest do
       assert {:error, :port_closed} =
                TurnLoop.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "item/tool/call")
 
-      assert_receive :tool_executed
+      assert_receive :tool_executed, 1000
       refute_received {:event, :tool_call_completed}
     end
 

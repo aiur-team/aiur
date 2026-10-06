@@ -724,22 +724,10 @@ scrub_run_only_env() {
 }
 
 run_argv=()
-# Default dashboard bind host. Prefer this machine's Tailscale IPv4 so the
-# dashboard is reachable across the tailnet by default (when config omits it);
-# fall back to loopback when Tailscale is absent, or when dashboard credentials
-# are unset (a non-loopback bind requires them, so we stay on loopback rather
-# than refuse to start). The BEAM applies this below an explicit `server.host`,
-# while an explicit `--host` remains the highest-precedence value.
+# Default dashboard bind host. Remote access is an explicit operator choice.
+# The BEAM applies this below `server.host`; `--host` has highest precedence.
 default_dashboard_host() {
-  local ip=""
-  if command -v tailscale >/dev/null 2>&1; then
-    ip="$(tailscale ip -4 2>/dev/null | grep -m1 -E '^100\.[0-9]+\.[0-9]+\.[0-9]+$' || true)"
-  fi
-  if [ -n "$ip" ] && [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
-    printf '%s' "$ip"
-  else
-    printf '127.0.0.1'
-  fi
+  printf '%s' "${AIUR_DEFAULT_DASHBOARD_HOST:-127.0.0.1}"
 }
 
 build_run_argv() {

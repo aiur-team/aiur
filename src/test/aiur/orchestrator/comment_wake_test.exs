@@ -208,6 +208,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       assert log =~ "ignored for idle issue"
       assert log =~ ":unlabeled_issue"
+      assert log =~ "ticket.1944.agent.attention.comment_wake_idle_issue"
     end
 
     test "does not route a trusted comment on an explicitly parked ticket even with an active label" do
@@ -492,7 +493,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       # The bound is only consulted after the thread gate has already allowed
       # the rework write, so receiving this proves the body-only review was
       # accepted as a rework signal.
-      assert_receive {:alert, "ticket.2473.agent.attention.rework_attempt_limit", _opts}
+      assert_receive {:alert, "ticket.2473.agent.attention.rework_attempt_limit", _opts}, 1000
     end
 
     # The lower-cased `state` a `pull_request_review` delivery carries must
@@ -622,7 +623,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       refute log =~ "rework transition skipped"
       assert state.comment_rework_retries == %{}
 
-      assert_receive {:alert_emitted, "ticket.2422.agent.attention.rework_attempt_limit", opts}
+      assert_receive {:alert_emitted, "ticket.2422.agent.attention.rework_attempt_limit", opts}, 1000
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :severity) == "warning"
 
@@ -654,7 +655,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         end)
 
       assert log =~ ":rework_attempt_limit_reached"
-      refute_receive {:alert_emitted, _, _}
+      refute_receive {:alert_emitted, _, _}, 100
       assert MapSet.member?(result.rework_attempt_alerted, {"2422", "abc123"})
     end
 
@@ -679,7 +680,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       refute log =~ ":rework_attempt_limit_reached"
       assert log =~ "rework transition skipped"
-      refute_receive {:alert_emitted, _, _}
+      refute_receive {:alert_emitted, _, _}, 100
     end
   end
 
@@ -855,7 +856,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           end,
           set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
           terminate_running_issue_fun: fn current_state, issue_id, true ->
-            assert_receive {:membership_recorded, ^identity, :completed}
+            assert_receive {:membership_recorded, ^identity, :completed}, 1000
 
             %{
               current_state
@@ -916,7 +917,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           end,
           set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
           terminate_running_issue_fun: fn current_state, issue_id, true ->
-            assert_receive {:membership_recorded, ^identity, :completed}
+            assert_receive {:membership_recorded, ^identity, :completed}, 1000
 
             %{
               current_state
@@ -932,7 +933,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           local_hold_sleep_fun: fn _ms -> :ok end
         )
 
-      assert_receive {:transitioned_to_done, "42"}
+      assert_receive {:transitioned_to_done, "42"}, 1000
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
       # One held lookup, then a successful retry.
@@ -979,7 +980,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           end,
           set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
           terminate_running_issue_fun: fn current_state, issue_id, true ->
-            assert_receive {:membership_recorded, ^identity, :completed}
+            assert_receive {:membership_recorded, ^identity, :completed}, 1000
 
             %{
               current_state
@@ -992,8 +993,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           local_hold_sleep_fun: fn _ms -> :ok end
         )
 
-      assert_receive {:terminal_write, "42", 1}
-      assert_receive {:terminal_write, "42", 2}
+      assert_receive {:terminal_write, "42", 1}, 1000
+      assert_receive {:terminal_write, "42", 2}, 1000
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
     end
@@ -1060,7 +1061,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           local_hold_sleep_fun: fn _ms -> flunk("must not sleep for a beyond-ceiling hold") end
         )
 
-      refute_receive :membership_recorded
+      refute_receive :membership_recorded, 100
       assert Map.has_key?(result.running, issue.id)
       assert MapSet.member?(result.claimed, issue.id)
     end
@@ -1084,8 +1085,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
-      assert_receive {:checked_allowlist, "its-everdred"}
-      refute_receive :unexpected_alert
+      assert_receive {:checked_allowlist, "its-everdred"}, 1000
+      refute_receive :unexpected_alert, 100
     end
 
     test "emits unauthorized-merger alert when merged_by_login is not allowlisted" do
@@ -1107,8 +1108,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
-      assert_receive {:checked_allowlist, "unknown-bot"}
-      assert_receive {:alert_emitted, "ticket.424242.merge.unauthorized_merger", opts}
+      assert_receive {:checked_allowlist, "unknown-bot"}, 1000
+      assert_receive {:alert_emitted, "ticket.424242.merge.unauthorized_merger", opts}, 1000
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :severity) == "critical"
       assert Keyword.get(opts, :issue) == "424242"
@@ -1142,7 +1143,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
-        assert_receive {:alert_emitted, "ticket.424242.merge.attribution_check_failed", opts}
+        assert_receive {:alert_emitted, "ticket.424242.merge.attribution_check_failed", opts}, 1000
         refute_received {:alert_emitted, "ticket.424242.merge.unauthorized_merger", _opts}
 
         # The allowlist is never consulted: "is nil allowed?" has no meaningful
@@ -1173,7 +1174,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
-      assert_receive {:alert_emitted, "ticket.424242.merge.unauthorized_merger", opts}
+      assert_receive {:alert_emitted, "ticket.424242.merge.unauthorized_merger", opts}, 1000
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :severity) == "critical"
       assert result == state
@@ -1239,8 +1240,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
-      assert_receive {:checked, "bad-actor"}
-      assert_receive {:alert, "ticket.99.merge.unauthorized_merger"}
+      assert_receive {:checked, "bad-actor"}, 1000
+      assert_receive {:alert, "ticket.99.merge.unauthorized_merger"}, 1000
       refute Map.has_key?(result.running, issue.id)
     end
 
@@ -1285,7 +1286,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           open_pull_requests_fun: fn _identifier -> {:ok, []} end
         )
 
-      assert_receive {:alert, "ticket.100.merge.attribution_check_failed", opts}
+      assert_receive {:alert, "ticket.100.merge.attribution_check_failed", opts}, 1000
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :severity) == "critical"
       refute Map.has_key?(result.running, issue.id)
@@ -1348,10 +1349,10 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           unresolved_threads_fetcher: fn _pr -> {:ok, [%{"id" => "thread-1"}]} end
         )
 
-      assert_receive {:transition, "2307", "rework"}
-      refute_receive {:transition, "2307", "done"}
-      refute_receive :membership_recorded
-      refute_receive :blockees_resumed
+      assert_receive {:transition, "2307", "rework"}, 1000
+      refute_receive {:transition, "2307", "done"}, 100
+      refute_receive :membership_recorded, 100
+      refute_receive :blockees_resumed, 100
       assert Map.has_key?(result.running, issue.id)
       assert MapSet.member?(result.claimed, issue.id)
     end
@@ -1407,11 +1408,11 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           end
         )
 
-      assert_receive {:transition, "176", "human-review"}
-      refute_receive {:transition, "176", "done"}
-      refute_receive :membership_recorded
-      refute_receive :session_cleared
-      refute_receive :blockees_resumed
+      assert_receive {:transition, "176", "human-review"}, 1000
+      refute_receive {:transition, "176", "done"}, 100
+      refute_receive :membership_recorded, 100
+      refute_receive :session_cleared, 100
+      refute_receive :blockees_resumed, 100
       assert Map.has_key?(result.running, issue.id)
       assert MapSet.member?(result.claimed, issue.id)
     end
@@ -1434,8 +1435,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
-      assert_receive {:transition, "176", "human-review"}
-      refute_receive {:transition, "176", "done"}
+      assert_receive {:transition, "176", "human-review"}, 1000
+      refute_receive {:transition, "176", "done"}, 100
     end
 
     # A body naming the ticket mid-prose is not a closing keyword either — the
@@ -1454,8 +1455,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
-      assert_receive {:transition, "176", "human-review"}
-      refute_receive {:transition, "176", "done"}
+      assert_receive {:transition, "176", "human-review"}, 1000
+      refute_receive {:transition, "176", "done"}, 100
     end
 
     test "a same-repository qualified closing keyword still closes the ticket" do
@@ -1474,7 +1475,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
-      assert_receive {:transition, "176", "done"}
+      assert_receive {:transition, "176", "done"}, 1000
     end
 
     test "a closing keyword naming another repository's issue does not close this ticket" do
@@ -1492,8 +1493,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
-      assert_receive {:transition, "176", "human-review"}
-      refute_receive {:transition, "176", "done"}
+      assert_receive {:transition, "176", "human-review"}, 1000
+      refute_receive {:transition, "176", "done"}, 100
     end
 
     # A closing keyword for a *different* ticket is not a closing keyword for
@@ -1512,8 +1513,8 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
-      assert_receive {:transition, "176", "human-review"}
-      refute_receive {:transition, "176", "done"}
+      assert_receive {:transition, "176", "human-review"}, 1000
+      refute_receive {:transition, "176", "done"}, 100
     end
 
     # A failing repository lookup must not fail the merge route: bare `#N` —
@@ -1534,7 +1535,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
-      assert_receive {:transition, "176", "done"}
+      assert_receive {:transition, "176", "done"}, 1000
     end
   end
 

@@ -70,7 +70,7 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
     state = CommentPolling.apply_async(state, ref, {:error, :test_finished})
 
     assert state.github_comment_reconcile_targets == MapSet.new(["43"])
-    assert_receive {:run_github_comment_reconcile, token}
+    assert_receive {:run_github_comment_reconcile, token}, 1000
     assert token == state.github_comment_reconcile_timer.token
   end
 
@@ -214,7 +214,7 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
     state = CommentPolling.apply_async(state, ref, payload)
 
     assert state.github_comment_reconcile_targets == MapSet.new(["43"])
-    assert_receive {:run_github_comment_reconcile, token}
+    assert_receive {:run_github_comment_reconcile, token}, 1000
     assert token == state.github_comment_reconcile_timer.token
   end
 

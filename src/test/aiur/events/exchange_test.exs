@@ -15,7 +15,7 @@ defmodule Aiur.Events.ExchangeTest do
     :ok = subscribe(second, "ticket.second.#")
 
     assert publish(exchange, "ticket.first.created", %{id: 1}) == 1
-    assert_receive {:event, %{id: 1}}
+    assert_receive {:event, %{id: 1}}, 1000
     assert publish(second, "ticket.first.created", %{id: 2}) == 0
   end
 

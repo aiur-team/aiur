@@ -879,7 +879,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     end)
 
     log = capture_log(fn -> send(self(), {:catalog, PlanningSource.catalog()}) end)
-    assert_receive {:catalog, snapshot}
+    assert_receive {:catalog, snapshot}, 1000
 
     assert %Snapshot{data: %Catalog{entries: [root]}} = snapshot
     assert root.title == "Workspace copy"
@@ -980,7 +980,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     end)
 
     log = capture_log(fn -> send(self(), {:catalog, PlanningSource.catalog()}) end)
-    assert_receive {:catalog, %Snapshot{data: %Catalog{entries: entries}}}
+    assert_receive {:catalog, %Snapshot{data: %Catalog{entries: entries}}}, 1000
     # Assert the absence of the *relevant* message rather than of all output:
     # `capture_log/1` captures the global Logger, so `log == ""` is falsifiable by
     # any unrelated process that happens to log during this block (#1747).

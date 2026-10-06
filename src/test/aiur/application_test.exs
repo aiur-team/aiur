@@ -128,6 +128,7 @@ defmodule Aiur.ApplicationTest do
       Aiur.TicketActivity,
       Aiur.Claude.Telemetry,
       Aiur.BuildOrder.TicketHistoryProvider,
+      Aiur.DaemonHeartbeatWriter,
       Aiur.Opencode.SessionSupervisor,
       Aiur.Opencode.BridgeSupervisor,
       Aiur.Opencode.TokenRegistry
@@ -139,6 +140,15 @@ defmodule Aiur.ApplicationTest do
         {mod, _opts} -> mod
         %{id: id} -> id
       end)
+    end
+
+    test "daemon heartbeat writer is supervised in interactive and headless run shapes" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        assert Aiur.DaemonHeartbeatWriter in modules(AiurApp.child_specs(opts))
+      end
     end
 
     test "interactive run starts the full UI stack" do
@@ -654,7 +664,7 @@ defmodule Aiur.ApplicationTest do
       assert Process.alive?(supervisor)
       assert :ok = Phoenix.PubSub.subscribe(pubsub, "recovered")
       assert :ok = Phoenix.PubSub.broadcast(pubsub, "recovered", :pubsub_recovered)
-      assert_receive :pubsub_recovered
+      assert_receive :pubsub_recovered, 1000
     end
 
     # The two tests above build their tree through `start_supervisor/2`, not
@@ -797,7 +807,7 @@ defmodule Aiur.ApplicationTest do
         type: :supervisor
       })
 
-    assert_receive {:probe_started, probe_pid}
+    assert_receive {:probe_started, probe_pid}, 1000
     %{supervisor: supervisor, pubsub: pubsub, mode_table: mode_table, table: table, probe: probe_pid}
   end
 

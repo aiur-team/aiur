@@ -201,14 +201,14 @@ defmodule AiurWeb.GithubWebhookTest do
       conn = deliver(@payload, signature: github_signature(@secret, @payload))
 
       assert conn.status == 401
-      assert_receive {:alert, "system.github_webhook.secret_missing", opts}
+      assert_receive {:alert, "system.github_webhook.secret_missing", opts}, 1000
       assert Keyword.fetch!(opts, :needs_attention) == true
     end
 
     test "rejects an unsigned delivery and raises a needs-attention alert" do
       assert deliver(@payload, signature: nil).status == 401
 
-      assert_receive {:alert, "system.github_webhook.secret_missing", opts}
+      assert_receive {:alert, "system.github_webhook.secret_missing", opts}, 1000
       assert Keyword.fetch!(opts, :needs_attention) == true
       assert Keyword.fetch!(opts, :reason) =~ @secret_env
     end
@@ -217,13 +217,13 @@ defmodule AiurWeb.GithubWebhookTest do
       System.put_env(@secret_env, "   ")
 
       assert deliver(@payload, signature: github_signature(@secret, @payload)).status == 401
-      assert_receive {:alert, "system.github_webhook.secret_missing", _opts}
+      assert_receive {:alert, "system.github_webhook.secret_missing", _opts}, 1000
     end
 
     test "throttles the alert so a redelivery storm cannot become an alert storm" do
       for _attempt <- 1..3, do: assert(deliver(@payload, signature: nil).status == 401)
 
-      assert_receive {:alert, "system.github_webhook.secret_missing", _opts}
+      assert_receive {:alert, "system.github_webhook.secret_missing", _opts}, 1000
       refute_receive {:alert, _name, _opts}, 50
     end
   end

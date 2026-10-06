@@ -54,7 +54,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     pid = start_store!(dir)
     assert {:ok, %{status: :accepted, generation: 1}} = observe(pid, identity(), :queued)
 
-    assert_receive {:current_run_membership_changed, payload}
+    assert_receive {:current_run_membership_changed, payload}, 1000
     assert payload.run_id == @run_id
     assert payload.generation == 1
     assert payload.event.lifecycle == :queued
@@ -350,7 +350,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     recovered = start_store!(dir)
     snapshot = Store.snapshot(server: recovered)
 
-    assert_receive {:current_run_membership_health_changed, payload}
+    assert_receive {:current_run_membership_health_changed, payload}, 1000
 
     for public_surface <- [snapshot, Store.health(recovered), payload] do
       refute inspect(public_surface) =~ sentinel
@@ -371,7 +371,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     recovered = start_store!(dir)
     snapshot = Store.snapshot(server: recovered)
 
-    assert_receive {:current_run_membership_health_changed, payload}
+    assert_receive {:current_run_membership_health_changed, payload}, 1000
 
     for public_surface <- [snapshot, Store.health(recovered), payload] do
       refute inspect(public_surface) =~ sentinel

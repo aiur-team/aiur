@@ -206,7 +206,7 @@ defmodule Aiur.AppServer.AdapterTest do
                end
              )
 
-    assert_receive {:provider_delivered, %{transport: :app_server, turn_id: "turn-1"}}
+    assert_receive {:provider_delivered, %{transport: :app_server, turn_id: "turn-1"}}, 1000
 
     failed_session = session(port, %{start_turn_result: {:error, :boom}})
 
@@ -264,7 +264,7 @@ defmodule Aiur.AppServer.AdapterTest do
     assert {:ok, %{result: :turn_completed}} =
              Adapter.run_turn(CodexLifecycleBackend, session(port), "prompt", issue(), [])
 
-    assert_receive {:accepted, "turn-accepted-only"}
+    assert_receive {:accepted, "turn-accepted-only"}, 1000
   end
 
   test "run_turn completes from a terminal response without a later lifecycle frame" do
@@ -286,7 +286,7 @@ defmodule Aiur.AppServer.AdapterTest do
     assert {:ok, %{result: :turn_completed}} =
              Adapter.run_turn(CodexLifecycleBackend, session(port), "prompt", issue(), [])
 
-    assert_receive {:accepted, "turn-1"}
+    assert_receive {:accepted, "turn-1"}, 1000
   end
 
   test "run_turn exits after two operator deliveries and provider idle/completed" do
@@ -335,9 +335,9 @@ defmodule Aiur.AppServer.AdapterTest do
     assert {:ok, %{result: :turn_completed}} =
              Adapter.run_turn(CodexLifecycleBackend, session(port), "prompt", issue(), [])
 
-    assert_receive {:accepted, "turn-child-1"}
-    assert_receive {:accepted, "turn-child-2"}
-    refute_receive {:failed, _reason}
+    assert_receive {:accepted, "turn-child-1"}, 1000
+    assert_receive {:accepted, "turn-child-2"}, 1000
+    refute_receive {:failed, _reason}, 100
   end
 
   test "run_turn rejects late response and start registration for a retired ID" do
@@ -366,8 +366,8 @@ defmodule Aiur.AppServer.AdapterTest do
     assert {:ok, %{result: :turn_completed}} =
              Adapter.run_turn(CodexLifecycleBackend, session(port), "prompt", issue(), [])
 
-    assert_receive {:failed, {:provider_turn_retired, "turn-late"}}
-    refute_receive {:accepted, "turn-late"}
+    assert_receive {:failed, {:provider_turn_retired, "turn-late"}}, 1000
+    refute_receive {:accepted, "turn-late"}, 100
   end
 
   test "run_turn consumes duplicate anonymous completions only once" do
@@ -397,9 +397,9 @@ defmodule Aiur.AppServer.AdapterTest do
                on_message: fn message -> send(parent, {:lifecycle_event, message.event}) end
              )
 
-    assert_receive {:lifecycle_event, :turn_completed}
-    assert_receive {:lifecycle_event, :turn_completed}
-    assert_receive {:lifecycle_event, :turn_completed}
+    assert_receive {:lifecycle_event, :turn_completed}, 1000
+    assert_receive {:lifecycle_event, :turn_completed}, 1000
+    assert_receive {:lifecycle_event, :turn_completed}, 1000
   end
 
   defp assert_deferred_idle_pause(order, request_id) do
@@ -414,7 +414,7 @@ defmodule Aiur.AppServer.AdapterTest do
               session_id: "thread-1-turn-1"
             }} = Adapter.run_turn(DeferredIdlePauseBackend, session(port), "prompt", issue(), [])
 
-    assert_receive {:frame, %{"method" => "turn/interrupt"}}
+    assert_receive {:frame, %{"method" => "turn/interrupt"}}, 1000
   end
 
   test "run_turn emits turn_ended_with_error on loop error" do
@@ -425,7 +425,7 @@ defmodule Aiur.AppServer.AdapterTest do
     assert {:error, :failed} =
              Adapter.run_turn(StubBackend, session(port), "prompt", issue(), on_message: fn msg -> send(parent, msg) end)
 
-    assert_receive %{event: :turn_ended_with_error, reason: :failed}
+    assert_receive %{event: :turn_ended_with_error, reason: :failed}, 1000
   end
 
   test "start_turn failure emits startup_failed" do
@@ -436,7 +436,7 @@ defmodule Aiur.AppServer.AdapterTest do
     assert {:error, {:turn_start_failed, :boom}} =
              Adapter.run_turn(StubBackend, session, "prompt", issue(), on_message: fn msg -> send(parent, msg) end)
 
-    assert_receive %{event: :startup_failed, reason: :boom}
+    assert_receive %{event: :startup_failed, reason: :boom}, 1000
   end
 
   test "start_port/2 starts bash in the requested workspace" do

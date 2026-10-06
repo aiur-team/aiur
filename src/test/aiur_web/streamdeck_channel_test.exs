@@ -1,6 +1,7 @@
 defmodule AiurWeb.StreamdeckChannelTest do
   use ExUnit.Case, async: false
   import Phoenix.ChannelTest
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   import Plug.Conn, only: [put_req_header: 3]
   import Plug.Test
@@ -549,7 +550,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
       assert_reply(push(socket, "focus", %{"identifier" => "AIUR-1"}), :ok, %{"focused" => "AIUR-1"})
 
       assert_push("commands", payload)
-      assert_receive {:fake_decision_query, :hit}
+      assert_receive {:fake_decision_query, :hit}, 1000
       assert payload["identifier"] == "AIUR-1"
       assert [item] = payload["items"]
       assert item["decision_id"] == decision.decision_id
@@ -596,7 +597,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
       # The durable record's actor is the operator on the deck, never the
       # Executor — the load-bearing attribution decision of this feature.
-      assert_receive {:fake_decision_answer, _decision_id, payload, opts}
+      assert_receive {:fake_decision_answer, _decision_id, payload, opts}, 1000
       assert payload["option_id"] == "ship"
       # The exact version the device read is forwarded as `expected_version`,
       # so the store rejects a stale press as a conflict rather than a double
@@ -621,7 +622,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
         %{"status" => "accepted"}
       )
 
-      assert_receive {:fake_decision_answer, _decision_id, payload, _opts}
+      assert_receive {:fake_decision_answer, _decision_id, payload, _opts}, 1000
       assert payload["custom_response"] == "Hold everything — verify first."
       refute Map.has_key?(payload, "option_id")
       # Same staleness forwarding as the option path: `expected_version` is set
@@ -786,16 +787,20 @@ defmodule AiurWeb.StreamdeckChannelTest do
       assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"})
       assert_push("commands", _payload)
 
-      assert_reply(
+      ref =
         push(socket, "answer_command", %{
           "decision_id" => decision.decision_id,
           "version" => decision.version,
           "idempotency_key" => "sd-e2e-1",
           "option_id" => "ship"
-        }),
-        :ok,
-        %{"status" => "accepted"}
-      )
+        })
+
+      # The reply is the completion barrier for the real store's fsynced answer.
+      # Match only the ref here so an error reply fails the assertions immediately;
+      # a missing reply still fails at ExUnit's test timeout.
+      reply = receive_barrier(%Phoenix.Socket.Reply{ref: ^ref})
+      assert reply.status == :ok
+      assert reply.payload["status"] == "accepted"
 
       assert {:ok, current} = Aiur.DecisionStore.get(decision.decision_id, store)
       assert current.answer.actor == %{kind: :operator, id: "streamdeck"}
@@ -912,7 +917,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     # One wire convention: an atom reason from the AgentChat facade reaches the
     # device as the bare word, never inspect-quoted (`":no_running_agent"`).
-    assert_receive {:paused, "AIUR-1"}
+    assert_receive {:paused, "AIUR-1"}, 1000
     assert_reply(control, :error, %{reason: "no_running_agent"})
   end
 
@@ -1068,17 +1073,17 @@ defmodule AiurWeb.StreamdeckChannelTest do
       # Opaque and server-minted: nothing the device sent decides it.
       assert is_binary(session) and byte_size(session) >= 12
 
-      assert_receive {:voice_session_started, pid}
+      assert_receive {:voice_session_started, pid}, 1000
 
       push(socket, "voice_audio", %{"session" => session, "audio" => "Zm9vYmFy"})
       # Relayed exactly, because the provider's own frame wants this string.
-      assert_receive {:voice_push, ^pid, "Zm9vYmFy"}
+      assert_receive {:voice_push, ^pid, "Zm9vYmFy"}, 1000
 
       stop = push(socket, "voice_stop", %{"session" => session})
       assert_reply(stop, :ok, %{})
       # Stop commits the utterance rather than killing it; the commit flush is
       # what settles the tail of what was just said.
-      assert_receive {:voice_commit, ^pid}
+      assert_receive {:voice_commit, ^pid}, 1000
     end
 
     test "no configured API key is reported as unconfigured rather than as a failure" do
@@ -1102,7 +1107,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => session})
-      assert_receive {:voice_session_started, pid}
+      assert_receive {:voice_session_started, pid}, 1000
 
       for payload <- [
             %{"session" => "not-the-live-session", "audio" => "AAAA"},
@@ -1123,7 +1128,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
       # And the channel is still alive and still serving the live session.
       push(socket, "voice_audio", %{"session" => session, "audio" => "AAAA"})
-      assert_receive {:voice_push, ^pid, "AAAA"}
+      assert_receive {:voice_push, ^pid, "AAAA"}, 1000
     end
 
     test "transcripts, errors and closure reach the device tagged with their session" do
@@ -1131,7 +1136,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => session})
-      assert_receive {:voice_session_started, pid}
+      assert_receive {:voice_session_started, pid}, 1000
 
       send(socket.channel_pid, {:elevenlabs_transcript, :partial, "ship the"})
       assert_push("voice", %{"session" => ^session, "kind" => "partial", "text" => "ship the"})
@@ -1155,14 +1160,14 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => first})
-      assert_receive {:voice_session_started, first_pid}
+      assert_receive {:voice_session_started, first_pid}, 1000
       first_monitor = Process.monitor(first_pid)
 
       # The fake emits one last transcript as it is stopped, which is exactly
       # the race a real session loses: text already in flight when the operator
       # starts a new hold.
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => second})
-      assert_receive {:DOWN, ^first_monitor, :process, ^first_pid, _reason}
+      assert_receive {:DOWN, ^first_monitor, :process, ^first_pid, _reason}, 1000
       assert second != first
 
       # The abandoned hold's text is not relabelled with the new session's id.
@@ -1174,14 +1179,14 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
       socket = joined_socket()
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => _session})
-      assert_receive {:voice_session_started, pid}
+      assert_receive {:voice_session_started, pid}, 1000
       monitor = Process.monitor(pid)
 
       assert_reply(push(socket, "unfocus", %{}), :ok, %{"focused" => nil})
-      assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}
+      assert_receive {:DOWN, ^monitor, :process, ^pid, _reason}, 1000
 
       assert_reply(push(socket, "voice_start", %{}), :ok, %{"session" => session})
-      assert_receive {:voice_session_started, crashing_pid}
+      assert_receive {:voice_session_started, crashing_pid}, 1000
       channel_monitor = Process.monitor(socket.channel_pid)
 
       Process.exit(crashing_pid, :kill)

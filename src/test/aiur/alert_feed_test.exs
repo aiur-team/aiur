@@ -37,6 +37,22 @@ defmodule Aiur.AlertFeedTest do
     assert [] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
   end
 
+  test "re-emitted attention lists the latest event time and text", %{ledger: ledger} do
+    topic = "system.github.connectivity_lost"
+    first_time = "2026-10-01T07:08:17Z"
+    latest_time = "2026-10-06T08:58:18Z"
+    opts = [ledger_path: ledger]
+
+    assert :ok = AlertLedger.append(alert(topic, first_time, true, "preflight failed for #2633"), opts)
+    assert :ok = AlertLedger.append(alert(topic, latest_time, true, "preflight failed for #2979"), opts)
+
+    assert [listed] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
+    assert listed["timestamp"] == latest_time
+    assert listed["first_seen_at"] == first_time
+    assert listed["message"] == "preflight failed for #2979"
+    assert listed["reason"] == "preflight failed for #2979"
+  end
+
   test "collapses a backlog of repeated resolutions down to the transition that opened it", %{ledger: ledger} do
     write_ledger!(ledger, """
     {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"system.github.quota.core.exhausted","message":"exhausted","needs_attention":true}
@@ -269,7 +285,7 @@ defmodule Aiur.AlertFeedTest do
           end)
         end)
 
-      assert_receive :append_lock_acquired
+      assert_receive :append_lock_acquired, 1000
 
       tasks =
         for record <- [first, second] do
@@ -280,7 +296,7 @@ defmodule Aiur.AlertFeedTest do
         end
 
       for task <- tasks do
-        assert_receive {:append_started, pid} when pid == task.pid
+        assert_receive {:append_started, pid} when pid == task.pid, 1000
         assert Task.yield(task, 0) == nil
       end
 
@@ -366,7 +382,7 @@ defmodule Aiur.AlertFeedTest do
         end)
       end)
 
-    assert_receive :backfill_lock_acquired
+    assert_receive :backfill_lock_acquired, 1000
     assert :ok = AlertLedger.append(%{"topic" => "ticket.42.agent.paused"}, ledger_path: ledger)
     send(task.pid, :release_backfill_lock)
     assert :ok = Task.await(task)
