@@ -2026,6 +2026,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp capacity_reason_measurements(reason) do
     Map.take(reason, [
       :measured,
+      :detail,
       :threshold,
       :reclaimable_cpu_percent,
       :reclaimable_cpu_threshold

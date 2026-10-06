@@ -2047,6 +2047,69 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert ModelAvailability.load(path)["backends"]["codex"]["hourly"]["used"] == 4
     end
 
+    test "provider capacity hold refreshes its freshness detail each dispatch cycle" do
+      path = Aiur.TestSupport.tmp_root!("aiur-provider-hold-detail") <> ".json"
+      on_exit(fn -> File.rm(path) end)
+      now = DateTime.utc_now()
+      stale_at = DateTime.add(now, -301, :second)
+      reset_at = DateTime.add(now, 3_600, :second) |> DateTime.to_unix()
+
+      assert :ok =
+               ModelAvailability.observe(
+                 "codex",
+                 %{hourly: %{usedPercent: 100, windowDurationMins: 60, resetsAt: reset_at}},
+                 path: path,
+                 now: stale_at
+               )
+
+      assert :ok = ModelAvailability.schedule_retry("codex", now, path: path)
+
+      admission_probes = fn ->
+        %{
+          memory_mb: 4_096,
+          memory_threshold_mb: 1_024,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: 0.0,
+          load_threshold: 10.0,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: ["codex"],
+          provider_gate_opts: [path: path, now: now],
+          github_quota: :available,
+          cpu_snapshot: :unavailable,
+          target: nil
+        }
+      end
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+      queued = [issue("queued-codex")]
+
+      first =
+        Dispatcher.maybe_choose_under_load(state, queued, noop_choose(), admission_probes_fun: admission_probes)
+
+      assert first.capacity_hold.signal == :provider
+      assert first.capacity_hold.detail =~ DateTime.to_iso8601(stale_at)
+
+      refreshed_at = DateTime.add(now, -302, :second)
+
+      assert :ok =
+               ModelAvailability.observe(
+                 "codex",
+                 %{hourly: %{usedPercent: 100, windowDurationMins: 60, resetsAt: reset_at}},
+                 path: path,
+                 now: refreshed_at
+               )
+
+      second =
+        Dispatcher.maybe_choose_under_load(first, queued, noop_choose(), admission_probes_fun: admission_probes)
+
+      assert second.capacity_hold.signal == :provider
+      assert second.capacity_hold.detail =~ DateTime.to_iso8601(refreshed_at)
+      refute second.capacity_hold.detail =~ DateTime.to_iso8601(stale_at)
+    end
+
     test "a memory hold persists the limiting reason and emits a debounced backoff alert, then clears on recovery" do
       write_workflow_file!(Workflow.workflow_file_path(), min_free_memory_mb: 2_048)
       Application.put_env(:aiur, :meminfo_source_override, fn -> {:ok, "MemAvailable: 1048576 kB\n"} end)
