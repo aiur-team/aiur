@@ -1171,6 +1171,7 @@ defmodule Aiur.TestSupport do
           workspace_root: Path.join(System.tmp_dir!(), "aiur_workspaces"),
           workspace_bootstrap_image: nil,
           workspace_bootstrap_image_pull: false,
+          workspace_wip: [],
           worker_ssh_hosts: [],
           worker_max_concurrent_agents_per_host: nil,
           max_concurrent_agents: 10,
@@ -1221,6 +1222,7 @@ defmodule Aiur.TestSupport do
     workspace_root = Keyword.get(config, :workspace_root)
     workspace_bootstrap_image = Keyword.get(config, :workspace_bootstrap_image)
     workspace_bootstrap_image_pull = Keyword.get(config, :workspace_bootstrap_image_pull)
+    workspace_wip = Keyword.get(config, :workspace_wip, [])
     worker_ssh_hosts = Keyword.get(config, :worker_ssh_hosts)
 
     worker_max_concurrent_agents_per_host =
@@ -1321,6 +1323,7 @@ defmodule Aiur.TestSupport do
         "  root: #{yaml_value(workspace_root)}",
         workspace_bootstrap_image && "  bootstrap_image: #{yaml_value(workspace_bootstrap_image)}",
         "  bootstrap_image_pull: #{yaml_value(workspace_bootstrap_image_pull)}",
+        Enum.map_join(workspace_wip, "\n", fn {key, value} -> "  wip_#{key}: #{yaml_value(value)}" end),
         worker_yaml(worker_ssh_hosts, worker_max_concurrent_agents_per_host),
         agent_section,
         hooks_yaml(

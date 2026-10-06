@@ -50,7 +50,8 @@ defmodule Aiur.GitHub.LocalHold do
     * a local budget hold — waited out to its `reset_at`
       (`{:github, :local_hold, %{hold: %{reset_at: ...}}}`);
     * a budget broker timeout — backed off
-      (`{:github, :timeout, %{reason: :github_budget_broker_timeout}}`).
+      (`{:github, :local_hold, %{reason: :github_budget_broker_timeout}}`);
+      legacy `:timeout` wrappers remain supported.
 
   A malformed broker reply (`:github_budget_broker_unavailable`) is permanent
   and passes through unchanged, as does anything outside the budget layer. The
@@ -232,6 +233,8 @@ defmodule Aiur.GitHub.LocalHold do
   #
   # This matches the fault *shapes*, not a transient-reason list: what is
   # transient stays the classifier's job (see `retry_plan/4`).
+  defp budget_layer_fault({:github, :local_hold, %{reason: :github_budget_broker_timeout} = detail}), do: {:backoff, detail}
+
   defp budget_layer_fault({:github, :local_hold, detail}), do: {:hold, detail}
 
   defp budget_layer_fault({:github, :timeout, %{reason: :github_budget_broker_timeout} = detail}),
@@ -243,6 +246,8 @@ defmodule Aiur.GitHub.LocalHold do
   # The auth-preflight diagnostic carries the classification in `classification`
   # and the classified tuple's detail map in `detail`; a held diagnostic
   # carries the hold map directly in `detail`.
+  defp budget_layer_fault(%{classification: :local_hold, detail: %{reason: :github_budget_broker_timeout} = detail}), do: {:backoff, detail}
+
   defp budget_layer_fault(%{classification: :local_hold, detail: detail}), do: {:hold, detail}
 
   defp budget_layer_fault(%{classification: :timeout, detail: %{reason: :github_budget_broker_timeout} = detail}),

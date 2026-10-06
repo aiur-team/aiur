@@ -53,10 +53,6 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         # here so neither orphans on abort/terminal-state teardown.
         kill_repl_session(running_entry)
 
-        if cleanup_workspace do
-          WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, worker_host)
-        end
-
         # Close any open chat-completion SSE streams BEFORE killing the
         # task. `terminate_task/1` brutally kills the AgentRunner,
         # bypassing the normal `close_aiur_turn_streams` path; without
@@ -72,6 +68,13 @@ defmodule Aiur.Orchestrator.AgentTeardown do
 
         if is_reference(ref) do
           Process.demonitor(ref, [:flush])
+        end
+
+        # Save and delete the workspace only after the runner is gone, so the
+        # agent no longer writes to it while it is saved (#2743). The work runs
+        # in a task; see `WorkspaceCleanup.start_terminal_workspace_cleanups/1`.
+        if cleanup_workspace do
+          WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, worker_host)
         end
 
         %{

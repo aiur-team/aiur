@@ -143,6 +143,7 @@ defmodule Aiur.CurrentRunProjections do
     do: {:noreply, Refresh.schedule(state)}
 
   def handle_info(:observability_updated, state), do: {:noreply, Refresh.schedule(state)}
+  def handle_info({:observability_updated, _event_id}, state), do: {:noreply, Refresh.schedule(state)}
   def handle_info(_message, state), do: {:noreply, state}
 
   @impl true

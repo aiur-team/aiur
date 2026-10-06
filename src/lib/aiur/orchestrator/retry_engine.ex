@@ -1089,6 +1089,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp local_budget_hold_reason(%{hold: hold}) when is_map(hold), do: hold
   defp local_budget_hold_reason(%{reason: {:aiur, :locally_held, hold}}) when is_map(hold), do: hold
+  defp local_budget_hold_reason(:github_budget_broker_timeout), do: %{reason: :github_budget_broker_timeout}
+  defp local_budget_hold_reason(%{reason: :github_budget_broker_timeout} = detail), do: detail
+
+  defp local_budget_hold_reason({:github, classification, %{reason: :github_budget_broker_timeout} = detail})
+       when classification in [:timeout, :local_hold], do: detail
+
+  defp local_budget_hold_reason({:github_auth_preflight_failed, %{classification: :timeout, detail: detail}}),
+    do: local_budget_hold_reason(detail)
+
   defp local_budget_hold_reason(_reason), do: nil
 
   defp local_budget_reset_delay(hold) do

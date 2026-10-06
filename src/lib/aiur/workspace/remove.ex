@@ -1,21 +1,56 @@
 defmodule Aiur.Workspace.Remove do
-  @moduledoc "Workspace removal: local and remote rm-rf with before_remove hook dispatch and per-issue multi-host fanout."
+  @moduledoc """
+  Workspace removal: local and remote rm-rf with before_remove hook dispatch
+  and per-issue multi-host fanout.
+
+  A local checkout with uncommitted work is saved by
+  `Aiur.Workspace.WipPreservation` before it is removed, and is kept when the
+  save fails. A dirty remote checkout is not removed until an operator
+  authorizes the discard (#2743).
+
+  Options of `remove/3` and `remove_issue_workspaces/3`:
+
+    * `ticket` - the ticket named in alerts (default: the workspace leaf);
+    * `terminal?` - the ticket is closed. A save that times out then gives a
+      manifest-only save and the delete proceeds, and a refusal says the
+      ticket is closed instead of held;
+    * `keep_dirty?` - leave a dirty workspace in place without a save. The
+      startup todo cleanup uses it, so the Orchestrator runs only one short
+      `git status`; the dispatch-time recreate saves the work in the runner;
+    * `destroy_guard` - a 0-arity function called immediately before the
+      delete, after any save. When it returns anything other than `:ok`, the
+      workspace is kept and that value is returned. The terminal cleanup uses
+      it to re-check the ownership lease, because it runs in a task and a new
+      run can claim the workspace while the save runs.
+
+  A remote removal checks for uncommitted work before it runs the
+  `before_remove` hook, so a kept workspace does not run its removal hook.
+  """
+
+  require Logger
 
   alias Aiur.{Config, TestTicketScope}
-  alias Aiur.Workspace.{DirtyGuard, Hooks, Layout, Remote}
+  alias Aiur.Workspace.{Hooks, Layout, Remote, WipPreservation}
+
+  # Exit statuses returned by the remote removal script.
+  @remote_dirty_status 75
+  @remote_status_failed 76
 
   @type worker_host :: String.t() | nil
 
   @spec remove(Path.t()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
-  def remove(workspace), do: remove(workspace, nil)
+  def remove(workspace), do: remove(workspace, nil, [])
 
-  @spec remove(Path.t(), worker_host()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
-  def remove(workspace, nil) do
+  @spec remove(Path.t(), worker_host(), keyword()) ::
+          {:ok, [String.t()]} | {:error, term(), String.t()} | {:skipped, term()}
+  def remove(workspace, worker_host, opts \\ [])
+
+  def remove(workspace, nil, opts) do
     case File.exists?(workspace) do
       true ->
         case Layout.validate_workspace_path(workspace, nil) do
           :ok ->
-            remove_local(workspace)
+            remove_local(workspace, opts)
 
           {:error, reason} ->
             {:error, reason, ""}
@@ -26,87 +61,217 @@ defmodule Aiur.Workspace.Remove do
     end
   end
 
-  def remove(workspace, worker_host) when is_binary(worker_host) do
-    with :ok <- DirtyGuard.check(workspace, worker_host) do
+  def remove(workspace, worker_host, opts) when is_binary(worker_host) do
+    discard? = WipPreservation.discard_authorized?(Path.basename(workspace))
+
+    # With a before_remove hook, the dirty check runs first, so a kept
+    # workspace does not run its removal hook. The removal script checks
+    # again, because the agent or the hook can write in between.
+    precheck =
+      if discard? or is_nil(Config.settings!().hooks.before_remove),
+        do: :clean,
+        else: run_remote(workspace, worker_host, remote_dirty_check())
+
+    with :clean <- precheck,
+         :ok <- destroy_guard(opts) do
       maybe_run_before_remove_hook(workspace, worker_host)
-
-      script =
-        [
-          Remote.remote_shell_assign("workspace", workspace),
-          DirtyGuard.remote_check_script(),
-          "rm -rf \"$workspace\""
-        ]
-        |> Enum.join("\n")
-
-      case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
-        {:ok, {_output, 0}} -> {:ok, []}
-        {:ok, {_output, 75}} -> DirtyGuard.refuse(workspace, :dirty)
-        {:ok, {_output, 76}} -> DirtyGuard.refuse(workspace, :git_status_failed)
-        {:ok, {output, status}} -> {:error, {:workspace_remove_failed, worker_host, status, output}, ""}
-        {:error, reason} -> {:error, reason, ""}
-      end
-    end
-    |> case do
-      {:error, reason} -> {:error, reason, ""}
-      result -> result
+      script = if discard?, do: "rm -rf \"$workspace\"", else: remote_dirty_check() <> "\nrm -rf \"$workspace\""
+      remote_removed(run_remote(workspace, worker_host, script), workspace, worker_host, discard?, opts)
+    else
+      :dirty -> remote_dirty(workspace, worker_host, opts)
+      {:error, reason, output} -> {:error, reason, output}
+      skipped -> skipped
     end
   end
 
-  defp remove_local(workspace) do
-    case DirtyGuard.check(workspace, nil) do
-      :ok ->
-        maybe_run_before_remove_hook(workspace, nil)
+  defp run_remote(workspace, worker_host, script) do
+    case Remote.run_remote_command(worker_host, Remote.remote_shell_assign("workspace", workspace) <> "\n" <> script, Config.settings!().hooks.timeout_ms) do
+      {:ok, {_output, 0}} -> :clean
+      {:ok, {_output, @remote_dirty_status}} -> :dirty
+      {:ok, {_output, @remote_status_failed}} -> {:error, {:workspace_remove_status_failed, worker_host}, ""}
+      {:ok, {output, status}} -> {:error, {:workspace_remove_failed, worker_host, status, output}, ""}
+      {:error, reason} -> {:error, reason, ""}
+    end
+  end
 
-        case DirtyGuard.check(workspace, nil) do
-          :ok -> File.rm_rf(workspace)
-          {:error, reason} -> {:error, reason, ""}
-        end
+  defp remote_removed(:clean, workspace, worker_host, discard?, opts) do
+    leaf = Path.basename(workspace)
+    if discard?, do: WipPreservation.emit_discarded_alert(ticket(workspace, opts), "#{worker_host}:#{workspace}", :remote_worker_unsupported)
+    WipPreservation.consume_discard(leaf)
+    WipPreservation.clear_hold(leaf)
+    {:ok, []}
+  end
 
-      {:error, reason} ->
-        {:error, reason, ""}
+  defp remote_removed(:dirty, workspace, worker_host, _discard?, opts), do: remote_dirty(workspace, worker_host, opts)
+  defp remote_removed(error, _workspace, _worker_host, _discard?, _opts), do: error
+
+  defp destroy_guard(opts) do
+    case Keyword.get(opts, :destroy_guard) do
+      nil -> :ok
+      guard when is_function(guard, 0) -> guard.()
+    end
+  end
+
+  @doc false
+  @spec remote_dirty_check() :: String.t()
+  def remote_dirty_check do
+    [
+      "if [ -e \"$workspace/.git\" ]; then",
+      "  status=$(git -C \"$workspace\" status --porcelain --untracked-files=normal 2>/dev/null) || exit #{@remote_status_failed}",
+      "  if [ -n \"$status\" ]; then",
+      "    echo 'workspace has uncommitted changes; not removed' >&2",
+      "    exit #{@remote_dirty_status}",
+      "  fi",
+      "fi"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp remote_dirty(workspace, worker_host, opts) do
+    if Keyword.get(opts, :keep_dirty?, false) do
+      Logger.info("Kept dirty remote workspace for its next dispatch workspace=#{workspace} worker_host=#{worker_host}")
+      {:error, {:workspace_dirty_kept, workspace}, ""}
+    else
+      {:error, reason} =
+        WipPreservation.refuse(workspace, ticket(workspace, opts), "remove the workspace on #{worker_host}", :remote_worker_unsupported, terminal?: Keyword.get(opts, :terminal?, false))
+
+      {:error, reason, ""}
     end
   end
 
   @spec remove_issue_workspaces(term()) :: :ok
-  def remove_issue_workspaces(identifier), do: remove_issue_workspaces(identifier, nil)
+  def remove_issue_workspaces(identifier), do: remove_issue_workspaces(identifier, nil, [])
 
-  @spec remove_issue_workspaces(term(), worker_host()) :: :ok
-  def remove_issue_workspaces(identifier, worker_host) when is_binary(identifier) do
-    if TestTicketScope.allowed_identifier?(identifier), do: do_remove_issue_workspaces(identifier, worker_host), else: :ok
+  @doc """
+  Removes the workspaces of `identifier` on the given host, or on every
+  configured host. Returns `:ok`, or `{:skipped, reason}` when the
+  `destroy_guard` option kept a workspace.
+  """
+  @spec remove_issue_workspaces(term(), worker_host(), keyword()) :: :ok | {:skipped, term()}
+  def remove_issue_workspaces(identifier, worker_host, opts \\ [])
+
+  def remove_issue_workspaces(identifier, worker_host, opts)
+      when is_binary(identifier) and is_binary(worker_host) do
+    if TestTicketScope.allowed_identifier?(identifier) do
+      safe_id = Layout.safe_identifier(identifier)
+
+      case Layout.workspace_path_for_issue(safe_id, worker_host) do
+        {:ok, workspace} -> workspace |> remove(worker_host, Keyword.put_new(opts, :ticket, identifier)) |> summarize()
+        {:error, _reason} -> :ok
+      end
+    else
+      :ok
+    end
   end
 
-  def remove_issue_workspaces(_identifier, _worker_host), do: :ok
+  def remove_issue_workspaces(identifier, nil, opts) when is_binary(identifier) do
+    if TestTicketScope.allowed_identifier?(identifier),
+      do: remove_issue_workspaces_from_config(identifier, opts),
+      else: :ok
+  end
 
-  defp do_remove_issue_workspaces(identifier, worker_host)
-       when is_binary(identifier) and is_binary(worker_host) do
-    safe_id = Layout.safe_identifier(identifier)
-
-    case Layout.workspace_path_for_issue(safe_id, worker_host) do
-      {:ok, workspace} -> remove(workspace, worker_host)
-      {:error, _reason} -> :ok
-    end
-
+  def remove_issue_workspaces(_identifier, _worker_host, _opts) do
     :ok
   end
 
-  defp do_remove_issue_workspaces(identifier, nil) when is_binary(identifier) do
+  defp remove_issue_workspaces_from_config(identifier, opts) do
     safe_id = Layout.safe_identifier(identifier)
 
     case Config.settings!().worker.ssh_hosts do
-      [] ->
-        case Layout.workspace_path_for_issue(safe_id, nil) do
-          {:ok, workspace} -> remove(workspace, nil)
-          {:error, _reason} -> :ok
-        end
-
-      worker_hosts ->
-        Enum.each(worker_hosts, &remove_issue_workspaces(identifier, &1))
+      [] -> remove_local_issue_workspace(safe_id, identifier, opts)
+      worker_hosts -> remove_from_worker_hosts(worker_hosts, identifier, opts)
     end
-
-    :ok
   end
 
-  defp do_remove_issue_workspaces(_identifier, _worker_host), do: :ok
+  defp remove_local_issue_workspace(safe_id, identifier, opts) do
+    case Layout.workspace_path_for_issue(safe_id, nil) do
+      {:ok, workspace} -> workspace |> remove(nil, Keyword.put_new(opts, :ticket, identifier)) |> summarize()
+      {:error, _reason} -> :ok
+    end
+  end
+
+  defp remove_from_worker_hosts(worker_hosts, identifier, opts) do
+    worker_hosts
+    |> Enum.map(&remove_issue_workspaces(identifier, &1, opts))
+    |> Enum.find(:ok, &match?({:skipped, _reason}, &1))
+  end
+
+  defp remove_local(workspace, opts) do
+    if Keyword.get(opts, :keep_dirty?, false),
+      do: remove_unless_dirty(workspace, opts),
+      else: remove_preserved(workspace, opts)
+  end
+
+  defp summarize({:skipped, _reason} = skipped), do: skipped
+  defp summarize(_result), do: :ok
+
+  defp remove_unless_dirty(workspace, opts) do
+    case WipPreservation.dirty?(workspace) do
+      {:ok, false} ->
+        remove_preserved(workspace, opts)
+
+      {:ok, true} ->
+        Logger.info("Kept dirty workspace for its next dispatch, which saves the work before any recreate workspace=#{workspace}")
+        {:error, {:workspace_dirty_kept, workspace}, ""}
+
+      {:error, reason} ->
+        Logger.warning("Kept workspace whose state could not be checked workspace=#{workspace} reason=#{inspect(reason)}")
+        {:error, reason, ""}
+    end
+  end
+
+  defp remove_preserved(workspace, opts) do
+    # Do not run a removal hook against a workspace that a new lease owns.
+    # The second guard in destroy_local closes the race while the hook and save
+    # run; the save then captures both agent and hook changes.
+    case destroy_guard(opts) do
+      :ok ->
+        preserve_before_destroy(workspace, opts)
+
+      skipped ->
+        skipped
+    end
+  end
+
+  defp preserve_before_destroy(workspace, opts) do
+    destroy = fn -> destroy_local(workspace, opts) end
+    guard_opts = Keyword.take(opts, [:terminal?]) ++ before_remove_options(workspace, opts)
+
+    workspace
+    |> WipPreservation.guard_destroy(ticket(workspace, opts), "remove the workspace", destroy, guard_opts)
+    |> normalize_preservation_result()
+  end
+
+  defp before_remove_options(workspace, opts) do
+    if is_nil(Config.settings!().hooks.before_remove) do
+      []
+    else
+      [before_destroy: fn -> run_before_remove_if_owned(workspace, opts) end]
+    end
+  end
+
+  defp run_before_remove_if_owned(workspace, opts) do
+    case destroy_guard(opts) do
+      :ok -> maybe_run_before_remove_hook(workspace, nil)
+      skipped -> skipped
+    end
+  end
+
+  defp normalize_preservation_result({:error, {:wip_preservation_failed, _workspace, _reason} = reason}), do: {:error, reason, ""}
+  defp normalize_preservation_result(result), do: result
+
+  # The ownership guard runs after the save and immediately before the delete.
+  defp destroy_local(workspace, opts) do
+    case destroy_guard(opts) do
+      :ok ->
+        File.rm_rf(workspace)
+
+      skipped ->
+        skipped
+    end
+  end
+
+  defp ticket(workspace, opts), do: Keyword.get(opts, :ticket) || Path.basename(workspace)
 
   defp maybe_run_before_remove_hook(workspace, nil) do
     hooks = Config.settings!().hooks

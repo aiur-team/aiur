@@ -422,6 +422,11 @@ defmodule Aiur.GitHub.AuthPreflight do
 
   defp local_hold_request_error?(_error), do: false
 
+  defp local_hold_message(%{detail: %{reason: :github_budget_broker_timeout}} = diagnostic) do
+    "GitHub preflight for #{diagnostic.repo} is waiting on the local budget broker. " <>
+      "The broker deadline expired before GitHub was contacted. Recovery: reduce host load or SQLite contention; aiur retries without consuming worker attempts."
+  end
+
   defp local_hold_message(diagnostic) do
     repo = diagnostic.repo
     endpoint = diagnostic.endpoint

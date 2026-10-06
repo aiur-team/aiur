@@ -1,6 +1,8 @@
 defmodule Aiur.InitTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.CodingAgent
+  alias Aiur.CodingAgent.Providers.Fake
   alias Aiur.GitHub.Labels
   alias Aiur.Init
   alias Aiur.Workflow
@@ -258,18 +260,16 @@ defmodule Aiur.InitTest do
 
   test "fresh init calls a synthetic provider descriptor without provider branches", %{dir: dir, target: target} do
     descriptors =
-      Map.update!(Aiur.CodingAgent.backends(), "fake", fn descriptor ->
-        Map.put(descriptor, :init, SyntheticInit)
-      end)
+      Map.put(CodingAgent.backends(), "synthetic", Map.put(Fake.entry(), :init, SyntheticInit))
 
     answers = %{
-      multiselect: %{"Which agents to support" => ["fake"]},
+      multiselect: %{"Which agents to support" => ["synthetic"]},
       input: %{"Synthetic backend region" => "east"}
     }
 
     d = deps(self(), dir, target, %{backend_descriptors: descriptors})
     assert :ok = Init.run(%{force: false}, io(self(), answers), d)
-    assert written_config(target)["agent"]["backend_configs"]["fake"]["region"] == "east"
+    assert written_config(target)["agent"]["backend_configs"]["synthetic"]["region"] == "east"
     assert_received {:input_label, "Synthetic backend region"}
   end
 
@@ -1080,7 +1080,7 @@ defmodule Aiur.InitTest do
       assert Enum.any?(puts_log(), &(&1 =~ ~r/Couldn't update/))
     end
 
-    test "declining the offer leaves the existing config untouched", %{dir: dir, target: target} do
+    test "declining the offer records the choice in existing config", %{dir: dir, target: target} do
       File.write!(target, @legacy_yaml)
       before = File.read!(target)
 
@@ -1095,8 +1095,12 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
-      assert File.read!(target) == before
-      refute_received {:append, ^target}
+      assert File.read!(target) =~ "prewarm:\n  enabled: false"
+      assert File.read!(target) != before
+      joined = Enum.join(puts_log(), "\n")
+      assert joined =~ "Saved declined warm-base pre-warm to"
+      refute joined =~ "Added warm-base pre-warm to"
+      refute_received {:append, ^target, _yaml}
       refute_received {:prewarm_build, _url, _cmd}
     end
   end
@@ -1520,7 +1524,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex", "kimi", "openrouter", "muse", "fake"]
+      assert opts == CodingAgent.configurable_backends()
       refute "claude-repl" in opts
       # DeepSeek is registered but not dispatch-enabled by default, so it must
       # not be offerable from init.
@@ -1961,7 +1965,9 @@ defmodule Aiur.InitTest do
             "claude" -> if Agent.get(present, & &1), do: :ok, else: @missing_claude
             _ -> :ok
           end,
-          install_claude_app_server: fn ->
+          claude_version: fn -> if Agent.get(present, & &1), do: {:ok, "1.1.0"}, else: :missing end,
+          claude_registry_version: fn -> {:ok, "1.1.0"} end,
+          install_claude_app_server: fn _spec ->
             send(parent, {:install, :claude})
             Agent.update(present, fn _ -> true end)
             :ok
@@ -1980,7 +1986,7 @@ defmodule Aiur.InitTest do
       d =
         deps(parent, dir, target, %{
           check_agent_auth: fn _kind -> :ok end,
-          install_claude_app_server: fn ->
+          install_claude_app_server: fn _spec ->
             send(parent, {:install, :claude})
             :ok
           end
@@ -1998,7 +2004,7 @@ defmodule Aiur.InitTest do
       d =
         deps(parent, dir, target, %{
           check_agent_auth: fn _kind -> :ok end,
-          install_claude_app_server: fn ->
+          install_claude_app_server: fn _spec ->
             send(parent, {:install, :claude})
             :ok
           end
@@ -2009,18 +2015,24 @@ defmodule Aiur.InitTest do
       refute_received {:install, :claude}
     end
 
-    test "an aiur-claude older than the minimum warns and init still completes", %{
+    test "an aiur-claude still below the minimum after install stops init", %{
       dir: dir,
       target: target
     } do
       parent = self()
-      d = deps(parent, dir, target, %{claude_version: fn -> {:ok, "1.0.0"} end})
+      {:ok, versions} = Agent.start_link(fn -> [:missing, {:ok, "1.0.0"}] end)
 
-      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+      d =
+        deps(parent, dir, target, %{
+          claude_version: fn -> Agent.get_and_update(versions, fn [next | rest] -> {next, rest} end) end,
+          claude_registry_version: fn -> {:ok, "1.0.0"} end,
+          install_claude_app_server: fn _spec -> :ok end
+        })
 
-      log = puts_log()
-      assert Enum.any?(log, &(&1 =~ ~r/older than 1\.1\.0/))
-      assert Enum.any?(log, &(&1 =~ ~r/aiur_declare_blocker/))
+      assert {:error, message} = Init.run(%{force: false}, io(parent, github_answers()), d)
+
+      assert message =~ "installed aiur-claude 1.0.0"
+      assert File.read!(target) =~ "tracker:"
     end
 
     test "a current aiur-claude prints no version warning", %{dir: dir, target: target} do
@@ -2032,44 +2044,13 @@ defmodule Aiur.InitTest do
       refute Enum.any?(puts_log(), &(&1 =~ ~r/aiur-claude/ and &1 =~ ~r/older than/))
     end
 
-    test "a failed install prints a manual-install hint and init still completes", %{
-      dir: dir,
-      target: target
-    } do
+    test "a satisfying installed adapter completes without reinstalling", %{dir: dir, target: target} do
       parent = self()
-
-      d =
-        deps(parent, dir, target, %{
-          check_agent_auth: fn
-            "claude" -> @missing_claude
-            _ -> :ok
-          end,
-          install_claude_app_server: fn -> {:error, "npm not found on PATH"} end
-        })
+      d = deps(parent, dir, target, %{claude_version: fn -> {:ok, "1.1.0"} end})
 
       assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
 
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/npm install -g aiur-claude/))
-    end
-
-    # A failed install already told the operator how to install it by hand; a
-    # second line about the version it therefore can't read is just noise.
-    test "a failed install doesn't also print a version warning", %{dir: dir, target: target} do
-      parent = self()
-
-      d =
-        deps(parent, dir, target, %{
-          check_agent_auth: fn
-            "claude" -> @missing_claude
-            _ -> :ok
-          end,
-          install_claude_app_server: fn -> {:error, "npm not found on PATH"} end,
-          claude_version: fn -> {:error, "aiur-claude unavailable"} end
-        })
-
-      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
-
-      refute Enum.any?(puts_log(), &(&1 =~ ~r/couldn't check the aiur-claude version/))
+      refute_received {:install, _spec}
     end
   end
 

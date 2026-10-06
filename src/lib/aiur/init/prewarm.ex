@@ -173,13 +173,21 @@ defmodule Aiur.Init.Prewarm do
 
   @doc false
   @spec prewarm_section_yaml(map()) :: iodata()
-  def prewarm_section_yaml(_prewarm) do
+  def prewarm_section_yaml(%{enabled: true}) do
     [
       "# === Warm base pre-warm (added by `aiur init`) ===\n",
       "prewarm:\n",
       "  enabled: true\n",
       "  base_build_file: #{@prewarm_file_name}\n",
       "  poll_seconds: 0\n"
+    ]
+  end
+
+  def prewarm_section_yaml(_prewarm) do
+    [
+      "# === Warm base pre-warm (declined in `aiur init`) ===\n",
+      "prewarm:\n",
+      "  enabled: false\n"
     ]
   end
 

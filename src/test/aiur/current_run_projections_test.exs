@@ -12,6 +12,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
   alias Aiur.CurrentRunOutcomeSnapshot.MembershipIndex
   alias Aiur.CurrentRunProjections.{Checkpoint, Projector, SourceAdapter, State}
   alias Aiur.Orchestrator.SnapshotStore
+  alias AiurWeb.ObservabilityPubSub
   alias AiurWeb.OperatorControlCenter.RunSummaryPresenter
 
   test "refreshes both projections, publishes changes, and serves read APIs" do
@@ -47,6 +48,15 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert CurrentRunOutcomeSnapshot.health(server: owner) == outcomes.health
     assert CurrentRunOutcomeSnapshot.generation(server: owner) == outcomes.generation
     assert Process.alive?(source)
+  end
+
+  test "observability broadcasts schedule a projection refresh" do
+    test_pid = self()
+    {source, _owner, pubsub} = start_owner(fn value -> Map.put(value, :run, {:block, test_pid}) end, observability_subscription?: true)
+
+    assert :ok = ObservabilityPubSub.broadcast_update(pubsub)
+    assert_receive {:projection_reader_blocked, :run, _reader}, 1_000
+    assert Agent.get(source, & &1.run_reads) == 1
   end
 
   test "default status readers consume only a current cached fleet snapshot" do
@@ -1102,6 +1112,13 @@ defmodule Aiur.CurrentRunProjectionsTest do
     pubsub = unique_name(:pubsub)
     start_supervised!({Phoenix.PubSub, name: pubsub})
 
+    extra_opts =
+      if Keyword.get(extra_opts, :observability_subscription?, false) do
+        Keyword.put(extra_opts, :subscribe_funs, [fn -> ObservabilityPubSub.subscribe(pubsub) end])
+      else
+        extra_opts
+      end
+
     owner = start_supervised!({CurrentRunProjections, owner_options(source, pubsub, extra_opts)})
 
     {source, owner, pubsub}
@@ -1123,11 +1140,13 @@ defmodule Aiur.CurrentRunProjectionsTest do
   end
 
   defp owner_options(source, pubsub, extra_opts) do
+    subscribe_funs = Keyword.get(extra_opts, :subscribe_funs, [])
+
     Keyword.merge(
       [
         name: nil,
         pubsub: pubsub,
-        subscribe_funs: [],
+        subscribe_funs: subscribe_funs,
         refresh_on_init?: false,
         clock_interval_ms: :infinity,
         reconcile_interval_ms: :infinity,

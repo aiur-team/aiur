@@ -11,18 +11,6 @@ defmodule Aiur.Workspace.ProvisionerTest do
                 else: [skip: "requires Linux flock leases"]
               )
 
-  test "recreate keeps untracked work instead of deleting the checkout" do
-    workspace = Aiur.TestSupport.tmp_root!("recreate-dirty")
-    on_exit(fn -> File.rm_rf(workspace) end)
-    {_, 0} = System.cmd("git", ["init", "-q", workspace])
-    File.write!(Path.join(workspace, "work.txt"), "unfinished")
-
-    assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} =
-             Provisioner.recreate(workspace, nil)
-
-    assert File.read!(Path.join(workspace, "work.txt")) == "unfinished"
-  end
-
   test "remote workers receive the bundled agent skill install script" do
     parent = self()
 
@@ -92,12 +80,12 @@ defmodule Aiur.Workspace.ProvisionerTest do
       build_start_stagger_seconds: 0,
       min_free_memory_mb: nil,
       hook_after_create: """
-      git init --quiet -b main
-      git config user.email test@example.com
-      git config user.name "Test User"
+      git -C "$PWD" init --quiet -b main
+      git -C "$PWD" config user.email test@example.com
+      git -C "$PWD" config user.name "Test User"
       printf initialized > README.md
-      git add README.md
-      git commit --quiet -m init
+      git -C "$PWD" add README.md
+      git -C "$PWD" commit --quiet -m init
       printf '#!/bin/sh\nexec mise exec -- mix compile\n' > hook-build
       chmod +x hook-build
       probe_bin=#{Aiur.Shell.escape(bin_dir)}
@@ -284,12 +272,12 @@ defmodule Aiur.Workspace.ProvisionerTest do
       tracker_kind: "memory",
       workspace_root: workspace_root,
       hook_after_create: """
-      git init --quiet -b main .
-      git config user.email test@example.com
-      git config user.name "Test User"
+      git -C "$PWD" init --quiet -b main .
+      git -C "$PWD" config user.email test@example.com
+      git -C "$PWD" config user.name "Test User"
       printf initialized > README.md
-      git add README.md
-      git commit --quiet -m init
+      git -C "$PWD" add README.md
+      git -C "$PWD" commit --quiet -m init
       """
     )
 

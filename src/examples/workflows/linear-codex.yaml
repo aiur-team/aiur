@@ -20,6 +20,8 @@ linear:
   api_key: $LINEAR_API_KEY
   project_slug: your-project-slug
 observability:
+  # Opt in only when this run owns the Tailscale Funnel HTTPS 443 target.
+  # build_order_funnel_health_check: true
   # Set to false to disable run telemetry recording (Analytics page will be empty).
   # telemetry_enabled: true
   # Retain useful cross-session telemetry without splitting an individual boot.
