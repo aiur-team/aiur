@@ -2611,7 +2611,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       )
 
     refute_received :dispatch_attempted
-    capacity = Aiur.Orchestrator.Slots.max_concurrent_agent_status(held)
+    capacity = held |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload() |> Map.fetch!(:capacity)
     assert capacity.available == 12
     assert capacity.queued_demand? == true
 
@@ -2643,7 +2643,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     assert map_size(declined.running) == 0
     assert Aiur.Orchestrator.Slots.available_slots(declined) > 0
-    capacity = Aiur.Orchestrator.Slots.max_concurrent_agent_status(declined)
+    capacity = declined |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload() |> Map.fetch!(:capacity)
 
     assert {:dispatch_selection, %{reasons: [:tracker_revalidation_failed], candidates: 1}} =
              Aiur.Orchestrator.CapacityBinding.binding(capacity)

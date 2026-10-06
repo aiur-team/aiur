@@ -209,6 +209,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :candidate_snapshot_fresh?,
       :dispatch_declines,
       :dispatch_hold,
+      :dispatch_selection_hold,
       # `agent_statuses/1` reads the codex thrash budget to explain why an idle
       # ticket is not dispatching. Projecting without it would fall back to the
       # struct default and render a confident wrong *reason* on every idle row.
