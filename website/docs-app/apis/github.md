@@ -323,6 +323,11 @@ Aiur backs off, keeps the ticket claim, and preserves worker attempt counters,
 even when the bounded in-call retries run out. Broker holds do not report lost
 GitHub connectivity.
 
+Resident broker exits also back off as local holds; the next call restarts the
+broker. Requests retain independent deadlines while sharing a transaction.
+Expired work is rolled back before commit, with 50 ms reserved for commit and
+reply delivery. A longer OS or disk stall can exceed this finite margin.
+
 Sustained broker retry pressure still appears as
 `system.github.budget_broker_degraded`; reduce host load or SQLite contention.
 

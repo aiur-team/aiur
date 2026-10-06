@@ -36,3 +36,44 @@ shell guards retain one-shot execution and all processes share the existing
 credential ledger. This measures synthetic admission latency, not production
 quota or cost savings. Batched transactions are covered separately; this
 three-daemon benchmark does not measure same-daemon fan-in batching gains.
+
+
+## Production population census
+
+A read-only SQLite snapshot on 2026-10-06 counted retained admissions in
+13:18:01.102–14:18:01.102 UTC. Join `admissions` to `policies` on both
+`token_key` and `consumer_key`, then group by the policy label prefix:
+
+| Actor path | Admissions | Distinct actors | After deployment |
+| --- | ---: | ---: | --- |
+| Daemon | 5,394 | 2 | Resident broker |
+| Agent workspace shell guards | 694 | 25 | One-shot broker |
+| Executor shell guard | 1 | 1 | One-shot broker |
+| Unknown | 0 | 0 | Unclassified |
+
+Of 6,089 observed admissions, 5,394 (88.6%) are on the daemon path this
+change converts. The deployed system at census time still used the old
+one-shot implementation: **zero measured production admissions used this
+branch's resident process**. The remaining 695 shell admissions retain process
+startup costs. This is a counted deployment population, not a measured
+production latency saving; the table above measures synthetic latency only.
+
+The census used a single read transaction and this query, with the stated UTC
+bounds converted to epoch milliseconds. It printed only aggregate counts:
+
+```sql
+SELECT CASE
+  WHEN p.consumer_label LIKE 'daemon:%' THEN 'daemon'
+  WHEN p.consumer_label LIKE 'workspace:%' THEN 'workspace'
+  WHEN p.consumer_label LIKE 'executor:%' THEN 'executor'
+  ELSE 'unknown'
+END AS actor_path, COUNT(*), COUNT(DISTINCT a.consumer_key)
+FROM admissions a
+LEFT JOIN policies p
+  ON a.token_key = p.token_key AND a.consumer_key = p.consumer_key
+WHERE a.admitted_at_ms BETWEEN 1791292681102 AND 1791296281102
+GROUP BY actor_path;
+```
+
+The ledger retains a moving window; rerunning later will count a different
+population. A unit test cannot assert these live hourly counts.

@@ -306,7 +306,7 @@ def _ensure_writable(conn):
 def _prepare_writable(conn):
     if isinstance(conn, SessionConnection) and conn.prepared:
         return
-    conn.executescript(
+    conn.execute(
         """
         CREATE TRIGGER IF NOT EXISTS admissions_require_lease
         BEFORE INSERT ON admissions
@@ -982,18 +982,30 @@ def run_batch(requests, command_parser):
             yield from run_transaction(db, active)
 
 
-def begin_batch(conn, deadline_ms):
+COMMIT_MARGIN_MS = 50
+
+
+def begin_batch(conn, requests, replies):
     # SQLite's long busy wait can lose every lock race to a hot resident peer.
     # Short waits plus jitter give competing daemons chances to acquire it,
     # while preserving the caller's absolute deadline and fail-closed behavior.
     while True:
-        remaining = deadline_ms - now_ms()
+        active = []
+        for request, args in requests:
+            if request["deadline_ms"] - COMMIT_MARGIN_MS <= now_ms():
+                replies.append({"id": request["id"], "status": 2, "output": "broker deadline expired waiting for SQLite"})
+            else:
+                active.append((request, args))
+        requests[:] = active
+        if not requests:
+            return False
+        remaining = min(request["deadline_ms"] for request, _args in requests) - COMMIT_MARGIN_MS - now_ms()
         if remaining <= 0:
-            raise TimeoutError("broker deadline expired waiting for SQLite")
+            continue
         conn.conn.execute(f"PRAGMA busy_timeout = {min(remaining, 20)}")
         try:
             conn.conn.execute("BEGIN IMMEDIATE")
-            return
+            return True
         except sqlite3.OperationalError as error:
             if "locked" not in str(error).lower():
                 raise
@@ -1005,20 +1017,19 @@ def run_transaction(db, requests):
     conn = None
     try:
         conn = connection(db)
+        requests = list(requests)
+        if not begin_batch(conn, requests, replies):
+            return replies
+        conn.batching = True
         if any(args.command in ("acquire", "release", "reconcile", "renew", "hold") for _request, args in requests):
             _ensure_writable(conn)
             _prepare_writable(conn)
-        remaining = min(request["deadline_ms"] for request, _args in requests) - now_ms()
-        if remaining <= 0:
-            raise TimeoutError("broker deadline expired before admission")
-        begin_batch(conn, min(request["deadline_ms"] for request, _args in requests))
-        conn.batching = True
         for request, args in requests:
             conn.conn.execute("SAVEPOINT request")
             output = io.StringIO()
             status = 0
             try:
-                if request["deadline_ms"] <= now_ms():
+                if request["deadline_ms"] - COMMIT_MARGIN_MS <= now_ms():
                     raise TimeoutError("broker deadline expired before admission")
                 with contextlib.redirect_stdout(output):
                     args.fun(args)
@@ -1028,13 +1039,28 @@ def run_transaction(db, requests):
                 output.write(str(error))
             conn.conn.execute("RELEASE request")
             replies.append({"id": request["id"], "status": status, "output": output.getvalue()})
+        expired = {request["id"] for request, _args in requests if request["deadline_ms"] - COMMIT_MARGIN_MS <= now_ms()}
+        if expired:
+            # Savepoints cannot remove an earlier command after later commands
+            # have run. Roll back the batch and replay only live requests.
+            conn.conn.execute("ROLLBACK")
+            conn.prepared = False
+            conn.batching = False
+            timed_out = [{"id": request["id"], "status": 2, "output": "broker deadline expired before commit"}
+                         for request, _args in requests if request["id"] in expired]
+            waiting_replies = [reply for reply in replies if reply["id"] not in {request["id"] for request, _args in requests}]
+            remaining = [(request, args) for request, args in requests if request["id"] not in expired]
+            return waiting_replies + timed_out + (run_transaction(db, remaining) if remaining else [])
         conn.conn.execute("COMMIT")
         return replies
     except Exception as error:
         if conn is not None and conn.in_transaction:
             conn.conn.execute("ROLLBACK")
+            conn.prepared = False
         local_timeout = isinstance(error, TimeoutError) or (isinstance(error, sqlite3.OperationalError) and "locked" in str(error).lower())
-        return [{"id": request["id"], "status": 2 if local_timeout else 1, "output": str(error)} for request, _args in requests]
+        active_ids = {request["id"] for request, _args in requests}
+        completed = [reply for reply in replies if reply["id"] not in active_ids]
+        return completed + [{"id": request["id"], "status": 2 if local_timeout else 1, "output": str(error)} for request, _args in requests]
     finally:
         if conn is not None:
             conn.batching = False

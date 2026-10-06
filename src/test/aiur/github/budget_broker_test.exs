@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.BudgetBrokerTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.{Budget, BudgetBroker}
+  alias Aiur.GitHub.{Budget, BudgetBroker, Errors}
 
   setup do
     root = Aiur.TestSupport.tmp_root!("resident-budget-broker")
@@ -177,8 +177,52 @@ defmodule Aiur.GitHub.BudgetBrokerTest do
         print(json.dumps({"id": request["id"], "output": "restarted", "status": 0}), flush=True)
     """)
 
-    assert {:error, {:broker_exit, 7}} = command(server, broker, ["crash"])
+    assert :timeout = command(server, broker, ["crash"])
     assert {:ok, "restarted", 0} = command(server, broker, [])
+  end
+
+  test "a crash holds every pending Budget caller locally and recovers", %{root: root, server: server} do
+    broker = Path.join(root, "pending_crash.py")
+
+    File.write!(broker, """
+    import json, sys
+    first = json.loads(sys.stdin.readline())
+    print(json.dumps({"id": first["id"], "output": "ready", "status": 0}), flush=True)
+    sys.stdin.readline()
+    sys.stdin.readline()
+    sys.exit(7)
+    """)
+
+    assert {:ok, "ready", 0} = command(server, broker, [])
+    opts = [state_dir: root, stagger_ms: 0, broker_server: server, enabled?: true]
+    request = %{token: "daemon-token", url: "https://api.github.com/repos/owner/repo/issues"}
+    tasks = Enum.map(1..2, fn _ -> Task.async(fn -> Budget.acquire(request, opts) end) end)
+
+    Enum.each(tasks, fn task ->
+      assert {:error, :github_budget_broker_timeout} = result = Task.await(task, 5_000)
+      assert {:github, :local_hold, %{reason: :github_budget_broker_timeout}} = Errors.classify_error(result)
+    end)
+
+    assert :sys.get_state(server).pending == %{}
+    assert {:ok, lease} = Budget.acquire(request, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
+  test "failed serialization advances correlation without expiring a subsequent caller", %{root: root, server: server} do
+    broker = Path.join(root, "delayed.py")
+
+    File.write!(broker, """
+    import json, sys, time
+    for line in sys.stdin:
+        request = json.loads(line)
+        time.sleep(0.2)
+        print(json.dumps({"id": request["id"], "output": "current", "status": 0}), flush=True)
+    """)
+
+    assert :timeout = BudgetBroker.command(server, broker, [self()], System.monotonic_time(:millisecond) + 50)
+    assert %{next_id: 1, pending: %{}, port: nil} = :sys.get_state(server)
+    assert {:ok, "current", 0} = command(server, broker, [])
+    assert %{next_id: 2, pending: %{}} = :sys.get_state(server)
   end
 
   defp command(server, broker, args), do: BudgetBroker.command(server, broker, args, System.monotonic_time(:millisecond) + 5_000)
