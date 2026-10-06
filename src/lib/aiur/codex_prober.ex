@@ -92,15 +92,13 @@ defmodule Aiur.CodexProber do
   end
 
   defp try_probe_port(port, workspace, opts) do
-    try do
-      with :ok <- initialize_probe_port(port, opts),
-           {:ok, limits} <- read_probe_limits(port, opts) do
-        normalize_codex_limits(limits)
-      end
-    after
-      stop_probe_port(port, opts)
-      File.rm_rf(workspace)
+    with :ok <- initialize_probe_port(port, opts),
+         {:ok, limits} <- read_probe_limits(port, opts) do
+      normalize_codex_limits(limits)
     end
+  after
+    stop_probe_port(port, opts)
+    File.rm_rf(workspace)
   end
 
   @doc false

@@ -1,8 +1,8 @@
 defmodule Aiur.CodexProberTest do
   use Aiur.TestSupport
 
-  alias Aiur.{CodexProber, Config, ModelAvailability}
   alias Aiur.Codex.AppServerPort
+  alias Aiur.{CodexProber, Config, ModelAvailability}
 
   test "normalizes rate windows nested in the rateLimits response" do
     response = %{
