@@ -162,6 +162,39 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
   end
 
+  test "a trusted changes-requested review moves a ci-wait ticket to rework" do
+    issue = %Issue{human_review_issue() | state: "ci-wait", labels: ["agent:ci-wait"]}
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+    event =
+      changes_requested_review_event(issue, %{
+        pull_request: %{"review_decision" => "CHANGES_REQUESTED"},
+        open_pr_fetcher: fn issue_key ->
+          send(self(), {:open_pr_lookup, issue_key})
+          {:ok, %{"number" => 337, "head" => %{"sha" => "52617e7"}}}
+        end,
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+      })
+
+    CommentWake.maybe_reactivate_on_comment(base_state(completed_running_entry()), @issue_number, :pr_review, event)
+
+    assert_receive {:open_pr_lookup, @issue_number}
+    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+  end
+
+  test "an untrusted changes-requested review remains rejected" do
+    issue = human_review_issue()
+    event = changes_requested_review_event(issue, %{author_trusted?: false})
+
+    state = base_state(completed_running_entry())
+
+    capture_log(fn ->
+      assert CommentWake.maybe_reactivate_on_comment(state, @issue_number, :pr_review, event) == state
+    end)
+
+    refute_receive {:memory_tracker_state_update, @issue_number, "rework"}
+  end
+
   test "a refused changes-requested review on a completed running entry raises attention" do
     issue = human_review_issue()
     test_pid = self()
