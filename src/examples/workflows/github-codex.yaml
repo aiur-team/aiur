@@ -100,7 +100,6 @@ hooks:
     git clone "$THIS_REPOSITORY_URL" .
     issue_id="$(basename "$PWD")"
     git checkout -b "aiur/${issue_id}" "origin/$THIS_BASE_BRANCH"
-    git update-ref refs/aiur/branch-start HEAD
   before_remove: |
     git status --short
 agent:

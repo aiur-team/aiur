@@ -1,5 +1,5 @@
 defmodule Aiur.Workspace.Refresh do
-  @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles the dirty-leftover recreation path (#577) and the in-flight WIP skip (#653)."
+  @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Holds unpreserved dirty leftovers and skips in-flight WIP refreshes."
 
   require Logger
   alias Aiur.{AgentBuildGuard, AgentGitHubGuard, Config}
@@ -68,9 +68,8 @@ defmodule Aiur.Workspace.Refresh do
 
         {:error, {:workspace_owned, Ownership.current(issue_context.issue_identifier)}}
 
-      # A fresh todo dispatch that lands on a dirty *leftover* workspace
-      # (#577): the dirty content is not this agent's WIP, so recreate the
-      # workspace clean off the configured base and re-run before_run.
+      # A todo dispatch may land on a dirty leftover. Provisioner.recreate/4
+      # checks it before removal and refuses until the work is preserved.
       Context.todo_dispatch?(issue_context) ->
         Logger.warning(
           "Recreating stale leftover workspace after before_run dirty-refresh refusal #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"
@@ -83,8 +82,11 @@ defmodule Aiur.Workspace.Refresh do
                  issue_context.pr_head_ref,
                  issue_context.branch_name
                ),
-             :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host) do
-          finalize_before_run_workspace(workspace, issue_context, worker_host)
+             :ok <- run_before_run_command(before_run, workspace, issue_context, worker_host),
+             :ok <- finalize_before_run_workspace(workspace, issue_context, worker_host) do
+          # Recreation deleted the support tree `create_for_issue/3` installed
+          # (#2697). Reinstall all of it, not only the build wrappers.
+          Provisioner.maybe_install_agent_support(workspace, worker_host)
         end
 
       # An in-flight / resumed agent (NOT a todo dispatch) whose "dirty"
@@ -156,8 +158,14 @@ defmodule Aiur.Workspace.Refresh do
     Hooks.run_hook(command, workspace, issue_context, "before_run", worker_host)
   end
 
+  # Promotion replaces the whole workspace, so the agent support tree from
+  # `create_for_issue/3` is gone. Install the full local set on the promoted
+  # path: the GitHub guard, gh config and quota dirs, skills and scratch, not
+  # only the build wrappers the staged hook needed (#2697).
   defp reconstruct_before_run_workspace(command, workspace, issue_context) do
-    Reconstruction.run(workspace, &prepare_reconstructed_workspace(&1, command, issue_context))
+    with :ok <- Reconstruction.run(workspace, &prepare_reconstructed_workspace(&1, command, issue_context)) do
+      Provisioner.maybe_install_agent_support(workspace, nil)
+    end
   end
 
   defp prepare_reconstructed_workspace(stage, command, issue_context) do

@@ -21,6 +21,7 @@ defmodule Aiur.Orchestrator.State do
           snapshot_ready?: boolean(),
           candidate_snapshot_fresh?: boolean(),
           poll_cycles_completed: non_neg_integer(),
+          last_dispatch_poll_at_ms: integer() | nil,
           queued_demand_hints: %{String.t() => non_neg_integer()},
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
@@ -153,6 +154,10 @@ defmodule Aiur.Orchestrator.State do
           # `:ci` class cadence (#2309). `nil` until the first run.
           last_ci_poll_started_at_ms: integer() | nil,
           pr_review_seen_at: map(),
+          # What the polls know about each ticket PR's draft state, loaded from
+          # `PrReadyLedgerStore` on first use (`nil` until then). See
+          # `ReadyForReviewTransitions` (#2707).
+          pr_ready_ledger: Aiur.PrReadyLedgerStore.ledger() | nil,
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
           github_poll_delays: map(),
@@ -305,6 +310,7 @@ defmodule Aiur.Orchestrator.State do
     last_comment_poll_started_at_ms: nil,
     last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},
+    pr_ready_ledger: nil,
     github_command_scan_since: nil,
     github_connectivity: %{},
     github_poll_delays: %{},
@@ -329,6 +335,7 @@ defmodule Aiur.Orchestrator.State do
     # restarted daemon — which has observed no idleness yet — polls at the base
     # interval first instead of starting already backed off (#2138).
     poll_cycles_completed: 0,
+    last_dispatch_poll_at_ms: nil,
     # Tickets queued locally (`aiur --todo`) that the tracker poll has not yet
     # shown, keyed by identifier to the poll-cycle count until which each one
     # still counts as dispatchable demand. The idle backoff must not widen on
@@ -718,7 +725,13 @@ defmodule Aiur.Orchestrator.State do
   # dispatch capacity — holding the slot would convert the time cap into a
   # capacity leak where parked agents accumulate against the fleet limit
   # (#2329).
-  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration]
+  # A provider usage limit belongs here for the same reason: the account, not
+  # this agent, is what the fleet waits on, there is no turn in flight, and
+  # holding the slot turns one account limit into a fleet-wide dispatch stall.
+  # Nineteen such pauses once left four runners and twelve ready tickets waiting
+  # on capacity. `CodingAgent.select_for_dispatch/2` is what keeps a freed slot
+  # from being handed straight back to the exhausted backend.
+  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration, :usage_limit_exhausted]
 
   @spec reserved_paused_running_count(term()) :: non_neg_integer()
   def reserved_paused_running_count(running) when is_map(running) do

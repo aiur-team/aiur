@@ -10,14 +10,16 @@ defmodule Aiur.AgentQueueStore do
           next_sequence: integer(),
           items: %{optional(integer()) => AgentQueueItem.t()},
           pending_ids_by_target: %{optional(String.t()) => [integer()]},
-          item_id_by_action: %{optional(String.t()) => integer()}
+          item_id_by_action: %{optional(String.t()) => integer()},
+          item_id_by_message_id: %{optional(String.t()) => integer()}
         }
 
   defstruct next_id: 1,
             next_sequence: 1,
             items: %{},
             pending_ids_by_target: %{},
-            item_id_by_action: %{}
+            item_id_by_action: %{},
+            item_id_by_message_id: %{}
 
   @type enqueue_attrs :: %{
           required(:target_issue_identifier) => String.t(),
@@ -28,6 +30,7 @@ defmodule Aiur.AgentQueueStore do
           optional(:delivery) => map(),
           optional(:action_id) => String.t(),
           optional(:correlation) => map(),
+          optional(:message_id) => String.t(),
           optional(:dedupe_key) => String.t(),
           optional(:causal_refs) => [String.t()],
           optional(:turn_id) => String.t(),
@@ -54,6 +57,7 @@ defmodule Aiur.AgentQueueStore do
       delivery: delivery,
       action_id: Map.get(attrs, :action_id),
       correlation: Map.get(attrs, :correlation),
+      message_id: Map.get(attrs, :message_id),
       dedupe_key: Map.get(attrs, :dedupe_key),
       causal_refs: Map.get(attrs, :causal_refs, []),
       turn_id: Map.get(attrs, :turn_id),
@@ -92,6 +96,44 @@ defmodule Aiur.AgentQueueStore do
         %AgentQueueItem{} = existing ->
           replay_correlated(store, existing, attrs, Keyword.get(opts, :retry_failed, false))
       end
+    end
+  end
+
+  @doc """
+  Enqueue one Executor message keyed by a caller-supplied `message_id`, or
+  return the item that key already created (#2717).
+
+  A caller whose send timed out cannot know if the first call queued the
+  message, so it retries with the same key and gets the same item back. The
+  key belongs to one user action: a replay must carry the same target and
+  text, or it is refused as a conflict. It never returns a different message.
+  """
+  @spec enqueue_idempotent(t(), enqueue_attrs()) ::
+          {:ok, t(), AgentQueueItem.t(), :accepted | :duplicate} | {:error, {:message_id_conflict, integer()}}
+  def enqueue_idempotent(%__MODULE__{} = store, %{message_id: message_id} = attrs) when is_binary(message_id) do
+    case find_by_message_id(store, message_id) do
+      nil ->
+        {store, item} = enqueue(store, attrs)
+        {:ok, %{store | item_id_by_message_id: Map.put(store.item_id_by_message_id, message_id, item.id)}, item, :accepted}
+
+      %AgentQueueItem{} = existing ->
+        if same_message?(existing, attrs),
+          do: {:ok, store, existing, :duplicate},
+          else: {:error, {:message_id_conflict, existing.id}}
+    end
+  end
+
+  @doc "True when `attrs` is a replay of `item`: the same target and the same text."
+  @spec same_message?(AgentQueueItem.t(), map()) :: boolean()
+  def same_message?(%AgentQueueItem{} = item, attrs) when is_map(attrs) do
+    item.target_issue_identifier == Map.get(attrs, :target_issue_identifier) and item.body == Map.get(attrs, :body)
+  end
+
+  @spec find_by_message_id(t(), String.t()) :: AgentQueueItem.t() | nil
+  def find_by_message_id(%__MODULE__{} = store, message_id) when is_binary(message_id) do
+    case Map.get(store.item_id_by_message_id, message_id) do
+      nil -> nil
+      item_id -> Map.get(store.items, item_id)
     end
   end
 

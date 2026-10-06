@@ -155,6 +155,39 @@ defmodule Aiur.Orchestrator.StateTest do
     end
   end
 
+  describe "reserved_paused_running_count/1" do
+    defp paused(reason), do: %{control: %{status: :paused}, paused_reason: reason}
+
+    test "a provider usage limit does not reserve a fleet slot" do
+      # The 2026-09-26 khala incident: nineteen agents paused on one Claude
+      # account limit, each kept its slot, and twelve ready tickets starved
+      # behind reservations no process was using.
+      running =
+        for index <- 1..19, into: %{} do
+          {index, paused(:usage_limit_exhausted)}
+        end
+
+      assert State.reserved_paused_running_count(running) == 0
+      assert State.paused_running_count(running) == 19
+      assert State.active_running_count(running) == 0
+    end
+
+    test "a deliberate pause still reserves its slot" do
+      running = %{
+        1 => paused(:operator_pause),
+        2 => paused(:label_override),
+        3 => paused(:usage_limit_exhausted),
+        4 => paused(:ci_wait),
+        5 => paused(:blocker_dependency),
+        6 => paused(:max_agent_duration),
+        7 => %{control: %{status: :working}}
+      }
+
+      assert State.reserved_paused_running_count(running) == 2
+      assert State.active_running_count(running) == 1
+    end
+  end
+
   defp identity(owner, repository, provider_id, identifier) do
     %TrackerIdentity{
       status: :joinable,

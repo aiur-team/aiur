@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression harness for the Ctrl+C bridge binding in scripts/aiur.tmux.conf.
+# Regression harness for the Ctrl+C bridge binding in the shipped tmux config.
 #
 # The binding for a non-agent-list pane must route Ctrl+C through the
 # `@aiur_ctrlc` helper (which talks to Aiur for the 3-state decision), NOT
@@ -21,12 +21,13 @@
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONF="$REPO_ROOT/scripts/aiur.tmux.conf"
+CONF="${AIUR_TMUX_CONF_TEST:-$REPO_ROOT/packaging/npm/aiur-cli/share/aiur.tmux.conf}"
 
-INNER="aiur-ctrlc-test-inner"
-WRAP="aiur-ctrlc-test-wrap"
+INNER="aiur-ctrlc-test-inner-$$"
+WRAP="aiur-ctrlc-test-wrap-$$"
 WORK="$(mktemp -d)"
-STUB="$WORK/stub-helper.sh"
+STUB_DIR="$WORK/helper with \"quotes\"; \$literal"
+STUB="$STUB_DIR/stub-helper.sh"
 MARKER="$WORK/helper-ran.log"
 
 color_ok='\033[0;32m'; color_fail='\033[0;31m'; color_dim='\033[2m'; color_reset='\033[0m'
@@ -47,9 +48,10 @@ if ! command -v tmux >/dev/null 2>&1; then
   exit 0
 fi
 
+mkdir -p "$STUB_DIR"
 cat > "$STUB" <<EOF
 #!/usr/bin/env sh
-echo "ran pane=\$1 url=\$2" >> "$MARKER"
+echo "ran pane=\$1 url=\$2 mode=\${3:-interrupt}" >> "$MARKER"
 exit 0
 EOF
 chmod +x "$STUB"
@@ -85,6 +87,24 @@ if [ "$panes_before" = "2" ] && [ "$panes_after" = "2" ]; then
   ok "pane survived Ctrl+C (helper owns the close decision, not the binding)"
 else
   fail "pane count changed ${panes_before}->${panes_after} — binding raw-killed the pane"
+fi
+
+# Ctrl+Q must select the same helper's hide action and leave the chat pane
+# intact. A missing binding passes raw C-q to the pane and never records hide.
+: > "$MARKER"
+tmux -L "$WRAP" send-keys -t w C-q
+sleep 1.5
+if grep -q 'mode=hide$' "$MARKER"; then
+  ok "Ctrl+Q invoked the bridge helper's hide action"
+else
+  fail "Ctrl+Q did not invoke the bridge helper's hide action"
+fi
+
+panes_after_hide="$(tmux -L "$INNER" list-panes -t s 2>/dev/null | wc -l | tr -d ' ')"
+if [ "$panes_after_hide" = "2" ]; then
+  ok "pane survived Ctrl+Q for the helper's hide decision"
+else
+  fail "pane count changed ${panes_before}->${panes_after_hide} after Ctrl+Q"
 fi
 
 if [ "$failures" -eq 0 ]; then

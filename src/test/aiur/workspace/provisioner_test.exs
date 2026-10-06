@@ -11,6 +11,18 @@ defmodule Aiur.Workspace.ProvisionerTest do
                 else: [skip: "requires Linux flock leases"]
               )
 
+  test "recreate keeps untracked work instead of deleting the checkout" do
+    workspace = Aiur.TestSupport.tmp_root!("recreate-dirty")
+    on_exit(fn -> File.rm_rf(workspace) end)
+    {_, 0} = System.cmd("git", ["init", "-q", workspace])
+    File.write!(Path.join(workspace, "work.txt"), "unfinished")
+
+    assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} =
+             Provisioner.recreate(workspace, nil)
+
+    assert File.read!(Path.join(workspace, "work.txt")) == "unfinished"
+  end
+
   test "remote workers receive the bundled agent skill install script" do
     parent = self()
 

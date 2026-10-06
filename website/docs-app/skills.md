@@ -4,14 +4,22 @@ title: Skills
 
 # Skills
 
-Aiur ships Agent Skills under `.claude/skills/` and makes them available to Codex under `.codex/skills/`. They split into two families by **where they run**:
+The `aiur-run` Executor announces fallback to `~/.aiur/config` when no local config exists. It can launch a new GitHub repository without per-repository `init`: startup ensures workflow/marker and complexity labels, while models are selected by configuration. It does not seed model/effort labels.
+
+Shared credentials can live in `~/.aiur/.env` outside Git. Local settings, permission requirements, pauses and human decisions retain precedence.
+
+`aiur-intro` explains one-time home setup and per-repository readiness: GitHub access, base branch, CODEOWNERS or dispatch allowlist, labels and validation. The Executor tells the user what was configured and what still blocks startup or worker publication.
+
+Aiur ships Agent Skills under `.claude/skills/`, with shared links for Codex under `.codex/skills/` and Muse under `.agents/skills/` in the source checkout. They split into two families by **where they run**:
 
 - **Agent-workspace skills** are copied into every ticket workspace, so the agent working a ticket can load them on any repository.
 - **Executor skills** stay in this repository and load in the Executor's own session, whether that Executor is a human or an agent driving Aiur.
 
 ## Agent-workspace skills
 
-These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under both `<workspace>/.claude/skills/` and `<workspace>/.codex/skills/`, so a Claude workspace and a Codex workspace get the same set without a machine-local plugin cache.
+These three skills, together with the complete pinned Compound Engineering set, are available in every ticket workspace under `<workspace>/.claude/skills/`, `<workspace>/.codex/skills/`, and `<workspace>/.agents/skills/`.
+
+Muse loads workspace skills and rules only when `agent.backend_configs.muse.trust_workspace` is explicitly enabled.
 
 | Skill | Loaded when | Covers |
 | --- | --- | --- |
@@ -25,6 +33,14 @@ The `aiur-agent` dev loop distinguishes a retryable GitHub budget hold from a
 credential failure. A budget-held agent requests a typed, expiring pause and is
 resumed automatically; it does not raise a credential attention for a healthy
 token.
+
+Issue workers select focused tests from the target repository's instructions,
+package scripts, and CI configuration. The bundled `aiur-agent` skill's `mix`
+examples apply to Aiur's Elixir core; a TypeScript workspace uses its own
+runner.
+
+The `aiurdev --test` / `--test3` guard prevents destructive Aiur
+sandbox resets from issue workspaces, not ordinary repository tests.
 
 ## Executor skills
 

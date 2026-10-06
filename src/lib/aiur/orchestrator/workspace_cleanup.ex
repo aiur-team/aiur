@@ -6,8 +6,9 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
   require Logger
 
-  alias Aiur.{Config, Issue, SessionHandle, Tracker, Workspace}
+  alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
   alias Aiur.Orchestrator.{DispatchPolicy, RetryEngine, State, TrackerHealth}
+  alias Aiur.Workspace.Ownership
 
   @spec cleanup_issue_workspace(binary() | term(), binary() | nil) :: :ok
   def cleanup_issue_workspace(identifier, worker_host \\ nil)
@@ -27,7 +28,10 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
   @doc false
   @spec clear_session_handle(binary() | term()) :: :ok
-  def clear_session_handle(identifier) when is_binary(identifier), do: SessionHandle.clear(identifier)
+  def clear_session_handle(identifier) when is_binary(identifier) do
+    if TestTicketScope.allowed_identifier?(identifier), do: SessionHandle.clear(identifier), else: :ok
+  end
+
   def clear_session_handle(_identifier), do: :ok
 
   @spec run_startup_todo_workspace_cleanup(State.t()) :: State.t()
@@ -146,9 +150,16 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
   defp cleanup_terminal_issue_workspace(_issue), do: :ok
 
+  # A todo ticket can still hold a workspace lease at startup, for example a
+  # runner the Orchestrator just stopped whose guardian is still reaping it.
+  # The lease owns the checkout until it is released, so leave it in place.
   defp cleanup_issue_workspace_for_issue(%Issue{identifier: identifier})
-       when is_binary(identifier),
-       do: cleanup_issue_workspace(identifier)
+       when is_binary(identifier) do
+    case Ownership.current(identifier) do
+      :none -> cleanup_issue_workspace(identifier)
+      {:ok, _lease} -> :ok
+    end
+  end
 
   defp cleanup_issue_workspace_for_issue(_issue), do: :ok
 end

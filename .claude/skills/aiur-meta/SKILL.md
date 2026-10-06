@@ -11,7 +11,7 @@ a durable log. Run hourly during a run, on the timer `aiur-run` sets up.
 ## This check is a backstop, not the discovery path
 
 **The meta-check is the quiet-state safety floor.** Work is discovered on the
-event stream — the Executor listener's 24 bindings, drained by `executor-wait` or
+event stream — the Executor listener's 27 bindings, drained by `executor-wait` or
 a persistent wake monitor, which `aiur-run` requires as a launch step. This check
 catches what the stream missed; it is not how you find out that a PR is ready.
 
@@ -290,3 +290,20 @@ worse.
 Report the verdict, the bottleneck, and anything needing them. Lead with what is
 broken. Do not narrate the check itself — that a check ran is not news; what it
 found is.
+
+**How much of that you write depends on whether anyone is there.** This check
+runs hourly, usually unattended, and is therefore the single largest generator
+of prose nobody reads. `aiur-run`'s communication contract governs it:
+
+- **Attended** (a human message opened the turn) — report normally.
+- **Unattended** (the hourly timer or a wake fired it) — one skimmable line per
+  finding, and **nothing at all when the check found nothing**. A clean
+  meta-check is not news. The hourly log on disk is the durable record; the
+  terminal does not need a copy.
+- The periodic progress table belongs here rather than on every wake, since this
+  check already runs on the right cadence.
+- A finding that blocks the run still escalates in full, with a push
+  notification. Terseness never applies to something waiting on the operator.
+
+Writing the durable log is unconditional either way — quiet in the terminal must
+never mean the check skipped its record.

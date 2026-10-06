@@ -2,7 +2,6 @@ defmodule Aiur.DecisionAttentionTest do
   use Aiur.TestSupport
 
   alias Aiur.{AlertFeed, DecisionAttention, DecisionStore, Issue}
-  alias Aiur.Config.Paths
   alias Aiur.Events.SubscriptionStore
 
   defp accepted_projection do
@@ -97,10 +96,10 @@ defmodule Aiur.DecisionAttentionTest do
     expected_topic = "ticket.#{identifier}.agent.attention.scope-question"
 
     assert [%{"topic" => ^expected_topic}] =
-             AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true)
+             AlertFeed.list(roots: [], needs_attention: true)
 
     assert :ok = DecisionAttention.resolve(name, issue, "scope-question")
-    assert AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true) == []
+    assert AlertFeed.list(roots: [], needs_attention: true) == []
   end
 
   test "persists before opening the subscription or emitting the alert" do

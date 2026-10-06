@@ -14,10 +14,36 @@ GitHub issue state is label-based:
 - `agent:cancelled`
 - `agent:canceled`
 
+### Changing state: always `aiur_set_ticket_state`
+
+```
+aiur_set_ticket_state({ "state": "human-review" })
+```
+
+It makes `agent:<state>` the **only** `agent:*` state label on your issue: Aiur
+re-reads the issue and removes every other state label it actually finds.
+
+**Never move state with `gh issue edit --add-label` / `--remove-label`.** You do
+not own the label alone — the daemon transitions it too (the CI-pass handoff
+swaps `agent:ci-wait` → `agent:in-progress` before it wakes you). So any label
+you name in a `--remove-label` is a guess about the past: if the daemon already
+replaced it, your removal is a silent no-op, and the ticket is left carrying two
+`agent:*` state labels. That pair is a broken lifecycle state — dispatch refuses
+it and a heal has to guess which label was meant (aiur-team/khala#198, #2805).
+Declaring where you are going is the only safe move, because you cannot know
+what the current label is by the time your command runs.
+
+`aiur_set_ticket_state` accepts `in-progress`, `ci-wait`, `human-review`,
+`rework`, `error`, and `done`, with or without the `agent:` prefix. It refuses
+`todo` (dispatch owns the pre-work state) and `merging` / `cancelled` (Executor
+dispositions). A failure response means the state did **not** change: report it
+in the workpad rather than falling back to raw label edits.
+
 ## The turn workflow
 
 1. Read the issue and current labels.
-2. If state is `todo`, move it to `in-progress`.
+2. If state is `todo`, move it to `in-progress` with
+   `aiur_set_ticket_state({ "state": "in-progress" })`.
 3. Find or create one persistent issue comment titled `## Agent Workpad`.
 4. Keep all progress, plan, validation, PR URL, blockers, final notes, and the
    current handoff in that single workpad comment.
@@ -32,14 +58,18 @@ GitHub issue state is label-based:
    re-cut and resolve semantic drift yourself; do not leave stale-code updates
    for the Executor or reviewers.
 10. When implementation and draft-PR self-review are complete and only CI
-    remains, move the issue to `agent:ci-wait` and end the turn. The daemon owns
+    remains, move the issue to `agent:ci-wait` (`aiur_set_ticket_state`) and end
+    the turn. The daemon owns
     continuous CI polling. Do not loop on `gh pr checks` in a live agent turn.
     A stub standing where an acceptance criterion should be means the work is
     not complete — declare the missing dependency with `aiur_declare_blocker`
     instead of advancing the label.
 11. On a delivered CI pass, recheck current-base ancestry. If the base moved,
     update and validate your branch and return to `agent:ci-wait`; otherwise
-    mark the PR ready and move the issue to `Human Review`.
+    mark the PR ready and move the issue to `agent:human-review`. Use
+    `aiur_set_ticket_state` for that move: the daemon's CI-pass handoff has
+    already relabelled the ticket `agent:in-progress`, so a hand-written
+    `--remove-label agent:ci-wait` removes nothing and strands the pair.
 12. Move the issue to `Done` only when the issue explicitly says the agent should
     close it out without human review.
 13. Before ending a turn while the issue remains active, update the handoff with
@@ -67,7 +97,8 @@ change, treat it as active feedback even if GitHub marks the thread outdated.
 Either make and push the requested change, or verify the current branch already
 addresses it, then reply concisely on that exact thread with the evidence.
 
-Before moving the issue back to `agent:human-review`, re-fetch the relevant
+Before moving the issue back to `agent:human-review` (with
+`aiur_set_ticket_state`), re-fetch the relevant
 review thread and confirm your reply is now the latest comment. If the reply is
 missing, retry or keep the issue in `agent:rework`; do not mark the feedback
 handled based only on an attempted reply command.

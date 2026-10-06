@@ -5,9 +5,9 @@ defmodule Aiur.Workspace.Provisioner do
   """
 
   require Logger
-  alias Aiur.{Config, RepoBase, TicketBranch, Tracker}
+  alias Aiur.{AgentGitHubGuard, Config, RepoBase, TicketBranch, Tracker}
   alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.Workspace.{Checkout, Context, Materialize, Reconstruction, Remote}
+  alias Aiur.Workspace.{Checkout, Context, DirtyGuard, Materialize, Reconstruction, Remote}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
   @remote_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentScratch]
@@ -31,6 +31,39 @@ defmodule Aiur.Workspace.Provisioner do
 
   def maybe_install_agent_support(workspace, worker_host) when is_binary(worker_host) do
     maybe_install_agent_support(workspace, worker_host, &Remote.run_remote_script/3)
+  end
+
+  @doc false
+  # The last check before an agent turn starts on a local workspace (#2697).
+  # A workspace can be rebuilt after `create_for_issue/3` installed its support
+  # tree (before_run reconstruction or stale-leftover recreation), and the agent
+  # environment still points PATH, GH_CONFIG_DIR and the quota path into it. A
+  # missing piece is repaired with the full local install; if it is still
+  # missing, dispatch is refused with the names of the missing pieces.
+  @spec ensure_local_agent_support(Path.t()) :: :ok | {:error, term()}
+  def ensure_local_agent_support(workspace) when is_binary(workspace) do
+    case AgentGitHubGuard.missing_workspace_support(workspace) do
+      [] ->
+        :ok
+
+      missing ->
+        Logger.warning("Repairing incomplete agent support before dispatch workspace=#{workspace} missing=#{inspect(missing)}")
+
+        case maybe_install_agent_support(workspace, nil) do
+          :ok ->
+            verify_local_agent_support(workspace)
+
+          {:error, reason} ->
+            {:error, {:agent_support_repair_failed, workspace, AgentGitHubGuard.missing_workspace_support(workspace), reason}}
+        end
+    end
+  end
+
+  defp verify_local_agent_support(workspace) do
+    case AgentGitHubGuard.missing_workspace_support(workspace) do
+      [] -> :ok
+      missing -> {:error, {:agent_support_incomplete, workspace, missing}}
+    end
   end
 
   @doc false
@@ -367,6 +400,7 @@ defmodule Aiur.Workspace.Provisioner do
       [
         "set -eu",
         Remote.remote_shell_assign("workspace", workspace),
+        DirtyGuard.remote_check_script(),
         "rm -rf \"$workspace\"",
         "mkdir -p \"$workspace\""
       ]
@@ -374,6 +408,8 @@ defmodule Aiur.Workspace.Provisioner do
 
     case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
       {:ok, {_output, 0}} -> :ok
+      {:ok, {_output, 75}} -> DirtyGuard.refuse(workspace, :dirty)
+      {:ok, {_output, 76}} -> DirtyGuard.refuse(workspace, :git_status_failed)
       {:ok, {output, status}} -> {:error, {:workspace_prepare_failed, worker_host, status, output}}
       {:error, reason} -> {:error, reason}
     end
@@ -393,13 +429,20 @@ defmodule Aiur.Workspace.Provisioner do
 
   defp force_recreate_workspace(workspace, branch_name, pr_head_ref) do
     Reconstruction.with_log_lock(workspace, fn ->
-      File.rm_rf!(workspace)
-
-      case create_or_materialize(workspace, branch_name, pr_head_ref) do
-        {:ok, _workspace, _created?} -> :ok
+      case DirtyGuard.check(workspace, nil) do
+        :ok -> replace_workspace(workspace, branch_name, pr_head_ref)
         {:error, _reason} = error -> error
       end
     end)
+  end
+
+  defp replace_workspace(workspace, branch_name, pr_head_ref) do
+    File.rm_rf!(workspace)
+
+    case create_or_materialize(workspace, branch_name, pr_head_ref) do
+      {:ok, _workspace, _created?} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   # A materialization failure can race the first transcript event for an

@@ -1,6 +1,8 @@
 # Configuration reference
 
-Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files.
+Configuration lives in `.aiur/config` (YAML), and `prompt_file:` and `hooks_file:` point at sibling files. With no local config, Aiur uses `~/.aiur/config` without per-repository init. Global GitHub startup announces its current-origin target and ensures workflow/marker and complexity labels, without creating model labels.
+
+Omit `tracker.github.repo` for portable defaults; a conflicting explicit repo fails safely. Shared credentials can live in `~/.aiur/.env` using the precedence below.
 
 Older root-level config files are rejected. When moving one, also move the files it references, or rewrite their paths so they still resolve from the new config directory.
 
@@ -219,6 +221,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.rate_limit_fallback` | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
+| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. A productive turn resets the count; 0 disables the bound. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
@@ -294,6 +297,22 @@ means direct-only, always. Routing through OpenRouter is something you write.
 
 #### What happens when a route fails
 
+A session-limit refusal pauses the worker without spending a retry. Aiur trusts the Claude CLI's own API-error marker (aiur-claude forwards it as `provider_error`) or CLI stderr, never assistant text alone. A configured, eligible fallback can take over. Otherwise a valid reset time allows resume on a later poll, subject to capacity and operator pauses.
+
+A Claude reset timestamp that already passed is discarded. Without a valid deadline, recovery requires a fresh provider observation. Pending resume requests retain their identity until acknowledgment, leaving other paused tickets eligible on subsequent polls.
+
+A Codex usage-limit refusal (`codexErrorInfo: usageLimitExceeded` on an `error` notification or a failed `turn/completed`) takes the same path. Aiur reads only the error fields, never assistant or tool text. The ticket status reads `provider_limited`, not `waiting_for_human`.
+
+The Codex reset comes from the exhausted window's numeric `resetsAt` in `account/rateLimits`. Without it, Aiur reads the refusal text, such as "try again at Sep 21st, 2026 6:26 PM", and rounds it up to the end of that minute.
+
+The text names no zone. Aiur reads it in `agent.codex.reset_time_zone`, or in the daemon host's zone when that key is unset. A clock time that passed in the last two hours, or a date without a year that passed in the last day, is not moved a day or a year ahead.
+
+A text reset that already passed never resumes the worker at once. Aiur sets the reset to the refusal time plus `agent.codex.reset_min_delay_seconds` (default 300). A future text reset and the numeric `resetsAt` are kept as they are.
+
+A usage-limit refusal that comes within two hours of the previous one for the same backend backs off. The second refusal holds the backend for 10 minutes, and each later one doubles the hold, to at most one hour. A later provider reset still wins.
+
+Claude clock hints with an IANA timezone are converted to UTC; unknown reset times require a fresh recovery observation.
+
 | Cause | Behaviour |
 | --- | --- |
 | **No API key configured** | The route is skipped at selection time and the next entry is used. Named once at startup in the log, not per claim. If *every* entry lacks its key, aiur fails loudly rather than dispatching nothing. |
@@ -329,6 +348,25 @@ These settings control the OpenRouter *transport*; selection lives entirely in `
 | `agent.backend_configs.openrouter.provider.ignore` | array of strings or nil | omitted | Upstream providers to exclude. |
 | `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean or nil | omitted | Whether OpenRouter may cross to another upstream within one request. |
 | `agent.backend_configs.openrouter.provider.sort` | string or nil | omitted | `price`, `throughput`, or `latency`. |
+
+#### `agent.backend_configs.muse`
+
+Select `muse` in `agent.priority` to dispatch native Muse sessions. `aiur init` asks separately before trusting an agent workspace; selecting Muse alone leaves that trust disabled. Enable it only for workspaces whose skills and rules you intend Muse to load. Muse CLI authentication is handled by `muse auth` outside Aiur's config.
+
+Local Muse sessions retain a native session handle across Aiur restarts. Aiur
+starts a fresh session only when Muse explicitly reports that the stored session
+was not found. Other resume errors, including a busy session, timeout, or
+mismatched session identity, remain failures to preserve conversation continuity.
+
+Remote workers and Claude Remote Control are unsupported for Muse.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.muse.command` | non-empty string | `muse serve` | Command launching the native Muse MSP server. |
+| `agent.backend_configs.muse.trust_workspace` | boolean | `false` | Allows Muse to load workspace-local skills and rules. `aiur init` asks explicitly before writing `true`. |
+| `agent.backend_configs.muse.approval_mode` | string | `onRequest` | Muse approval mode: `allowAll`, `promptUnmatched`, `onRequest`, or `denyUnmatched`. |
+| `agent.backend_configs.muse.model` | string or nil | nil | Optional Muse model override; omit to use the CLI default. |
+| `agent.backend_configs.muse.provider_id` | string or nil | nil | Optional Muse provider identifier. |
 
 #### Cost attribution
 
@@ -402,6 +440,8 @@ is rejected with a migration hint rather than silently falling back to defaults.
 | `agent.codex.read_timeout_ms` | integer | 5000 | Codex app-server read timeout. |
 | `agent.codex.thrash_max_per_window` | integer | 6 | Rapid restart limit per window. |
 | `agent.codex.thrash_window_seconds` | integer | 60 | Thrash-counting sliding window. |
+| `agent.codex.reset_time_zone` | string or nil | nil | IANA zone for the reset time in Codex usage-limit text. Nil uses the daemon host's zone. For a remote `worker_host`, set the worker's zone: Aiur cannot read it. The numeric `resetsAt` needs no zone and wins when present. |
+| `agent.codex.reset_min_delay_seconds` | integer | 300 | Least wait before a resume when the Codex usage-limit text names a reset that already passed. |
 
 ## Model discovery
 
@@ -471,7 +511,7 @@ costed at zero. A refresh logs how many discovered models are unpriced.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.backend_configs.<backend>.model_discovery` | boolean | true | Set `false` to stop aiur asking this backend's catalogue endpoint. The curated list keeps working. |
+| `agent.backend_configs.<backend>.model_discovery` | boolean | true | Set `false` to stop aiur asking this backend for its model list — the catalogue endpoint for an OpenAI-compatible backend, or the CLI's `model/list` for `codex` and `claude`. The curated list and any list already cached keep working; aiur just stops refreshing them. |
 
 ```yaml
 agent:

@@ -505,10 +505,13 @@ defmodule Aiur.AppServer.AdapterTest do
     path = Path.dirname(elixir) <> ":" <> System.get_env("PATH")
     expression = ~S|IO.puts("#{System.get_env("AIUR_AGENT_MIX_SCHEDULERS")}:#{System.schedulers_online()}")|
 
+    # Exercise the agent cap independently of the parent test VM's scheduler flags.
     assert {:ok, port} =
              Adapter.start_port(
                File.cwd!(),
-               "PATH=#{Aiur.Shell.escape(path)} #{Aiur.Shell.escape(mix)} run --no-compile --no-deps-check --no-start -e #{Aiur.Shell.escape(expression)}"
+               "PATH=#{Aiur.Shell.escape(path)} #{Aiur.Shell.escape(mix)} run --no-compile --no-deps-check --no-start -e #{Aiur.Shell.escape(expression)}",
+               fn _port -> :ok end,
+               env: [{"ERL_FLAGS", false}]
              )
 
     assert_receive {^port, {:data, {:eol, "4:4"}}}, 20_000

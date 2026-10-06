@@ -413,7 +413,7 @@ defmodule Aiur.Workflow do
     if String.trim(content) == "" do
       {:ok, %{}}
     else
-      case YamlElixir.read_from_string(content) do
+      case Aiur.Yaml.read_from_string(content) do
         {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
         {:ok, _} -> {:error, :workflow_front_matter_not_a_map}
         {:error, reason} -> {:error, reason}

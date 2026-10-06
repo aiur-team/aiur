@@ -55,7 +55,7 @@
   <header class="topbar">
     <a class="brand-mini" href="/" aria-label="Aiur home">
       <img class="brand-mini-logo" src="/assets/aiur-logo.png" alt="" />
-      <span>aiur · cli</span>
+      <span>aiur</span>
     </a>
     <nav class="topbar-actions" aria-label="Primary navigation">
       <a class="topbar-link" href="/docs/guide/quick-start">Docs</a>
@@ -84,16 +84,17 @@
         <p class="tagline keepout">AI Unit Runtime for Executors</p>
         <div class="install-wrap keepout" id="installWrap">
           <div class="install-box">
-            <div class="pm-tabs" role="tablist" aria-label="Package manager">
-              <button class="pm-tab is-active" role="tab" aria-selected="true" data-pm="npm">npm</button>
+            <div class="pm-tabs" role="tablist" aria-label="Get started">
+              <button class="pm-tab is-active" role="tab" aria-selected="true" data-pm="prompt">Prompt</button>
+              <button class="pm-tab" role="tab" aria-selected="false" data-pm="npm">npm</button>
               <button class="pm-tab" role="tab" aria-selected="false" data-pm="bun">bun</button>
               <button class="pm-tab" role="tab" aria-selected="false" data-pm="pnpm">pnpm</button>
               <button class="pm-tab" role="tab" aria-selected="false" data-pm="yarn">yarn</button>
             </div>
-            <div class="install">
-              <span class="prompt">$</span>
-              <span class="cmd" id="installCmd">npm i -g aiur-cli</span>
-              <button class="copy" id="copyBtn" aria-label="Copy install command">
+            <div class="install is-prompt" id="installRow">
+              <span class="prompt" aria-hidden="true">$</span>
+              <span class="cmd" id="installCmd">Let's run parallel agents with: https://aiur.team/</span>
+              <button class="copy" id="copyBtn" aria-label="Copy prompt">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="9" y="9" width="11" height="11" rx="2.2"></rect>
                   <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>

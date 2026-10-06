@@ -19,9 +19,40 @@ npm install -g aiur-cli
 
 `python3` is optional: it powers the local budget broker, and without it the daemon runs GitHub requests unmetered. Everything below the baseline is optional — see [Optional Optimizations](/reference/optional-optimizations) for what you can turn on and what it costs.
 
+### Codex on Linux
+
+Codex needs a working Linux command sandbox before Aiur can dispatch Codex workers. Install Bubblewrap on Linux or WSL2 (`sudo apt install bubblewrap` on Ubuntu/Debian, or `sudo dnf install bubblewrap` on Fedora). On Ubuntu 24.04, a restricted user namespace may also require the packaged AppArmor profile:
+
+```bash
+sudo apt update
+sudo apt install apparmor-profiles apparmor-utils
+sudo install -m 0644 /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/bwrap-userns-restrict
+sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+```
+
+Run `codex sandbox -- /bin/pwd` on the worker host. It should print the current directory and exit successfully. `aiur init` runs the same bounded probe when Codex is selected and shows the command's failure output if it fails.
+
+A successful prewarm build runs outside the worker sandbox and does not establish that Codex commands can run. See [Codex's sandbox prerequisites](https://learn.chatgpt.com/docs/sandboxing) for other distributions and current recovery steps.
+
 ## Initialize
 
-Run `aiur init` in the repository Aiur should operate.
+Run `aiur init` once for your first setup. Choose **global** to store reusable defaults in `~/.aiur/config`; any project without local config can reuse them.
+
+With global defaults already present, run `aiur` in another GitHub repository without running `init` there. Aiur announces the fallback, infers the target from `origin`, and ensures workflow/marker and complexity labels before dispatch.
+
+It does not create model, effort, or alias labels; models and complexity routing come from config. Existing model overrides remain supported.
+
+Keep reusable credentials in `~/.aiur/.env` (outside Git), or use configured GitHub App credentials or `gh auth login`. Missing labels require Issues read/write permission; startup stops with an actionable error if setup fails. When required labels already exist, no label writes are made.
+
+Omit `tracker.github.repo` from portable global defaults; a different explicit repo is rejected rather than modifying the wrong repository. Global branch and agent settings still apply, so use local `aiur init` when a repository needs different settings.
+
+A repository-local `.aiur/config` takes precedence; use `init` for repository-specific configuration.
+
+Each repository needs an authorized dispatch operator and the configured base branch with accepted prerequisites. Establish `.github/CODEOWNERS` with the approved human owner, or use explicit `tracker.github.allowed_users`; missing fallback trust denies dispatch.
+
+Worker pushes and PR publication need Write access in addition to issue reads. See [GitHub permissions](/apis/github) for credential setup; the Executor reports access or setup blockers before describing workers as active.
+
+The wizard offers these setup steps:
 
 | Setup step | Result |
 | --- | --- |
@@ -35,6 +66,8 @@ Run `aiur init` in the repository Aiur should operate.
 Add `agent:todo` to the issues you want worked. If agents are hitting rate limits, consider the optional [GitHub App setup](/apis/github#github-app-authentication).
 
 GitHub Free does not expose rulesets or classic branch protection for private repositories. When GitHub reports that plan limit during CI-readiness setup, `aiur init` shows GitHub's explanation and continues without saving a full readiness assessment. Make the repository public or upgrade its plan to enable that verification.
+
+For native Muse, install and authenticate its CLI before selecting `muse` in the wizard. Workspace trust is a separate opt-in that lets Muse load the installed skills and repository rules; see [Muse configuration](/reference/configuration#agent-backend-configs-muse).
 
 ## First run
 

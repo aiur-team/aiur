@@ -309,6 +309,7 @@ defmodule Aiur.CoreTest do
              Enum.sort([
                "examples/workflows/github-claude.yaml",
                "examples/workflows/github-codex.yaml",
+               "examples/workflows/github-muse.yaml",
                "examples/workflows/linear-codex.yaml"
              ])
 
@@ -339,7 +340,8 @@ defmodule Aiur.CoreTest do
     try do
       for path <- [
             "examples/workflows/github-codex.yaml",
-            "examples/workflows/github-claude.yaml"
+            "examples/workflows/github-claude.yaml",
+            "examples/workflows/github-muse.yaml"
           ] do
         Workflow.set_workflow_file_path(Path.expand(path))
         settings = Config.settings!()

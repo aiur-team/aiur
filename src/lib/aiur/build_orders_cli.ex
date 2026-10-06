@@ -11,6 +11,7 @@ defmodule Aiur.BuildOrdersCLI do
   """
 
   alias Aiur.BuildOrder.{Catalog, ProgressRenderer, ProviderHealth, RootSummary}
+  alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{JSONSafe, TrackerIdentity}
   alias AiurWeb.BuildOrder.{DataSource, Runtime}
@@ -69,7 +70,7 @@ defmodule Aiur.BuildOrdersCLI do
        page: "build-orders",
        snapshot: %{captured_at: captured_at},
        request: %{},
-       sources: %{planning_catalog: planning_source(snapshot, captured_at)},
+       sources: Map.merge(%{planning_catalog: planning_source(snapshot, captured_at)}, planning_runtime_sources(snapshot, captured_at)),
        data: %{catalog: snapshot.data},
        auxiliary: %{}
      }}
@@ -77,8 +78,10 @@ defmodule Aiur.BuildOrdersCLI do
 
   defp envelope(%{root: root}, %Snapshot{data: %Catalog{} = catalog}, source, captured_at) do
     with {:ok, identity} <- root_identity(catalog, root),
-         {:ok, %Snapshot{} = planning} <- Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}),
+         {:ok, %Snapshot{} = demanded} <- Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}),
          sources when is_map(sources) <- Runtime.safe_source_call(source, :load_runtime_sources, [], %{}) do
+      planning = refresh_due(source, identity, demanded, captured_at)
+
       model = BuildOrderPresenter.present(planning, Map.get(sources, :execution), Map.get(sources, :activity))
       grid = BuildOrderGridModel.build(model, nil)
 
@@ -88,14 +91,18 @@ defmodule Aiur.BuildOrdersCLI do
          page: "build-orders",
          snapshot: %{captured_at: captured_at},
          request: %{root: root},
-         sources: %{
-           planning_graph: planning_source(planning, captured_at),
-           execution: runtime_source(model.execution_health),
-           activity: runtime_source(model.activity_health)
-         },
+         sources:
+           Map.merge(
+             %{
+               planning_graph: graph_source(planning, captured_at),
+               execution: runtime_source(model.execution_health),
+               activity: runtime_source(model.activity_health)
+             },
+             planning_runtime_sources(planning, captured_at)
+           ),
          data: %{
            root: model.root,
-           graph: graph(model, grid),
+           graph: graph(model, grid, planning),
            runtime: %{execution: model.execution_health, activity: model.activity_health}
          },
          auxiliary: %{}
@@ -108,6 +115,33 @@ defmodule Aiur.BuildOrdersCLI do
 
   defp envelope(_request, _snapshot, _source, _captured_at), do: {:error, "could not read the Build Order catalog"}
 
+  # Demand alone never fetches. An explicit CLI read recovers a missing or stale
+  # graph, including roots with no live dashboard watcher. Keep provider backoff
+  # and in-flight coalescing; the retained snapshot is returned without waiting
+  # for the network, and its observation time remains truthful while refreshing.
+  defp refresh_due(source, identity, %Snapshot{health: health} = demanded, now) do
+    needs_read? = is_nil(demanded.data) or health.state == :stale
+
+    if needs_read? and not health.refreshing? and GraphProjection.read_due?(demanded, now),
+      do: refresh_held(source, identity, demanded),
+      else: demanded
+  end
+
+  defp refresh_held(source, identity, demanded) do
+    _ = Runtime.safe_source_call(source, :refresh, [identity], :ok)
+
+    case Runtime.safe_source_call(source, :selected, [identity], {:error, :unavailable}) do
+      {:ok, %Snapshot{} = selected} -> selected
+      _failure -> demanded
+    end
+  end
+
+  # A graph that was never read and has no recorded failure is loading, not
+  # unavailable: the same rule the page's route state applies before it shows its
+  # shimmer. A recorded failure is the only honest "unavailable".
+  defp loading?(%Snapshot{data: nil, health: %ProviderHealth{state: :unavailable, failure: nil}}), do: true
+  defp loading?(_snapshot), do: false
+
   defp root_identity(%Catalog{entries: entries}, root) do
     case Enum.filter(entries, &(match?(%{identity: %TrackerIdentity{identifier: ^root}}, &1) and TrackerIdentity.joinable?(&1.identity))) do
       [%{identity: identity}] -> {:ok, identity}
@@ -116,9 +150,9 @@ defmodule Aiur.BuildOrdersCLI do
     end
   end
 
-  defp graph(model, grid) do
+  defp graph(model, grid, planning) do
     %{
-      status: model.status,
+      status: graph_status(model, planning),
       summary: model.summary,
       completion: ProgressRenderer.json(grid.overall_completion),
       # `ProgressRenderer.json/1` is the shared contract and carries no
@@ -130,8 +164,18 @@ defmodule Aiur.BuildOrdersCLI do
       waves: grid.waves,
       members: members(model, grid),
       edges: edges(grid),
-      diagnostics: model.diagnostics
+      diagnostics: graph_diagnostics(model, planning)
     }
+  end
+
+  defp graph_status(model, planning), do: if(loading?(planning), do: :loading, else: model.status)
+
+  # The presenter's `provider_unavailable` diagnostic describes a fetch that
+  # failed; a first read still in flight has not failed, so it does not carry it.
+  defp graph_diagnostics(model, planning) do
+    if loading?(planning),
+      do: Enum.reject(model.diagnostics, &match?(%{code: :provider_unavailable}, &1)),
+      else: model.diagnostics
   end
 
   defp members(model, grid) do
@@ -162,11 +206,25 @@ defmodule Aiur.BuildOrdersCLI do
     end)
   end
 
+  defp graph_source(%Snapshot{} = snapshot, captured_at) do
+    if loading?(snapshot),
+      do: %{state: :loading, observed_at: nil, age_ms: nil, freshness: :unknown, partial: true, reasons: []},
+      else: planning_source(snapshot, captured_at)
+  end
+
   defp planning_source(%Snapshot{data: data, health: health}, captured_at) do
     source(health, captured_at, empty?: empty?(data), diagnostics: diagnostics(data))
   end
 
   defp planning_source(_snapshot, _captured_at), do: unavailable_source(:planning_unavailable)
+
+  defp planning_runtime_sources(%Snapshot{} = snapshot, captured_at) do
+    [membership: snapshot.membership_health, ticket_status: snapshot.status_health]
+    |> Enum.reduce(%{}, fn
+      {name, %ProviderHealth{} = health}, sources -> Map.put(sources, name, source(health, captured_at, []))
+      {_name, _health}, sources -> sources
+    end)
+  end
 
   defp runtime_source(:available), do: unknown_source(:available)
   defp runtime_source(_health), do: unavailable_source(:runtime_unavailable)

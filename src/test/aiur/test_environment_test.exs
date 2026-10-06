@@ -231,12 +231,14 @@ defmodule Aiur.TestEnvironmentTest do
     "AIUR_ERLANG_COOKIE",
     "AIUR_TMUX_CONF",
     "AIUR_TMUX_SESSION",
-    "AIUR_TMUX_SOCKET",
-    "XDG_RUNTIME_DIR"
+    "AIUR_TMUX_SOCKET"
   ]
 
   test "test setup removes env inherited from aiur shells" do
     assert Enum.all?(@sanitized_env_vars, &(System.get_env(&1) == nil))
+
+    assert System.fetch_env!("XDG_RUNTIME_DIR") ==
+             Path.join(Application.fetch_env!(:aiur, :test_state_root), "run")
   end
 
   test "test setup provides a writable HOME" do
