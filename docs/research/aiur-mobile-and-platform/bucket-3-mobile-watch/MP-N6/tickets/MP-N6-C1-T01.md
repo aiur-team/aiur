@@ -5,7 +5,7 @@ chunk_id: MP-N6-C1
 bucket: 3-mobile-watch
 title: Device Command API — scope, pipelines and GET /api/v1/device/commands/:id view model
 status: ready
-blocked_by: [DESIGN-N6 (no-UI release), MP-N6-C1-T00, MP-N2-C6-T1, MP-E2-C1-T1, MP-E2-C1-T4, MP-E4-C3, RQ-TRANSPORT (RC-15)]
+blocked_by: [DESIGN-N6 (no-UI release), MP-N6-C1-T00, MP-N2-C6-T01, MP-N2-C6-T03, MP-E2-C1-T01, MP-E2-C1-T04, MP-E4-C3-T02, RQ-TRANSPORT (RC-15)]
 prior_units: []
 prior_boundaries: [DEC #27, WEB #34]
 prior_features: [MP-E2, MP-E4, MP-N2]
@@ -31,7 +31,7 @@ delivery state, `anchor` (`{conversation_id, pos, anchor_id, precision}` from MP
 
 ## Dependencies and blockers
 
-- MP-N2-C6-T1 (device-auth plug), MP-E2-C1-T1/T4 (v2 fields and read API shape),
+- MP-N2-C6-T01 (device-auth plug), MP-E2-C1-T01/T04 (v2 fields and read API shape),
   MP-E4-C3 (anchor lookup by `decision_id`), C1-T00.
 - RQ-TRANSPORT (RC-15): the phone reaches the instance over the transport DESIGN-N2 picks;
   the API is identical either way.
@@ -52,10 +52,9 @@ delivery state, `anchor` (`{conversation_id, pos, anchor_id, precision}` from MP
 ## Chosen design
 
 ```elixir
-# PROPOSED, above the :dashboard_auth API scope
-pipeline :device_write do
-  plug(:require_custom_header)      # existing plug, router.ex:247 (x-aiur-request: 1)
-end
+# PROPOSED, above the :dashboard_auth API scope.
+# :device_auth (MP-N2-C6-T01) and :device_write (MP-N2-C6-T03) are defined by MP-N2
+# (pairing contract §4.4, Phase D); this ticket only uses them.
 
 scope "/api/v1/device", AiurWeb do
   pipe_through(:device_auth)        # MP-N2-C6 name (CR-N6-1)

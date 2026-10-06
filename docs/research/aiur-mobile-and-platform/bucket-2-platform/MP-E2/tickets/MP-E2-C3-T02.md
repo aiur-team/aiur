@@ -9,7 +9,7 @@ blocked_by: [DESIGN-E2, MP-E2-C3-T01]
 prior_units: [U6]
 prior_boundaries: [DEC #27, WEB #34]
 prior_features: [MP-N6 (reuses the facade), MP-E4 (answering from the conversation drawer, D15)]
-prior_findings: [D11, contract §6, §9; #3005 operator_relayed]
+prior_findings: [D11, RC-41, security B2/M4/m8, contract §6, §9; #3005/#3006 operator_relayed]
 size_owner: "n/a — new module; WEB untouched here (C3-T03 wires the dashboard)"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -37,11 +37,12 @@ researched: 2026-10-06
 
 - Blocked by **DESIGN-E2** (§4.4 outcome copy lives in the surfaces, not here; the
   outcome atoms below are what DESIGN-E2's rows map to).
-- Predecessor: C3-T01 (`human_actor?/1`, `ConflictSummary`).
-- **#3005** (open): adds `operator_relayed`. This facade accepts it when the
-  `DecisionAnswer` actor list contains it and treats it as human; otherwise it is
-  rejected as `:invalid_actor`. No code change needed when #3005 lands besides the
-  test enabling it.
+- Predecessor: C3-T01 (`human_attributed?/1`, `precedence/1`, `ConflictSummary`,
+  `actor_source` in the store).
+- **#3005/#3006** (open): add `operator_relayed`. This facade does **not** accept
+  `operator_relayed`: the only relay entry point is `aiur operator-relay-answer`
+  (`actor_source: :relay_cli`), which calls the store, not this facade. A relayed
+  actor passed to the facade is `:not_allowed, :invalid_actor`.
 - May run concurrently with C2, C4.
 
 ## Verified starting point (`45a290e3`)
@@ -59,23 +60,33 @@ researched: 2026-10-06
 @type surface :: :dashboard | :streamdeck | :cli | :api | :phone | :watch | :conversation
 @spec answer(String.t(), map(), keyword()) :: outcome()
 @spec supersede(String.t(), map(), keyword()) :: outcome()
-# opts: actor: %{kind, id}, client: %{surface, device_id}, store: server
+# opts: actor: %{kind, id}, client: %{surface, device_id}, actor_source: atom (REQUIRED), store: server
 @type outcome ::
   %{status: :accepted | :duplicate, decision: Decision.t(), delivery: :pending | :delivered | :queued_for_restart}
   | %{status: :already_answered, winner: ConflictSummary.t()}
   | %{status: :too_late, reason: :answer_delivered | :answer_in_flight, winner: ConflictSummary.t()}
   | %{status: :withdrawn, reason: :expired | :moot | :resolved | :dismissed}
   | %{status: :stale, current_version: pos_integer()}
-  | %{status: :not_allowed, reason: :human_answer | :executor_scope | :invalid_actor}
+  | %{status: :not_allowed, reason: :human_answer | :direct_operator_answer | :executor_scope | :invalid_actor}
   | %{status: :error, reason: term()}
 ```
 
-- `answer/3`: requires a human actor for `client.surface != :cli`; maps store results:
+- `answer/3`: requires `direct_human?/1` (`:operator`) for every surface except
+  `:cli`; passes `opts[:actor_source]` to the store unchanged. The caller (a controller,
+  LiveView, channel) sets it from its own entry point: dashboard LiveView
+  `:dashboard_session`, Basic-Auth JSON `:basic_auth`, device bearer `:device` (from
+  `conn.assigns.auth_actor`, MP-N2-C6-T01), Stream Deck `:streamdeck`. A missing
+  `actor_source` raises `ArgumentError` in the facade (a surface must name itself;
+  only raw store calls default to `:rpc`). Maps store results:
   `{:conflict, {:already_decided, _}}` → `:already_answered` + `ConflictSummary`;
   `{:conflict, {:stale_version, _, cur}}` → `:stale`; `{:conflict, s}` with
   `s in [:expired, :moot, :resolved]` → `:withdrawn`.
-- `supersede/3`: human actors only; store refusals `answer_delivered`/`answer_in_flight`
-  → `:too_late`; `{:not_decided, _}` → falls back to `answer/3` (nothing to replace).
+- `supersede/3`: direct operator only; store refusals `answer_delivered`/`answer_in_flight`
+  → `:too_late`; `{:direct_operator_answer, _}` and `{:human_answer, _}` →
+  `:not_allowed` with that reason (unreachable for a direct operator today; kept so a
+  future relay caller cannot be mis-mapped); `{:not_decided, _}` → falls back to
+  `answer/3` (nothing to replace). `ConflictSummary.for/2` gets the caller actor so
+  `replaceable` uses the precedence rank (contract §6 rule 3a), never "caller is human".
 - `delivery`: `:queued_for_restart` when the ticket has no running agent
   (`DecisionStore` reply plus `Aiur.Orchestrator` running check is **not** called here —
   the facade reports `delivery_status` from the returned Decision; "agent not running"
@@ -86,8 +97,9 @@ researched: 2026-10-06
   JSON `{"question_answers": …}` with a `kind` marker so `DecisionDispatch` (and C4-T03)
   can decode it. Rationale: no `DecisionAnswer` schema change (rollback-safe); the v1
   render shows readable text built by `Aiur.Commands.Answering.render_question_answers/2`.
-- `client` is attributed via `actor.id` suffix (`"dashboard"`, `"streamdeck"`,
-  `"phone:<device_id>"`) — no new answer field.
+- `client` is attributed via `actor.id` (`"dashboard"`, `"streamdeck"`,
+  `"device:<device_id>"`, the single spelling in contract §6, security m8) — no new
+  answer field. `phone:` is never written.
 
 ## Implementation steps
 
@@ -123,12 +135,17 @@ env -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- env -C src mix 
 | "operator supersedes undelivered executor answer" | `:accepted`, new active answer actor operator | supersede path |
 | "supersede after delivery is too_late answer_delivered" | as stated | mapping |
 | "supersede while in flight is too_late answer_in_flight" | as stated | mapping |
-| "executor actor through the facade is not_allowed" | `:not_allowed, :invalid_actor` | human-only check |
-| "operator_relayed treated as human when the kind exists" | `:accepted` (test skipped with a reason until #3005) | `human_actor?/1` |
+| "executor actor through the facade is not_allowed" | `:not_allowed, :invalid_actor` | direct-human check |
+| "operator_relayed actor through the facade is not_allowed" | `:not_allowed, :invalid_actor` (fixture kind until #3006 merges) | `direct_human?/1` (swap it for `human_attributed?/1` and the row fails) |
+| "facade records the entry point's actor_source" | `answer/3` with `actor_source: :device` → stored `actor.source == :device`, `actor.id == "device:<id>"` | pass-through of `actor_source` |
+| "facade without actor_source raises" | `ArgumentError`; store double not called | required-opt check |
+| "an answer with no surface context is recorded actor_source: :rpc" (M4; store-level row lives in C3-T01, repeated here through `DecisionStore.answer/5` called directly, which is what an RPC caller does) | `actor.source == :rpc` | C3-T01 default |
+| "already_answered winner carries actor_source and rank-based replaceable" | `winner.actor_source == :dashboard_session`; `replaceable` true for an operator caller against an undelivered Executor winner | `ConflictSummary.for/2` caller arg |
 | "multi-question incomplete answer rejected before store call" | error; store double not called | validation |
 | "multi-question answer encodes and renders" | `render_question_answers/2` text lists every question | encoder |
 
-Mutation check per row (worktree).
+Mutation check per row: revert the hunk in a worktree, confirm the row fails, restore;
+report the commands in the PR.
 
 ## Completion and handoff
 

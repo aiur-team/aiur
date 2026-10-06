@@ -44,7 +44,10 @@ researched: 2026-10-06
   is made by a human, the Executor or the system, not the agent. Either the
   catalog entry carries an override, or the topic moves (for example
   `ticket.<id>.listen-mode.changed`). This ticket implements whichever name
-  MP-R2's catalog fixes.
+  MP-R2's catalog fixes. **Resolved in Phase D (CR-E7-1):** the name stays
+  `ticket.<id>.agent.listen-mode.changed`; the MP-R2 catalog entry declares
+  `attribution: :payload_actor` and the IssueLog reads the payload `actor`
+  (events contract §9).
 
 ## Verified starting point (aiur `45a290e3`)
 

@@ -54,7 +54,9 @@ Apple documentation (accessed 2026-10-06 via developer.apple.com/tutorials/data/
 ## Chosen design
 
 - Body: `{"aps":{"alert":{"title":F.title,"body":F.body},"mutable-content":1},
-  "s":sealed,"k":kid,"v":1}` where `F` is the envelope's `fallback`.
+  "s":sealed,"k":kid,"v":1}` where `F` is the **pinned** fallback for `handle.app_topic`
+  (C2-T01; Phase D security m1). The envelope's `fallback` field is never copied into
+  the alert.
 - Headers: `apns-push-type: alert`; `apns-priority: 10` for `alert_high`, `5` for
   `alert_normal`; `apns-expiration = now + ttl_s` (unix seconds; `0` if `ttl_s == 0`);
   `apns-collapse-id = collapse_token`; `apns-topic = handle.app_topic`;
@@ -93,6 +95,7 @@ Env-configured; no change to T01 API. Production use waits for OQ-N4-1.
 | Test | Expected | Must fail without |
 | --- | --- | --- |
 | `"builds alert push with fallback and sealed fields"` | body/headers exactly as above | omit `mutable-content` |
+| `"alert text is the topic pin even when the envelope fallback differs"` (adapter called directly, bypassing T01's 422) | `aps.alert` equals the pin | read `envelope.fallback` |
 | `"high maps to priority 10, normal to 5"` | headers | constant 10 |
 | `"410 Unregistered marks handle gone"` | `{:gone, "Unregistered"}` | map 410 to retry |
 | `"BadDeviceToken marks handle gone"` | `{:gone, "BadDeviceToken"}` | treat as error |

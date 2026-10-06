@@ -45,7 +45,7 @@ researched: 2026-10-06
   `AgentChat`/`Orchestrator` public APIs; it decides no transition. U2's owner review is
   still requested because the verbs observe control status.
 - MP-E3 (Executor conversation) will add send paths; its tickets should call these modules
-  (note via MP-R1-C11-T2).
+  (note via MP-R1-C11-T02).
 
 ## Verified starting point (45a290e3)
 
@@ -113,5 +113,5 @@ reads the engine). Moved tests must keep every asserted string. Mutation check: 
 
 - [ ] Both files < 500 lines; 7 delegates; launcher tests green.
 - Docs: none.
-- Dependents: MP-E3 send-path tickets (C11-T2 note). size_owner re-resolved at ticket
+- Dependents: MP-E3 send-path tickets (C11-T02 note). size_owner re-resolved at ticket
   start (RC-23).

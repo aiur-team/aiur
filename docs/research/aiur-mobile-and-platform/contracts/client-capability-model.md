@@ -1,7 +1,7 @@
 ---
 contract_id: MP-CT-client-capability-model
 owner_feature: MP-N1
-status: reconciled (Phase C, 2026-10-06): RC-02, RC-04, RC-15 applied
+status: reconciled (Phase D fix pass, 2026-10-06): RC-02, RC-04, RC-15, RC-36, RC-38, RC-40 applied; X-06, X-07, X-35 fixed
 base_main_sha: 45a290e3
 date: 2026-10-06
 consumes: [MP-CT-identity-and-capabilities (MP-R1), pairing credentials (MP-N2), command-request-and-resolution (MP-E2), events external API (MP-R2)]
@@ -31,9 +31,10 @@ model generalises.
 | C-A2 | `state ∈ {available, degraded, unavailable, unknown}`; reasons as listed | Matches §2.2 |
 | C-A3 | A paired-device credential is accepted on that endpoint | Stated as an assumption to MP-N2 in §5 |
 | C-A4 | `system.capabilities.changed` carries the new `revision` | Matches §2.1 |
-| C-A5 | **Proposed addition:** a `boot_id` (random per daemon start) so a client can tell "same revision after restart" from "unchanged". MP-R1 §4 "Restart" leaves the choice between a persisted counter and a `boot_id` to Phase C. This contract works with either, but needs one. | **Accepted by RC-04**: MP-R1 adds `boot_id` to the report |
-| C-A6 | **Proposed addition:** `min_client_version` per client kind (`phone`, `watch`) at top level, absent = no minimum | **Accepted by RC-04**: MP-R1 adds `min_client_version` |
-| C-A7 | Write endpoints return a typed error naming the capability: `{error: "capability_unavailable", capability, state, reason}` | §3 rule 6 says "a typed error that names the capability"; shape proposed here; **accepted by RC-04** as MP-R1's typed error |
+| C-A5 | **Proposed addition:** a `boot_id` (random per daemon start) so a client can tell "same revision after restart" from "unchanged". MP-R1 §4 "Restart" leaves the choice between a persisted counter and a `boot_id` to Phase C. This contract works with either, but needs one. | **Resolved** (identity §2.2): `boot_id` = `Aiur.Boot.run_id/0`; `revision` is in memory and only increases within one `boot_id`; cache key `(machine_id, instance_id, boot_id, revision)` |
+| C-A6 | **Proposed addition:** `min_client_version` per client kind (`phone`, `watch`) at top level, absent = no minimum | **Resolved** (identity §2.2): top-level `min_client_versions` map, keys `phone`, `watch`, `streamdeck`; empty map = no minimum |
+| C-A7 | Write endpoints return a typed error naming the capability: `{error: "capability_unavailable", capability, state, reason}` | **Resolved** (identity §2.5): that body plus `depends_on`, `revision`, `boot_id`; HTTP 409, or 503 when the reason is `not_running`; existing endpoints adopt it per feature |
+| C-A8 | Run shape and transport facts a client needs (Phase D, CR-R1-3) | `instance.run_shape.http_listener` and `.dashboard_pages` (`dashboard` is a deprecated alias); capability IDs `identity` and `api.http` (`api.http unavailable/not_installed` = the instance has no API). A client offers dashboard page links only when `dashboard_pages` is true |
 
 ## 2. Inputs
 
@@ -70,7 +71,7 @@ Evaluate in order; the first match wins.
 1. I3 `revoked` → `revoked` (for every affordance on that machine).
 2. I3 `session_expired` → attempt one re-bootstrap; on failure → `unknown` with reason `auth`.
 3. I2 `unreachable` → `unreachable`. I2 `transport_error` → `unreachable` carrying the `kind` (never collapsed into one cause; `unknown` when unclassified).
-4. Server `contract_version` lower than the version that introduced the needed ID, or `min_client_version` above this client → `needs_update`.
+4. Server `contract_version` lower than the version that introduced the needed ID → `needs_update` with target `server` ("Update aiur on <machine>"); this client below its `min_client_versions` entry → `needs_update` with target `client` ("Update the app"). Identity §3 rules 3 and 7 say the same.
 5. Any required I1 capability `unavailable` → `unavailable` (carry its `reason`; if several, list all in `reasons` and show the first, AGENTS.md `reasons` pattern).
 6. Any required I1 capability `unknown`, or an unknown `reason` → `unknown`.
 7. I5 does not support the affordance → hidden (not `unavailable`: the server is not at fault).
@@ -87,18 +88,19 @@ write anyway, C-A7).
 
 | Affordance | Required server capabilities | Optional (degrade if missing) | Local requirements | Writes when stale |
 |---|---|---|---|---|
-| Instance row in the meta-dashboard | `instance.status` | `build_orders.progress`, `executor.conversation` (background agents) | — | n/a |
+| Instance row in the meta-dashboard | `instance.status` | `build_orders.progress`, `executor.background_agents` (Phase D, CR-N3-3) | — | n/a |
 | Commands-awaiting count | `commands.read` | — | — | n/a |
-| Build-order % | `build_orders.progress` | — | — | n/a |
+| Build-order % | `build_orders.progress` (owned by `build-orders`, not `build_queue`, RC-40) | — | — | n/a |
 | Open instance dashboard (WebView) | `instance.status` + an established session | — | transport mode `https`, or `http_degraded` when the owner kept that mode (RQ-TRANSPORT; resolves to `degraded`) | n/a |
-| Executor chat button | `executor.conversation` | — | — | n/a |
+| Executor chat button | `executor.conversation` (its `route` attribute names the page; never hard-coded, CR-N3-1) | — | — | n/a |
 | Answer a Command (option or text) | `commands.answer` | — | — | **Yes**, with `expected_version`; the server rejects changed Commands |
-| Send a message to an agent | `agents.message` | `listener_modes` (shows the delivery mode) | — | Yes |
+| Send a message to an agent | `agents.message` | `listener_modes` (shows the delivery mode; when it is `unavailable` the send still works through `:legacy` routing, because the send router is required core, RC-36) | — | Yes |
 | Mic → Dictate (server STT) | `voice.stt` | — | mic permission; transport mode `https` for WebView surfaces (`http_degraded` → `unavailable`, reason `insecure_context`) | Yes |
 | Mic → Dictate (system recognizer, watch) | — (no server voice needed) | — | speech or dictation availability on the device | Yes |
 | Mic → Converse | `voice.conversation` | `voice.tts` (spoken replies; text-only if missing → `degraded`) | mic permission | No: start requires `ready` or `degraded` |
 | Receive push notifications | `push` | — | notification permission; push token | n/a |
-| Build-order progress notifications (setting) | `push`, `build_orders.progress` | — | notification permission | n/a |
+| Build-order progress notifications (setting) | `push`, `build_orders.progress` (works without the build queue, RC-40) | — | notification permission | n/a |
+| Queue progress notifications (setting) | `push`, `build_queue` | — | notification permission | n/a |
 | PR-merge notifications (setting) | `push`, plus the event source MP-N5 names | — | notification permission | n/a |
 | Watch: any server-backed action | the same as the phone affordance | — | watch reachable to phone (I4) | as the phone affordance |
 
@@ -118,11 +120,11 @@ not removed silently).
 |---|---|
 | Pairing completes | Fetch the machine's instance list (MP-N2), then each instance's report |
 | App foreground | Refetch reports older than the budget |
-| `system.capabilities.changed` (if `events.subscribe` is available) | Refetch that instance when `revision` differs |
+| `system.capabilities.changed` (if `events.export` is available) | Refetch that instance when `revision` differs |
 | Reconnect after `unreachable` | Refetch before showing any write control as ready |
 | Before a write | Use the cached state if younger than 10 s, else refetch (cheap GET) |
 | A write returns `capability_unavailable` (C-A7) | Patch the cache from the error, re-render, then refetch |
-| Polling fallback (no `events.subscribe`) | Every 30 s while foreground and visible; none in background |
+| Polling fallback (`events.export` not `available`, including `unavailable/disabled`) | Every 30 s while foreground and visible; none in background |
 
 **Freshness budget (proposed defaults; DESIGN-N3 may change the display, not the rule):**
 a report is `stale` when the client-observed age exceeds 60 s in the foreground, or when
@@ -138,35 +140,29 @@ before showing a write control as ready.
 
 ## 7. Watch projection
 
-The watch never resolves capabilities. The phone resolves them and sends, in each
-watch `snapshot` (MP-N7 §4):
+The watch never resolves capabilities. The phone resolves them with §4 and sends the
+result in each watch `snapshot`. **The snapshot schema is owned by MP-N7-C1-T01**
+(`fixtures/watch-link/schema/snapshot.schema.json`; RC-38): field names, row states (including `starting`), the affordance keys and the
+**16 KiB** size budget are defined there and nowhere else. This section defines no
+fields. MP-N1-C3-T04 also references that ticket instead of defining its own shape.
 
-```json
-{ "as_of": "2026-10-06T16:00:00Z",
-  "phone_reachable_to_machine": {"<machine_id>": "reachable|unreachable"},
-  "instances": [
-    { "instance_id": "…", "label": "aiur-team/aiur",
-      "affordances": {
-        "answer_command": {"state": "ready"},
-        "mic_dictate_server": {"state": "unavailable", "reason": "not_configured"},
-        "mic_dictate_system": {"state": "ready"},
-        "mic_converse": {"state": "unknown"},
-        "build_progress": {"state": "unavailable", "reason": "not_installed"} } } ] }
-```
+What this contract adds to the projection:
 
-Affordance keys in the snapshot (v1): `answer_command`, `mic_dictate_server`,
-`mic_dictate_system` (the watch's own system recognizer; needs no server voice, so the phone
-sends `ready` unless the owner disabled it in DESIGN-N7 D-N7-2), `mic_converse`,
-`build_progress`. The watch adds one local input: whether it can reach the phone now. If not, every
-server-backed affordance renders as `unreachable` with "needs phone" and the snapshot's
-age.
+- Each affordance the snapshot carries is the output of §4 on the phone, with its
+  `state` and, when not `ready`, its `reason`. The watch renders it; it never
+  re-derives it.
+- The watch adds one local input: whether it can reach the phone now. If not, every
+  server-backed affordance renders as `unreachable` with "needs phone" and the
+  snapshot's age.
+- `unavailable`, `unknown` and `unreachable` stay distinct on the watch; none of them is
+  rendered as 0 (§3).
 
 ## 8. Failure and edge behaviour
 
 | Case | Behaviour |
 |---|---|
 | Report endpoint missing (older daemon, 404) | All affordances `needs_update` ("Update aiur on <machine>"). Do not fall back to inference. |
-| Report present, ID missing, `contract_version` ≥ the introducing version | `unavailable` with reason `unknown` (the server should list known-but-absent IDs; MP-R1 §2.4) |
+| Report present, ID missing, `contract_version` ≥ the introducing version | `unknown` (the server lists every known-but-absent ID as `unavailable/not_installed` and a disabled one as `unavailable/disabled`, identity §2.4; a missing ID is therefore a server fault, not a cause) |
 | Capability flaps | Rendering is debounced (2 s); the cache is not |
 | Multiple paired devices | Each device resolves independently; no cross-device capability sharing |
 | Machine with many instances | Reports are fetched in parallel with a cap of 4 concurrent requests per machine |

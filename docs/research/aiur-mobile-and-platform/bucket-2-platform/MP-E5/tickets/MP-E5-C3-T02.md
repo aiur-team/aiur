@@ -5,7 +5,7 @@ chunk_id: MP-E5-C3
 bucket: 2-platform
 title: Converse hand-off from the mic choice to the MP-E6 conversation panel
 status: blocked
-blocked_by: [DESIGN-E5, DESIGN-E6, MP-E5-C3-T01, MP-E6-C7-T02]
+blocked_by: [DESIGN-E5, DESIGN-E6, MP-E5-C3-T01]
 prior_units: []
 prior_boundaries: [VOX, WEB]
 prior_features: [ui-07]
@@ -34,7 +34,9 @@ researched: 2026-10-06
 ## Dependencies and blockers
 
 - **Owner:** DESIGN-E5 (choice) and DESIGN-E6 (panel placement: drawer-embedded or separate).
-- **Predecessors:** MP-E5-C3-T01; MP-E6-C7-T02 (panel component and its `open/2` contract).
+- **Predecessors:** MP-E5-C3-T01. MP-E6-C7-T02 (panel component and its `open/2` contract) is
+  a dependent, not a predecessor: the edge E6-C7-T02 → E5-C3-T02 was dropped to break a cycle
+  (RC-28). This ticket emits the event against the `open/2` contract in voice-session.md.
 - Until MP-E6-C7-T02 lands, Converse is rendered unavailable (`voice.conversation`
   `not_installed`), so this ticket is the only place the event is wired.
 

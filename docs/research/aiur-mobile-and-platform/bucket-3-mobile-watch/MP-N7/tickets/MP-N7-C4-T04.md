@@ -5,7 +5,7 @@ chunk_id: MP-N7-C4
 bucket: 3-mobile-watch
 title: Phone-side relay of watch voice turns to the daemon's device-authenticated voice path
 status: blocked
-blocked_by: [DESIGN-N7, DESIGN-E5, RQ-TRANSPORT, MP-N2-C10-T01, "RC-16 MP-E5 device voice path (voice-session.md §3.5; E5 ticket ID pending)", MP-N7-C4-T03, MP-N7-C1-T02, MP-N7-C1-T03, RQ-N7-6]
+blocked_by: [DESIGN-N7, DESIGN-E5, RQ-TRANSPORT, MP-N2-C10-T01, MP-E5-C8-T01, MP-N7-C4-T03, MP-N7-C1-T02, MP-N7-C1-T03, RQ-N7-6]
 prior_units: []
 prior_boundaries: ["VOX #36"]
 prior_features: [MP-E5, MP-E6, MP-N2]
@@ -33,9 +33,10 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **RC-16 device voice path** (`contracts/voice-session.md` §3.5; owned by MP-E5; its
-  ticket ID is assigned by the MP-E5 Phase C researcher — CONTRACT-REQUESTS item 1).
-- RQ-TRANSPORT / MP-N2-C10-T01: `wss://` vs owner-approved `ws://` on a tailnet (§3.5 rule 7).
+- **RC-16 device voice path** (`contracts/voice-session.md` §3.5): **MP-E5-C8-T01**
+  (ticket endpoint and `/voice/device` socket; Phase D). It accepts `client.kind: "watch"`
+  on joins made with the phone's device credential (§3.5 item 5).
+- RQ-TRANSPORT / MP-N2-C10-T01: `wss://` vs owner-approved `ws://` on a tailnet (§3.5 rule 8).
 - **RQ-N7-6 (new):** whether the daemon's STT path (ElevenLabs realtime, MP-R5) and the
   MP-E6 provider accept audio sent faster than real time. Until answered, the relay paces
   frames at real time (200 ms chunk every 200 ms), which adds the turn's length to latency.
@@ -68,8 +69,12 @@ voice_turn(file) ─► VoiceRelay
 ```
 
 - One socket per session (dictate: one turn; converse: many turns, C4-T05).
-- Errors map to `voice_result.outcome`: `error.reason_code` passed through; network →
-  `unreachable`; timeout → `timeout`; unknown → `unknown`.
+- Errors map to `voice_result.outcome = error{code, retry}` (Phase D feasibility M7: **typed,
+  not passed through generically**). `code` must be a row of voice-session §8.1 (the shared
+  fixture `packages/aiur-mobile/fixtures/contract/voice/end-reasons.json`); `retry` is copied
+  from that row. A daemon code not in the table becomes `unknown` (retry `now`), never a guessed
+  cause. Network → `unreachable`; timeout → `timeout`. `cost_cap`, `provider_quota`,
+  `provider_unavailable` and `transport_lost` stay distinct all the way to the watch.
 - The transcript is returned for review on the watch (no auto-send).
 - **Library choice:** a minimal Phoenix Channels v2 JSON client written in each native core
   (join/push/reply/heartbeat only) to avoid two third-party dependencies; the decision is
@@ -115,6 +120,7 @@ socket server in the test harness that returns `transcript{final:"hello"}`.
 | `framesAre6400Bytes` | all but the last chunk 6,400 B | chunker |
 | `readOnlyMapsToReadOnly` | 403 → `read_only` | mapping |
 | `unknownErrorIsUnknown` | unlisted reason → `unknown` | default branch |
+| `typedErrorCarriesFixtureRetry` | `cost_cap` → `error{code: cost_cap, retry: none}`; `transport_lost` → `retry: now` | the fixture lookup (pass `reason_code` through without `retry` → fails) |
 | `fileDeletedOnEveryPath` | success, error, timeout → file gone | deletes |
 | `realTimePacingDefault` | 10 chunks take ≥ 2 s virtual time | pacing gate |
 

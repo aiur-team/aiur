@@ -80,7 +80,7 @@ Gateway-only.
 5. `"machine response endpoints equal Endpoints.select/2 output"` (stubbed).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/relink_test.exs
 ```
 

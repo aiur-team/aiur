@@ -148,7 +148,7 @@ are no held-async items, so it returns empty. Rollback: remove from
   returned. Mutation: drop the held-async filter → fails.
   `"caps at 50 messages and 64 KiB"`; `"rejects unknown arguments"`.
 - `dynamic_tool_test.exs`: `"catalog includes aiur_read_messages"`.
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur/codex/dynamic_tool_test.exs test/aiur/agent_tools
   test/aiur/orchestrator`.
 - Manual (wrapper-tmux, `:listener` routing, Codex agent in `async`): send two

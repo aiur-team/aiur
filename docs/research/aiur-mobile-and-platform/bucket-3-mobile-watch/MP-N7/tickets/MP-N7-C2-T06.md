@@ -5,7 +5,7 @@ chunk_id: MP-N7-C2
 bucket: 3-mobile-watch
 title: Per-Command option buttons in the Apple Watch long-look (conditional on DV-W10)
 status: blocked
-blocked_by: [DESIGN-N7, DESIGN-N6, MP-N7-C2-T04, MP-N7-C6-T01 (DV-W1, DV-W10 results)]
+blocked_by: [DESIGN-N7, DESIGN-N4 D-7, DESIGN-N6, MP-N7-C2-T04, MP-N7-C6-T01 (DV-W1, DV-W10 results)]
 prior_units: []
 prior_boundaries: []
 prior_features: [MP-N4, MP-N6]
@@ -30,7 +30,10 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- DESIGN-N7 / DESIGN-N6 (whether answering from the notification is wanted).
+- **DESIGN-N4 D-7** (owner of payload content: whether option labels travel in the push
+  payload; recommended there "no labels, the card opens", which means this ticket is **not
+  built**). DESIGN-N7 D-N7-9 is a link to D-7 (review G-7, X7). DESIGN-N7 / DESIGN-N6 decide
+  whether answering from the notification is wanted at all.
 - MP-N7-C2-T04; **DV-W1 and DV-W10 results** (MP-N7-C6-T01): the forwarded notification must
   carry the decrypted options in `userInfo`. If DV-W10 fails, this ticket is closed as
   "not feasible on forwarded notifications" and the default action (C2-T04) remains.
@@ -57,7 +60,7 @@ researched: 2026-10-06
 - Action identifiers `aiur.opt.<option_id>`; options `[]` (no `.foreground`, no
   `.authenticationRequired` is set because the watch is unlocked on wrist for forwarding).
 - On action: build `answer{instance_id, decision_id, expected_version: payload.version,
-  idempotency_key: UUID, created_at: now, selected_option_id}` and call
+  idempotency_key: UUID, created_at: now, option_id}` and call
   `PhoneLink.sendAnswer`; the result is shown as a local notification
   ("Sent" / "Not confirmed — open aiur on iPhone") because the notification UI is gone.
 - The late-answer guard (C1-T04) applies on the phone as for every answer.

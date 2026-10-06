@@ -1,13 +1,13 @@
 # MP-R6 requests to the coordinator
 
-## CR-R6-1 — MP-E4 chunks: retire E4-C3-T1 as written (RC-06)
+## CR-R6-1 — MP-E4 chunks: retire E4-C3-T01 as written (RC-06)
 
-`bucket-2-platform/MP-E4/chunks.md` lists "MP-E4-C3-T1 Neutral
+`bucket-2-platform/MP-E4/chunks.md` lists "MP-E4-C3-T01 Neutral
 `Conversation.Anchors.at_or_before/2` (extracted rule, same tests)". Under RC-06,
 MP-R6-C1-T01 performs that extraction. It creates `Aiur.Conversation.Anchors`
 with `at_or_before/2`, `with_origin/2`, `event_identity/2` and `origin_id/0`.
 Please have the E4 owner make E4-C3 depend on MP-R6-C1-T01, and drop or recast
-C3-T1 as "extend Anchors" (exact/causal precision, `pos`). Otherwise two
+C3-T01 as "extend Anchors" (exact/causal precision, `pos`). Otherwise two
 tickets would move the same code.
 
 ## CR-R6-2 — module name, contract §10 (owner MP-E4)

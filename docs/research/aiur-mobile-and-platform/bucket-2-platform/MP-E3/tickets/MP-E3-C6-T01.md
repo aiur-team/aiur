@@ -44,6 +44,10 @@ researched: 2026-10-06
 
 ## Chosen design
 
+- **Phase D (CR-N3-1):** the `executor.conversation` capability entry carries
+  `"route": "/executor"` (identity contract §2.2 registered attributes), so MP-N3-C4-T03
+  and other clients never hard-code the path. This ticket adds the attribute with the route.
+
 - `ExecutorLive` mounts `Ref.executor()`, reuses `ConversationLive`'s mount,
   paging and live tail through a shared module function (extract
   `AiurWeb.Conversation.Session` helpers in MP-E4-C5-T01 if needed, so both
@@ -84,7 +88,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur_web/live/executor_live_test.exs
 npm --prefix src/browser run fixture:preflight
 env -C src/browser node scripts/run-browser-tests.mjs tests/executor-view.browser.spec.mjs

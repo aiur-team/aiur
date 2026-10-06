@@ -11,6 +11,11 @@ feeds_research_question: MP-Q2 (push relay; designed by MP-N4, not here)
 
 # MP-R4 — The `hooks.aiur.dev` relay: confirm the inbound boundary, feed MP-Q2
 
+- **U0 gate (X-58, RC-19).** Every MP-R4 ticket waits for U0 review of the prior plan
+  (`docs/plans/2026-09-29-001-refactor-production-readiness-plan.md`), because RC-19 keeps
+  that gate for refactor work. U0 has no ticket ID, so the gate is stated here and not in
+  `blocked_by`; the MP-R1-C11-T02 recheck does not replace it.
+
 ## Summary
 
 The "Cloudflare/GitHub App relay" is **an inbound GitHub-webhook tunnel and

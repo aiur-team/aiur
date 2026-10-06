@@ -48,7 +48,7 @@ proposed by sibling tickets:
 | --- | --- |
 | `Source` callbacks `subscribe/2`, `replay/3 → {:ok, records} | {:reset, oldest} | {:error, term}`, `position/1` | `MP-R2-C3-T03.md` "Chosen design" |
 | `JournalSource` reference adapter (replay only; "C6-T04 supplies the live path") | same |
-| `Export.read/3` shapes and `{:export_appended, head_seq, epoch}` on `events:export` | `MP-R2-C6-T02.md` |
+| `Export.read/4` (`opts \\ []`) shapes and `{:export_appended, head_seq, epoch}` on `events:export` | `MP-R2-C6-T02.md` |
 | Reset when epoch differs / cursor below oldest / beyond head | `MP-R2-C6-T03.md` |
 | Precedent: subscribe first, replay from cursor, then live, dedupe | `src/lib/aiur/executor_listener.ex:44-75,133-178` |
 
@@ -61,15 +61,15 @@ PROPOSED: `src/lib/aiur/events/durable_consumer/export_source.ex`,
   kept by the source in the consumer's source opts state: `ExportSource`
   stores the epoch alongside the cursor file
   (`<cursor_path>.epoch`, written with `JsonStore.write!/2`) and passes it to
-  `Reader.read/4`; an epoch mismatch returns `{:reset, oldest}` → the
+  `Export.read(after, limit, patterns, epoch: epoch)` (C6-T02 signature); an epoch mismatch returns `{:reset, oldest}` → the
   consumer calls `handle_reset/2` and persists `oldest - 1` plus the new epoch.
-- **`replay/3`** → `Export.read(after, limit, ["#"])`:
+- **`replay/3`** → `Export.read(after, limit, ["#"], epoch: epoch)`:
   `{:ok, %{records: r}}` → `{:ok, r}`; `{:reset, %{oldest_seq: o}}` →
   `{:reset, o}`; `{:error, :events_unavailable}` → `{:error, :events_unavailable}`.
 - **`subscribe/2`** (C3-T03: "live: send consumer `{:durable_record, record}`")
   → starts a relay process linked to the consumer, which subscribes to PubSub
   `events:export` and tracks the last seq it forwarded; on `{:export_appended, head, epoch}` it reads
-  `Export.read(cursor, 500, ["#"])` and sends each record as
+  `Export.read(cursor, 500, ["#"], epoch: epoch)` and sends each record as
   `{:durable_record, record}`. The notification is an invalidation, never
   the data (contract R-2), so a missed notification only delays delivery
   until the next one or the C3-T03 retry timer; correctness comes from

@@ -41,7 +41,8 @@ All references are at `45a290e3`. `engine` = `packaging/npm/aiur-cli/libexec/aiu
 - F3. `write_aiur_instance_record` (engine:1586-1612) writes
   `~/.config/aiur/instances/<node-slug>.instance` with mode 0600 and fields
   NODE, INSTANCE_KEY, SESSION, SOCKET, AGENT_TMPFILE, SURFACE_MODE,
-  WORKSPACE_ROOT_FILE, PROJECT_ROOT, PROJECT_ROOT_SOURCE, WRITTEN_AT. It has
+  WORKSPACE_ROOT_FILE, PROJECT_ROOT, PROJECT_ROOT_SOURCE, WRITTEN_AT, each written with
+  the `AIUR_RECORD_` key prefix (corrected in MP-N2-C2-T03). It has
   **no dashboard URL, port or repository**.
 - F4. **Correction to the baseline** ("never garbage-collected"): the record is
   deleted on a clean session exit (`session_cleanup`, engine:2104) and by
@@ -154,7 +155,7 @@ agent) are documented, not installed automatically.
 
 | Option | Verdict |
 | --- | --- |
-| **B1. Control RPC to each instance node (recommended)** | Reuses the existing plane (F7), works with `--no-dashboard`, needs no loopback HTTP credential. Version skew yields `undef`, which is reported as `unsupported`. |
+| **B1. Control RPC to each instance node (recommended)** | Reuses the existing plane (F7), works with `--no-dashboard`, needs no loopback HTTP credential. Version skew yields `undef`, which is reported as summary status `unsupported` (pairing §7; not a capability state, X-20). |
 | B2. Loopback HTTP to each dashboard with an internal token | Fails for `--no-dashboard` and port-conflicted instances (F9); adds a credential. |
 | B3. Instances push summaries into files | Easy to read, but stale-by-design, and it writes sensitive counts to disk every few seconds. |
 
@@ -190,7 +191,9 @@ shared with MP-N3, machine settings).
 
 - A1 (MP-R1, identity-and-capabilities): `instance_key` is unchanged; MP-R1 allows an
   `aiur_machine` component and a lean boot without `Aiur.Orchestrator`; a capability
-  list is available per instance with states `available|disabled|unavailable|unsupported`.
+  list is available per instance with states `available|degraded|unavailable|unknown`
+  (identity §2; X-20). `unsupported` is only the pairing §7 summary fan-out status for an
+  instance release that predates summary v1.
   If MP-R1 lands after MP-N2, MP-N2-C4 adds the lean boot itself behind the boundary R1 names.
 - A2 (MP-R3, reachability): the gateway reuses the explicit-host rule (no
   auto-detection, loopback default) and the "no non-loopback bind without a
@@ -199,7 +202,8 @@ shared with MP-N3, machine settings).
   codes, and inject a cookie or Authorization header into its WebView for the
   device-session bootstrap. N1 decides ATS and cleartext policy (RQ-N2-1).
 - A4 (MP-N4): the push registration is an opaque blob sent at claim time or later via
-  `PUT /v1/devices/<id>/push`; N4 provides `deregister(device_id)`.
+  `PUT /v1/devices/self/push` (own row only, pairing §4.5); N4 provides the deregistrar
+  behaviour that returns `:ok | {:retry, reason}` (MP-N2-C7-T03; X-56).
 - A5 (MP-N7): a watch is either a child device or acts through its phone; both fit
   `parent_device_id`.
 - A6 (MP-R2): not needed in v1. Registry and summary are pulled. A later event
@@ -227,10 +231,20 @@ shared with MP-N3, machine settings).
   a re-scan relinks.
 - **Conflicting management actions:** a store write is atomic; revoke of an
   already-revoked device returns `404 device_unknown` and is treated as success by the client.
-- **Privacy and security:** bearer over cleartext only on an encrypted overlay
-  (contract §6.2); claim brute force lockout; QR signed by `machine_key`; a device never
-  gets existing secrets; the gateway logs `device_id`, never tokens. A Basic-Auth holder
-  can display the QR and so can pair a device: an equal-authority path, stated in DESIGN-N2.
+- **Privacy and security:** bearer over cleartext only on HTTPS, loopback, or an HTTP
+  listener bound inside an overlay CIDR (security M3, C6-T01); claim brute force lockout;
+  QR and registry responses signed by `machine_key` with per-purpose domain tags (m6); a
+  device never gets existing secrets; the gateway logs `device_id`, never tokens. A
+  Basic-Auth holder can display the QR and so can pair a device: an equal-authority path,
+  stated in DESIGN-N2 (shown only on writable, loopback-or-HTTPS dashboards, m5).
+- **Same-user processes (Phase D, RC-42, security B1):** any process running as `$USER`,
+  agents included, can read and write the machine store and so gain D19 authority. This
+  design does not stop that; contract security sibling §S1 says so, C1-T02/T03/T04 detect a
+  device row with no `paired` journal entry and treat it as inactive, and DESIGN-N2 Q8
+  decides the mitigation.
+- **Revocation reach (Phase D, security M1, M2):** the revoke writer is another BEAM, so each
+  instance runs a store watcher (C1-T03) that closes sockets and device LiveViews within ≤ 3 s
+  (C6-T02); a write from an open device LiveView after the store write is refused at once.
 - **Lost phone, no other device, away from the machine:** cannot unpair remotely without
   some authenticated channel. This is accepted as a limit (OQ-N2-4); tokens still expire,
   but the device key can mint new ones.
@@ -298,7 +312,8 @@ validation.
 ## 9a. Phase C changes (2026-10-06)
 
 - RC-01: `identity.json` is created by MP-R1 at first daemon boot; MP-N2 reads it and fails
-  closed with `identity_unavailable` (acceptance criterion 2 now reads "`aiur mobile enable`
+  closed with `identity_unavailable`, a CLI exit code and message, not a capability reason
+  (X-56) (acceptance criterion 2 now reads "`aiur mobile enable`
   creates `machine_key` and the store files, and never creates `identity.json` or `~/.aiur/config`").
 - RC-02: `instance_id` replaces `instance_ref` everywhere.
 - RC-03: machine settings live in `~/.aiur/machine`; state stays in `~/.config/aiur/machine/`.

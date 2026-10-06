@@ -95,7 +95,7 @@ Pure library; no behaviour change until C3-T03/C4-T04 call it.
 7. `"unclassified dashboard reason is unknown"` — mutation: map fallback to `:loopback_only` → fails.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/registry_test.exs
 ```
 

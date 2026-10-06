@@ -36,6 +36,14 @@ researched: 2026-10-06
     (MP-R7-C2-T03) and `Effective.compute/2`.
   - Two `handle_call` clauses in `src/lib/aiur/orchestrator.ex` that delegate
     (`{:listener_get_mode, id}`, `{:listener_set_mode, id, mode, opts}`).
+  - **Edge direction (RC-36, Phase D).** `Aiur.Listener` is required core
+    (component `listener-modes`) and must not reference `Aiur.Orchestrator`.
+    This ticket creates the behaviour `Aiur.Listener.DeliveryTarget`
+    (PROPOSED `src/lib/aiur/listener/delivery_target.ex`) with callbacks
+    `get_mode/1` and `set_mode/3`; `Aiur.Orchestrator.ListenerDeliveryTarget`
+    implements them by issuing the two `handle_call`s, and is registered at
+    the composition root (`config :aiur, :listener_delivery_target`). The
+    facade calls the registered module. MP-E7-C3-T03 adds `enqueue/3`.
 - **Non-goals (moved to MP-E7-C7, fork D):** the CLI command, `POST
   /api/v1/:id/listen-mode`, and the `listener` field in
   `issue_control_capabilities` — their names and placement come from
@@ -46,7 +54,7 @@ researched: 2026-10-06
 
 - DESIGN-E7; MP-E7-C2-T01 (store); MP-E7-C2-T02 (effective).
 - Successors: MP-E7-C2-T04, MP-E7-C3-T02 (reads the view at enqueue),
-  MP-E7-C7 surfaces, MP-E3-C5-T1, MP-E4-C6-T3.
+  MP-E7-C7 surfaces, MP-E3-C5-T01, MP-E4-C6-T03.
 - Concurrent with MP-E7-C3-T01.
 
 ## Verified starting point (aiur `45a290e3`)
@@ -132,5 +140,5 @@ not running → the not-running test fails.
 
 - [ ] Facade, handler module and two delegating clauses merged.
 - [ ] No change to `/api/v1/state` JSON (guard test green).
-- Dependents: MP-E7-C2-T04, MP-E7-C3-T02, MP-E7-C7 (CLI, HTTP, snapshot field), MP-E3-C5-T1, MP-E4-C6-T3.
+- Dependents: MP-E7-C2-T04, MP-E7-C3-T02, MP-E7-C7 (CLI, HTTP, snapshot field), MP-E3-C5-T01, MP-E4-C6-T03.
 - Docs: none in wave 3.

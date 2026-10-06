@@ -105,7 +105,7 @@ human supersede path, and an Executor-over-human refusal.
 
 | Ticket | Scope |
 | --- | --- |
-| MP-E2-C3-T01 [B] | Store: refuse an `:executor` supersede when the active answer's actor is human. Add the winning-answer summary to `{:conflict, {:already_decided, _}}` and map it in `decision_api_controller.ex:114-127` and `executor_command_cli.ex:253-261`. |
+| MP-E2-C3-T01 [B] | Store: answer precedence on supersede and revise (RC-41), `actor_source` (security M4). Add the winning-answer summary to `{:conflict, {:already_decided, _}}` and map it in `decision_api_controller.ex:114-127` and `executor_command_cli.ex:253-261`. |
 | MP-E2-C3-T02 [B] | `Aiur.Commands.Answering` facade (answer/supersede for human actors, normalized outcomes, v2 `question_answers`). Phase C choice: **no** supervisor supersede route (the supervisor is not human, D11); MP-N6 adds the device route on this facade. |
 | MP-E2-C3-T03 [D] | Dashboard supersede action with the undelivered guard, the "too late" state, and the "already answered by…" state (DESIGN-E2 §4.4). Relabel `/revise` "Send correction". |
 | MP-E2-C3-T04 [D] | Stream Deck: show the conflict result for `answer_command` (no supersede on the deck unless DESIGN-E2 asks for it). |
@@ -114,11 +114,18 @@ human supersede path, and an Executor-over-human refusal.
 - A race test with two answers from two actors: exactly one `answer_recorded`.
 - A human supersede after `delivered` gets `answer_delivered`.
 - An Executor supersede of a human answer is refused.
+- A relay supersede or revise of a direct operator answer is refused; an operator
+  supersede of a relayed answer is accepted (RC-41).
 - A duplicate key from two devices gets `:duplicate`.
 - LiveView tests for the states.
 
-**Open research:** whether an `operator_relayed` answer may itself be superseded by the
-Executor (proposed: no; it is human).
+**Resolved (Phase D, RC-41):** the Executor may **not** supersede or revise an
+`operator_relayed` answer. Precedence is `direct operator > operator_relayed > executor`;
+a relay never replaces a direct operator answer (C3-T01) and never answers an
+Executor-originated Command (C6-T01). `actor_source` records the entry point (C3-T01).
+Tests that must fail without their guard: relay supersede of a direct answer refused;
+relay revise of a direct answer refused; operator supersedes a relayed answer; relay
+answer to an Executor-originated Command refused.
 
 ---
 

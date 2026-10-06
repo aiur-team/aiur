@@ -82,7 +82,7 @@ Browser: `website`-style Playwright check is not available for the gateway; manu
 host in Firefox and Chromium at 1280 px, then scan with both phones (MP-N2-C9-T02 row P2).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/settings_page_test.exs
 ```
 

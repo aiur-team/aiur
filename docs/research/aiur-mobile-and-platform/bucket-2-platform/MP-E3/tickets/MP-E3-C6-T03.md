@@ -33,6 +33,8 @@ researched: 2026-10-06
 
 - DESIGN-E3 (panels), DESIGN-E2 (Command card). MP-E3-C6-T01, MP-E3-C4-T02/T03,
   MP-E4-C6-T02 (inline card component).
+- No MP-E7-C3 dependency, direct or through MP-E4-C6-T02 (Phase D, CR-E4-4):
+  Command answers do not follow listener mode (listener-mode contract §2).
 
 ## Verified starting point
 
@@ -68,7 +70,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur_web/executor/panels_test.exs
 env -C src/browser node scripts/run-browser-tests.mjs tests/executor-view.browser.spec.mjs
 ```

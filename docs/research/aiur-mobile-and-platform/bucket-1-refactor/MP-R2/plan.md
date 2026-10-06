@@ -7,7 +7,7 @@ base_main_sha: 45a290e3
 date: 2026-10-06
 owner_gate: ../../owner-design-tasks/DESIGN-R2.md
 owned_contracts: ../../contracts/events-and-replay.md
-prior_units: U3 (event and claim ordering), U7 (package seams), U8 (size)
+prior_units: [U3, U7, U8]  # U3 event and claim ordering; U7 package seams; U8 size
 prior_boundaries: BUS (#10), signal port (#11), EXE (#26), DEC (#27), PRJ (#28), ING (#9), ORC (#12), K (#1)
 companion_docs: inventory.md, chunks.md
 ---
@@ -129,10 +129,21 @@ C1–C4 are behaviour-preserving (Bucket 1). C5 (catalog/envelope), C6 (export
 journal, durable consumer) and C7 (external API) add capability with no
 user-facing change when disabled. **Recommendation:** keep them under MP-R2
 because they are the contract's implementation and must land once, but tag
-them `Bucket-2-enabling`, ship them disabled by default, and schedule each
-just before its first consumer: C5 before MP-E2/MP-E4; C6 before MP-E1 only if
-E1 chooses the durable consumer (it need not, §8), otherwise before MP-N4;
-C7 before MP-N3.
+them `Bucket-2-enabling` and ship them disabled by default. Placement (RC-09 as
+amended by RC-31): **C5 at the start of wave 4**, because MP-E6-C4-T05 and
+MP-E7-C2-T05 consume it there; **C6 and C7 in wave 5**, just before MP-N4/N5
+(C7 also before MP-N3's stream switch). MP-E1 does not use the durable
+consumer (§8), so it does not pull C6 earlier.
+
+### 4.5 U0 review gate (X-58, RC-19)
+
+Every MP-R2 ticket waits for the U0 review of the prior refactor plan
+(`docs/plans/2026-09-29-001-refactor-production-readiness-plan.md`). RC-19 keeps
+that gate for refactor work, and MP-R2 is refactor work. The Bucket-2-enabling
+chunks C5–C7 (RC-09) wait too, because they ship in the refactor sequence. U0
+has no ticket ID, so the gate is stated here and in the tickets README rather
+than in `blocked_by`. MP-R1-C11-T02's implementation-head recheck does not
+replace it.
 
 ## 5. Alternatives considered
 
@@ -258,7 +269,7 @@ Ticket research changed this plan as follows. Tickets are authoritative.
 | --- | --- | --- |
 | RQ-1 | Settled statically; C1-T01 is the witness | `publisher.ex:337-357`, `issue_log.ex:545-560,573-581` |
 | RQ-2 | Deterministic interleaving witness (C1-T02); finding goes to U3 | contract O-4 |
-| RQ-3 | `DecisionLog` is a generic kernel primitive (16 callers, depends only on `Aiur.Fs`); MP-R1-C5-T1 moves it; `Aiur.Events.Journal` is a thin facade (C3-T01) | `git grep DecisionLog.` at base |
+| RQ-3 | `DecisionLog` is a generic kernel primitive (16 callers, depends only on `Aiur.Fs`); MP-R1-C5-T01 moves it; `Aiur.Events.Journal` is a thin facade (C3-T01) | `git grep DecisionLog.` at base |
 | RQ-5 | All `system.dispatch/fleet/tracker/config.*` producers go through `Aiur.Alerts.emit_system` → `ledgered` | contract §6 |
 | RQ-6 | `Webhooks.EventSource` has no production caller; default routed through the Publisher (C2-T04), not deleted (U7 decides cuts) | `webhook_mode_contract.exs:85,100-108` |
 | RQ-7 | New routes go before `router.ex:191`; otherwise `/api/v1/:issue_identifier` (`:193`) shadows them | C7-T01 |

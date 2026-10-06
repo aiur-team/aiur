@@ -71,7 +71,7 @@ When contract §7 changes, the schema and fixtures change in the same PR.
 
 ```bash
 npm --prefix packages/aiur-mobile test -- fixtures/meta-row
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/registry_fixture_test.exs
 ```
 

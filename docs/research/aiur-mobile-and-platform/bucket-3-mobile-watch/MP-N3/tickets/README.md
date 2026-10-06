@@ -8,8 +8,8 @@ wave 5 ([value-and-sequencing.md](../../../value-and-sequencing.md)).
 |---|---|---|---|---|
 | [MP-N3-C1-T01](MP-N3-C1-T01.md) | Summary skeleton, Fact envelope, size and redaction guard | blocked | MP-R1-C2-T02, MP-R1-C3-T01 | 1 |
 | [MP-N3-C1-T02](MP-N3-C1-T02.md) | agents.active, capacity, globally_paused | blocked | C1-T01 | 2 |
-| [MP-N3-C1-T03](MP-N3-C1-T03.md) | commands.awaiting(_blocking), partial and unavailable | blocked | C1-T01, MP-E2-C7-T1 | 2 |
-| [MP-N3-C1-T04](MP-N3-C1-T04.md) | Executor aggregate without recording an observation | blocked | C1-T01, MP-R1-C2-T04 | 2 |
+| [MP-N3-C1-T03](MP-N3-C1-T03.md) | commands.awaiting(_blocking), partial and unavailable | blocked | C1-T01, MP-E2-C7-T01 | 2 |
+| [MP-N3-C1-T04](MP-N3-C1-T04.md) | Executor aggregate without recording an observation | blocked | C1-T01, MP-R1-C3-T02 | 2 |
 | [MP-N3-C1-T05](MP-N3-C1-T05.md) | build_orders, background_agents, capabilities | blocked | C1-T01, MP-R1-C3-T02, MP-E1-C7 | 2 |
 | [MP-N3-C2-T01](MP-N3-C2-T01.md) | Gateway fan-out with timeouts and unsupported mapping | blocked | C1-T01, MP-N2-C4-T01, MP-N2-C4-T04 | 3 |
 | [MP-N3-C2-T02](MP-N3-C2-T02.md) | Gateway summary cache (5 s) | blocked | C2-T01 | 4 |
@@ -20,7 +20,7 @@ wave 5 ([value-and-sequencing.md](../../../value-and-sequencing.md)).
 | [MP-N3-C4-T05](MP-N3-C4-T05.md) | Offline cache, encrypted, wiped on revoke | blocked | MP-N1-C2-T01/T02/T05, C3-T01 | 5 |
 | [MP-N3-C4-T02](MP-N3-C4-T02.md) | Instance row per DESIGN-N3 | blocked | C4-T01, C3-T01, C2-T01, MP-N1-C3-T01 | 6 |
 | [MP-N3-C4-T04](MP-N3-C4-T04.md) | Refresh policy | blocked | C4-T01, C2-T02 | 6 |
-| [MP-N3-C4-T03](MP-N3-C4-T03.md) | Open dashboard (WebView) and Executor chat button | blocked | DESIGN-N1, DESIGN-E3, **RQ-TRANSPORT, MP-N2-C10-T01**, MP-N2-C6-T02, MP-N1-C4-T02, MP-N1-C3-T01, C4-T02, MP-E3-C6-T1 | 7 |
+| [MP-N3-C4-T03](MP-N3-C4-T03.md) | Open dashboard (WebView) and Executor chat button | blocked | DESIGN-N1, DESIGN-E3, **RQ-TRANSPORT, MP-N2-C10-T01**, MP-N2-C6-T02, MP-N1-C4-T02, MP-N1-C3-T01, C4-T02, MP-E3-C6-T01 | 7 |
 | [MP-N3-C4-T06](MP-N3-C4-T06.md) | Device validation (MD-1..MD-7) | blocked | all C4, MP-N2-C10-T05, OQ-N1-4 | 8 |
 
 ## Dependency order
@@ -42,7 +42,7 @@ C3-T02 ─► C3-T01 ─► C5-T01 ───────────────
 
 - RQ-N3-1 resolved (C1-T02): `dashboard_snapshot/2` reads `:persistent_term`, no mailbox.
 - RQ-N3-2 resolved (C1-T05): `catalog/1` is an in-process call, upstream reads are async tasks; "disabled" comes from the capability report.
-- RQ-N3-3 → dependency on MP-E2-C7-T1 (C1-T03).
+- RQ-N3-3 → dependency on MP-E2-C7-T01 (C1-T03).
 - RQ-N3-4 resolved (C4-T04): foreground-only polling; DV-P13 measures.
 
 Contract requests: [CONTRACT-REQUESTS.md](CONTRACT-REQUESTS.md).

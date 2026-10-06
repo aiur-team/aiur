@@ -90,7 +90,7 @@ Mutation check: ask the probe before setting the hold → test 4 fails; treat
 `:unavailable` as unclaimed → test 3 fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/withdrawal_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/withdrawal_test.exs
 ```
 
 ## Completion and handoff

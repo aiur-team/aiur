@@ -8,7 +8,7 @@ status: blocked
 blocked_by: [DESIGN-E2, MP-E2-C2-T03, MP-E2-C1-T04]
 prior_units: [U6]
 prior_boundaries: [CLI #31]
-prior_features: [MP-R1-C9-T5 (CLI split; rebase)]
+prior_features: [MP-R1-C9-T05 (CLI split; rebase)]
 prior_findings: [DESIGN-E2 §3 CLI row (copy and column set), AGENTS.md computed-age rule]
 size_owner: "CLI (commands_cli.ex 246)"
 base_sha: 45a290e3

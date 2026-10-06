@@ -8,7 +8,7 @@ status: blocked
 blocked_by: [DESIGN-E2, MP-E2-C4-T00, MP-E2-C1-T01, MP-E2-C1-T02]
 prior_units: [U6, U4]
 prior_boundaries: [DEC #27, RUN #18, CDX #21]
-prior_features: [MP-R7 (harness-adapter §6, MP-R7-C2-T2 reserved callbacks)]
+prior_features: [MP-R7 (harness-adapter §6, MP-R7-C2-T02 reserved callbacks)]
 prior_findings: [D10, R-Q1, plan §1.4, contract §3 (secrets), §10]
 size_owner: "n/a — new module (≤ 200 lines)"
 base_sha: 45a290e3
@@ -35,7 +35,7 @@ researched: 2026-10-06
 
 - **DESIGN-E2**; **C4-T00** (the recorded request shape is the test fixture and may change
   field names below); C1-T01 (attributes), C1-T02 (`normalize_questions/1`).
-- MP-R7: if MP-R7-C2-T2 has landed, the input is the adapter's normalized
+- MP-R7: if MP-R7-C2-T02 has landed, the input is the adapter's normalized
   `{:native_question, …}` (harness-adapter §6 item 3); before R7, C4-T02 builds the same
   map from the Codex params. Either way this module sees only the normalized map.
 - May run concurrently with C2, C3, C6.

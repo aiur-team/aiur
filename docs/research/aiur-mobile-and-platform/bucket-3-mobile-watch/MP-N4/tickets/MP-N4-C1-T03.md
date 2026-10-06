@@ -5,7 +5,7 @@ chunk_id: MP-N4-C1
 bucket: 3-mobile-watch
 title: ProtectedPayload encoder, size budget, inner frame and detached Ed25519 signature
 status: ready
-blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C1-T02, MP-N2-C1-T1]
+blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C1-T02, MP-N2-C1-T01]
 prior_units: []
 prior_boundaries: [new #41 candidate push-relay]
 prior_features: [MP-N2]
@@ -37,7 +37,7 @@ see CR-N4-2), relay envelope (C3-T03).
 
 ## Dependencies and blockers
 
-- MP-N4-C1-T02 (HPKE). MP-N2-C1-T1 defines the machine key format (Ed25519 raw, 0600);
+- MP-N4-C1-T02 (HPKE). MP-N2-C1-T01 defines the machine key format (Ed25519 raw, 0600);
   this ticket only needs a `signer :: (binary() -> <<_::512>>)` and the public key, so it
   can be built with a test key before N2 lands; the integration is C3-T03.
 - DESIGN-N4 releases C1. DESIGN-E2 §4.1 decides the title fallback when `short_label` is
@@ -117,4 +117,4 @@ test/aiur/push/seal_test.exs`, `mise exec -- mix lint`, `mise exec -- mix dialyz
 - [ ] Contract v2 §3/§4 implemented exactly; any deviation goes back into the contract
   first.
 - [ ] PR names the failing-without hunk per test.
-- Docs: none. Dependents: C1-T04 (vectors), C3-T03 (fan-out), N1-C2-T3 (native open).
+- Docs: none. Dependents: C1-T04 (vectors), C3-T03 (fan-out), N1-C2-T03 (native open).

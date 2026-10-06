@@ -7,7 +7,7 @@ repo: aiur-team/aiur
 wave: 1
 title: Release packaging check — the OTP release still contains and boots every adapter
 status: blocked
-blocked_by: [DESIGN-R7, MP-R7-C4-T03, MP-R7-C4-T04, CR-R7-1]
+blocked_by: [DESIGN-R7, MP-R7-C4-T03, MP-R7-C4-T04]
 prior_units: [U7, U9]
 prior_boundaries: [#32 launcher and packaging, CA (20)]
 prior_features: []

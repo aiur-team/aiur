@@ -39,7 +39,7 @@ paths are the version identifiers.
 | Capability | Finding | Source |
 | --- | --- | --- |
 | Websocket endpoint | `wss://api.elevenlabs.io/v1/convai/conversation?agent_id={agent_id}` | https://elevenlabs.io/docs/agents-platform/libraries/web-sockets |
-| Private agent auth | The server obtains a signed URL with its API key: `GET /v1/convai/conversation/get-signed-url?agent_id=…`. "Never expose your ElevenLabs API key on the client side." Validity period not documented → **RQ-E6-1**. | same; https://elevenlabs.io/docs/api-reference/conversations/get-signed-url |
+| Private agent auth | The server obtains a signed URL with its API key: `GET /v1/convai/conversation/get-signed-url?agent_id=…`. "Never expose your ElevenLabs API key on the client side." **Validity is documented (Phase D, m2):** "Signed URLs are valid for 15 minutes. The conversation session can last longer, but the conversation must be initiated within the 15 minute window." The adapter fetches a URL per (re)connect, which fits. RQ-E6-1 narrows to whether an `xi-api-key` header works instead. | same; https://elevenlabs.io/docs/api-reference/conversations/get-signed-url; https://elevenlabs.io/docs/eleven-agents/customization/authentication (accessed 2026-10-06) |
 | Audio formats | `user_input_audio_format` / `agent_output_audio_format` include `pcm_16000`, `pcm_44100` and others, reported in `conversation_initiation_metadata` | https://elevenlabs.io/docs/agents-platform/api-reference/agents-platform/websocket |
 | Client → server events | `user_audio_chunk`, `user_message`, `user_activity`, `contextual_update` ("Context text to inject into the conversation without interrupting"), `client_tool_result`, `conversation_initiation_client_data`, `pong`, others | same |
 | Server → client events | `conversation_initiation_metadata`, `user_transcript`, `agent_response`, `agent_response_correction`, `agent_chat_response_part`, `audio`, `interruption`, `client_tool_call` ("whether the server expects a ClientToolResult"), `vad_score`, `ping`, others | same |
@@ -135,7 +135,7 @@ are made about them.
 
 | ID | Question | How to settle |
 | --- | --- | --- |
-| RQ-E6-1 | Signed URL lifetime; can the daemon instead connect with an `xi-api-key` header? | Call both; record behaviour |
+| RQ-E6-1 | ~~Signed URL lifetime~~ (documented: 15 minutes to initiate, Phase D m2). Remaining: can the daemon connect with an `xi-api-key` header instead of a signed URL? | Header connect; record accept/reject |
 | RQ-E6-2 | Client-tool timeout and the agent's behaviour while waiting (filler? silence?) | Tool that sleeps 5/15/30/60 s |
 | RQ-E6-3 | Does retention `0` delete immediately? Does `DELETE` remove transcript and any audio? | Create, end, delete, then `GET` |
 | RQ-E6-4 | Is the override prompt size limited? Latency with an 8k-token start context? | Measure time to first audio |

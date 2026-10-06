@@ -18,7 +18,7 @@ for approval regardless.
 Binding inputs: D9–D12, RC-08 (`human-needed` topic registered by MP-R2-C5-T01),
 RC-18 (live bug **#2819** is the legacy `attention.*` re-ask that never stops; C2-T03 cites
 it and does not touch `decision_attention.ex`; #3005 `operator_relayed` is in flight and
-C3-T02 works with or without it).
+C3-T02 works with or without it; RC-41 ranks it below a direct operator answer, C3-T01 and C6-T01 hold the guards).
 
 ## Ticket table
 
@@ -26,9 +26,9 @@ C3-T02 works with or without it).
 | --- | --- | --- | --- | --- |
 | [C4-T00](MP-E2-C4-T00.md) | Spike R-Q1: Codex `request_user_input` through aiur's frames | ready | — | 0 |
 | [C5-T00](MP-E2-C5-T00.md) | Spike R-Q2: Claude AskUserQuestion under aiur-claude | ready | — | 0 |
-| [C1-T01](MP-E2-C1-T01.md) | v2 attributes in a `request_attributed` event | blocked | — | 1 |
-| [C2-T05](MP-E2-C2-T05.md) | `decisions.escalation.*` config | blocked | DESIGN-E2 §6.1 defaults | 1 |
-| [C3-T01](MP-E2-C3-T01.md) | Refuse Executor supersede of a human answer; ConflictSummary | blocked | — | 1 |
+| [C1-T01](MP-E2-C1-T01.md) | v2 attributes in a `request_attributed` event | blocked | MP-R1-C11-T03 (RC-35) | 1 |
+| [C2-T05](MP-E2-C2-T05.md) | `decisions.escalation.*` config | blocked | DESIGN-E2 §6.1 defaults, MP-R1-C11-T03 (RC-35) | 1 |
+| [C3-T01](MP-E2-C3-T01.md) | Refuse Executor supersede of a human answer; ConflictSummary | blocked | MP-R1-C11-T03 (RC-35) | 1 |
 | [C1-T02](MP-E2-C1-T02.md) | Questions validation, short_label, suggested-responses warning | blocked | C1-T01 | 2 |
 | [C1-T03](MP-E2-C1-T03.md) | Lifecycle topics by requester; rollback proof | blocked | C1-T01 | 2 |
 | [C1-T04](MP-E2-C1-T04.md) | v2 fields in read API and `aiur commands --json` | blocked | C1-T01 | 2 |
@@ -62,7 +62,7 @@ C3-T02 works with or without it).
 | [C8-T04](MP-E2-C8-T04.md) | Enable native capture defaults (owner) | blocked | C4-T05, C5-T03, C7-T03 + owner flag decision | 8 |
 
 Wave = longest predecessor chain inside MP-E2 (spikes = 0). External predecessors:
-MP-R2-C5-T01 (catalog, RC-08) for C2-T02 if it lands first; MP-R7-C2-T2 (reserved
+MP-R2-C5-T01 (catalog, RC-08) for C2-T02 if it lands first; MP-R7-C2-T02 (reserved
 callbacks) for C4/C5 — otherwise the pre-R7 rule (plan §9: one call site in
 `codex/approvals.ex`, new code in `Aiur.Commands.NativeCapture.*`); MP-R1 identity
 (`session_ref`) for C1-T01 (nil until then); U3 owner notice for C6-T02.

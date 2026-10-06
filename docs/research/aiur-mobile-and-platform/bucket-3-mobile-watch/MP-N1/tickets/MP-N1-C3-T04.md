@@ -5,7 +5,7 @@ chunk_id: MP-N1-C3
 bucket: 3-mobile-watch
 title: Native watch snapshot builder — compact per-instance Facts plus pre-resolved affordances, under a size budget
 status: blocked
-blocked_by: [DESIGN-N1, DESIGN-N7, MP-N1-C3-T03, MP-N1-C2-T03, MP-N3-C2-T01, MP-N3-C3-T01, MP-N3-C3-T02]
+blocked_by: [DESIGN-N1, DESIGN-N7, MP-N7-C1-T01, MP-N1-C3-T03, MP-N1-C2-T03, MP-N3-C2-T01, MP-N3-C3-T01, MP-N3-C3-T02]
 prior_units: []
 prior_boundaries: []
 prior_features: [MP-N3, MP-N7]
@@ -25,18 +25,23 @@ researched: 2026-10-06
   unavailable rather than zero, without the watch ever talking to a daemon.
 - **Deliverable:** `WatchSnapshotBuilder` in both native cores: input = the signed
   `GET /v1/instances?include=summary` responses per machine (contract §6.3/§7) + phone
-  reachability per machine + native resolver; output = the `snapshot` message body of the
-  MP-N7 watch-link protocol (MP-N7 plan §4/§6), extending `client-capability-model.md` §7:
+  reachability per machine + native resolver; output = the `machines[]` and `instances[]` parts
+  of the `snapshot` message body. **This ticket does not define the schema (RC-38).** The only
+  schema is MP-N7-C1-T01's `snapshot` row (`fixtures/watch-link/schema/snapshot.schema.json`),
+  budget 16 KiB, closed `row_state` set including `starting`. The sketch below is illustrative
+  and must match that schema; on any difference, MP-N7-C1-T01 wins:
 
 ```json
-{ "v": 1, "as_of": "…", "machines": [ { "machine_id": "…", "label": "…",
-    "reachability": "reachable|unreachable|revoked", "observed_at": "…" } ],
-  "instances": [ { "instance_id": "<machine_id>/<instance_key>", "label": "owner/name",
-      "disambiguator": "root-basename|null", "state": "live|starting|stale|stopped|crashed|unknown",
-      "facts": { "agents_active": Fact, "fleet_paused": Fact, "commands_awaiting": Fact,
-                 "commands_awaiting_blocking": Fact, "executor": Fact, "build_progress": Fact },
+{ "as_of": "…", "machines": [ { "machine_id": "…", "label": "…",
+    "reachability": "reachable|unreachable|revoked", "observed_at": "…", "cause": "…?" } ],
+  "instances": [ { "instance_id": "<machine_id>/<instance_key>", "machine_label": "…",
+      "repository_label": "owner/name", "disambiguator": "root-basename|null",
+      "row_state": "live|starting|stale|unreachable|gateway_offline|crashed|stopped|unsupported|removed",
+      "executor_state": "…", "active_agents": Fact, "fleet_paused": Fact, "awaiting": Fact,
+      "awaiting_blocking": Fact, "build_progress": Fact, "background_agents": Fact,
       "affordances": { "answer_command": {…}, "mic_dictate_server": {…},
-                       "mic_dictate_system": {…}, "mic_converse": {…}, "build_progress": {…} } } ] }
+                       "mic_dictate_system": {…}, "mic_converse": {…}, "build_progress": {…} } } ],
+  "truncated": 0 }
 ```
 
   `Fact` is the contract §7 envelope unchanged (`status`, `value?`, `observed_at`, `age_ms`,
@@ -67,7 +72,7 @@ researched: 2026-10-06
 
 ## Chosen design
 
-- **Budget:** serialized snapshot ≤ 16 KiB; when larger, drop instances in this order:
+- **Budget:** serialized snapshot ≤ 16 KiB (RC-38, MP-N7-C1-T01 invariant 2); when larger, drop instances in this order:
   `stopped`, then `crashed`, then oldest `stale`, and set `"truncated": N`. Live instances are
   never dropped silently (truncation count is shown by the watch).
 - **Build progress:** copies MP-N3's chosen rule (DESIGN-N3 Q3) through a single
@@ -82,9 +87,8 @@ researched: 2026-10-06
 
 ## Implementation steps
 
-1. `WatchSnapshot` models (generated where the schema exists; snapshot schema added to
-   `fixtures/watch-link/` by MP-N7-C1-T01 — this ticket adds the `snapshot` schema first if
-   MP-N7-C1-T01 has not).
+1. `WatchSnapshot` models generated from MP-N7-C1-T01's `snapshot.schema.json` (RC-38: this
+   ticket never adds or edits the schema; MP-N7-C1-T01 is added to `blocked_by`).
 2. `WatchSnapshotBuilder.swift` / `.kt`: pure function `(registryByMachine, reachability,
    previous, now) -> Snapshot`.
 3. Budget/truncation and serialization helpers.
@@ -117,6 +121,9 @@ researched: 2026-10-06
   - `snapshot contains no command text` (fixture registry with a `question` field injected →
     output scanned).
   - `snapshot under 16 KiB for 20 instances × 3 machines`.
+  - `builder output validates against snapshot.schema.json` (MP-N7-C1-T01 fixtures). Mutation:
+    emit the old `state` key → fails.
+  - `starting instance keeps row_state starting`. Mutation: map to `live` → fails.
 - Device: exercised by DV-W3 (phone unreachable) and DV-W2 on Apple Watch A (watchOS 26.x) with
   iPhone A; Wear OS 5+ watch with Android phone A (MP-N7-C3).
 

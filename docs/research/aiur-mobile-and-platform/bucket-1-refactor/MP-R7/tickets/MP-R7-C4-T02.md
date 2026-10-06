@@ -7,7 +7,7 @@ repo: aiur-team/aiur
 wave: 1
 title: Promotion-test record for harness-adapters (go/no-go for a physical package)
 status: blocked
-blocked_by: [DESIGN-R7, MP-R7-C3-T05, MP-R7-C4-T01, MP-R1-C4 (harness config section ticket), RQ-R7-5]
+blocked_by: [DESIGN-R7, MP-R7-C3-T05, MP-R7-C4-T01, MP-R1-C4-T05 (harness config section ownership), RQ-R7-5]
 prior_units: [U7, U9]
 prior_boundaries: [CA (20), CDX (21), CLD (22), OAI (23)]
 prior_features: []
@@ -36,8 +36,8 @@ researched: 2026-10-06
   "do the five promotion criteria hold for harness-adapters?" — answerable only
   after releases have shipped with the C3 boundary rule in force.
 - Needs MP-R7-C3-T05 (rule live) and two consecutive merged releases after it
-  (criterion 1), MP-R7-C4-T01 (criterion 2), MP-R1-C4's harness section ticket
-  (criterion 4).
+  (criterion 1), MP-R7-C4-T01 (criterion 2), MP-R1-C4-T05 (config section ownership, `agent` →
+  harness-adapters; criterion 4).
 - Runs alone; nothing else in C4 may start before it says go.
 
 ## Verified starting point (base `45a290e3`)

@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, MP-N2-C3-T05, MP-N2-C5-T01, MP-N2-C7-T02, MP-N2-C8-T01, 
 prior_units: []
 prior_boundaries: [SITE]
 prior_features: [MP-R3]
-prior_findings: []
+prior_findings: [RC-42 / security B1 threat statement, M3, m10 user docs]
 size_owner: "SITE/DOCS (U8 ledger)"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -28,7 +28,26 @@ researched: 2026-10-06
   - New `website/docs-app/guide/mobile-pairing.md`: enable → transport (T-A recipe with the CT
     disclosure, or T-B and its WebView-mic limit, per the owner's choice) → show QR (terminal,
     `--open` page, dashboard settings if approved) → scan → devices → revoke → lost phone /
-    unpair-all → troubleshooting by error code (C5-T02, C5-T03, C6-T01 codes).
+    unpair-all → troubleshooting by error code (C5-T02, C5-T03, C6-T01 codes, including
+    `device_auth_insecure_transport` and `device_unverified`).
+  - **"What pairing protects against" section (Phase D, RC-42, security B1, M3, m10)**, in user
+    words, from the pairing contract security sibling §S1–§S3:
+    - Anything running as your user account on this machine, **including aiur's own agents**, can
+      read the pairing store and give itself the same access a paired phone has. Pairing protects
+      against other people on the network and against a lost phone, not against software you run
+      as yourself. The mitigations and the choice made in DESIGN-N2 Q8 (separate OS user for
+      agents, harness deny rules and their limit: Bash ignores Claude deny rules).
+    - "Needs attention: device row with no pairing record" (`aiur mobile status`): what it means
+      and the fix (`aiur mobile revoke <id>`).
+    - Device tokens work only over HTTPS, from the machine itself, or on a plain-HTTP listener
+      bound to a tailnet address with `transport.allow_cleartext_overlay`; a LAN-bound HTTP
+      listener refuses them.
+    - A local tunnel or reverse proxy that forwards to `127.0.0.1` makes remote traffic look
+      local; the token, not the address, is the boundary.
+    - Pair only by scanning a QR in the app; a link that claims to pair is never accepted.
+    - Revocation: what stops at once (requests, writes from an open dashboard), what stops within
+      a few seconds (live sockets), and what cannot be recalled (notifications and text already on
+      the phone).
   - Sidebar entry in `website/docs-app/.vitepress/config.ts` next to "Stream Deck" (`config.ts:137-140`).
   - `reference/cli.md`: every `aiur mobile …` verb present with exit codes.
   - `reference/configuration.md`: a "Machine settings (`~/.aiur/machine`)" section with every key
@@ -81,4 +100,8 @@ Docs ship with or after the last MP-N2 code ticket they describe.
 ## Completion and handoff
 
 - [ ] Page reachable from the sidebar; reference pages coherent; checks green.
+- [ ] `reference/optional-optimizations.md` § Transport (MP-R3-C2-T01) links to this guide's
+      transport section (Phase D: the link is added here, because the guide does not exist
+      when MP-R3 ships).
 - [ ] Reviewer confirms no page implies that being on the tailnet grants access (DESIGN-N2 acceptance).
+- [ ] Reviewer confirms the same-user statement is present and not softened (RC-42).

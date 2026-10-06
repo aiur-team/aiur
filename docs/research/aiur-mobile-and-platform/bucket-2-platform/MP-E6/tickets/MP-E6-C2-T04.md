@@ -35,7 +35,10 @@ researched: 2026-10-06
 - **Predecessors:** MP-E6-C2-T02 (http seam and error mapping); MP-E6-C6-T01 (state dir and
   fsync writer; the queue file lives beside transcripts).
 - **Invariant from the contract:** enqueue happens only **after** the transcript's
-  `session_ended` record is fsynced (contract §9 write rule); C4-T01 calls `enqueue`.
+  `session_ended` record is fsynced (contract §9 write rule). Two callers: C4-T01 on a normal
+  end, and the boot reconciliation in C6-T02 for sessions a crash or restart interrupted, after
+  it writes `session_ended{daemon_restart}` (Phase D, M1). `enqueue/2` appends to the queue
+  file before it schedules, so it is safe to call during boot.
 
 ## Verified starting point (base `45a290e3`)
 
@@ -91,6 +94,7 @@ inert.
 | "pending deletions survive a restart" | stop, start with the same dir → retried |
 | "401 pauses and alerts once" | one alert for three items |
 | "give-up writes provider_delete_failed into the transcript" | transcript file has the record |
+| "enqueue during boot, before the scheduler runs, is persisted" | call `enqueue/2` before the first tick, stop, restart → item pending and retried |
 
 ```bash
 env -C src mise exec -- mix test test/aiur/voice_conversation/provider_cleanup_test.exs
@@ -108,4 +112,5 @@ an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-check
 
 - [ ] Queue, retries, alerts, tests.
 - [ ] Docs: covered by MP-E6-C9-T01 privacy table ("deleted after each session; retried").
-- **Dependents:** MP-E6-C4-T01.
+- **Dependents:** MP-E6-C4-T01, MP-E6-C6-T02 (boot reconciliation; its test "a transcript
+  with a provider id and no session_ended is enqueued at boot" covers the crash path, M1).

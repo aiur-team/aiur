@@ -117,7 +117,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/conversation/anchors_position_test.exs \
   test/aiur_web/streamdeck_logs_test.exs
 ```

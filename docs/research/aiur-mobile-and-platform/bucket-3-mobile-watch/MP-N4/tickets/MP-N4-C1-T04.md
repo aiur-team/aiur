@@ -5,7 +5,7 @@ chunk_id: MP-N4-C1
 bucket: 3-mobile-watch
 title: nid and collapse_token derivation plus the cross-platform golden vector file
 status: ready
-blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C1-T03, MP-R1-C3 (aiur-contracts package home)]
+blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C1-T03, MP-R1-C3-T06 (aiur-contracts package home)]
 prior_units: []
 prior_boundaries: [new #41 candidate push-relay]
 prior_features: [MP-R1, MP-N1]
@@ -29,14 +29,14 @@ Bucket 3, MP-N4, chunk C1. Deliver:
    `src/lib/mix/tasks/aiur.push.vectors.ex`) that writes
    `packages/aiur-contracts/push/v1/vectors.json` (PROPOSED path; package home from
    MP-R1-C3).
-3. The committed vectors file, consumed by Swift and Kotlin tests (N1-C2-T3, MP-N4-C4-T02,
+3. The committed vectors file, consumed by Swift and Kotlin tests (N1-C2-T03, MP-N4-C4-T02,
    MP-N4-C5-T02) and by the daemon test suite.
 
 Non-goals: native implementations.
 
 ## Dependencies and blockers
 
-- MP-N4-C1-T03 (seal/open). MP-R1-C3 creates `packages/aiur-contracts`; if it lags, write
+- MP-N4-C1-T03 (seal/open). MP-R1-C3-T06 creates `packages/aiur-contracts`; if it lags, write
   the file to `src/test/support/fixtures/push/v1/vectors.json` (PROPOSED) and move it in
   C3-T00; the native suites read whatever single path C3-T00 fixes.
 - DESIGN-N4 releases C1.
@@ -60,7 +60,7 @@ Vector file schema (`"schema": "aiur.push.vectors/1"`):
       "device": { "device_id": "…", "kid": "k_…", "x25519_priv": "hex", "x25519_pub": "hex",
                   "device_push_secret": "hex" },
       "machine": { "machine_id": "…", "ed25519_priv": "hex", "ed25519_pub": "hex" },
-      "intent_id": "ni_…", "stream": "cmd:dec_…",
+      "intent_id": "ni_…", "stream": "cmd:8f2c4e1a9b3d7f60",
       "expect": { "nid": "n_…", "collapse_token": "…",
                   "info_hex": "…", "ephemeral_priv": "hex", "payload_utf8": "…", "frame_hex": "…",
                   "sealed_b64url": "…" },
@@ -116,4 +116,4 @@ test/aiur/push/vectors_test.exs`, `mise exec -- mix aiur.push.vectors --check`.
 
 - [ ] Vectors committed at one path; README line in `packages/aiur-contracts` (or the
   fixtures dir) explains regeneration.
-- Docs: none user-facing. Dependents: N1-C2-T3, MP-N4-C4-T02, MP-N4-C5-T02, C3-T03.
+- Docs: none user-facing. Dependents: N1-C2-T03, MP-N4-C4-T02, MP-N4-C5-T02, C3-T03.

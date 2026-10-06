@@ -83,7 +83,7 @@ Test harness only.
 | Manual AC12 run | capture shows T2 agent row appear after T1 completes, with no Executor promotion command between | — (evidence) |
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/test_reset_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/test_reset_test.exs
 ```
 
 ## Completion and handoff

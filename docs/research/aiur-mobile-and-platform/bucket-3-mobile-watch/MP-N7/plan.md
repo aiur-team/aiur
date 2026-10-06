@@ -77,9 +77,9 @@ Small dictionaries over WatchConnectivity (`sendMessage` with reply,
 
 | Message | Direction | Transport (Apple / Wear) | Purpose |
 |---|---|---|---|
-| `snapshot` | phone → watch | `updateApplicationContext` / `DataClient` item `/aiur/snapshot` | Latest compact list (§6) with `as_of`. Overwrites; only the newest matters. |
+| `snapshot` | phone → watch | `updateApplicationContext` / `DataClient` item `/aiur/snapshot` | Latest compact list (§6) with `as_of`. Overwrites; only the newest matters. Schema and the 16 KiB budget are owned by MP-N7-C1-T01 (RC-38); MP-N1-C3-T04 builds the instance part. |
 | `get_command {instance_id, decision_id}` | watch → phone | `sendMessage` with reply / `MessageClient` request | Fetch one Command card. Wakes the iOS app (S6). |
-| `answer {instance_id, decision_id, expected_version, idempotency_key, selected_option_id | custom_response}` | watch → phone | `sendMessage`; on failure `transferUserInfo` with **no automatic replay** (see §8) / `MessageClient` | Submit an answer. The phone adds `client.surface: "watch"` and `device_id`. |
+| `answer {instance_id, decision_id, expected_version, idempotency_key, option_id | custom_response}` | watch → phone | `sendMessage`; on failure `transferUserInfo` with **no automatic replay** (see §8) / `MessageClient` | Submit an answer. The phone adds `client.surface: "watch"` and `device_id`. |
 | `answer_result {idempotency_key, outcome}` | phone → watch | reply, else `transferUserInfo` / `MessageClient` | `delivered`, `conflict{winner}`, `failed{reason}`, `stale`. |
 | `voice_turn {session, seq, audio_file}` | watch → phone | `transferFile` / `ChannelClient` stream | Turn-based Converse and ElevenLabs dictation (§5). |
 | `voice_result {session, seq, transcript?, reply_audio?}` | phone → watch | reply / `transferFile` / `ChannelClient` | Transcript for review; spoken reply for Converse. |
@@ -96,7 +96,7 @@ Nothing records until one is chosen. Opening a notification never starts the mic
 | Path | How | Pros | Cons |
 |---|---|---|---|
 | D-sys (recommended v1) | System text input with dictation (SwiftUI `TextField` / `presentTextInputController`, S11; Wear `RecognizerIntent.ACTION_RECOGNIZE_SPEECH`, S36). The result appears for review, then Send. | Works without the phone's voice path. Lowest latency. Matches E5's review-before-send rule. | Speech is processed by Apple or Google, not by the operator's ElevenLabs key. This must be disclosed (brief §7); it is an owner decision (OQ-N7-2). |
-| D-relay | Record to a file (`AVAudioRecorder`, S10; Wear `MediaRecorder`), send it to the phone (`transferFile` / `ChannelClient`), the phone streams it to the daemon's STT (MP-N1 A5), and the transcript returns for review | Same provider as the dashboard | Seconds of extra latency; depends on A5; not real-time |
+| D-relay | Record to a file (`AVAudioRecorder`, S10; Wear `MediaRecorder`), send it to the phone (`transferFile` / `ChannelClient`), the phone streams it to the daemon's STT over the device voice path (MP-E5-C8, voice-session §3.5), and the transcript returns for review | Same provider as the dashboard | Seconds of extra latency; depends on MP-E5-C8; not real-time |
 
 Recommendation: offer **D-sys** by default, and D-relay only when the operator
 requires that speech never goes to Apple or Google (OQ-N7-2). Both show the text for
@@ -109,7 +109,7 @@ WebSocket to the daemon is blocked (S7), and the phone relay is not designed for
 streaming. So Converse on the watch is **turn-based**:
 
 1. Press to talk; press again to end the turn (the dashboard's half-duplex shape, baseline E6).
-2. The audio file goes to the phone (`voice_turn`). The phone forwards it to the MP-E6 conversation component through A5.
+2. The audio file goes to the phone (`voice_turn`). The phone forwards it to the MP-E6 conversation component through the device voice path (MP-E5-C8, voice-session §3.5).
 3. The reply comes back as text plus optional audio (`voice_result`). The watch plays it and shows the text.
 4. Leaving the screen ends the session. The transcript is retained by MP-E6 (D17: no raw audio retained).
 
@@ -128,7 +128,7 @@ From the phone's `snapshot` (never fetched by the watch directly):
 | Machine label, repository `owner/name` | identity | — |
 | Executor state | identity `executor.state` | `unknown` shown as "?" with a legend, not "idle" |
 | Active agents | `instance.status` | "—" with `unavailable`, not 0 |
-| Commands awaiting (blocking count) | `commands.read` | hidden if unavailable |
+| Commands awaiting (blocking count) | `commands.read` | "—" with the `unavailable` reason, never hidden and never 0 (Phase D X-56; MP-N7-C2-T02 already renders it this way); hidden only when `disabled` |
 | Build-order % | `build_orders.progress` | hidden |
 | Background agents (Executor) | MP-E3 when available | hidden |
 | Freshness | `as_of` + phone reachability | "Needs iPhone nearby" / "Needs phone" when the watch cannot reach the phone; ages always shown |
@@ -144,6 +144,15 @@ last `snapshot`.
 ## 7. Notifications
 
 - **Apple Watch:** v1 relies on **iPhone forwarding** (S15): when the iPhone is locked and the watch is on the wrist, the watch shows the iPhone's notification. The iPhone NSE decrypts first. That the watch then shows the decrypted text is supported only by vendor evidence (S39); DV-W1 must confirm it. The watch app does **not** register its own APNs token in v1. Doing so (S12) would need its own device credential and decryption key on the watch, a second pairing scope that MP-N2 does not define. It is deferred, as research N7-RQ4.
+- **If the watch shows only the uniform fallback (Phase D feasibility M5).** The plan default is
+  option **(a)**: accept the fallback on the watch ("aiur · New notification"); its default
+  action opens the watch app, which fetches the Command card through the phone
+  (`get_command`, MP-N7-C2-T04 "fallback open" path), so the card is one tap away. DV-W1
+  therefore passes on "decrypted text, **or** fallback with the card one tap away"
+  (MP-N7-C6-T01). Option **(b)**, promote N7-RQ4 (direct watch push with its own key) to a
+  conditional chunk, is triggered only if the owner rejects (a) in DESIGN-N7 or DV-W1 fails
+  even the relaxed criterion. Then MP-N2 must first define the second pairing scope. The
+  choice is an owner decision in DESIGN-N7.
 - **Actions:** the notification's default action opens the watch app's Command card, where options are buttons. Dynamic option titles as notification action buttons are **not** assumed: categories are registered in advance, so per-Command option text in the banner is unverified (N7-RQ1).
 - **Wear OS (revised in Phase C, N7-RQ2):** the Android phone's FCM service decrypts and posts the notification with bridge tag `aiur-command` and dismissal id `<instance_id>:<decision_id>`. When the Wear app is installed it excludes that tag from bridging and posts its own notification (sent by the phone broker as watch-link `notify`), whose content intent opens the Wear Command card. Without the Wear app, the phone notification bridges by default ("open on phone"). See tickets/MP-N7-C3-T04.md.
 - **Resolved elsewhere:** when a Command resolves on another surface, the phone removes or updates the notification; forwarded or bridged copies follow (DV-W7 checks Wear; Apple forwarding of removals is N7-RQ3).
@@ -155,10 +164,12 @@ last `snapshot`.
 | Phone out of range or off | The watch shows the last snapshot labelled with its age and "Needs iPhone nearby" / "Needs phone". Answer and voice are disabled with that reason. |
 | Phone reachable, daemon unreachable | The broker returns `unreachable` per machine. The watch shows it per instance (not "0 awaiting"). |
 | Answer sent, reply lost | The watch shows "Sending…", then "Not confirmed. Check on phone." It never resends automatically; a user resend reuses the same `idempotency_key`, so the server dedupes. |
+| Queued `transferUserInfo` answer (deliberate exception) | MP-N6 does **not** queue phone answers for later send (OQ-N6-1). The watch path is the one deliberate exception (Phase D feasibility m6): a watch answer that fails `sendMessage` is handed to `transferUserInfo`, because the watch cannot hold a request open; the system delivers it when the phone wakes. The late-delivery guard below makes this safe; DV-W4b tests it. If DESIGN-N6 OQ-N6-1 forbids any queuing, drop this fallback and show "Not sent. Open on iPhone" instead. |
 | Queued `transferUserInfo` answer delivered late | The phone checks the Command's `expected_version` and age before submitting. If the Command changed or the answer is older than the stale budget (contract §6), it reports `stale` instead of submitting. A late answer must never land on a changed question. |
 | Command already resolved | The card shows "Resolved by <surface> <age> ago" and the winning answer summary (MP-E2 409 data); options are hidden. |
 | Two watches on one iPhone | WatchConnectivity supports switching (S6). The broker implements the activation callbacks; only the active watch receives snapshots. |
 | Mic permission denied | Dictate (D-relay) and Converse show `needs_permission`; D-sys may still work because it uses the system input UI. |
+| Voice session ends with a typed reason | The watch maps every voice-session §6 end reason and §8 code through the shared fixture `packages/aiur-mobile/fixtures/contract/voice/end-reasons.json` (voice-session §8.1; Phase D feasibility M7): `cost_cap` and `provider_quota` show their own copy with **no** retry; `provider_unavailable` shows "try later"; `transport_lost` offers Retry; `auth_changed` shows unpaired. An unknown code shows the cause-neutral "Voice stopped" copy, never a guessed cause. Owner: MP-N7-C4-T05. |
 | Voice capability absent on the server | D-relay and Converse show unavailable with the reason; D-sys stays available (it needs no server voice). |
 | Watch locked or off the wrist | No forwarding (S15); the phone shows the notification instead. |
 | Battery | No polling on the watch. All updates are pushed from the phone through application context, which the system delivers opportunistically. |
@@ -167,7 +178,7 @@ last `snapshot`.
 ## 9. Contracts
 
 - **Owned:** watch-link protocol (§4), internal to `packages/aiur-mobile`.
-- **Consumed:** client-capability-model (watch rules §7, owned by MP-N1); command-request-and-resolution (MP-E2) via the phone; conversations (MP-E4) for an optional two-line context excerpt only; notification payload (MP-N4); voice for non-browser clients (A5, MP-E5/MP-R5) and MP-E6 for Converse; identity-and-capabilities (MP-R1).
+- **Consumed:** client-capability-model (watch rules §7, owned by MP-N1); command-request-and-resolution (MP-E2) via the phone; conversations (MP-E4) for an optional two-line context excerpt only; notification payload (MP-N4); voice for non-browser clients (MP-E5-C8 device voice path, voice-session §3.5; the §8.1 client error table) and MP-E6 for Converse; identity-and-capabilities (MP-R1).
 - **Assumption to reconcile with MP-E2:** `client.surface: "watch"` is distinct from `"phone"` in the answer record even though the phone submits it, so audit logs show where the decision was made.
 
 ## 10. Acceptance criteria
@@ -179,7 +190,7 @@ last `snapshot`.
 - AC5. Dictation text is shown for review before Send on both paths (DV-W5).
 - AC6. No pause, resume, spawn or other orchestration control exists in either watch app (a UI inventory test lists every interactive control).
 - AC7. With the phone unreachable, the watch shows the age and "needs phone" state, and write actions are disabled (DV-W3).
-- AC8. Every required DV-W row passes on physical devices.
+- AC8. Every required DV-W row passes on physical devices. DV-W1 passes on decrypted text or on the fallback with the card one tap away (§7, M5).
 - AC9. DESIGN-N7 is approved before any N7 implementation ticket starts.
 
 ## 11. Plan-refresh note
@@ -207,6 +218,6 @@ Phase C status (2026-10-06):
 - **N7-RQ1 — API resolved, forwarded case pending device.** `WKUserNotificationInterfaceController.notificationActions` (watchOS 5.0+) "dynamically update[s] the list of actions … only … during `didReceive(_:)`" (developer.apple.com/documentation/watchkit/wkusernotificationinterfacecontroller/notificationactions, accessed 2026-10-06). Whether forwarded notifications carry the decrypted options is device row DV-W10. On Wear OS, per-notification actions exist but bridged actions run on the phone; the Wear-local notification (C3-T04) avoids that. Ticket MP-N7-C2-T06 (conditional).
 - **N7-RQ2 — resolved.** Bridged notifications include a button to launch the app on the phone and `WearableExtender` actions "execute on the phone, not on the watch" (developer.android.com/training/wearables/notifications, updated 2026-09-22). Decision: the Wear app posts its own Command notification and excludes tag `aiur-command` from bridging; dismissal id `<instance_id>:<decision_id>` (bridger page, updated 2026-09-22). Device rows DV-W7/W7b/W7c confirm a non-standalone app's `BridgingConfig` is honoured. Ticket MP-N7-C3-T04.
 - **N7-RQ3 — not documented; device row DV-W11.** Apple's forwarding page (accessed 2026-10-06) does not cover removal. Fallback if not removed: watch-side cleanup on the next snapshot (MP-N6-C6 ticket filed from DV-W11).
-- **N7-RQ4 — deferred** (unchanged).
+- **N7-RQ4 — deferred; conditional chunk (Phase D M5).** Becomes a chunk only if DESIGN-N7 rejects the fallback-open design (§7 option (a)) or DV-W1 fails the relaxed criterion.
 - **N7-RQ5 — not documented** (network-access page, updated 2026-09-22, says traffic is "generally proxied through the phone" and does not mention VPNs). Irrelevant to v1; advisory measurement in DV-W8.
 - **RQ-N7-6 (new).** Do the daemon STT path and the MP-E6 provider accept watch audio relayed faster than real time? Until measured (DV-W6), the phone paces at real time. Blocks the fast-pacing option in MP-N7-C4-T04/T05.

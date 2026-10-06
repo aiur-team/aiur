@@ -46,7 +46,7 @@ on. It does not decide pairing, push, or Command semantics; it consumes them.
 
 | # | Finding | Evidence | Planning consequence |
 |---|---|---|---|
-| F1 | The HTTP server is plain HTTP; the config has only `host` and `port` | `src/lib/aiur/http_server.ex:64,147`; `src/lib/aiur/config/schema/server.ex:12-13` | iOS ATS blocks HTTP and IP literals on iOS 17+; Android blocks cleartext by default (S16, S31). An HTTP origin is not a secure context, so WebView `getUserMedia` fails. → Assumption A3 (transport security from MP-N2/MP-R3). |
+| F1 | The HTTP server is plain HTTP; the config has only `host` and `port` | `src/lib/aiur/http_server.ex:64,147`; `src/lib/aiur/config/schema/server.ex:12-13` | iOS ATS blocks HTTP, and per non-authoritative DTS replies IP literals on iOS 17+ (S16 corrected, Phase D m4; MP-N2-C10-T05 decides); Android blocks cleartext by default (S16, S31). An HTTP origin is not a secure context, so WebView `getUserMedia` fails. → Assumption A3 (transport security from MP-N2/MP-R3). |
 | F2 | Every LiveView page is in `live_session :dashboard`, mounted through `AiurWeb.FinancialDataAccess` | `src/lib/aiur_web/router.ex:133-148`; `financial_data_access.ex:98-110` (`on_mount`) | A WebView with a valid session cookie can host every page unchanged. |
 | F3 | Dashboard auth is one shared Basic Auth pair, then a signed session marker | `financial_data_access.ex:50-95` (`authenticate_request`, `persist_session`); `router.ex:9-15,203-212` | The phone must not store the shared pair. MP-N2 mints a per-device session for the WebView (A1). |
 | F4 | JSON writes require a same-origin `Origin` plus `X-Aiur-Request: 1`, and are disabled unless `observability.dashboard_writable` | `router.ex:50-62,215-256` | Native writes (Command answer, send message) need a device-credential API. When the dashboard is read-only, phone writes show `disabled`, not an error (client-capability-model.md). |
@@ -144,8 +144,11 @@ here because MP-N1 is where their absence becomes visible.
    DESIGN-N2 §transport between **T-A** (publicly trusted certificate files, e.g.
    `tailscale cert`; recommended, discloses the machine name to Certificate Transparency) and
    **T-B** (aiur self-signed certificate with an SPKI pin in the QR). Phase C evidence against
-   T-B as the default: WKWebView's server-trust override does not cover WebSockets (Apple DTS,
-   <https://developer.apple.com/forums/thread/104376>, accessed 2026-10-06), and `/live` and
+   T-B as the default: WKWebView's server-trust override may not cover WebSockets (Apple DTS,
+   <https://developer.apple.com/forums/thread/104376>, accessed 2026-10-06,
+   **[non-authoritative, 2018]**: a hedged 2018 reply, "Last I checked…"; Phase D feasibility m3).
+   The deciding evidence is the MP-N1-C9-T01 prototype row P-x (LiveView `/live` over `wss://`
+   with a pinned self-signed certificate in both WebViews), not this post. Also `/live` and
    `/voice` are WebSocket-only today (`endpoint.ex:14-29`); Google Play flags unvalidated
    `onReceivedSslError` handlers (<https://support.google.com/faqs/answer/7071387>). The
    HTTP-degraded mode survives only if the owner keeps `transport.allow_cleartext_overlay`.
@@ -172,10 +175,10 @@ here because MP-N1 is where their absence becomes visible.
 | A2 | Pairing / discovery (MP-N2) | A machine endpoint lists instances with `instance_id`, advertised URL, repository and liveness. Instance URLs may change; the app re-resolves by `instance_id`. |
 | A3 | Transport (MP-N2/MP-R3) | §5.1. Without HTTPS, N1 runs degraded and says so. |
 | A4 | Identity and capabilities (MP-R1) | `GET /api/v1/capabilities` exactly as drafted (`contract_version` 1, `revision`, `freshness`, IDs from capability-matrix.md §2), accepted with the device credential. `system.capabilities.changed` on the MP-R2 external subscription API. |
-| A5 | Voice for non-browser clients (MP-E5, MP-R5) | A device-authenticated way to stream 16 kHz mono PCM and receive partial and final transcripts, equivalent to `voice:dictation`, plus a conversation entry point (MP-E6). Raw audio is never retained (D17). If absent, native mic buttons show `unavailable: not_supported_by_server`. |
+| A5 | Voice for non-browser clients (MP-E5, MP-R5) | A device-authenticated way to stream 16 kHz mono PCM and receive partial and final transcripts, equivalent to `voice:dictation`, plus a conversation entry point (MP-E6). Raw audio is never retained (D17). If the server's report lacks `voice.stt`, native mic buttons show `unknown` ("update aiur on <machine>"); if present and not available, they show its closed-enum reason from identity contract §2.2 (`not_installed`, `not_configured`, `disabled`, …). Phase D X-56: no `not_supported_by_server` reason. The device path is MP-E5-C8 (voice-session §3.5). |
 | A6 | Command request and resolution (MP-E2) | `GET` one Command by `decision_id`, and answer with `expected_version`, `idempotency_key`, `client.surface ∈ {phone, watch}`, `device_id`. A 409 conflict returns the winning answer summary. |
 | A7 | Conversations and anchors (MP-E4) | A route form that opens `/chat/...` at an `anchor_id`, and a JSON read of the entries around an anchor for the native Command screen's context excerpt. |
-| A8 | Notification payload (MP-N4) | A sealed payload, decryptable by the native core, that yields `{machine_id, instance_id, kind, decision_id?, anchor_id?, short_summary, urgency}`. iOS payloads carry `mutable-content: 1` with a generic placeholder alert. Android uses high-priority data messages that always produce a visible notification (S29). |
+| A8 | Notification payload (MP-N4) | A sealed payload, decryptable by the native core, that yields the ProtectedPayload v1 of `contracts/notification-destination-and-payload.md` §3 (`kind`, `summary.{title,subtitle,body,badge?}`, `attempt`, `destination.{machine_id, instance_id, target.command_id, anchor_id?}`, `urgency`). Phase D X-56: the earlier ad-hoc shape is retired. iOS payloads carry `mutable-content: 1` with a generic placeholder alert. Android uses high-priority data messages that always produce a visible notification (S29). |
 | A9 | Event subscription (MP-R2) | An external subscriber API for live counts. If absent, the meta-dashboard polls (client-capability-model.md §6). |
 
 ## 7. Code-sharing strategy
@@ -202,12 +205,12 @@ here because MP-N1 is where their absence becomes visible.
 | Notification for a Command already resolved | The native Command screen fetches before rendering options. Resolved Commands show who resolved them and when (MP-E2 conflict data); options are not offered. |
 | Duplicate submit (double tap, retry after timeout) | Same `idempotency_key` per submit intent; the server dedupes (A6). The UI shows `sending → delivered | conflict | failed`. |
 | Two phones answer at once | First answer wins (D11). The loser sees the winner's summary. |
-| App killed or force-quit | Notifications still render through the NSE / FCM service (no app process needed for the NSE; S2). A force-quit iOS app is not relaunched for background pushes (S41), so N1 relies on no background fetch. |
-| Device locked since reboot (before first unlock) | Keys stored `AfterFirstUnlockThisDeviceOnly` are unreadable (S5). The NSE shows the generic placeholder ("Aiur needs your attention"). Device validation DV-P3 confirms this. |
+| App terminated or force-quit | Per state, as validated in the canonical MP-N4 matrix (Phase D feasibility M4): **system-terminated** — the NSE / FCM service still renders (no app process needed for the NSE; S2), pass required (V-I2/V-A2). **iOS app-switcher force-quit** — UNVERIFIED whether the alert + NSE still display; record only (V-I4, RQ-N4-3). **Android swiped from recents** — pass required on Pixel, record on Samsung. **Android Settings → Force stop** — no delivery expected (V-A4); the app shows the MP-N4-C5-T03 warning on next launch. A force-quit iOS app is not relaunched for background pushes (S41), so N1 relies on no background fetch. |
+| Device locked since reboot (before first unlock) | Keys stored `AfterFirstUnlockThisDeviceOnly` are unreadable (S5). The NSE shows the generic placeholder ("Aiur needs your attention"). Device validation MP-N4 V-I3/V-A3 (formerly DV-P3) confirms this. |
 | Instance moved (new `instance_key`) | The old row goes stale, then is removed per MP-N2 garbage-collection. A new row appears. |
 | Server contract older than the client | Missing capability IDs show `unknown` with "update aiur on <machine>". |
-| Client older than the server | Unknown IDs are ignored. If the server's `min_client_version` (proposed to MP-R1) exceeds the app's, a "Update the app" banner appears and writes are blocked. |
-| Privacy | JS never holds keys. WebView navigation is confined to the instance origin. Logs exclude bodies and tokens. Cloud voice processing is disclosed separately from push privacy (brief §7). |
+| Client older than the server | Unknown IDs are ignored. If the server's `min_client_versions` entry for this client kind (identity contract §2.2) exceeds the app's, a "Update the app" banner appears and writes are blocked. |
+| Privacy | JS never holds keys. WebView navigation is confined to the instance origin. Logs exclude bodies and tokens. **Transcript entry bodies are never persisted to disk** by the app (memory only, wiped on revoke; Phase D security M5). **Agent-authored text** (`summary.title`, the E2 short label) is rendered in-app with a "from agent" style, never as aiur's own words (security m3). `aiur-pair:` is accepted only from the in-app scanner, never as an OS URL scheme (security m10). Cloud voice processing is disclosed separately from push privacy (brief §7). |
 
 ## 9. Acceptance criteria (feature level)
 
@@ -256,4 +259,4 @@ account and a physical iPhone and Apple Watch.
 - **N1-RQ2.** Schema-to-Swift/Kotlin generator choice.
 - **N1-RQ3.** Expo CNG plus `expo-apple-targets`: does a watch target plus an NSE target survive `expo prebuild --clean` with app-group and keychain-group entitlements intact?
 - **N1-RQ4.** NSE memory headroom for the chosen crypto library (Apple does not state the limit on the pages read; measure on device).
-- **N1-RQ5.** The Android WebView cookie API for injecting the bootstrap session per origin, and its behaviour across process death.
+- **N1-RQ5 (retired, Phase D T-2).** Was: the Android WebView cookie API for injecting the bootstrap session. The bootstrap now navigates the WebView to MP-N2-C6-T02's one-time `bootstrap_path`, so the server sets the cookie and no app code touches a cookie store.

@@ -77,5 +77,7 @@ bash scripts/test-check-config-docs.sh && python3 scripts/check-config-docs.py
 ## Completion and handoff
 
 - [ ] Both commands pass; mutation for 2, 3 recorded.
-- [ ] AGENTS.md "Docs ship with the change" table: the coordinator updates the "Only one row … is
-      machine-checked" sentence to mention `~/.aiur/machine` (AGENTS.md is coordinator-owned; noted in the reply).
+- [ ] AGENTS.md "Docs ship with the change": update the "Only one row … is machine-checked"
+      sentence to mention `~/.aiur/machine` **in this PR** (Phase D: the sentence becomes wrong
+      when this check lands, and AGENTS.md requires docs to ship with the change; the research
+      pack does not edit AGENTS.md).

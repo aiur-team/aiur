@@ -40,7 +40,13 @@ researched: 2026-10-06
 ```
 
      `routing/0` reads `Application.get_env(:aiur, :listener_send_routing, :legacy)`;
-     any value other than `:listener` is `:legacy`.
+     any value other than `:listener` is `:legacy`. **RC-36:** it also answers
+     `:legacy` unless the vendored spec is usable — `spec_status/0` returns
+     `Aiur.Listener.Spec.status/0` when that module is loaded (MP-E7-C1-T04)
+     and `{:error, :not_installed}` otherwise (`Code.ensure_loaded?/1`, no
+     compile-time dependency). The spec is a build-time input; its absence or
+     a checksum failure never breaks a send, it only keeps today's routing.
+     Tests inject the status through the opts-taking `routing/1`.
   2. `DeliveryPolicy.normalize_delivery_request/3` gains a `:listener`
      clause reached through `OperatorMessages.do_enqueue_running_operator_message/5`
      (`operator_messages.ex:791-811`), which, for `delivery_policy: :listener`,
@@ -180,6 +186,7 @@ env -C src mise exec -- make lint
 Tests (`Aiur.Listener.SchedulerTest`, plus `ListenerDeliveryTest` against a test Orchestrator):
 
 - "legacy routing reproduces today's policy for agent_chat, http and tui on every harness profile" (table over the R7-C1-T02 profiles; compares keyword lists).
+- "flag :listener with spec status not_installed or spec_invalid routes :legacy" (RC-36; fails if `routing/1` ignores the spec status).
 - "listener routing: sync never sets interrupt_requested" — enqueue to an active codex entry, assert `deliver_now?` false while a turn is active and the item is claimed by the checkpoint claim after the turn.
 - "listener routing: emulated steer interrupts only when the option is accepted".
 - "listener routing: async item never wakes idle, active, sleeping or self-paused entries" (five entry states).

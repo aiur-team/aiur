@@ -140,7 +140,7 @@ documented as a user command (the user command is `aiur mobile gateway start`, T
 `~/.aiur/github-budget/agent-token`; the command below sets a temporary HOME for that reason.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/gateway_boot_test.exs test/aiur/cli_test.exs
 ```
 

@@ -25,7 +25,7 @@ researched: 2026-10-06
 - **Deliverable:** native screen `Diagnostics` (route registered in MP-N1-C4-T01) showing, per
   paired machine: endpoints tried with each `ProbeResult` (MP-N1-C5-T01), transport mode
   (`https` / `http_degraded`), certificate summary when available, app version vs. server
-  `aiur_version` and `min_client_version`, and per instance the capability list with state,
+  `aiur_version` and `min_client_versions`, and per instance the capability list with state,
   reason and age. Entry points: the "Diagnostics" link on every `unreachable`/`unknown` state
   and every "Why is X unavailable?" link (DESIGN-N1 surface 4–5). In **debug builds only**, a
   "Key state" section listing, per machine, whether the device auth key, access token and push
@@ -43,7 +43,7 @@ researched: 2026-10-06
 
 - Capability report shape: `contracts/identity-and-capabilities.md` §2.2 (`aiur_version`,
   `revision`, `observed_at`, `age_ms`, `freshness`, per-capability `state`/`reason`), plus
-  `boot_id` and `min_client_version` added by RC-04.
+  `boot_id` and `min_client_versions` added by RC-04.
 - Rendering rules: client-capability-model.md §3 (states), §8 (404 → `needs_update`).
 - AGENTS.md "If a surface computes an age, it renders the age"; "a collapsed cause names the
   collapse at the source".

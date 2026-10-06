@@ -5,7 +5,7 @@ chunk_id: MP-N3-C1
 bucket: 3-mobile-watch
 title: "Summary fields build_orders, background_agents and capabilities"
 status: blocked
-blocked_by: [DESIGN-N3, MP-N3-C1-T01, MP-R1-C3-T02, MP-E1-C7]
+blocked_by: [DESIGN-N3, MP-N3-C1-T01, MP-R1-C3-T02, MP-E1-C7-T01]
 prior_units: []
 prior_boundaries: [PRJ, BO]
 prior_features: [MP-R1, MP-E1, MP-E3]
@@ -31,9 +31,9 @@ researched: 2026-10-06
 
 - DESIGN-N3; MP-N3-C1-T01; MP-R1-C3-T02 (component capability callbacks, incl. `build_orders`,
   `build_orders.progress`).
-- MP-E1-C7 (RC-10: progress read API). When it lands, read progress from it; until then read
+- MP-E1-C7-T01 (RC-10: progress read API). When it lands, read progress from it; until then read
   `GraphProjection.catalog/1` directly (contract §7 RC-6 note).
-- MP-E3-C4-T2 supplies the background-agent roster later; this ticket ships the `unavailable`
+- MP-E3-C4-T02 supplies the background-agent roster later; this ticket ships the `unavailable`
   placeholder and the seam.
 
 ## Verified starting point (base `45a290e3`)
@@ -69,6 +69,9 @@ A root with `progress: nil` keeps `nil` (rendered "—"), never 0. Titles are ne
 
 `background_agents`: `unavailable`, reason `"capability_not_provided"` unless the capability
 report lists an MP-E3 background-agent capability, in which case the injected E3 reader is used.
+**Phase D (CR-N3-3):** the capability ID is `executor.background_agents` and the reader is
+`Aiur.Executor.BackgroundAgents.snapshot/0` (MP-E3-C4-T02); its `:unsupported` result maps to
+`unavailable` with the harness reason, never to zero.
 
 `capabilities`: `available` with the report's `{id => %{state, reason}}` map, trimmed to `state`
 and `reason`; the registry's own `revision` and `boot_id` go in the value too.
@@ -103,7 +106,7 @@ Read-only. After MP-E1-C7 the source swaps without a payload change.
 8. `"capabilities copy state and reason only"`.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/instance_summary/build_orders_test.exs test/aiur/instance_summary/capabilities_test.exs
 ```
 

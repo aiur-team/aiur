@@ -42,7 +42,7 @@ researched: 2026-10-06
   after U3's claim and wake-receipt PRs merge so the move is not rebased across an API
   change.
 - MP-E2/MP-E3 later add Executor-facing verbs; they should land in this module (note for
-  their tickets via MP-R1-C11-T2).
+  their tickets via MP-R1-C11-T02).
 - Concurrent with C9-T12, T13 (different line ranges — merge-conflict risk is limited to
   the `alias` block; serialize merges, not work).
 
@@ -110,5 +110,5 @@ real risk of this ticket. Manual: `--bg` run, then `scripts/aiurdev executor-wai
 
 - [ ] Executor verbs live in `executor-attention`; 11 delegates; delegation test green.
 - Docs: none.
-- Dependents: MP-E2/E3 CLI additions (via C11-T2). size_owner re-resolved at ticket start
+- Dependents: MP-E2/E3 CLI additions (via C11-T02). size_owner re-resolved at ticket start
   (RC-23).

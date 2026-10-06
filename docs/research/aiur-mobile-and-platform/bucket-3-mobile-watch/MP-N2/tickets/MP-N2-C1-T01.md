@@ -32,7 +32,9 @@ researched: 2026-10-06
   - `init_machine_key/0 :: {:ok, pub} | {:error, reason}` — creates `machine_key` (Ed25519 seed,
     0600), `machine_key.pub` (0644 is not needed; 0600) and `store.json` (`{"schema": 1}`) if absent;
     idempotent; refuses if they exist but are unreadable or wrongly owned.
-  - `machine_key/0`, `machine_public_key/0`, `sign/1`, `verify/2` (Ed25519 over raw bytes).
+  - `machine_key/0`, `machine_public_key/0`, private `raw_sign/1`, `verify/2` (Ed25519 over raw
+    bytes). The public signer is `sign(purpose, bytes)` with a domain tag, added by MP-N2-C1-T03
+    (security m6); there is no public purpose-free `sign/1`.
   - `check_dir/1`: directory mode 0700 and owner equals the running user, files 0600.
 - **Non-goals:** device rows, pairing secrets, tokens (T02, T03), the journal (T04), settings
   (MP-N2-C3-T01), creating `identity.json` (MP-R1-C2-T01), `aiur mobile reset` (MP-N2-C7 calls
@@ -94,14 +96,14 @@ machine/
   from the running user's uid. The running uid is taken from a probe file the process creates in
   `System.tmp_dir!/0` (its owner is the effective uid), which is portable and needs no shell.
 - **Store version.** `store.json` schema 1; an unknown higher schema returns `{:error, :store_schema_unsupported}` (fail closed).
-- **Invariants:** the seed never leaves the module (no public function returns it; `sign/1` takes
-  a message); no log line contains key bytes.
+- **Invariants:** the seed never leaves the module (no public function returns it; the private `raw_sign/1`
+  takes a message); no log line contains key bytes.
 
 ## Implementation steps
 
 1. `src/lib/aiur/machine/paths.ex` (PROPOSED): state dir resolution mirroring `upgrade/state.ex:35-40`.
 2. `src/lib/aiur/machine/store.ex` (PROPOSED): `identity/0`, `check_dir/1`, `init_machine_key/0`,
-   `machine_public_key/0`, `sign/1`, `verify/2`.
+   `machine_public_key/0`, private `raw_sign/1`, `verify/2`.
 3. Tests and fixtures. About 170 production lines.
 
 ## Non-happy paths
@@ -144,7 +146,7 @@ module. Plan refresh: after MP-R1 the module moves to the package R1 names for `
 Command (from `src/`):
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/store_identity_test.exs
 ```
 

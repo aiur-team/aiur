@@ -95,7 +95,7 @@ New endpoint; instances are only read.
 7. `"concurrency never exceeds 4"` (counter in the fake).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/registry_endpoint_test.exs test/aiur/machine/instance_rpc_test.exs
 ```
 
@@ -107,3 +107,5 @@ third; `curl -H "Authorization: Bearer <token from the C5 reference client>" htt
 - [ ] Tests pass; mutation for 4, 6 recorded.
 - [ ] MP-N3-C2-T01 notified: `InstanceRpc.call/5` and the `include=summary` placeholder to replace.
 - [ ] Docs: none user-facing beyond the pairing guide (MP-N2-C9-T01).
+- [ ] Publish `packages/aiur-contracts/schemas/instance-entry.v1.schema.json` with a golden
+      fixture (Phase D, MP-N1 request A3; package layout from MP-R1-C3-T06).

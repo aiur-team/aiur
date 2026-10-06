@@ -25,8 +25,14 @@ MP-R3 adds no runtime behaviour. It adds:
 - a **bind-matrix guard** for the host values that matter;
 - **one docs correction**: Tailscale gives reachability, not authorization.
 
-The work is two chunks and about four tickets. The stable "advertised URL" a
-phone needs is **not** R3 work; MP-N2 owns it (see § Plan refresh).
+The work is two chunks and two tickets (MP-R3-C1-T01, MP-R3-C2-T01; Phase C merged
+the planned four). The stable "advertised URL" a phone needs is **not** R3 work; MP-N2
+owns it (see § Plan refresh).
+
+**U0 gate (RC-19, X-58):** every MP-R3 ticket waits for U0 review of the prior plan
+(`docs/plans/2026-09-29-001-refactor-production-readiness-plan.md`), because RC-19 keeps that
+gate for refactor work. U0 has no ticket ID, so the gate is stated here and not in
+`blocked_by`; the MP-R1-C11-T02 recheck does not replace it.
 
 Prior-units: U8 (size only; no >500-line file is split here). Prior-boundaries:
 `WEB` #34, `CFG` #2, launcher #32. Prior-findings: `nonelixir-shell-27` (the

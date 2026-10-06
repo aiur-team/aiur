@@ -5,7 +5,7 @@ chunk_id: MP-N4-C5
 bucket: 3-mobile-watch
 title: Android push registration — FCM token, relay handle per machine, token refresh
 status: ready
-blocked_by: [DESIGN-N4, MP-N4-C5-T01, MP-N4-C2-T01, N1-C6-T4, MP-N2-C5-T2]
+blocked_by: [DESIGN-N4, MP-N4-C5-T01, MP-N4-C2-T01, MP-N1-C6-T01, MP-N2-C5-T02, MP-N2-C7-T01]
 prior_units: []
 prior_boundaries: [mobile-app, relay service]
 prior_features: [MP-N1, MP-N2]
@@ -24,12 +24,12 @@ Bucket 3, MP-N4, chunk C5. Same as C4-T05 for Android: get the FCM registration 
 (`platform: "fcm"`, `app_topic` = the Firebase app id the relay allowlists), create the
 per-machine keyset (C5-T01) and `device_push_secret`, build the contract v2 §7 record
 (`capabilities: {"nse": false, "decrypt_while_locked": "after_first_unlock" |
-"unverified_before_first_unlock"}`), hand it to N1-C6-T4. `onNewToken` → re-register and
+"unverified_before_first_unlock"}`), hand it to MP-N1-C6-T01 (`pushToken()` hand-off). `onNewToken` → re-register and
 delete old handles.
 
 ## Dependencies and blockers
 
-- C5-T01, C2-T01, N1-C6-T4, MP-N2-C5-T2; CR-N4-3 (MP-N2 update endpoint for
+- C5-T01, C2-T01, MP-N1-C6-T01 (candidate N1-C6-T04 folded into it), MP-N2-C5-T02; CR-N4-3 (MP-N2 update endpoint for
   `push_registration` after pairing). DESIGN-N4 gate (no content dependency).
 
 ## Verified starting point
@@ -43,6 +43,11 @@ delete old handles.
 
 Mirror C4-T05: secrets in the Keystore-wrapped encrypted prefs; one handle per machine;
 `notifications_permitted` flag from `POST_NOTIFICATIONS` state.
+- **`push_health` (Phase D M6; contract §7):** the record carries `push_health: "ok" |
+  "keys_lost"`. When C5-T01 sets `KEYS_LOST` for a machine, the next online call to that
+  machine (app foreground or any device API call) sends the CR-N4-3 update with
+  `push_health: "keys_lost"` and `enc_keys: []`, so `aiur push status` (C3-T07) shows
+  "phone notifications broken"; a successful re-pair resets it to `ok`.
 
 ## Implementation steps
 
@@ -63,7 +68,7 @@ Additive; rollback stops registration.
 
 JUnit with MockWebServer relay: `oneHandlePerMachine`, `recordMatchesContractFields`,
 `onNewTokenReRegistersThenDeletesOld` (must fail if delete precedes hand-off),
-`noPlayServicesReportsUnavailable`. Device: V-A1 in C7.
+`noPlayServicesReportsUnavailable`. `keysLostReportsPushHealthOnNextCall` (must fail if the update omits `push_health`). Device: V-A1 in C7.
 
 ## Completion and handoff
 

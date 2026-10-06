@@ -5,7 +5,7 @@ chunk_id: MP-N1-C3
 bucket: 3-mobile-watch
 title: Capability cache and refresh policy keyed by instance_id, boot_id and revision, with typed write-error patching
 status: blocked
-blocked_by: [DESIGN-N1, MP-N1-C3-T01, MP-N1-C2-T05, MP-R1-C3-T3, MP-R1-C3-T5, MP-N2-C6-T01]
+blocked_by: [DESIGN-N1, MP-N1-C3-T01, MP-N1-C2-T05, MP-R1-C3-T03, MP-R1-C3-T05, MP-N2-C6-T01]
 prior_units: []
 prior_boundaries: []
 prior_features: [MP-R1, MP-N2, MP-R2]
@@ -17,7 +17,7 @@ researched: 2026-10-06
 
 # MP-N1-C3-T02 — Capability cache and refresh (TS)
 
-Candidate tickets merged: N1-C3-T1 (cache + triggers) and N1-C3-T4 (typed write-error
+Candidate tickets merged: N1-C3-T01 (cache + triggers) and N1-C3-T04 (typed write-error
 mapping into the cache).
 
 ## Identity and outcome
@@ -36,7 +36,7 @@ mapping into the cache).
 ## Dependencies and blockers
 
 - DESIGN-N1; MP-N1-C3-T01 (resolver); MP-N1-C2-T05 (`signedFetch`).
-- **MP-R1-C3-T3** (`GET /api/v1/capabilities` route), **MP-R1-C3-T5** (revision persistence,
+- **MP-R1-C3-T03** (`GET /api/v1/capabilities` route), **MP-R1-C3-T05** (revision persistence,
   change event; carries `boot_id` per RC-04), **MP-N2-C6-T01** (the device-auth plug that lets
   a device token call `:dashboard_auth` routes; `identity-and-capabilities.md` §2.1 assumption).
 - Concurrent with MP-N1-C3-T03.

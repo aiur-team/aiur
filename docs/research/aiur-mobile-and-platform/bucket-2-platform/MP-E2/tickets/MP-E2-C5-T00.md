@@ -6,6 +6,7 @@ bucket: 2-platform
 title: "Spike R-Q2: Claude AskUserQuestion capture under aiur-claude (defer vs blocking host)"
 status: ready
 blocked_by: []
+design_gate: "n/a — research spike"  # RC-32: read-only research or local experiment
 prior_units: [U4]
 prior_boundaries: [CLD #22]
 prior_features: [MP-R7 (MP-R7-C5 sibling protocol fixture)]

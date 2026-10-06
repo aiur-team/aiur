@@ -37,8 +37,8 @@ size owner for `EVENTS` paths is cited per ticket.
 C1 ──► C2 ──► C4 ──► (MP-R1 package layout gate)
  │      └──► C5 ──┐
  └──► C3 ─────────┴──► C6 ──► C7
-U3 event-delivery ticket ──► C2-T01        MP-R1-C2-T2 (instance_id) ──► C5-T04
-U5 KTD9 trust snapshot ──► C2-T02          MP-R1-C1-T1 manifest ──► C2-T11, C4-T01
+U3 event-delivery ticket ──► C2-T01        MP-R1-C2-T02 (instance_id) ──► C5-T04
+U5 KTD9 trust snapshot ──► C2-T02          MP-R1-C1-T01 manifest ──► C2-T11, C4-T01
 MP-R1-C3 capability registry ──► C7-T03   MP-N2-C6/C7 ──► C7-T05
 ```
 

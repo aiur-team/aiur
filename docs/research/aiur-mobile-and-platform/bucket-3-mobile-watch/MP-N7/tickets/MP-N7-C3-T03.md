@@ -5,7 +5,7 @@ chunk_id: MP-N7-C3
 bucket: 3-mobile-watch
 title: Wear OS Command card with options and answer outcome states
 status: blocked
-blocked_by: [DESIGN-N7, DESIGN-N6, DESIGN-E2, MP-N7-C3-T02, MP-N7-C1-T03, MP-N7-C1-T04]
+blocked_by: [DESIGN-N7, DESIGN-N6, DESIGN-E2, MP-N7-C3-T02, MP-N7-C1-T03, MP-N7-C1-T04, MP-N6-C5-T01]
 prior_units: []
 prior_boundaries: []
 prior_features: [MP-E2, MP-N6]

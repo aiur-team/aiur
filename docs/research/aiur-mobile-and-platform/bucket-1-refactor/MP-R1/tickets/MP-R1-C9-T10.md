@@ -5,7 +5,7 @@ chunk_id: MP-R1-C9
 bucket: 1-refactor
 title: Control-CLI kernel — extract the RPC output protocol and the shared reason renderer from AgentControlCLI
 status: blocked   # research complete; only DESIGN-R1 and named predecessors remain
-blocked_by: [DESIGN-R1, MP-R1-C1-T1, MP-R1-C1-T2]
+blocked_by: [DESIGN-R1, MP-R1-C1-T01, MP-R1-C1-T02]
 prior_units: [U6, U8, U9]
 prior_boundaries: [CLI #31, "#32 launcher"]
 prior_features: [MP-E1]
@@ -38,12 +38,12 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- DESIGN-R1 §1 (CLI output lines unchanged); MP-R1-C1-T1/T2 (manifest component
+- DESIGN-R1 §1 (CLI output lines unchanged); MP-R1-C1-T01/T02 (manifest component
   `control-cli`).
 - U6 owns `agent_control_cli.ex` for the status read model; this ticket touches only the
   protocol helpers and reason table, not status rendering, so it is not blocked on U6. Ask
   the U6 owner to review.
-- Concurrent with C9-T1…T9. T11–T14 depend on it.
+- Concurrent with C9-T01…T09. T11–T14 depend on it.
 
 ## Verified starting point (45a290e3)
 
@@ -63,7 +63,7 @@ researched: 2026-10-06
 - Already-extracted verb modules use an `error_fun` argument fed with `&control_error/1`
   (`agent_control_cli.ex:345-373`: `CommandsCLI`, `ExecutorCommandCLI`, `BuildOrdersCLI`,
   `GitHubCostCLI`). MP-E1 adds `Aiur.BuildQueueCLI` behind `AgentControlCLI.queue/1` the
-  same way (`bucket-2-platform/MP-E1/chunks.md` C6-T1/T2).
+  same way (`bucket-2-platform/MP-E1/chunks.md` C6-T01/T02).
 - `website/docs-app/scripts/check-cli-reference.sh` derives commands and flags from the
   engine's `case "$cmd"` arms and parse arms and from `src/lib/aiur/cli.ex` `@switches`
   (`:14-60`); it never reads `agent_control_cli.ex`, so splitting the module cannot
@@ -131,4 +131,4 @@ state, run back to back).
 - [ ] Launcher tests and `check-cli-reference.sh` green with zero engine edits.
 - Docs: none (no CLI surface change).
 - Dependents: C9-T11, T12, T13, T14. size_owner re-resolved at ticket start (RC-23,
-  MP-R1-C11-T2).
+  MP-R1-C11-T02).

@@ -23,7 +23,7 @@ Waves are intra-feature order after the gates open; MP-N7 as a whole is delivery
 | [MP-N7-C2-T03](MP-N7-C2-T03.md) | watchOS Command card | blocked | DESIGN-N6, DESIGN-E2, C2-T02, C1-T02, C1-T04 | 5 |
 | [MP-N7-C2-T04](MP-N7-C2-T04.md) | Apple Watch notification routing | blocked | DESIGN-N4, C2-T03, MP-N1-C6-T01, MP-N4-C6-T01 | 6 |
 | [MP-N7-C2-T05](MP-N7-C2-T05.md) | watchOS control inventory test | blocked | C2-T02, C2-T03 | 6 |
-| [MP-N7-C2-T06](MP-N7-C2-T06.md) | Option buttons in the watch long-look (conditional) | blocked | DESIGN-N6, C2-T04, C6-T01 (DV-W1, DV-W10) | 9 |
+| [MP-N7-C2-T06](MP-N7-C2-T06.md) | Option buttons in the watch long-look (conditional) | blocked | DESIGN-N4 D-7 (owner; rec: not built), DESIGN-N6, C2-T04, C6-T01 (DV-W1, DV-W10) | 9 |
 | [MP-N7-C3-T01](MP-N7-C3-T01.md) | Wear OS project, PhoneLink, CI | blocked | MP-N1-C1-T01/T02, MP-N1-C2-T02, C1-T01 | 2 |
 | [MP-N7-C3-T02](MP-N7-C3-T02.md) | Wear OS instance list and detail | blocked | DESIGN-N3, C3-T01, C1-T05, MP-N3-C3-T01/T02 | 4 |
 | [MP-N7-C3-T03](MP-N7-C3-T03.md) | Wear OS Command card | blocked | DESIGN-N6, DESIGN-E2, C3-T02, C1-T03, C1-T04 | 5 |
@@ -65,6 +65,6 @@ everything above ─► C6-T01 (Apple) / C6-T02 (Wear)
 
 ## Chunk mapping changes (vs chunks.md candidates)
 
-- N7-C3-T4 (CI) merged into MP-N7-C3-T01; N7-C4-T6 (disclosure) merged into MP-N7-C4-T02.
+- N7-C3-T04 (CI) merged into MP-N7-C3-T01; N7-C4-T06 (disclosure) merged into MP-N7-C4-T02.
 - New: MP-N7-C2-T06 (dynamic long-look actions, from N7-RQ1), MP-N7-C6 (device validation).
 - Notification routing on Wear (C3-T04) changed design per N7-RQ2 (Wear-local notifications).

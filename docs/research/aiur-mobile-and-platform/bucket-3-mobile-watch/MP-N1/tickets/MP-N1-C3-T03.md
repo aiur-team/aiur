@@ -82,7 +82,7 @@ researched: 2026-10-06
 - `./gradlew :aiur-client-core:testDebugUnitTest --tests '*CapabilityResolverTest*'`
 - `npm --prefix packages/aiur-mobile run check:requirements`
 - Mutations (each in Swift and in Kotlin, each must fail ≥1 case): `unknown → ready`;
-  `unavailable → ready`; drop the `min_client_version` step; treat unknown reason as
+  `unavailable → ready`; drop the `min_client_versions` step; treat unknown reason as
   `not_configured`. Record runs in the PR body.
 - `skipped cases equal ts-only marked cases` — mutation: skip one more case → fails.
 

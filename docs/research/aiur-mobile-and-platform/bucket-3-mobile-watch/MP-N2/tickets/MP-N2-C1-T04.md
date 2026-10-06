@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, MP-N2-C1-T02]
 prior_units: []
 prior_boundaries: [K]
 prior_features: []
-prior_findings: []
+prior_findings: [RC-42 (paired entries carry auth_key_sha256 and survive rotation)]
 size_owner: n/a (new files)
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -44,11 +44,15 @@ they describe). Concurrent with T03. Dependents: MP-N2-C3-T03 (status tail), C5,
 
 - **Allow-list, not deny-list:** `append/2` accepts only these field keys:
   `at, event, device_id, parent_device_id, platform, label, by_device_id, by ("cli"|"gateway"),
-  count, reason`. Any other key raises `ArgumentError` in test and is dropped with a warning in
+  count, reason, auth_key_sha256` (`auth_key_sha256` is the sha256 of the device's **public**
+  P-256 key; Phase D, RC-42: the integrity check in MP-N2-C1-T03 compares rows with it). Any other key raises `ArgumentError` in test and is dropped with a warning in
   prod. So a token, secret, proof or key can only reach the journal through a code change that
   also edits the allow-list (reviewable).
 - Append with `File.open(path, [:append, :binary])` + `:file.datasync/1`, under the store lock.
-- Size cap 1 MiB: when exceeded, rename to `journal.1.ndjson` (one generation kept).
+- Size cap 1 MiB: when exceeded, rename to `journal.1.ndjson` (one generation kept), and
+  start the new file with one `paired` entry per current device row (`reason:
+  "rotation_carry"`, same `auth_key_sha256`), written in the same lock hold. Without the
+  carry, rotation would make every older device fail the RC-42 integrity check.
 
 ## Implementation steps
 
@@ -73,9 +77,18 @@ New file only after `aiur mobile enable`.
    Store + Journal with known token and secret values and greps the file (acceptance 9).
 4. `"rotation at 1 MiB keeps one generation"`.
 5. `"tail skips a corrupt line and reports it"`.
+6. `"rotation carries a paired entry for every current device"` (RC-42) — after rotation, the
+   new `journal.ndjson` holds one `paired` entry per `devices.json` row with the row's
+   `auth_key_sha256` (checked by reading both files; `Store.integrity/0` arrives in
+   MP-N2-C1-T03, which depends on this ticket). *Fails without:* the carry.
+7. `"claim writes a paired entry with auth_key_sha256 before the row"` (RC-42, security B1) —
+   this ticket passes `Journal.append(:paired, …)` as `Store.put_device/1`'s `journal:`
+   callback (MP-N2-C1-T02) and the relink path's. Inject a crash after the append: the
+   journal has the entry and `devices.json` has no row. *Fails without:* the wiring
+   (mutation: pass no callback → no `paired` line for the new device).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/journal_test.exs
 ```
 

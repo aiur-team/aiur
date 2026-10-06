@@ -5,7 +5,7 @@ chunk_id: MP-N3-C1
 bucket: 3-mobile-watch
 title: "Summary fields commands.awaiting and commands.awaiting_blocking with partial and unavailable health"
 status: blocked
-blocked_by: [DESIGN-N3, MP-N3-C1-T01, MP-E2-C7-T1]
+blocked_by: [DESIGN-N3, MP-N3-C1-T01, MP-E2-C7-T01]
 prior_units: [U6]
 prior_boundaries: [PRJ, DEC]
 prior_features: [MP-E2]
@@ -29,12 +29,14 @@ researched: 2026-10-06
 ## Dependencies and blockers
 
 - DESIGN-N3; MP-N3-C1-T01.
-- **MP-E2-C7-T1** (RQ-N3-3 resolution): E2 redefines the overview banner counts per DESIGN-E2 §6.2
+- **MP-E2-C7-T01** (RQ-N3-3 resolution): E2 redefines the overview banner counts per DESIGN-E2 §6.2
   ("Needs you / With Executor / From Executor"). The summary must report the same "needs you"
-  number the dashboard banner shows after E2. Until E2-C7-T1 lands, the definition is today's
+  number the dashboard banner shows after E2. Until E2-C7-T01 lands, the definition is today's
   `awaiting = open - deferred` (`decision_store/retained_index.ex:86-93`). This ticket takes
-  whatever public count function E2-C7-T1 exposes; if E2 keeps `awaiting`, the dependency is a
-  no-op check.
+  whatever public count function E2-C7-T01 exposes; if E2 keeps `awaiting`, the dependency is a
+  no-op check. **Phase D (CR-N3-2):** the function is `DecisionProvider.counts/1` →
+  `DecisionQuery.counts/1`, field `needs_you` (MP-E2-C7-T01), computed regardless of the
+  DESIGN-E2 §6.2 banner decision.
 - Concurrent with C1-T02, T04, T05.
 
 ## Verified starting point (base `45a290e3`)
@@ -65,7 +67,7 @@ maps to `unknown` (never to a specific cause).
 ## Implementation steps
 
 1. `src/lib/aiur/instance_summary/commands.ex` (PROPOSED); `counts_fun` injectable.
-2. After E2-C7-T1, point `counts_fun` at E2's "needs you" count. About 60 lines.
+2. After E2-C7-T01, point `counts_fun` at E2's "needs you" count. About 60 lines.
 
 ## Non-happy paths
 
@@ -90,7 +92,7 @@ Read-only. Field names stay stable across the E2 change (contract §7).
    `open` fails it).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/instance_summary/commands_test.exs test/aiur/decision_query_test.exs
 ```
 

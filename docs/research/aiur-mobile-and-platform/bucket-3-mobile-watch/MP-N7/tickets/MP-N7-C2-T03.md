@@ -5,7 +5,7 @@ chunk_id: MP-N7-C2
 bucket: 3-mobile-watch
 title: watchOS Command card with options and answer outcome states
 status: blocked
-blocked_by: [DESIGN-N7, DESIGN-N6, DESIGN-E2, MP-N7-C2-T02, MP-N7-C1-T02, MP-N7-C1-T04]
+blocked_by: [DESIGN-N7, DESIGN-N6, DESIGN-E2, MP-N7-C2-T02, MP-N7-C1-T02, MP-N7-C1-T04, MP-N6-C5-T01]
 prior_units: []
 prior_boundaries: []
 prior_features: [MP-E2, MP-N6]
@@ -67,15 +67,29 @@ sending ─delivered|duplicate→ success (haptic .success, text, auto-return to
   reuses it (plan §8), so the server dedupes.
 - Options render in server order with the recommended one marked (not reordered unless
   DESIGN-E2 says so). More than 3 options: show 3 and "More on iPhone".
+- The short summary is agent-authored text (E2 short label): it renders with the "from agent"
+  style that DESIGN-N7 picks, never as aiur's own words (Phase D security m3).
+- **Design-pending vs fixed (Phase D T-1).** Fixed now: the state machine, transitions, test
+  names and files below. Design-pending only: copy strings and layout (DESIGN-N7 §4 screens
+  3–4, §5 states; DESIGN-E2 copy). Strings live in `Localizable.strings` keys named after the
+  DESIGN-N7 §5 state, so approval changes values, not code.
 - No option is preselected; confirm step guards against wrist mis-taps (DESIGN-N7 may
   remove it; then delete the `confirming` state and its test in the same PR).
 
 ## Implementation steps
 
-1. `CommandCardModel.swift` (pure, testable, injected `PhoneLinkProtocol`).
-2. `CommandCardView.swift` with `.digitalCrownRotation`-free scrolling list.
-3. Accessibility labels for options including "recommended".
-4. Snapshot/UI tests per state from fixtures.
+Files to create (paths PROPOSED, under `packages/aiur-mobile/ios/AiurWatch/`):
+
+1. `Command/CommandCardModel.swift` (pure, testable, injected `PhoneLinkProtocol` and clock).
+2. `Command/CommandCardView.swift` with a `.digitalCrownRotation`-free scrolling list.
+3. `Command/CommandCardStrings.swift` mapping each state to a `Localizable.strings` key
+   `n7.card.<state>` (keys named after DESIGN-N7 §5).
+4. Accessibility labels for options including "recommended".
+5. `AiurWatchTests/CommandCardModelTests.swift` (table below), driven by fixtures
+   `packages/aiur-mobile/fixtures/watch-link/valid/get_command_result-*.json` and
+   `answer_result-*.json` (MP-N7-C1-T01).
+6. `AiurWatchUITests/CommandCardUITests.swift`: one UI test per DESIGN-N7 §5 state that
+   applies to the card, asserting the accessibility identifier `n7.card.<state>` is present.
 
 ## Non-happy paths
 
@@ -102,10 +116,25 @@ xcodebuild test -workspace packages/aiur-mobile/ios/aiur.xcworkspace -scheme Aiu
 | `testUnknownOutcomeIsError` | unknown → `error(unknown)` | default branch |
 | `testResolvedHidesOptions` | resolved card → no option buttons | resolved rule |
 | `testMaxThreeOptions` | 5 options → 3 + "More on iPhone" | cap |
+| `testState_Loading_NoFakeOptions` (DESIGN-N7 §5 Loading) | `loading` → no option buttons rendered | loading branch (render placeholders → fails) |
+| `testState_NeedsPhone_ShowsAgeAndDisablesOptions` (§5 Needs phone) | phone unreachable → stored summary + age; options disabled | needsPhone branch (leave options enabled → fails) |
+| `testState_MachineUnreachable_IsNotZero` (§5 Machine unreachable) | `get_command_result{outcome: unreachable}` → `error(unreachable)`, not an empty card | the unreachable mapping (map to `ready` with no options → fails) |
+| `testState_Stale_ShowsAge` (§5 Stale) | stored card older than the snapshot age budget → age label present | the age render (AGENTS.md "if a surface computes an age, it renders the age") |
+| `testState_Success_ReturnsToList` (§5 Success) | delivered → success, then list after 2 s on the injected clock | the auto-return timer |
+| `testSummaryUsesFromAgentStyle` | summary text view carries the `fromAgent` style id | the style (render plain → fails) |
+
+UI tests (simulator):
+
+```text
+xcodebuild test -workspace packages/aiur-mobile/ios/aiur.xcworkspace -scheme AiurWatch -destination 'platform=watchOS Simulator,name=Apple Watch Series 10 (46mm)' -only-testing:AiurWatchUITests/CommandCardUITests
+```
 
 Device rows: DV-W4 (exactly one answer, `client.surface: "watch"`), DV-W2.
 
 ## Completion and handoff
 
-- [ ] Card matches DESIGN-N7 screens 3–4; tests pass; each fails with its hunk reverted.
+- [ ] Card matches DESIGN-N7 screens 3–4; tests pass; each fails with its hunk reverted
+  (revert in a worktree, `git status --porcelain` shows only that hunk; command in the PR).
+- Docs: `website/docs-app/guide/mobile.md` watch section, "Answering on the watch": the
+  confirm step, "More on iPhone", and that "Not confirmed" never means delivered.
 - Dependents: MP-N7-C2-T04, MP-N7-C2-T05, MP-N7-C4-T01.

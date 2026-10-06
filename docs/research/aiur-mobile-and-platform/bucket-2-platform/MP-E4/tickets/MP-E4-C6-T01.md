@@ -48,7 +48,7 @@ researched: 2026-10-06
   `delivery_policy: :interrupt` (`:27`) — the default MP-E7-C3 replaces with the
   effective mode.
 - Receipt query: `AgentChat.delivery_status/2` → `:pending | :delivered |
-  :consumed` (`agent_chat.ex:68-80`); MP-E7-C3-T4 maps these onto contract §7
+  :consumed` (`agent_chat.ex:68-80`); MP-E7-C3-T04 maps these onto contract §7
   receipts (`accepted`, `held_async`, `harness_queued`, `in_context`, `read`,
   `failed`, `outcome_unknown`).
 - Today's drawer send keeps one `message_id` per user action and keeps the draft
@@ -120,7 +120,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur_web/conversation/delivery_overlay_test.exs \
   test/aiur_web/live/conversation_composer_test.exs
 ```

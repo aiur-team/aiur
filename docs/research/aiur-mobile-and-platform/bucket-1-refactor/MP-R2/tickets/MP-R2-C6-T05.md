@@ -83,7 +83,8 @@ reference in a comment.
 **two consecutive** checks; clear when below `threshold / 2` on two
 consecutive checks. Raise/clear call an injected
 `on_backlog.(:raised | :cleared, %{len, threshold})`; `aiur.ex` maps them to
-`Aiur.Alerts.emit_system("system.events.export_backlog", needs_attention: true, severity: "warning", reason: …)`
+`Signal.alert("system.events.export_backlog", needs_attention: true, severity: "warning", reason: …)`
+(the signal port, PR-07; C6 is wave 5, so `Aiur.Alerts.emit_system` is not called directly, X-48)
 and `"system.events.export_backlog.resolved"` (in-grammar; add both to the
 C5 catalog as ledgered, not exported). Latched: one raise per crossing.
 

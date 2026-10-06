@@ -87,7 +87,7 @@ Tickets:
 - MP-N4-C3-T00 Plan refresh: map pre-refactor paths in this plan to MP-R1/R2 packages
   (see plan §12) before coding.
 - MP-N4-C3-T01 `push:` section in `~/.aiur/machine` (RC-03), docs entry in
-  `website/docs-app/reference/configuration.md` (checked by the MP-N2-C3-T5 extension of
+  `website/docs-app/reference/configuration.md` (checked by the MP-N2-C3-T05 extension of
   `scripts/check-config-docs.py`).
 - MP-N4-C3-T02 Outbox: append-only ndjson + projection under `runtime_state_dir`
   (`src/lib/aiur/config/paths.ex:243`), persist-before-send, idempotent on

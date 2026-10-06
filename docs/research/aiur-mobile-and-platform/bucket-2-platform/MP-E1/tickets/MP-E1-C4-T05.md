@@ -18,9 +18,8 @@ researched: 2026-10-06
 # MP-E1-C4-T05 — Detect "PR closed without merging"
 
 > **Plan refresh (wave 0).** RC-08 registers `ticket.<id>.pr.closed_unmerged`
-> in MP-R2's catalog. MP-E1 v1 does not depend on that producer; when it
-> exists the server may subscribe to it as a reconcile trigger only (contract
-> §6 E-A3).
+> in MP-R2's catalog. **RC-26 (Phase C/D):** this ticket is its producer. The
+> queue's verdict never depends on the event (contract §6 E-A3).
 
 ## Identity and outcome
 
@@ -62,6 +61,13 @@ researched: 2026-10-06
 
 1. `tracker.ex` callback; GitHub (≈ 20 lines), memory, Linear.
 2. Observer: call for open prerequisites with no `agent:error` (cheap; ETS).
+3. **Producer (RC-26).** When the observer first sees a ticket's stored PR move
+   to `closed, merged?: false`, publish `ticket.<id>.pr.closed_unmerged` through
+   `Events.Publisher.publish/3` (class `live`; refs `ticket`, `pr_number`). Publish
+   once per observed transition (remember the last published PR version in the
+   queue's own state); never in poll-only mode, because nothing is observed there.
+   The topic needs no catalog entry to publish (an uncatalogued topic is `live`,
+   events contract §9), so this adds no dependency on MP-R2.
 
 ## Non-happy paths
 
@@ -78,17 +84,20 @@ Additive; zero requests.
 | `src/test/aiur/github/tracker_ticket_pull_request_test.exs` (PROPOSED) "a deposited closed unmerged PR reads closed, not merged" — deposit through `Deposit` with a `pull_request` `closed` payload | `%{state: :closed, merged?: false}`; request count 0 | the implementation |
 | same, "a merged PR reads merged" | `merged?: true` | merged check |
 | `src/test/aiur/build_queue/observer_test.exs` "closed-unmerged prerequisite fails its dependents" | `{:failed, [:pr_closed_unmerged]}` | observer wiring |
+| same, "closed-unmerged publishes ticket.<id>.pr.closed_unmerged once" (subscribe to the Exchange; observe twice) | exactly one event | the producer and its once-only guard |
 | same, "no deposit → pending" | `:waiting` | nil mapping |
 
 Mutation check: ignore `merged_at` → test 2 reads unmerged.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/github/tracker_ticket_pull_request_test.exs test/aiur/build_queue/observer_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/github/tracker_ticket_pull_request_test.exs test/aiur/build_queue/observer_test.exs
 ```
 
 ## Completion and handoff
 
 - [ ] Callback + observer wiring; coverage limit documented.
+- [ ] Producer publishes once per transition, webhook mode only; the docs say
+      so (RC-26).
 - Docs: `concepts/build-orders.md`/queue docs (C9-T02) state the webhook-only
   detection.
 - Dependents: C5-T02.

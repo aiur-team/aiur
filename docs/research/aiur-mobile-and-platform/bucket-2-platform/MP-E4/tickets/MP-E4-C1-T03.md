@@ -144,7 +144,7 @@ def journal(issue, transcript_event, backend, opts)   # @doc false; never raises
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/agent_runner/message_handler_test.exs \
   test/aiur/agent_runner/session_lifecycle_test.exs \
   test/aiur/conversation/worker_tee_test.exs

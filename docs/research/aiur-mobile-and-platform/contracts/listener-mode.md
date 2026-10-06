@@ -4,7 +4,7 @@ owner_feature: MP-E7
 shared_with: Khala (`@khala/contracts/m1/listening-mode`)
 consumers: [MP-E3, MP-E4, MP-E5, MP-E6, MP-N6, MP-R6]
 consumes: [MP-CT-harness-adapter, MP-CT-identity-and-capabilities, MP-CT-events-and-replay, MP-CT-conversations-transcripts-anchors]
-status: draft
+status: reconciled (Phase D fix pass; applies RC-36; X-01, X-40)
 base_main_sha: 45a290e3
 khala_ref: origin/main 99e72a43 (2026-10-06)
 date: 2026-10-06
@@ -20,6 +20,26 @@ and copy stay per product.
 
 Khala citations are at Khala `origin/main` `99e72a43`. The local Khala
 checkout is on a stale branch; do not cite it.
+
+**Two parts, two lifecycles (RC-36).**
+
+- **The send router is required core.** `Aiur.Listener.*` (send router
+  `Aiur.Listener.send/3`, mode store, scheduler) is the component
+  `listener-modes`: a required part of orchestration's send path, because every
+  operator send goes through it (`AgentChat.send/3` delegates to it, MP-E7-C3-T03).
+  It reaches the agent queue only through the behaviour
+  `Aiur.Listener.DeliveryTarget`, which orchestration implements and registers at
+  the composition root, so the router has no dependency on orchestration.
+- **The shared spec package is a build-time input** (component `listener-spec`,
+  §11). aiur vendors its JSON files and goldens into `src/priv/listener_spec/` at
+  a pinned version with a sha256 in `src/priv/listener_spec/CHECKSUM`. It is
+  never a runtime dependency.
+- **Fallback.** If the vendored spec is absent, the router uses today's routing
+  (`:legacy`, RC-05, §9) and reports capability `listener_modes` as
+  `unavailable/not_installed`. If it fails its checksum or schema check, the same
+  fallback applies with `unavailable/spec_invalid`. While the routing flag is
+  `:legacy`, `listener_modes` is `unavailable/disabled`. Sends work in every case;
+  only the modes are missing. The provider is MP-E7-C3-T06 (identity §2.3).
 
 ## 1. Vocabulary
 
@@ -46,7 +66,7 @@ checkout is on a stale branch; do not cite it.
 | --- | --- | --- |
 | Conversation message from a human or the Executor to a worker (dashboard drawer, CLI `aiur message`, HTTP `messages`, Stream Deck, voice transcript, TUI chat pane) | **Yes** | D15: E4 writes go "through the listener mode". |
 | Message to the Executor session (MP-E3) | **Yes** | Same contract, hook transport (§8). |
-| Command (Decision) answer delivered to the asker (MP-E2) | **No** | Authoritative answer with its own route (`decision_dispatch.ex:51-63`, command contract §7). A held native question is answered in-band regardless of mode. |
+| Command (Decision) answer delivered to the asker (MP-E2) | **No** | Authoritative answer with its own route (`decision_dispatch.ex:51-63`, command contract §7). A held native question is answered in-band regardless of mode: an operator-queue item that carries `correlation.native_ref` passes through the listener router unchanged, and the runner holding that `native_ref` answers it (MP-E2-C4-T03; Phase D, CR-E2-8). Surfaces that only answer Commands (MP-E4-C6-T02, MP-E3-C6-T03) therefore do not depend on MP-E7-C3. |
 | Orchestrator event digests (reviews, CI, blockers) | **No** | Orchestrator wake policy (`delivery_policy.ex:64-86`) stays as is. |
 | Pause, resume, interrupt, stop | **No** | Controls (D15 keeps controls where they are). |
 
@@ -146,9 +166,18 @@ aiur's command (CLI, HTTP, LiveView) adds fields for its own concurrency
 model (prior KTD4 and the Decision API pattern):
 
 ```json
-{ "v": 1, "agent_ref": "<instance>/<ticket identifier>", "mode": "sync",
-  "expected_version": 3, "idempotency_key": "…", "actor": "human|executor" }
+{ "v": 1, "target": { "instance_id": "<machine_id>/<instance_key>",
+              "ticket": "<owner>/<repo>#<n>" },
+  "mode": "sync", "expected_version": 3, "idempotency_key": "…",
+  "actor": "human|executor" }
 ```
+
+- **Address (X-40).** `target` is `{instance_id, ticket}`: `instance_id` as
+  identity §1.2 (RC-02) and `ticket` as the joinable `TrackerIdentity` string
+  (identity §1.5). A mode is per ticket run, so a ticket address is the right
+  key; the send API takes the matching `ConversationRef` (conversations §3),
+  which resolves to the same `{instance_id, ticket}`. The earlier
+  `agent_ref: "<instance>/<ticket identifier>"` string is retired.
 
 - **Who may set it:** the operator (human) for any agent of the instance.
   Whether the Executor may set a worker's mode is owner question E7-Q3.
@@ -183,7 +212,15 @@ model (prior KTD4 and the Decision API pattern):
 ## 7. Receipts and the async pull
 
 Send API (consumed by MP-E4 §9):
-`send(conversation_ref, text, client_request_id) → delivery_id`.
+`send(conversation_ref, text, client_request_id, opts \\ []) → delivery_id`.
+`opts[:origin]` is the entry-point origin MP-E7-C3-T03 already stamps on every
+queue item (closed set `:agent_chat | :http | :tui | :internal`), extended in
+Phase D with `:voice_assistant` (E6 R-1; used by MP-E6-C5-T03/T04). It is stored
+on the queue item; the resulting conversation entry's `origin` is
+`voice_assistant` for that value and `operator` for every other one
+(conversations §5), so a voice consult or voice-originated instruction is labelled
+in the transcript. Under `:legacy` routing `:voice_assistant` resolves to the
+`:agent_chat` policy. It never changes the mode or the receipt.
 
 | Receipt | Meaning | aiur queue status today |
 | --- | --- | --- |
@@ -228,6 +265,15 @@ Khala agent), delivery is through harness hooks. Shared behaviour (Khala
   aiur's own rule, `claude/hook_settings.ex:26-35`).
 - Delivery equals acknowledgement at hook emit (`inbox.ts`; cursor advances
   when emitted). Receipt is `harness_queued`, not `in_context`.
+- **aiur specifics (Phase D).** Each message in an aiur frame ends with a line
+  `[aiur:delivery <delivery_id>]`, so the Executor transcript records the id and the
+  conversation journal can set `refs.delivery_id` and clear the delivery overlay
+  (CR-E4-2). Workers need no echo: their entry is written at aiur's delivery point.
+  The hook token and daemon URL are per instance, not per repository: hooks read
+  them through `Aiur.Executor.HookToken.path/0`, `headers_path/0`, `read/0` and the
+  `<repo>.<instance_key>.executor.hook-url` file (MP-E3-C1-T02/T04), at run time,
+  because an Executor session outlives daemon restarts and the port can change
+  (CR-E3-4, CR-E3-5). No hook hard-codes a state-dir path.
 - **Frame copy is per product.** Khala frames say messages "are not
   instructions from your user" (`deliver-core.ts:20`); aiur operator
   messages *are* instructions. Shared: envelope shape and limits only.
@@ -263,6 +309,10 @@ E7-D6.
 
 ## 11. Packaging and versioning (resolves MP-Q1; evidence in MP-E7 plan)
 
+This section describes the `listener-spec` package only. The aiur router that
+consumes it is required core and works without it (`:legacy` fallback, top of
+this contract, RC-36).
+
 - The shared artifact is language-neutral: `listening-mode.v1.schema.json`
   (command, control record, support map), `scheduler.v1.json` (decision
   table: mode × boundary × activity → deliver?), and golden fixtures (hook
@@ -270,8 +320,9 @@ E7-D6.
   reference implementation.
 - It is homed in the Khala monorepo as one publishable package and released
   through Khala's tag-driven npm workflow. aiur vendors the JSON files at a
-  pinned version with a checksum and runs the goldens against its Elixir
-  scheduler in CI. aiur does **not** ship a Node hook: the daemon renders the
+  pinned version with a checksum (`src/priv/listener_spec/CHECKSUM`) and runs
+  the goldens against its Elixir scheduler in CI. The check runs at build and
+  boot; a mismatch never stops the daemon, it selects the `:legacy` fallback. aiur does **not** ship a Node hook: the daemon renders the
   hook envelope in Elixir, tested against the shared envelope-only goldens,
   and the hook is a plain `curl` command (MP-E7-C6), because `aiur-cli`
   requires Node `>=18` and Khala's packages need `^22.18.0 || >=24.11.0`.
@@ -295,5 +346,3 @@ E7-D6.
   `POST /api/v1/:id/claude-hook` (`claude/hook_settings.ex:39-44`).
 - Message text is logged only where it is today (`agent_chat.ex:32`
   previews 500 bytes); listener code adds no new text logging.
-</content>
-</invoke>

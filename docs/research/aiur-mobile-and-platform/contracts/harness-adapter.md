@@ -2,7 +2,7 @@
 contract_id: MP-CT-harness-adapter
 owner_feature: MP-R7
 consumers: [MP-E7, MP-E2, MP-E3, MP-E4, MP-R1]
-status: draft
+status: reconciled (Phase D fix pass; RC-22 Gemini/ACP row; RC-36 noted)
 base_main_sha: 45a290e3
 date: 2026-10-06
 ---
@@ -16,7 +16,10 @@ optional callbacks for MP-E7 (listener modes) and MP-E2 (native questions).
 
 This contract is Elixir-internal. The cross-product part (shared with Khala)
 is the listener-mode contract ([listener-mode.md](listener-mode.md)), which
-references the primitives below.
+references the primitives below. The listener send router (`Aiur.Listener.*`) is
+required core and sits outside the harness package; only the shared spec package
+is optional, and it is a build-time input, never a runtime dependency of an
+adapter (RC-36).
 
 ## 1. Identity
 
@@ -196,12 +199,15 @@ Commands; approvals stay with policy):
    through `reply_native_question/3` on the session that asked, which fixes
    the baseline gap "answers are addressed to the ticket"
    (`decision_dispatch.ex:65`).
-5. **Capability `native_question`:** `:in_band_hold` (Codex app-server),
-   `:in_band_hold` via a blocking `PreToolUse` hook for `claude-repl` (Claude — needs a long
-   hook timeout and a hook that waits; today's hooks are fire-and-forget
-   `curl -m 2`, `claude/hook_settings.ex:42-44`), `:defer_resume` when the
-   harness must be answered at once and the human answer later arrives as a
-   message, `:none` (headless
+5. **Capability `native_question`** (Phase D, CR-E2-1/CR-E2-2): `:in_band_hold`
+   (Codex app-server); `:defer_resume` = the harness session persists with the
+   pending tool and is resumed with the answer (Claude `PreToolUse` defer; MP-E2-C5-T00
+   decides whether Claude uses it). "Answer at once, the human answer arrives later as a
+   message" is **not** a capability value: it is a *release* (command contract §7.3).
+   `claude-repl` is `:none` for MP-E2; a blocking `PreToolUse` hook for it (long hook
+   timeout, a hook that waits; today's hooks are fire-and-forget `curl -m 2`,
+   `claude/hook_settings.ex:42-44`) is open question RQ-E2-1 for MP-E3/MP-E7, outside
+   D10's tested scope. `:none` also covers (headless
    `claude --print` via `aiur-claude` until the sibling forwards
    `AskUserQuestion`; OpenAI-compat; Muse until its protocol is checked —
    `muse/turn_loop.ex` maps `userInput/request` to
@@ -219,12 +225,15 @@ Commands; approvals stay with policy):
    did not start (the Executor). Such an adapter implements only
    `transcript_source`, `send_operator_message` (via hooks, listener-mode §8)
    and the native-question callbacks; `start_session/2` and `run_turn/4` are
-   absent. R7 reserves this "attached" profile; MP-E3 defines it.
+   absent. R7 reserves this "attached" profile; MP-E3 defines it (Phase D,
+   CR-E3-6): `Aiur.Executor.TranscriptIngest` plus an extractor
+   (`Claude.Transcript.extract_disk_record/2`, or the new
+   `Codex.RolloutTranscript.extract/2`) over `Claude.TranscriptTailer`, which gains
+   `from: {:offset, n}`, `on_offset` and `:extractor` options (MP-E3-C2-T01,
+   C3-T02). MP-R7-C4 moves these modules; it does not rewrite them.
 
 ## 7. Versioning
 
 Internal behaviour; versioned with aiur. Adding an optional callback or a
 descriptor field is additive. Renaming a `harness_id` is breaking (it is in
 config `agent.routing` values and labels).
-</content>
-</invoke>

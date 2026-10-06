@@ -1,7 +1,7 @@
 ---
 contract_id: MP-CT-events-and-replay
 owner_feature: MP-R2
-status: reconciled (Phase C; applies RC-02, RC-04, RC-07, RC-08, RC-09; implementation blocked on DESIGN-R2)
+status: reconciled (Phase D fix pass; applies RC-02, RC-04, RC-07, RC-08, RC-09, RC-31, RC-40; X-07, X-08, X-09, security m3; implementation blocked on DESIGN-R2)
 base_main_sha: 45a290e3
 date: 2026-10-06
 consumers: MP-E1, MP-E2, MP-E3, MP-E4, MP-E7, MP-N3, MP-N4, MP-N5, MP-N6, MP-R1, MP-R6
@@ -73,13 +73,19 @@ Placement rules for new facts:
   the projection (prior boundary map: `AgentPubSub` → RUN, `DecisionPubSub`
   → DEC, `ObservabilityPubSub` → WEB/PRJ). The `Aiur.PubSub` process itself
   is app-boot infrastructure (kernel layer, MP-R1).
+- **R-6 (Phase D, CR-C8-2).** `Aiur.ObservabilityPubSub` is an
+  internal-invalidation PubSub topic: never exported, never bridged to the
+  Exchange. Its move out of the web namespace is owned by MP-R1-C5-T03 (RC-24),
+  which places it in the signal component, not in `event-bus` (R-5). Live bug
+  #3009 (`CurrentRunProjections` ignores the broadcast) is fixed before that move
+  or explicitly deferred in its PR.
 
 ## 3. Event identity
 
 | Field | Today | Contract |
 | --- | --- | --- |
 | `id` (event id) | One integer per instance from `Aiur.Events.IdGenerator`: monotonic in *assignment*, restart-safe (`event-id.json` in the instance- and repository-qualified runtime state dir), gaps allowed, roughly microsecond-sized (`id_generator.ex:1-56`) | Unique within one instance, never reused. **Not dense, not a delivery order** (§5). |
-| `instance` | Implicit (one daemon = one repository) | **Proposed:** every exported event carries `instance` = `instance_id` = `"<machine_id>/<instance_key>"` from the Identity contract (RC-02; owner MP-R1, RC-04; provider MP-R1-C2-T2, adapter MP-R2-C5-T04). Globally an event is `(instance, id)`; `machine` is the prefix of `instance`. |
+| `instance` | Implicit (one daemon = one repository) | **Proposed:** every exported event carries `instance` = `instance_id` = `"<machine_id>/<instance_key>"` from the Identity contract (RC-02; owner MP-R1, RC-04; provider MP-R1-C2-T02, adapter MP-R2-C5-T04). Globally an event is `(instance, id)`; `machine` is the prefix of `instance`. |
 | `seq` (feed position) | Does not exist | **Proposed:** dense, single-writer position in the export journal (§8). It is the only cursor external clients use. |
 | Correlation keys | Topic-embedded ticket id; payload `decision_id`, `pr_number`, `head_sha`, `wake_id` | Exported as typed `refs` (§4). |
 
@@ -89,7 +95,12 @@ contract says a moved checkout gets a new `instance_key` and therefore a new
 `instance_id` (identity-and-capabilities §1.2); clients treat that as a new
 instance. An instance with an empty key has no `instance_id`
 (`identity: degraded`); the exporter then refuses to start and the
-`events.export` capability is `unavailable` with reason `identity_degraded`.
+`events.export` capability is `unavailable` with reason `dependency_unavailable`,
+`depends_on: ["identity"]` (identity §2.2; Phase D, CR-R2-4). Because the
+exporter refuses, an exported envelope never has a null `instance`; the internal
+envelope (§4.1) carries no `instance` field, so no null is needed there either
+(CR-R1-1). A corrupt export-journal tail reports the reason `journal_corrupt`
+(state per MP-R2-C7-T03).
 The export journal still embeds a per-journal `epoch`, and clients treat a
 new epoch as `reset` (§7).
 
@@ -139,8 +150,11 @@ this shape.
   time (rule already in `ticket_observation.ex:64-71`).
 - `anchor` is reserved for MP-E4 (RC-07). The address of a conversation
   position is the **E4 durable journal position**:
-  `{"conversation_id": "conv_…", "pos": 1207, "anchor_id": "anc_…"}`
-  (conversations-transcripts-anchors §10). The stable entry ID is the `pos`
+  `{"conversation_id": "conv_…", "pos": 1207, "placement": "at|after",
+  "precision": "exact|causal|observed|unanchored"}`
+  (conversations-transcripts-anchors §10; Phase D, CR-E4-1). `anchor_id` is not
+  part of the field: it is E4's line identity, read through E4's anchor API.
+  The stable entry ID is the `pos`
   the journal writer assigns. The bus never computes an anchor, and the
   export journal is append-only, so **v1 always writes `anchor: null`**;
   clients resolve anchors through E4's anchor API by `(instance, id)`. A
@@ -215,6 +229,11 @@ Rules:
 - **D-3.** Retention is bounded by `events.export.retention` (DESIGN-R2 S1).
   Retention never deletes a transcript or a Command record; it only trims the
   export copy.
+- **D-4 (Phase D, CR-E7-6).** Pending operator messages are not durable at base:
+  `AgentQueueStore` is in-memory (`agent_queue_store.ex:2-3`; `durability:
+  :durable` persists nothing). No contract may promise that a queued message
+  survives a daemon restart; after a restart its receipt is `unknown`
+  (listener-mode §7). MP-E3, MP-E4 and MP-N6 render it that way.
 
 ## 7. Replay, reconnection and reconciliation
 
@@ -278,7 +297,8 @@ generalized to `seq`.
   retained lines.
 - Disabled by default (`events.export.enabled: false`) until its first
   consumer ships; while disabled the API returns `404 feature_disabled` and
-  the capability (§10) is absent.
+  the capability (§10) is reported as `unavailable` with reason `disabled`
+  (never left out: identity §3 reads a missing ID as `unknown`).
 
 ## 9. Topic catalog and versioning
 
@@ -289,7 +309,8 @@ generalized to `seq`.
   Agents, the Executor skill and `ExecutorBindings` depend on these strings;
   a rename is a breaking change requiring a separately approved ticket.
 - **Catalog** (proposed, C5): a code-level registry `topic pattern → {class,
-  export?, refs allowlist, attrs allowlist, payload_version, owner feature}`.
+  export?, refs allowlist, attrs allowlist, payload_version, owner feature,
+  attribution?}`.
   Unknown topics are `live`, not exported. A test fails if an exported topic
   lacks an allowlist.
 - **Registered topics for planned producers (RC-08).** The catalog
@@ -297,18 +318,31 @@ generalized to `seq`.
 
   | Topic | Producer (owner) | Class |
   | --- | --- | --- |
-  | `ticket.<id>.agent.decision.human-needed` (+ `routed`, `native-released`) | DecisionStore (MP-E2) | journaled |
-  | `ticket.<id>.pr.closed_unmerged` | ingestion normalizer / poll path (MP-E1-C4) | live |
-  | `ticket.<id>.issue.closed` | ingestion normalizer / poll path (MP-E1-C4) | live |
-  | `ticket.<id>.agent.listen-mode.changed` | listener modes (MP-E7) | live |
-  | `ticket.<id>.queue.*` | build queue (MP-E1) | live / ledgered per queue-readiness §4.3 |
-  | `system.queue.*` | build queue (MP-E1) | ledgered |
-  | `system.build_order.<root>.progress` (`.milestone`) | **MP-E1-C7** (RC-08, RC-10) | ledgered |
-  | `system.capabilities.changed` | capability registry (MP-R1-C3-T5) | live |
+  | `ticket.<id>.agent.decision.human-needed` and `executor.decision.human-needed` | DecisionStore (MP-E2) | journaled, exported; refs `{decision_id, decision_version}`, attrs `{requester_kind, blocking, urgency, cause}`. **`short_label` is not exported** (security m3): it is agent-authored text, which §1 and §4.2 keep out of the feed. It travels only inside the sealed push (notification contract), and clients read it from the Decision API |
+  | `ticket.<id>.agent.decision.{request-attributed, routed, escalated, executor-acknowledged, native-released, requester-notified}` (and `executor.decision.*` twins) | DecisionStore (MP-E2) | journaled |
+  | `executor.decision.answered` | DecisionStore (MP-E2-C6-T02) | journaled; export optional, ids only |
+  | `ticket.<id>.pr.closed_unmerged` | **MP-E1-C4-T05**, from the stored webhook delivery it already reads (RC-26); webhook mode only | live |
+  | `ticket.<id>.issue.closed` | reserved; no producer in v1 (the queue reads `issue_closure/1` and does not need it, CR-E1-2) | live |
+  | `ticket.<id>.agent.listen-mode.changed` | listener modes (MP-E7) | live; **attribution from payload `actor`** (below) |
+  | `ticket.<id>.queue.{promoted,withdrawn,held,released,overridden,removed}` | build queue (MP-E1) | live |
+  | `ticket.<id>.queue.attention.<cause>` (+ `.resolved`) | build queue (MP-E1) | ledgered |
+  | `system.queue.<queue_id>.progress` (milestones; the topic has **no** `.milestone` suffix, X-09) | build queue (MP-E1-C7) | ledgered |
+  | `system.queue.attention.<cause>` (+ `.resolved`) | build queue (MP-E1) | ledgered |
+  | `system.build_order.<root>.progress` (milestones; no `.milestone` suffix) | **MP-E1-C7** writes the producer; the module `Aiur.BuildProgress` belongs to the `build-orders` component and the queue is one of its producers (RC-08, RC-10, RC-40) | ledgered |
+  | `system.capabilities.changed` | capability registry (MP-R1-C3-T05) | live; exported when `events.export` is on (attrs `revision`, `boot_id`); never bound to the Executor wake stream |
+  | `system.executor.transcript.drift` | MP-E3-C2-T02 | ledgered |
   | `executor.conversation.*` | reserved, unused (MP-E3 uses the conversation contract) | — |
+
+  Exact queue causes and payload allowlists: queue-readiness §4.3 (CR-E1-1).
 
   `ticket.<id>.agent.decision.*` stays DecisionStore-owned: MP-E2 adds slugs
   through DecisionStore, not new namespaces.
+- **Attribution override (Phase D, CR-E7-1).** The IssueLog labels every
+  `ticket.<id>.agent.*` event `:self` (`publisher.ex:339-352`). A catalog entry
+  may declare `attribution: :payload_actor`; the IssueLog then takes the actor
+  from the payload (`human`, `executor`, `system`). Only
+  `ticket.<id>.agent.listen-mode.changed` uses it in v1. The topic keeps its
+  RC-08 name (a rename would need a separately approved ticket, above).
 - **Legacy topics outside the grammar.** The seven alert-name topics in §6
   (`ledgered`) are catalogued as such, never exported, and are not
   renamed by MP-R2 (DESIGN-R2 §1 "event names stay"); a rename is a
@@ -329,7 +363,7 @@ generalized to `seq`.
 | Catalog | `GET /api/v1/events/catalog` → exported topics, classes, payload versions |
 | Live | Phoenix socket `/events`, channel `events:feed`, join `{after}`; server sends backlog then live records and a `heartbeat` every 25 s |
 | CLI | `aiur events tail [--after] [--topic] [--json]` (only if DESIGN-R2 KQ-R2-2 approves) |
-| Capability | `events.export` advertised in the Capabilities contract with `{v:1, retention}`; absent when disabled |
+| Capability | `events.export` advertised in the Capabilities contract with `{v:1, retention}`; `unavailable/disabled` when `events.export.enabled: false` (MP-R2-C7-T03) |
 
 Authorization and scope:
 
@@ -348,23 +382,30 @@ Authorization and scope:
 - The webhook pipeline (`/api/v1/github/webhook`, outside dashboard auth) is
   never used for the feed.
 
-## 11. Scheduling and classification (RC-09)
+## 11. Scheduling and classification (RC-09, amended by RC-31)
 
 The packaging chunks C1–C4 are Bucket 1 (behaviour-preserving). The catalog,
 export journal and external API (C5–C7) are **Bucket-2-enabling work inside
 MP-R2**: off by default (`events.export.enabled: false`), no user-facing
-change while disabled, and each is scheduled just before its first
-consumer — C5 and C6 before MP-N4/MP-N5, C7 before MP-N3 switches from
-polling to the stream. MP-E1 v1 does not need C6 (queue-readiness E-A5).
+change while disabled. Scheduling (RC-31 amends RC-09):
+
+- **C5 (topic catalog) runs at the start of wave 4**, because MP-E6-C4-T05 and
+  MP-E7-C2-T05 consume it in wave 4.
+- **C6 and C7 (export journal, external API) run in wave 5**, just before their
+  first consumers MP-N4/MP-N5; C7 also precedes MP-N3's switch from polling to
+  the stream.
+
+MP-E1 v1 does not need C6 (queue-readiness E-A5). Like every MP-R2 ticket, C5–C7
+wait for U0 review of the prior refactor plan (RC-19, X-58).
 
 ## 12. What each consumer gets (summary; details in plan.md §8)
 
 | Consumer | Uses | Must not assume |
 | --- | --- | --- |
-| MP-E1 queue | In-BEAM Exchange subscription to `ticket.*.pr.merged`, `system.dispatch.*`; own reconciliation against tracker + build-order graph; publishes `ticket.<id>.queue.*` | That a merge event will arrive (it is `live` class); that "closed unmerged" or "blocked_by changed" are events (they are not today) |
+| MP-E1 queue | In-BEAM Exchange subscription to `ticket.*.pr.merged`, `system.dispatch.*`; own reconciliation against tracker + build-order graph; publishes `ticket.<id>.queue.*` and (webhook mode) `ticket.<id>.pr.closed_unmerged` | That a merge event will arrive (it is `live` class); that its own reads need "closed unmerged" or "blocked_by changed" events (the queue reads the `:branch_pull_request` deposit and `blocked_by` through tracker callbacks, CR-E1-2) |
 | MP-E2 Commands | DecisionStore stays truth; lifecycle topics exported as ids + version | That the feed carries Command text |
 | MP-E3 Executor chat | `executor.*` journal for Executor events; conversation contract for chat | That chat lines are bus events |
-| MP-E4 navigation | `id`, `occurred_at`, `refs.ticket`, reserved `anchor`; export journal as the durable per-ticket index for non-agent events | That IssueLog holds GitHub/CI/PR events (it does not, §6) |
+| MP-E4 navigation | `id`, `occurred_at`, `refs.ticket`, reserved `anchor`; export journal as the durable per-ticket index for non-agent events. **Follow-up after MP-R2-C6** (CR-E4-7): a consumer-side ticket backfills anchors from `seq`, starting at the cursor MP-E4-C3-T02 stores in `resolver.json` | That IssueLog holds GitHub/CI/PR events (it does not, §6); that live events published while the daemon was down reach the resolver |
 | MP-N3 meta-dashboard | `head_seq` + heartbeat for freshness; snapshots for counts | That a missing event means zero |
 | MP-N4 push | Durable consumer (C3) on the export feed; `reset`/`gap` handling; resolution topics to clear | Immediate or guaranteed delivery |
 | MP-N5 preferences | Exported topics as candidate signals; `observed_at` for staleness | That build-order % is an event today (it is PubSub-only) |

@@ -88,7 +88,7 @@ injected function as the seam.
 6. `"unexpected return yields unknown"`. Mutation: replace the fallback with `:unavailable` → fails.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/instance_summary/fleet_test.exs
 ```
 

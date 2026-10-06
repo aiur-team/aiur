@@ -5,7 +5,7 @@ chunk_id: MP-E2-C2
 bucket: 2-platform
 title: decisions.escalation config keys with documented defaults
 status: blocked
-blocked_by: [DESIGN-E2]
+blocked_by: [DESIGN-E2, MP-R1-C11-T03]
 prior_units: [U6]
 prior_boundaries: [DEC #27]
 prior_features: []
@@ -35,6 +35,8 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
+- **MP-R1-C11-T03** (final plan refresh after the refactor): enforces "refactor before
+  features" (D1, RC-35). Re-read this ticket's paths against the refreshed plan before starting.
 - Blocked by **DESIGN-E2 §6.1**: Kevin approves or changes the three defaults. The schema
   and docs can be written now; the default literals are a one-line change after approval.
 - No predecessors. May run concurrently with C2-T01, C2-T02.

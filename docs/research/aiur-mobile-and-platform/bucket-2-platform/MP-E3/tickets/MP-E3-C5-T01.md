@@ -41,7 +41,7 @@ researched: 2026-10-06
   (`Aiur.Listener.receipt/2`).
 - MP-E4-C6-T01 (composer + overlay modules).
 - MP-E3-C1-T01 (binding: no attached session → unavailable).
-- DESIGN-E3 (composer copy), DESIGN-E7 (mode indicator, OQ-E3-3 default mode).
+- DESIGN-E3 (composer copy), DESIGN-E7 (mode indicator; Executor default mode is DESIGN-E7 E7-D8, which answers OQ-E3-3).
 
 ## Verified starting point
 
@@ -92,7 +92,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/executor/send_test.exs test/aiur_web/live/executor_live_composer_test.exs
 ```
 

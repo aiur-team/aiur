@@ -5,7 +5,7 @@ chunk_id: MP-N4-C6
 bucket: 3-mobile-watch
 title: Watch as a direct-push child device — registration record and daemon fan-out check
 status: blocked
-blocked_by: [DESIGN-N4, DESIGN-N7, MP-N4-C6-T01, MP-N4-C3-T03, MP-N2-C5-T2]
+blocked_by: [DESIGN-N4, DESIGN-N7, MP-N4-C6-T01, MP-N4-C3-T03, MP-N2-C5-T02]
 prior_units: []
 prior_boundaries: [push-relay, pairing-discovery]
 prior_features: [MP-N2, MP-N7]
@@ -28,7 +28,7 @@ device and that revoking the phone removes the watch (pairing contract §4.5 cas
 ## Dependencies and blockers
 
 - **Blocked on C6-T01's decision** (V-W1). If Path A is chosen, close this ticket.
-- C3-T03, MP-N2-C5-T2 (claim with `parent_device_id`).
+- C3-T03, MP-N2-C5-T02 (claim with `parent_device_id`).
 
 ## Verified starting point
 

@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, MP-N2-C4-T01, MP-N2-C1-T03, MP-N2-C1-T01]
 prior_units: []
 prior_boundaries: [WEB]
 prior_features: [MP-N1]
-prior_findings: []
+prior_findings: [security m6 (domain-tagged sign/2)]
 size_owner: n/a (new modules)
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -29,7 +29,8 @@ researched: 2026-10-06
     `store_corrupt` → 503.
   - `Aiur.Machine.Gateway.Signed.json(conn, status, body)`: adds `contract: "aiur.machine/v1"`,
     `observed_at`, `machine_id`, then `sig` = base64url Ed25519 over the canonical JSON of the body
-    without `sig` (`Store.sign/1`).
+    without `sig` (`Store.sign(:registry, bytes)`, which prepends `"aiur-registry-v1\0"`;
+    contract §4.0 and §5, security m6).
   - `GET /v1/machine` (token): `{machine_id, machine_label, endpoints[]}` signed (contract §4.3). The
     endpoint list comes from `Aiur.Machine.Endpoints.select/2` once MP-N2-C10-T02 lands; until then it is
     `gateway.endpoints` filtered of loopback (MP-N2-C10-T02 replaces the call).
@@ -84,12 +85,16 @@ New endpoints on a new process only.
    *Fails without:* the plug (mutation: skip plug for `/v1/machine` → fails).
 3. `"every /v1 response has contract and a valid sig"` — verify with `machine_key.pub`.
    *Fails without:* signing (mutation: sign the body with a different key or skip sig → fails).
-4. `"canonical json matches the shared vectors"` (`signing_vectors.json`).
+4. `"canonical json matches the shared vectors"` (`signing_vectors.json`; each vector records
+   the domain-tagged bytes in hex).
+4a. `"a registry signature does not verify as a QR signature"` (m6): verify the same body
+   bytes with the `aiur-qr-v1\0` tag → false. *Fails without:* the purpose tag (mutation:
+   sign untagged bytes for every purpose → both verify, row fails).
 5. `"token never appears in logs"` (`capture_log` + grep).
 6. `"last_seen flush writes once per minute"` (injected clock).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/gateway_auth_test.exs
 ```
 

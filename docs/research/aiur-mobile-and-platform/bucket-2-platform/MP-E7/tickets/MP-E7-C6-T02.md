@@ -84,7 +84,7 @@ curl -sS -f -m 3 -H 'Content-Type: application/json' \
 - Token read at run time from the 0600 file, never embedded in settings.
 - Base URL from `HookSettings.dashboard_url/0` (`hook_settings.ex:66-72`) at
   install time; documented that a port change needs reinstall (C6-T03
-  `--check` reports it, MP-E3-C7-T1).
+  `--check` reports it, MP-E3-C7-T01).
 
 ## Implementation steps
 
@@ -121,7 +121,7 @@ Pure function; no effect until C6-T03 installs it.
   local Bandit stub on 127.0.0.1): `"200 body reaches stdout"`, `"204 prints
   nothing"`, `"500 prints nothing and exits 0"`, `"connection refused exits
   0"`.
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur/executor`.
 
 ## Completion and handoff

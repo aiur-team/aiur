@@ -58,6 +58,10 @@ EntryRef         = { conversation_id, pos }                   # THE stable entry
 GlobalEntryRef   = { instance_id, conversation_id, pos }      # what a phone, push or deep link carries
 ```
 
+`SessionRef` is the single session identity for every contract (identity,
+Commands, notifications; Phase D, CR-R1-5). `conversation_id` is not derived from
+`instance_id`; a global reference carries `instance_id` beside it.
+
 - `instance_id = "<machine_id>/<instance_key>"` (RC-02; identity contract owned by
   MP-R1). It is **not** an input to `conversation_id`: the journal directory is
   already instance-scoped (§6), and keeping `conversation_id` independent of
@@ -89,7 +93,7 @@ GlobalEntryRef   = { instance_id, conversation_id, pos }      # what a phone, pu
   "v": 1,
   "conversation_id": "conv_…",
   "session_seq": 3,
-  "harness": "codex | claude | claude-repl | opencode | muse | other",
+  "harness": "<harness_id from harness-adapter §1> | other",   // X-39: no local enum
   "role": "worker | executor",
   "provider_session_id": "opaque string or null",
   "aiur_attempt_id": "string or null",
@@ -115,10 +119,12 @@ GlobalEntryRef   = { instance_id, conversation_id, pos }      # what a phone, pu
   "v": 1, "pos": 1207, "session_seq": 3,
   "dedup_key": "ent_<sha256(source identity, see below)>",
   "kind": "message | reasoning | command | tool_call | tool_result | diff | operator_message | system | gap",
-  "role": "agent | operator | executor_operator | tool | system",
+  "role": "agent | operator | executor_operator | provider_input | tool | system",
   "body": "string (bounded, see §8)",
   "body_truncated": false,
+  "redacted": false,
   "refs": { "provider_msg_id": null, "tool_call_id": null, "turn_id": null, "delivery_id": null },
+  "origin": "operator | voice_assistant | null",
   "occurred_at": "ISO8601 or null", "observed_at": "ISO8601",
   "gap": null
 }
@@ -142,7 +148,23 @@ GlobalEntryRef   = { instance_id, conversation_id, pos }      # what a phone, pu
   transcript shows it (Claude `user` record or `queued_command` attachment,
   `claude/transcript.ex:100-140`). A send that was accepted but not yet
   delivered is a **delivery overlay** (§9), not an entry.
+- **Operator provenance (Phase D, security M6).** For a **worker** conversation,
+  role `operator` comes **only** from daemon delivery evidence
+  (`observe_operator_delivery/4`, `refs.delivery_id` set). Provider JSONL files are
+  agent-writable, and Claude `user` records also carry tool results and the aiur
+  prompt, so a provider `user` record that matches no daemon delivery maps to
+  `kind: system`, `role: provider_input`; views label it "provider input", never as
+  the operator. For the **Executor** conversation, `role: executor_operator` stays
+  (it is the operator's own session), but only for a `transcript_path` that passed
+  the MP-E3 path check (canonical file under `~/.claude/projects/` or
+  `~/.codex/sessions/`, regular file, not a symlink, owned by `$USER`, basename
+  matching `session_id`; MP-E3-C1-T02).
 - `gap` is `{ "reason": "daemon_down | source_unreadable | pre_journal | truncated_source", "from": ISO8601, "to": ISO8601 }`.
+- `origin` (Phase D, E6 R-1/R-2) is set only on `operator_message` entries:
+  `voice_assistant` when the queue item's origin is `:voice_assistant`, else
+  `operator` (listener-mode §7 `opts[:origin]`). Views render
+  `voice_assistant` entries with the DESIGN-E6-approved label; until approved, they
+  render as a plain operator message. `null` on every other kind.
 
 ## 6. Storage (owned by MP-E4.C1)
 
@@ -192,7 +214,11 @@ and later the phone.
 
 ```text
 list_entries(ConversationRef, opts) -> {:ok, Page} | {:error, :not_found | :unavailable}
-  opts: before: pos | after: pos | around: pos | from_start: true | tail: true (default)
+  opts: principal: {:operator, :loopback | :basic_auth} | {:device, device_id} | :internal
+          (REQUIRED, Phase D; a call without it raises ArgumentError, so no caller
+          gets unmasked bodies by forgetting it)
+        before: pos | after: pos | around: pos | from_start: true | tail: true (default)
+        reveal: boolean (default false; honoured only for {:operator, :loopback})
         limit: 1..200 (default 50)
         kinds: [kind] (optional filter; gaps are always returned)
 Page = { entries: [Entry], sessions: [Session overlapping the page],
@@ -201,12 +227,36 @@ Page = { entries: [Entry], sessions: [Session overlapping the page],
 
 list_sessions(ConversationRef) -> [Session]
 list_anchors(ConversationRef, opts) -> [Anchor]     # filter by kind, time range, pos range
+anchor_for_decision(decision_id) -> {:ok, Anchor} | :none   # strongest anchor across conversations
 subscribe(ConversationRef) -> PubSub "conversation:<conversation_id>"
   messages: {:entries_appended, conversation_id, [Entry]}
             {:session_changed, conversation_id, Session}
             {:anchor_added, conversation_id, Anchor}
 ```
 
+- **`anchor_for_decision/1`** (Phase D, CR-N6-4) returns the strongest anchor
+  (`exact` with `method: decision_source` first) for a Command across all
+  conversations of the instance, from an index the resolver keeps; it never scans
+  `anchors.jsonl`. The device Command view (MP-N6-C1-T01) includes
+  `{conversation_id, pos, anchor_id, precision}` from it, or `null`. Owner ticket:
+  MP-E4-C3-T02 (resolver index).
+- **Secret masking on read (Phase D, security M5).** The journal stays unredacted
+  (it is never rewritten, D15). `list_entries` masks at read time by principal:
+  - `{:device, _}`: every `body` (and a `tool_result` output) passes
+    `Aiur.SecretRedactor.redact/1` then `redact_urls/1` (`secret_redactor.ex:49-60`),
+    and the entry carries `redacted: true` when either changed the text. `reveal` is
+    ignored. `redact_urls/1` replaces every `http(s)`/`ws(s)` URL, not only ones with
+    credentials, so PR links are masked too on devices (accepted; DESIGN-E4 decision 4
+    may narrow it). Subscribed `{:entries_appended, …}` payloads to a device socket are
+    masked the same way.
+  - `{:operator, _}` (dashboard): default per DESIGN-E4 decision 4, proposed "mask by
+    default, `reveal` allowed only for loopback sessions".
+  - `:internal` (in-daemon callers such as the anchor resolver): unmasked; never
+    serialized to a client.
+
+  Phones and watches keep entry bodies in memory only, never on disk, and drop them on
+  revoke (MP-N1, MP-N6). Test: MP-E4-C2-T01 "device principal receives redacted body;
+  journal bytes unchanged".
 - **Reconnect:** a client keeps its highest `pos` and calls `after: pos`. No
   timestamps are used for resume.
 - **Order:** `pos` order is the display order. Entries from one provider record
@@ -355,7 +405,10 @@ prove and never upgrades a guess:
 ## 12. Privacy
 
 - Transcripts can hold secrets the agent printed. Storage is owner-only (§6).
-  Reads need dashboard auth. No public route.
+  Reads need dashboard auth or a device bearer. No public route. Device reads are
+  masked (§7, security M5); the masking is best-effort pattern redaction, and the view
+  still says that transcripts may contain secrets.
+- Operator lines come only from daemon delivery evidence for workers (§5, security M6).
 - Executor transcripts are the operator's own session. Capture is opt-in (MP-E3).
 - Clients get `locator_hash`, never raw provider file paths.
 - Push payloads (MP-N4) carry an `EntryRef`/`anchor_id`, never entry bodies.
@@ -369,9 +422,9 @@ with both versions readable for one release.
 
 | Contract (owner) | What this contract needs |
 | --- | --- |
-| Events and replay (MP-R2) | Durable `event_id`, `topic`, `ticket_observation` (tracker identity, `observed_at`, `provenance.source_event_id`) per event; the in-BEAM `Exchange.subscribe/1` (exists); later the export journal (R2-C6) for downtime backfill; `executor.*` journal replay. The envelope's reserved `anchor` field (events contract §4.2) must become `{conversation_id, pos, placement, precision}` per RC-07 — requested in `bucket-2-platform/MP-E4/tickets/CONTRACT-REQUESTS.md`. |
+| Events and replay (MP-R2) | Durable `event_id`, `topic`, `ticket_observation` (tracker identity, `observed_at`, `provenance.source_event_id`) per event; the in-BEAM `Exchange.subscribe/1` (exists); later the export journal (R2-C6) for downtime backfill; `executor.*` journal replay. The envelope's reserved `anchor` field (events contract §4.2) is `{conversation_id, pos, placement, precision}` per RC-07 (adopted in Phase D, CR-E4-1). Anchor backfill from the export journal is a consumer-side follow-up after R2-C6 (events §12, CR-E4-7). |
 | Harness adapter (MP-R7) | Per harness: a transcript source that turns provider records into entries with `provider_msg_id`, `tool_call_id`, `turn_id`; session-boundary signals (SessionStart source, thread change). Must cover **attached external sessions** (Executor), not only daemon-spawned ones. |
-| Listener mode (MP-E7) | `send(ConversationRef, text, client_request_id) -> delivery_id`, receipts `accepted | harness_queued | in_context | failed | outcome_unknown`, and the effective mode, for both subjects. For workers the `delivery_id` is the `AgentChat` queue item id, which the journal already records as `refs.delivery_id` at delivery (§5). For the attached Executor (E7-C6 hook transport) the receipt must echo `delivery_id` inside the delivered frame so the Executor transcript record can be matched. |
+| Listener mode (MP-E7) | `send(ConversationRef, text, client_request_id) -> delivery_id`, the receipt set defined in listener-mode §7 (not restated here, X-39), and the effective mode, for both subjects. For workers the `delivery_id` is the `AgentChat` queue item id, which the journal already records as `refs.delivery_id` at delivery (§5). For the attached Executor (E7-C6 hook transport) the receipt must echo `delivery_id` inside the delivered frame so the Executor transcript record can be matched. |
 | Command request and resolution (MP-E2) | `Decision.source.session_id` and `event_id` filled for worker and Executor requesters; `answer` with `expected_version`. |
 | Identity (MP-R1, RC-01/02/04) | `instance_id = <machine_id>/<instance_key>` for `GlobalEntryRef`; not used to derive `conversation_id` (§3). |
 | Stream Deck (MP-R6, RC-06) | R6-C1 ships `Aiur.Conversation.Anchors.at_or_before/2` behaviour-preserving; E4-C3-T01 extends it; E4-C7 moves the deck's data source onto `History`. |

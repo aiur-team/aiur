@@ -109,7 +109,7 @@ Decision: hide while `:legacy` (one boolean from C2-T03's map).
   conflict and winner"`; `"selector hidden under legacy routing"`.
 - Browser test under `src/test/browser/` for the selector at phone width (per
   existing harness), including permission-denied.
-- Commands: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Commands: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur_web`.
 - Manual: `aiurdev --test`, open the dashboard, change a Codex agent to
   `async`, send two messages, see unread 2 with age, switch to `sync`, see the

@@ -5,7 +5,7 @@ chunk_id: MP-E5-C6
 bucket: 2-platform
 title: Show the real delivery state after Send, taken from the send path, not invented by voice
 status: blocked
-blocked_by: [DESIGN-E5, MP-E5-C6-T01, MP-E7-C3-T4, MP-E4-C6, MP-E2]
+blocked_by: [DESIGN-E5, MP-E5-C6-T01, MP-E7-C3-T04, MP-E4-C6-T01, MP-E2-C3-T03]
 prior_units: [U8]
 prior_boundaries: [VOX, WEB, MSG, DEC]
 prior_features: [ui-07]
@@ -32,8 +32,9 @@ researched: 2026-10-06
 ## Dependencies and blockers
 
 - **Owner:** DESIGN-E5 (placement of the mirrored state).
-- **Predecessors:** MP-E7-C3-T4 (receipts exposed by `AgentChat.delivery_status/2` and HTTP);
-  MP-E4-C6 (shared composer + delivery overlay, consumed by MP-E3-C5); MP-E2 dispatch status
+- **Predecessors:** MP-E7-C3-T04 (receipts exposed by `AgentChat.delivery_status/2` and HTTP);
+  MP-E4-C6-T01 (shared composer + delivery overlay, consumed by MP-E3-C5); MP-E2-C3-T03 (final
+  dashboard answer states; Phase D narrowed the whole-feature `MP-E2` reference) for the dispatch status
   (already rendered by `answer_notice/1`, `decision_commands.ex:323-330`).
 
 ## Verified starting point (base `45a290e3`)

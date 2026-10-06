@@ -1,12 +1,12 @@
 ---
 contract_id: MP-CT-identity-and-capabilities
 owner_feature: MP-R1
-status: reconciled (Phase C; applies RC-01, RC-02, RC-04, RC-11, RC-12)
+status: reconciled (Phase D fix pass; applies RC-01, RC-02, RC-04, RC-11, RC-12, RC-36, RC-37, RC-39, RC-40; X-02, X-21, X-35)
 contract_version: 1
 base_main_sha: 45a290e3
 date: 2026-10-06
 consumers: [MP-E1, MP-E2, MP-E3, MP-E4, MP-E5, MP-E6, MP-E7, MP-R2, MP-R5, MP-R6, MP-R7, MP-N1, MP-N2, MP-N3, MP-N4, MP-N5, MP-N6, MP-N7]
-implemented_by: [MP-R1-C2-T1, MP-R1-C2-T2, MP-R1-C3-T1, MP-R1-C3-T2, MP-R1-C3-T3, MP-R1-C3-T4, MP-R1-C3-T5, MP-R1-C3-T6, MP-R1-C3-T7]
+implemented_by: [MP-R1-C2-T01, MP-R1-C2-T02, MP-R1-C3-T01, MP-R1-C3-T02, MP-R1-C3-T03, MP-R1-C3-T04, MP-R1-C3-T05, MP-R1-C3-T06, MP-R1-C3-T07]
 ---
 
 # Contract: identity and capabilities
@@ -34,11 +34,11 @@ machine ─┬─ instance (1 repository, 1 Executor seat) ─┬─ executor (c
 
 | Level | Identifier | Exists today? | Stability | Source of truth |
 |---|---|---|---|---|
-| Machine | `machine_id` | **No.** No machine identifier in `src/lib` or `packaging` (searched `machine_id`, `host_id`, `/etc/machine-id`) | Durable until an explicit reset | `identity` component (MP-R1-C2-T1) |
+| Machine | `machine_id` | **No.** No machine identifier in `src/lib` or `packaging` (searched `machine_id`, `host_id`, `/etc/machine-id`) | Durable until an explicit reset | `identity` component (MP-R1-C2-T01) |
 | Instance | `instance_key` | **Yes**, launcher-side: first 10 hex chars of sha256(realpath(project root)) (`aiur-engine.sh:269-278`), exported to the daemon as `AIUR_INSTANCE_KEY` (`aiur-engine.sh:291-298`) and already read by the daemon (`config/paths.ex:331-335`, `executor/claims.ex:477-482`) | Changes if the project root path changes | launcher → daemon env |
-| Instance | `instance_id` | No | As `instance_key` | `identity` (MP-R1-C2-T2) |
-| Repository | `repository` | **Yes**: `Aiur.Tracker.project_identity/0` (`tracker.ex:152-159`; GitHub `owner/name` from `GitHub.Config.repo/0`, Linear `project_slug`, memory `"memory"`) and `tracker.kind` | Stable while the configured remote is the same | `tracker` component provider (MP-R1-C3-T2) |
-| Executor | `executor_consumer_id` | **Yes**: `--as` > `AIUR_EXECUTOR_ID` > `<hostname>-<instance>` (`executor/claims.ex:185-195`); lease via `Aiur.Executor.Principal`; states in `Aiur.Executor.Roster` (`roster.ex:110-124`) | Per configured Executor | `executor-attention` provider (MP-R1-C3-T2) |
+| Instance | `instance_id` | No | As `instance_key` | `identity` (MP-R1-C2-T02) |
+| Repository | `repository` | **Yes**: `Aiur.Tracker.project_identity/0` (`tracker.ex:152-159`; GitHub `owner/name` from `GitHub.Config.repo/0`, Linear `project_slug`, memory `"memory"`) and `tracker.kind` | Stable while the configured remote is the same | `tracker` component provider (MP-R1-C3-T02) |
+| Executor | `executor_consumer_id` | **Yes**: `--as` > `AIUR_EXECUTOR_ID` > `<hostname>-<instance>` (`executor/claims.ex:185-195`); lease via `Aiur.Executor.Principal`; states in `Aiur.Executor.Roster` (`roster.ex:110-124`) | Per configured Executor | `executor-attention` provider (MP-R1-C3-T02) |
 | Executor harness session | `executor_session_ref` | **No** (baseline E3) | Per Executor session | MP-E3 defines; reserved here |
 | Worker | `ticket` | **Yes**: `TrackerIdentity` with `status: :joinable` (`tracker_identity.ex:1-8`) | Stable | tracker |
 | Worker session | `SessionRef` | Partly (`Decision.source`, `SessionHandle`, `LiveConversation` generation handle) | One agent run | **MP-E4** (conversations contract §2), see §1.5 |
@@ -75,10 +75,12 @@ machine ─┬─ instance (1 repository, 1 Executor seat) ─┬─ executor (c
    "created_at": "2026-10-06T16:00:00Z"}
   ```
 
-  MP-N2 adds `machine_key_public` (and its own sibling files) when mobile is enabled.
-  Readers ignore unknown fields. MP-R1 code **only creates** the file; it never rewrites
-  it. A later writer (MP-N2's gateway, the single writer of the machine store) must
-  preserve every field it does not own.
+  MP-N2 keeps its own data in sibling files; the machine public key is
+  `machine_key.pub` (pairing §5), never a copy inside `identity.json` (Phase D,
+  CR-R1-2). Readers ignore unknown fields. MP-R1 code **only creates** the file; it never
+  rewrites it. The only rewriter is MP-N2's gateway (single writer of the machine store),
+  and only for `machine_label` (label editing) and the reset path; it preserves every
+  field it does not own and never changes `machine_id` outside reset.
 - **No-clobber creation.** Write a temp file with mode 0600 and fsync, then hard-link it
   to `identity.json` with `File.ln/2`, then remove the temp file. `link(2)` fails with
   `:eexist` when the target exists (verified locally: second `File.ln/2` returns
@@ -125,13 +127,24 @@ push relay can read (MP-N4).
   not change what the next `aiur executor` read sees.
 - `executor.harness` and `executor.session_ref`: reserved, filled by MP-E3. Absent means
   `executor.conversation` is `unavailable` with reason `executor_not_managed`.
+- There is no separate `executor_live` fact (Phase D, CR-E2-6). **"A live Executor"
+  means `executor.state ∈ {active, idle}`** (RC-37), built with `record?: false`.
+  `stalled`, `expired`, `absent` and `unknown` are **not** live: D9's "no live Executor,
+  go to the human" applies to them. MP-E2 routing (command contract §4, MP-E2-C2-T01)
+  reads the same roster call with the same rule. Clients may show `stalled` with its
+  own label, but routing treats it as not live. When several consumers are present,
+  the instance's summary state is the highest of
+  `active > idle > stalled > expired > absent > unknown` (pairing §7 uses this order).
 
 ### 1.5 Worker and session
 
 - A worker is addressed by `ticket` (joinable `TrackerIdentity`); `#123` is a locator.
 - **Session identity is owned by MP-E4** (CQ3 resolved): `SessionRef =
-  {conversation_id, session_seq}` with `conversation_id` derived from `instance_id`
-  (`contracts/conversations-transcripts-anchors.md` §2). Earlier drafts of this contract
+  {conversation_id, session_seq}`. `conversation_id` is unique within one instance and is
+  **not** derived from `instance_id`; the global form is `GlobalEntryRef {instance_id,
+  conversation_id, pos}` (`contracts/conversations-transcripts-anchors.md` §3). `SessionRef`
+  is the single session identity for identity, Commands and notifications (CR-R1-5).
+  Earlier drafts of this contract
   proposed `"<instance_id>/<ticket>/<generation>"`; that form is withdrawn. MP-E2's
   `requester.session_ref` uses MP-E4's `SessionRef`.
 
@@ -141,7 +154,7 @@ push relay can read (MP-N4).
 
 | Surface | Path | Auth | Notes |
 |---|---|---|---|
-| HTTP | `GET /api/v1/capabilities` | `:dashboard_auth` pipeline, same as `GET /api/v1/state` (`router.ex:186-189`); paired-device credentials later (MP-N2) | Declared above `get("/api/v1/:issue_identifier", …)` (`router.ex:193`), which would otherwise claim it |
+| HTTP | `GET /api/v1/capabilities` | `:dashboard_auth` pipeline, same as `GET /api/v1/state` (`router.ex:186-189`); paired-device credentials later (MP-N2) | Declared above `get("/api/v1/:issue_identifier", …)` (`router.ex:193`), which would otherwise claim it. The route lives in the identity-owned `AiurWeb.Routes.Capabilities`, which `web-shell` composes through the registration seam (RC-39, MP-R1-C6-T01); identity does not depend on web-shell |
 | CLI | `aiur capabilities [--json]` | local control RPC (`run_control_rpc`, `aiur-engine.sh:2419`) | Works with `--no-dashboard`; needs a running daemon |
 | Event | `system.capabilities.changed` | internal bus now (`Events.Publisher.publish/3`, `publisher.ex:111-113`); remote via MP-R2's external API | Payload `{revision, boot_id}` only; clients refetch |
 
@@ -189,11 +202,11 @@ push relay can read (MP-N4).
   the daemon at response time; `freshness` is `current` while `age_ms ≤ 3 × tick`
   (tick 2,000 ms, so 6,000 ms), otherwise `stale` (AGENTS.md "if a surface computes an
   age, it renders the age"). Clients prefer `age_ms` to their own clock.
-- `run_shape` (CR-C6-1 from MP-R1-C6-T3, applied): `http_listener` (the HTTP endpoint
+- `run_shape` (CR-C6-1 from MP-R1-C6-T03, applied): `http_listener` (the HTTP endpoint
   and JSON API are up) and `dashboard_pages` (LiveView pages are mounted) are separate,
-  because MP-R1-C6-T3 adds an internal shape with the API on and the pages off.
+  because MP-R1-C6-T03 adds an internal shape with the API on and the pages off.
   `dashboard` is a deprecated v1 alias of `http_listener`; clients must read the two new
-  fields. Until C6-T3 merges, `dashboard_pages == http_listener`.
+  fields. Until C6-T03 merges, `dashboard_pages == http_listener`.
 - `min_client_versions` (RC-04, C-A6): a map `client_kind → semver string`, kinds
   `phone`, `watch`, `streamdeck`. Empty map = no minimum. It is a code constant raised in
   a release, not operator config.
@@ -204,10 +217,25 @@ push relay can read (MP-N4).
   (should be up, is not) · `unsupported_tracker` · `executor_absent` ·
   `executor_not_managed` · `snapshot_stale` · `snapshot_unpublished` ·
   `instance_key_missing` · `instance_key_invalid` · `identity_unreadable` ·
-  `dependency_unavailable` (with `depends_on: [ids]`) · `unknown`. A provider that cannot
+  `journal_corrupt` (a component's durable journal has a corrupt tail and the feature
+  stopped; first user `events.export`, CR-R2-4) · `store_unavailable` (a component's
+  durable store cannot be read or written; first user `build_queue`, MP-E1-C3-T08) ·
+  `writes_paused` (with `degraded`: reads work, writes are held, e.g. a GitHub budget
+  hold; first user `build_queue`) · `spec_invalid` (a vendored build-time spec failed its
+  checksum or schema; first user `listener_modes`, RC-36) ·
+  `dependency_unavailable` (with `depends_on: [ids]`) · `unknown`. A disabled capability
+  is always reported as `unavailable/disabled`, never left out (a missing ID reads as
+  `unknown`, §3). A capability whose
+  instance has no `instance_id` reports `dependency_unavailable` with
+  `depends_on: ["identity"]`; there is no separate `identity_degraded` reason. A provider that cannot
   classify a cause, or exceeds its time budget, reports `unknown`, never a specific cause
   (AGENTS.md "a collapsed cause names the collapse at the source").
 - `version` per capability is that capability's own wire version. Absent = 1.
+- **Registered attributes** (Phase D). An entry may carry extra keys only when the
+  capability matrix registers them: `route` (the dashboard path of the capability's page,
+  e.g. `"executor.conversation": {"state": "available", "route": "/executor"}`, CR-N3-1, so
+  clients never hard-code a route) and `mode` (for `harness.<id>.native_question`: one of
+  `in_band_hold`, `defer_resume`, `none`, CR-E2-6). Clients ignore unregistered keys.
 - `repository` and `executor` are top-level sections contributed by providers (§2.4).
   Each is `null` when its provider is absent or failed; a client renders `null` as
   unknown, never as empty.
@@ -225,7 +253,27 @@ push relay can read (MP-N4).
 Phase C added `identity` and `api.http`. Features that add capabilities register new IDs
 in that table through their plans (for example `build_queue` from MP-E1, `events.export`
 from MP-R2, `pairing` from MP-N2). Naming: `<area>[.<sub>]`, lowercase, dot-separated;
-never reuse a retired ID. `packages/aiur-contracts` (MP-R1-C3-T6) carries the ID enum.
+never reuse a retired ID. `packages/aiur-contracts` (MP-R1-C3-T06) carries the ID enum.
+
+Registered in Phase D from the contract requests (rows added to the matrix):
+`harness.<id>.native_question` (MP-R7 provider, value in `mode`, read by MP-E2-C4-T05 and
+C5-T02), `executor.background_agents` (MP-E3-C4-T02, read function
+`Aiur.Executor.BackgroundAgents.snapshot/0`; consumed by MP-N3-C1-T05) and
+`runtime.crypto` (MP-N4: OTP `:crypto` has the X25519/Ed25519/HPKE primitives). `push`
+is reported in every run shape that has the event bus, including `--no-dashboard`, and
+uses `dependency_unavailable` with `depends_on: ["pairing"]` or `["runtime.crypto"]`
+(CR-N4-4). `build_queue` and `build_orders` are separate IDs; a client masks an option
+with `not_installed` plus `depends_on`, and maps that to its own option-level reason
+(CR-N5-5). Build-order progress (`build_orders.progress`, `Aiur.BuildProgress`) belongs
+to the `build-orders` component, so it never depends on `build_queue` (RC-40).
+
+Providers that Phase D added (X-21), each with its own ticket:
+
+| ID | Provider (component) | Ticket | State mapping |
+|---|---|---|---|
+| `build_queue` | build-queue | MP-E1-C3-T08 | queue status `running` → `available`; `disabled` → `unavailable/disabled`; `unsupported_tracker` → `unavailable/unsupported_tracker`; `store_unavailable` → `unavailable/store_unavailable`; `writes_paused` → `degraded/writes_paused` |
+| `build_queue.build_order_source` | build-queue | MP-E1-C3-T08 | `available` when the BuildOrder dependency source is selected; else `unavailable/dependency_unavailable` with `depends_on: ["build_orders"]`, or `["build_queue"]` when the queue itself is not available |
+| `listener_modes` | listener-modes (required core, RC-36) | MP-E7-C3-T06 | spec valid and routing flag on → `available`; flag `:listener_send_routing` = `:legacy` → `unavailable/disabled`; vendored spec absent → `unavailable/not_installed`; checksum or schema failure → `unavailable/spec_invalid`. Sends work in every case (`:legacy` routing) |
 
 ### 2.4 How the daemon computes it
 
@@ -275,7 +323,7 @@ Every write endpoint that refuses because a capability is not available returns 
  "revision": 7, "boot_id": "…"}
 ```
 
-MP-R1-C3-T3 ships the encoder (PROPOSED `AiurWeb.CapabilityError.render/2`). Existing
+MP-R1-C3-T03 ships the encoder (PROPOSED `AiurWeb.CapabilityError.render/2`). Existing
 endpoints keep their current responses until their owning feature adopts it (MP-E2,
 MP-E4, MP-N2 and MP-N6 tickets); this contract does not change them retroactively.
 
@@ -285,7 +333,9 @@ MP-E4, MP-N2 and MP-N6 tickets); this contract does not change them retroactivel
    or a channel join error is an error path, not detection (baseline R1).
 2. **Unknown IDs are ignored.** Unknown `reason` values are treated as `unknown`.
 3. **Absent ID.** If `contract_version` is lower than the version that introduced an ID,
-   the client shows `unknown` ("update aiur"), not `unavailable`.
+   the client shows `needs_update` with target `server` ("Update aiur on <machine>"), not
+   `unavailable` (client-capability-model §4 rule 4). An ID missing from a report whose
+   `contract_version` is new enough is `unknown`.
 4. **Reachability is separate.** `unreachable` (no response), `stale` (`freshness: stale`
    or a cache older than the client's budget) and `unavailable` (answered, off) are three
    presentations (brief N3; `client-capability-model.md` §3).
@@ -318,14 +368,14 @@ MP-E4, MP-N2 and MP-N6 tickets); this contract does not change them retroactivel
 
 - **Reconciliation applied:** RC-01 (first boot, path), RC-02 (`instance_id`), RC-04
   (ownership and MP-N1 additions), RC-11 (build-queue registers `build_queue` once
-  MP-R1-C3-T1 exists; until then E1 ships its own scan test), RC-12 (classification).
+  MP-R1-C3-T01 exists; until then E1 ships its own scan test), RC-12 (classification).
   RC-ID-3: MP-R2 advertises `events.export` with `{v, retention}` — adopted.
 - **MP-R2 (events)** owns event IDs, ordering, replay, the topic catalog and the external
   subscription API. Requested: catalog entry `system.capabilities.changed` (producer
-  MP-R1-C3-T5) and envelopes carrying `instance_id`.
+  MP-R1-C3-T05) and envelopes carrying `instance_id`.
 - **MP-N2 (pairing)** owns `machine_key`, devices, credentials, scopes, revocation, the
   reset verb, label editing and the extended instance record. It reads `identity.json`
-  as defined in §1.1 and is the only rewriter of it. Assumed: a paired-device credential
+  as defined in §1.1 and is the only rewriter of it (label and reset only). Assumed: a paired-device credential
   is accepted on `GET /api/v1/capabilities` with full-machine scope (D19).
 - **MP-N1** owns the client side (`client-capability-model.md`); C-A5, C-A6 and C-A7 are
   answered by §2.2 and §2.5.
@@ -336,4 +386,9 @@ MP-E4, MP-N2 and MP-N6 tickets); this contract does not change them retroactivel
   only.
 - **MP-R7** owns per-harness capability callbacks; they surface as `harness.<id>` IDs
   through a provider.
-- **MP-E1** registers `build_queue` and `build_queue.build_order_source` through a provider.
+- **MP-E1** registers `build_queue` and `build_queue.build_order_source` through a provider
+  (MP-E1-C3-T08, §2.3 table).
+- **MP-E7** registers `listener_modes` through a provider (MP-E7-C3-T06). The send router
+  is required core; only the shared spec package is optional (RC-36).
+- **MP-E2** uses the live-Executor rule of §1.4 (RC-37); the command contract §4 states the
+  same rule.

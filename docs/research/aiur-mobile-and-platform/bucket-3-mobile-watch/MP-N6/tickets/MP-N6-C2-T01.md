@@ -5,7 +5,7 @@ chunk_id: MP-N6-C2
 bucket: 3-mobile-watch
 title: Pure destination resolver — machine → instance → target → anchor with visible degradation
 status: ready
-blocked_by: [DESIGN-N6, MP-N4-C4-T02, MP-N4-C5-T02, MP-N2-C5-T5, N1-C3-T1]
+blocked_by: [DESIGN-N6, MP-N4-C4-T02, MP-N4-C5-T02, MP-N2-C5-T05, MP-N1-C3-T01]
 prior_units: []
 prior_boundaries: [mobile-app]
 prior_features: [MP-N4, MP-N2, MP-N1]
@@ -42,8 +42,8 @@ Rules: machine by `machine_id` only (never display name); `instance_id` must sta
 
 ## Dependencies and blockers
 
-- MP-N4-C4-T02 / C5-T02 (accepted payload → destination), MP-N2-C5-T5 (paired registry),
-  N1-C3-T1 (capability cache / probe).
+- MP-N4-C4-T02 / C5-T02 (accepted payload → destination), MP-N2-C5-T05 (paired registry),
+  N1-C3-T01 (capability cache / probe).
 - DESIGN-N6 gate: the resolver returns screen kinds; the screens and notes' copy are
   C2-T02/C3. Content of DESIGN-N6 does not change the rules (contract-fixed), so ready.
 
@@ -82,8 +82,10 @@ Jest/Vitest (per MP-N1-C1) `resolveDestination.test.ts` (PROPOSED):
 | `command 404 → instance with command_gone` | as stated | fall back to an inbox screen (unknown-path rule) |
 | `unreachable → unreachable with sealed summary` | as stated | `not_paired` |
 
-Command: `npm --prefix packages/aiur-mobile test` (per MP-N1-C1).
+Command: `npm --prefix packages/aiur-mobile test -- test/notifications/resolveDestination.test.ts` (per MP-N1-C1).
 
 ## Completion and handoff
 
 - [ ] Dependents: C2-T02, C2-T03, C5-T01.
+- [ ] Docs: none, because the resolver is an internal module; the landing behaviour is
+  documented with C2-T02 (`website/docs-app/guide/mobile.md`).

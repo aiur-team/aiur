@@ -5,7 +5,7 @@ chunk_id: MP-R2-C7
 bucket: 1 (Bucket-2-enabling, RC-09)
 title: Advertise the events.export capability {v, retention} through the MP-R1 capability registry
 status: blocked
-blocked_by: [DESIGN-R2 §2, MP-R1-C3-T1 (Aiur.Capabilities registry + Provider behaviour), MP-R2-C6-T01, MP-R2-C7-T01]
+blocked_by: [DESIGN-R2 §2, MP-R1-C3-T01 (Aiur.Capabilities registry + Provider behaviour), MP-R2-C6-T01, MP-R2-C7-T01]
 prior_units: []
 prior_boundaries: [BUS #10]
 prior_features: [MP-R1 (capability registry, RC-12)]
@@ -32,7 +32,7 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **MP-R1-C3-T1** (registry + `Provider` behaviour) — external, not yet
+- **MP-R1-C3-T01** (registry + `Provider` behaviour) — external, not yet
   ticketed in files at research time; status `blocked` until it exists.
 - C6-T01 (config keys to read), C7-T01 (route the capability describes).
 - Identity contract RC-ID-3 adopts `events.export` with `{v, retention}`
@@ -64,10 +64,9 @@ researched: 2026-10-06
 
 - `retention` echoes the configured values from C6-T01 (KQ-R2-1 decides the
   defaults; this ticket only reports what is configured).
-- `journal_corrupt` is a new reason string; the contract's reason list is
-  open per §2.2 only through the matrix, so record it in CONTRACT-REQUESTS
-  (CR to MP-R1: add `journal_corrupt` to the reason enum) — until accepted,
-  fall back to `reason: "not_running"`.
+- `journal_corrupt` is in the identity contract's reason enum (§2.2, accepted in
+  Phase D, CR-R2-4). An instance without `instance_id` reports
+  `dependency_unavailable` with `depends_on: ["identity"]`.
 - The registry recomputes on its tick; the provider must be cheap: one
   app-env read, one `Process.whereis`, one ETS/`persistent_term` read of
   exporter status (C6 must keep status readable without a GenServer call;
@@ -78,7 +77,7 @@ researched: 2026-10-06
 1. Add `src/lib/aiur/events/capability_provider.ex`.
 2. Append it to `:capability_providers` in `src/config/config.exs`.
 3. Add `events.export` to the `packages/aiur-contracts` ID enum if
-   MP-R1-C3-T6 has landed.
+   MP-R1-C3-T06 has landed.
 4. Tests below.
 
 ## Non-happy paths
@@ -113,7 +112,7 @@ env -C <worktree>/src HOME=<tmp> GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test \
   test/aiur/events/capability_provider_test.exs test/aiur_web/controllers/capabilities_controller_test.exs
 ```
 
-(The second file is MP-R1-C3-T3's; run it if present.)
+(The second file is MP-R1-C3-T03's; run it if present.)
 
 Mutation check: replace the exporter-alive check with `true` → tests 2/4
 fail; restore → pass. Clean worktree.
@@ -121,10 +120,10 @@ fail; restore → pass. Clean worktree.
 ## Completion and handoff
 
 - [ ] Provider registered; tests 1–4 added and mutation-checked.
-- [ ] Docs: the capability ID table that MP-R1-C3-T7 writes in
+- [ ] Docs: the capability ID table that MP-R1-C3-T07 writes in
       `website/docs-app/concepts/` gets an `events.export` row (meaning,
       reasons). If that page does not exist yet, add the row to C4-T04's
       plan-refresh list instead of creating a page.
-- [ ] CONTRACT-REQUESTS: `journal_corrupt` reason (to MP-R1).
+- [x] CONTRACT-REQUESTS: `journal_corrupt` reason (to MP-R1) — accepted in Phase D.
 - Dependents: MP-N3 (instance card shows feed availability), MP-N4/N5
   (daemon-side, read the same status).

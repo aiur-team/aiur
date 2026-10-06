@@ -5,7 +5,7 @@ chunk_id: MP-N4-C4
 bucket: 3-mobile-watch
 title: iOS payload acceptance pipeline — open, verify, expiry, seen-nid, stream supersession
 status: ready
-blocked_by: [DESIGN-N4, MP-N4-C4-T01, MP-N4-C1-T04, N1-C2-T3, N1-C6-T1]
+blocked_by: [DESIGN-N4, MP-N4-C4-T01, MP-N4-C1-T04, MP-N1-C2-T03, MP-N1-C6-T01]
 prior_units: []
 prior_boundaries: [mobile-app, push-relay]
 prior_features: [MP-N1]
@@ -33,15 +33,15 @@ Steps (contract v2 §4–§6): read `s`, `k`, `v` → `v == 1` → `kid` known �
 → Ed25519 verify over `"aiur-push-v1-sig" ‖ 0x00 ‖ info ‖ payload` with the pinned
 machine key → parse JSON → `destination.machine_id` equals kid's machine,
 `instance_id` prefixed → `expires_at` ≥ now − 5 min → `nid` unseen → stream/seq not
-superseded → `.show`. The NSE (N1-C6-T1) calls it and applies the result; on `.fallback`
+superseded → `.show`. The NSE (N1-C6-T01) calls it and applies the result; on `.fallback`
 it calls the completion handler with the original (uniform) content.
 
-Non-goals: titles/categories (C4-T03), retraction (C4-T04), raw HPKE open (N1-C2-T3 — this
+Non-goals: titles/categories (C4-T03), retraction (C4-T04), raw HPKE open (N1-C2-T03 — this
 ticket uses it).
 
 ## Dependencies and blockers
 
-- C4-T01 (keys), C1-T04 (vectors), N1-C2-T3 (native HPKE open helper), N1-C6-T1 (NSE).
+- C4-T01 (keys), C1-T04 (vectors), N1-C2-T03 (native HPKE open helper), N1-C6-T01 (NSE).
 - DESIGN-N4 gate; the logic is fixed by the contract, so no design answer changes it.
 - RQ-N4-5 / OQ-N4-3 do not affect this ticket: whether a rejected payload can be
   suppressed silently (filtering entitlement, E-A7) is C4-T03/T04 presentation.
@@ -64,12 +64,26 @@ ticket uses it).
 - Every failure returns `.fallback(reason)` or `.drop(reason)`, never throws to the NSE:
   `.drop` for `nid` seen / superseded / expired (nothing new to show); `.fallback` for
   crypto, frame, unknown kid, locked keychain, unknown `v`.
+- **Local key loss is its own reason (Phase D M6).** A keychain read error other than
+  `errSecInteractionNotAllowed` (which is `.locked`) — e.g. `errSecItemNotFound` for a
+  `kid` the mapping still lists, or a decode failure of the stored key — returns
+  `.fallback(.keysUnavailable)`, never `.fallback(.unknownKid)`. The NSE shows the
+  uniform fallback and writes `pushHealth = keysLost` for that machine to the app group;
+  the app reports `push_health: keys_lost` (contract §7) on its next online call.
+- **Last notified destination (Phase D, handoff from MP-N7 for feasibility M5).** On every
+  `.show` of a `command.*` payload, `Acceptance` returns the decrypted `destination` (contract
+  §3.1) with the verdict, and the NSE glue writes `{destination, nid, at}` to the app-group
+  key `aiur.lastNotifiedDestination` (file protection
+  `completeUntilFirstUserAuthentication`). Only the destination is stored: it names objects
+  and carries no summary text. The phone app reads it to answer the watch's
+  `get_command {latest_notified: true}` (MP-N7-C2-T04) within 15 minutes; it is overwritten
+  by the next Command and cleared on unpair.
 
 ## Implementation steps
 
 1. `AiurClientKit/Sources/Push/Acceptance.swift`, `SeenStore.swift` (PROPOSED).
 2. Vector-driven XCTest.
-3. NSE glue lives in N1-C6-T1; this ticket provides the call.
+3. NSE glue lives in N1-C6-T01; this ticket provides the call.
 
 ## Non-happy paths
 
@@ -94,6 +108,8 @@ the right `.fallback`/`.drop`), plus:
 | `testExpiredIsDropped` | `.drop(.expired)` | skip the expiry check |
 | `testSeenNidIsDropped` | second call `.drop(.seen)` | no SeenStore write |
 | `testWrongMachineDestinationFallsBack` | `.fallback(.destinationMismatch)` | skip the machine check |
+| `testShowWritesLastNotifiedDestination` | after `.show` of a `command.needs_you` vector the app-group store holds that `destination` and `nid`, and no `summary` field; a `.fallback` or `.drop` verdict writes nothing | the write (watch fallback-open then finds nothing) |
+| `testKeychainReadErrorIsKeysUnavailable` (stub keychain returns `errSecItemNotFound` for a mapped `kid`) | `.fallback(.keysUnavailable)` and `pushHealth == .keysLost` | collapse into `.unknownKid` |
 
 Commands: `xcodebuild test -scheme AiurClientKit …` (per MP-N1-C1). Device: V-I1, V-I3,
 V-S1 in C7.

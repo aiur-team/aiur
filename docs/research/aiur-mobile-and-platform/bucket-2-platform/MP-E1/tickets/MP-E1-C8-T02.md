@@ -71,7 +71,7 @@ None.
 | `env -C website/docs-app bun run build` (`website/docs-app/package.json` script `build` = `vitepress build .`) | builds | docs syntax |
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/browser_harness/fixtures_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/browser_harness/fixtures_test.exs
 ```
 
 ## Completion and handoff

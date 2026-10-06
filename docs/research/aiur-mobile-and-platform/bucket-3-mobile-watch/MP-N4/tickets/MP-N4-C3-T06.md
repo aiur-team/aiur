@@ -42,7 +42,7 @@ Non-goals: packet capture at the relay and providers (C7 V-P1); relay-side loggi
 ## Chosen design
 
 A fixture intent whose every identifying field is a unique sentinel string
-(`"SENTINEL-REPO-…"`, `"SENTINEL-TICKET-4711"`, Command id `"dec_SENTINEL…"`, machine id
+(`"SENTINEL-REPO-…"`, `"SENTINEL-TICKET-4711"`, Command id `"5e7e1a1e5e7e1a1e"` (16 hex characters, the real decision-id form, command contract §2; Phase D X-32 — a `dec_` prefix would let the scan pass on a shape production never emits), machine id
 sentinel, summary title/body sentinels). The fake relay records raw request bytes. After
 a full accept → seal → send → record cycle, and after failure paths (429, 410, timeout,
 encode failure), assert:

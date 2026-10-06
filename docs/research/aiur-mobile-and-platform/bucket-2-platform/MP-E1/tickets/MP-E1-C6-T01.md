@@ -108,7 +108,7 @@ Mutation check: render `unknown` as `0` → test 3 fails; drop the docs section 
 the CLI reference check fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue_cli_test.exs test/aiur/agent_control_cli_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue_cli_test.exs test/aiur/agent_control_cli_test.exs
 bash website/docs-app/scripts/check-cli-reference.sh
 ```
 

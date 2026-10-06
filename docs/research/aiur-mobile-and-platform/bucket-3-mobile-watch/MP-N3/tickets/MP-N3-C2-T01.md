@@ -98,7 +98,7 @@ stub `Aiur.InstanceSummary` to exercise the real RPC path; it is tagged `:distri
 when distribution cannot start.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/summary_fanout_test.exs --include distributed
 ```
 

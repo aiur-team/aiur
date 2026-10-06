@@ -185,6 +185,11 @@ not inside:  opencode (renderer, prior 24), agent tool surface / DynamicTool (pr
   `delivery_primitives/1` (see contract). No new runtime callback is
   *required* in R7; optional callbacks for MP-E7 and MP-E2 are reserved in the
   contract and land in those features.
+- **Listener split (RC-36).** The MP-E7 send router (`listener-modes`,
+  `Aiur.Listener.*`) is a **required** core component that depends on this
+  package, not part of it. The Khala-published listener spec (`listener-spec`)
+  is a build-time input vendored by MP-E7, never a runtime dependency of
+  `aiur_harness`. R7 exposes only `delivery_primitives/1` for the router to read.
 
 ---
 
@@ -250,6 +255,14 @@ not inside:  opencode (renderer, prior 24), agent tool surface / DynamicTool (pr
 
 ---
 
+## U0 review gate (X-58, RC-19)
+
+Every MP-R7 ticket waits for the U0 review of the prior refactor plan
+(`docs/plans/2026-09-29-001-refactor-production-readiness-plan.md`). RC-19
+keeps that gate for refactor work, and MP-R7 is refactor work. U0 has no ticket
+ID, so the gate is stated here and in the tickets README, not in `blocked_by`.
+MP-R1-C11-T02's implementation-head recheck does not replace it.
+
 ## Plan-refresh note
 
 R7 depends on MP-R1's layout decision for its physical move (chunk C4 only).
@@ -276,5 +289,3 @@ and settled by MP-R7-C4-T02.
 - RQ-R7-4. Does OpenAI-compat delivery at `:tool_result` already happen
   between tool rounds (a native steer-like boundary)? Read
   `open_ai_compat/coding_agent.ex` run loop and the runner checkpoint hook.
-</content>
-</invoke>

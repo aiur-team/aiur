@@ -3,7 +3,8 @@ design_task: DESIGN-N1
 feature_id: MP-N1
 owner: Kevin (operator)
 status: open — not approved
-blocks: every MP-N1 implementation ticket (../bucket-3-mobile-watch/MP-N1/chunks.md, N1-C1..C8)
+blocks: [MP-N1-C1-T01, MP-N1-C1-T02, MP-N1-C1-T03, MP-N1-C2-T01, MP-N1-C2-T02, MP-N1-C2-T03, MP-N1-C2-T04, MP-N1-C2-T05, MP-N1-C3-T01, MP-N1-C3-T02, MP-N1-C3-T03, MP-N1-C3-T04, MP-N1-C4-T01, MP-N1-C4-T02, MP-N1-C4-T03, MP-N1-C4-T04, MP-N1-C4-T05, MP-N1-C4-T06, MP-N1-C5-T01, MP-N1-C5-T02, MP-N1-C5-T03, MP-N1-C5-T04, MP-N1-C6-T01, MP-N1-C7-T01, MP-N1-C7-T02, MP-N1-C8-T01, MP-N1-C8-T02, MP-N1-C8-T03, MP-N1-C9-T01, MP-N1-C10-T01, MP-N1-C10-T02, MP-N2-C5-T06, MP-N2-C7-T04, MP-N3-C4-T01, MP-N3-C4-T03, MP-N4-C2-T06, MP-N4-C4-T01, MP-N4-C5-T01, MP-N5-C4-T01, MP-N6-C2-T02, MP-N6-C2-T03, MP-N6-C3-T01]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-N1 (waived entries excluded). Earlier wording: every MP-N1 implementation ticket (../bucket-3-mobile-watch/MP-N1/chunks.md, N1-C1..C8)"
 shared_with: DESIGN-N2 (pairing screens), DESIGN-N3 (meta-dashboard), DESIGN-N4/N5 (notifications), DESIGN-N6 (Command response), DESIGN-N7 (watch), DESIGN-E5/E6 (mic controls)
 base_main_sha: 45a290e3
 date: 2026-10-06
@@ -37,13 +38,14 @@ Verified at `45a290e3`:
 | D-N1-3 | Minimum OS (OQ-N1-2) | iOS 17+, Android 10+ | Sets the device-validation matrix |
 | D-N1-4 | App name and icon | "aiur" with the existing logo (`/aiur-logo.png`) | Store and home-screen identity |
 | D-N1-5 | The native header over WebView pages: contents | Back, instance name (`owner/name`), freshness pill, Executor-chat button | Seen on every WebView page |
-| D-N1-6 | HTTP-degraded mode (no HTTPS on the machine): allowed with warnings, or refuse to pair | Allow, with a persistent warning and the WebView mic off | Affects whether a plain tailnet setup works at all (MP-N1 §5) |
+| D-N1-6 | HTTP-degraded mode (no HTTPS on the machine) | **Asked once, in [DESIGN-N2 §transport](DESIGN-N2.md#transport--https-for-paired-devices-rq-transport-rc-15-added-in-phase-d)** (owner of RQ-TRANSPORT, RC-15). Recommendation there: **off by default; opt-in diagnostics only**. This row only records the app consequence: if Kevin keeps the opt-in mode, the app shows a persistent warning and the WebView mic is off | Affects whether a plain tailnet setup works at all (MP-N1 §5) |
 | D-N1-7 | Demo mode: include it even for private distribution? | Only if D-N1-2 = public | Extra screens and a "Demo" badge |
-| D-N1-8 | Devices available for validation (OQ-N1-4) | List them | Unlisted slots are reported as not validated |
+| D-N1-8 | Devices available for validation (OQ-N1-4) | List them. Recommended minimum: one iPhone on the oldest supported iOS, one on current iOS, and one Pixel-class Android 13+ phone with Play services (the MP-N3-C4-T06 slots), because each platform minimum needs one real device | Unlisted slots are reported as not validated |
+| OWNER-AUTH-N1-PROTO | Authorize the throwaway Expo feasibility prototype (MP-N1-C9-T01), including the Apple Developer Program cost (Phase D, B6; brief §2: prototypes are proposed separately, never implicit) | **Authorize**, after DESIGN-N4 D-8 names the Apple account, because it retires the framework risk before 40+ MP-N1 tickets build on it and the account is needed for any build anyway. [ ] authorize  [ ] not now | Gates MP-N1-C9-T01, MP-N2-C10-T04 and the device checks in MP-N1-C5-T02/T04 |
 
 ## 3. Surfaces to design
 
-1. **App frame and navigation:** tab bar or stack? Proposal: a stack rooted at the machines/instances list (DESIGN-N3 owns that list), with a Settings entry. No combined inbox anywhere.
+1. **App frame and navigation (N1-FRAME):** tab bar or stack? Recommendation: a stack rooted at the machines/instances list (DESIGN-N3 owns that list), with a Settings entry, because a tab bar would invite a combined inbox tab. No combined inbox anywhere.
 2. **WebView page header** (D-N1-5), including how the freshness pill reads when stale.
 3. **Loading a dashboard in the WebView:** the first-load state, the reload state, and what shows while the session is being minted.
 4. **Connection diagnostics screen:** per-machine reachability, transport (HTTPS / HTTP-degraded / certificate mismatch), app and aiur versions, and "Why is X unavailable?" explanations from the capability model.
@@ -72,7 +74,8 @@ Verified at `45a290e3`:
 ## 5. Acceptance conditions
 
 - Every row of surface-boundary.md §1 is marked approved, changed or removed.
-- D-N1-1..D-N1-8 are answered in writing.
+- Every decision in §2 is answered in writing: D-N1-1..D-N1-8 and OWNER-AUTH-N1-PROTO
+  (D-N1-6 is answered in DESIGN-N2 §transport).
 - Mock-ups (any fidelity) exist for surfaces 1–7 in at least the states in §4 marked as relevant.
 - Copy for the unavailable, stale, unreachable and revoked states is written.
 - Kevin records "DESIGN-N1 approved" with the date in this file. Until then every MP-N1 ticket is blocked.

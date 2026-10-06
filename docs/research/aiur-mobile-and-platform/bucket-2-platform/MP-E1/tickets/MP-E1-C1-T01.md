@@ -121,7 +121,7 @@ above must fail; restore; all pass. Run in a worktree (AGENTS.md).
 Command (isolated HOME per memory note "mix test clobbers agent-token"):
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/github/labels_test.exs test/aiur/github/issues_test.exs \
   test/aiur/github/issue_state_test.exs test/aiur/github/dispatch_authorization_test.exs
 ```

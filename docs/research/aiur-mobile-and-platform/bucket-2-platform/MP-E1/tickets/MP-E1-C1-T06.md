@@ -126,7 +126,7 @@ Mutation check: replace `classify/2` body with `:unclaimed` → tests 1–3 fail
 remove the `catch` → test 4 crashes.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/orchestrator/build_queue_claim_probe_test.exs test/aiur/build_queue/claim_probe_test.exs
 ```
 

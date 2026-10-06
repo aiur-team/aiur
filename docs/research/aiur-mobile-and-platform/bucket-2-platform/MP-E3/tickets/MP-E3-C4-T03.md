@@ -78,7 +78,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/executor/blockers_test.exs
 ```
 
@@ -92,3 +92,7 @@ env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test
 ## Completion and handoff
 
 - Dependents: MP-E3-C4-T05, MP-E3-C6-T03.
+- Docs: none in this ticket. It adds an internal read model with no route, CLI verb or
+  config key. The user-facing surface that renders it (the Executor blockers panel) is
+  documented by the ticket that renders it, MP-E3-C6-T03 (`guide/gui.md`, "Executor"
+  section).

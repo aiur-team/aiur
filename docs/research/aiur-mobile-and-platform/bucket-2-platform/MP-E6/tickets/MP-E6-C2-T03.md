@@ -55,7 +55,7 @@ researched: 2026-10-06
 
 | Frame `type` | Struct |
 | --- | --- |
-| `user_transcript` | `UserTranscript{text, final?: true}` (partials only if the spike shows a partial event type; then `final?: false` for it) |
+| `user_transcript` | `UserTranscript{text, final?: false}` from the pure decoder; the adapter synthesizes the final (below) |
 | `agent_response` | `AgentText{turn_id: response_id, text, final?: true}` |
 | `agent_response_correction` | `AgentText{turn_id, text: corrected, final?: true}` (replaces the turn's text; the transcript stores both, C6) |
 | `audio` | `AgentAudio{turn_id: response_id_or_event_id, format: negotiated, data_b64}` |
@@ -64,6 +64,14 @@ researched: 2026-10-06
 | `ping` | answered in C2-T02 |
 | any other `type` | ignored; counted in a `:telemetry` counter `[:aiur, :voice_conversation, :provider, :unknown_event]` with the type name only |
 
+- **Synthesized `final` (Phase D, m5; voice-session §4.1).** The documented `user_transcript`
+  has no final flag (RQ-E6-6 open), so the §6 state table must not rely on a provider field.
+  The adapter keeps the latest `UserTranscript` text of the current user turn and emits
+  `UserTranscript{text: latest, final?: true}` exactly once, immediately before it forwards the
+  first `agent_response` (or `agent_response_correction` or `audio`) of the next agent turn.
+  Consequence: `thinking` is short or skipped; that is acceptable and stated in the E6 plan.
+  If the spike (C1-T01) records a provider partial/final distinction, the decoder maps it and
+  this rule is dropped in the same PR, with the fixture updated.
 - `tool_result/3` sends `{"type": "client_tool_result", "tool_call_id", "result",
   "is_error": false}`; an error result sets `is_error: true` with a short safe message.
 - **Timeout guard (RQ-E6-2):** the adapter does not wait for the session; the session must
@@ -100,6 +108,8 @@ Internal; no config. Rollback: revert.
 | "no provider event name appears in decoded structs" | property: for every decoded struct, `inspect/1` contains none of the raw `type` strings |
 | "an unknown event type is ignored and counted" | telemetry handler receives one event; owner receives nothing |
 | "tool_result encodes the documented frame" | JSON equals the documented shape |
+| "final user transcript is synthesized before the first agent response" | fixture `user_turn_then_agent.ndjson` (two `user_transcript`, one `agent_response`): owner receives `final?: false`, `final?: false`, then exactly one `final?: true` with the last text, then `AgentText` |
+| "no final without a following agent turn" | fixture ending after `user_transcript`: no `final?: true` emitted |
 | "fixtures contain no secrets" | `File.read!` of each fixture has no `xi-api-key`, `sk_`, `signed_url`, `token=` |
 
 ```bash
@@ -111,7 +121,12 @@ Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-
 `~/.aiur/github-budget/agent-token` before and after.
 
 **Mutation check.** Map `interruption` to `AgentText`: the fixture test fails. Pass unknown
-types through as raw maps: the "no provider event name" property fails.
+types through as raw maps: the "no provider event name" property fails. Decode every
+`user_transcript` as `final?: true` (the pre-Phase-D table): the "no final without a
+following agent turn" test fails.
+
+**Docs.** None: provider-internal mapping with no operator-visible surface; the user-facing
+behaviour is documented by C9-T01.
 
 ## Completion and handoff
 

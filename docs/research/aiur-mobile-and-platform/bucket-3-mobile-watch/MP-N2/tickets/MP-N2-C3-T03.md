@@ -5,11 +5,11 @@ chunk_id: MP-N2-C3
 bucket: 3-mobile-watch
 title: "`aiur mobile status [--json]`: machine, gateway, devices, registry snapshot, with an age on every observed field"
 status: blocked
-blocked_by: [DESIGN-N2, MP-N2-C3-T02, MP-N2-C2-T04, MP-N2-C4-T02]
+blocked_by: [DESIGN-N2, MP-N2-C3-T02, MP-N2-C2-T04, MP-N2-C4-T02, MP-N2-C1-T03]
 prior_units: [U9]
 prior_boundaries: [CLI]
 prior_features: []
-prior_findings: []
+prior_findings: [RC-42 integrity listing]
 size_owner: n/a (new module; engine arm shared with U1/U9)
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -64,6 +64,10 @@ Dependents: MP-N2-C9-T01 docs, MP-N2-C10-T02 (adds `transport`).
 - Exit code 0 even when things are wrong (it is a report); `--check` flag returns 1 when mobile is
   enabled but the gateway is not running or no device endpoint exists (useful for scripts).
 - No secret, token hash, key path or full project path in either output (test greps).
+- **Needs attention (Phase D, RC-42):** `devices.integrity` = `Store.integrity/0` computed live
+  (`{status: "ok"}` or a list of `{device_id, label, reason}`); the human output prints each under
+  "Needs attention" with the fix `aiur mobile revoke <id>`, and `--check` returns 1 when the list
+  is non-empty. An unreadable journal reports `integrity: {status: "unavailable"}`, never "ok".
 
 ## Implementation steps
 
@@ -90,10 +94,14 @@ Read-only new verb.
 4. `"pid alive but node missing is unknown, not running"`.
 5. `"output contains no token, secret or full project path"` (fixture values grepped in both outputs).
 6. `"--check exits 1 when enabled and gateway stopped"`.
+7. `"a device row with no paired journal entry is listed under needs attention"` (RC-42). *Fails
+   without:* the integrity field.
+8. `"unreadable journal reports integrity unavailable, not ok"`. *Fails without:* the unavailable
+   branch (mutation: default to ok → fails).
 Golden files: `test/fixtures/machine/status_*.json`.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/status_test.exs
 ```
 

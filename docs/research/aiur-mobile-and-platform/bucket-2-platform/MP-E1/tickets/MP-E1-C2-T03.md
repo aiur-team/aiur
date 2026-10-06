@@ -87,7 +87,7 @@ Mutation check: count direct dependents only → test 1 fails; swap position and
 age → test 3 fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/
 ```
 
 ## Completion and handoff

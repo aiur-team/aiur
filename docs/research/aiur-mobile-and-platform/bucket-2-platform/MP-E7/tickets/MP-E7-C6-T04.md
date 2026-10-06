@@ -34,7 +34,7 @@ researched: 2026-10-06
 - **DESIGN-E7** (aiur frame intro text; contract §8 "frame copy is per
   product": aiur operator messages *are* instructions).
 - **MP-E7-C1-T02** (goldens published with the spec) and **MP-E7-C1-T04**
-  (vendored to `src/priv/listener/v1/` with a sha256 manifest).
+  (vendored to `src/priv/listener_spec/v1/` with a sha256 manifest).
 - **Contract request to C1:** goldens must let a product substitute its frame
   copy — either the goldens carry `{intro}` placeholders or the envelope
   (`hookSpecificOutput.additionalContext` / `{"decision":"block","reason"}`)
@@ -54,7 +54,7 @@ researched: 2026-10-06
   (MP-E7 plan E7-F3). Envelopes per contract §8: `PostToolUse` /
   `UserPromptSubmit` → `hookSpecificOutput.additionalContext`; `Stop` →
   `{"decision":"block","reason": <frame>}`.
-- aiur has no renderer today; `src/priv/listener/` does not exist at
+- aiur has no renderer today; `src/priv/listener_spec/` does not exist at
   `45a290e3` (created by C1-T04).
 
 ## Chosen design
@@ -73,7 +73,7 @@ researched: 2026-10-06
 
 1. `src/lib/aiur/listener/hook_envelope.ex`.
 2. `src/test/aiur/listener/hook_envelope_conformance_test.exs`: load every
-   `priv/listener/v1/goldens/deliver-*.json`, render with the golden's input,
+   `priv/listener_spec/v1/goldens/deliver-*.json`, render with the golden's input,
    compare envelope structure and limits (and full text where the golden is
    copy-neutral).
 3. Unit tests for truncation and escaping.
@@ -96,10 +96,13 @@ Pure code; used only by C6-T01.
   entry cap from 50 to 51 → the `-51` goldens fail.
 - `"a 70 KiB message is truncated on a UTF-8 boundary with the marker"`;
   `"frame tag in a body is escaped"`; `"Stop envelope is decision block"`.
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur/listener/hook_envelope_conformance_test.exs`.
 
 ## Completion and handoff
 
 - [ ] All goldens green; approved intro text cited.
+- [ ] aiur frames end each message with `[aiur:delivery <delivery_id>]`
+      (listener-mode §8 "aiur specifics", Phase D CR-E4-2); a golden covers it.
+      This is aiur-only frame copy, not part of the shared Khala envelope.
 - Dependents: C6-T01.

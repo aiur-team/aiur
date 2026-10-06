@@ -11,6 +11,11 @@ the docs ticket.
 | [MP-R3-C1-T01](MP-R3-C1-T01.md) | Authorization-independence guards: route and socket census, bind matrix, HTTP-only listener | blocked | DESIGN-R3 | 1 |
 | [MP-R3-C2-T01](MP-R3-C2-T01.md) | Docs: reachability is not authorization; the dashboard is plain HTTP | blocked | DESIGN-R3 (incl. CR-R3-1 copy) | 1 |
 
+**U0 gate (RC-19, X-58):** every MP-R3 ticket waits for U0 review of the prior plan
+(`docs/plans/2026-09-29-001-refactor-production-readiness-plan.md`), because RC-19 keeps that
+gate for refactor work. U0 has no ticket ID, so the gate is stated here and not in
+`blocked_by`; the MP-R1-C11-T02 recheck does not replace it.
+
 ## Order and concurrency
 
 - The two tickets are independent and may run concurrently. Neither depends on

@@ -6,7 +6,8 @@ Contract requests to the coordinator: [CONTRACT-REQUESTS.md](CONTRACT-REQUESTS.m
 
 All tickets are wave 1 and researched at base `45a290e3` on 2026-10-06.
 Every ticket is blocked on **DESIGN-R7** (Kevin confirms no user-facing
-change). Status meanings:
+change) and **waits for the U0 review of the prior refactor plan** (RC-19;
+plan "U0 review gate"). U0 has no ticket ID, so it is not in `blocked_by`. Status meanings:
 
 - `ready`: fully specified; waits only on DESIGN-R7 and the predecessor tickets listed.
 - `blocked`: also waits on an unresolved research question, owner answer or another feature's ticket.
@@ -27,10 +28,11 @@ change). Status meanings:
 | [MP-R7-C3-T03](MP-R7-C3-T03.md) | Claude launch telemetry and RC display tailer behind registry keys | ready | C1-T01, C2-T01 | 1 |
 | [MP-R7-C3-T04](MP-R7-C3-T04.md) | Route pane interrupts through the optional `interrupt/1` callback | ready | C1-T01, C2-T01 | 1 |
 | [MP-R7-C3-T05](MP-R7-C3-T05.md) | Boundary rule in the component checker, with a reasoned allowlist | blocked | C3-T01..T04, MP-R1-C1-T01/T02/T03/T05 | 1 |
+| [MP-R7-C3-T06](MP-R7-C3-T06.md) | Backend catalog feeds config validation by registration (Phase D, CR-R1-7) | blocked | C3-T05, MP-R1-C4-T01, MP-R1-C4-T03 | 1 |
 | [MP-R7-C4-T01](MP-R7-C4-T01.md) | Harness-declared supervision children | ready | C3-T03 | 1 |
 | [MP-R7-C4-T02](MP-R7-C4-T02.md) | Promotion-test record (go/no-go for a physical package) | blocked | C3-T05, C4-T01, MP-R1-C4 harness config ticket, RQ-R7-5 | 1 |
-| [MP-R7-C4-T03](MP-R7-C4-T03.md) | Physical `aiur_harness` package skeleton and core move | blocked | C4-T02 = go, CR-R7-1, U8 AGENT_CORE split, MP-R1-C7-T3, MP-R1-C5-T2 | 1 |
-| [MP-R7-C4-T04](MP-R7-C4-T04.md) | Move the adapters (Gemini only if #2870 merged) | blocked | C4-T03, U8 CLAUDE/CODEX splits, MP-R1-C5-T2 | 1 |
+| [MP-R7-C4-T03](MP-R7-C4-T03.md) | Physical `aiur_harness` package skeleton and core move | blocked | C4-T02 = go, CR-R7-1, U8 AGENT_CORE split, MP-R1-C7-T03, MP-R1-C5-T02 | 1 |
+| [MP-R7-C4-T04](MP-R7-C4-T04.md) | Move the adapters (Gemini only if #2870 merged) | blocked | C4-T03, U8 CLAUDE/CODEX splits, MP-R1-C5-T02 | 1 |
 | [MP-R7-C4-T05](MP-R7-C4-T05.md) | Release packaging check | blocked | C4-T03, C4-T04, CR-R7-1 | 1 |
 | [MP-R7-C5-T01](MP-R7-C5-T01.md) | aiur-claude protocol fixture and replay test | ready | C1-T04 | 1 |
 | [MP-R7-C5-T02](MP-R7-C5-T02.md) | File the aiur-claude `turn/steer` text-drop defect (cross-repo, issue only) | blocked | DESIGN-R7 §2 decision 2; superseded by MP-E7-C4-T01 if the answer is "leave for E7" | 1 |

@@ -5,7 +5,7 @@ chunk_id: MP-E5-C2
 bucket: 2-platform
 title: Channel cancel event that discards the uncommitted utterance
 status: ready
-blocked_by: ["DESIGN-E5 (waived for this ticket: backend event only; the Cancel control is MP-E5-C6-T02)", MP-E5-C2-T01]
+blocked_by: ["DESIGN-E5 (waived for this ticket: backend event only; the Cancel control is the C6-T02 ticket)", MP-E5-C2-T01]
 prior_units: [U8]
 prior_boundaries: [VOX, WEB]
 prior_features: [ui-07, ui-08]

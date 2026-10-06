@@ -5,7 +5,7 @@ chunk_id: MP-E6-C4
 bucket: 2-platform
 title: Executor target — project-level conversations with the Executor read port
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T02, MP-E6-C4-T03, MP-E3-C2, MP-E3-C4, MP-E5-C5-T02]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T02, MP-E6-C4-T03, MP-E3-C2-T01, MP-E3-C4-T05, MP-E5-C5-T02]
 prior_units: []
 prior_boundaries: [VOX, EXE]
 prior_features: []
@@ -24,13 +24,15 @@ researched: 2026-10-06
   assistant gets the fleet picture and the Executor's recent conversation.
 - **Deliverable:** `Aiur.VoiceConversation.Host.ExecutorRead` (PROPOSED) implementing
   `Ports.ExecutorRead` over MP-E3's Executor snapshot (MP-E3-C4: harness state, background
-  agents, blockers) and the Executor conversation (MP-E4 `list_entries` on the Executor
-  `ConversationRef`); session start accepts `%{kind: "executor", instance_id}` once
+  agents, blockers) and the Executor conversation (MP-E4 `list_entries(ref, principal: :internal, …)` on the
+  Executor `ConversationRef`; `principal:` is required, conversations contract §7, and
+  `:internal` is allowed because the text only reaches the provider path that runs
+  `SecretRedactor`, C4-T03); session start accepts `%{kind: "executor", instance_id}` once
   `executor.conversation` is available (same validation as MP-E5-C5-T02).
 
 ## Dependencies and blockers
 
-- **Predecessors:** MP-E3-C2 (Executor conversation journal), MP-E3-C4 (Executor status
+- **Predecessors:** MP-E3-C2-T01 (Executor conversation journal), MP-E3-C4-T05 (`Executor.Status.snapshot/0`; Executor status
   snapshot), MP-E5-C5-T02 (`VoiceTargets` executor rule), C4-T02/T03.
 
 ## Verified starting point (base `45a290e3`)

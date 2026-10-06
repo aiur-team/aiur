@@ -5,7 +5,7 @@ chunk_id: MP-R2-C4
 bucket: 1 (refactor; planning maintenance)
 title: Refresh MP-R2 tickets and consumer citations after C1–C4 merge (with MP-R1-C11)
 status: blocked
-blocked_by: [DESIGN-R2 §1, MP-R2-C4-T03, MP-R1-C11-T1]
+blocked_by: [DESIGN-R2 §1, MP-R2-C4-T03, MP-R1-C11-T01]
 prior_units: [U0, U8]
 prior_boundaries: [BUS #10]
 prior_features: [MP-R1 (C11 plan refresh)]
@@ -40,7 +40,7 @@ researched: 2026-10-06
 ## Dependencies and blockers
 
 - C4-T03 merged (the packaging is final).
-- MP-R1-C11-T1 (path-map generator from `components.json` history). Since
+- MP-R1-C11-T01 (path-map generator from `components.json` history). Since
   MP-R2 moved no files (RQ-8), the path map for the bus is identity; the
   refresh is mostly **symbol and line** changes, which the generator does
   not compute. Owner per MP-R1-C11: coordinator or Executor, not an agent
@@ -119,4 +119,4 @@ Docs only. n/a for config, migration and rollback beyond `git revert`.
 - [ ] CONTRACT-REQUESTS lists every foreign-contract correction.
 - Docs pages (`website/docs-app`): none; C4-T05 owns `message-bus.md`.
 - Dependents: C5-T01 (first Bucket-2-enabling ticket starts from refreshed
-  citations), MP-R1-C11-T2 (per-wave ticket sweep).
+  citations), MP-R1-C11-T02 (per-wave ticket sweep).

@@ -27,7 +27,7 @@ Tickets are in [tickets/README.md](tickets/README.md) with two-digit IDs
   optional.
 - **C5 (RC-05, CR-E7-2):** C5-T01 depends on MP-E7-C3 and ships in wave 3 with
   the composer disabled until MP-E7-C6 (Executor hook delivery) is installed. It
-  reuses MP-E4-C6-T01's overlay (old C5-T2 merged).
+  reuses MP-E4-C6-T01's overlay (old C5-T02 merged).
 - **C6:** browser tests ship with each ticket (old T4); docs go to C6-T01 and
   C7-T02 (old T5).
 - **C7:** skills updates are in C7-T02 (old T3).
@@ -53,7 +53,8 @@ operator's external Executor session, fed by authenticated hooks.
     `consumer_id`), written under the same lock style as `Claims`
     (`claims.ex:28-35`).
   - Endpoint `POST /api/v1/executor/hook`: `dashboard_auth` is **not** used;
-    bearer token from `<executor-state-dir>/hook-token` (0600). Outside
+    bearer token from `StatePaths.dir()/<repo>.<instance_key>.executor.hook-token`
+    (0600; per instance, MP-E3-C1-T02). Outside
     `:require_writable` like `claude-hook` (`router.ex:166-178`). Always 202 to
     the hook; never blocks the harness (same invariant as
     `HookEvents.dispatch/2`, `hook_events.ex:58-80`).
@@ -62,10 +63,10 @@ operator's external Executor session, fed by authenticated hooks.
     agent_type, source}`.
   - Single-binding rule and explicit takeover (plan §4.3).
 - **Tickets.**
-  - MP-E3-C1-T1 Binding store + `attach/detach/current` with lock and generation.
-  - MP-E3-C1-T2 Token file + `POST /api/v1/executor/hook` + normalizer for both harnesses.
-  - MP-E3-C1-T3 CLI `aiur executor-attach [--harness claude|codex] [--takeover] [--print-config]`, `executor-detach`, `executor-session` (status). Docs in `website/docs-app/reference/cli.md` (AGENTS.md docs rule).
-  - MP-E3-C1-T4 Hook config generator: Claude user-scope settings snippet or plugin; Codex `hooks.json` entry. Command is stdout-silent, exits 0, reads the token from the file (pattern: `hook_settings.ex:26-45`).
+  - MP-E3-C1-T01 Binding store + `attach/detach/current` with lock and generation.
+  - MP-E3-C1-T02 Token file + `POST /api/v1/executor/hook` + normalizer for both harnesses.
+  - MP-E3-C1-T03 CLI `aiur executor-attach [--harness claude|codex] [--takeover] [--print-config]`, `executor-detach`, `executor-session` (status). Docs in `website/docs-app/reference/cli.md` (AGENTS.md docs rule).
+  - MP-E3-C1-T04 Hook config generator: Claude user-scope settings snippet or plugin; Codex `hooks.json` entry. Command is stdout-silent, exits 0, reads the token from the file (pattern: `hook_settings.ex:26-45`).
 - **Tests.** Token missing/wrong → 401 and no state change; second attach
   refused naming the first; takeover ends old session `superseded`; restart
   reloads binding; normalizer fixtures for each harness's documented fields;
@@ -86,9 +87,9 @@ backfilled from the session start and live after.
   entry `id`s make re-reads idempotent anyway. Map `queued_command` attachments
   (Remote Control messages) to `operator_message` with origin "remote control".
 - **Tickets.**
-  - MP-E3-C2-T1 `ExecutorTranscriptIngest` (Claude) supervised per binding; offset persistence.
-  - MP-E3-C2-T2 Session-boundary handling from `SessionStart`/`SessionEnd`.
-  - MP-E3-C2-T3 Version pin + unknown-record counting + one needs-attention alert on drift.
+  - MP-E3-C2-T01 `ExecutorTranscriptIngest` (Claude) supervised per binding; offset persistence.
+  - MP-E3-C2-T02 Session-boundary handling from `SessionStart`/`SessionEnd`.
+  - MP-E3-C2-T03 Version pin + unknown-record counting + one needs-attention alert on drift.
 - **Tests.** Fixture transcripts (assistant text/thinking/tool_use, user string,
   tool_result list, `queued_command`); truncated file → new session; partial
   trailing line not emitted (existing behaviour, `transcript_tailer.ex:163-175`);
@@ -107,9 +108,9 @@ feature states `unsupported` with a reason.
   `thread/items/list` with `cursor` (app-server v2, 0.160.0) if RQ-E3-2 proves a
   read-only second client is safe. The ticket must not ship both.
 - **Tickets.**
-  - MP-E3-C3-T1 Research spike (no product code): fixtures for 0.160.x rollouts; app-server read test against a live TUI thread in a private `CODEX_HOME`.
-  - MP-E3-C3-T2 Selected reader + session boundaries.
-  - MP-E3-C3-T3 Capability record `codex_executor_read: proven | unsupported` with tested version.
+  - MP-E3-C3-T01 Research spike (no product code): fixtures for 0.160.x rollouts; app-server read test against a live TUI thread in a private `CODEX_HOME`.
+  - MP-E3-C3-T02 Selected reader + session boundaries.
+  - MP-E3-C3-T03 Capability record (internal `proven | untested | unsupported`, published as identity `executor.conversation` plus `executor.harness` and `executor.session_ref`; X-15) with tested version.
 - **Tests.** Fixture rollouts per pinned version; reader refuses unknown major
   layout with `unsupported`, never partial garbage.
 
@@ -124,11 +125,11 @@ CLI, MP-N3 meta-dashboard) reads.
   distinct atoms (`:unknown`, `:unsupported`), never coerced (AGENTS.md
   "collapsed causes").
 - **Tickets.**
-  - MP-E3-C4-T1 Harness-state machine from hooks with TTL to `unknown`.
-  - MP-E3-C4-T2 Background-agent roster from subagent/task hooks (start, stop, last message; transcript link only if RQ-E3-4 passes).
-  - MP-E3-C4-T3 Blocker aggregation: Executor Commands (E2), `aiur ask` open items, fleet blockers; per-source availability.
-  - MP-E3-C4-T4 (optional, OQ-E3-6) aiur-run skill emits `executor.progress` on its progress-table cadence.
-  - MP-E3-C4-T5 `aiur status` / `aiur executor-session --json` print the snapshot.
+  - MP-E3-C4-T01 Harness-state machine from hooks with TTL to `unknown`.
+  - MP-E3-C4-T02 Background-agent roster from subagent/task hooks (start, stop, last message; transcript link only if RQ-E3-4 passes).
+  - MP-E3-C4-T03 Blocker aggregation: Executor Commands (E2), `aiur ask` open items, fleet blockers; per-source availability.
+  - MP-E3-C4-T04 (optional, OQ-E3-6) aiur-run skill emits `executor.progress` on its progress-table cadence.
+  - MP-E3-C4-T05 `aiur status` / `aiur executor-session --json` print the snapshot.
 - **Tests.** Mutation guards: replace `:unknown` with `:idle` → test fails;
   replace `:unsupported` background agents with `[]` → test fails; one blocker
   source erroring renders "unavailable", not an empty list.
@@ -146,8 +147,8 @@ at a proven boundary or the UI says why not.
   `operator_message` by `delivery_id`. Mode selector belongs to E7 (DESIGN-E7);
   E3 shows effective mode and support status read-only.
 - **Tickets.**
-  - MP-E3-C5-T1 Executor send adapter over E7 + capability gating (composer disabled with reason when `effective: null`).
-  - MP-E3-C5-T2 Delivery overlay ↔ journal entry reconciliation (shared with E4-C6).
+  - MP-E3-C5-T01 Executor send adapter over E7 + capability gating (composer disabled with reason when `effective: null`).
+  - MP-E3-C5-T02 Delivery overlay ↔ journal entry reconciliation (shared with E4-C6).
 - **Tests.** No E7 → composer disabled, reason shown; E7 refusal keeps message
   pending, never "delivered"; a static check that the Executor path has no
   `Aiur.Tmux` call.
@@ -162,7 +163,7 @@ blockers, background agents, composer.
   lines). Route proposal `/executor` (and `/executor/at/:pos` for anchors);
   final route set by DESIGN-E3. Same entry rendering as worker conversations,
   distinct header and colour per design.
-- **Tickets.** MP-E3-C6-T1 route + LiveView; T2 status header; T3 blockers +
+- **Tickets.** MP-E3-C6-T01 route + LiveView; T2 status header; T3 blockers +
   background-agents panels; T4 browser tests (`src/test/browser/`), including
   read-only and not-attached states; T5 docs `website/docs-app/guide/`.
 - **Tests.** LiveView tests per state in DESIGN-E3; browser test at phone width.
@@ -172,7 +173,7 @@ blockers, background agents, composer.
 **Outcome.** An operator can opt in, verify, and opt out without reading code.
 
 - **Deps:** C1, DESIGN-E3 copy.
-- **Tickets.** MP-E3-C7-T1 `aiur executor-attach --check` (hook installed?
+- **Tickets.** MP-E3-C7-T01 `aiur executor-attach --check` (hook installed?
   trusted? last hook age? transcript readable?); T2 docs (`concepts/` page on
   the Executor conversation, privacy statement); T3 `aiur-run` and `aiur-intro`
   skills mention the opt-in.

@@ -5,7 +5,7 @@ chunk_id: MP-E5-C2
 bucket: 2-platform
 title: Publish voice.stt and voice.tts capabilities and assign them at dashboard render time
 status: ready
-blocked_by: ["DESIGN-E5 (waived for this ticket: data only; rendering is unchanged until MP-E5-C6-T01)", MP-R5-C1-T01, MP-R1-C2]
+blocked_by: ["DESIGN-E5 (waived for this ticket: data only; rendering is unchanged until the C6-T01 render ticket)", MP-R5-C1-T01, MP-R1-C3-T01]
 prior_units: [U8]
 prior_boundaries: [VOX, WEB]
 prior_features: [ui-07, integrations-51]
@@ -26,7 +26,7 @@ researched: 2026-10-06
 - **Deliverable:**
   1. `Aiur.Voice.Capability.capabilities/0` (PROPOSED, `src/lib/aiur/voice/capability.ex`)
      returning the `voice.stt` and `voice.tts` entries in the MP-R1 report shape, registered
-     with the MP-R1 capability registry (`Aiur.Capabilities`, proposed by MP-R1-C2).
+     with the MP-R1 capability registry (`Aiur.Capabilities`, proposed by MP-R1-C3-T01).
   2. `DashboardLive` assigns `:voice_capabilities` at mount and on the existing 60 s quota
      tick, and passes it to `<.voice_input capabilities={…}>`, which renders it only as
      `data-voice-stt-state` / `data-voice-stt-reason` attributes (no visible change).
@@ -35,8 +35,9 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **Predecessors:** MP-R5-C1-T01 (`Aiur.Voice.availability/0`), MP-R1-C2 (capability
-  registry and report shape). If MP-R1-C2 has not landed, step 1's registration is skipped
+- **Predecessors:** MP-R5-C1-T01 (`Aiur.Voice.availability/0`), MP-R1-C3-T01 (capability
+  registry and report shape; Phase D narrowed the earlier chunk reference `MP-R1-C2`, which is
+  identity, not the registry). If MP-R1-C3-T01 has not landed, step 1's registration is skipped
   and the callback is called directly by `DashboardLive`; the report endpoint picks it up
   when the registry lands (plan refresh, `../plan.md` §10).
 - **Contracts:** voice-session §7; identity-and-capabilities §2.2–§2.4.
@@ -84,7 +85,7 @@ defp entry(_other, _),                   do: %{state: "unknown", reason: "unknow
 
 1. Add `src/lib/aiur/voice/capability.ex` with the function above.
 2. Register it with `Aiur.Capabilities` from the voice component's child spec / registration
-   hook defined by MP-R1-C2.
+   hook defined by MP-R1-C3-T01.
 3. In `DashboardLive.mount/3` add `assign(:voice_capabilities, Aiur.Voice.Capability.capabilities())`
    next to `:elevenlabs_quota` (`:128`); refresh it in the same tick handler.
 4. `<.voice_input>` (MP-E5-C1-T01) gains `attr :capabilities, :map, default: %{}` and renders

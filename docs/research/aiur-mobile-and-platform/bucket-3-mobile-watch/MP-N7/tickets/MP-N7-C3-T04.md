@@ -118,4 +118,5 @@ Device rows: DV-W7, DV-W7b (MP-N7-C6-T02).
 ## Completion and handoff
 
 - [ ] Local notifications open the Wear card; flag default decided by DV-W7.
+- Docs: `website/docs-app/guide/mobile.md` Wear OS section (new user-facing notification surface, Phase D T-6): with the Wear app installed the watch shows aiur's own Command notification that opens the Wear card; without it, the phone notification bridges and opens on the phone; dismissing on one device dismisses on the other.
 - Dependents: MP-N7-C6-T02.

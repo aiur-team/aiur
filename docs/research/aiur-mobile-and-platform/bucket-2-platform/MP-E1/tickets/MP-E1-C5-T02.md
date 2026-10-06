@@ -87,7 +87,7 @@ Mutation check: emit per dependent instead of per prerequisite → test 1 sees
 two events.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/attention_causes_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/attention_causes_test.exs
 ```
 
 ## Completion and handoff

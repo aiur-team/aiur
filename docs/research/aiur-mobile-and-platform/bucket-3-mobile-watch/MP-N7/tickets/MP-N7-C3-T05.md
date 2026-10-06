@@ -38,14 +38,17 @@ Brief §3 / §6 N7; plan AC6. No code at `45a290e3`.
 ## Chosen design
 
 As MP-N7-C2-T05, using `composeTestRule.onAllNodes(hasClickAction())` and
-`SemanticsProperties.TestTag`. Screens rendered with fixture snapshots injected into
+`SemanticsProperties.TestTag`. **Runs as a Robolectric local unit test** (Phase D review T-12):
+`@RunWith(RobolectricTestRunner::class)`, `@Config(sdk = [34])`, `createComposeRule()`, in
+`app/src/test/` (not `androidTest`), so CI needs no emulator. `connectedDebugAndroidTest` does
+not accept `--tests`; the optional on-emulator run filters by class with a runner argument. Screens rendered with fixture snapshots injected into
 `SnapshotRepository` (no phone).
 
 ## Implementation steps
 
 1. Add `testTag`s in C3 screens.
 2. Move allow-list to shared fixtures; update Swift test path.
-3. `ControlInventoryTest.kt`.
+3. `app/src/test/kotlin/.../ControlInventoryTest.kt` (Robolectric); add `org.robolectric:robolectric` and `androidx.compose.ui:ui-test-junit4` to `testImplementation`, versions pinned in the Wear `libs.versions.toml`.
 
 ## Non-happy paths
 
@@ -58,7 +61,14 @@ Test-only.
 ## Verification
 
 ```text
-packages/aiur-mobile/wear/gradlew -p packages/aiur-mobile/wear :app:connectedDebugAndroidTest --tests '*ControlInventoryTest'
+packages/aiur-mobile/wear/gradlew -p packages/aiur-mobile/wear :app:testDebugUnitTest --tests '*ControlInventoryTest'
+```
+
+Optional on-emulator confirmation (Wear OS emulator image `system-images;android-34;android-wear;x86_64`;
+`ControlInventoryTest` copied to `androidTest` only for this run):
+
+```text
+packages/aiur-mobile/wear/gradlew -p packages/aiur-mobile/wear :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=<wear applicationId>.ControlInventoryTest
 ```
 
 | Test | Expected | Must fail without |

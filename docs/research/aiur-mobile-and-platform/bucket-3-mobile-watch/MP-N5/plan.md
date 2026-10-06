@@ -41,7 +41,9 @@ milestones and stale bursts after a reconnect.
   10 % and 50 % selectable) plus completion; a jump across several thresholds yields one
   notification for the highest one crossed.
 - N5-R4. Capability-aware settings: build-order options appear only when
-  `build_orders.progress` is available; an unsupported event is shown as unavailable with
+  `build_orders.progress` is available (RC-40: `Aiur.BuildProgress` belongs to the
+  `build-orders` component, so these options do **not** need the optional build queue);
+  queue-milestone options need `build_queue`; an unsupported event is shown as unavailable with
   a reason, never as a working toggle (capability-matrix rule 1).
 - N5-R5. Duplicate suppression across restarts, re-asks, retries and multiple instances.
 - N5-R6. No burst of outdated alerts after the phone, relay or machine reconnects.
@@ -65,7 +67,7 @@ milestones and stale bursts after a reconnect.
 | Component | Interface | Notes |
 | --- | --- | --- |
 | `notification-policy` (module set inside the MP-N4 `push-relay` package) | `Policy.handle_event(event) -> [NotificationIntent]`; `Policy.handle_progress(root_summary) -> [intent]` | pure functions + small persisted state (tracker, ledger) |
-| `notification-preferences` store (`notification-preferences.json`, machine-level, beside `devices.json` in the MP-N2 machine store; RC-03 — never in a `config` file) | `Prefs.get(device_id)`, `Prefs.put(device_id, patch, expected_version)`, `Prefs.effective(device_id, instance_key)` | the MP-N2 gateway is the single writer; every instance daemon reads (pairing contract §5) |
+| `notification-preferences` store (`notification-preferences.json`, machine-level, beside `devices.json` in the MP-N2 machine store; RC-03 — never in a `config` file) | `Prefs.get(device_id)`, `Prefs.put(device_id, patch, expected_version)` (gateway only), `Prefs.effective(device_id, instance_id)` | the MP-N2 gateway is the single writer; every instance daemon reads (pairing contract §5) |
 | Preferences API (device token) | gateway `GET/PATCH /v1/notification-settings` (machine defaults + overrides, `expected_version`); per-instance `GET /api/v1/device/notification-options` → each option's availability from that instance's capabilities | writes on the gateway, availability from the instance (A-N2-4) |
 | Settings UI | phone app screen (MP-N1 boundary decides native vs WebView) | DESIGN-N5 |
 
@@ -84,7 +86,7 @@ NotificationPreferences { v: 1, device_id, machine_id, version,
     pr_merged:                false
     optin: { agent_retry_exhausted: false, ci_failed: false }   # OQ-N5-3 for others
   },
-  instance_overrides: { "<instance_key>": { …partial of defaults… } } }
+  instance_overrides: { "<instance_id>": { …partial of defaults… } } }   # RC-02: <machine_id>/<instance_key>
 ```
 
 Defaults apply on first pairing; there is no global (cross-device) preference. A watch
@@ -109,7 +111,23 @@ gets its own record seeded from the phone's at pairing.
   to that device.
 - D11: if a human answer supersedes another undelivered answer, no new push (the human is
   the one acting).
-- Re-asks (`DecisionAttention`) never emit. Reminders: none in v1 (OQ-N5-2).
+- Re-asks (`DecisionAttention`) never emit.
+- **Reminder (Phase D feasibility M3; proposed, owner choice OQ-N5-2).** APNs and FCM
+  accept a push and return no display receipt (E-A2, E-A4, E-F2), so a lost
+  `human_required` notification would otherwise be noticed only when the operator opens
+  the app. Rule: a `blocking` Command still `with_human` (or `with_both`) after
+  `reminder_after_minutes` (proposed default **30**) gets **exactly one** reminder:
+  `command.needs_you` with `attempt: 2`, the same `stream` and `collapse_token` as the
+  first push (it replaces, never stacks), the next `seq`, dedup key
+  `cmd:<command_id>:reminder` (contract §3, §6). The key is distinct from the
+  `DecisionAttention` re-ask tick, which still never emits (AC-N5-2 holds). No reminder
+  after the Command resolves, for non-blocking Commands, or when the first push was
+  never sent (muted, no device). The timer is recomputed from `human_visible_at` after a
+  restart, so a restart neither skips nor doubles it. Owner: MP-N5-C2-T02.
+- **Badge.** Every `command.*` payload carries `summary.badge` = open blocking Commands
+  with the human on that instance at send time (contract §3), so the app icon recovers
+  the count when a banner was lost. Computed at send time (staleness §5.6), not intent
+  time.
 - Boot reconciliation: on start, read open Commands with `human_visible_at` set from the
   DecisionStore snapshot (journaled) and enqueue any that the ledger has not seen, subject
   to §5.6 staleness. This covers `human_needed` events lost while the daemon was down.
@@ -118,17 +136,23 @@ gets its own record seeded from the phone's at pairing.
 
 Source: the progress facts and milestone topics of
 [queue-readiness-and-build-progress.md](../../contracts/queue-readiness-and-build-progress.md)
-§4 (`system.build_order.<root>.progress.milestone`,
-`system.queue.<queue_id>.progress.milestone`, `Aiur.BuildQueue.progress/1`). That contract
+§4 (`system.build_order.<root>.progress`, `system.queue.<queue_id>.progress` — the
+contract names, Phase D X-09; `Aiur.BuildProgress.facts/1`, `subscribe/0`, PubSub
+`"build_progress"` message `{:build_progress_changed, fact}`, Phase D X-14). RC-40:
+`Aiur.BuildProgress` belongs to the `build-orders` component (MP-E1-C7 writes it; the
+queue is one producer), so build-order progress works without the optional queue. That contract
 already guarantees: highest-crossed-only, no repeats per **generation**, no milestones
 from `unresolved`/`unknown` data, and a new generation when a completed root reopens.
 N5 adds per-device steps on top:
 
-State per `(device_id, instance_key, scope, id, generation)`: `last_notified_pct`.
+State per `(device_id, instance_id, scope, id, generation)`: `last_notified_pct`.
 
-1. **Step 25 (default):** consume the milestone topic directly; 100 maps to
-   `progress.complete`, the others to `progress.milestone`.
-2. **Step 10 or 50:** on each progress observation (see request A-E1-1 in the
+1. **Every step (10, 25 default, 50) uses the same computation** on the
+   progress-changed signal (rule 6; Phase D X-56 removed the earlier "consume the 25 %
+   milestone topic directly" path, which contradicted rule 6). 100 maps to
+   `progress.complete`, the others to `progress.milestone`. The `….progress` topics stay
+   the export/catalog form (MP-R2) and are not a second N5 trigger.
+2. **Computation:** on each progress observation (see request A-E1-1 in the
    notification contract §9) compute `crossed = floor(percent / step) * step`; if
    `crossed > last_notified_pct`, emit **one** notification for `crossed` (20 % → 70 % at
    step 10 emits 70 % only); 100 is `progress.complete`. Ignore `resolution` other than
@@ -140,7 +164,7 @@ State per `(device_id, instance_key, scope, id, generation)`: `last_notified_pct
    set `last_notified_pct = floor(current / step) * step` silently. No retroactive
    milestones.
 6. **Phase C (RC-10):** MP-E1-C7 is a hard predecessor and exposes
-   `Aiur.BuildQueue.progress/1` plus an internal progress-changed signal. All steps
+   `Aiur.BuildProgress.facts/1` plus the progress-changed signal (`subscribe/0`). All steps
    (including 25 %) use one computation on that signal; the Phase B `CatalogStore`
    fallback is dropped so notifications and the dashboard never disagree.
 
@@ -192,14 +216,19 @@ Applied by push-relay at **send time**, not only at intent time:
 
 ## 6. Non-happy paths
 
-- **Capability absent:** `build_orders.progress` unavailable → progress options returned
-  as `unavailable(build_orders_not_installed | not_configured | unresolved_progress)`;
+- **Capability absent (RC-40):** build-order progress options check `build_orders`
+  (`build_orders.progress`); queue-milestone options check `build_queue`. Each option is
+  returned as `unavailable` with the identity-contract reason (`not_installed` +
+  `depends_on`, `not_configured`, `unsupported_tracker`, …; CR-N5-5 option-level mapping);
+  an operator using Build Orders without the queue keeps D18's progress defaults;
   stored values are kept but not applied. `commands.answer` unavailable → Command pushes
   still go out (awareness), MP-N6 shows "answer from the dashboard". Unknown option ids
   from a newer daemon are ignored by older apps.
 - **Instance offline while editing settings:** the app shows last-fetched preferences as
-  stale and disables save for that instance; machine-level defaults are saved through any
-  reachable instance (shared machine store).
+  stale and disables save for that instance's overrides. Every write — machine defaults
+  and overrides — goes to the MP-N2 gateway (`PATCH /v1/notification-settings`), the
+  single writer of the machine store (Phase D X-56); an instance never writes the store,
+  so "save through any reachable instance" is not a path.
 - **Concurrent edits from two devices:** each device edits only its own record;
   `expected_version` guards a device editing from two app instances.
 - **Instance renamed/moved (new instance key):** overrides for the old key are orphaned;
@@ -223,12 +252,15 @@ Applied by push-relay at **send time**, not only at intent time:
 1. AC-N5-1 Fresh pairing: a blocking `human_required` Command pushes; a "With Executor"
    Command does not until it escalates; then it pushes once (unit + integration).
 2. AC-N5-2 `DecisionAttention` re-ask ticks over 1 h produce zero additional intents.
+2a. AC-N5-2a An unanswered blocking Command produces exactly one reminder after
+   `reminder_after_minutes` and none after resolution (if DESIGN-N5 adopts reminders).
 3. AC-N5-3 Progress 20 → 70 → 60 → 76 → 100 (completed) at step 25 yields exactly:
    50 %, 75 %, complete.
 4. AC-N5-4 Changing the step from 25 to 10 at 63 % emits nothing; next notification at 70 %.
 5. AC-N5-5 Daemon restart between "intent accepted" and "sent" yields exactly one send.
 6. AC-N5-6 Five intents in 30 s → one immediate notification + one digest.
-7. AC-N5-7 With build orders absent, the settings response marks progress options
+7. AC-N5-7 With build orders absent (and, separately, with the build queue absent but
+   build orders present — progress options must stay available, RC-40), the settings response marks progress options
    `unavailable` with a reason, and the UI shows them disabled (test fails if replaced by
    a plausible default such as `off`, per `AGENTS.md` unknown-path rule).
 8. AC-N5-8 Relay outage of 3 h with 4 open Commands (2 resolved meanwhile) delivers one
@@ -241,8 +273,10 @@ Applied by push-relay at **send time**, not only at intent time:
 **Owner (Kevin):**
 - OQ-N5-1 "Always on" for blocker Commands: may a device mute one instance (e.g. an
   experimental repo)? Proposal: yes, per-instance mute with a visible "muted" badge.
-- OQ-N5-2 Reminder for a blocking Command still unanswered after N minutes? Proposal: none
-  in v1.
+- OQ-N5-2 **Delivery reliability, not noise (Phase D M3):** a blocker push that APNs/FCM
+  accept but never display has no other recovery. Proposal: one bounded reminder after
+  30 min (§5.1) plus the app badge. If refused, MP-N4 AC-N4-1 records that opening the
+  app is the only recovery and MP-N5-C2-T02 ships the rule disabled.
 - OQ-N5-3 Offer commit-push and comment notifications at all? Proposal: not in v1.
 - OQ-N5-4 Non-blocking Commands that need you: on by default (proposal) or opt-in?
 - OQ-N5-5 Notify again when a reopened build order completes again? Proposal: yes.

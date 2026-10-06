@@ -6,6 +6,7 @@ bucket: 2-platform
 title: "Spike (no product code): Codex TUI rollout fixtures at 0.160.x and hook transcript_path check"
 status: ready
 blocked_by: []
+design_gate: "n/a — research spike"  # RC-32: read-only research or local experiment
 prior_units: [U4]
 prior_boundaries: [CDX]
 prior_features: []

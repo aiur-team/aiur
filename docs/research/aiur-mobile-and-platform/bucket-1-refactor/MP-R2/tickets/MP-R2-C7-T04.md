@@ -71,7 +71,7 @@ researched: 2026-10-06
 - Elixir: new module `Aiur.EventsCLI` (PROPOSED,
   `src/lib/aiur/events_cli.ex`) with `tail/1`, called via
   `run_control_stream "Aiur.EventsCLI.tail(...)"`. It runs **inside the
-  daemon node** and reads through `Aiur.Events.Export.read/3` +
+  daemon node** and reads through `Aiur.Events.Export.read/4` (C6-T02 signature) +
   the `events:export` notification (C7-T02), so it works with
   `--no-dashboard` and needs no HTTP credentials.
 - Output: one line per record. Default text:
@@ -127,7 +127,10 @@ age (AGENTS.md "If a surface computes an age, it renders the age").
 - Many records: the stream pages by 500 internally; output is flushed per
   line so piping to `jq` works.
 - Multiple concurrent `tail`s: each has its own cursor; no server state.
-- No secrets or free text: records are allowlisted envelopes (C5-T02).
+- No secrets or free text: records are allowlisted envelopes (C5-T02). In
+  particular a `human-needed` record carries no `attrs.short_label` (agent-
+  authored text; security m3, C5-T03): `short_label` travels only in the
+  sealed push (MP-N4), and `tail` prints only refs and enum attrs.
 
 ## Compatibility and rollout
 

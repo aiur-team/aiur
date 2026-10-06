@@ -66,7 +66,7 @@ researched: 2026-10-06
 - `load/1`: resolve `Ref.worker/1` from the identifier's tracker identity (the
   deck channel already focuses on an identifier; resolution uses the units
   snapshot like the drawer). If the conversation has entries →
-  `History.list_entries(ref, tail: true, limit: 50)` → adapter → `feed_entry/1`.
+  `History.list_entries(ref, tail: true, limit: 50, principal: {:operator, :basic_auth})` → adapter → `feed_entry/1`.
   If it has none or is `:not_found` (pre-journal ticket) → today's
   `AgentEventFeed.list/2` path, so nothing regresses during rollout.
 - Bodies: the journal keeps up to 64 KiB where IssueLog kept 1,000 chars; the deck
@@ -96,7 +96,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur_web/streamdeck_logs_test.exs test/aiur_web/streamdeck_logs_journal_test.exs \
   test/aiur/conversation/feed_adapter_test.exs test/aiur/agent_event_feed_test.exs
 npm --prefix src/browser run test:streamdeck-flow

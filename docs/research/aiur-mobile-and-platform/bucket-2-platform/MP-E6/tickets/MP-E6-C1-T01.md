@@ -35,7 +35,7 @@ researched: 2026-10-06
      `src/test/fixtures/voice_conversation/elevenlabs_agents/` (PROPOSED path; committed by
      C2-T03, not by the spike).
   3. Updates to `../provider-research.md` (§2 rows marked "verified 2026-…") and
-     `contracts/voice-session.md` §10 (retention facts), folding in the old C1-T2.
+     `contracts/voice-session.md` §10 (retention facts), folding in the old C1-T02.
 - **Non-goals:** any production code; any change to the running aiur daemon or its config;
   evaluating providers other than ElevenLabs Agents (the OpenAI Realtime fallback is only
   triggered, not tested, here).
@@ -86,10 +86,13 @@ or a chat.
    record_voice=false`, the shortest retention the API accepts, overrides enabled for system
    prompt, first message and voice, two client tools `slow_tool(seconds)` and `echo(text)`
    with `expects_response: true`. Record the request body (redacted) and the response.
-2. **RQ-E6-1 auth.** (a) `GET /v1/convai/conversation/get-signed-url?agent_id=…`; connect
-   with the signed URL after 0 s, 60 s, 5 min and 15 min; record the first failure. (b)
+2. **RQ-E6-1 auth (narrowed in Phase D, m2).** The signed-URL lifetime is documented: valid
+   for 15 minutes to initiate a conversation, and the session may then run longer
+   (https://elevenlabs.io/docs/eleven-agents/customization/authentication, accessed
+   2026-10-06). Only check: (a) one connect with a fresh signed URL succeeds (sanity); (b)
    connect to `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=…` with an
-   `xi-api-key` header and no signed URL; record accept/reject.
+   `xi-api-key` header and no signed URL; record accept/reject. The adapter fetches a URL per
+   (re)connect either way.
 3. **RQ-E6-6 transcripts.** Stream a 20 s pre-recorded 16 kHz PCM16 file as
    `user_audio_chunk` frames of 200 ms; log the sequence and types of `user_transcript`
    events (partials or finals only) and their latency from audio end.

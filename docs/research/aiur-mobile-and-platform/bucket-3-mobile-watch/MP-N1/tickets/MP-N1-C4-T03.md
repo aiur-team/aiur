@@ -17,7 +17,7 @@ researched: 2026-10-06
 
 # MP-N1-C4-T03 — Origin confinement and bridge allow-list
 
-Candidate tickets merged: N1-C4-T3 (origin confinement, AC7) and N1-C4-T4 (bridge allow-list);
+Candidate tickets merged: N1-C4-T03 (origin confinement, AC7) and N1-C4-T04 (bridge allow-list);
 both are the WebView's policy handlers in one component.
 
 ## Identity and outcome

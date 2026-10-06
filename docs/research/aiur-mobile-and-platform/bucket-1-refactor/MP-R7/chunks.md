@@ -47,22 +47,22 @@ Ticket docs are in [tickets/](tickets/README.md); ticket IDs use two digits
 - **Prior-units:** U4. **Prior-boundaries:** CA, CDX, CLD, OAI, RUN.
   **Size-owner:** AGENT_TURN (test files only).
 - **Tickets:**
-  - MP-R7-C1-T1 — Registry contract test: for every entry in
+  - MP-R7-C1-T01 — Registry contract test: for every entry in
     `CodingAgent.Registry.entries/0`, the adapter exports the behaviour
     callbacks, required capability keys exist, `immediate_delivery` ⇒
     `safe_checkpoints == []`, `remote_transport`/`fallback_backend` name a
     registered key.
-  - MP-R7-C1-T2 — Delivery matrix test: entry point (`AgentChat.send/3`,
+  - MP-R7-C1-T02 — Delivery matrix test: entry point (`AgentChat.send/3`,
     HTTP `messages`, OpenCode `:auto`, `DecisionDispatch`) × harness
     capability set → normalized policy, queue item `delivery` map
     (`agent_queue.ex:9-25`), and accepted policies
     (`capabilities.ex:79-81`). Fixture-driven table.
-  - MP-R7-C1-T3 — Provider-frame golden tests: the exact frame each adapter
+  - MP-R7-C1-T03 — Provider-frame golden tests: the exact frame each adapter
     writes for an operator message (`codex/frames.ex:92-104`,
     `claude/coding_agent.ex:121-133`, `muse/coding_agent.ex:24`,
     REPL sanitized pane text `operator_inject.ex:103-108`, OpenAI-compat
     appended message `open_ai_compat/coding_agent.ex:121`).
-  - MP-R7-C1-T4 — Single-writer lock test: a checkpoint item is not claimed
+  - MP-R7-C1-T04 — Single-writer lock test: a checkpoint item is not claimed
     while `outstanding_turns > 0` (`app_server/operator_delivery.ex:48-51`),
     and is delivered at the turn boundary. (Guard test; it already passes on
     main — named as such.)
@@ -82,13 +82,13 @@ Ticket docs are in [tickets/](tickets/README.md); ticket IDs use two digits
 - **Dependencies:** C1.
 - **Prior-units:** U4. **Prior-boundaries:** CA. **Size-owner:** AGENT_CORE.
 - **Tickets:**
-  - MP-R7-C2-T1 — `Aiur.Harness.Capabilities.delivery_primitives/1` (pure),
+  - MP-R7-C2-T01 — `Aiur.Harness.Capabilities.delivery_primitives/1` (pure),
     with a table test equal to contract §3 values.
-  - MP-R7-C2-T2 — Reserve optional callbacks (`steer/3`,
+  - MP-R7-C2-T02 — Reserve optional callbacks (`steer/3`,
     `reply_native_question/3`, `release_native_question/3`) in the
     behaviour with `@optional_callbacks`, no implementations; a test proves
     every adapter reports `:none` for them.
-  - MP-R7-C2-T3 — Expose the descriptor next to (not inside) the existing
+  - MP-R7-C2-T03 — Expose the descriptor next to (not inside) the existing
     control capabilities map, behind no UI. Byte-identical check of the old
     map on C1 fixtures.
 - **Test strategy:** table tests; byte-identical comparison of
@@ -107,19 +107,19 @@ Ticket docs are in [tickets/](tickets/README.md); ticket IDs use two digits
   **Size-owner:** AGENT_TURN, CLAUDE, CODEX, `agent_runner/session_lifecycle.ex`
   (1,124 lines) owner.
 - **Tickets:**
-  - MP-R7-C3-T1 — Move `Codex.DynamicTool.*` to the agent tool surface
+  - MP-R7-C3-T01 — Move `Codex.DynamicTool.*` to the agent tool surface
     (prior boundary 20 recommendation); update `agent_runner/{queue_drain,
     tool_executor,turn_loop}.ex` and `app_server/adapter.ex`.
-  - MP-R7-C3-T2 — Replace `Codex.SessionRecovery` use in
+  - MP-R7-C3-T02 — Replace `Codex.SessionRecovery` use in
     `agent_runner/checkpoint_delivery.ex:13` with the registry's existing
     `recoverable_session_error` capability.
-  - MP-R7-C3-T3 — Put `Claude.{DisplayTailer,Telemetry,RemoteControl}` calls
+  - MP-R7-C3-T03 — Put `Claude.{DisplayTailer,Telemetry,RemoteControl}` calls
     in `agent_runner/session_lifecycle.ex:6` behind capability-gated adapter
     hooks (`rc_display_tail`, `run_telemetry` already exist as registry keys).
-  - MP-R7-C3-T4 — Orchestrator interrupts (`orchestrator/interrupts.ex:7`)
+  - MP-R7-C3-T04 — Orchestrator interrupts (`orchestrator/interrupts.ex:7`)
     call the optional `interrupt/1` callback through the registry instead of
     `Claude.ReplAgent`.
-  - MP-R7-C3-T5 — Boundary check in CI: a script (or `mix xref` graph check)
+  - MP-R7-C3-T05 — Boundary check in CI: a script (or `mix xref` graph check)
     that fails when a module outside the harness namespace references an
     adapter namespace, with an explicit allowlist (RQ-R7-2).
 - **Test strategy:** C1 suite unchanged; T5's check proved by adding a
@@ -138,13 +138,13 @@ Ticket docs are in [tickets/](tickets/README.md); ticket IDs use two digits
   temporary dependency on core.
 - **Prior-units:** U7, U8. **Prior-boundaries:** CA, CDX, CLD, OAI.
 - **Tickets:**
-  - MP-R7-C4-T1 — Create the package skeleton and move the contract,
+  - MP-R7-C4-T01 — Create the package skeleton and move the contract,
     registry and `AppServer.*` core.
-  - MP-R7-C4-T2 — Move Codex adapter.
-  - MP-R7-C4-T3 — Move Claude (headless + REPL) adapter; the tmux transport
+  - MP-R7-C4-T02 — Move Codex adapter.
+  - MP-R7-C4-T03 — Move Claude (headless + REPL) adapter; the tmux transport
     dependency is declared optional.
-  - MP-R7-C4-T4 — Move Muse and OpenAI-compat adapters.
-  - MP-R7-C4-T5 — Release packaging check: the OTP release still contains
+  - MP-R7-C4-T04 — Move Muse and OpenAI-compat adapters.
+  - MP-R7-C4-T05 — Release packaging check: the OTP release still contains
     every adapter (`scripts/aiurdev build`, `packaging/npm/platform`).
 - **Test strategy:** whole test suite plus the C1 suite; foreground manual
   test per AGENTS.md (one Codex and one Claude agent, chat-pane message
@@ -162,9 +162,9 @@ Ticket docs are in [tickets/](tickets/README.md); ticket IDs use two digits
   breaks aiur fails a test.
 - **Dependencies:** C1.
 - **Tickets:**
-  - MP-R7-C5-T1 — Protocol fixture + replay test against
+  - MP-R7-C5-T01 — Protocol fixture + replay test against
     `Aiur.Claude.CodingAgent`.
-  - MP-R7-C5-T2 — File (do not fix in R7) the `turn/steer` defect in the
+  - MP-R7-C5-T02 — File (do not fix in R7) the `turn/steer` defect in the
     sibling (plan F7) as a tracked issue; MP-E7-C4 owns the fix.
 - **Research:** pin the minimum `aiur-claude` version aiur supports today
   (install hint at `providers/claude.ex:21` names no version).
@@ -175,7 +175,7 @@ Ticket docs are in [tickets/](tickets/README.md); ticket IDs use two digits
   add a harness: adapter module, registry entry, capability keys, delivery
   primitives, boundary check. No user docs change (no user-facing surface).
 - **Dependencies:** C4.
-- **Tickets:** MP-R7-C6-T1 — contributor doc update.
+- **Tickets:** MP-R7-C6-T01 — contributor doc update.
 - **Test expectation:** none — documentation only.
 
 ---
@@ -184,5 +184,3 @@ Ticket docs are in [tickets/](tickets/README.md); ticket IDs use two digits
 
 RQ-R7-1 … RQ-R7-4 are listed in [plan.md](plan.md#open-questions). C4 is the
 only chunk blocked on another feature (MP-R1).
-</content>
-</invoke>

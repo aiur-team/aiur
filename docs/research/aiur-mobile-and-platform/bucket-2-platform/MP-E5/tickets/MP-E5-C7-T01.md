@@ -6,6 +6,7 @@ bucket: 2-platform
 title: Dashboard voice end-to-end verification and docs audit
 status: blocked
 blocked_by: [DESIGN-E5, MP-E5-C3-T01, MP-E5-C4-T01, MP-E5-C4-T02, MP-E5-C5-T01, MP-E5-C5-T02, MP-E5-C6-T01, MP-E5-C6-T02, MP-E5-C6-T03, MP-E5-C8-T02]
+wave: 5  # Phase D inversion rule: waits on MP-E5-C8-T02 (wave 5, RC-29)
 prior_units: []
 prior_boundaries: [VOX, WEB]
 prior_features: [ui-07, ui-08]
@@ -30,7 +31,9 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-All E5 user-visible tickets; DESIGN-E5 approval.
+All E5 user-visible tickets; DESIGN-E5 approval. MP-E5-C8-T02 (device sessions end on
+revocation, row 13) moved to wave 5 (RC-29), and it also waits on MP-N2-C7-T01, so this ticket
+moves to **wave 5** with it (Phase D graph check, wave-inversion rule).
 
 ## Verified starting point (base `45a290e3`)
 

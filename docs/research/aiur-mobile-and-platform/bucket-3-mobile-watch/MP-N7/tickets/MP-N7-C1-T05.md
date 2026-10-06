@@ -79,9 +79,10 @@ is omitted and its `awaiting` Fact is still shown (never an empty list presented
 ## Non-happy paths
 
 - Phone app suspended: no sends happen; the watch shows the last `as_of` age (plan §8).
-- Body over 32 KiB: drop `open_commands` beyond 5 per instance, then drop
-  `background_agents`; never drop `row_state` or Facts; if still over, send
-  rows only and log `snapshot_truncated`.
+- Body over 16 KiB (RC-38; MP-N7-C1-T01 invariant 2 owns the budget and the order): drop
+  `open_commands` beyond 5 per instance, then `background_agents`, then `stopped`, `crashed`,
+  oldest `stale` instances counted in `truncated`; never drop `live`/`starting` rows,
+  `row_state` or Facts; log `snapshot_truncated`.
 - Rapid flapping reachability: debounce prevents a send storm.
 
 ## Compatibility and rollout

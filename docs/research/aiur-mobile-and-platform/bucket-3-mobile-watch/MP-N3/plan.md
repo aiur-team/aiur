@@ -108,18 +108,22 @@ visible; stop when backgrounded. Background freshness comes only from MP-N4 noti
 which may carry a hint to refetch; the app never relies on background fetch (brief N4).
 The gateway caches each instance summary for 5 s so several devices do not multiply RPCs.
 
-**Executor-state aggregation** (multiple consumers): `active` if any is active; else
-`stalled` if any is stalled (the case that matters, roster moduledoc); else `idle`; else
-`expired`; `absent` when there are no claims (the MP-R1 identity term; renamed from `none` in Phase C); `unknown` otherwise. Rejected: "most recent
-consumer wins", which can hide a stalled one.
+**Executor-state aggregation** (multiple consumers; RC-37, pairing contract §7, identity
+§1.4): order `active > idle > stalled > expired > absent > unknown` — `active` if any is
+active; else `idle` if any is idle; else `stalled`; else `expired`; `absent` when there are no
+claims (the MP-R1 identity term; renamed from `none` in Phase C); `unknown` otherwise. The
+value carries `live: true` for `active|idle` only. A stalled consumer is shown in the
+per-consumer list and labelled, but one idle consumer keeps the Executor live (D9 routing,
+command contract §4). Rejected: "most recent consumer wins", which can hide a stalled one.
 
 **Build-order % with several roots.** Recommend: show the count of open build orders and
 the progress of the most recently active one, with resolution shown when not `:resolved`.
 This is an owner design decision (DESIGN-N3 Q3), not settled here.
 
 **Executor chat entry.** A secondary button per row that opens the instance's Executor
-surface (MP-E3 route). Hidden when the instance's capability list lacks
-`executor_conversation`; never replaced by Remote Control links.
+surface (MP-E3 route). Shown disabled with the reason when capability
+`executor.conversation` is not `available` (its `route` attribute names the page, X-16);
+never replaced by Remote Control links.
 
 ## 4. Contracts
 
@@ -129,14 +133,15 @@ aggregation rules, size budget.
 **Consumed (assumptions):**
 
 - MP-N2 registry, states and auth (contract §1–§6), same pack.
-- MP-R1 capability list per instance, including `build_orders`, `commands`,
-  `executor_roster`, `executor_conversation`, `background_agents`.
+- MP-R1 capability list per instance, including `build_orders.progress`, `build_queue`,
+  `commands.read`, `executor.conversation` (with `route`) and `executor.background_agents`
+  (X-16; the N3 tickets already use these IDs).
 - MP-E2: "awaiting" remains the operator-owned count after E2's routing changes. If E2
   introduces Executor-first windows, the count still means "Commands the human owns now".
   Coordinator to confirm with the E2 planner.
-- MP-E3: provides `executor.harness`, `executor.conversation_available` and
-  `background_agents` (count, plus a state) as optional summary fields, and an instance
-  route for Executor chat.
+- MP-E3: provides the top-level `executor.state` and `executor.harness` sections, the
+  `executor.conversation` capability (with `route`) and `executor.background_agents`
+  (count, plus a state) — X-16.
 - MP-E1: build progress semantics. Until E1 publishes, read `RootSummary` directly.
 - MP-N1: list screen native or WebView. Recommendation to N1: native, because the list
   spans several machines and must work while every instance is unreachable; the instance
@@ -197,7 +202,7 @@ repository names and counts, not Command text; the cache is cleared on revoke.
 
 | Chunk | Outcome | Depends on | Candidate tickets | Test sketch |
 | --- | --- | --- | --- | --- |
-| **MP-N3-C1** Instance summary provider | `Aiur.InstanceSummary.v1/0` with Fact envelope for agents, fleet pause, Commands, Executor, build orders, capabilities; `background_agents` unavailable | MP-R1 capability list (or a local stub); none else | MP-N3-C1-T1 Fact type and envelope; T2 agents and pause from `dashboard_snapshot`; T3 Commands from `DecisionQuery.counts/1`; T4 Executor aggregation from `Roster.build(record?: false)`; T5 build-order roots from `GraphProjection.catalog/1`; T6 size budget and redaction test | Unit tests per source with injected providers for every degraded branch; mutation per unavailable branch (AGENTS.md); no real state read |
+| **MP-N3-C1** Instance summary provider | `Aiur.InstanceSummary.v1/0` with Fact envelope for agents, fleet pause, Commands, Executor, build orders, capabilities; `background_agents` unavailable | MP-R1 capability list (or a local stub); none else | MP-N3-C1-T01 Fact type and envelope; T2 agents and pause from `dashboard_snapshot`; T3 Commands from `DecisionQuery.counts/1`; T4 Executor aggregation from `Roster.build(record?: false)`; T5 build-order roots from `GraphProjection.catalog/1`; T6 size budget and redaction test | Unit tests per source with injected providers for every degraded branch; mutation per unavailable branch (AGENTS.md); no real state read |
 | **MP-N3-C2** Gateway fan-out | `GET /v1/instances?include=summary`, per-instance RPC timeout (2 s), 5 s cache, `unsupported` on `undef` | MP-N2-C4, MP-N3-C1 | T1 fan-out with bounded concurrency; T2 cache and `observed_at`; T3 version negotiation | Fake nodes: slow, down, old release; assert stale and unsupported mapping |
 | **MP-N3-C3** `MetaRow` view model | Pure mapping InstanceEntry → row state and field display, shared with MP-N7 | contract only | T1 state priority table; T2 per-field rules; T3 fixtures as JSON shared with the gateway tests | Table-driven; mutation: collapse two states and a test fails |
 | **MP-N3-C4** App meta-dashboard screen | Multi-machine list, machine sections, row tap → dashboard, secondary Executor chat button, refresh policy, offline cache | MP-N1 app shell, MP-N2-C5 client, MP-N3-C3, **DESIGN-N3** | T1 machine sections and empty state; T2 row rendering per DESIGN-N3; T3 navigation to dashboard via device session; T4 Executor chat button gated by capability; T5 refresh and backgrounding; T6 encrypted-at-rest cache cleared on revoke | Component tests with fixtures; device tests on iOS and Android |
@@ -210,10 +215,10 @@ Order: C1 → C2 → C3 (C3 can start in parallel from the contract) → C5 → 
 Tickets are in [tickets/](tickets/README.md); the chunk list with final IDs is in
 [chunks.md](chunks.md). Changes from this plan: C1 T1 and T6 merged (envelope plus size and
 redaction guard); C2 T1 and T3 merged; C3 T1 and T2 merged into one model ticket plus a shared
-fixture ticket; C4-T6 (device validation) added; the Commands count follows MP-E2-C7-T1's
+fixture ticket; C4-T06 (device validation) added; the Commands count follows MP-E2-C7-T01's
 "needs you" definition; build-order roots carry no titles (privacy, contract §7); the Executor
 aggregate uses `absent`. RQ-N3-1, RQ-N3-2 and RQ-N3-4 are resolved in the tickets; RQ-N3-3 is a
-dependency on MP-E2-C7-T1.
+dependency on MP-E2-C7-T01.
 
 ## 9. Open questions
 
@@ -239,5 +244,5 @@ After MP-R1: `Aiur.InstanceSummary` belongs in the projections package (`PRJ` #2
 module in the composition root; its reads become calls to the public interfaces of the
 `aiur_decisions`, `aiur_executor` and build-order packages rather than module internals. If
 MP-R2 adds an external subscription API, MP-N3-C2 may switch from polling to a stream
-without changing the summary shape. If MP-E3 adds an Executor route, MP-N3-C4-T4 takes that
+without changing the summary shape. If MP-E3 adds an Executor route, MP-N3-C4-T04 takes that
 path from the capability entry, not a hard-coded URL.

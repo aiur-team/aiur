@@ -22,7 +22,7 @@ researched: 2026-10-06
 ## Identity and outcome
 
 - **Bucket / feature / chunk:** Bucket 2 · MP-E7 · C7. Moved here from
-  MP-E7-C2 (former C2-T3) because the command name and output are DESIGN-E7
+  MP-E7-C2 (former C2-T03) because the command name and output are DESIGN-E7
   §1.5 decisions; C2 keeps only the internal API.
 - **User value:** the operator (or a script / the Executor, if E7-D3 allows)
   reads and sets an agent's listener mode from the CLI and HTTP API, and
@@ -112,7 +112,7 @@ operator is not misled.
 - `agent_control_cli_test.exs`: `"message under listener routing names the
   mode"`; `"message under legacy routing output unchanged"` (guard).
 - `bun test` in `packaging/npm/aiur-cli`: launcher routes the new subcommand.
-- Commands: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Commands: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur_web/controllers test/aiur/agent_control_cli_test.exs`;
   `env -C packaging/npm/aiur-cli bun test`.
 - Manual: `scripts/aiurdev listen-mode <n> async`, then `scripts/aiurdev

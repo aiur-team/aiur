@@ -6,6 +6,7 @@ bucket: 2-platform
 title: "RQ-E4-1: measure journal entries/hour and bytes/hour per agent on the live fleet"
 status: ready
 blocked_by: []
+design_gate: "n/a — research spike"  # RC-32: read-only research or local experiment
 prior_units: [U6]
 prior_boundaries: [PRJ, RUN]
 prior_features: []

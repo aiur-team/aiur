@@ -28,7 +28,7 @@ researched: 2026-10-06
 - **Deliverable:** two new optional registry keys and two facade functions in
   `Aiur.CodingAgent`; `agent_runner/session_lifecycle.ex` calls only the
   facades. The `Aiur.Claude.RemoteControl.process_tree/1` call at :646 is
-  **not** changed here (it is a generic process helper owned by MP-R1-C5-T2;
+  **not** changed here (it is a generic process helper owned by MP-R1-C5-T02;
   see MP-R7-C3-T05 allowlist).
 - **Non-goals:** no split of `session_lifecycle.ex` (U8 `AGENT_TURN`); no
   change to telemetry correlation, revoke timing, fallback behaviour or
@@ -159,11 +159,11 @@ Tests (`src/test/aiur/agent_runner/session_lifecycle_test.exs` unless noted):
 4. C1-T01 contract test: `rc_display_tail: true` without `:display_tailer`
    fails (add a fixture entry to prove the rule).
 
-Commands (isolated `HOME`, GitHub tokens unset):
+Commands (isolated `HOME` and `XDG_CONFIG_HOME`, GitHub tokens unset, T-4):
 
 ```text
-env -C src mise exec -- mix test test/aiur/agent_runner/session_lifecycle_test.exs test/aiur/coding_agent_test.exs test/aiur/claude/telemetry_test.exs test/aiur/claude/display_tailer_test.exs
-env -C src mise exec -- mix aiur.affected_tests
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" mise exec -- mix test test/aiur/agent_runner/session_lifecycle_test.exs test/aiur/coding_agent_test.exs test/aiur/claude/telemetry_test.exs test/aiur/claude/display_tailer_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" mise exec -- mix aiur.affected_tests
 mise exec -- rg -n 'Claude\.(Telemetry|DisplayTailer)' src/lib/aiur/agent_runner/
 ```
 
@@ -173,7 +173,7 @@ Last command prints nothing. Manual: covered by MP-R7-C4 foreground run (a
 ## Completion and handoff
 
 - [ ] Runner names no Claude module except `RemoteControl` (process helper,
-      allowlisted until MP-R1-C5-T2).
+      allowlisted until MP-R1-C5-T02).
 - [ ] Tests 1 and 3 fail with their production hunks reverted (PR body).
 - Docs: none (internal). C6-T01 lists the two keys for contributors.
 - Dependents: MP-R7-C3-T05.

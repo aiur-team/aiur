@@ -8,7 +8,7 @@ status: ready
 blocked_by: [DESIGN-R2 §1, MP-R2-C1-T06]
 prior_units: [U3, U6, U8]
 prior_boundaries: [BUS #10, EXE #26, K #1]
-prior_features: [MP-R1 (C5-T1 journal primitive to kernel)]
+prior_features: [MP-R1 (C5-T01 journal primitive to kernel)]
 prior_findings: []
 size_owner: EVENTS (executor_events.ex 525 lines; must not grow); re-check at start per RC-23
 base_sha: 45a290e3
@@ -27,7 +27,7 @@ researched: 2026-10-06
   `replay/3`; `Aiur.ExecutorEvents.append_event/1` and `journal_events/0`
   call it. On-disk format, fsync behaviour, torn-tail repair and the
   corruption result are byte-for-byte unchanged.
-- **Non-goals.** No change to `DecisionLog` (its location is MP-R1-C5-T1's
+- **Non-goals.** No change to `DecisionLog` (its location is MP-R1-C5-T01's
   decision: it moves to the kernel component; this facade then follows the
   alias). No migration of `ExecutorWakeInbox` (`executor_wake_inbox.ex:110,
   334,356,363,430,559` call `DecisionLog` directly; it is EXE-owned and its
@@ -41,7 +41,7 @@ researched: 2026-10-06
 - **RQ-3 resolved (decisions.md):** `Aiur.DecisionLog` is a generic primitive
   used by 16 modules and depends only on `Aiur.Fs` (`decision_log.ex:35`).
   It is kernel material, so the bus wraps it rather than owning it.
-- Does **not** wait for MP-R1-C5-T1: if the module is renamed or moved, only
+- Does **not** wait for MP-R1-C5-T01: if the module is renamed or moved, only
   the alias in `journal.ex` changes.
 - Concurrent with C2-*, C3-T03. C3-T02 depends on this ticket.
 

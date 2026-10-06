@@ -34,8 +34,8 @@ researched: 2026-10-06
 
 - DESIGN-R1 §1; C9-T10; C9-T12 (same file, serialize).
 - **MP-E1-C6** (queue CLI: engine `queue)` arm calling `Aiur.AgentControlCLI.queue(...)`
-  and `Aiur.BuildQueueCLI`, `bucket-2-platform/MP-E1/chunks.md` C6-T1/T2). If E1-C6 has
-  not merged, do the `todo` move anyway and skip the queue test; MP-R1-C11-T2 re-adds it.
+  and `Aiur.BuildQueueCLI`, `bucket-2-platform/MP-E1/chunks.md` C6-T01/T02). If E1-C6 has
+  not merged, do the `todo` move anyway and skip the queue test; MP-R1-C11-T02 re-adds it.
 - RC-20: `--todo` writes `agent:todo` through the tracker; it is (like the build queue) a
   caller of the single label-writer seam. The move does not change which seam it calls;
   after U2 the call follows U2's writer like every other caller.
@@ -96,5 +96,5 @@ match the base build.
 
 - [ ] `todo` lives in `orchestration`; `queue` stays with `build-queue`.
 - Docs: none.
-- Dependents: MP-R1-C11-T2 (PR-13 row resolved). size_owner re-resolved at ticket start
+- Dependents: MP-R1-C11-T02 (PR-13 row resolved). size_owner re-resolved at ticket start
   (RC-23).

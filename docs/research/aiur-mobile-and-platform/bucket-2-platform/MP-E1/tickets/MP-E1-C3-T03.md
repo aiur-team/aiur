@@ -108,13 +108,15 @@ researched: 2026-10-06
 | "an open_issues_recorded signal triggers one reconcile" | planner called once within 3 s for two signals 100 ms apart | the debounce |
 | "a ticket.N.pr.merged event triggers reconcile" | reconcile counter +1 | the Exchange binding |
 | "hints reflect ordering" — two ready items with different downstream counts | `Hints.sort_key/1` values | the hints write |
+| "missed event: the timer alone promotes the dependent exactly once" — no event delivered; prerequisite closed in the fake tracker; injected `:clock` advanced past `build_queue.reconcile_interval_seconds` | dependent promoted exactly once (one `agent:todo` planned action); a second interval adds none | the fallback timer (AC10, feasibility m8) |
 | `src/test/aiur/application_test.exs` "build queue child absent when disabled" | child not in `Supervisor.which_children(Aiur.Supervisor)` | the gate |
 
 Mutation check: drop the gate → the application test fails; remove the
-capability check → test 1 fails.
+capability check → test 1 fails; remove the `reconcile_interval_seconds` timer →
+the missed-event test sees zero promotions and fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/server_test.exs test/aiur/application_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/server_test.exs test/aiur/application_test.exs
 ```
 
 ## Completion and handoff

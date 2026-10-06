@@ -120,7 +120,7 @@ Mutation check: revert the `issues.ex` hunk → the poll test fails; revert
 `fetch_labels/3`'s age check → the stale test fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/github/open_issue_snapshot_test.exs test/aiur/github/issues_test.exs \
   test/aiur/orchestrator/dispatcher_blocked_by_cost_test.exs
 ```

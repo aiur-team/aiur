@@ -19,8 +19,8 @@ researched: 2026-10-06
 
 ## Identity and outcome
 
-- Bucket 3, MP-N7, chunk C3 (Wear OS app). Merges candidate tickets N7-C3-T1 (project)
-  and N7-C3-T4 (CI) from chunks.md: CI for a new module is part of making it exist.
+- Bucket 3, MP-N7, chunk C3 (Wear OS app). Merges candidate tickets N7-C3-T01 (project)
+  and N7-C3-T04 (CI) from chunks.md: CI for a new module is part of making it exist.
 - **User value:** a Wear OS app installs alongside the Android app and can talk to it.
 - **Deliverable:** Gradle project `packages/aiur-mobile/wear/` (RC-17) producing a
   non-standalone Wear app with the **same application ID** as the phone app, Compose for

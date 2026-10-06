@@ -257,4 +257,12 @@ Manual or device tests: none. No user-visible surface changes.
 - [ ] Docs: none required (test-only; AGENTS.md "Docs ship with the change").
   MP-R3-C2-T01 carries the docs.
 - **Dependents:** MP-R4-C1-T01 cites this census. MP-N2 (pairing pipeline,
-  transport) extends `@authenticators` and reads the HTTP-only guard.
+  transport) extends `@authenticators` and reads the HTTP-only guard: MP-N2-C6-T01
+  (`AiurWeb.DeviceAuth`, `:device_auth`), MP-N2-C6-T02 (device-session routes) and
+  MP-N2-C10-T01 (second, HTTPS listener) each extend the census in their own PR (Phase D).
+  MP-N2-C6-T01 also adds a bind-matrix case to this file: "device bearer refused on a
+  LAN-bound plain HTTP listener" (`0.0.0.0`, `::`, a private LAN address; with and without
+  `transport.allow_cleartext_overlay`), because one device token is valid on every instance
+  of the machine (security review M3; pairing contract security sibling §S3). The
+  "Reachability never changes authorization" invariant above covers it; a loopback peer
+  behind a local tunnel or proxy is not a boundary, the token is (MP-N2-C9-T01 docs).

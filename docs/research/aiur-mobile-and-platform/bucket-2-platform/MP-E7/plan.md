@@ -119,29 +119,41 @@ confirms this interpretation and that Khala will publish the package.
 
 Release path: Khala tag `listener-v<semver>` → npm publish (OIDC, existing
 workflow extended) → aiur `scripts/` vendor step copies the JSON artifacts
-into `src/priv/listener/v<major>/` with a recorded sha256 → aiur CI runs the
-goldens. aiur's `aiur-cli` npm package may depend on the TS package for the
-Executor hook command (C6) if its Node floor is ≤ 18 or aiur raises its floor
-(research RQ-E7-5).
+into `src/priv/listener_spec/v<major>/` with a recorded sha256 → aiur CI runs the
+goldens. The package is a **build-time input only** (RC-36): aiur never loads
+it at runtime, and no aiur npm package depends on it. C6 renders the Executor
+hook envelope in the daemon (Elixir), so RQ-E7-5 is moot.
 
 ---
 
 ## Proposed boundaries
 
 ```text
-shared (Khala repo, published)    listener spec: schema, scheduler table, goldens, TS codecs
-aiur: Aiur.Listener (new, core)   mode store + scheduler + receipts + pull tool
-  depends on: Aiur.Harness (MP-R7) delivery_primitives / steer callback
-              AgentQueueStore (existing), DeliveryPolicy (existing, extended)
-              events (MP-R2) for listen-mode.changed
-  consumed by: AgentChat facade (all send paths), MP-E4 send API, MP-E3 Executor send,
-               dashboard/TUI/CLI selectors (DESIGN-E7)
-aiur-cli (npm): `aiur hook deliver --harness claude|codex` (Executor sessions; C6)
+listener-spec (Khala repo, published; optional, build-time input only)
+    schema, scheduler table, goldens, TS codecs
+    vendored into src/priv/listener_spec/ with CHECKSUM (C1-T04)
+listener-modes (aiur core, REQUIRED): Aiur.Listener.*
+    send router Aiur.Listener.send/3 + mode store + scheduler + receipts + pull tool
+  depends on: harness-adapters (MP-R7) delivery_primitives / steer callback,
+              event-bus (listen-mode.changed), config, identity
+  delivers through: behaviour Aiur.Listener.DeliveryTarget, implemented by
+              orchestration (AgentQueueStore, DeliveryPolicy) and registered
+              at the composition root
+  called by: AgentChat.send/3 (orchestration delegates), MP-E4 send API,
+             MP-E3 Executor send, dashboard/TUI/CLI selectors (DESIGN-E7)
+Executor hooks (C6): daemon-rendered envelope + a plain `curl` hook command
 ```
 
-- Required deps: harness adapter (R7-C2), agent queue. Optional: MP-R2 bus
-  (without it, the change event is PubSub-only), MP-E3 (hook path is inert
-  without an attached Executor).
+- **RC-36 (Phase D).** The router is a required part of orchestration's send
+  path, so it is core and required, not an optional package. The spec package
+  is optional: if the vendored spec is absent or fails its checksum, the
+  router uses today's routing (`:legacy`, RC-05) and reports capability
+  `listener_modes` as `unavailable` with reason `not_installed` or
+  `spec_invalid` (C3-T06). With a good spec and the flag at `:legacy` the
+  reason is `disabled`.
+- Required deps: harness adapters (R7-C2), event bus, config, identity.
+  Orchestration (agent queue) is reached only through `DeliveryTarget`.
+  Optional: MP-E3 (hook path is inert without an attached Executor).
 - **Prior-units:** U3 (event delivery ordering), U4 (turn lifecycle).
   **Prior-boundaries:** MSG (16), RUN (18), CA (20).
 
@@ -188,12 +200,14 @@ aiur-cli (npm): `aiur hook deliver --harness claude|codex` (Executor sessions; C
 
 ## Acceptance criteria
 
-1. With no configuration, every agent's mode is `sync`; a dashboard, CLI,
-   HTTP, Stream Deck or TUI message to a running Codex agent mid-turn is
-   delivered at the turn boundary and the turn is not interrupted.
+1. After C7-T04 flips the routing default (E7-D6): with no configuration,
+   every agent's mode is `sync`; a dashboard, CLI, HTTP, Stream Deck or TUI
+   message to a running Codex agent mid-turn is delivered at the turn
+   boundary and the turn is not interrupted. Before C7-T04 (flag `:legacy`)
+   every entry point behaves exactly as today.
 2. `steer` on Codex delivers via `turn/steer` before the turn ends
    (foreground manual test shows the message in the chat pane mid-turn).
-3. `async` messages never start a turn; `read_messages` returns them in
+3. `async` messages never start a turn; `aiur_read_messages` returns them in
    order; the unread count drops after the pull.
 4. Unsupported combinations show requested and effective mode with a reason
    in CLI and dashboard; nothing is downgraded silently.
@@ -209,10 +223,11 @@ aiur-cli (npm): `aiur hook deliver --harness claude|codex` (Executor sessions; C
 
 ## Plan-refresh note
 
-E7 starts after MP-R7-C2 (primitives) and MP-R2's topic registry. If R7-C4
-moves adapters, E7 tickets cite `Aiur.Harness.*`. MP-E4's send API and MP-E3's
-Executor send are thin callers of C3/C6; if E4 ships first, it calls
-`AgentChat.send/3` and E7-C3 swaps the policy underneath.
+E7 starts after MP-R7-C2 (primitives). C1–C3 are wave 3 (RC-05); only
+C2-T05 (the bus event) needs MP-R2-C5, which is at the start of wave 4
+(RC-31). If R7-C4 moves adapters, E7 tickets cite `Aiur.Harness.*`. MP-E4's
+send API and MP-E3's Executor send call `Aiur.Listener.send/3` (C3-T03)
+directly; there is no interim `AgentChat` step (CR-E4-8).
 
 ---
 
@@ -245,5 +260,3 @@ renders the hook envelope in the daemon (Elixir) and needs no Node package.
 - RQ-E7-6. How aiur installs Executor hooks without clobbering user hooks
   (Claude `--settings` composes, `hook_settings.ex:6-8`; Codex merges
   `hooks.json`, as Khala's `codex/hooks-config.mjs:6-59` does).
-</content>
-</invoke>

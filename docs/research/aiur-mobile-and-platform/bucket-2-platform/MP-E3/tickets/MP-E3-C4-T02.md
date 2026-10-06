@@ -26,6 +26,12 @@ researched: 2026-10-06
 - **Deliverable:** `Aiur.Executor.BackgroundAgents` projection: rows
   `%{agent_id, agent_type, state: :running | :finished, started_at, stopped_at,
   last_message (≤ 500 chars)}` or `:unsupported` with reason.
+- **Read and capability (Phase D, CR-N3-3):** public read
+  `Aiur.Executor.BackgroundAgents.snapshot/0`; capability `executor.background_agents`
+  (identity contract §2.3), `unavailable` with the closed-enum reason `unknown` and
+  attribute `detail: "unsupported"` when the harness has no subagent events (X-18: the
+  internal atom is mapped at the provider, because identity §2.2 has no `unsupported`
+  reason). MP-N3-C1-T05 consumes both.
 - **Non-goals:** opening subagent transcripts (RQ-E3-4: shown only if a later
   ticket proves `agent_transcript_path` stable; not in this ticket).
 
@@ -33,7 +39,9 @@ researched: 2026-10-06
 
 - DESIGN-E3 (panel copy). MP-E3-C1-T02 (events).
 - MP-E3-C3-T01 provides the Codex `SubagentStart/Stop` field set (RQ-E3-6);
-  until then Codex is `:unsupported` with reason `fields_unverified`.
+  the Codex field set is now confirmed from source (MP-E3-C1-T02 pins `openai/codex`
+  `schema.rs` @ `a9abdeaf`); until the local-binary capture confirms it, Codex reports
+  `degraded`, reason `unknown`, `detail: "fields_unverified"` (X-18).
 
 ## Verified starting point
 
@@ -76,13 +84,14 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/executor/background_agents_test.exs
 ```
 
 | Test | Expected | Fails without |
 | --- | --- | --- |
-| "codex before C3-T01 is unsupported, not []" | `{:unsupported, :fields_unverified}` | support check (mutation: return `{:ok, []}` fails — plan acceptance 6) |
+| "codex before C3-T01 is unsupported, not []" | projection `{:unsupported, :fields_unverified}`; capability `degraded`, reason `unknown`, `detail: "fields_unverified"` | support check (mutation: return `{:ok, []}` fails — plan acceptance 6) |
+| "capability reason is in the closed identity enum" (X-18) | `reason in ~w(unknown …)` from the shared enum fixture; internal atom only in `detail` | provider mapping (emit `unsupported` as the reason and the row fails) |
 | "start then stop yields one finished row with last message" | row | reducer |
 | "stop without start" | finished row, nil start | clause |
 | "projection carries observed_since after restart" | field present | field |

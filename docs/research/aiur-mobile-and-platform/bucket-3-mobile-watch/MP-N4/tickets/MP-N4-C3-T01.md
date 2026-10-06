@@ -5,7 +5,7 @@ chunk_id: MP-N4-C3
 bucket: 3-mobile-watch
 title: Machine-level `push:` settings in ~/.aiur/machine with docs
 status: ready
-blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C3-T00, MP-N2-C3-T1, MP-N2-C3-T5]
+blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C3-T00, MP-N2-C3-T01, MP-N2-C3-T05]
 prior_units: []
 prior_boundaries: [new #41 candidate push-relay]
 prior_features: [MP-N2]
@@ -40,8 +40,8 @@ are untouched); relay URL (comes from each device's registration, contract §7).
 
 ## Dependencies and blockers
 
-- MP-N2-C3-T1 (machine settings schema and loader, independent of `Aiur.Workflow`).
-- MP-N2-C3-T5 (docs check for `~/.aiur/machine` keys); if that check is not yet in place,
+- MP-N2-C3-T01 (machine settings schema and loader, independent of `Aiur.Workflow`).
+- MP-N2-C3-T05 (docs check for `~/.aiur/machine` keys); if that check is not yet in place,
   this PR still adds the docs rows (AGENTS.md "Docs ship with the change": config key →
   `reference/configuration.md`).
 - DESIGN-N4 releases C3 except setup copy (C3-T07).
@@ -53,7 +53,7 @@ are untouched); relay URL (comes from each device's registration, contract §7).
   go there. Precedent for a machine-level file: `~/.aiur/alerts`
   (`src/lib/aiur/init/alerts.ex:19-20`).
 - `scripts/check-config-docs.py` enforces docs only for workflow config keys today
-  (AGENTS.md "Only one row above is machine-checked"); MP-N2-C3-T5 extends it.
+  (AGENTS.md "Only one row above is machine-checked"); MP-N2-C3-T05 extends it.
 - The Phase B plan put `push.*` in `~/.aiur/config`; this ticket follows RC-03 instead.
 
 ## Chosen design
@@ -96,7 +96,7 @@ Additive; default off. Rollback: remove the section; loader ignores nothing else
 | `"does not read ~/.aiur/config"` | file there with `push: {enabled: true}` is ignored | read the wrong file |
 | `"mtime change reloads"` | toggling `enabled` without restart flips the accessor | cache forever |
 
-Docs check: `python3 scripts/check-config-docs.py` (plus the MP-N2-C3-T5 extension) and
+Docs check: `python3 scripts/check-config-docs.py` (plus the MP-N2-C3-T05 extension) and
 `bash scripts/test-check-config-docs.sh`.
 
 Commands (from `src/`): `mise exec -- mix test test/aiur/push/settings_test.exs`.

@@ -61,14 +61,15 @@ A missing slot is reported as "not validated on <slot>", never skipped silently.
 
 | ID | Procedure (numbered) | Pass | Req. |
 |---|---|---|---|
-| DV-W1 | 1. Pair app; 2. lock iPhone, watch on wrist and unlocked; 3. on the machine create a blocking Command; 4. observe watch | Watch shows the **decrypted** short summary, not the placeholder. Record which (E-B6). | Yes |
+| DV-W1 | 1. Pair app; 2. lock iPhone, watch on wrist and unlocked; 3. on the machine create a blocking Command; 4. observe watch | **Revised (Phase D feasibility M5).** Pass = the watch shows the **decrypted** short summary, **or** it shows the uniform fallback and its default action opens the right Command card in one tap through the phone (`get_command {latest_notified}`, MP-N7-C2-T04). Record which (E-B6). Fail = neither (no card, or a wrong card) → triggers MP-N7 plan §7 option (b), conditional chunk N7-RQ4. | Yes |
 | DV-W1b | Continue DV-W1: tap the notification on the watch | Card for the right instance/Command opens in ≤ 2 taps; no mic indicator appears (orange mic dot absent) | Yes |
 | DV-W2 | 1. Background the iPhone app (home screen, wait 10 min); 2. open the watch app, tap a Command | Card loads via `sendMessage` wake. Record latency: median and max over 20 tries (s). | Yes |
 | DV-W2b | Force-quit the iPhone app (app switcher swipe), repeat DV-W2 ×5 | Record whether the card loads; if not, the watch shows "Not confirmed / Needs iPhone" (no hang > 15 s) | Yes |
 | DV-W3 | Walk the iPhone out of Bluetooth range (or turn Bluetooth and Wi-Fi off on iPhone) | List shows stored data with age and "Needs iPhone nearby"; answer/voice disabled | Yes |
 | DV-W4 | Choose an option on the watch | Exactly one answer recorded (`aiur commands <id> --json` shows one action, `client.surface: "watch"`) | Yes |
-| DV-W4b | Late answer: put iPhone in Airplane mode, choose an option (watch queues), change the Command on the machine (revise), wait 11 min, restore iPhone | Answer is **not** submitted; watch shows "stale" (C1-T04) | Yes |
+| DV-W4b | Late answer (the deliberate queued-answer exception, plan §8, feasibility m6): put iPhone in Airplane mode, choose an option (watch queues), change the Command on the machine (revise), wait 11 min, restore iPhone | Answer is **not** submitted; watch shows "stale" (C1-T04) | Yes |
 | DV-W5 | Dictate: mic → Dictate → speak 2 sentences → review → Send | Text shown for review before Send; one answer with `custom_response`; record recognizer path (system / relay) | Yes |
+| DV-W6b | During watch Converse: (1) restart the daemon; (2) set `voice.conversation.daily_minutes_cap` low and reach it; (3) revoke the phone | (1) `transport_lost` copy with Retry, transcript intact; (2) `cost_cap` copy, **no** Retry offered; (3) `auth_changed` / unpaired copy. Copy matches the `voice/end-reasons.json` fixture rows (M7) | Yes |
 | DV-W6 | Converse: 5 turns of ~5 s speech | Record end-of-speech → reply-start latency per turn (median, max, n=5 sessions × 5 turns) for real-time pacing and, in a debug build, fast pacing (RQ-N7-6); compare with D-N7-3 | Yes |
 | DV-W9 | Debug build with a test button that opens `URLSessionWebSocketTask` to the daemon from the watch | Task stays `.waiting` on device (S7) — guards against simulator-only designs | Yes |
 | DV-W10 | With DV-W1 conditions and the C2-T06 debug flag on: expand long-look | Per-Command option buttons appear with the payload's labels; tapping one records one answer (N7-RQ1 forwarded part) | Yes if C2-T06 is wanted |

@@ -166,5 +166,5 @@ Mutation check: revert only the `sanitizer.ex` hunk in a clean worktree
 - [ ] Tests 1–3 added and mutation-checked.
 - [ ] Docs: none (internal seam). If U5 changed `website/docs-app/apis/github.md`,
       do not restate it (AGENTS.md: link, don't copy).
-- Dependents: MP-R2-C2-T11 (manifest), MP-R1-C7-T5 (GitHub component owns
+- Dependents: MP-R2-C2-T11 (manifest), MP-R1-C7-T05 (GitHub component owns
   `Aiur.GitHub.EventTrust`).

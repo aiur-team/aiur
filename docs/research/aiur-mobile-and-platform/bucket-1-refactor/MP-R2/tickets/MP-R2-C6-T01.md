@@ -5,7 +5,7 @@ chunk_id: MP-R2-C6
 bucket: 1 (Bucket-2-enabling, RC-09)
 title: Config keys events.export.enabled, events.export.retention_days, events.export.retention_max_events with docs rows
 status: blocked
-blocked_by: [DESIGN-R2 §2 S1 (KQ-R2-1 retention default and whether configurable), MP-R1-C4 events-section registration (if landed first, follow it)]
+blocked_by: [DESIGN-R2 §2 S1 (KQ-R2-1 retention default and whether configurable)]
 prior_units: [U8]
 prior_boundaries: [BUS #10, CFG]
 prior_features: [MP-R1 (C4 config ownership by registration)]
@@ -37,7 +37,8 @@ researched: 2026-10-06
   remove the keys and hard-code) — the shape below already separates the
   two bounds. Status `blocked` until answered.
 - **MP-R1-C4** registers `events.*` from the owning component (decisions:
-  MP-R2-C4-T02 absorbed). If MP-R1-C4's events ticket has landed, add the
+  MP-R2-C4-T02 absorbed). This is not a blocker: either path below works, so Phase D removed the
+  chunk-level `MP-R1-C4` entry from `blocked_by`. If MP-R1-C4's events ticket has landed, add the
   nested schema through that registration; otherwise add it to
   `Aiur.Config.Schema.Events` directly (today's pattern). Key names are
   identical either way.

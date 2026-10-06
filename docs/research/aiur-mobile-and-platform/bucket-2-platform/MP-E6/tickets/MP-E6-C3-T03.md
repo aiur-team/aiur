@@ -88,6 +88,7 @@ New; no config beyond C3-T01. Rollback: revert.
 | --- | --- |
 | "a recording agent fails preflight" | fixture `record_voice: true` → `privacy_preflight_failed`, mismatch list names it |
 | "overrides disabled fails preflight" | fixture without prompt override → fail |
+| "a missing record_voice field fails closed" | fixture `agent_without_record_voice.json` (field absent) → `privacy_preflight_failed`, mismatch `record_voice: missing` (Phase D, T-7: this row was named by the mutation check but missing from the table) |
 | "a passing result is cached; a failing one expires in 60 s" | injected clock |
 | "preflight never run reports unknown, not available" | fresh boot → `unknown` |
 | capability table test | each row above |

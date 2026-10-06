@@ -44,7 +44,7 @@ inventory tests (this ticket extends both allow-lists with `aiur.mic.dictate`,
   to `ready` or `degraded` … an unavailable option is shown with its reason, not removed
   silently" (`contracts/client-capability-model.md` §5).
 - Existing browser voice controls (for wording consistency only):
-  `src/lib/aiur_web/components/conversation_drawer.ex:184-231` (cited by MP-E5-C1-T1).
+  `src/lib/aiur_web/components/conversation_drawer.ex:184-231` (cited by MP-E5-C1-T01).
 
 ## Chosen design
 

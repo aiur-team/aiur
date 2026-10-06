@@ -64,8 +64,9 @@ researched: 2026-10-06
 ## Non-happy paths
 
 - Store unavailable → mutations refused `{:error, :store_unavailable}`.
-- Self edge or an edge that makes a cycle → accepted but planner marks the
-  cycle `unknown` (visible; the operator removes it). Self edge refused.
+- Self edge → refused with `{:error, :self_edge}`; nothing is stored.
+- An edge that makes a cycle of two or more items → accepted, and the planner
+  marks the cycle `unknown` (visible; the operator removes it).
 
 ## Compatibility and rollout
 
@@ -84,7 +85,7 @@ No config.
 Mutation check: drop the one-owner check → test 1 fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/executor_list_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/executor_list_test.exs
 ```
 
 ## Completion and handoff

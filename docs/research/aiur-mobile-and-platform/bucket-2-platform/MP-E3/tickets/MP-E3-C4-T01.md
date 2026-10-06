@@ -83,8 +83,9 @@ operator" moment to `:waiting_for_input`; others leave the state unchanged.
   until the next hook (plan §6).
 - Out-of-order hooks (two curl calls race) → events carry `observed_at`; an
   older event than the current `observed_at` is ignored.
-- Executor waiting on a native question → T03 shows the Command; this state is
-  `:waiting_for_input` only if the hook says so.
+- Executor waiting on a native question → no Command exists for it in v1 (MP-E2
+  captures workers' native questions only; X-55). The state is `:waiting_for_input` only
+  if the hook says so; T03 shows only Commands the Executor raised itself.
 
 ## Compatibility and rollout
 
@@ -93,7 +94,7 @@ operator" moment to `:waiting_for_input`; others leave the state unchanged.
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/executor/harness_state_test.exs
 ```
 

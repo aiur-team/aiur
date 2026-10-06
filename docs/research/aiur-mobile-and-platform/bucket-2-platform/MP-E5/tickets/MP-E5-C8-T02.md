@@ -6,6 +6,7 @@ bucket: 2-platform
 title: End device voice sessions on revocation or unpair-all within 15 seconds
 status: ready
 blocked_by: ["DESIGN-E5 (waived for this ticket: backend)", MP-E5-C8-T01, MP-N2-C7-T01]
+wave: 5  # RC-29: needs MP-N2 device auth
 prior_units: [U8]
 prior_boundaries: [VOX, WEB]
 prior_features: [ui-08]

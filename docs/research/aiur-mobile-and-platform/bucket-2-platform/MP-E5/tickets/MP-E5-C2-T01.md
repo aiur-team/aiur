@@ -38,9 +38,9 @@ researched: 2026-10-06
 - **Predecessors:** MP-R5-C1-T02 (`VoiceChannel` on the `Aiur.Voice` facade; neutral
   `{:voice_transcript | :voice_error | :voice_closed}` messages, RC-14).
 - **Contracts:** voice-session §3.2, §3.4, §5.1, §8; identity target shapes (RC-02).
-- **Contract request:** MP-R5 — `{:voice_error, reason}` should carry
-  `%{code: atom, message: binary}` so codes are not derived from text
-  (`tickets/CONTRACT-REQUESTS.md` R-1). This ticket works with either shape.
+- **Contract request R-1 accepted (Phase D):** MP-R5-C1-T01 emits
+  `{:voice_error, %{code: atom, message: binary}}` (voice-session §4). This ticket reads
+  `code` and keeps the text-mapping table only as the fallback for a bare string.
 - **May run concurrently with:** MP-E5-C1-*, MP-E5-C2-T03, MP-E5-C8-T01 (touches the socket
   module list only).
 
@@ -114,8 +114,11 @@ identity is available; until then it is ignored. A mismatch returns `target_not_
 | any other provider text | `provider_error` (cause-neutral, never a specific class) |
 | TTS `:unconfigured` / `:capacity` / `:empty_text` / `:text_too_large` / other (`:308-314`) | `unconfigured` / `capacity` / `invalid_payload` / `invalid_payload` / `provider_error` |
 
-The mapping is one private function `reason_code/1` in `VoiceChannel`. If MP-R5 accepts
-request R-1, provider errors use the carried `code` and the text table is deleted.
+The mapping is one private function `reason_code/1` in `VoiceChannel`. Request R-1 is
+accepted (see Dependencies), so provider errors use the carried `code`; this text table is
+only the fallback for a sender that still passes a bare string, and is deleted once no such
+sender remains. Every code it produces is a row of voice-session §8.1, the client table that
+gives retry eligibility (Phase D, M7).
 
 ## Implementation steps
 

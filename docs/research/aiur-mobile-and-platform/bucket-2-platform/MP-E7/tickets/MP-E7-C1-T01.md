@@ -35,7 +35,8 @@ researched: 2026-10-06
      `packages/contracts/src/delivery/listening-mode.ts:6,16,197-199` and
      `packages/contracts/src/m1/listening-mode.ts:8,18-22`);
   2. support statuses `MODE_SUPPORT_STATUSES` (`delivery/listening-mode.ts:7-9`);
-  3. a pure delivery decision `decideDelivery(input) → { deliverModes, steerOnly, markIdleOnly }`
+  3. a pure delivery decision `decideDelivery(input) → { deliverModes, markIdleOnly }`
+     ("steer only" is not a separate output: it is `deliverModes` equal to `['steer']`)
      extracted from `packages/agent/src/harness/deliver-core.ts:104-108`
      (async never; steer-only at tool boundary) and `:218-240`
      (prompt-boundary busy rule, `stop_hook_active` → idle only);

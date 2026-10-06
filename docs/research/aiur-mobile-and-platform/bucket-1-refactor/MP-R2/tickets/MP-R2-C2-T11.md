@@ -5,7 +5,7 @@ chunk_id: MP-R2-C2
 bucket: 1 (refactor)
 title: Assign the non-bus modules under events/ to their owning components in components.json (no file moves)
 status: blocked
-blocked_by: [DESIGN-R2 §1, MP-R1-C1-T1 (manifest exists), coordinator answer to CONTRACT-REQUESTS.md CR-R2-1, MP-R2-C2-T05]
+blocked_by: [DESIGN-R2 §1, MP-R1-C1-T01 (manifest exists), MP-R2-C2-T05]
 prior_units: [U7]
 prior_boundaries: [BUS #10, ING #9, ORC #12, RUN #18, GHD #8]
 prior_features: [MP-R1]
@@ -42,11 +42,12 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **MP-R1-C1-T1** (manifest schema and initial manifest).
+- **MP-R1-C1-T01** (manifest schema and initial manifest).
 - **CR-R2-1** in `MP-R2/tickets/CONTRACT-REQUESTS.md`: MP-R1's component-map
   row for `event-bus` omits `debug_log.ex` and leaves `sanitizer.ex`,
   `branch_ref_store.ex`, `comment_filter.ex`, `event_publication_log.ex`
-  unassigned. The coordinator (or MP-R1) confirms the target components
+  unassigned. **Answered in Phase D:** component-map §3 "Phase D assignments".
+  The coordinator (or MP-R1) confirms the target components
   below before this ticket runs.
 - **C2-T05** (DebugLog is no longer called by the bus core).
 
@@ -98,7 +99,7 @@ No runtime effect. Rollback: revert the manifest edit.
 
 ## Verification
 
-1. `scripts/test-check-components.sh` (MP-R1-C1-T6) green.
+1. `scripts/test-check-components.sh` (MP-R1-C1-T06) green.
 2. `python3 scripts/check-components.py` exits 0 with a violation count ≤
    the baseline before this PR (paste both counts in the PR body).
 3. `bus_boundary_test.exs` green with the updated member list.

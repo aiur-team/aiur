@@ -5,7 +5,7 @@ chunk_id: MP-N4-C4
 bucket: 3-mobile-watch
 title: iOS per-machine push keys and pinned machine keys in the shared keychain group
 status: ready
-blocked_by: [DESIGN-N4, DESIGN-N1, N1-C2-T1, N1-C6-T1, MP-N2-C5-T5]
+blocked_by: [DESIGN-N4, DESIGN-N1, MP-N1-C2-T01, MP-N1-C6-T01, MP-N2-C5-T05]
 prior_units: []
 prior_boundaries: [mobile-app (MP-R1 component-map), push-relay]
 prior_features: [MP-N1, MP-N2]
@@ -32,15 +32,15 @@ Bucket 3, MP-N4, chunk C4. In the Swift core `AiurClientKit` (MP-N1-C2, PROPOSED
 - `pinMachineKey(machineId:ed25519PublicRaw:)` / `machineKey(machineId:)` — the Ed25519
   key pinned from the pairing QR (pairing contract §3 `k=`), same access group and class.
 
-Non-goals: decrypt/verify (C4-T02), the NSE target and entitlements (N1-C6-T1), the
-generic keychain wrapper (N1-C2-T1).
+Non-goals: decrypt/verify (C4-T02), the NSE target and entitlements (N1-C6-T01), the
+generic keychain wrapper (N1-C2-T01).
 
 ## Dependencies and blockers
 
 - DESIGN-N4 gate (C4 is user-facing as a whole); this ticket's content does not depend on
   design answers. DESIGN-N1 (app exists).
-- N1-C2-T1 (keychain wrapper with the shared access group), N1-C6-T1 (NSE target, app
-  group and keychain group entitlements), MP-N2-C5-T5 (pairing client hands over
+- N1-C2-T01 (keychain wrapper with the shared access group), N1-C6-T01 (NSE target, app
+  group and keychain group entitlements), MP-N2-C5-T05 (pairing client hands over
   `machine_id`, `device_id`, machine public key).
 - Boundary with MP-N1: N1 owns the wrapper and targets; this ticket owns which items
   exist, their accessibility class and the `kid` mapping (contract v2 §4, PC-3).

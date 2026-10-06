@@ -82,7 +82,7 @@ anchor}` (single writer per conversation, anchors included).
    `decision.requested`, from payload `source.event_id` when present),
    `subject_ref` (`head_sha` = payload `sha`; `pr_number` = payload
    `pr["number"]`; `decision_id`).
-4. Read the tail window (`History.list_entries(ref, tail: true, limit: 200)`
+4. Read the tail window (`History.list_entries(ref, tail: true, limit: 200, principal: :internal)`
    plus `list_sessions/1`).
 5. Try `Anchors.exact/2`. If found → append it. If the event has a tool
    call id but no entry yet (the tool result is journaled *after* the tool
@@ -100,6 +100,11 @@ observed anchors remain (honest, weaker). No IssueLog replay.
 resolver records its last seen `event_id` per instance in
 `<conversation_state_dir>/resolver.json` so the later backfill ticket has a
 starting cursor.
+
+**Decision index (Phase D, CR-N6-4):** the resolver also keeps a small
+`decision_id → strongest anchor` index (updated when it writes a Command anchor),
+which backs `History.anchor_for_decision/1` (conversations contract §7). MP-N6-C1-T01
+reads it; without it the device view's `anchor` is `null`.
 
 ## Implementation steps
 
@@ -141,7 +146,7 @@ starting cursor.
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/conversation/anchor_resolver_test.exs test/aiur/conversation/jump_points_test.exs
 ```
 

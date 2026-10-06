@@ -50,7 +50,7 @@ Tickets:
 - MP-N5-C2-T02 Command rules (plan §5.1) over the MP-E2 routing contract; re-ask
   exclusion; retraction intents.
 - MP-N5-C2-T03 Progress rules (plan §5.2, RC-10): per-device 10/25/50 % from
-  `Aiur.BuildQueue.progress/1` and the progress-changed signal; persisted trackers.
+  `Aiur.BuildProgress.facts/1` (owned by the `build-orders` component, RC-40) and the progress-changed signal; persisted trackers.
 - MP-N5-C2-T04 Opt-in sources (`pr.merged`, `agent.retry_exhausted`, `ci.failed`).
 
 Tests: table-driven progress sequences (AC-N5-3/4); escalation sequences (AC-N5-1);

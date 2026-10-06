@@ -7,7 +7,7 @@ repo: aiur-team/aiur
 wave: 1
 title: Physical aiur_harness package skeleton; move contract, registry and AppServer core
 status: blocked
-blocked_by: [DESIGN-R7, MP-R7-C4-T02 (go), CR-R7-1 (MP-R1 physical form for Elixir components), U8 AGENT_CORE split of coding_agent.ex, MP-R1-C7-T3 (agent sandbox), MP-R1-C5-T2 (kernel process helpers)]
+blocked_by: [DESIGN-R7, MP-R7-C4-T02 (go), U8 AGENT_CORE split of coding_agent.ex, MP-R1-C7-T03 (agent sandbox), MP-R1-C5-T02 (kernel process helpers)]
 prior_units: [U7, U8]
 prior_boundaries: [CA (20), #17 agent sandbox, K (1)]
 prior_features: []
@@ -37,7 +37,10 @@ researched: 2026-10-06
 ## Dependencies and blockers
 
 - MP-R7-C4-T02 = go.
-- **CR-R7-1 (contract request to MP-R1):** MP-R1 names the forms ("Mix app /
+- **CR-R7-1 answered in Phase D:** in-repo Mix path dependency at
+  `packages/elixir/aiur_harness/`, referenced from `src/mix.exs`; no umbrella;
+  `mix release` includes it (MP-R1 migration-plan §5 "Physical form"). Original
+  request, kept for history: MP-R1 names the forms ("Mix app /
   npm package / repository", migration-plan §5) but not where an in-repo Elixir
   component package lives (e.g. `src/apps/<name>` umbrella child vs
   `packages/<name>` path dependency) or how `mix release` includes it. This
@@ -50,7 +53,7 @@ researched: 2026-10-06
   re-checks the owner against the then-current U8 ledger.
 - The package's required deps are kernel, config and agent sandbox (MP-R1
   component-map row `harness-adapters`); those must exist as importable units
-  first (MP-R1-C5-T2, MP-R1-C7-T3), or the package carries a temporary
+  first (MP-R1-C5-T02, MP-R1-C7-T03), or the package carries a temporary
   dependency on the main app, which would be a cycle — not allowed.
 
 ## Verified starting point (base `45a290e3`)

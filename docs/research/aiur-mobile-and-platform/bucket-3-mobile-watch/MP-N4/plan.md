@@ -72,7 +72,7 @@ priority and one uniform fallback string, never content or identifiers.
 | PR merges already reach the Executor binding set | `src/lib/aiur/executor_bindings.ex:25` (`ticket.*.pr.merged`) | opt-in `pr.merged` source exists |
 | Runtime state and decision state directories exist | `src/lib/aiur/config/paths.ex:61,243` | push outbox lives under `runtime_state_dir` per instance |
 | No advertised URL concept; default `server.port: 0` | baseline R3; `http_server.ex:143` `base_url/0` | context fetch depends on MP-N2's stable reachability, not on N4 |
-| Instance key = first 10 hex of sha256(project root) | `packaging/npm/aiur-cli/libexec/aiur-engine.sh` `aiur_instance_key()` (baseline N2) | `destination.instance_key` |
+| Instance key = first 10 hex of sha256(project root) | `packaging/npm/aiur-cli/libexec/aiur-engine.sh` `aiur_instance_key()` (baseline N2) | `destination.instance_id` = `<machine_id>/<instance_key>` (RC-02) |
 | MP-R1 already names the components | `bucket-1-refactor/MP-R1/component-map.md:126` (`push-relay`: optional package; "relay service is separate"), `capability-matrix.md:65,87` | N4 adopts these names |
 | Khala cannot carry push today | Khala @ `d898e6b8`: README "research, not an implemented service"; `docs/product/decisions.md:7`; no push code | MP-Q2 resolution, platform-evidence.md |
 
@@ -148,11 +148,14 @@ revoke and unpair-all (pairing contract §4.5, RC-3). Ticket: MP-N4-C3-T01.
 
 ### 7.1 Capability absence
 
-- `push.enabled: false` or no relay URL → capability `push: unavailable(not_configured)`;
-  app settings show "Notifications are off on <machine>" with the setup path (DESIGN-N4).
+- `push.enabled: false` → capability `push: unavailable(disabled)`; invalid settings →
+  `unavailable(not_configured)` (closed reason enum, identity contract §2.2; MP-N4-C3-T04
+  is the normative table). App settings show "Notifications are off on <machine>" with the setup path (DESIGN-N4).
 - No paired device → nothing is sent; intents are not retained (no backlog to burst later).
 - `build_orders` absent → progress kinds never generated (N5); Commands still notify.
-- Relay unreachable → `push: degraded(relay_unreachable, since)`; outbox retries with
+- Relay unreachable → `push: degraded(not_running, since)` (the enum has no
+  relay-specific reason; the human-readable "relay unreachable" line is `aiur push status`,
+  MP-N4-C3-T07); outbox retries with
   exponential backoff (1 s → 5 min cap); N5 staleness rules apply on recovery (no burst).
 
 ### 7.2 Device and key state
@@ -160,17 +163,33 @@ revoke and unpair-all (pairing contract §4.5, RC-3). Ticket: MP-N4-C3-T01.
 | State | iOS | Android | User sees |
 | --- | --- | --- | --- |
 | Locked, after first unlock | NSE reads `AfterFirstUnlock` key, decrypts | messaging service decrypts with credential-encrypted keyset | real summary (privacy of lock-screen preview is the OS setting) |
-| Restarted, never unlocked | key unavailable → fallback text (E-A3, E-B3) | FCM behaviour before first unlock UNVERIFIED (E-F9) → fallback | "aiur · New notification"; real content after unlock + open |
+| Restarted, never unlocked | key unavailable → fallback text (E-A3, E-B3) | messaging service is not direct-boot-aware (E-F9, RQ-N4-4 settled), so FCM messages are handled after first unlock and decrypt normally; V-A3 records the observed timing | iOS: "aiur · New notification"; real content after unlock + open. Android: the real summary after first unlock |
 | NSE timeout/crash | original alert = fallback | n/a | fallback |
-| App force-quit (iOS) | alert pushes with NSE still display — **UNVERIFIED**, V-I4 | force-stopped: **no delivery** until reopened (E-F7) | Android settings screen warns when the app detects it was force-stopped (DESIGN-N4) |
+| App force-quit (iOS app switcher) / swiped from recents or Settings → Force stop (Android) | alert pushes with NSE still display — **UNVERIFIED**, V-I4 (record) | swiped from recents: delivery expected (V-A2b, required on Pixel, record on Samsung); Settings → Force stop: **no delivery** until reopened (E-F7, V-A4) | Android settings screen warns when the app detects it was force-stopped (DESIGN-N4) |
 | Notifications permission denied | APNs token still issued, nothing displays | `POST_NOTIFICATIONS` denied (E-F8) | app reports `permission_denied` to the machine so the dashboard can show "phone notifications blocked" |
-| Unknown `kid` / bad signature / expired / seen `nid` | NSE returns empty content if filtering entitlement granted (E-A7, OQ-N4-3), else a neutral "Notification could not be verified" | not posted | — |
+| Unknown `kid` / bad signature / expired / seen `nid` **on a readable keyset** (remote cause, possibly an attack) | NSE returns empty content if filtering entitlement granted (E-A7, OQ-N4-3), else a neutral "Notification could not be verified" | not posted (silent drop) | — |
+| **Local key loss** (Android Keystore master key invalidated, keyset unreadable; iOS keychain read error other than `errSecInteractionNotAllowed`) — Phase D M6 | uniform fallback shown (`Fallback(KEYS_UNAVAILABLE)`, MP-N4-C4-T02) | uniform fallback **posted** (`Fallback(KEYS_UNAVAILABLE)`, MP-N4-C5-T02); in-app open shows "Open aiur to re-pair" | fallback, never nothing; the device reports `push_health: keys_lost` (contract §7) on its next online call and the dashboard / `aiur push status` show "phone notifications broken" (MP-N4-C3-T07) |
+
+A local cause and a remote cause are never collapsed (AGENTS.md "a collapsed cause names
+the collapse at the source"): silent drop is reserved for verification failures on a
+keyset the device *could* read.
 
 ### 7.3 Delivery timing and staleness
 
 - APNs stores one notification per app per device while offline (E-A4); FCM stores up to
   100 then drops all (E-F2). Neither is a queue; the app always reconciles with the
   machine on open ("3 Commands need you").
+- **Accepted but never displayed (Phase D M3).** APNs and FCM are best effort and return
+  no display receipt; the NSE makes no network call (KD-N4-6). A lost `human_required`
+  push is therefore a *delivery-reliability* risk, not a noise question. Recovery
+  (proposed; owner choice in DESIGN-N5 OQ-N5-2): **one** bounded reminder for a
+  `blocking` Command still `with_human` after N minutes (proposed default 30), sent as
+  `command.needs_you` with `attempt: 2`, the same `stream` and `collapse_token` (it
+  replaces, never stacks), the next `seq`, and dedup key `cmd:<command_id>:reminder`
+  (contract §3, §6). Every Command payload carries `summary.badge` (open blocking
+  Commands needing the human on that instance), so the app icon badge recovers the count
+  even when a banner was lost. Policy owner: MP-N5-C2-T01; device row V-R5. If the owner
+  refuses reminders, AC-N4-1 records that the only recovery is opening the app.
 - Every payload carries `expires_at`; Commands: 24 h or the Command's own expiry if
   shorter; progress: 2 h; `pr.merged`: 6 h. Devices discard expired payloads silently.
 - Ordering is not guaranteed (E-A2 "may reorder"); `stream`/`seq` makes the device show
@@ -206,8 +225,23 @@ open regardless, so a missed retraction degrades to "Already resolved" (MP-N6).
   to a handle but cannot forge content; rate-limited; rotate by re-registering), lost
   phone (remote unpair-all, D19; keys are `ThisDeviceOnly`).
 - Not covered and stated: traffic analysis of timing/size; the relay operator learning
-  how many machines a device is paired with; lock-screen display of the decrypted summary
-  (OS privacy setting).
+  how many machines a device is paired with. Clear metadata, listed in contract §1
+  (Phase D security m2): `k` (`kid`, stable per device and machine) in the provider
+  payload; the FCM `collapse_key` `a`/`b`, which tells Google "Command or not"; the
+  `push_class` and priority, which together tell the relay and Apple/Google when a
+  blocking Command occurs; and the device IP that the relay sees at `POST`/`DELETE
+  /v1/handles`.
+- **Fallback is pinned at the relay (Phase D security m1).** The relay pins the uniform
+  fallback per `app_topic` (env `AIUR_RELAY_FALLBACK_<APP_TOPIC_SLUG>`, JSON
+  `{title, body}`) and refuses an envelope whose `fallback` differs (`422
+  fallback_mismatch`); it never places any other clear alert text (MP-N4-C2-T01/T02).
+  A relay operator or a holder of the APNs key can still show the fallback or any clear
+  alert when the NSE does not run; signed content is the only authentic content.
+- **Lock screen (Phase D security m9).** Decrypted summaries appear on the lock screen and
+  on a forwarded watch. Proposed default (owner choice, DESIGN-N4): **hide the body when
+  locked** — iOS `hiddenPreviewsBodyPlaceholder` on the categories (MP-N4-C4-T03),
+  Android `VISIBILITY_PRIVATE` with a public version that carries the uniform fallback
+  text (MP-N4-C5-T03). The title follows the OS preview setting.
 - Logging: push-relay logs `intent_id`, `device_id`, outcome; never summary text. The
   relay never logs bodies. A test asserts no summary text in daemon logs (C3).
 
@@ -228,7 +262,10 @@ open regardless, so a missed retraction degrades to "Already resolved" (MP-N6).
 1. AC-N4-1 With the app backgrounded and the phone locked (after first unlock), a
    `human_required` blocking Command produces a lock-screen notification whose title is
    the Command short label and whose subtitle names the instance, on iOS and Android
-   physical devices (V-I1, V-A1).
+   physical devices (V-I1, V-A1). If that push is accepted but never displayed, exactly
+   one reminder follows while the Command stays `with_human` (§7.3, V-R5) — unless the
+   owner refuses reminders in DESIGN-N5 OQ-N5-2, in which case this criterion records
+   that the only recovery is the app badge and opening the app.
 2. AC-N4-2 A packet capture at the relay and the APNs/FCM request bodies contain no
    repo name, ticket number, Command id, machine id or summary text (C2/C3 tests +
    V-P1). The only clear strings are the uniform fallback.
@@ -244,8 +281,9 @@ open regardless, so a missed retraction degrades to "Already resolved" (MP-N6).
    summary.
 7. AC-N4-7 Relay down for 2 h, then back: no more than one notification per stream plus
    at most one digest per instance is delivered (N5 rules; V-R2).
-8. AC-N4-8 Capability report shows `push` as `unavailable(not_configured)`,
-   `degraded(relay_unreachable)` or `available`, never silently missing (C3).
+8. AC-N4-8 Capability report shows `push` as `unavailable(disabled | not_configured |
+   dependency_unavailable)`, `degraded(not_running | unknown)` or `available`, never
+   silently missing (C3-T04 table).
 9. AC-N4-9 Every V-* item in device-validation-plan.md has a recorded result, including
    the UNVERIFIED items E-B6, E-F7, E-F9, E-W1 resolved one way or the other.
 
@@ -275,7 +313,11 @@ user-visible ticket is blocked on it; C1–C3 (crypto, relay, daemon client) may
   runtime guard.
 - RQ-N4-2 Watch shows NSE-decrypted content for forwarded notifications? (E-B6) — V-W1.
 - RQ-N4-3 iOS alert+NSE delivery after force-quit — V-I4.
-- RQ-N4-4 FCM delivery before first unlock on Android 14+ — V-A3.
+- RQ-N4-4 **Settled (Phase D, documentation):** Firebase documents Direct Boot receipt
+  (it needs `firebase-messaging-directboot`, `android:directBootAware="true"` and Play
+  services 19.0.54+, and the service must not touch credential-encrypted storage). Our
+  keys live in CE storage, so the messaging service is **not** marked direct-boot-aware;
+  messages are handled after first unlock (E-F9). V-A3 stays a record row.
 - RQ-N4-5 Can an iOS NSE remove other delivered notifications
   (`removeDeliveredNotifications`) — V-I6.
 - RQ-N4-6 UnifiedPush provider for de-Googled Android: demand and relay adapter shape.
@@ -284,7 +326,9 @@ user-visible ticket is blocked on it; C1–C3 (crypto, relay, daemon client) may
 - RQ-N4-8 (new) Can a Cloudflare Worker send to APNs (HTTP/2) and sign ES256 within
   limits? Blocks only the optional C2-T07.
 - RQ-N4-9 (new) How the Android app detects it was force-stopped (candidate:
-  `ApplicationExitInfo` reasons, API 30+); re-read E-F7. Blocks part of C5-T03.
+  `ApplicationExitInfo` reasons, API 30+); re-read E-F7 against the FCM troubleshooting
+  page and the Android "stopped state" documentation. C5-T03's warning branch stays
+  blocked until a dated developer.android.com page is cited.
 
 ## 12. Plan refresh after the refactor (MP-R1..R7)
 

@@ -1,7 +1,7 @@
 ---
 contract_id: MP-CT-queue-readiness-and-build-progress
 owner_feature: MP-E1
-status: reconciled (Phase C, 2026-10-06; applies RC-08, RC-10, RC-11, RC-19, RC-20)
+status: reconciled (Phase D fix pass, 2026-10-06; applies RC-08, RC-10, RC-11, RC-19, RC-20, RC-40; X-05, X-09, X-21)
 base_main_sha: 45a290e3
 date: 2026-10-06
 consumers: MP-N3, MP-N4, MP-N5, MP-N7, MP-E4, MP-R1, MP-R2
@@ -141,27 +141,37 @@ is unclaimed.
 
 ## 4. Build progress facts and milestones (D18, consumed by MP-N5/N4/N3/N7)
 
-### 4.0 Owner and read API (RC-10)
+### 4.0 Owner and read API (RC-10, RC-40)
 
-Progress facts are held by a neutral module, `Aiur.BuildProgress` (proposed,
-`src/lib/aiur/build_progress.ex`, MP-E1-C7). It has two producers: the queue
-server (queue scopes) and a Build Order observer
-(`Aiur.BuildOrder.ProgressObserver`, build-order scopes; RC-08 names MP-E1-C7
-as the producer). It does not depend on `build_queue.enabled`: Build Order
-milestones exist without a queue.
+Progress facts are held by `Aiur.BuildProgress` (proposed,
+`src/lib/aiur/build_progress.ex`). **The module belongs to the `build-orders`
+component** (RC-40; MP-R1 component map). MP-E1-C7 still writes the code. It has
+two producers: a Build Order observer (`Aiur.BuildOrder.ProgressObserver`,
+build-order scopes; RC-08 names MP-E1-C7 as the producer) and the queue server
+(queue scopes), which is one producer among two and reaches the module through
+its public write API only. Nothing here depends on `build_queue.enabled` or on
+the build-queue component being installed: Build Order progress and milestones
+exist without a queue, so D18's default progress notifications work without it.
+
+- **Capability gating (RC-40).** Root (build-order) progress is reported under
+  `build_orders.progress`, provided by build-orders; queue progress needs
+  `build_queue`. MP-N5 gates build-order notifications on `build_orders`
+  (`build_orders.progress`), never on `build_queue`.
 
 - **Read API:** `Aiur.BuildProgress.facts(scope_filter)` returns the current
   facts (§4.1) for every scope, or for one.
 - **Progress-changed signal (internal):** Phoenix PubSub topic
   `"build_progress"`, message `{:build_progress_changed, fact}`, sent whenever
-  a scope's `percent`, `resolution` or `freshness` changes. It is not a bus
-  topic and is not exported. MP-N5 computes per-device thresholds (for example
+  a scope's `percent`, `resolution`, `freshness` or `generation` changes,
+  **including decreases** (Phase D, CR-N5-4). It is not a bus topic and is not
+  exported. A consumer that only needs `{scope, generation}` reads them from the
+  fact and may re-read `facts/1`. MP-N5 computes per-device thresholds (for example
   10% steps) from it; this contract keeps the milestone events at 25%.
 
 ### 4.1 Progress fact
 
-`{scope, completed, resolved, total, percent, resolution, observed_at,
-freshness}`. `scope` is one of:
+`{scope, generation, completed, resolved, total, percent, resolution, observed_at,
+freshness}` (`generation` per §4.2; added in Phase D for CR-N5-4). `scope` is one of:
 - `{"queue": "<queue_id>"}`: computed by the queue from its items. `percent` is
   `completed ÷ (total − removed) × 100`, rounded down.
 - `{"build_order": <root>}`: taken from `RootSummary.progress` /
@@ -207,9 +217,13 @@ as today.
 
 **Producer (RC-08).** MP-E1-C7 produces `system.build_order.<root>.progress`
 from a small observer inside `src/lib/aiur/build_order/`. MP-R2's catalog
-(R2-C5) registers every topic in this table, plus the requested
-`ticket.<id>.pr.closed_unmerged` and `ticket.<id>.issue.closed`. MP-E1 v1 does
-not depend on those two producers (§6 E-A3).
+(R2-C5) registers every topic in this table, plus
+`ticket.<id>.pr.closed_unmerged` and `ticket.<id>.issue.closed`.
+**RC-26:** MP-E1-C4-T05 produces `ticket.<id>.pr.closed_unmerged` (class `live`)
+from the same stored-delivery observation it uses for the verdict, once per
+observed transition; webhook mode only, and the E1 docs say so.
+`ticket.<id>.issue.closed` stays registered with no v1 producer (CR-E1-2). The
+queue's own verdicts never depend on either event (§6 E-A3).
 
 ## 5. Interfaces offered (proposed)
 
@@ -219,7 +233,7 @@ not depend on those two producers (§6 E-A3).
 | `Aiur.BuildProgress.facts/1`, `subscribe/0` | progress facts §4.1 for all scopes; the progress-changed signal §4.0 | MP-N3, MP-N5, MP-N7 |
 | `Aiur.BuildQueue.Hints.sort_key/1`, `held?/1` | ETS reads; `{0, 0}`/`false` when the table or the key is absent. `sort_key` returns `{-downstream_open, list_position}` as two integers that `DispatchPolicy` splices into its own key (`{d, priority_rank, position, created_at, identifier}`). It is **not** a whole tuple prepended to the key: Erlang orders tuples by size first, so a 1-tuple default would sort ahead of every 5-tuple rank | `DispatchPolicy` only (RC-11 edge 1) |
 | `Aiur.BuildQueue.ClaimProbe` | behaviour `status([issue_id]) :: %{issue_id => :claimed \| :unclaimed \| {:declined, atom()}} \| :unavailable`; `notify_demand([id]) :: :ok \| :unavailable` | implemented by orchestration (RC-11 edge 2) |
-| `Aiur.Tracker` optional observation callbacks | `open_issue_labels/1`, `blocked_by/1`, `issue_closure/1`, `ticket_pull_request/1` (MP-E1-C1-T03, C4-T03..T05). The GitHub adapter implements them; Linear answers `{:error, :unsupported}` | the queue's observer, so `build_queue/` never references `Aiur.GitHub.*` |
+| `Aiur.Tracker` optional observation callbacks | `open_issue_labels/1`, `blocked_by/1`, `issue_closure/1`, `ticket_pull_request/1` (MP-E1-C1-T03, C4-T03..T05), plus `ensure_labels/1` for the queue's label bootstrap. The GitHub adapter implements them; Linear answers `{:error, :unsupported}`. Recorded in MP-R1 component-map §3 (CR-E1-3) | the queue's observer, so `build_queue/` never references `Aiur.GitHub.*` |
 | `Aiur.BuildQueue.Source` | behaviour `members(queue) :: {:ok, [item], [edge], freshness} \| {:unavailable, reason}` | ExecutorList, BuildOrder |
 | Capability | `build_queue`, `build_queue.build_order_source` (identity-and-capabilities contract) | clients detect presence |
 
@@ -236,8 +250,8 @@ not depend on those two producers (§6 E-A3).
   `ticket_pull_request/1` callback at no request cost. Coverage is webhook
   mode only: in poll-only mode the prerequisite stays `pending` (the safe
   direction) and no `failed` verdict is produced. RC-08 registers
-  `ticket.<id>.pr.closed_unmerged`; once a producer exists the queue may use it
-  as a reconcile trigger, never as the source of truth.
+  `ticket.<id>.pr.closed_unmerged`, and MP-E1-C4-T05 is its producer (RC-26);
+  the queue may use it as a reconcile trigger, never as the source of truth.
 - E-A4. Attention topics emitted through `Aiur.Alerts` are `ledgered` and reach
   the Executor only when bound in `ExecutorBindings`. MP-E1 adds the two
   bindings in §4.3.
@@ -250,11 +264,12 @@ not depend on those two producers (§6 E-A3).
   `Config.Paths.decision_state_dir/0` (F9).
 - I-A2. The capability registry accepts `build_queue` and
   `build_queue.build_order_source`. These names match the MP-R1 capability
-  matrix.
+  matrix. The provider is MP-E1-C3-T08 (X-21); its state mapping is in identity
+  §2.3 (`store_unavailable` and `writes_paused` are registered reasons).
 
-**MP-N5:** a notification rule subscribes to milestone topics and applies
-D18's defaults. N5 owns per-device preference and suppression, not this
-contract.
+**MP-N5:** a notification rule subscribes to the milestone topics of §4.3
+(exact names, no `.milestone` suffix) and applies D18's defaults. N5 owns
+per-device preference and suppression, not this contract.
 
 ## 7. Compatibility
 
@@ -271,6 +286,12 @@ contract.
   MP-R1-C1 absorbs it later.
 - Orchestration depends on the queue through exactly two narrow edges: the
   `Hints` read in `DispatchPolicy`, and the `ClaimProbe` implementation.
+- **After MP-R1 lands (Phase D, CR-R1-6):** `build_queue` and
+  `build_queue.build_order_source` register through an `Aiur.Capabilities.Provider`
+  module once MP-R1-C3-T01 exists (ticket MP-E1-C3-T08, X-21); the single attention function calls
+  `Aiur.Signal.alert/2` once MP-R1-C5-T03 exists. The names `Aiur.BuildQueue.Hints`
+  and `Aiur.BuildQueue.ClaimProbe` are final (MP-R1-C1-T06 manifest `seams`).
+  MP-R1-C8-T09 performs both switches.
 - Core edits outside `build_queue/` are limited to the MP-E1-C1 hooks (plus
   the tracker observation callbacks of C4 and the progress observer of C7).
   The prior refactor's U2 and U5 tickets rebase over them and keep them

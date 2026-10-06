@@ -102,7 +102,7 @@ Live check (Executor, not CI): from `/tmp`, `scripts/aiurdev mobile gateway star
 `ps` shows no orchestrator, `aiurdev mobile gateway status --json`, `aiurdev mobile gateway stop`.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur_engine_mobile_gateway_test.exs
 ```
 

@@ -3,7 +3,8 @@ design_task: DESIGN-R2
 feature_id: MP-R2
 owner: Kevin
 status: open (awaiting explicit approval)
-blocks: every MP-R2 implementation ticket (MP-R2-C1..C7)
+blocks: [MP-R2-C1-T01, MP-R2-C1-T02, MP-R2-C1-T03, MP-R2-C1-T04, MP-R2-C1-T05, MP-R2-C1-T06, MP-R2-C2-T01, MP-R2-C2-T02, MP-R2-C2-T03, MP-R2-C2-T04, MP-R2-C2-T05, MP-R2-C2-T06, MP-R2-C2-T07, MP-R2-C2-T08, MP-R2-C2-T09, MP-R2-C2-T10, MP-R2-C2-T11, MP-R2-C3-T01, MP-R2-C3-T02, MP-R2-C3-T03, MP-R2-C4-T01, MP-R2-C4-T03, MP-R2-C4-T04, MP-R2-C4-T05, MP-R2-C5-T01, MP-R2-C5-T02, MP-R2-C5-T03, MP-R2-C5-T04, MP-R2-C6-T01, MP-R2-C6-T02, MP-R2-C6-T03, MP-R2-C6-T04, MP-R2-C6-T05, MP-R2-C7-T01, MP-R2-C7-T02, MP-R2-C7-T03, MP-R2-C7-T04, MP-R2-C7-T05]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-R2 (waived entries excluded). Earlier wording: every MP-R2 implementation ticket (MP-R2-C1..C7)"
 base_main_sha: 45a290e3
 date: 2026-10-06
 related_plan: ../bucket-1-refactor/MP-R2/plan.md
@@ -66,10 +67,14 @@ browser, that belongs to MP-E4 (DESIGN-E4), not here.
 
 ## 4. Decisions needing Kevin's input
 
-- **KQ-R2-1.** Retention default (S1). Engineering cannot pick the right
-  trade-off between disk use and how long a phone may be offline.
+- **KQ-R2-1.** Retention default (S1). Options: the plan default (7 days or
+  50,000 events, whichever is smaller, configurable); a longer window; not
+  configurable. Recommended: **the plan default**, because a week covers a phone
+  left off over a weekend and the event cap bounds disk use; it is a trade-off
+  between disk use and offline time, so Kevin confirms it.
 - **KQ-R2-2.** Whether the operator CLI `aiur events tail` (S2) ships with the
-  feed, or the feed stays API-only.
+  feed, or the feed stays API-only. Recommended: **ship it, read-only**, because
+  it is the only way to inspect the feed without writing a client.
 - **KQ-R2-3.** Whether exporting events to an *external* client may include
   free-text fields at all (Command titles, comment excerpts), or whether the
   external feed is identifiers-only and clients fetch text from the

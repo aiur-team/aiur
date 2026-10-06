@@ -83,7 +83,7 @@ Additive callback. Linear: `{:error, :unsupported}` (queue already disabled).
 Mutation check: call `blocked_by` for every item → test 2 fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/observer_test.exs test/aiur/github/tracker_blocked_by_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/observer_test.exs test/aiur/github/tracker_blocked_by_test.exs
 ```
 
 ## Completion and handoff

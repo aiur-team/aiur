@@ -152,7 +152,7 @@ No config. Dormant until routing is `:listener` and a Muse agent is set to
   once.
 - Harness contract test (MP-R7-C1-T01): `muse` reports
   `mid_turn_inject: :native`.
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur/muse`.
 - Manual (AGENTS.md wrapper-tmux recipe, `agent.routing` with `muse`): long
   task, `steer` mode, type in chat pane `0.1` mid-turn; expect the message in

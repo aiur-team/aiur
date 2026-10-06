@@ -46,7 +46,8 @@ device row (contract §2, §4.1).
 ## Chosen design
 
 - Behaviour `Aiur.Machine.PushDeregistrar` with `deregister(push_registration) :: :ok |
-  {:retry, reason} | {:gone}`; implementation resolved at runtime via the MP-R1 capability registry
+  {:retry, reason}` (Phase D: a relay `404`/unknown handle is `:ok`, so there is no separate
+  `{:gone}`; MP-N4-C3-T05's `Aiur.Push.Deregister` implements it); implementation resolved at runtime via the MP-R1 capability registry
   (`push` capability present → MP-N4 module; absent → `Noop` returning `:ok` with the reason).
 - The registration blob is copied into the outbox **before** the device row is deleted (same locked
   write), so revocation never loses what must be deregistered.
@@ -78,7 +79,7 @@ Inert until a device has a push registration.
 4. `"no push component: done with push_not_installed"`. 5. `"worker resumes after restart"`.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/push_outbox_test.exs
 ```
 

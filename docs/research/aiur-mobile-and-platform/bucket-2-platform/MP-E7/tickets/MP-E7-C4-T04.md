@@ -131,7 +131,7 @@ E7-D6 behaviour change and only takes effect at MP-E7-C7-T04.
   `"listener item on claude-repl accepts checkpoint"`; `"legacy item on
   claude-repl still accepts only immediate"`. Mutation: revert the
   `capabilities.ex` change → first fails.
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur/claude/repl test/aiur/orchestrator`.
 - Manual (wrapper-tmux recipe; `claude-repl` routing): (a) `steer`: during a
   multi-tool turn type a message in pane `0.1`; expect Claude to acknowledge

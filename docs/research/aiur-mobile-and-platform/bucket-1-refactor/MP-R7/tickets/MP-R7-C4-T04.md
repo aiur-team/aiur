@@ -7,7 +7,7 @@ repo: aiur-team/aiur
 wave: 1
 title: Move the Codex, Claude, Muse, OpenAI-compat (and, if merged, Gemini) adapters into aiur_harness
 status: blocked
-blocked_by: [DESIGN-R7, MP-R7-C4-T03, U8 CLAUDE splits (claude/remote_control.ex, claude/telemetry.ex, claude/coding_agent.ex), U8 CODEX split (codex/event_humanizer.ex), MP-R1-C5-T2]
+blocked_by: [DESIGN-R7, MP-R7-C4-T03, U8 CLAUDE splits (claude/remote_control.ex, claude/telemetry.ex, claude/coding_agent.ex), U8 CODEX split (codex/event_humanizer.ex), MP-R1-C5-T02]
 prior_units: [U4, U7, U8]
 prior_boundaries: [CDX (21), CLD (22), OAI (23), TUI (33)]
 prior_features: [integrations-09]
@@ -43,7 +43,7 @@ researched: 2026-10-06
   gate rejects a new >500 path, so their splits land first. RC-23: re-check
   owners against the then-current U8 ledger.
 - `claude/remote_control.ex` process helpers must already live in the kernel
-  (MP-R1-C5-T2), or the package would export them back to sandbox/workspace
+  (MP-R1-C5-T02), or the package would export them back to sandbox/workspace
   callers (C3-T05 allowlist class 5) — an upward edge from L2 domain peers into
   the harness package.
 - Claude REPL depends on the tmux transport (`Repl.* → Tmux`, prior §22

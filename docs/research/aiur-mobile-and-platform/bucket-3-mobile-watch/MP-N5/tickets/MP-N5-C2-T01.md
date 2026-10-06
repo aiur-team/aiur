@@ -34,7 +34,7 @@ Bucket 3, MP-N5, chunk C2. The foundation the rule tickets plug into:
    crash between them yields at most a resend through the outbox, never a second intent).
 4. Reconciliation: at boot, on a `gap`/`reset` record, and every 10 minutes, re-derive
    "needs you" Commands from `Aiur.DecisionStore.list/1` and progress facts from
-   `Aiur.BuildQueue.progress/1`, feeding them through the same rules; the ledger absorbs
+   `Aiur.BuildProgress.facts/1`, feeding them through the same rules; the ledger absorbs
    repeats.
 5. Rule dispatch: `rules :: [module]` implementing `Aiur.Push.Policy.Rule`
    (`handle_event/2`, `reconcile/2` → `[NotificationIntent]`); C2-T02..T04 add rules.
@@ -62,7 +62,7 @@ Bucket 3, MP-N5, chunk C2. The foundation the rule tickets plug into:
   `system.build_order.*.progress.*`, `system.queue.*.progress.*`, `ticket.*.pr.merged`,
   `ticket.*.ci.failed`, `ticket.*.agent.retry_exhausted` (exact strings confirmed in
   C2-T00). The E1 progress-changed signal (RC-10) is subscribed through whatever internal
-  interface MP-E1-C7 exposes (CR-N5-4 asks for its name/shape); the Source adapter hides it.
+  interface MP-E1-C7 exposes (`Aiur.BuildProgress.subscribe/0`, PubSub `"build_progress"`, message `{:build_progress_changed, fact}`, queue-readiness contract §4.0; CR-N5-4 closed in Phase D); the Source adapter hides it.
 - Dedup on `(instance_id, event id)` inside a 10 000-entry LRU for the live path;
   cursor `seq` for the export path.
 - Ledger retention: Command keys 30 days; progress keys until the scope generation ends;
@@ -107,4 +107,6 @@ Commands (from `src/`): `mise exec -- mix test test/aiur/push/policy/server_test
 ## Completion and handoff
 
 - [ ] Both sources tested; ledger ordering asserted.
+- Docs: none — internal policy server with no operator surface; the user-visible
+  behaviour it enables is documented by C2-T02/C2-T03 and C5-T01 (Phase D T-6).
 - Dependents: C2-T02, C2-T03, C2-T04, C3-*.

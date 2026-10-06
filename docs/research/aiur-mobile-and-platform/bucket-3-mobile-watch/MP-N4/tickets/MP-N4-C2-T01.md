@@ -65,6 +65,14 @@ Workers (T06). The service never links aiur daemon code.
     environment: "production"|"sandbox"}` → `201 {handle, send_secret}`. Validation:
     `app_topic` must be in the configured allowlist (the publisher's bundle ids / Firebase
     app ids, env `AIUR_RELAY_APP_TOPICS`), so the relay cannot be used for other apps.
+  - **Pinned fallback (Phase D security m1).** For every allowed `app_topic` the relay
+    loads a pinned uniform fallback from env `AIUR_RELAY_FALLBACK_<APP_TOPIC_SLUG>`
+    (JSON `{title, body}`, ≤ 200 bytes UTF-8 together; slug = topic uppercased with
+    non-alphanumerics → `_`). A topic without a pinned fallback is refused at boot
+    (the relay will not start). `POST /v1/send` whose envelope `fallback` differs from
+    the pin for the handle's topic → `422 fallback_mismatch`, nothing delivered; the
+    provider adapters (T02/T03) only ever receive the **pinned** value, never envelope
+    text. The relay places no other clear alert text.
   - `DELETE /v1/handles/:handle` with `Authorization: Bearer <send_secret>` → `204`;
     unknown → `404`.
   - `POST /v1/send` → `202` after the provider accepted the job into the in-process queue
@@ -111,6 +119,9 @@ C3 points at a deployed URL.
 | `send_test "same idempotency_key twice sends once"` | 1 provider call, both `202` | remove the `sends` lookup |
 | `send_test "gone handle answers 410"` | after Fake returns `{:gone, _}`, next send → 410 | ignore `{:gone,_}` |
 | `log_test "sealed and push_token never reach the logger"` | `capture_log` lacks both strings | log the envelope |
+| `send_test "envelope fallback that differs from the topic pin is 422 fallback_mismatch"` | `422`, Fake provider got 0 calls | remove the pin comparison |
+| `send_test "provider receives the pinned fallback, not envelope text"` | Fake provider's `fallback` arg equals the env pin byte-for-byte | pass `envelope.fallback` through |
+| `boot_test "allowed topic without a pinned fallback refuses to start"` | `Application.start` returns `{:error, {:missing_fallback, topic}}` | default to envelope fallback |
 
 Commands: `env -C packages/aiur-push-relay mise exec -- mix test`,
 `env -C packages/aiur-push-relay mise exec -- mix format --check-formatted`.
@@ -118,5 +129,6 @@ Commands: `env -C packages/aiur-push-relay mise exec -- mix test`,
 ## Completion and handoff
 
 - [ ] Package builds and tests from a clean checkout; path-filtered CI job added in T05.
-- Docs: package README only (operator docs ship with T05).
+- Docs: package README only (operator docs ship with T05, which must list
+  `AIUR_RELAY_FALLBACK_<APP_TOPIC_SLUG>`).
 - Dependents: C2-T02, C2-T03, C2-T04, C2-T05, C3-T03 (contract client), C4-T05/C5-T05.

@@ -9,15 +9,15 @@ edited.
 ## CR-R1-1 — Events catalog: `system.capabilities.changed` (owner MP-R2)
 
 - **Contract:** `contracts/events-and-replay.md` (topic catalog, MP-R2-C5; RC-08 list).
-- **Request:** register `system.capabilities.changed`, producer MP-R1-C3-T5, payload
+- **Request:** register `system.capabilities.changed`, producer MP-R1-C3-T05, payload
   `{"revision": int, "boot_id": string}` only, published once per revision change. It
   must stay **unbound** from the Executor wake stream (no `system.#` binding exists today,
   `executor_bindings.ex:7-35`). Export it through the external API (MP-R2-C7) when
   `events.export` is on.
 - **Also:** envelope `instance_id` comes from `Aiur.Identity.instance_id/0`
-  (MP-R1-C2-T2), which is `nil` when identity is degraded — the envelope must allow null.
+  (MP-R1-C2-T02), which is `nil` when identity is degraded — the envelope must allow null.
 - **Answer to MP-R2 RQ-3:** the journal primitive lives in `kernel` as `Aiur.Journal`
-  (MP-R1-C5-T1, a rename of `Aiur.DecisionLog` after U6). MP-R2-C3-T01 builds on it.
+  (MP-R1-C5-T01, a rename of `Aiur.DecisionLog` after U6). MP-R2-C3-T01 builds on it.
 
 ## CR-R1-2 — Pairing: `instance_id` and who creates `identity.json` (owner MP-N2)
 
@@ -59,8 +59,8 @@ edited.
   (`{conversation_id, session_seq}`); the identity contract no longer defines a session
   string (identity §1.5). When the answer endpoint refuses because a capability is off,
   use the `capability_unavailable` body (identity §2.5; encoder
-  `AiurWeb.CapabilityError.render/2`, MP-R1-C3-T3). `commands.answer` is `degraded`
-  (recorded, not delivered) when orchestration is down (MP-R1-C3-T2).
+  `AiurWeb.CapabilityError.render/2`, MP-R1-C3-T03). `commands.answer` is `degraded`
+  (recorded, not delivered) when orchestration is down (MP-R1-C3-T02).
 
 ## CR-R1-5 — Conversations: `SessionRef` is canonical (owner MP-E4)
 
@@ -73,18 +73,18 @@ edited.
 
 - **Contract:** `contracts/queue-readiness-and-build-progress.md` (and MP-E1 plan X-1).
 - **Request:** register `build_queue` / `build_queue.build_order_source` through an
-  `Aiur.Capabilities.Provider` module once MP-R1-C3-T1 exists; the single attention
-  function calls `Aiur.Signal.alert/2` once MP-R1-C5-T3 exists; keep the names
-  `Aiur.BuildQueue.Hints` and `Aiur.BuildQueue.ClaimProbe` (MP-R1-C1-T6 writes them into
+  `Aiur.Capabilities.Provider` module once MP-R1-C3-T01 exists; the single attention
+  function calls `Aiur.Signal.alert/2` once MP-R1-C5-T03 exists; keep the names
+  `Aiur.BuildQueue.Hints` and `Aiur.BuildQueue.ClaimProbe` (MP-R1-C1-T06 writes them into
   manifest `seams`) or tell MP-R1 the merged names.
 
 ## CR-R1-7 — Harness adapters: config-layer backend-catalog edges (owner MP-R7)
 
 - **Contract:** `contracts/harness-adapter.md`.
-- **Request:** take ownership of the remaining config→harness edges that MP-R1-C4-T3
+- **Request:** take ownership of the remaining config→harness edges that MP-R1-C4-T03
   deliberately leaves allowlisted: `Aiur.Config → Aiur.CodingAgent` (`config.ex:319,396,
   495,1405-1413`) and `Config.Schema.AgentValidation`/`Schema.Codex → Aiur.CodingAgent`
   (`agent_validation.ex:78,132`, `agent.ex:120`). Registered adapter data (the catalog
   in `CodingAgent.Registry.entries/0`) can feed config validation through the
-  `Aiur.Config.SemanticCheck` registry from MP-R1-C4-T1. Per-harness capabilities
+  `Aiur.Config.SemanticCheck` registry from MP-R1-C4-T01. Per-harness capabilities
   surface as `harness.<id>` IDs through `Aiur.Capabilities.Provider`.

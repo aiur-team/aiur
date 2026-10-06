@@ -5,7 +5,7 @@ chunk_id: MP-E6-C4
 bucket: 2-platform
 title: Read-port behaviours and host wiring for worker targets
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T01, MP-E4-C2]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T01, MP-E4-C2-T01]
 prior_units: []
 prior_boundaries: [VOX, DEC, PRJ]
 prior_features: [integrations-51]
@@ -31,7 +31,7 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **Predecessors:** C4-T01; MP-E4-C2 (`list_entries/2`) — optional: without it the
+- **Predecessors:** C4-T01; MP-E4-C2-T01 (`list_entries/2`; every call passes `principal:` (conversations contract §7; a call without it raises `ArgumentError`, security M5)) — optional: without it the
   conversation port uses `LiveConversation`.
 
 ## Verified starting point (base `45a290e3`)
@@ -39,7 +39,7 @@ researched: 2026-10-06
 | Source | API |
 | --- | --- |
 | Bounded live conversation | `Aiur.LiveConversation.snapshot/2` → `%{messages: [%{id, role, title, body, occurred_at, observed_at}], state, freshness, truncated?, …}` (`live_conversation.ex:23-47,96-97`); 80 messages / 64,000-byte cap (`live_conversation/retention.ex:6-8`) |
-| Full history (future) | `list_entries(ConversationRef, tail: true, limit: n)` and `after: pos` (`contracts/conversations-transcripts-anchors.md` §7) — resolves RQ-E6-8 |
+| Full history (future) | `list_entries(ConversationRef, principal: p, tail: true, limit: n)` and `after: pos`; `principal:` required (`contracts/conversations-transcripts-anchors.md` §7) — resolves RQ-E6-8 |
 | Commands | `Aiur.DecisionStore.get/2`, `list/1` (`decision_store.ex:387-395`), struct fields `decision_status`, `version`, `options`, `question`, `ticket.identifier` (`decision.ex:100-125,168-184`) |
 | Status | `Aiur.Orchestrator.StatusReport.snapshot_api/2`, `status_api/2` (`orchestrator/status_report.ex:112-124`) |
 
@@ -53,7 +53,10 @@ researched: 2026-10-06
 @callback target_alive?(target) :: boolean() | :unknown
 ```
 
-- Worker targets: conversation via E4 `list_entries` when its capability is available,
+- Worker targets: conversation via E4 `list_entries(ref, principal: :internal, …)` when its
+  capability is available (`:internal` only because this text goes no further than the
+  provider path, which runs `SecretRedactor` in C4-T03; anything rendered back to a device
+  client reads with `principal: {:device, device_id}`, masked; arity stays `list_entries/2`),
   else `LiveConversation.snapshot/2` (meta `source: :live, complete?: false`); commands =
   `DecisionStore.list/1` filtered to the ticket and answerable statuses; status from
   `StatusReport.snapshot_api/2` filtered to the ticket.
@@ -82,6 +85,7 @@ Internal. Rollback: revert.
 | "an orchestrator exit is unavailable, not an empty status" | stub exits → `{:error, :unavailable}` |
 | "without E4 the live snapshot is used and marked incomplete" | meta `source: :live, complete?: false` |
 | "target_alive? is :unknown when the status port fails" | not `false` |
+| "with E4, the worker port reads history with `principal: :internal`" (security M5) | fake History records the `principal:` opt; a call without it raises `ArgumentError` in the fake, as in the contract |
 
 ```bash
 env -C src mise exec -- mix test test/aiur/voice_conversation/ports_test.exs

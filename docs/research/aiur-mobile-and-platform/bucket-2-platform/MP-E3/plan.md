@@ -77,9 +77,9 @@ Local versions: Claude Code `2.1.291`, `codex-cli 0.160.0`.
 
 | Capability | Claude Code | Codex CLI | Source |
 | --- | --- | --- | --- |
-| Hook payload names the transcript | Every hook gets `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `permission_mode`; subagent hooks add `agent_id`, `agent_type`. | Every hook gets `session_id`, `transcript_path` (nullable), `cwd`, `hook_event_name`, `model`, `permission_mode`, `turn_id`. | [Claude hooks](https://code.claude.com/docs/en/hooks), [Codex hooks](https://learn.chatgpt.com/docs/hooks), both read 2026-10-06 |
+| Hook payload names the transcript | Every hook gets `session_id`, `transcript_path`, `cwd`, `hook_event_name`, `permission_mode`; subagent hooks add `agent_id`, `agent_type`. | Every hook gets `session_id`, `transcript_path` (nullable), `cwd`, `hook_event_name`, `model`, `permission_mode`, `turn_id`. | [Claude hooks](https://code.claude.com/docs/en/hooks), Codex: `openai/codex` `codex-rs/hooks/src/schema.rs` @ `a9abdeaf` (Phase D pin, T-11); both read 2026-10-06 |
 | Session boundaries | `SessionStart` with source `startup | resume | clear | compact | fork`; `SessionEnd`. | `SessionStart`, `SessionEnd`. | same |
-| Background agents | `SubagentStart` (`agent_id`, `agent_type`), `SubagentStop` (adds `agent_transcript_path`, `last_assistant_message`); `TaskCreated`, `TaskCompleted`. | `SubagentStart`, `SubagentStop`. Field set not verified. | same |
+| Background agents | `SubagentStart` (`agent_id`, `agent_type`), `SubagentStop` (adds `agent_transcript_path`, `last_assistant_message`); `TaskCreated`, `TaskCompleted`. | `SubagentStart` (`agent_id`, `agent_type`), `SubagentStop` (adds `agent_transcript_path`, `stop_hook_active`, `last_assistant_message`), per the pinned schema; local-binary capture still in MP-E3-C4-T02. | same |
 | Add model context from a hook | `additionalContext` on `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`, `SubagentStart/Stop` and others; `Stop` can `decision: "block"` with a reason. | Add context: `SessionStart`, `PreToolUse`, `PostToolUse`, `SubagentStart/Stop`, `UserPromptSubmit`, `Stop`. | same |
 | Wake an idle session | `asyncRewake` hook: a background hook that exits 2 wakes Claude with its stderr as a system reminder. Khala proved an idle wake on 2.1.283 with a Stop-armed watcher (3,000 s lifetime). | `codex queue --thread <id> --message <text>` starts a turn in a live TUI. The text is in argv, there is no stdin form and no receipt; Khala uses it only for a fixed content-free wake. | Claude hooks page; Khala `experiments/internal-mode/listening-modes/claude/README.md`; `codex queue --help` (0.160.0); Khala `docs/product/internal-mode/interactive-codex.md` |
 | Push a message into a running session | **Channels**: an MCP server pushes `notifications/claude/channel`. Research preview; custom channels need `--dangerously-load-development-channels`; no acknowledgement; events queue to the next turn. | No supported stdin, attach socket or IPC into a running TUI (Khala inventory, 0.154/0.156). 0.160 adds `codex agents` (sessions on a "shared local app-server daemon"); attach semantics unverified. | [Claude channels reference](https://code.claude.com/docs/en/channels-reference) read 2026-10-06; Khala `interactive-codex.md` |
@@ -181,7 +181,7 @@ lease TTL, `claims.ex:53`).
 The aiur-run "periodic progress table" stays chat text. E4 can anchor an
 `executor_progress` jump point only for events the Executor actually emits with
 `executor-emit`. Making the skill emit one is a follow-up skill change, listed as
-MP-E3.C4-T4 and an owner question.
+MP-E3.C4-T04 and an owner question.
 
 ## 6. Non-happy paths
 
@@ -197,7 +197,7 @@ MP-E3.C4-T4 and an owner question.
 | Two sessions try to attach | Second refused with the live one named; explicit takeover only. |
 | Message sent while Executor busy | E7 mode decides (sync: next Stop; steer: next tool boundary). Overlay shows "queued for next boundary". |
 | Message sent while Executor idle and no wake route | Overlay shows "waiting until the Executor's next turn"; never reported delivered. |
-| Executor is itself waiting on a native question | E2 captures it as an Executor-originated Command (D10, D12); the surface shows it as a blocker with answer controls. |
+| Executor is itself waiting on a native question | **Not captured in v1** (X-55): MP-E2-C4/C5 capture native questions of daemon-run workers only, and no E2 ticket captures an attached Executor's native question from hooks. The Executor session shows its own prompt in the terminal; the blockers panel (C4-T03) lists only Commands the Executor raised with `aiur command request` (MP-E2-C6-T01). Hook-based capture is a candidate follow-up, not planned work. |
 | Hook endpoint flooded / spoofed | Token required; per-binding rate limit; payload size cap (reuse webhook 25 MB guard pattern, smaller cap). |
 | `--no-dashboard` | Hook endpoint needs the HTTP listener; attach refused with the same message shape as Remote Control (AGENTS.md "Running"). |
 | Remote / multiple machines | Out of scope: the Executor must run on the daemon's machine (transcript is a local file). Phone reads go through MP-N2 pairing. |
@@ -260,7 +260,7 @@ MP-E3.C4-T4 and an owner question.
 **Owner (Kevin), also in DESIGN-E3:**
 - OQ-E3-1. Claude first and Codex second, or both required for the first release?
 - OQ-E3-2. May paired phones/watch read the Executor transcript by default, or is it a separate opt-in?
-- OQ-E3-3. Default listener mode for the Executor: D13's `sync`, or `steer` because the operator usually wants to redirect now?
+- OQ-E3-3. Default listener mode for the Executor: D13's `sync`, or `steer` because the operator usually wants to redirect now? **Answered in DESIGN-E7 E7-D8** (the single owner, review G-7); DESIGN-E3 decision 2 links there.
 - OQ-E3-4. Show reasoning and tool output in the Executor view, or messages only by default?
 - OQ-E3-5. Takeover from the dashboard, or CLI-only?
 - OQ-E3-6. Should the aiur-run skill emit `executor.progress` events so Executor progress becomes a jump point?

@@ -60,9 +60,20 @@ n/a.
 
 ## Verification
 
-Unit test with fakes: resolved Command notification removed; unreachable instance keeps
-its notifications (must fail if failure is treated as an empty list). Device V-M1, V-M2.
+```text
+npm --prefix packages/aiur-mobile test -- test/notifications/reconcileDelivered.test.ts
+```
+
+| Test | Expected | Must fail without |
+| --- | --- | --- |
+| `resolvedCommandNotificationRemoved` | delivered notification whose Command is not in `needs_you` is removed | the removal |
+| `unreachableInstanceKeepsNotifications` | probe failure → nothing removed | the unknown-path rule (failure treated as an empty list → fails) |
+| `neverAddsNotifications` | reconciliation posts no local notification | the remove-only rule |
+
+Device V-M1, V-M2.
 
 ## Completion and handoff
 
 - [ ] Dependents: MP-N4-C7-T02.
+- [ ] Docs: none, because it only removes notifications for Commands already resolved;
+  the notification behaviour is documented by MP-N4 (`website/docs-app/guide/mobile.md`).

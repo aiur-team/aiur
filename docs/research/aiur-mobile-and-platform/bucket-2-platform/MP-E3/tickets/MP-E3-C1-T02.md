@@ -9,7 +9,7 @@ blocked_by: [DESIGN-E3, MP-E3-C1-T01]
 prior_units: [U4, U8]
 prior_boundaries: [EXE, WEB, CLD, CDX]
 prior_features: [MP-E7-C6 (reuses this token and normalizer for delivery), MP-R7 (attached-session profile)]
-prior_findings: [MP-E3 plan §2.3 (hook fields), §7 (auth); listener-mode contract §8, §12]
+prior_findings: [MP-E3 plan §2.3 (hook fields), §7 (auth); listener-mode contract §8, §12; security m10 (M8 transcript_path), M6; review T-11]
 size_owner: "U8 WEB owner (router.ex 361 lines; new controller and plug)"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -58,8 +58,14 @@ researched: 2026-10-06
   `agent_id`, `agent_type`; `SubagentStop` adds `agent_transcript_path`,
   `last_assistant_message` (https://code.claude.com/docs/en/hooks). Codex —
   `session_id`, `transcript_path` (nullable), `cwd`, `hook_event_name`, `model`,
-  `permission_mode`, `turn_id` (https://learn.chatgpt.com/docs/hooks). Codex
-  `SubagentStart/Stop` field set unverified (RQ-E3-6, MP-E3-C4-T02).
+  `permission_mode`, `turn_id`. **Pinned source (Phase D, T-11):** `openai/codex`
+  `codex-rs/hooks/src/schema.rs` at `a9abdeaff1773ec6e867253ae59b19128077676f`
+  (`main`, read 2026-10-06), e.g. `PreToolUseCommandInput` (lines 278-292). The same
+  file defines `SubagentStartCommandInput` (549-561: adds `agent_id`, `agent_type`) and
+  `SubagentStopCommandInput` (606-621: adds `agent_transcript_path`,
+  `stop_hook_active`, `last_assistant_message`), so RQ-E3-6 is answered from source; the
+  local-binary capture in MP-E3-C4-T02 still confirms the installed version emits them.
+  The earlier `learn.chatgpt.com/docs/hooks` link is not cited.
 
 ## Chosen design
 
@@ -114,6 +120,25 @@ must never fail the harness) and is counted.
 `harness` comes from the `?harness=` query param written by T04, never guessed
 from field shapes.
 
+**`transcript_path` validation (Phase D, security m10/M8).** A holder of the hook token
+could otherwise point `transcript_path` (or `agent_transcript_path`) at another
+session's JSONL file, and the daemon would serve it to phones. `HookPayload` passes each
+path through PROPOSED `Aiur.Executor.TranscriptPath.validate(path, harness, session_id)`
+and keeps it only when **all** hold; otherwise it sets the field to `nil` and counts
+`transcript_path_rejected` with the reason:
+
+1. the path is absolute, has no `..` segment, and lies under the harness root:
+   `~/.claude/projects/` (Claude) or `~/.codex/sessions/` (Codex), with `$HOME` from
+   `System.user_home!/0`, not from the payload;
+2. `File.lstat/1` says `type: :regular` (a symlink is refused, so is a directory);
+3. the `File.Stat` `uid` from step 2 equals the uid that owns `System.user_home!/0`;
+4. the basename matches the session: Claude `<session_id>.jsonl`; Codex
+   `rollout-*-<session_id>.jsonl`.
+
+A `nil` path means "no transcript bound"; C2-T01 never tails a path that did not pass
+this check, and MP-E4 maps the Executor's `executor_operator` role only from a bound,
+validated path (conversations contract §5, security M6).
+
 **SessionIngest** (GenServer): applies `Session.bind_provider_session/2`,
 `rebind_on_session_start/2` (`SessionStart` with `source` ≠ `startup`),
 `touch/2`, `detach/2` on `SessionEnd` (`end_reason: "stopped"`); rate-limits
@@ -151,7 +176,7 @@ retarget) and C4 (state machine).
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/executor/hook_payload_test.exs test/aiur/executor/hook_token_test.exs \
   test/aiur/executor/session_ingest_test.exs test/aiur_web/executor_hook_controller_test.exs
 ```
@@ -168,6 +193,10 @@ env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test
 | "SessionStart clear triggers rebind" | `rebind_on_session_start/2` called | ingest branch |
 | "SessionEnd detaches with stopped" | binding `detached` | ingest branch |
 | "read-only dashboard still accepts hooks" | 202 with `dashboard_writable: false` | route outside `:require_writable` |
+| "transcript_path outside the harness root is dropped" (m10) | normalized `transcript_path == nil`, counter `transcript_path_rejected{reason: :outside_root}` | root check |
+| "symlinked transcript_path under the root is dropped" | `nil`, reason `:not_regular` (fixture: symlink in a temp `HOME/.claude/projects/x/` to another file) | `lstat` type check (using `File.stat/1` instead makes it pass and the row fail) |
+| "transcript_path whose basename does not match session_id is dropped" | `nil`, reason `:session_mismatch` | basename check |
+| "valid Claude and Codex transcript paths are kept" | path unchanged | — (checks must not over-match) |
 
 ## Completion and handoff
 

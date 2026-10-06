@@ -119,7 +119,7 @@ Mutation check: revert the sort hunk → tests 2–3 fail; revert the clause →
 4 fails; revert the pause_resume clause → the existing totality test fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/orchestrator/dispatch_policy_test.exs test/aiur/orchestrator/resume_decline_reason_test.exs
 ```
 

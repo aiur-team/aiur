@@ -111,5 +111,5 @@ status → the same test fails.
 ## Completion and handoff
 
 - [ ] Receipt API merged; no HTTP/CLI change.
-- Dependents: MP-E4-C6-T3 and MP-E3-C5-T2 (delivery overlay), MP-E7-C5 (`read` receipt), MP-E7-C7 (HTTP/CLI rendering).
+- Dependents: MP-E4-C6-T03 and MP-E3-C5-T02 (delivery overlay), MP-E7-C5 (`read` receipt), MP-E7-C7 (HTTP/CLI rendering).
 - Docs: none in wave 3.

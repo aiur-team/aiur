@@ -6,12 +6,15 @@ changes in §12). Chunks: [../chunks.md](../chunks.md). Owned contract:
 Owner gate: [DESIGN-R2](../../../owner-design-tasks/DESIGN-R2.md). Requests to
 other owners: [CONTRACT-REQUESTS.md](CONTRACT-REQUESTS.md).
 
-**Every ticket is blocked by DESIGN-R2** (§1 for C1–C4, §2 for C5–C7).
+**Every ticket is blocked by DESIGN-R2** (§1 for C1–C4, §2 for C5–C7) **and
+waits for the U0 review of the prior refactor plan** (RC-19; plan §4.5). U0 has
+no ticket ID, so it is not in `blocked_by`; this applies to C5–C7 too.
 `ready` means: no other blocker than DESIGN-R2 and earlier MP-R2 tickets.
 `blocked` means: also waits on a prior unit, another feature, or an owner
-answer (KQ). C1–C4 are Bucket 1; C5–C7 are Bucket-2-enabling, off by default,
-and scheduled just before MP-N4/MP-N5 (C7 before MP-N3's stream switch)
-(RC-09).
+answer (KQ). C1–C4 are Bucket 1; C5–C7 are Bucket-2-enabling and off by default.
+C5 (topic catalog) ships at the **start of wave 4**, because MP-E6-C4-T05
+and MP-E7-C2-T05 consume it there (RC-31, amending RC-09). C6 and C7 stay
+just before MP-N4/MP-N5 in wave 5 (C7 before MP-N3's stream switch) (RC-09).
 
 ## Ticket table
 
@@ -33,19 +36,19 @@ and scheduled just before MP-N4/MP-N5 (C7 before MP-N3's stream switch)
 | [C2-T08](MP-R2-C2-T08.md) | `Aiur.Events` facade + batch A (ingestion) | ready | — | 3 |
 | [C2-T09](MP-R2-C2-T09.md) | Facade batch B (orchestration) | ready | — | 4 |
 | [C2-T10](MP-R2-C2-T10.md) | Facade batch C (commands, Executor, alerts, projections, runner) | ready | — | 4 |
-| [C2-T11](MP-R2-C2-T11.md) | Manifest reassignment of non-bus modules | blocked | MP-R1-C1-T1, CR-R2-1 | 4 |
+| [C2-T11](MP-R2-C2-T11.md) | Manifest reassignment of non-bus modules | blocked | MP-R1-C1-T01, CR-R2-1 | 4 |
 | [C3-T01](MP-R2-C3-T01.md) | `Aiur.Events.Journal` over DecisionLog | ready | — | 2 |
 | [C3-T02](MP-R2-C3-T02.md) | `publish_journaled/3` from ExecutorEvents | ready | — | 3 |
 | [C3-T03](MP-R2-C3-T03.md) | `DurableConsumer` (not wired) | ready | — | 3 |
-| [C4-T01](MP-R2-C4-T01.md) | Register `event-bus` in `components.json` | blocked | MP-R1-C1-T1/T3 | 5 |
+| [C4-T01](MP-R2-C4-T01.md) | Register `event-bus` in `components.json` | blocked | MP-R1-C1-T01/T03 | 5 |
 | — C4-T02 | absorbed by MP-R1-C4 (events section) | — | — | — |
-| [C4-T03](MP-R2-C4-T03.md) | Checker gate + full CI + manual `aiurdev --test` acceptance | blocked | MP-R1-C1-T3/T5 | 6 |
-| [C4-T04](MP-R2-C4-T04.md) | Plan refresh of citations | blocked | MP-R1-C11-T1 | 7 |
+| [C4-T03](MP-R2-C4-T03.md) | Checker gate + full CI + manual `aiurdev --test` acceptance | blocked | MP-R1-C1-T03/T05 | 6 |
+| [C4-T04](MP-R2-C4-T04.md) | Plan refresh of citations | blocked | MP-R1-C11-T01 | 7 |
 | [C4-T05](MP-R2-C4-T05.md) | Docs: `concepts/message-bus.md` | ready | — | 2 |
 | [C5-T01](MP-R2-C5-T01.md) | `Events.Catalog` | blocked | KQ-R2-3 | B2-a |
 | [C5-T02](MP-R2-C5-T02.md) | `Envelope.to_external/2` | ready | — | B2-b |
 | [C5-T03](MP-R2-C5-T03.md) | RC-08 topic registrations | ready | — | B2-b |
-| [C5-T04](MP-R2-C5-T04.md) | `instance_id` provider adapter | blocked | MP-R1-C2-T1/T2 | B2-c |
+| [C5-T04](MP-R2-C5-T04.md) | `instance_id` provider adapter | blocked | MP-R1-C2-T01/T02 | B2-c |
 | [C6-T01](MP-R2-C6-T01.md) | `events.export.enabled` / `.retention` keys + docs | blocked | KQ-R2-1 (S1) | B2-a |
 | [C6-T02](MP-R2-C6-T02.md) | Exporter process (last child, gap, corrupt tail) | ready | — | B2-d |
 | [C6-T03](MP-R2-C6-T03.md) | Retention + `export.meta.json` | ready | — | B2-e |
@@ -53,7 +56,7 @@ and scheduled just before MP-N4/MP-N5 (C7 before MP-N3's stream switch)
 | [C6-T05](MP-R2-C6-T05.md) | Mailbox alarm (RQ-4 census + rule) | ready | — | B2-f |
 | [C7-T01](MP-R2-C7-T01.md) | `GET /api/v1/events` + `/catalog` | ready | — | B2-f |
 | [C7-T02](MP-R2-C7-T02.md) | `/events` socket + `events:feed` channel | ready | — | B2-g |
-| [C7-T03](MP-R2-C7-T03.md) | `events.export` capability | blocked | MP-R1-C3-T1 | B2-g |
+| [C7-T03](MP-R2-C7-T03.md) | `events.export` capability | blocked | MP-R1-C3-T01 | B2-g |
 | [C7-T04](MP-R2-C7-T04.md) | `aiur events tail` + status line | blocked | KQ-R2-2, S2/S3 | B2-g |
 | [C7-T05](MP-R2-C7-T05.md) | Paired-device tokens; revocation closes channels | blocked | MP-N2-C6, MP-N2-C7, DESIGN-N2, CR-R2-5 | B2-h |
 
@@ -67,14 +70,14 @@ C1-T01..T06 (all independent)
   ├─► C2-T03, C2-T04, C2-T05, C2-T06, C2-T07, C3-T01, C4-T05      (wave 2)
   ├─► C2-T01 (after U3) ; C2-T02 (after U5)                         (wave 3)
   ├─► C2-T08 (after T04, T06) ; C3-T02, C3-T03 (after C3-T01)       (wave 3)
-  └─► C2-T09, C2-T10 (after T08) ; C2-T11 (after T05, MP-R1-C1-T1)  (wave 4)
+  └─► C2-T09, C2-T10 (after T08) ; C2-T11 (after T05, MP-R1-C1-T01)  (wave 4)
 C2-* + C3-T01/T02 + MP-R1-C1 ─► C4-T01 ─► C4-T03 ─► C4-T04        (waves 5–7)
 
-Bucket-2-enabling (scheduled before MP-N4/N5):
+Bucket-2-enabling (C5 at the start of wave 4, RC-31; C6/C7 before MP-N4/N5):
 C5-T01 (KQ-R2-3) ─► C5-T02, C5-T03 ; C5-T02 + MP-R1-C2 ─► C5-T04
 C6-T01 (KQ-R2-1) + C5-T02/T04 + C3-T01 + C2-T07/T08 ─► C6-T02 ─► C6-T03 ─► C6-T04 (+C3-T03), C6-T05
 C6-T02/T03 + C5-T01/T02 ─► C7-T01 ─► C7-T02 ─► C7-T05 (MP-N2-C6/C7)
-C7-T01 ─► C7-T03 (MP-R1-C3-T1), C7-T04 (KQ-R2-2)
+C7-T01 ─► C7-T03 (MP-R1-C3-T01), C7-T04 (KQ-R2-2)
 ```
 
 ## What may run concurrently

@@ -81,7 +81,7 @@ unchanged (AGENTS.md "A claimed saving must be measured" — no claim made).
    `agent_runner/queue_drain_test.exs` (all under `src/test/aiur/`).
 2. Add a "Harness characterization suite" paragraph to `CONTRIBUTING.md`
    under its testing section naming the command and the rule "must pass
-   unchanged before and after every MP-R7 PR". (C6-T1 later folds this into
+   unchanged before and after every MP-R7 PR". (C6-T01 later folds this into
    the add-a-harness guide.)
 3. Record the baseline: run the suite at the merge base and paste the test
    count in the PR body.

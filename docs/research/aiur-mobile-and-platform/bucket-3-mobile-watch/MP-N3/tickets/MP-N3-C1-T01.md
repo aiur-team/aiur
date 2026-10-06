@@ -118,7 +118,7 @@ moves to the projections package (`PRJ`) unchanged.
 6. `"nil instance id still returns a summary"`.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/instance_summary/fact_test.exs test/aiur/instance_summary_test.exs
 ```
 
@@ -127,3 +127,5 @@ env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOK
 - [ ] Tests 1–6 pass; mutation checks recorded.
 - [ ] Docs: none (internal RPC); the summary contract is `contracts/pairing-and-instance-registry.md` §7.
 - [ ] Dependents: MP-N3-C1-T02..T05, MP-N3-C2-T01.
+- [ ] Publish `packages/aiur-contracts/schemas/instance-summary.v1.schema.json` with a golden
+      fixture (Phase D, MP-N1 request A3).

@@ -155,5 +155,5 @@ acceptance" test fails.
 ## Completion and handoff
 
 - [ ] Pure module and table tests merged.
-- Dependents: MP-E7-C2-T03, MP-E7-C2-T04, MP-E7-C3-T02, MP-E7-C3-T05, MP-E7-C4 (sets the native steer callback flag), MP-E7-C5-T01 (sets `pull_tool_installed?`), MP-E3-C5-T1 (composer disabled when `effective: nil`).
+- Dependents: MP-E7-C2-T03, MP-E7-C2-T04, MP-E7-C3-T02, MP-E7-C3-T05, MP-E7-C4 (sets the native steer callback flag), MP-E7-C5-T01 (sets `pull_tool_installed?`), MP-E3-C5-T01 (composer disabled when `effective: nil`).
 - Docs: none in wave 3 (no rendered surface).

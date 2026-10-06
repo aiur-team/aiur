@@ -35,7 +35,7 @@ researched: 2026-10-06
 ## Dependencies and blockers
 
 - **DESIGN-E2**; C5-T01 released; C4-T03/T04 (shared hold/reply/release machinery).
-- MP-R7-C5-T1's protocol fixture must add `item/tool/requestUserInput`; if it exists,
+- MP-R7-C5-T01's protocol fixture must add `item/tool/requestUserInput`; if it exists,
   extend it here.
 
 ## Verified starting point (`45a290e3`)

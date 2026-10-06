@@ -5,7 +5,7 @@ chunk_id: MP-E4-C6
 bucket: 2-platform
 title: "Answer this agent's open Commands inline in its conversation"
 status: blocked
-blocked_by: [DESIGN-E4, DESIGN-E2, MP-E7-C3-T03, MP-E2-C1-T01, MP-E2-C3-T01, MP-E4-C4-T02]
+blocked_by: [DESIGN-E4, DESIGN-E2, MP-E2-C1-T01, MP-E2-C3-T01, MP-E4-C4-T02]
 prior_units: [U8]
 prior_boundaries: [WEB, DEC]
 prior_features: [MP-E2 (Command answer contract, supersede rule D11)]
@@ -31,10 +31,11 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **RC-05** puts every E4-C6 write chunk behind MP-E7-C3. This ticket does not
-  use the listener path (Command answers are excluded from listener modes,
-  listener-mode contract §2), so the coordinator may lift that dependency; it is
-  kept here until the coordinator says so (CONTRACT-REQUESTS.md, item 4).
+- **MP-E7-C3 dependency lifted (Phase D, CR-E4-4).** RC-05 put every E4-C6 write
+  chunk behind MP-E7-C3. This ticket does not use the listener path: Command
+  answers are excluded from listener modes (listener-mode contract §2) and keep
+  their own synchronous route (command contract §7). It can start as soon as its
+  other dependencies merge.
 - DESIGN-E4 (card placement), DESIGN-E2 (card content and states).
 - MP-E2-C1-T01 (v2 fields), MP-E2-C3-T01 (answer resolution, "already answered" summary in the conflict response).
 - MP-E4-C4-T02 (Command anchors in the conversation).
@@ -57,9 +58,14 @@ researched: 2026-10-06
   with `ticket.identifier` equal to the subject's identifier and status open
   (existing DecisionStore list API used by the inbox); executor → MP-E2-C6
   Executor-originated Commands (when MP-E3 provides the subject).
-- Each card renders `DecisionAction.decision_action/1` unchanged, placed at the
-  Command's anchor position (C4-T02) or, without an anchor, pinned at the top
-  with "position unknown".
+- Each card renders `DecisionAction.decision_action/1` unchanged. **Placement is
+  DESIGN-E4 decision 8** (review T-8); this ticket implements the chosen option and
+  does not pick one. The implementation keeps placement behind one function,
+  `ConversationLive.card_slot(command, anchor) :: {:at_pos, pos} | :pinned_top |
+  :link_only`, so each option is one clause. Until approval the recommended option
+  (a)+(i) is the working assumption: at the anchor (C4-T02), with a top chip that
+  jumps to it; without an anchor, pinned at the top with the "position unknown" state.
+  Card content and states are DESIGN-E2 §4 (§4.4 for outcomes), not this ticket.
 - Events `answer-decision` etc. are delegated to `DecisionEvents.handle/4`
   (add `ConversationLive` as a caller; no new answer logic). `expected_version`
   and conflict handling come from MP-E2-C3; a conflict shows the winning answer
@@ -73,7 +79,7 @@ researched: 2026-10-06
 ## Implementation steps
 
 1. Query + subscription in `ConversationLive` (≤ 40 lines).
-2. Render `decision_action/1` inside the entry stream at the anchor, or pinned.
+2. Render `decision_action/1` in the slot `card_slot/2` returns (DESIGN-E4 decision 8).
 3. Delegate the decision events.
 
 ## Non-happy paths
@@ -83,8 +89,10 @@ researched: 2026-10-06
 - Answered elsewhere first: the card switches to "Answered by <actor>" via the
   lifecycle subscription; a late submit gets the MP-E2-C3 conflict response.
 - Multi-question native Commands (MP-E2-C4/C5): rendered by MP-E2's form
-  component; if that component is not yet available, the card links to
-  `/commands/:id` instead of answering inline.
+  component (DESIGN-E2 §6.5 owns the layout). If that component is not yet available
+  the card cannot answer inline; what it shows instead is a DESIGN-E2 §4 state, and the
+  working assumption is a link to `/commands/:id` (list it in DESIGN-E2 §5 if the owner
+  wants a different state).
 
 ## Compatibility and rollout
 
@@ -93,13 +101,14 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur_web/live/conversation_commands_test.exs
 ```
 
 | Test | Expected | Fails without |
 | --- | --- | --- |
-| "open Command of this ticket renders at its anchor" | card after entry `pos` | placement |
+| "open Command of this ticket renders at its anchor" (DESIGN-E4 decision 8 option a) | card after entry `pos` | `card_slot/2` `:at_pos` clause |
+| "Command without an anchor renders in the decision-8 no-anchor slot" | pinned with "position unknown" under option (i) | `card_slot/2` no-anchor clause |
 | "Command of another ticket is not shown" | absent | subject filter |
 | "answer goes through DecisionEvents" (spy) | `record_answer/4` called once | delegation |
 | "answered elsewhere resolves the card live" | "Answered by …" | lifecycle subscription |

@@ -54,8 +54,8 @@ researched: 2026-10-06
   is **resolved by RC-06/RC-07**: the contract (`contracts/conversations-transcripts-anchors.md`
   §10) names this rule as the `observed` precision level, and the module name
   follows the E4 plan (`Conversation.Anchors`, plan § 3). CR-R6-1 asks the
-  coordinator to retire E4-C3-T1, which duplicated this extraction.
-- **MP-R1 placement:** not a blocker. The module lands in core now. MP-R1-C8-T3
+  coordinator to retire E4-C3-T01, which duplicated this extraction.
+- **MP-R1 placement:** not a blocker. The module lands in core now. MP-R1-C8-T03
   (the conversations component) moves it later. That is a path change only.
 - **May run concurrently with:** MP-R6-C2-T01, which touches
   `streamdeck_key_face_contract.ex` and also the `@expected_badges` line. Merge
@@ -144,7 +144,7 @@ end
   - `assign_entries/2` → `at_or_before/2`;
   - `attach_leftover/2`, `at_or_after?/2` and `instant/1` become private
     helpers.
-- `at_or_before/2` is E4-C3-T1's function name (E4 chunks), so E4 extends this
+- `at_or_before/2` is E4-C3-T01's function name (E4 chunks), so E4 extends this
   module and does not add a parallel one.
 - `StreamdeckLogs.with_origin/2` becomes:
 
@@ -245,4 +245,4 @@ env -C <worktree>/src mise exec -- mix compile --warnings-as-errors
   - MP-E4-C7, which moves the deck onto E4 `History`;
   - MP-R6-C2-T01, which relies on `directions/0` living outside the visual
     contract;
-  - MP-R1-C8-T3, which moves the module into the conversations component.
+  - MP-R1-C8-T03, which moves the module into the conversations component.

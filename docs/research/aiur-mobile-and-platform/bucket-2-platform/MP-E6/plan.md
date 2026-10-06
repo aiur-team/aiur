@@ -5,7 +5,7 @@ feature_id: MP-E6
 bucket: 2-platform
 base_main_sha: 45a290e3
 date: 2026-10-06
-blocked_by: DESIGN-E6 (owner), owner authorization of the paid validation spike (MP-E6-C1), MP-R5, MP-E7, MP-E2, MP-E4 (conversation read), MP-E3 (Executor target)
+blocked_by: DESIGN-E6 (owner), owner authorization of the paid validation spike (MP-E6-C1), MP-R5, MP-E7 (send path). MP-E2, MP-E3 and MP-E4 are optional ports (§2) and block only the chunks that use them (C5 Command tools on MP-E2; Executor target and full history on MP-E3/MP-E4) — Phase D, X-53
 owns_contracts: contracts/voice-session.md (owner; §4 conversation provider, §5.3 drafts, §6, §9, §10)
 consumes_contracts: listener mode (MP-E7), command request (MP-E2), conversations/transcripts (MP-E4), identity, capabilities (MP-R1), events (MP-R2)
 research_resolved: MP-Q3 (see provider-research.md)
@@ -54,7 +54,7 @@ browser / phone / watch ──/voice socket, voice:converse──► VoiceConver
 
 | Component (proposed) | Public interface | Required deps | Optional deps |
 | --- | --- | --- | --- |
-| `aiur_voice_conversation` (in-monorepo package; Elixir app or namespace per MP-R1) | `start_session(target, role_id, client)`, `end_session/1`, `confirm_draft/2`, `discard_draft/2`, `list_transcripts/1`, `get_transcript/1`; capability `voice.converse` | ConversationProvider impl, TranscriptStore, read port for its target | E2 (Command tools), E3 (Executor target), E4 (history), R2 (live context updates) |
+| `aiur_voice_conversation` (in-monorepo package; Elixir app or namespace per MP-R1) | `start_session(target, role_id, client)`, `end_session/1`, `confirm_draft/2`, `discard_draft/2`, `list_transcripts/1`, `get_transcript/1`; capability `voice.conversation` | ConversationProvider impl, TranscriptStore, read port for its target | E2 (Command tools), E3 (Executor target), E4 (history), R2 (live context updates) |
 | `ConversationProvider` behaviour | contract §4 | — | — |
 | `ElevenLabsAgents` adapter | implements the behaviour; owns signed-URL fetch, websocket, event normalisation | MP-R5 config/credential access | — |
 | Role registry | `roles/0`, `role(id)` → `{id, title, prompt, hash}` | role files | — |
@@ -85,16 +85,17 @@ JS that touches the existing controller.
 
 - **Owns:** [contracts/voice-session.md](../../contracts/voice-session.md) — whole document;
   §2/§3/§5.2/§7/§8 shared with MP-E5.
-- **Consumes MP-E7 listener mode:** `send(target, text, message_id)` → status stream. Consult
-  and instruction drafts use the agent's configured mode (default sync, D13). Assumption to
-  reconcile: E7 accepts a `source` tag (`voice_assistant`) so the agent transcript can label it.
+- **Consumes MP-E7 listener mode:** `send(conversation_ref, text, client_request_id, opts)` →
+  `delivery_id` and receipts (voice-session §11). Consult and instruction drafts use the
+  agent's configured mode (default sync, D13). `opts[:origin] = :voice_assistant` labels the
+  entry in the agent transcript (accepted, E6 R-1); every surface shows a "via voice" tag.
 - **Consumes MP-E2 command request:** read open Commands for the target; `answer` with
   `idempotency_key = draft_id`; a `resolved` event to mark drafts `stale`.
 - **Consumes MP-E4 conversations:** read the last N messages and anchor positions for a
   worker/Executor session; assumption: a bounded "tail" read and a "since cursor" read exist.
 - **Consumes MP-E3:** an Executor read port (status, recent conversation) and send target.
 - **Consumes MP-R2 events:** subscribe to `ticket.<id>.*` and `executor.*` for live context.
-- **Consumes capabilities (MP-R1):** publishes `voice.converse`.
+- **Consumes capabilities (MP-R1):** publishes `voice.conversation`.
 
 ## 5. What context the assistant receives
 
@@ -119,7 +120,7 @@ knew.
 
 | Question | Rule |
 | --- | --- |
-| Does the assistant talk to the agent? | Only through `consult_agent(question)`. The message is framed: *"Question from the operator's voice assistant. Answer briefly. This is not an instruction; do not change your plan."* It goes through E7 with `source: voice_assistant`, appears in the agent transcript, and its reply returns as a context update. The assistant tells the operator it has asked and continues. |
+| Does the assistant talk to the agent? | Only through `consult_agent(question)`. The message is framed: *"Question from the operator's voice assistant. Answer briefly. This is not an instruction; do not change your plan."* It goes through E7 with `opts[:origin] = :voice_assistant`, appears in the agent transcript, and its reply returns as a context update. The assistant tells the operator it has asked and continues. |
 | When does it consult? | Only when the operator asks it to, or after it proposes to and the operator agrees (E6-OQ2 decides whether a button is required). Never to fill silence. Max one outstanding consult per session. |
 | What becomes an instruction? | Only a **draft** created by `propose_instruction` or `propose_command_answer` **and** confirmed by the operator (contract §5.3). |
 | What stays discussion? | Everything else: every spoken turn, every assistant answer, discarded and unconfirmed drafts. Stored locally, never sent to the agent. |
@@ -150,18 +151,18 @@ Tools (client tools executed by the daemon; `expects_response: true`): `get_stat
 
 | Case | Behaviour |
 | --- | --- |
-| No key / package absent / provider not configured | `voice.converse` unavailable with reason; Converse button absent or disabled (DESIGN-E5); dictation and typing unaffected. |
+| No key / package absent / provider not configured | `voice.conversation` unavailable with reason; Converse button absent or disabled (DESIGN-E5); dictation and typing unaffected. |
 | Preflight finds `record_voice` true or overrides disabled | refuse with `privacy_preflight_failed`; `aiur voice setup --repair` fixes it. |
 | Provider drops mid-session | state `reconnecting`, one retry with a new signed URL and the context re-seeded from the local transcript; then `error`. Transcript so far is already persisted. |
 | Provider `DELETE` fails | record `provider_delete_failed` in the transcript and retry from a daemon queue; surfaced as an attention, not silently dropped. |
-| Daemon restart | sessions end (`transport_lost`); transcripts intact (fsynced); undelivered drafts stay `proposed` and reappear on "Continue". |
+| Daemon restart, crash or OOM | live clients see `transport_lost`; transcripts intact (fsynced); at the next boot C6-T02 closes each unfinished transcript with `session_ended{daemon_restart}`, counts its minutes toward the daily cap, and enqueues the provider deletion from the recorded provider conversation id (Phase D, M1/M8). Undelivered drafts stay `proposed` and reappear on "Continue". |
 | Consult reply never arrives | after 5 min the assistant says so; the consult record stays open in the transcript. |
 | Duplicate confirm (two tabs, double tap) | `message_id`/`idempotency_key = draft_id` makes it idempotent. |
 | Two devices converse on the same target | allowed; separate sessions and transcripts; drafts are per session. Both confirm → two distinct instructions (each was explicitly confirmed). |
 | Conflicting Command answer | the E2 first-answer rule applies; draft goes `stale` with E2's reason. |
 | Secrets in context | `SecretRedactor` before provider and before storage. |
-| Cost runaway | max duration + per-day minute cap (E6-OQ6); limiter shares `VoiceSessionLimiter` caps. |
-| Quota exhausted | `provider_quota`; session ends with the text transcript intact. |
+| Cost runaway | max duration + per-day minute cap, **on by default** (proposed 60 min/day, owner choice E6-OQ6; Phase D, M8); crashed sessions count; limiter shares `VoiceSessionLimiter` caps. Ends with `cost_cap`, no retry offered. |
+| Quota exhausted | `provider_quota`; session ends with the text transcript intact; distinct from `cost_cap` and `provider_error` on every client (voice-session §8.1). |
 
 ## 9. Acceptance criteria
 
@@ -176,7 +177,7 @@ Tools (client tools executed by the daemon; `expects_response: true`): `get_stat
    retried and recorded (fake HTTP).
 6. A `propose_instruction` draft is not sent until `confirm_draft`; confirming twice sends once;
    a draft whose Command was resolved returns `target_stale`.
-7. `consult_agent` produces exactly one E7 send with `source: voice_assistant` and the framing
+7. `consult_agent` produces exactly one E7 send with `opts[:origin] = :voice_assistant` and the framing
    text; its reply appears as a context update.
 8. With E2 absent, Command tools are not offered and the context says "Command data
    unavailable" (mutation check: replace that branch with an empty list and the test fails).
@@ -202,7 +203,7 @@ review UI and resume, C9 docs.
 **Owner (DESIGN-E6):** E6-OQ1 confirmation modality (button only vs speech); E6-OQ2 consult
 needs confirm?; E6-OQ3 role pre-context authoring location and default roles; E6-OQ4 assistant
 voice and name; E6-OQ5 may the user delete transcripts?; E6-OQ6 cost caps (session length,
-daily minutes); E6-OQ7 accept the cloud disclosure and choose the LLM; E6-OQ8 one target per
+daily minutes; Phase D proposal: daily cap 60 min, crashed sessions count); E6-OQ7 accept the cloud disclosure and choose the LLM; E6-OQ8 one target per
 session; E6-OQ9 authorize the paid spike.
 
 **Research (Phase C / spike):** RQ-E6-1..6 in [provider-research.md](provider-research.md) §6;
@@ -212,7 +213,7 @@ RQ-E6-7 the Phoenix channel frame budget for bidirectional PCM (400,000-byte max
 ## 13. Plan refresh
 
 - After **MP-R5**: the adapter lives in (or beside) the voice package; config keys move under
-  the namespace R5 settles (`elevenlabs.*` today; `voice.conversation.*` proposed).
+  the namespace RC-13 settled (`elevenlabs.*` for STT/TTS; `voice.conversation.*` for converse).
 - After **MP-R1**: read ports are wired by the composition root R1 defines, not by direct calls.
 - After **MP-E7**: the consult/instruction send uses the listener package API.
 - After **MP-E3/E4**: Executor and full-history read ports become available; until then the
@@ -231,3 +232,17 @@ RQ-E6-7 the Phoenix channel frame budget for bidirectional PCM (400,000-byte max
   `user_transcript` event has no partial/final flag, which makes RQ-E6-6 a real question.
 - Contract requests to MP-E7 (`origin` option), MP-E4, MP-E2, MP-R1, MP-R5:
   [tickets/CONTRACT-REQUESTS.md](tickets/CONTRACT-REQUESTS.md).
+
+## 15. Phase D fix pass (2026-10-06)
+
+- **M1 crash cleanup:** C4-T01 records the provider conversation id before `listening`; C6-T02
+  reconciles unfinished sessions at boot (`daemon_restart`) and enqueues deletion; C2-T04 accepts
+  the boot caller. Contract voice-session §6, §9.
+- **M7 typed client errors:** voice-session §8.1 table (split file
+  `contracts/voice-session-client-errors.md`), `cost_cap` one spelling,
+  `Aiur.VoiceConversation.ClientErrors` (C4-T01).
+- **M8 cap:** proposed default 60 min/day (C3-T01); crashed and open sessions count (C6-T02).
+- **m2:** signed-URL lifetime documented (15 minutes); RQ-E6-1 narrowed (provider-research §2, C1-T01).
+- **m5:** the adapter synthesizes `user_transcript.final` (C2-T03); `thinking` may be brief.
+- **Security m4:** confirmation only from the client socket (V8, C5-T02); "via voice" tag.
+- **X-26:** C5-T05 answers through `Aiur.Commands.Answering`.

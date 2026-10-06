@@ -8,11 +8,16 @@ date: 2026-10-06
 owner_gate: ../../owner-design-tasks/DESIGN-R5.md
 blockers:
   - RQ-R5-PKG (MP-R1 promotion test + package mechanism) for C3 only
-  - MP-R1-C4-T1 (config registration) for C2-T02 only
+  - MP-R1-C4-T01 (registry pattern) and MP-R1-C4-T05 (manifest config ownership; RQ4 keeps sections literal) for C2-T02 only
   - Voice-session contract message names: RESOLVED by RC-14 (contract text update requested, tickets/CONTRACT-REQUESTS.md CR-R5-1)
 ---
 
 # MP-R5 — Optional voice package around ElevenLabs speech-to-text
+
+- **U0 gate (X-58, RC-19).** Every MP-R5 ticket waits for U0 review of the prior plan
+  (`docs/plans/2026-09-29-001-refactor-production-readiness-plan.md`), because RC-19 keeps
+  that gate for refactor work. U0 has no ticket ID, so the gate is stated here and not in
+  `blocked_by`; the MP-R1-C11-T02 recheck does not replace it.
 
 ## Summary
 
@@ -174,7 +179,7 @@ Aiur.ElevenLabs.Realtime  (optional package aiur_voice_elevenlabs)  Aiur.ElevenL
   seams. The seam carries a module, never a credential, which preserves the
   rule in the `streamdeck_channel.ex:352-354` comment.
 - **Owner messages become neutral:** `{:voice_transcript, kind, text}`,
-  `{:voice_error, reason}`, `{:voice_closed}`.
+  `{:voice_error, %{code, message}}`, `{:voice_closed}` (voice-session contract form, X-49).
   - The ElevenLabs adapter emits them directly. Phase C must check whether a
     thin translating owner process would add latency for
     `streamdeck_voice_latency_test.exs`; if it would, the adapter emits the
@@ -283,7 +288,7 @@ Phase C decomposed these chunks into tickets: see [tickets/README.md](tickets/RE
 - **C2** — ownership:
   - T01: quota and supervision through `Aiur.Voice.child_specs/0` and
     `quota_snapshot/0`; it does not need MP-R1;
-  - T02: config and `init` registration, blocked on MP-R1-C4-T1.
+  - T02: config ownership in the manifest and the `init` contribution registry, blocked on MP-R1-C4-T01 and C4-T05.
 - **C3** — physical package: one ticket, blocked on RQ-R5-PKG. MP-R1's
   promotion test (migration-plan § 5) does not pass for voice yet, and MP-R1
   chose no package mechanism. MP-R5 is complete without C3.

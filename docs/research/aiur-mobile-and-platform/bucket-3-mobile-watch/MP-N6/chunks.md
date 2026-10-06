@@ -11,6 +11,10 @@ answer limit is 4,000 characters (not 7,800); C1 device routes get their own sco
 auth + `x-aiur-request` + `:require_writable`); C6-T01 polls in v1; RQ-TRANSPORT (RC-15)
 and the MP-E5 device voice path (RC-16) are explicit dependencies.
 
+**Phase D (2026-10-06):** blocked tickets carry concrete test files, commands and state
+keys (plan §5.5); C4-T03 handles every voice end reason (voice-session §8.1). See
+[tickets/README.md](tickets/README.md) "Changes made in Phase D".
+
 | Chunk | Outcome | Depends on | Design gate |
 | --- | --- | --- | --- |
 | MP-N6-C1 | Device Command API (read, list needs-you, answer with D11 outcomes) | MP-E2 answer contract, MP-N2 device auth plug, MP-R1 web-shell | none (no UI) |

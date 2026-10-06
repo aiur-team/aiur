@@ -34,7 +34,7 @@ Written by the coordinator on 2026-10-06, after all 11 feature planners finished
 - **MP-Q1 package home:** a spec-first package published from the Khala repo, which Khala must make public (DESIGN-E7, E7-D1).
 - **App publisher and default relay operator:** paid Apple and Firebase accounts (DESIGN-N4, OQ-N4-1). This is the main mobile blocker.
 - **Distribution:** private only, or a public store listing that needs a demo mode (DESIGN-N1).
-- **Paid validation spikes:** ElevenLabs Agents (E6-OQ9), an Expo throwaway prototype (MP-N1), and native ask-the-user spikes (E2 C4-T0 and C5-T0, both free).
+- **Paid validation spikes:** ElevenLabs Agents (E6-OQ9), an Expo throwaway prototype (MP-N1), and native ask-the-user spikes (E2 C4-T00 and C5-T00, both free).
 - **Whether to enable the Codex `default_mode_request_user_input` flag** in production (DESIGN-E2).
 
 ## Live bugs found during Phase B (filed)
@@ -59,7 +59,34 @@ These were found while cross-linking the U0–U9 plan. They are coordinator deci
 
 | ID | Conflict | Decision |
 |---|---|---|
-| RC-24 | MP-R1-C5-T3 and MP-R1-C8-T4 both move `AiurWeb.ObservabilityPubSub` out of the web layer. | **C5-T3 owns the move.** C8-T4 drops its item 1 and depends on C5-T3. |
+| RC-24 | MP-R1-C5-T03 and MP-R1-C8-T04 both move `AiurWeb.ObservabilityPubSub` out of the web layer. | **C5-T03 owns the move.** C8-T04 drops its item 1 and depends on C5-T03. |
 | RC-25 | MP-E3-C5 (Executor composer, wave 3) depends on MP-E7-C6 (hook delivery into the Executor session, wave 4). | E3-C5 ships in wave 3 with the **composer disabled and an explanation**, as the E3 plan already allows. A follow-up enables it when E7-C6 lands. |
 | RC-26 | Closed-unmerged PR detection: MP-E1 reads the stored webhook delivery, and MP-R2 CR-R2-6 asks E1 to produce the topic. | R2 registers `ticket.<id>.pr.closed_unmerged`. **E1 produces it** from the same stored-delivery observation. Detection works in webhook mode only, and the E1 docs must say so. |
 | RC-27 | MP-E1 tickets say the CLI reference is machine-checked. | That is wrong. `website/docs-app/scripts/check-cli-reference.sh` exists only as an npm script, and no CI workflow runs it (checked on `origin/main`). AGENTS.md is correct as written. The E1 docs tickets keep the manual docs requirement. |
+
+## Phase D graph decisions
+
+Source: `cross-feature-reviews/graph-check.md`.
+
+| ID | Problem | Decision |
+|---|---|---|
+| RC-28 | MP-E5-C3-T02 and MP-E6-C7-T02 each block the other. | E6 Converse UI depends on E5's mic-choice UI. **Drop the E5 → E6 edge.** |
+| RC-29 | MP-E5-C8 (device voice path, wave 4) needs MP-N2 device tokens (wave 5). | **MP-E5-C8 moves to wave 5**, after MP-N2-C6. |
+| RC-30 | MP-E6-C7-T01 (dashboard Converse) pulls in about 20 MP-N2 tickets through MP-E5-C8-T01. | **Drop the edge.** Dashboard Converse uses the browser voice path, so device voice is not a prerequisite. |
+| RC-31 | RC-09 put MP-R2-C5 (topic catalog) just before N4/N5, but MP-E6-C4-T05 and MP-E7-C2-T05 consume it in wave 4. | **MP-R2-C5 moves to the start of wave 4.** C6 and C7 (export journal, external API) stay just before N4/N5. This amends RC-09. |
+| RC-32 | Spikes and measurements (E2-C4-T00, E2-C5-T00, E3-C3-T01, E4-C1-T00) have no gate. | These are read-only research or local experiments, so they carry `design_gate: n/a — research spike`. The brief allows research before approval; it only forbids implementation. |
+| RC-33 | MP-N6-C4-T02 to T04 lack DESIGN-N6. | **Add DESIGN-N6.** |
+| RC-34 | Ticket ID spelling is mixed: MP-R1 uses `T1`, every other feature uses `T01`. | **Normalize to `T01`** in file names and in every reference inside the pack. |
+| RC-35 | No wave-2 ticket depends on MP-R1-C11-T03 (the final plan refresh). | The first MP-E2 tickets (C1-T01, C2-T05, C3-T01) **gain a dependency on MP-R1-C11-T03**, which enforces "refactor before features" (D1). |
+
+## Phase D review decisions (binding for the fix pass)
+
+| ID | Finding | Decision |
+|---|---|---|
+| RC-36 | X-01: the listener package is optional but routes every core send. | Split it in two. The **send router lives in core** as a required part of orchestration, under `Aiur.Listener.*`. The **shared spec package** (the Khala-published JSON spec and fixtures, MP-Q1) is a build-time input. If the vendored spec is absent or fails its checksum, the router uses today's routing (the `:legacy` mode from RC-05) and reports capability `listener_modes` as `unavailable` with a reason. The spec is never a runtime dependency. |
+| RC-37 | X-02: three definitions of a "live Executor". | **Live means `active` or `idle`.** `stalled`, `expired` and `absent` are not live, and D9's "no live Executor, go to the human" applies to them. The identity contract and the pairing summary's ranking change to match. The phone shows `stalled` with its own label, but routing treats it as not live. |
+| RC-38 | X-03: two watch snapshot schemas (16 KiB and 32 KiB). | **MP-N7-C1-T01 owns the schema**, with a 16 KiB budget. MP-N1-C3-T04 and the client capability model §7 reference it and do not define it. |
+| RC-39 | X-04: optional components depend upward on `web-shell`. | **Invert the dependency.** `web-shell` gets a route and socket registration seam, and each component registers its routes, so the component no longer imports the web layer. MP-R1-C6 owns the seam, and the component map edges change to match. |
+| RC-40 | X-05: build-order progress lives in the optional build queue. | **`Aiur.BuildProgress` belongs to the `build-orders` component.** MP-E1-C7 still writes it, and the queue is one of its producers. MP-N5's build-order notifications check `build_orders`, not `build_queue`, so D18's defaults work without the queue. |
+| RC-41 | Security B2: relayed answers can supersede direct operator answers. | **Precedence: direct operator > operator_relayed > Executor.** A relay never supersedes or revises a direct operator answer, and never answers an Executor-originated Command. `actor_source` records the real entry point. These match live PR #3006 rework. |
+| RC-42 | Security B1: any same-user agent can pair itself and gain operator authority. | This becomes an owner item (DESIGN-N2 Q8) with three options. The pairing contract gains a threat section, and the store gains an integrity alert for device rows that have no journal entry. The recommendation goes in DESIGN-N2. |

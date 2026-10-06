@@ -39,7 +39,7 @@ the ticket (≤ 60 agent-minutes, ≤ USD 15, hard stop at USD 12 / 50 min).
 | [MP-E6-C6-T02](MP-E6-C6-T02.md) | Index + read API | ready | C6-T01 | 4b |
 | [MP-E6-C6-T03](MP-E6-C6-T03.md) | `aiur voice transcripts` | ready | C6-T02 | 4c |
 | [MP-E6-C6-T04](MP-E6-C6-T04.md) | Transcript deletion | blocked | **DESIGN-E6, E6-OQ5**, C6-T02/T03 | 4f |
-| [MP-E6-C7-T01](MP-E6-C7-T01.md) | `voice:converse` channel | blocked | **DESIGN-E6**, C4-T01, C2-T03, MP-E5-C2-T01, MP-E5-C8-T01 | 4f |
+| [MP-E6-C7-T01](MP-E6-C7-T01.md) | `voice:converse` channel | blocked | **DESIGN-E6**, C4-T01, C2-T03, MP-E5-C2-T01 | 4f |
 | [MP-E6-C7-T02](MP-E6-C7-T02.md) | Converse panel and states | blocked | **DESIGN-E6, E6-OQ4, E6-OQ8**, C7-T01, MP-E5-C1-T02, MP-E5-C3-T02 | 4g |
 | [MP-E6-C7-T03](MP-E6-C7-T03.md) | Draft cards | blocked | **DESIGN-E6, E6-OQ1**, C7-T02, C5-T03, C5-T05 | 4g |
 | [MP-E6-C7-T04](MP-E6-C7-T04.md) | Playback and barge-in | blocked | **DESIGN-E6, C1-T01 (spike, RQ-E6-5)**, C7-T02 | 4g |
@@ -61,7 +61,7 @@ C2-T01 + C6-T01 + C2-T04 + C3-T01 + C3-T03 ─► C4-T01 ─► C4-T02 ─► C4
                                                        C4-T04 (E6-OQ3)
 C4-T02 + C2-T03 ─► C5-T01 ─► C5-T02 ─┬─► C5-T03 (E6-OQ1, MP-E7-C3) ─► C5-T04 (E6-OQ2)
                                       └─► C5-T05 (MP-E2)
-C4-T01 + MP-E5-C2-T01 + MP-E5-C8-T01 ─► C7-T01 ─► C7-T02 ─► C7-T03 ; C7-T04
+C4-T01 + MP-E5-C2-T01 ─► C7-T01 ─► C7-T02 ─► C7-T03 ; C7-T04
 C7-T02 + C6-T02 ─► C8-T01 ─► C8-T02 ; C8-T03
 everything user-visible ─► C9-T01
 ```
@@ -78,6 +78,7 @@ everything user-visible ─► C9-T01
 
 None open beyond RQ-E6-1..6 (assigned to the spike). RQ-E6-7 (frame budget) is resolved in
 voice-session §3.6; RQ-E6-8 (E4 tail/since read) is resolved by the conversations contract
-§7 (`list_entries` with `tail` / `after`).
+§7 (`list_entries` with `tail` / `after` and the required `principal:` option; voice
+context reads use `:internal`, device-rendered text uses `{:device, device_id}`).
 
 Contract requests: [CONTRACT-REQUESTS.md](CONTRACT-REQUESTS.md).

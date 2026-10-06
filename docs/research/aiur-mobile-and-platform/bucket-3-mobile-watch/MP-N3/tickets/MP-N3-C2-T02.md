@@ -69,7 +69,7 @@ Internal. TTL is a module attribute, not a config key (no operator need identifi
    exist in the response; MP-N3-C3 renders it).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/summary_cache_test.exs
 ```
 

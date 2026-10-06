@@ -67,6 +67,8 @@ n/a.
 | `bash website/docs-app/scripts/check-cli-reference.sh` | passes |
 | Review: every state, attention and config key named in the docs exists in code (grep) | no stale names |
 
+Mutation check: n/a — docs only. No production hunk exists to revert.
+
 ## Completion and handoff
 
 - [ ] Three pages updated.

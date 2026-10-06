@@ -8,7 +8,7 @@ status: blocked
 blocked_by: [DESIGN-E2, MP-E2-C2-T02]
 prior_units: [U6, U3]
 prior_boundaries: [DEC #27, EXE #26, CLI #31]
-prior_features: [MP-R1-C9-T5 (AgentControlCLI split; rebase if landed)]
+prior_features: [MP-R1-C9-T05 (AgentControlCLI split; rebase if landed)]
 prior_findings: [R-Q3 (answered here), contract §5, roster "positive evidence only" rule]
 size_owner: "CLI (aiur-engine.sh; agent_control_cli.ex 3,482 — 4-line delegator only) + DECISIONS (executor_command_cli.ex 387)"
 base_sha: 45a290e3

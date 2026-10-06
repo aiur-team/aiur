@@ -68,7 +68,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/agent_control_cli_executor_check_test.exs
 env -C packaging/npm/aiur-cli bun test test/launcher.test.mjs
 ```

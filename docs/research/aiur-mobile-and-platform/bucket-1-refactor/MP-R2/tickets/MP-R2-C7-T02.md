@@ -8,7 +8,7 @@ status: ready
 blocked_by: [DESIGN-R2 §2, MP-R2-C7-T01, MP-R2-C6-T02]
 prior_units: [U8]
 prior_boundaries: [BUS #10, WEB #34, SD #35]
-prior_features: [MP-R1 (web-shell socket registration, MP-R1-C6-T3)]
+prior_features: [MP-R1 (web-shell socket registration, MP-R1-C6-T03)]
 prior_findings: []
 size_owner: n/a (new files < 300 lines each; endpoint.ex and router.ex gain ≤ 6 lines; re-check per RC-23)
 base_sha: 45a290e3
@@ -36,7 +36,7 @@ researched: 2026-10-06
 - DESIGN-R2 §2; **C7-T01** (reader adapter, filter/subset rule, error
   codes reused verbatim); **C6-T02** must emit the append notification
   below.
-- MP-R1-C6-T3 (socket registration) is not required: if it has landed,
+- MP-R1-C6-T03 (socket registration) is not required: if it has landed,
   register `/events` through it; otherwise add the `socket/3` line to
   `endpoint.ex` like the existing three.
 

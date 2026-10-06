@@ -12,7 +12,7 @@ parent: plan.md
 Tickets are in [tickets/README.md](tickets/README.md); where this file and a
 ticket disagree, the ticket wins.
 
-- **C1:** new research ticket C1-T00 (RQ-E4-1 census, moved from C8-T3). Body
+- **C1:** new research ticket C1-T00 (RQ-E4-1 census, moved from C8-T03). Body
   bounds (old T4) are in C1-T01; storage docs (old T5) are in C8-T02. The worker
   tee covers **three** ingest points, not one: the per-message closure, the
   Remote-Control display path (`session_lifecycle.ex:741-765`) and operator
@@ -58,11 +58,11 @@ an append-only journal that survives restart and workspace removal.
   - Entry `id` derivation matches `LiveConversation.Normalizer`
     (`normalizer.ex:138-145`) so both views agree on identity.
 - **Tickets.**
-  - MP-E4-C1-T1 Journal store: segments, `head.json` rebuild, permissions, append-only API.
-  - MP-E4-C1-T2 Session records and boundary rules (spawn/resume/takeover/restart-unknown).
-  - MP-E4-C1-T3 Worker tee in `MessageHandler`, non-blocking.
-  - MP-E4-C1-T4 Body bounds (64 KiB, head/tail) and gap entries.
-  - MP-E4-C1-T5 Config/docs: journal location in `website/docs-app/concepts/` (no new config key unless DESIGN-E4 asks for one; if added, `reference/configuration.md`).
+  - MP-E4-C1-T01 Journal store: segments, `head.json` rebuild, permissions, append-only API.
+  - MP-E4-C1-T02 Session records and boundary rules (spawn/resume/takeover/restart-unknown).
+  - MP-E4-C1-T03 Worker tee in `MessageHandler`, non-blocking.
+  - MP-E4-C1-T04 Body bounds (64 KiB, head/tail) and gap entries.
+  - MP-E4-C1-T05 Config/docs: journal location in `website/docs-app/concepts/` (no new config key unless DESIGN-E4 asks for one; if added, `reference/configuration.md`).
 - **Tests.** Restart: `head.json` deleted → rebuilt equal; duplicate input →
   one entry; blocked writer → closure returns (no sync I/O); remote-worker
   message → entry written; file modes 0600/0700; static check: no function
@@ -80,9 +80,9 @@ an append-only journal that survives restart and workspace removal.
   note, `router.ex:77-80`). Lookup helpers `conversation_id_for(worker
   identity | :executor)`.
 - **Tickets.**
-  - MP-E4-C2-T1 `Conversation.History` with cursor semantics.
-  - MP-E4-C2-T2 PubSub subscription + catch-up helper.
-  - MP-E4-C2-T3 JSON controller + router + `reference/` API docs.
+  - MP-E4-C2-T01 `Conversation.History` with cursor semantics.
+  - MP-E4-C2-T02 PubSub subscription + catch-up helper.
+  - MP-E4-C2-T03 JSON controller + router + `reference/` API docs.
 - **Tests.** Property: random appends, random page walks both ways cover every
   `pos` exactly once; `around` centers; unknown conversation → 404 with reason;
   method catch-alls as existing routes do.
@@ -103,10 +103,11 @@ an append-only journal that survives restart and workspace removal.
   (`streamdeck_logs.ex:306-338`), keeping its nil-timestamp rules.
   Anchors are append-only lines in `anchors.jsonl`; re-resolution only adds.
 - **Tickets.**
-  - MP-E4-C3-T1 Neutral `Conversation.Anchors.at_or_before/2` (extracted rule, same tests).
-  - MP-E4-C3-T2 Exact anchoring from publication records.
-  - MP-E4-C3-T3 Causal rules for push / PR create / PR merge commands.
-  - MP-E4-C3-T4 Resolver process: subscribe to bus events, persist anchors, backfill on boot.
+  - MP-E4-C3-T01 *(Phase C/D: recast as "extend `Aiur.Conversation.Anchors`"; the
+    extraction is MP-R6-C1-T01, RC-06, CR-R6-1.)*
+  - MP-E4-C3-T02 Exact anchoring from publication records.
+  - MP-E4-C3-T03 Causal rules for push / PR create / PR merge commands.
+  - MP-E4-C3-T04 Resolver process: subscribe to bus events, persist anchors, backfill on boot.
 - **Tests.** Exact beats observed when both exist; nil timestamps never claim
   everything (existing guard); event before first session → `unanchored`;
   re-run resolver → no duplicate anchors (same `anchor_id`).
@@ -122,9 +123,9 @@ an append-only journal that survives restart and workspace removal.
   conversation" → `around: anchor.pos`; conversation shows a Command chip at its
   position.
 - **Tickets.**
-  - MP-E4-C4-T1 Catalogue module (topic → kind, label, default visibility per DESIGN-E4).
-  - MP-E4-C4-T2 Command ↔ conversation links (both directions).
-  - MP-E4-C4-T3 Push jump points with sha and PR link.
+  - MP-E4-C4-T01 Catalogue module (topic → kind, label, default visibility per DESIGN-E4).
+  - MP-E4-C4-T02 Command ↔ conversation links (both directions).
+  - MP-E4-C4-T03 Push jump points with sha and PR link.
 - **Tests.** Every topic in the contract §10 table maps to a kind; unknown topic
   → humanized label (existing fallback); Command link resolves for worker and
   Executor requesters.
@@ -142,11 +143,11 @@ states, for workers and (via MP-E3) the Executor.
   then pages; anchor jump loads `around`. Session dividers from `list_sessions`.
   State vocabulary reused from the drawer presenter.
 - **Tickets.**
-  - MP-E4-C5-T1 Route + LiveView skeleton + states (loading, empty, unavailable, stale, restart-unknown, read-only).
-  - MP-E4-C5-T2 Entry rendering parity with the drawer (message, reasoning, command, tool, diff).
-  - MP-E4-C5-T3 Event rail / list with filters and jump.
-  - MP-E4-C5-T4 Live tail + "new entries below" behaviour.
-  - MP-E4-C5-T5 Browser tests (desktop + phone width) and `website/docs-app/guide/` page.
+  - MP-E4-C5-T01 Route + LiveView skeleton + states (loading, empty, unavailable, stale, restart-unknown, read-only).
+  - MP-E4-C5-T02 Entry rendering parity with the drawer (message, reasoning, command, tool, diff).
+  - MP-E4-C5-T03 Event rail / list with filters and jump.
+  - MP-E4-C5-T04 Live tail + "new entries below" behaviour.
+  - MP-E4-C5-T05 Browser tests (desktop + phone width) and `website/docs-app/guide/` page.
 - **Tests.** LiveView tests per state; browser test: jump to a merged-PR anchor
   highlights the anchored entry; unknown/stale branches mutation-guarded.
 
@@ -155,17 +156,16 @@ states, for workers and (via MP-E3) the Executor.
 **Outcome.** From the conversation the operator can send a message and answer
 that agent's open Commands; nothing else.
 
-- **Deps:** C5; MP-E2 Command contract; MP-E7 (step 2).
-- **Design.** Step 1: composer calls `AgentChat.send/3` for workers (existing
-  behaviour, gated by `observability.dashboard_writable`). Step 2: switch to the
-  E7 service and render receipts as a delivery overlay keyed by `delivery_id`
-  until the journal shows the `operator_message`. Inline Command card for open
+- **Deps:** C5; MP-E2 Command contract; MP-E7-C1–C3 (wave 3, RC-05).
+- **Design (X-51, CR-E4-8).** One step: the composer calls `Aiur.Listener.send/3`
+  (gated by `observability.dashboard_writable`; its `:legacy` mode keeps today's
+  `AgentChat` behaviour) and renders receipts as a delivery overlay keyed by
+  `delivery_id` until the journal shows the `operator_message`. Inline Command card for open
   Commands whose `source` is this subject, answering through the existing
   answer path with `expected_version`.
 - **Tickets.**
-  - MP-E4-C6-T1 Composer on `AgentChat` (workers), read-only gate.
-  - MP-E4-C6-T2 Inline answer of this agent's open Commands.
-  - MP-E4-C6-T3 Switch composer to MP-E7 + delivery overlay reconciliation (shared with MP-E3-C5).
+  - MP-E4-C6-T01 Composer through the listener-mode send path, with the delivery overlay and the read-only gate.
+  - MP-E4-C6-T02 Inline answer of this agent's open Commands (placement per DESIGN-E4 decision 8).
 - **Tests.** Read-only → no composer/answer; stale `expected_version` → conflict
   shown, not overwritten; overlay never says "delivered" on `outcome_unknown`;
   no UI action edits or hides entries.
@@ -174,11 +174,11 @@ that agent's open Commands; nothing else.
 
 **Outcome.** One anchor rule for deck and dashboard; deck behaviour unchanged.
 
-- **Deps:** C2, C3; **coordinate with MP-R6** (same files; one of the two owns
-  the move).
+- **Deps:** C2, C3, MP-R6-C1-T01 (R6 owns the extraction, RC-06; this chunk only
+  switches the deck's data source).
 - **Design.** `StreamdeckLogs.load/1` reads `History` (tail page) and the
   shared `at_or_before` rule; the key-face projection stays deck-specific.
-- **Tickets.** MP-E4-C7-T1 swap data source and rule; T2 parity fixtures.
+- **Tickets.** MP-E4-C7-T01 swap data source and rule; T2 parity fixtures.
 - **Tests.** Existing `streamdeck_logs_test.exs` passes unchanged.
 
 ## MP-E4-C8 — Import, retention and privacy
@@ -188,15 +188,15 @@ as data allows, honestly marked; retention and privacy are documented.
 
 - **Deps:** C1.
 - **Tickets.**
-  - MP-E4-C8-T1 One-shot importer per active ticket: workspace `agent.ndjson` then current-launch IssueLog JSONL, as an `import` session after a `pre_journal` gap.
-  - MP-E4-C8-T2 Docs: where transcripts live, that they are kept, that they may contain secrets, and how to delete by hand.
-  - MP-E4-C8-T3 Measurement ticket for RQ-E4-1 (bytes/hour per agent on the live fleet) recorded in the PR body.
+  - MP-E4-C8-T01 One-shot importer per active ticket: workspace `agent.ndjson` then current-launch IssueLog JSONL, as an `import` session after a `pre_journal` gap.
+  - MP-E4-C8-T02 Docs: where transcripts live, that they are kept, that they may contain secrets, and how to delete by hand.
+  - MP-E4-C8-T03 Measurement ticket for RQ-E4-1 (bytes/hour per agent on the live fleet) recorded in the PR body.
 - **Tests.** Import twice → no duplicates; malformed lines skipped and counted.
 
 ## Dependency sketch
 
 ```text
-E4-C1 ─► E4-C2 ─┬─────────────► E4-C5 (DESIGN-E4) ─► E4-C6 ─(E7)─► C6-T3
+E4-C1 ─► E4-C2 ─┬─────────────► E4-C5 (DESIGN-E4) ─► E4-C6 ─(E7)─► C6-T03
       └► E4-C3 ─┴► E4-C4 ──────┘
          E4-C3 ─► E4-C7 (with MP-R6)
 E4-C1 ─► E4-C8

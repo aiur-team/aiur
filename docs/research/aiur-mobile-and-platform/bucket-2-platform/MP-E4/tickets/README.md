@@ -33,7 +33,7 @@ Wave = delivery wave (value-and-sequencing.md); step = intra-feature order.
 | MP-E4-C5-T03 | Event navigation and jump | blocked | DESIGN-E4, C5-T02, C4-T01, C3-T02 | 3 / s6 |
 | MP-E4-C5-T04 | Link-in, phone width, GUI guide | blocked | DESIGN-E4, C5-T03 | 3 / s7 |
 | MP-E4-C6-T01 | Composer via `Aiur.Listener.send/3` + delivery overlay | blocked | DESIGN-E4, DESIGN-E7, MP-E7-C3-T03, MP-E7-C3-T04, C5-T01 | 3 (after E7-C3) / s5 |
-| MP-E4-C6-T02 | Inline answers to this agent's open Commands | blocked | DESIGN-E4, DESIGN-E2, MP-E7-C3-T03, MP-E2-C1-T01, MP-E2-C3-T01, C4-T02 | 3 (after E7-C3) / s6 |
+| MP-E4-C6-T02 | Inline answers to this agent's open Commands | blocked | DESIGN-E4, DESIGN-E2, MP-E2-C1-T01, MP-E2-C3-T01, C4-T02 | 3 / s6 (no E7-C3 dependency; CR-E4-4) |
 | MP-E4-C7-T01 | Stream Deck logs read the journal | blocked | DESIGN-E4, DESIGN-R6, MP-R6-C1-T01, C2-T01, C1-T03 | 3 / s4 |
 | MP-E4-C8-T01 | Pre-journal importer | blocked | DESIGN-E4, C1-T03 | 3 / s4 |
 | MP-E4-C8-T02 | Concepts page: conversations, retention, secrets | blocked | DESIGN-E4, C1-T03 | 3 / s4 |
@@ -62,8 +62,8 @@ MP-E3 consumes: C1-T02 (Ingest), C2-T01 (History), C5-T01/T02 (view), C6-T01 (ov
 - After C1-T02: C1-T03, C2-T01 and (with R6-C1-T01) C3-T01 in parallel.
 - After C2-T01: C2-T02, C5-T01, C7-T01 in parallel; C8-T01/T02 once C1-T03 is in.
 - After C3-T02: C3-T03, C4-T01, C4-T02 in parallel; C5-T02 runs alongside.
-- C6 starts only after MP-E7-C3-T03/T04 (RC-05); C6-T01 and C6-T02 can then
-  run in parallel.
+- C6-T01 starts only after MP-E7-C3-T03/T04 (RC-05). C6-T02 does not wait for
+  E7-C3 (Command answers do not follow listener mode; Phase D CR-E4-4).
 
 ## New research questions
 

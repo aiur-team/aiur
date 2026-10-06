@@ -5,7 +5,7 @@ chunk_id: MP-N3-C4
 bucket: 3-mobile-watch
 title: "Row tap opens the instance dashboard in the WebView; secondary Executor-chat button gated by capability"
 status: blocked
-blocked_by: [DESIGN-N3, DESIGN-N1, DESIGN-E3, RQ-TRANSPORT, MP-N2-C10-T01, MP-N2-C6-T02, MP-N1-C4-T02, MP-N1-C3-T01, MP-N3-C4-T02, MP-E3-C6-T1]
+blocked_by: [DESIGN-N3, DESIGN-N1, DESIGN-E3, RQ-TRANSPORT, MP-N2-C10-T01, MP-N2-C6-T02, MP-N1-C4-T02, MP-N1-C3-T01, MP-N3-C4-T02, MP-E3-C6-T01]
 prior_units: [U6]
 prior_boundaries: [WEB]
 prior_features: [MP-N1, MP-N2, MP-E3]
@@ -35,7 +35,7 @@ researched: 2026-10-06
 - RC-15: loads a dashboard in a WebView → **RQ-TRANSPORT** and **MP-N2-C10-T01** (HTTPS device URL).
 - MP-N2-C6-T02 (device session), MP-N1-C4-T02 (WebView host), MP-N1-C3-T01 (resolver for the
   "Open instance dashboard" and "Executor chat button" affordances, client-capability-model.md §5).
-- MP-E3-C6-T1 (Executor route) and DESIGN-E3; until then the button is hidden (capability
+- MP-E3-C6-T01 (Executor route) and DESIGN-E3; until then the button is hidden (capability
   `executor.conversation` is `unavailable: executor_not_managed`, MP-R1 capability-matrix.md).
 
 ## Verified starting point (base `45a290e3`)

@@ -8,7 +8,7 @@ status: blocked
 blocked_by: [DESIGN-E2, MP-E2-C4-T00, MP-E2-C4-T01]
 prior_units: [U4, U6]
 prior_boundaries: [CDX #21, RUN #18, LIFECYCLE]
-prior_features: [MP-R7 (MP-R7-C2-T2 reserved callbacks; plan §9 pre-R7 rule)]
+prior_features: [MP-R7 (MP-R7-C2-T02 reserved callbacks; plan §9 pre-R7 rule)]
 prior_findings: [D10, R-Q1, contract §10 item 6, harness-adapter §6 items 1–2]
 size_owner: "CODEX (codex/approvals.ex 356 — one call site); AGENT_CORE (app_server/turn_loop.ex 152); LIFECYCLE (runtime_watchdog.ex 376, token_accounting.ex) — guard lines only"
 base_sha: 45a290e3
@@ -36,7 +36,7 @@ researched: 2026-10-06
   **C4-T00** PASS on Q1–Q3; C4-T01.
 - **Pre-R7 rule (plan §9):** if MP-R7-C3/C4 has not moved the Codex adapter, the only
   edit in `codex/approvals.ex` is one call into `Aiur.Commands.NativeCapture.Codex`
-  (PROPOSED thin module) so MP-R7 moves one call site. If MP-R7-C2-T2 has landed, also
+  (PROPOSED thin module) so MP-R7 moves one call site. If MP-R7-C2-T02 has landed, also
   report `native_question: :in_band_hold` for codex when the gate is on (C4-T05).
 - May run concurrently with C4-T03 (different files) after C4-T01.
 

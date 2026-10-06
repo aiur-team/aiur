@@ -104,7 +104,7 @@ never silently).
 | `:live` | boot ok | handle `{:event, e}`: `Envelope.to_external/2` → `:skip` ignored; else `seq = head + 1`, `Journal.append/2`, update head |
 | `:unavailable` | instance id unavailable (C5-T04), runtime dir unresolvable, corrupt interior line, append error | stays alive, **does not crash**; counts dropped events; `status/0` reports `{:unavailable, reason}`; reporter called **once per boot** |
 
-**Boot sequence:** (1) `InstanceRef.current/0` — error → `:unavailable`
+**Boot sequence:** (1) `InstanceId.current/0` — error → `:unavailable`
 `identity_unavailable`, no subscribe. (2) `Journal.prepare/2`, read meta,
 replay the newest segment with `repair_torn_tail: true` (only the writer
 repairs) to recover `head_seq`; meta/segment disagreement → trust the
@@ -135,7 +135,12 @@ call; agreed with the C7 ticket writer):
   bounded — if the C6-T05 census shows > 10 appends/s sustained, switch the
   status to a `:public` ETS table owned by the exporter; the API is
   unchanged). A missing key means `:disabled` (or not yet booted).
-- `read/3` runs in the caller's process (`Reader`): list segments, pick
+- **Read signature (one for C6-T02/T03/T04 and C7, T-7):**
+  `Aiur.Events.Export.read(after_seq, limit, patterns, opts \\ [])`, so
+  `read/3` and `read/4` are the same public function; `opts[:epoch]` is the
+  caller's last epoch (reset rules in C6-T03). `Aiur.Events.Export.Reader` is
+  private to the component and is never called by other tickets.
+- `read/4` runs in the caller's process (`Reader`): list segments, pick
   those covering `after_seq + 1`, read with `Journal.replay(path, validator,
   repair_torn_tail: false, max_file_bytes: 8 MiB)` — readers never truncate
   (a concurrent append can look like a torn tail). Reset rules are C6-T03's.
@@ -154,8 +159,10 @@ the records are read from the journal).
 
 **Injected boot dependencies** (no bus → signal/identity compile edge):
 the child spec built in `aiur.ex` passes
-`on_unavailable: fn reason -> Aiur.Alerts.emit_system("system.events.export_unavailable", reason: inspect(reason), needs_attention: true, severity: "warning") end`,
-so the exporter never names `Aiur.Alerts`. Topic is in-grammar (`system.`) and gets a C5 catalog
+`on_unavailable: fn reason -> Signal.alert("system.events.export_unavailable", reason: inspect(reason), needs_attention: true, severity: "warning") end`,
+so the exporter never names the signal port either. C6 ships in wave 5, after the
+signal port exists (plan-refresh row PR-07), so the callback uses `Signal.alert/2`,
+not `Aiur.Alerts.emit_system` (X-48). Topic is in-grammar (`system.`) and gets a C5 catalog
 entry (ledgered, not exported).
 
 **Id floor:** `Aiur.IdFloorSources.floor_files/0` (C2-T07) adds the newest
@@ -170,7 +177,7 @@ writer; a record is visible to readers only after `append/2` returned
 
 1. `Layout` (paths, meta read/write, segment listing).
 2. `Exporter` with the state table, `:persistent_term` status, `on_appended`.
-3. `Aiur.Events.Export` facade (`enabled?/0`, `status/0`, `read/3`) and
+3. `Aiur.Events.Export` facade (`enabled?/0`, `status/0`, `read/4` with `opts \\ []`) and
    `Reader` (stateless, caller's process).
 4. `aiur.ex`: `export_children/1` and the append after `cli_children`;
    `export_enabled?` read once via `Aiur.Config.events_export_enabled?/0`.
@@ -203,7 +210,7 @@ Rollback: revert; the directory is inert data.
 
 `exporter_test.exs` (temp `runtime_state_dir` via `Application.put_env`,
 fake catalog with one exported pattern `ticket.*.pr.merged`, fake
-`InstanceRef` provider, injected `on_unavailable` sending to the test pid):
+`InstanceId` provider, injected `on_unavailable` sending to the test pid):
 
 1. `"start writes exactly one gap, then events with dense seq"` — start,
    publish two exported events and one non-exported → journal has
@@ -216,7 +223,7 @@ fake catalog with one exported pattern `ticket.*.pr.merged`, fake
    `{:unavailable, :journal_corrupt}` message; a second boot in the same test
    reports again (per boot), not per event.
 5. `"readers never truncate a torn tail"` — append half a line manually,
-   call `Reader.read/3` → file size unchanged. **Fails** if the reader passes
+   call `Export.read/4` → file size unchanged. **Fails** if the reader passes
    `repair_torn_tail: true`.
 6. `"exporter is the last child"` — in `test/aiur/application_test.exs`
    (describe "child_specs/1 run-shape gating"), with export enabled the last

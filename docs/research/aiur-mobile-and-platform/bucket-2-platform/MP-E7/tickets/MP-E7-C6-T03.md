@@ -31,7 +31,7 @@ researched: 2026-10-06
   `hooks.json` and the Claude settings target E3 chose. One installer, owned
   by E3's generator; this ticket extends it rather than creating a second one.
 - **Non-goals:** the CLI command names (`aiur executor-attach
-  [--print-config]`, `executor-detach`, MP-E3-C1-T3); trust prompts.
+  [--print-config]`, `executor-detach`, MP-E3-C1-T03); trust prompts.
 
 ## Dependencies and blockers
 
@@ -80,7 +80,7 @@ researched: 2026-10-06
 1. `HookConfig.merge/3` + tests.
 2. Extend E3's generator to include the deliver fragment and call
    `merge/3` for install/uninstall.
-3. `executor-attach --check` (MP-E3-C7-T1) reports "deliver hook installed:
+3. `executor-attach --check` (MP-E3-C7-T01) reports "deliver hook installed:
    yes/no, URL current: yes/no".
 
 ## Non-happy paths
@@ -109,7 +109,7 @@ restores the exact non-aiur content. Rollback: `executor-detach`.
   `"uninstall removes a deliver hook with an old port"`;
   `"malformed hooks value raises invalid_hooks_config and writes nothing"`.
   Fixtures mirror Khala's merge cases (cited above) plus aiur's prefix case.
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur/executor`.
 - Manual end-to-end (Executor side, not the TUI recipe): with `aiurdev`
   running, `aiur executor-attach --harness claude` in a scratch project with

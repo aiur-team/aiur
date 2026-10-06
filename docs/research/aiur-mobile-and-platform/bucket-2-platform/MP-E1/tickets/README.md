@@ -5,7 +5,7 @@ Researched 2026-10-06 at base `45a290e3`. Feature plan: [../plan.md](../plan.md)
 resolutions: [../chunks.md](../chunks.md); contract:
 [../../../contracts/queue-readiness-and-build-progress.md](../../../contracts/queue-readiness-and-build-progress.md).
 
-**Status.** All 40 tickets are `blocked` on the owner gate
+**Status.** All 41 tickets are `blocked` on the owner gate
 [DESIGN-E1](../../../owner-design-tasks/DESIGN-E1.md) (MP-REQ2). No ticket is
 blocked on an open research question: RQ-1..RQ-8 are resolved; RQ-9 (pacing
 census) is non-blocking and is settled by C9-T04. Wave 0 for every ticket (D2):
@@ -38,6 +38,7 @@ time, subject to the file conflicts below.
 | [MP-E1-C3-T05](MP-E1-C3-T05.md) | Withdrawal protocol after a dependency change (D8) | blocked | DESIGN-E1, C3-T04, C1-T02, C1-T05, C1-T06 | 0 | L5 |
 | [MP-E1-C3-T06](MP-E1-C3-T06.md) | Competing writers - manual promotion, external hold, marker removal | blocked | DESIGN-E1, C3-T04 | 0 | L5 |
 | [MP-E1-C3-T07](MP-E1-C3-T07.md) | Restart recovery and marker-based rebuild | blocked | DESIGN-E1, C3-T04 | 0 | L5 |
+| [MP-E1-C3-T08](MP-E1-C3-T08.md) | Capability provider for build_queue and build_queue.build_order_source (X-21) | blocked | DESIGN-E1, C3-T03, MP-R1-C3-T01 | 1 (inversion rule: after MP-R1-C3-T01) | L4 |
 | [MP-E1-C4-T01](MP-E1-C4-T01.md) | ExecutorList source - ordered list with "after #N" edges | blocked | DESIGN-E1, C2-T01, C3-T03 | 0 | L4 |
 | [MP-E1-C4-T02](MP-E1-C4-T02.md) | Build Order source - adopt a root as an optional dependency input | blocked | DESIGN-E1, C4-T01, C3-T05 | 0 | L6 |
 | [MP-E1-C4-T03](MP-E1-C4-T03.md) | Native blocked_by of ExecutorList items through a tracker callback | blocked | DESIGN-E1, C4-T01, C2-T02 | 0 | L5 |
@@ -68,7 +69,7 @@ time, subject to the file conflicts below.
 - **L1:** C1-T02, C1-T07, C2-T02, C2-T03, C3-T02, C7-T03
 - **L2:** C2-T04
 - **L3:** C3-T03
-- **L4:** C3-T04, C4-T01, C4-T04, C4-T05, C5-T01, C6-T01, C7-T02
+- **L4:** C3-T04, C3-T08, C4-T01, C4-T04, C4-T05, C5-T01, C6-T01, C7-T02
 - **L5:** C3-T05, C3-T06, C3-T07, C4-T03, C4-T06, C5-T04, C8-T01
 - **L6:** C4-T02, C5-T02, C5-T03, C8-T02
 - **L7:** C6-T02

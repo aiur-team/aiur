@@ -5,7 +5,7 @@ chunk_id: MP-N6-C1
 bucket: 3-mobile-watch
 title: Capability gating for device Command routes (commands.read / commands.answer) and typed errors
 status: ready
-blocked_by: [DESIGN-N6 (no-UI release), MP-N6-C1-T03, MP-R1 capability registry (R1-C2/C3, RC-12)]
+blocked_by: [DESIGN-N6 (no-UI release), MP-N6-C1-T03, MP-R1-C3-T02 (core providers incl. commands, RC-12)]
 prior_units: []
 prior_boundaries: [WEB #34]
 prior_features: [MP-R1]
@@ -29,7 +29,8 @@ refusal a typed error that names the capability:
 
 ## Dependencies and blockers
 
-C1-T03, MP-R1 capability registry. DESIGN-N6 no-UI release.
+C1-T03, MP-R1-C3-T02 (capability registry and core providers, which may already register
+`commands.*`). DESIGN-N6 no-UI release.
 
 ## Verified starting point
 
@@ -72,3 +73,5 @@ Commands (from `src/`): `mise exec -- mix test test/aiur_web/controllers/device_
 ## Completion and handoff
 
 - [ ] Dependents: C3-T02 (renders typed errors), C4-T01 (mic gating uses the same rule).
+- [ ] Docs (same PR): the "Device API" section of `website/docs-app/guide/mobile-pairing.md`
+  documents the `capability_unavailable` body and its reasons.

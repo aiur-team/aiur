@@ -53,7 +53,7 @@ researched: 2026-10-06
 | Error JSON convention `{error: {code, message}}` | `src/lib/aiur_web/controllers/observability_api_controller.ex:153-157` |
 | Existing transcript route (keep) returns `422 invalid_limit`, `503 events_unavailable` | `observability_api_controller.ex:37-45` |
 | Controller test harness (Endpoint.call with basic-auth header) | `src/test/aiur_web/controllers/observability_api_controller_test.exs:47-80` |
-| Device bearer accepted on every `:dashboard_auth` route (future) | `contracts/pairing-and-instance-registry.md` §4.4; MP-N2-C6-T1 |
+| Device bearer accepted on every `:dashboard_auth` route (future) | `contracts/pairing-and-instance-registry.md` §4.4; MP-N2-C6-T01 |
 
 PROPOSED: `src/lib/aiur_web/controllers/events_controller.ex`,
 `src/test/aiur_web/controllers/events_controller_test.exs`.
@@ -64,7 +64,8 @@ PROPOSED: `src/lib/aiur_web/controllers/events_controller.ex`,
 
 ```elixir
 Aiur.Events.Export.enabled?() :: boolean()
-Aiur.Events.Export.read(after_seq :: non_neg_integer(), limit :: 1..500, patterns :: [String.t()]) ::
+Aiur.Events.Export.read(after_seq :: non_neg_integer(), limit :: 1..500, patterns :: [String.t()],
+                        opts :: [epoch: String.t()] \\ []) ::
   {:ok, %{epoch: String.t(), head_seq: integer(), oldest_seq: integer(), records: [map()]}}
   | {:reset, %{epoch: String.t(), head_seq: integer(), oldest_seq: integer()}}
   | {:error, :events_unavailable}
@@ -203,7 +204,7 @@ live records as agents work.
       add a "External event feed" section to
       `website/docs-app/concepts/message-bus.md` (request/response, reset,
       gap, auth, disabled behaviour), linking the config keys from C6-T01.
-- [ ] `packages/aiur-contracts` (MP-R1-C3-T6) gains the response schema if
+- [ ] `packages/aiur-contracts` (MP-R1-C3-T06) gains the response schema if
       that package exists when this lands; otherwise note it in C4-T04's
       plan refresh.
 - Dependents: C7-T02 (shares the reader adapter), C7-T04 (CLI reads

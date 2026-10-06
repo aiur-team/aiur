@@ -76,7 +76,7 @@ Hidden under `:legacy` routing (same rule as C7-T01).
   unknown → fails.
 - `input_test.exs` (only if a key is approved): `"<key> requests the next
   mode with expected_version"`.
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur/agent_list`.
 - Manual (AGENTS.md wrapper-tmux recipe): capture pane `0.0` and check the
   cell; press the key if approved and capture again.

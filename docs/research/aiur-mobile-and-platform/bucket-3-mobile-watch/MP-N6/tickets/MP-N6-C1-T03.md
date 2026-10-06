@@ -5,7 +5,7 @@ chunk_id: MP-N6-C1
 bucket: 3-mobile-watch
 title: POST /api/v1/device/commands/:id/answer — device actor, D11 outcomes, replace, idempotent retry
 status: ready
-blocked_by: [DESIGN-N6 (no-UI release), MP-N6-C1-T01, MP-E2-C3-T1, MP-E2-C3-T2]
+blocked_by: [DESIGN-N6 (no-UI release), MP-N6-C1-T01, MP-E2-C3-T01, MP-E2-C3-T02]
 prior_units: []
 prior_boundaries: [DEC #27, WEB #34]
 prior_features: [MP-E2, MP-N2]
@@ -29,8 +29,8 @@ outcome. `replace: true` calls the human supersede path (D11).
 ## Dependencies and blockers
 
 - C1-T01 (scope with `:device_auth`, `:device_write`, `:require_writable`).
-- **MP-E2-C3-T1**: winner summary on `{:conflict, {:already_decided, _}}` and the guard
-  that an Executor never supersedes a human. **MP-E2-C3-T2**: the human supersede API path
+- **MP-E2-C3-T01**: winner summary on `{:conflict, {:already_decided, _}}` and the guard
+  that an Executor never supersedes a human. **MP-E2-C3-T02**: the human supersede API path
   (today supersede exists only for the Executor CLI; command contract §6 rule 3).
 - DESIGN-N6 no-UI release. Outcome **copy** is DESIGN-E2 §4.4 (client side).
 
@@ -60,11 +60,21 @@ outcome. `replace: true` calls the human supersede path (D11).
 
 ## Chosen design
 
+- **Phase D (CR-E2-9, CR-N6-2):** the controller calls
+  `Aiur.Commands.Answering.answer/3` / `supersede/3` (MP-E2-C3-T02) with an `:operator`
+  actor and the server-set `client` (command contract §6), and maps its outcome atoms
+  (`accepted`, `duplicate`, `already_answered`, `too_late`, `withdrawn`, `stale`,
+  `not_allowed`, `error`) to the HTTP table below, instead of matching store tuples. The
+  `replaceable` flag comes from `ConflictSummary.for(decision, caller_actor)` (MP-E2-C3-T01,
+  arity 2), not from controller logic. The controller passes `actor_source: :device` and
+  `actor.id = "device:<id>"` to `Aiur.Commands.Answering` (a missing `actor_source` raises
+  there; command contract §6, security B2/M4, RC-41).
+
 | Store result | HTTP | Body |
 | --- | --- | --- |
 | `{:ok, %{status: :duplicate}}` | 200 | `{"outcome":"duplicate", "delivery": …}` |
 | `{:ok, accepted}` | 200 | `{"outcome":"accepted","delivery":{"status": …}}` |
-| `{:error, {:conflict, {:already_decided, _}}}` | 409 | `{"error":"decision_conflict","reason":"already_decided","winner":{actor_kind,accepted_at,summary,delivery_status},"replaceable":bool}` |
+| `{:error, {:conflict, {:already_decided, _}}}` | 409 | `{"error":"decision_conflict","reason":"already_decided","winner":{actor_kind,actor_source,accepted_at,summary,delivery_status},"replaceable":bool}` |
 | `{:error, {:conflict, {:idempotency_conflict, _}}}` | 409 | `reason: "idempotency_conflict"` |
 | `{:error, {:conflict, :answer_in_flight}}` | 409 | `reason: "answer_in_flight"` |
 | `{:error, {:conflict, :answer_delivered}}` | 409 | `reason: "answer_delivered"` |
@@ -75,9 +85,12 @@ outcome. `replace: true` calls the human supersede path (D11).
 | `custom_response` > 4,000 chars | 422 | `field: "custom_response", "max": 4000` (checked before calling the store) |
 | store unavailable | 503 | `decision_service_unavailable` |
 
-- `replaceable` = winner is undelivered and not in flight and the caller is human (always
-  true for devices) — D11 for an Executor winner, command contract §6 rule 5 for a human
-  winner.
+- `replaceable` = winner is undelivered and not in flight **and** the caller outranks the
+  winner by precedence (`direct operator > operator_relayed > executor`, command contract
+  §6 rule 3a). It is rank-based, never "caller is human", and is computed by
+  `ConflictSummary.for/2`, not here. The 409 `winner` carries `actor_source`; MP-N6-C1-T01's
+  Command view shows it for the winning answer ("operator (unverified: no surface)" for
+  `:rpc`, command contract §6).
 - When MP-E2 adds `client: {surface, device_id}` to the answer (command contract §6), pass
   it from the token and `surface`; until then the `actor.id` carries `device:<id>`.
 - `via` is recorded in the answer's `rationale`-free metadata only if E2 provides a field;
@@ -119,10 +132,17 @@ records).
 | `"stale version is 409 with current_version"` | 409 | leave as 422 |
 | `"custom_response over 4000 chars is 422 before the store"` | 422, store untouched | rely on 7,800 |
 | `"read-only dashboard refuses device answers"` | 403 | skip `:require_writable` |
+| `"409 winner carries actor_source"` (RC-41) | winner object has `actor_source` of the stored winning answer | drop `actor_source` from the winner mapping |
+| `"device caller vs an undelivered relayed winner → replaceable true; vs a delivered winner → false"` (RC-41) | as stated | compute `replaceable` in the controller (e.g. "caller is human") instead of `ConflictSummary.for/2` |
 
 Commands (from `src/`): `mise exec -- mix test test/aiur_web/controllers/device_command_controller_test.exs`.
 
 ## Completion and handoff
 
 - [ ] AC-N6-3/4/5/8 covered; outcome table mirrored in contract A-E2-4 (no change needed).
+- [ ] Docs (same PR, Phase D T-6): the "Device API" section of
+  `website/docs-app/guide/mobile-pairing.md` (MP-N2-C9, same section as C1-T01) lists
+  `POST /api/v1/device/commands/:id/answer`, its body keys (`option_id` or
+  `custom_response`, `expected_version`, `idempotency_key`, `replace`, `via`), the
+  4,000-character limit and the outcome table above.
 - Dependents: C3-T02, C5-T01.

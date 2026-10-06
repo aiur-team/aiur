@@ -46,6 +46,13 @@ New capability; no draft concept exists at base. Contract §5.3 defines kinds an
   Command field, `decision_answer.ex:15`), redacted; result to provider: "Draft vd_… is
   waiting for the operator to confirm. Do not say it was sent."
 - At most 5 open (`proposed`) drafts per session; the 6th is refused with a tool error text.
+- **Confirmation comes only from the client (Phase D, security m4; voice-session V8).** The
+  only function that moves a draft to `confirmed` is `Drafts.confirm(state, draft_id,
+  %{source: :client_socket, principal: p})`, called by the channel (C7-T01) on a
+  `confirm_draft` event. The tool router (C5-T01) never registers a confirm-like tool, and the
+  session never inspects provider transcripts or assistant text for confirmation words. A
+  provider `tool_call` named `confirm_draft` (or any unknown name) is answered with
+  `is_error: true` and changes nothing.
 
 ## Implementation steps
 
@@ -68,6 +75,9 @@ Internal. Rollback: revert.
 | "only listed transitions are allowed" | table over all pairs |
 | "the projection rebuilt from the transcript equals live state" | replay test |
 | "the sixth open draft is refused" | — |
+| "no provider tool can confirm a draft" | for every registered tool name plus fabricated `confirm_draft`, `confirm`, `send`: a scripted `ToolCall` leaves the draft `proposed`; E7 send and E2 answer ports called 0 times |
+| "a provider transcript saying confirm does not confirm" | `UserTranscript{text: "yes, confirm and send it", final?: true}` and `AgentText{"Confirmed, sending now"}` → draft stays `proposed` |
+| "confirm requires source client_socket" | `confirm/3` with any other source → `{:error, :not_client}` |
 
 ```bash
 env -C src mise exec -- mix test test/aiur/voice_conversation/drafts_test.exs
@@ -77,7 +87,11 @@ make -C src fmt-check lint
 Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-check
 `~/.aiur/github-budget/agent-token` before and after.
 
-**Mutation check.** Allow `proposed → sent`: the transition table test fails.
+**Mutation check.** Allow `proposed → sent`: the transition table test fails. Register a
+`confirm_draft` tool that calls `confirm/3`: the "no provider tool can confirm" test fails.
+
+**Docs.** None of its own: C9-T01 states "the assistant can only draft; you confirm with the
+button" on the voice guide page (`website/docs-app/guide/`).
 
 ## Completion and handoff
 

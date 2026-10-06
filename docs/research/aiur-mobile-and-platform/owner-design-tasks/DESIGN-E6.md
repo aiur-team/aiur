@@ -3,7 +3,8 @@ design_task: DESIGN-E6
 feature_id: MP-E6
 owner: Kevin (operator)
 status: open — not approved
-blocks: MP-E6-C5-T3/T4, C7, C8 (see ../bucket-2-platform/MP-E6/chunks.md); MP-E6-C1 needs E6-OQ9 authorization
+blocks: [MP-E5-C3-T02, MP-E6-C1-T01, MP-E6-C3-T01, MP-E6-C3-T02, MP-E6-C4-T04, MP-E6-C5-T03, MP-E6-C5-T04, MP-E6-C6-T04, MP-E6-C7-T01, MP-E6-C7-T02, MP-E6-C7-T03, MP-E6-C7-T04, MP-E6-C8-T01, MP-E6-C8-T02, MP-E6-C8-T03, MP-E6-C9-T01, MP-N6-C4-T03, MP-N7-C4-T01, MP-N7-C4-T03, MP-N7-C4-T05]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-E6 (waived entries excluded). Earlier wording: MP-E6-C5-T03/T04, C7, C8 (see ../bucket-2-platform/MP-E6/chunks.md); MP-E6-C1 needs E6-OQ9 authorization"
 shared_with: DESIGN-E5 (the Dictate/Converse choice), DESIGN-E2 §4 (Command answers), DESIGN-E3 and DESIGN-E4 (conversation views and anchors), DESIGN-E7 (listener mode shown on consults), DESIGN-N6/N7 (phone/watch converse)
 base_main_sha: 45a290e3
 date: 2026-10-06
@@ -13,7 +14,7 @@ date: 2026-10-06
 
 Deliver the interaction design, states, copy and an explicit approval. **MP-E6 user-visible
 implementation stays blocked until this task is approved.** Backend chunks C2–C4 and C6 may
-proceed (C2-T3 also waits on the paid spike).
+proceed (C2-T03 also waits on the paid spike).
 
 ## 1. What this is (and what exists today)
 
@@ -40,15 +41,17 @@ proceed (C2-T3 also waits on the paid spike).
 
 | ID | Decision | Engineering recommendation |
 | --- | --- | --- |
-| E6-OQ1 | How a draft becomes an instruction: on-screen Confirm only, or may a spoken "send it" confirm? | On-screen Confirm only. Speech can *ask* to send; the button sends. (Parked spec §18 precedent.) |
+| E6-OQ1 | How a draft becomes an instruction: on-screen Confirm only, or may a spoken "send it" confirm? | On-screen Confirm only. Speech may at most *focus* the Confirm button; a draft is confirmed only by the button on an authenticated client, never by a provider tool call or transcript (voice-session V8; security review m4; parked spec §18 precedent). |
 | E6-OQ2 | Must you confirm before the assistant consults the agent? | Yes on the first consult in a session; later consults in the same session may go when you ask aloud. |
 | E6-OQ3 | Role pre-context: where are roles authored, and which roles ship? | Files under the instance config folder (e.g. `.aiur/voice/roles/*.md`); ship "ticket discussion" and "project discussion". |
 | E6-OQ4 | The assistant's voice and name | Reuse `elevenlabs.voice_id`; no persona name. |
 | E6-OQ5 | May you delete a transcript? | Allow deletion of a whole session by you only, with confirmation; never automatic. |
-| E6-OQ6 | Cost caps | 20-minute session cap, 120 s idle end, a daily minute cap you set. |
-| E6-OQ7 | Accept the cloud disclosure (contract §10) and pick the LLM | Claude Haiku 4.5 or a Gemini Flash model as default. |
+| E6-OQ6 | Cost caps | 20-minute session cap, 120 s idle end, and `voice.conversation.daily_minutes_cap` **default 60 minutes per local day** (explicit `null` = no cap; `0` disables Converse). Sessions interrupted by a daemon restart count (last record time − start). You may pick another number. (Phase D, feasibility M8: a null default means the cap never fires.) |
+| E6-OQ7 | Accept the cloud disclosure (contract §10) and pick the LLM. Options: Claude Haiku 4.5, or a Gemini Flash model | **Claude Haiku 4.5**, because your code already goes to Anthropic through Claude workers, so it adds no new data processor beyond ElevenLabs; the E6-OQ9 spike confirms its latency. |
 | E6-OQ8 | One target per session? | Yes; switching target starts a new session. |
-| E6-OQ9 | Authorize the paid validation spike (MP-E6-C1) | Needed before the adapter's event mapping is built. |
+| E6-OQ9 | Authorize the paid validation spike (MP-E6-C1) | **Authorize**, because the adapter's event mapping cannot be built from documentation alone. |
+| E6-OQ10 | Label for voice-originated messages in the agent's transcript (Phase D, E6 R-1/R-2): entries with `origin: voice_assistant` (consults and confirmed instructions) are rendered with which label? | A short "via voice assistant" tag beside the operator label. Until approved they render as plain operator messages. |
+| E6-OQ11 | Should a Command answer produced through a voice conversation show its `via: voice_assistant` audit tag anywhere besides the Command timeline (E6 R-3)? | Timeline only. |
 
 ## 4. States to design
 
@@ -64,8 +67,11 @@ proceed (C2-T3 also waits on the paid spike).
 | Draft proposed | the exact text and target; Confirm / Edit / Discard |
 | Draft sent / delivered / failed / stale | the delivery state from the send path; for stale, why (Command resolved, agent ended) |
 | Reconnecting / error | reason; transcript so far is saved |
+| Ended or failed with a typed cause | one state per row of the [client error and end-reason table](../contracts/voice-session-client-errors.md) the dashboard can show: daily cap reached, provider quota, provider unavailable, connection lost, cause-neutral provider error, unknown. Retry only where that table allows it. History views also show "ended by a daemon restart". |
 | Ended | reason (you ended, idle, time cap, target gone); link to the transcript |
 | Context gaps | which context the assistant does not have (e.g. "Command data unavailable") |
+| Microphone permission denied | which permission; how to allow it; typing still works (distinct from Unavailable) |
+| History loading | skeleton while past sessions load; never a false "no past sessions" |
 | Empty history | no past sessions for this target |
 
 ## 5. Copy to approve
@@ -76,7 +82,8 @@ aiur; provider deletion after each session; Zero Retention only on Enterprise pl
 
 ## 6. Acceptance conditions
 
-- Every surface in §2 and state in §4 designed; E6-OQ1..OQ9 answered.
+- Every surface in §2 and state in §4 designed; every decision in §3 answered
+  (E6-OQ1…OQ11, including OQ10 and OQ11).
 - The design makes it impossible to mistake discussion for an instruction: a draft is visibly
   different from a spoken turn, and nothing is sent without your Confirm (per E6-OQ1).
 - The full transcript is reviewable; no design element replaces it with a summary.

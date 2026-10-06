@@ -74,7 +74,7 @@ No config beyond C3-T01's key.
 Mutation check: drop the grace comparison → test 2 fires early.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/observer_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/observer_test.exs
 ```
 
 ## Completion and handoff

@@ -5,7 +5,7 @@ chunk_id: MP-N4-C3
 bucket: 3-mobile-watch
 title: Push component supervision and the `push` capability (available / degraded / unavailable)
 status: ready
-blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C3-T03, MP-N4-C1-T01, MP-R1 capability registry (R1-C2/C3, RC-12)]
+blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C3-T03, MP-N4-C1-T01, MP-R1-C3-T01 (capability registry, RC-12)]
 prior_units: []
 prior_boundaries: [new #41 candidate push-relay]
 prior_features: [MP-R1]
@@ -29,8 +29,8 @@ missing (AC-N4-8). States (identity-and-capabilities contract §2.2 enum only):
 | settings invalid | `unavailable` | `not_configured` |
 | `Primitives.missing/0 != []` (C1-T01) | `unavailable` | `dependency_unavailable`, `depends_on: ["runtime.crypto"]` |
 | machine store missing/corrupt, or mobile disabled | `unavailable` | `dependency_unavailable`, `depends_on: ["pairing"]` |
-| enabled, no device has a valid `push_registration` | `available` | `devices: 0` (attribute, not a reason) |
-| relay errors for ≥ 2 consecutive jobs across ≥ 60 s, or outbox unwritable, or invalid registration rows | `degraded` | `not_running` (relay/outbox) or `unknown` (mixed), with `since` |
+| enabled, no device has a valid `push_registration` | `available` | — (the device count is shown by `aiur push status`, C3-T07; `devices` is not a registered capability attribute, identity §2.2, X-34) |
+| relay errors for ≥ 2 consecutive jobs across ≥ 60 s, or outbox unwritable, or invalid registration rows | `degraded` | `not_running` (relay/outbox) or `unknown` (mixed); the first-failure time is in `aiur push status` (C3-T07), not in the capability entry (no registered `since` attribute, X-34) |
 | otherwise | `available` | — |
 
 ## Dependencies and blockers
@@ -73,8 +73,8 @@ missing (AC-N4-8). States (identity-and-capabilities contract §2.2 enum only):
 - Registry not yet available (pre-R1): component still runs; `push` simply absent from
   the report until R1 lands — acceptable only because R1 is a hard predecessor in
   `blocked_by`.
-- Sender crash → supervisor restarts; capability shows `degraded` with `since` until the
-  next success.
+- Sender crash → supervisor restarts; capability shows `degraded` until the
+  next success; `aiur push status` shows since when.
 
 ## Compatibility and rollout
 
@@ -91,7 +91,7 @@ unknown-path rule):
 | `"disabled setting reports unavailable/disabled"` | exact map |
 | `"missing crypto reports dependency_unavailable runtime.crypto"` | exact map (inject `missing/0`) |
 | `"corrupt machine store reports dependency_unavailable pairing"` | exact map |
-| `"two relay failures over 60 s report degraded with since"` | `since` = first failure time |
+| `"two relay failures over 60 s report degraded"` | exact map `{state: degraded, reason: not_running}` with no unregistered keys (X-34) |
 | `"mixed causes collapse to unknown, not to a specific reason"` | `reason: "unknown"` — must fail if replaced with `not_running` |
 | `"success resets degraded"` | `available` |
 

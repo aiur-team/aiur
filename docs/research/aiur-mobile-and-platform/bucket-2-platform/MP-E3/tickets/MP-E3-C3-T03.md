@@ -26,7 +26,16 @@ researched: 2026-10-06
   status: :proven | :untested | :unsupported | :unknown, reason, tested_range,
   observed_at}` derived from the binding, the drift counters (C2-T02) and the
   extractor's tested ranges; exposed in `executor-session --json` and, when
-  MP-R1's capabilities endpoint exists, as `executor.conversation_read`.
+  MP-R1's capabilities endpoint exists, through the **identity-contract IDs** (Phase D,
+  X-15; no new `executor.conversation_read` ID):
+  - `executor.conversation`: `proven` → `available`; `untested` → `degraded`, reason
+    `unknown`; `unsupported` → `unavailable`, reason `unknown`; no binding →
+    `unavailable`, reason `executor_not_managed` (identity §1.4). The internal status atom
+    travels as attribute `detail` (for example `detail: "unsupported_cli_version"`), so
+    clients that know only the closed reason enum (identity §2.2) still render it.
+  - `executor.harness` (`claude | codex`, from the binding) and `executor.session_ref`
+    (MP-E4 `SessionRef` of the current session) are filled here; both are absent when
+    no binding exists.
 - **Non-goals:** capability for sending (that is MP-E7's effective mode).
 
 ## Dependencies and blockers
@@ -57,7 +66,10 @@ researched: 2026-10-06
 
 1. Pure `Capability.read/1` over a snapshot; thin `read/0` wrapper.
 2. Add to `executor-session --json` (C1-T03) and the status snapshot (C4-T05).
-3. If MP-R1's capability registry exists, register `executor.conversation_read`.
+3. If MP-R1's capability registry exists, provide `executor.conversation`,
+   `executor.harness` and `executor.session_ref` with the mapping above (X-15). Test:
+   "untested maps to degraded/unknown with detail; no binding maps to
+   unavailable/executor_not_managed" (*fails without* the mapping clause).
 
 ## Non-happy paths
 
@@ -71,7 +83,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/executor/capability_test.exs
 ```
 

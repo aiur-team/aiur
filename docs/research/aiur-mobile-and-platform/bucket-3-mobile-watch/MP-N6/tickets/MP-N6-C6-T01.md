@@ -41,22 +41,51 @@ object"; R2-C7-T05 is blocked on MP-N2 today.
 Decision: polling in v1 (10 s, foreground only) because the paired-device feed scope is
 not yet specified (R2-C7-T05 blocked on MP-N2); cost ≤ 6 requests/minute per open screen.
 
+- `pollCommand(id, {intervalMs: 10000})` runs only while the screen is focused and the app
+  is `active` (`AppState`), and stops on blur, background and terminal status.
+- Transition rule on change while the user is mid-edit: the draft is kept and the screen
+  moves to the new state with the draft visible (S06/S07/S09/S10); whether a kept draft is
+  shown or collapsed is DESIGN-N6 §5 (design-pending). The rule "never auto-submit a kept
+  draft" is fixed.
+- Failure: keep the last state, show its age (`observed_at`, AGENTS.md age rule), back
+  off to 30 s; never render "no change" for an unknown age.
+
 ## Implementation steps
 
-After approval.
+1. `packages/aiur-mobile/src/commands/pollCommand.ts` (injected clock and fetch).
+2. Hook into `commandViewModel` (C3-T01); reuse `outcomeToState` (C3-T02) for status →
+   state.
+3. Age label in `CommandScreen` header when the last poll failed.
+4. Docs: none, because polling is internal; the "answered elsewhere" states are already
+   in the C3-T01/T02 guide section.
 
 ## Non-happy paths
 
-Poll failure → keep state, show age (AGENTS.md age rule), back off to 30 s.
+Poll failure → keep state, show age, back off to 30 s. `401 device_revoked` during a poll →
+S12 and wipe (C3-T02). Command purged → S13.
 
 ## Compatibility and rollout
 
-n/a.
+v1 polling; the feed switch after MP-R2-C7-T05 is a follow-up.
 
 ## Verification
 
-`answeredElsewhereTransitionsWithinOnePoll` (fake clock); device V-M1, V-M2.
+```text
+npm --prefix packages/aiur-mobile test -- test/commands/pollCommand.test.ts
+```
+
+| Test | Expected | Must fail without |
+| --- | --- | --- |
+| `S06_answeredElsewhereTransitionsWithinOnePoll` | fake clock +10 s → S06 with winner | the poll |
+| `S09_withdrawnDisablesForm` | status `expired` → S09 | the terminal mapping |
+| `pollStopsInBackground` | `AppState` background → no fetch for 60 s fake time | the stop |
+| `failureShowsAgeAndBacksOff` | failed fetch → age label, next poll at 30 s | the age render (plausible default "just now" → fails) |
+| `keptDraftNeverAutoSubmits` | after S10 the draft is visible and no answer request is made | the guard |
+| `S12_revokedDuringPollWipes` | 401 → S12, drafts deleted | the revoke branch |
+
+Device: V-M1, V-M2.
 
 ## Completion and handoff
 
+- [ ] Each test fails with its hunk reverted in a worktree.
 - [ ] Follow-up recorded for the feed switch after R2-C7-T05.

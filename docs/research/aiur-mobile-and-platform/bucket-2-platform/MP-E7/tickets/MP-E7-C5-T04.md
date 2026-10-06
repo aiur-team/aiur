@@ -79,7 +79,7 @@ Prompt-only; inert under `:legacy` routing.
   `"sync mode prompt has no read guidance"`;
   `"unknown mode adds no guidance"` — mutation: treat unknown as async →
   fails. Mutation for the first: delete the block → fails.
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur/prompt_builder_test.exs test/aiur/agent_runner`.
 
 ## Completion and handoff

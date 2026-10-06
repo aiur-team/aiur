@@ -5,7 +5,7 @@ chunk_id: MP-N1-C1
 bucket: 3-mobile-watch
 title: Create the packages/aiur-mobile Expo app skeleton with pinned versions, tests and a local-build guide page
 status: blocked
-blocked_by: [DESIGN-N1, MP-R1-C3-T6]
+blocked_by: [DESIGN-N1, MP-R1-C3-T06]
 prior_units: []
 prior_boundaries: ["SD #35 (pattern for an out-of-core client package)", "WEB #34"]
 prior_features: [MP-R1]
@@ -17,7 +17,7 @@ researched: 2026-10-06
 
 # MP-N1-C1-T01 — Expo app skeleton, version pins, test harness, guide page
 
-Candidate tickets merged here: N1-C1-T1 (skeleton), N1-C1-T3 (docs page) and N1-C1-T4
+Candidate tickets merged here: N1-C1-T01 (skeleton), N1-C1-T03 (docs page) and N1-C1-T04
 (version pins). Each alone is under 50 changed lines; together they are one reviewable PR
 and the docs must ship with the change anyway (AGENTS.md "Docs ship with the change").
 
@@ -41,10 +41,10 @@ and the docs must ship with the change anyway (AGENTS.md "Docs ship with the cha
 
 - **DESIGN-N1** (owner gate; D-N1-3 sets the minimum OS that goes into `app.config.ts`,
   D-N1-4 sets the app name and icon).
-- **MP-R1-C3-T6** (`packages/aiur-contracts` with generated TS types). If it lags, this ticket
+- **MP-R1-C3-T06** (`packages/aiur-contracts` with generated TS types). If it lags, this ticket
   may ship with `src/api/contracts.ts` re-exporting a stub type file behind the single import
   path `@aiur/contracts` mapped in `tsconfig.json` `paths`; MP-N1-C2-T04 replaces the stub.
-  The stub route is allowed only with a TODO that names MP-R1-C3-T6.
+  The stub route is allowed only with a TODO that names MP-R1-C3-T06.
 - **Owner questions:** OQ-N1-2 (min OS). Proposed defaults if approved as recommended:
   iOS 17.0, Android `minSdkVersion` 29.
 - **Concurrent:** nothing else in MP-N1 can start before this ticket. MP-N2-C1..C4 and
@@ -112,7 +112,7 @@ and the docs must ship with the change anyway (AGENTS.md "Docs ship with the cha
 
 ## Non-happy paths
 
-- **Contracts package missing** (MP-R1-C3-T6 not merged): stub path above; the
+- **Contracts package missing** (MP-R1-C3-T06 not merged): stub path above; the
   `typecheck` script must still pass.
 - **Prebuild drift:** generated folders are never committed, so a stale native folder cannot
   ship; `prebuild:check` fails loudly if a config plugin errors.

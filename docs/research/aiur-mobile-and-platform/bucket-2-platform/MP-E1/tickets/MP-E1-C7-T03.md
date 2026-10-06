@@ -20,7 +20,8 @@ researched: 2026-10-06
 > **Plan refresh (wave 0).** RC-08 names MP-E1-C7 as the producer of
 > `system.build_order.<root>.progress`. The observer lives in `build_order/`
 > because it reads the Build Order catalog; it is not part of `build_queue/`.
-> After MP-R1 it moves with the `build-orders` component.
+> After MP-R1 it moves with the `build-orders` component, which also owns
+> `Aiur.BuildProgress` (RC-40).
 
 ## Identity and outcome
 
@@ -84,7 +85,7 @@ Mutation check: recompute percent with floor → test 1 stays 50 but a 2/3 root
 fixture differs (67 vs 66) — include that fixture so it fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_order/progress_observer_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_order/progress_observer_test.exs
 ```
 
 ## Completion and handoff

@@ -5,7 +5,7 @@ chunk_id: MP-N7-C4
 bucket: 3-mobile-watch
 title: Turn-based Converse on the watch through the phone (MP-E6), with reply playback and session end
 status: blocked
-blocked_by: [DESIGN-N7, DESIGN-E6, OQ-N7-3, MP-N7-C4-T04, "MP-E6-C4-T01", "MP-E6-C5-T03", "RC-16 MP-E5 device voice path", RQ-N7-6]
+blocked_by: [DESIGN-N7, DESIGN-E6, OQ-N7-3, MP-N7-C4-T04, "MP-E6-C4-T01", "MP-E6-C5-T03", MP-E5-C8-T01, RQ-N7-6]
 prior_units: []
 prior_boundaries: ["VOX #36"]
 prior_features: [MP-E6, MP-E5]
@@ -71,7 +71,32 @@ draft event → draftCard(Confirm | Discard)   # Confirm sends confirm_draft thr
   text-only (`degraded`).
 - Leaving the screen sends `end`; the phone leaves the channel. MP-E6 retains the full
   transcript; no audio is retained anywhere (D17).
-- Drafts are never confirmed implicitly.
+- Drafts are never confirmed implicitly. A draft moves to `confirmed` **only** from the
+  watch's Confirm button, relayed by the phone as `confirm_draft` on the authenticated device
+  socket; never from a provider tool call or a spoken "yes" (voice-session invariant, Phase D
+  security m4).
+- **End reasons and errors (Phase D feasibility M7).** The watch renders every voice-session
+  §6 end reason and §8 code from the shared fixture
+  `packages/aiur-mobile/fixtures/contract/voice/end-reasons.json` (voice-session §8.1). If
+  MP-N6-C4-T03 has not merged, this ticket creates the fixture verbatim from §8.1; otherwise it
+  reuses it. State table (copy keys are DESIGN-N7 / DESIGN-E6 owned):
+
+  | Code (§8.1) | Watch state | Retry offered |
+  |---|---|---|
+  | `transport_lost` (also what the watch sees when the daemon restarts; the transcript records `daemon_restart`) | `ended(transport_lost)` "Connection lost" | Retry (`now`) |
+  | `cost_cap` | `ended(cost_cap)` "Daily voice limit reached" | none |
+  | `provider_quota` | `ended(provider_quota)` "Voice provider quota used up" | none |
+  | `provider_auth` | `ended(provider_auth)` "Voice key rejected on the machine" | none |
+  | `provider_unavailable` | `ended(provider_unavailable)` "Voice provider unavailable" | later |
+  | `provider_error` | `ended(provider_error)` | Retry once |
+  | `auth_changed` | `ended(auth_changed)` → unpaired screen | none |
+  | `privacy_preflight_failed` | `ended(privacy)` | none |
+  | `capacity` / `session_limit` | "Voice busy" | later |
+  | `idle_timeout`, `max_duration`, `user_end`, `target_gone`, `capability_lost` | `ended(<reason>)` | per §8.1 row |
+  | any code not in the fixture | `ended(unknown)` "Voice stopped" (cause-neutral) | Retry (`now`) |
+- **Stale draft.** A `draft` whose Command was resolved elsewhere arrives as `status: stale`
+  with the E2 conflict data (`ConflictSummary`); the watch shows "Answered on <surface>" and
+  hides Confirm.
 
 ## Implementation steps
 
@@ -84,7 +109,9 @@ draft event → draftCard(Confirm | Discard)   # Confirm sends confirm_draft thr
 ## Non-happy paths
 
 Capability `voice.conversation` unavailable → Converse option unavailable (C4-T01). Daemon
-`error` → error state with `reason_code`. Revocation → `auth_changed` → session ends.
+`error` → the typed state from the table above, never a generic "error". Revocation →
+`auth_changed` → session ends. Daemon restart mid-session → `transport_lost` (the phone sees
+the socket close), transcript intact on the machine.
 Phone suspended between turns (iOS) → next turn may wait; DV-W6 records. Watch wrist-down
 during playback → playback stops; the text remains.
 
@@ -108,10 +135,17 @@ packages/aiur-mobile/android/gradlew -p packages/aiur-mobile/android :aiur-nativ
 | `leaveSendsEnd` | leaving → `end` pushed and channel left | end-on-leave |
 | `audioFailureDegradesToText` | transfer error → replying(text) with degraded flag | fallback |
 | `replyFilesDeleted` | no reply file after playback/skip/error | deletes |
+| `endReasonsMatchFixture` (Swift `ConverseModelTests`, Kotlin `ConverseModelTest`) | for every row of `voice/end-reasons.json`, the model enters the named state and offers exactly the row's retry | each branch (replace any typed branch with a generic `error` → that row fails; AGENTS.md collapsed-cause rule) |
+| `costCapOffersNoRetry` | `cost_cap` → no Retry control | the no-retry rule (offer Retry → fails) |
+| `unknownCodeIsCauseNeutral` | code `future_code` → `ended(unknown)` | default branch (map to `provider_error` → fails) |
+| `staleDraftHidesConfirm` | `draft{status: stale}` → no Confirm | stale branch |
+| `confirmOnlyFromButton` | a `draft` followed by a provider `assistant_text` "confirmed" → no `confirm_draft` sent | the button-only rule |
+| `fixtureCoversContractTable` (TS, `npm --prefix packages/aiur-mobile test -- voice-end-reasons`) | every code listed in voice-session §8.1 appears in the fixture | the fixture rows |
 
-Device: DV-W6 (latency vs D-N7-3), DV-W12.
+Device: DV-W6 (latency vs D-N7-3), DV-W6b (restart, cap, revoke), DV-W12.
 
 ## Completion and handoff
 
 - [ ] Converse turn round trip on device meets D-N7-3 or the approved fallback is in place.
+- Docs: `website/docs-app/guide/mobile.md` watch Converse section lists the end states and that the daily cap offers no retry (copy from voice-session §8.1 / §10).
 - Dependents: MP-N7-C6-T01, C6-T02.

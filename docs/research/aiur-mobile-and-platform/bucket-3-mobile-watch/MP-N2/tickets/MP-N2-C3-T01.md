@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2]
 prior_units: []
 prior_boundaries: [CFG]
 prior_features: [MP-R1]
-prior_findings: [RC-03, RC-15]
+prior_findings: [security M3 (transport.cleartext_overlay_cidrs), RC-03, RC-15]
 size_owner: n/a (new files)
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -68,6 +68,7 @@ Schema (all optional in the file; defaults shown):
 | `transport.tls.bind_host` | string | `null` | IP literal |
 | `transport.tls.advertise_host` | string | `null` | DNS name, no scheme/port |
 | `transport.allow_cleartext_overlay` | boolean | `false` | — |
+| `transport.cleartext_overlay_cidrs` | list of CIDR strings | `["100.64.0.0/10", "fd7a:115c:a1e0::/48"]` | each parses as an IPv4 or IPv6 CIDR; `0.0.0.0/0` and `::/0` rejected with a dotted-key error (Phase D, security M3: the device-bearer transport check, MP-N2-C6-T01) |
 
 - Missing file → `{:ok, defaults}` (mobile disabled). Empty file → defaults.
 - Unknown keys inside known sections → `{:error, {:invalid, [{"gateway.hots", "unknown key"}]}}`;
@@ -105,7 +106,10 @@ New file; nothing reads it until other MP-N2 tickets land. `~/.aiur/config` is n
 `src/test/aiur/machine/settings_test.exs` (HOME = temp dir per test):
 
 1. `"missing file yields defaults with mobile disabled"`.
-2. `"transport section parses all five keys"`. *Fails without:* the transport schema.
+2. `"transport section parses all six keys"`. *Fails without:* the transport schema.
+2a. `"cleartext_overlay_cidrs rejects a catch-all range"` (`0.0.0.0/0` → error naming
+   `transport.cleartext_overlay_cidrs`). *Fails without:* the catch-all check (M3: a catch-all
+   would turn the overlay rule back into "the flag alone is enough").
 3. `"unknown key in a known section is reported with its dotted path"` (`gateway.hots`). *Fails without:* the strict cast.
 4. `"unknown top-level section is preserved across write"` (`relay: {x: 1}`).
 5. `"gateway.port 0 is rejected"`.
@@ -116,7 +120,7 @@ New file; nothing reads it until other MP-N2 tickets land. `~/.aiur/config` is n
    `src/lib/aiur/workflow.ex` and `config.ex` for `"machine"` path literals (future-regression guard).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/settings_test.exs
 ```
 

@@ -37,10 +37,21 @@ researched: 2026-10-06
   - HTTP `POST /api/v1/:id/messages`: payload gains
     `delivery_policy: :listener, origin: :http`
     (`aiur_web/controllers/observability_api_controller.ex:186-192`).
-  - `Aiur.Listener.send/3` (PROPOSED, facade in `listener.ex`):
-    `send(target, text, client_request_id)` → `AgentChat.send(target, text,
-    message_id: client_request_id)`; the contract §7 send API that MP-E4-C6
-    and MP-E3-C5 call.
+  - `Aiur.Listener.send/3` (PROPOSED, facade in `listener.ex`, component
+    `listener-modes`): `send(target, text, opts)` with `client_request_id`,
+    `origin` and optional `delivery_policy`; it is the send router and the
+    contract §7 send API that MP-E4-C6 and MP-E3-C5 call.
+  - **Direction of the call (RC-36, Phase D).** The router is required core
+    code under `Aiur.Listener.*`; it never references `Aiur.Orchestrator` or
+    `AgentChat`. `AgentChat.send/3` (orchestration) **delegates** to
+    `Aiur.Listener.send/3`. The router hands the resolved item to the behaviour
+    `Aiur.Listener.DeliveryTarget` (created by MP-E7-C2-T03; this ticket adds
+    the callback `enqueue(target, text, opts) :: {:ok, map()} | {:error, term()}`),
+    which orchestration implements (`Aiur.Orchestrator.ListenerDeliveryTarget`,
+    today's orchestrator control path, `agent_chat.ex:35-45`) and registers at
+    the composition root (`config :aiur, :listener_delivery_target`). So
+    orchestration → listener-modes is the only edge; listener-modes has no
+    edge back.
 - **Unchanged callers (they go through `AgentChat.send/3`'s default):**
   dashboard drawer (`aiur_web/live/dashboard_live.ex:2686-2694`), Stream Deck
   (`aiur_web/streamdeck_channel.ex:462-469`), `aiur message`
@@ -71,6 +82,10 @@ researched: 2026-10-06
 
 ## Chosen design
 
+- **Phase D:** the set gains `:voice_assistant` (E6 R-1; listener-mode §7), which
+  maps to the `:agent_chat` policy under `:legacy` and is copied to the
+  conversation entry's `origin`. Items carrying `correlation.native_ref` pass
+  through the router unchanged (CR-E2-8, listener-mode §2).
 - `origin` is a closed atom set (`:agent_chat | :http | :tui | :internal`);
   unknown origins are `:internal`, which resolves to an error under `:legacy`
   so a new caller cannot silently pick a policy.
@@ -80,11 +95,18 @@ researched: 2026-10-06
 
 ## Implementation steps
 
-1. `agent_chat.ex`: change the default and add `origin` to the payload (+3 lines).
-2. `operator_dispatch.ex:46-50`: replace `:auto` (+1 line).
-3. `observability_api_controller.ex:186-192`: add the two payload keys.
-4. `listener.ex`: add `send/3`.
-5. Tests.
+1. `listener/delivery_target.ex`: add `enqueue/3`;
+   `orchestrator/listener_delivery_target.ex`: implement it with the body that
+   `AgentChat.send/3` runs today.
+2. `agent_chat.ex`: `send/3` delegates to `Aiur.Listener.send/3` with the
+   `:listener` default and `origin: :agent_chat` (+3 lines).
+3. `operator_dispatch.ex:46-50`: replace `:auto` (+1 line).
+4. `observability_api_controller.ex:186-192`: add the two payload keys, and
+   copy `conn.assigns.auth_actor` (set by MP-N2-C6-T01 for device bearers) into
+   the payload as `actor: "device:<device_id>"` (security m8; one spelling,
+   `device:<id>`, as in the command contract §6).
+5. `listener.ex`: add `send/3` (router; calls the registered DeliveryTarget).
+6. Tests.
 
 ## Non-happy paths
 
@@ -120,10 +142,22 @@ Tests:
 - "with routing :legacy every entry point produces today's queue item" (R7-C1-T02 suite unchanged; the guard that proves RC-05).
 - "with routing :listener a dashboard message to a mid-turn codex agent is not interrupted" (enqueue → `interrupt_requested == false`, claimed after the turn).
 - "Command answers keep interrupt under listener routing".
+- "AgentChat.send delegates to Aiur.Listener.send" — a stub DeliveryTarget
+  receives exactly one call; fails if `AgentChat` keeps calling the
+  orchestrator directly.
+- "message sent with a device bearer records device_id" — HTTP
+  `POST /api/v1/:id/messages` with `assigns.auth_actor = {:device, "d1"}`;
+  the enqueued item's `actor == "device:d1"`. Fails when the controller drops
+  `auth_actor` (security m8). Until MP-N2-C6-T01 lands the test sets the
+  assign directly; it does not need a real device token.
+- Source check: no module under `src/lib/aiur/listener/` references
+  `Aiur.Orchestrator` or `Aiur.AgentChat` (grep test beside the R1 checker;
+  fails if the router calls back into orchestration).
 
 Mutation checks: restore `:interrupt` as the `AgentChat` default → the first
 test fails, and with routing `:listener` the "not interrupted" test fails;
-drop `origin` from the HTTP payload → the HTTP test fails.
+drop `origin` from the HTTP payload → the HTTP test fails; drop the
+`auth_actor` copy → the device test fails.
 
 Manual (AGENTS.md "Manual testing", Executor-run, local flag set to
 `:listener`): `scripts/aiurdev --test` in the wrapper tmux, open a Codex
@@ -135,8 +169,8 @@ the flag at `:legacy` and confirm today's interrupt behaviour.
 
 - [ ] Four entry points on `:listener`; legacy suite unchanged; `Listener.send/3` exists.
 - [ ] PR body: mutation results and the manual capture for both flag values.
-- Dependents: **MP-E4-C6-T3** ("Switch composer to MP-E7 + delivery overlay")
-  and **MP-E3-C5-T1** ("Executor send adapter over E7") call `Aiur.Listener.send/3`;
+- Dependents: **MP-E4-C6-T03** ("Switch composer to MP-E7 + delivery overlay")
+  and **MP-E3-C5-T01** ("Executor send adapter over E7") call `Aiur.Listener.send/3`;
   RC-05 puts this ticket ahead of both. MP-E7-C7-T04 flips the flag.
 - Docs: none while `:legacy` (no documented behaviour changes); MP-E7-C7-T04
   updates `website/docs-app/reference/cli.md` (`aiur message`) and the

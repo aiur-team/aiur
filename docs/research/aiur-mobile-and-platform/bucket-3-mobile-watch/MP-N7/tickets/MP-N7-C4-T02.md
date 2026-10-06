@@ -19,14 +19,17 @@ researched: 2026-10-06
 
 ## Identity and outcome
 
-- Bucket 3, MP-N7, chunk C4. Merges candidate N7-C4-T2 and N7-C4-T6 (disclosure copy):
+- Bucket 3, MP-N7, chunk C4. Merges candidate N7-C4-T02 and N7-C4-T06 (disclosure copy):
   the disclosure is part of the screen that triggers the recognizer.
 - **User value:** dictate a custom answer on the wrist, read it, and send it.
 - **Deliverable:** "Dictate" opens the platform's text input with dictation; the result
   appears on a review screen (Edit = dictate again, Send, Cancel); Send submits
   `answer{custom_response}` through the existing card send path (C2-T03/C3-T03 state
   machine). A one-line disclosure "Speech is processed by Apple/Google" is shown on the
-  review screen and in the watch settings section of the phone (DESIGN-N7 D-N7-2 copy).
+  review screen and in the watch settings section of the phone (DESIGN-N7 D-N7-2 copy). The
+  copy source is the `contracts/voice-session.md` §10 row "System dictation (watch/phone
+  keyboard): audio to Apple or Google under their policy; aiur receives text only" (Phase D
+  security m10); this ticket does not invent its own wording.
 - **Non-goals:** relayed dictation through the daemon (C4-T03/T04, used only if the owner
   picks D-relay).
 

@@ -1,7 +1,7 @@
 ---
 contract_id: MP-CT-command-request-and-resolution
 owner_feature: MP-E2
-status: Phase C reconciled (2026-10-06) — final reconcile in Phase D
+status: Phase D fix pass applied (2026-10-06): RC-41, security B2/M4/m8
 base_main_sha: 45a290e3
 date: 2026-10-06
 consumers: MP-E3, MP-E4, MP-E5, MP-E6, MP-E7, MP-N3, MP-N4, MP-N5, MP-N6, MP-N7, MP-R6 (Stream Deck)
@@ -48,7 +48,7 @@ the operator-message queue (§7.1); Executor delivery goes through the wake inbo
 | `version` | existing | Optimistic-concurrency counter. Every write carries `expected_version`. |
 | `ticket` | existing, **required on the wire** | The worker ticket. An Executor-originated Command carries the **reserved identifier `"executor"`** (title and url `nil`) [C1-T01]. A `nil` ticket is rejected: an older binary requires the map on replay (`decision_projection.ex:48`) and would latch read-only. Clients use `requester.kind`, never the identifier, to tell the two apart. A worker request with ticket `"executor"` is rejected. |
 | `source` | existing | `%{agent_id, session_id, event_id}`, set from trusted options only (`agent_runner/tool_executor.ex:845-851`). `agent_id` is the backend label, **not** a unique agent. `session_id` is the thread id. |
-| `requester` | **NEW** [C1-T01] | `%{kind: :worker \| :executor, ticket?, session_ref?, executor_id?, harness?}`. `session_ref` is MP-CT-identity's `"<instance_id>/<ticket>/<generation>"`. For `:executor`, `executor_id` is `Aiur.Executor.Claims.resolve_consumer_id/1` (`executor/claims.ex:185-195`). Default when absent: `:worker`. |
+| `requester` | **NEW** [C1-T01] | `%{kind: :worker \| :executor, ticket?, session_ref?, executor_id?, harness?}`. `session_ref` is MP-E4's `SessionRef {conversation_id, session_seq}` (conversations contract §3; the identity contract no longer defines a session string, CR-R1-4). For `:executor`, `executor_id` is `Aiur.Executor.Claims.resolve_consumer_id/1` (`executor/claims.ex:185-195`). Default when absent: `:worker`. |
 | `origin` | **NEW** [C1-T01] | `:emit_event` \| `:attention` \| `:native_question` \| `:executor_cli` \| `:supervisor_api`. Default when absent: `:emit_event` (or `:attention` when `legacy_attention` is set). |
 | `native` | **NEW**, only when `origin == :native_question` [C4-T01] | `%{harness: :codex \| :claude, native_ref, call_id, turn_id, question_ids: [..], hold: :in_band \| :deferred \| :released}`. `native_ref` is opaque, issued by the adapter (§10). |
 
@@ -80,7 +80,10 @@ benefits, drawbacks, risk}]` (≤20, ids unique), `recommendation{option_id, rea
     only behind `decisions.require_suggested_responses` (default `false`; MP-E2-C8-T03
     flips it after a census).
   - A native question passes its options through unchanged (2–3 Codex, 2–4 Claude, §10).
-  - A free-text answer (`custom_response`) is always allowed.
+  - A free-text answer (`custom_response`) is always allowed, up to **4,000
+  characters** (`Aiur.DecisionAnswer` `@response_max`, `decision_answer.ex:15`). Every
+  answering surface shows the same limit; the 7,800-char dispatch cap (§7.1) is a
+  different, internal bound (CR-N6-3).
 - `short_label`: a 2–3 word summary for notification titles (N6). Derived as
   `context.short_summary` (first 40 chars) → native `header` → `kind` → `"Command"`.
   Never the full question.
@@ -118,7 +121,15 @@ benefits, drawbacks, risk}]` (≤20, ids unique), `recommendation{option_id, rea
 **Authority is unchanged.** Routing decides who is *asked*. It never widens who *may
 answer*. The Executor may still answer only delegable, reversible Commands
 (`decision_store.ex:1503-1526`; `decision_authority.ex`). The Executor may not answer a
-Command it raised itself [C6-T01].
+Command it raised itself [C6-T01], neither directly nor as `operator_relayed` (§6 rule 4b).
+
+**What `human_required` does and does not stop (Phase D, security M4).** `human_required`
+is enforced against the Executor's CLI and API surfaces (`aiur executor-answer`, the
+Supervisor API, `aiur operator-relay-answer`), not against a same-user process that holds
+the Erlang cookie, the `~/.aiur/.env` Basic-Auth credentials or the machine store (see
+pairing contract §2.1). `DecisionStore.answer/5` trusts `opts[:actor]`; the
+`actor_source` field (§6) records which entry point recorded the answer, so a human can
+see that an answer came through `:rpc` and not through a surface they authenticate on.
 
 ## 5. Escalation and the no-vanish invariant
 
@@ -164,37 +175,109 @@ Answer request (existing shape, `decision_answer.ex`; extended):
 
 ```json
 { "decision_id": "…", "expected_version": 4, "idempotency_key": "client-generated",
-  "selected_option_id": "opt-a",            // or
+  "option_id": "opt-a",                     // or (one wire key, X-13: matches decision_answer.ex:58)
   "custom_response": "…",                   // or, for v2 multi-question:
   "question_answers": {"q1": ["opt-a"], "q2": ["custom text"]},
-  "actor": {"kind": "operator", "id": "dashboard" },
+  "actor": {"kind": "operator", "id": "dashboard", "via": "voice_assistant" },
   "client": {"surface": "dashboard|streamdeck|cli|api|phone|watch", "device_id": "…"} }
 ```
+
+- `actor_source` (**NEW**, Phase D, RC-41 / security M4) [C3-T01, C3-T02]: the entry
+  point that recorded the answer. **The entry point sets it, never the caller**; a value in
+  the payload is ignored. Closed list:
+
+  | `actor_source` | Set by |
+  | --- | --- |
+  | `:dashboard_session` | Dashboard LiveView (`/commands`, inline cards) |
+  | `:basic_auth` | `:dashboard_auth` JSON routes authenticated by Basic Auth |
+  | `:device` | Any route authenticated by an `aiurd_` device bearer (pairing §4.4) |
+  | `:streamdeck` | `StreamdeckChannel.answer_command` |
+  | `:supervisor_api` | `POST /api/v1/decisions/:id/decide\|revise\|enrich` |
+  | `:executor_cli` | `aiur executor-answer`, `-escalate`, `-moot`, `-ack` (control RPC verb) |
+  | `:relay_cli` | `aiur operator-relay-answer` (#3005/#3006) |
+  | `:rpc` | Default: any in-BEAM call that carries no surface context (`:rpc.call`, `remsh`, a test) |
+
+  It is persisted as a new optional `source` key inside the event's `actor` map on the
+  answer, revision and supersede facts. The new `normalize_actor/1` keeps it; an older
+  binary's `normalize_actor/1` (`decision_event.ex:469-478`) rebuilds the map from `kind`
+  and `id` only, so it drops the key on replay without an error (§11). The dashboard timeline, the Command view (MP-N6-C1-T01) and
+  `ConflictSummary` show it. An answer recorded with `actor.kind: :operator` and
+  `actor_source: :rpc` is shown as "operator (unverified: no surface)".
+- `actor.via` (optional, Phase D, E6 R-3): `voice_assistant` when the answer was
+  produced through a voice conversation (MP-E6-C5-T05). Audit only; never an
+  authorization input.
+- `client` is set by the server from the authenticated request (the device
+  bearer, pairing §4.4), **never** read from the payload. A phone answering on behalf
+  of its watch sets `client.surface: "watch"`; that is attribution, not authorization
+  (CR-N6-2 a, N7 item 6). Until `client` is persisted, device answers record
+  `actor.id = "device:<device_id>"`. **This is the only spelling** (security m8): no
+  surface writes `phone:<id>`. Controllers that write read `conn.assigns.auth_actor`,
+  which the device-bearer plug sets (MP-N2-C6-T01).
 
 Rules:
 
 1. **First recorded answer wins.** A second answer with a different `idempotency_key` gets
    `{:conflict, {:already_decided, action_id}}` (`decision_store.ex:1557`); the tuple is
    **not changed**. Surfaces call **NEW** `Aiur.Commands.ConflictSummary.for/1` [C3-T01] to
-   show "already answered by …": `{actor_kind, actor_id, summary, accepted_at,
-   delivery_status}`.
+   show "already answered by …": `{actor_kind, actor_id, actor_source, summary,
+   accepted_at, delivery_status, replaceable}`. `replaceable` is computed by the store:
+   the winning answer is undelivered and not in flight, **and** the caller's precedence
+   rank is greater than or equal to the winner's rank (rule 3a; CR-N6-2 b). It is never a
+   plain "caller is a human" boolean.
 2. **Same key, same content** returns `:duplicate`. Same key with different content returns
    `{:conflict, {:idempotency_conflict, _}}`.
-3. **Human supersede (D11).** A human actor (`operator`, or `operator_relayed` once #3005
-   merges) may replace an undelivered, not-in-flight answer through **NEW**
+3. **Human supersede (D11).** A human-attributed actor (`operator`, or `operator_relayed`
+   once #3005 merges) may replace an undelivered, not-in-flight answer, subject to the
+   precedence in rule 3a, through **NEW**
    `Aiur.Commands.Answering.supersede/3` [C3-T02], which calls the existing
    `DecisionStore.supersede/5` (`decision_store.ex:287,1206-1250`, guard `:1965-1971`).
    Refusals: `{:conflict, :answer_delivered}`, `{:conflict, :answer_in_flight}`. MP-E2 adds
-   no supervisor supersede route (the supervisor is not a human actor).
-4. **The Executor never supersedes a human answer.** **NEW** store guard [C3-T01]:
-   `{:conflict, {:human_answer, action_id}}`.
+   no supervisor supersede route (the supervisor is not a human actor). `supersede/3` is a
+   store-level function callable with an `:operator` actor, so a device controller calls
+   it directly, not through the Supervisor API (CR-N6-2 c).
+3a. **Answer precedence (Phase D, RC-41).** `direct_operator > operator_relayed >
+   executor`. Two predicates replace the old `human_actor?/1`:
+   `direct_human?/1` is `:operator` only; `human_attributed?/1` is `:operator` or
+   `:operator_relayed`. Every supersede and revise guard and `replaceable` compare ranks
+   (`Aiur.Commands.Answering.precedence/1`: 3, 2, 1; supervisor 1), never a boolean. A
+   caller may replace an answer of equal or lower rank only.
+4. **The Executor never supersedes a human-attributed answer.** **NEW** store guard
+   [C3-T01]: `{:conflict, {:human_answer, action_id}}`.
+4a. **A relayed answer never supersedes or revises a direct operator answer**
+   [C3-T01, C3-T02]: `{:conflict, {:direct_operator_answer, action_id}}`. A direct
+   operator may supersede a relayed answer. Relayed against relayed follows rule 5. This
+   guard (in `handle_revision/4`, which revise and supersede both reach) sits **beside**
+   the guard that live PR #3006 adds ("relay revise/supersede refuses to replace an
+   active direct operator answer"); MP-E2 rebases on #3006 and keeps that guard, it does
+   not replace or reorder it.
+4b. **An Executor-originated Command refuses `operator_relayed` answers** [C6-T01]:
+   `{:answer_invalid, :relay_on_executor_command}`. The answer to the Executor's own
+   question must come from a surface the human authenticates on (`actor_source` in
+   `:dashboard_session | :basic_auth | :device | :streamdeck`).
 5. **Human vs. human** (two devices): first wins; the loser sees rule 1 and may supersede.
 6. **Answerable statuses** are unchanged: only `expired`, `moot` and `resolved` refuse
    answers (`decision_store.ex:1440-1443`).
 7. **`revise`** stays a correction path with no undelivered guard. Clients label it
-   "Send correction", not "Replace".
+   "Send correction", not "Replace". The precedence of rule 3a still applies: a relay
+   may not revise a direct operator answer (rule 4a), and the Executor may not revise a
+   human-attributed answer.
+8. **Stale version.** A stale `expected_version` returns
+   `{:answer_invalid, {:stale_version, expected, current}}`; every client maps it to the
+   conflict path (re-read, show the current state), never to a generic error (CR-N6-2 d).
+9. **Capability refusal.** When `commands.answer` is not available, the answer endpoint
+   returns the identity contract's `capability_unavailable` body (§2.5, encoder
+   `AiurWeb.CapabilityError.render/2`). With orchestration down, `commands.answer` is
+   `degraded`: the answer is recorded, and delivery waits (CR-R1-4).
 
 ## 7. Delivery
+
+Delivery is a **synchronous call** through a delivery-target port that orchestration
+implements (MP-R1-C8-T02): `DecisionStore`'s outbox needs a synchronous result
+(`decision_store.ex:3827-3870`, `maybe_start_dispatch/4`). The existing
+`ticket.<id>.agent.decision.answered` event only wakes the orchestrator; it never
+carries the answer. The `commands` component is **required**: the dispatch gate fails
+closed when the store is unreadable (`orchestrator/dispatcher.ex:480-491`), so there is no
+"commands not installed" run shape and RQ-C8-1 is closed (Phase D, CR-C8-3).
 
 ### 7.1 Worker requester
 
@@ -249,20 +332,26 @@ unchanged (`decision_store.ex:2633-2653`).
 
 - `human_needed` carries `{decision_id, version, short_label, requester_kind, blocking,
   urgency, cause}` and **no question text**. It is registered in MP-R2-C5's catalog
-  (RC-08) as journaled and exported.
+  (RC-08) as journaled and exported. **`short_label` is agent-authored text**
+  (security m3): it travels in the journaled event and in the sealed push only. The
+  external export feed (MP-R2-C6/C7) drops it from `attrs`; feed clients read it from
+  the Decision API. Clients render it with the "from agent" style, never as aiur's own
+  words.
 - Every terminal transition emits the existing slug. Clients use it to clear notifications.
 - Replay: Command state is replayable from the store (`GET /api/v1/decisions`,
   `aiur commands --json`). Clients reconcile by `{decision_id, version}`.
 
 ## 9. Client surfaces (read and answer)
 
-| Surface | Read | Answer | Actor |
-| --- | --- | --- | --- |
-| Dashboard `/commands[/:id]` | LiveView and PubSub | via `Aiur.Commands.Answering` [C3-T02] | `%{kind: :operator, id: <dashboard user>}` (`decision_commands.ex:82-83`) |
-| Stream Deck | `streamdeck:fleet` | `answer_command` (`streamdeck_channel.ex:567-573`) | `%{kind: :operator, id: "streamdeck"}` |
-| CLI | `aiur commands [id] --json` | `aiur executor-answer/-escalate/-moot/-ack`, `aiur command request` | `:executor` |
-| Supervisor API | `GET /api/v1/decisions[/:id]` | `POST …/decide\|revise\|enrich` (`router.ex:82-87`) | `%{kind: :supervisor}` |
-| Phone and watch (N6/N7) | via N2 pairing auth | same answer shape through `Aiur.Commands.Answering`, `client.surface` set | `:operator` with `device_id` |
+| Surface | Read | Answer | Actor | `actor_source` |
+| --- | --- | --- | --- | --- |
+| Dashboard `/commands[/:id]` | LiveView and PubSub | via `Aiur.Commands.Answering` [C3-T02] | `%{kind: :operator, id: <dashboard user>}` (`decision_commands.ex:82-83`) | `:dashboard_session` |
+| Stream Deck | `streamdeck:fleet` | `answer_command` (`streamdeck_channel.ex:567-573`) | `%{kind: :operator, id: "streamdeck"}` | `:streamdeck` |
+| CLI | `aiur commands [id] --json` | `aiur executor-answer/-escalate/-moot/-ack`, `aiur command request` | `:executor` | `:executor_cli` |
+| Relay CLI (#3005) | — | `aiur operator-relay-answer` | `:operator_relayed` | `:relay_cli` |
+| Supervisor API | `GET /api/v1/decisions[/:id]` | `POST …/decide\|revise\|enrich` (`router.ex:82-87`) | `%{kind: :supervisor}` | `:supervisor_api` |
+| Phone and watch (N6/N7) | via N2 pairing auth | same answer shape through `Aiur.Commands.Answering`, `client.surface` set | `:operator`, `id: "device:<device_id>"` | `:device` |
+| Any in-BEAM call with no surface | — | `DecisionStore.answer/5` | as passed | `:rpc` |
 
 All surfaces map conflicts the same way: HTTP 409 `decision_conflict`
 (`decision_api_controller.ex:114-127`) plus the §6.1 summary.

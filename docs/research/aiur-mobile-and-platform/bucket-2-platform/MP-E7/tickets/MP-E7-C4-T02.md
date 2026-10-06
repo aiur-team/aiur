@@ -93,7 +93,11 @@ researched: 2026-10-06
   turn."); optional `clientUserMessageId`. `TurnSteerResponse` is
   `{ "turnId": string }`. `turn/steer` is in the v2 `ClientRequest` set, not
   behind an experimental flag in this schema.
-- Docs (https://learn.chatgpt.com/docs/app-server, accessed 2026-10-06):
+- Docs (https://learn.chatgpt.com/docs/app-server, accessed 2026-10-06; a
+  hosted page with no version pin, T-11. **Re-verify at implementation start**
+  against the `openai/codex` repository at a pinned SHA — the app-server
+  protocol source under `codex-rs/app-server-protocol/` — and cite that
+  SHA in the PR; the generated schema above stays the primary evidence):
   fails when there is no active turn or `expectedTurnId` does not match;
   "turn/steer doesn't emit a new turn/started notification"; no turn-level
   overrides (model, cwd, sandboxPolicy, outputSchema).
@@ -104,7 +108,9 @@ researched: 2026-10-06
 
 ## Chosen design
 
-1. **Wake value.** `DeliveryPolicy.deliver_now?/3` returns the atom `:steer`
+1. **Wake value.** `DeliveryPolicy.wake_now?/2` (`delivery_policy.ex:139-143`;
+   the private `deliver_now?/3` calls it for unpaused entries at :133-137 and
+   passes its value through unchanged) returns the atom `:steer`
    (instead of `true`) when the item was claimed under effective mode `steer`,
    the running entry's `delivery_primitives.mid_turn_inject == :native`, and a
    turn is active (`not no_active_turn?/1`). Idle → `true` (start a turn now,
@@ -230,7 +236,7 @@ New/extended ExUnit tests:
 
 Commands (do not run `mix test` against a live HOME; per AGENTS.md memory,
 isolate HOME and unset GH tokens):
-`env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test
+`env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test
 test/aiur/orchestrator/operator_messages test/aiur/app_server
 test/aiur/codex/frames_test.exs test/aiur/codex/turn_loop_test.exs`.
 

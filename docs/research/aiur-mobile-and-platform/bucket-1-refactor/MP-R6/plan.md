@@ -8,10 +8,15 @@ date: 2026-10-06
 owner_gate: ../../owner-design-tasks/DESIGN-R6.md
 blockers:
   - Conversation-anchor contract: RESOLVED by RC-06/RC-07 (R6-C1 extracts; E4-C3 extends; E4 journal pos is the address). Name confirmation requested (tickets/CONTRACT-REQUESTS.md CR-R6-2)
-  - MP-R1 package placement: not blocking (C1 lands in core; MP-R1-C8-T3 moves it)
+  - MP-R1 package placement: not blocking (C1 lands in core; MP-R1-C8-T03 moves it)
 ---
 
 # MP-R6 — Stream Deck: separate shared projections from hardware presentation
+
+- **U0 gate (X-58, RC-19).** Every MP-R6 ticket waits for U0 review of the prior plan
+  (`docs/plans/2026-09-29-001-refactor-production-readiness-plan.md`), because RC-19 keeps
+  that gate for refactor work. U0 has no ticket ID, so the gate is stated here and not in
+  `blocked_by`; the MP-R1-C11-T02 recheck does not replace it.
 
 ## Summary
 
@@ -260,7 +265,7 @@ Phase C decomposed these chunks into tickets: see [tickets/README.md](tickets/RE
 - **MP-R6-C3-T01** adds the classification docs. The voice delegation and its
   re-proof are MP-R5-C1-T03, not an R6 ticket.
 
-RC-06 consequence for MP-E4: E4-C3-T1 duplicates C1-T01 (CR-R6-1). E4-C3
+RC-06 consequence for MP-E4: E4-C3-T01 duplicates C1-T01 (CR-R6-1). E4-C3
 extends `Anchors`, and E4-C7 moves the deck data source onto the journal.
 
 ## 9. Open questions

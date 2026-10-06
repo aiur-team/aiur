@@ -91,7 +91,7 @@ always 0. Rollback: remove the field.
   the `nil` branch with `DateTime.utc_now()` → the nil case fails (AGENTS.md
   unknown-path rule).
   `"unread_count is reported for a ticket with no running entry"`.
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur/orchestrator/operator_messages`.
 - Manual: covered by C7-T01.
 

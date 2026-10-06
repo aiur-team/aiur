@@ -5,7 +5,7 @@ chunk_id: MP-E6-C4
 bucket: 2-platform
 title: Live, non-interrupting context updates from the event bus during a conversation
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T01, MP-E6-C4-T03, MP-R2-C5]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T01, MP-E6-C4-T03, MP-R2-C5-T01, MP-R2-C5-T03]
 prior_units: []
 prior_boundaries: [VOX, EVT]
 prior_features: []
@@ -30,8 +30,8 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **Predecessors:** C4-T01, C4-T03; MP-R2-C5 (topic catalog registering the E1/E2/E7 topics,
-  RC-08). Patterns below use only catalogued topics.
+- **Predecessors:** C4-T01, C4-T03; MP-R2-C5-T01 (topic catalog) and MP-R2-C5-T03 (registers the E1/E2/E7
+  topics, RC-08). R2-C5 ships at the start of wave 4 (RC-31). Patterns below use only catalogued topics.
 
 ## Verified starting point (base `45a290e3`)
 

@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, MP-N2-C5-T03, MP-N2-C6-T01, MP-N2-C1-T02, MP-N2-C1-T04, 
 prior_units: [U1, U9]
 prior_boundaries: [CLI, K]
 prior_features: [MP-N7]
-prior_findings: []
+prior_findings: [security M1 (no cross-BEAM broadcast; watcher publishes)]
 size_owner: "n/a (new modules); engine dispatch lines shared with U1/U9"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -88,7 +88,7 @@ New verbs only.
 6. `"devices --json rows carry push_state"` (extends the MP-N2-C3-T02 golden output).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/devices_test.exs
 ```
 
@@ -97,3 +97,24 @@ env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOK
 - [ ] Tests pass with mutation checks.
 - [ ] Docs: `website/docs-app/reference/cli.md` (`aiur mobile revoke|rename`; `devices` gains `push_state`).
 - [ ] Dependents: MP-N2-C7-T03 (deregistration), MP-N2-C7-T04 (app).
+
+## Phase D additions (contract requests)
+
+- **CR-R2-5, corrected in Phase D (security M1):** the revoke writer (gateway or CLI) does
+  **not** broadcast to instances: they are other BEAMs, and a writer-side PubSub message never
+  reaches them. Each instance's `Aiur.Machine.Store.Watcher` (MP-N2-C1-T03) sees the
+  `devices.json` change and publishes `{:devices_revoked, ids}` (children included, because
+  the cascade removes their rows in the same write) on its **local** `devices:revoked` topic.
+  MP-R2-C7-T05 closes `events:feed` channels, MP-E5-C8-T02 ends `/voice/device` sessions and
+  MP-N2-C6-T02 disconnects device LiveViews on it. This ticket's obligation is only that the
+  revoke is **one atomic `devices.json` rename** that removes the row and its children.
+  Test: `"revoke of a phone removes the phone and its watch in one rename"` — a stat-polling
+  probe in the test sees exactly one inode change and both ids gone. *Fails without:* the
+  single-write cascade (two writes → the probe sees an intermediate file). The end-to-end
+  latency test is MP-N2-C1-T03 test 9 and the per-surface rows of the pairing security
+  sibling §S2.
+- **CR-N4-3:** `PUT /v1/devices/self/push` (own row only) replaces the caller's opaque
+  `push_registration` (token refresh, key rotation, `capabilities.notifications_permitted`);
+  the gateway stays the single writer. Consumers: MP-N4-C4-T05, MP-N4-C5-T05.
+- **CR-N5-2 b:** the same atomic write deletes the device's section of
+  `notification-preferences.json` (pairing §5).

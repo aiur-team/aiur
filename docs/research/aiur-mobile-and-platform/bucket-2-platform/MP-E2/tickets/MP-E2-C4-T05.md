@@ -8,7 +8,7 @@ status: blocked
 blocked_by: [DESIGN-E2, MP-E2-C4-T00, MP-E2-C4-T04]
 prior_units: [U4]
 prior_boundaries: [CDX #21]
-prior_features: [MP-R7 (MP-R7-C2-T1 delivery_primitives / native_question), MP-R1 (capabilities endpoint)]
+prior_features: [MP-R7 (MP-R7-C2-T01 delivery_primitives / native_question), MP-R1 (capabilities endpoint)]
 prior_findings: [R-Q1, owner item "enable an UnderDevelopment Codex flag in production" (DESIGN-E2)]
 size_owner: "CODEX (codex/config.ex 126; codex/app_server_port.ex 287)"
 base_sha: 45a290e3
@@ -32,7 +32,7 @@ researched: 2026-10-06
 
 - **DESIGN-E2** owner decision on using an `UnderDevelopment` flag (stage confirmed by
   `codex features list`, 0.160.0, 2026-10-06). C4-T00 PASS Q1/Q4. C4-T04 merged.
-- MP-R7-C2-T1: if `Aiur.Harness.Capabilities.delivery_primitives/1` exists, set
+- MP-R7-C2-T01: if `Aiur.Harness.Capabilities.delivery_primitives/1` exists, set
   `native_question` there; otherwise expose `Aiur.Commands.NativeCapture.capability(:codex)`
   for the MP-R1 capabilities endpoint and the dashboard capability note (DESIGN-E2 §5).
 
@@ -60,7 +60,7 @@ researched: 2026-10-06
   probe sees: no `requestUserInput` ever arrives; documented, not detected).
 - Capability: PROPOSED `Aiur.Commands.NativeCapture.capability(:codex)` →
   `%{native_question: :in_band_hold | :none, reason: nil | :gate_off}`; exposed through
-  MP-R7-C2-T1's `delivery_primitives` if present, else the MP-R1 capabilities endpoint,
+  MP-R7-C2-T01's `delivery_primitives` if present, else the MP-R1 capabilities endpoint,
   else only the dashboard capability note (DESIGN-E2 §5 "native capture unavailable").
 - Startup failure because a future Codex rejects the key: the existing startup-failure
   classification (`codex/startup_failure.ex`) surfaces it; the operator turns the gate

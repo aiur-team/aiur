@@ -5,7 +5,7 @@ chunk_id: MP-E6-C5
 bucket: 2-platform
 title: Confirm and discard drafts; deliver instructions through the listener-mode send with draft_id idempotency
 status: blocked
-blocked_by: [DESIGN-E6, E6-OQ1, MP-E6-C5-T02, MP-E7-C3, "MP-E7 contract request (origin option)"]
+blocked_by: [DESIGN-E6, E6-OQ1, MP-E6-C5-T02, MP-E7-C3-T03, MP-E7-C3-T04, "MP-E7 contract request (origin option)"]
 prior_units: []
 prior_boundaries: [VOX, MSG]
 prior_features: []
@@ -37,7 +37,7 @@ researched: 2026-10-06
 ## Dependencies and blockers
 
 - **Owner:** E6-OQ1; DESIGN-E6 (states, copy).
-- **Predecessors:** C5-T02; MP-E7-C3 (all sends through the listener mode;
+- **Predecessors:** C5-T02; MP-E7-C3-T03 and C3-T04 (all sends through the listener mode, and receipts;
   `send(conversation_ref, text, client_request_id) → delivery_id`, receipts §7).
 - **Contract request (MP-E7, `CONTRACT-REQUESTS.md` R-4):** an `origin` option recorded on the
   queue item and the conversation entry. Without it, delivery still works but the agent
@@ -63,7 +63,7 @@ researched: 2026-10-06
 ## Implementation steps
 
 1. Session API and client-event handling; 2. listener send adapter (injected);
-   3. receipt subscription (`AgentChat.delivery_status/2` per E7-C3-T4); 4. tests.
+   3. receipt subscription (`AgentChat.delivery_status/2` per E7-C3-T04); 4. tests.
 
 ## Non-happy paths
 

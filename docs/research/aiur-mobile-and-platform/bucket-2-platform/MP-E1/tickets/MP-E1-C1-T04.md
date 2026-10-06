@@ -104,7 +104,7 @@ Mutation check: delete the new clause → the first two tests fail. The closed
 test is a declared regression guard and does not count toward this change.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/github/issue_state_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/github/issue_state_test.exs
 ```
 
 ## Completion and handoff

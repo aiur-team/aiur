@@ -43,7 +43,8 @@ cannot deliver, returning per option `{value, availability}` where availability 
 | Option | Requires | Unavailable reason codes |
 | --- | --- | --- |
 | `commands_needs_you`, `commands_non_blocking` | `push` | from `push` (never masked by build state) |
-| `progress_step_pct`, `progress_completion` | `build_queue` available (RC-10 read API lives there) and `build_orders` for roots | `build_orders_not_installed`, `build_queue_not_installed`, `not_configured`, `unknown` |
+| `progress_step_pct`, `progress_completion` — build-order scope (`bo:`) | `build_orders` available (RC-40: `Aiur.BuildProgress` belongs to `build-orders`; the queue is **not** required) | `build_orders_not_installed`, `unsupported_tracker`, `not_configured`, `unknown` |
+| same options — queue scope (`q:`, Executor-created queues, D-8) | `build_queue` available | `build_queue_not_installed`, `not_configured`, `unknown` |
 | `pr_merged`, `optin.ci_failed` | GitHub tracker (event source) | `unsupported_tracker` |
 | `optin.agent_retry_exhausted` | orchestration | `not_running` |
 
@@ -76,6 +77,7 @@ fixtures (build orders absent / partial / present):
 | `"build orders absent → progress unavailable with reason"` (AC-N5-7) | `{:unavailable, :build_orders_not_installed}` | replace with `{false, :available}` (unknown-path mutation: plausible default `off`) |
 | `"unknown capability state is unavailable unknown"` | `:unknown` | map to available |
 | `"commands never masked by build state"` | available | mask all on missing build_orders |
+| `"build orders present, queue absent → build-order progress stays available"` (RC-40, X-05) | `bo:` progress `available`; `q:` progress `{:unavailable, :build_queue_not_installed}` | gate build-order progress on `build_queue` |
 
 Commands (from `src/`): `mise exec -- mix test test/aiur/push/preferences_effective_test.exs`.
 

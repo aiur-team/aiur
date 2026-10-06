@@ -80,7 +80,7 @@ WCSessionDelegate (WatchBroker, activated in AppDelegate didFinishLaunching via 
   `failed{reason: unreachable}`; anything else → `unknown`. Never mapped to `delivered`
   without a 2xx.
 - **Revocation:** `device_revoked` from any call makes the broker send a snapshot with that
-  machine removed and `phone_reachable_to_machine` dropped, so the watch clears its data
+  machine's `machines[]` entry set to `reachability: revoked` for one snapshot and its instances removed (MP-N7-C1-T01 schema, RC-38), so the watch clears its data
   (plan §8 privacy).
 - **Active watch:** only the currently active `WCSession` receives snapshots; on
   `sessionDidDeactivate` the broker calls `activate()` again (S6).

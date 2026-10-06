@@ -88,7 +88,7 @@ No behaviour change without a device bearer.
    pipeline metadata; field name verified by MP-R3-C1-T01).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur_web/router_device_write_test.exs
 ```
 
@@ -97,3 +97,7 @@ env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOK
 - [ ] Tests pass; mutation check: remove the clause → test 1 fails.
 - [ ] Docs: the router comment at `router.ex:41-49` updated to name device bearers.
 - [ ] Dependents: MP-N6 native write paths.
+- **Phase D (CR-N6-1):** also define pipeline `:device_write` (the existing custom-header
+  plug, `X-Aiur-Request: 1`, without the Origin check) for device-only write scopes:
+  `[:device_auth, :device_write, :require_writable]` (pairing contract §4.4). MP-N6-C1-T01
+  and MP-E5-C8-T01 use it instead of defining their own.

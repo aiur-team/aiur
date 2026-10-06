@@ -114,7 +114,7 @@ Mutation check: remove the intent matching in rule 4 → test 3 fails; remove th
 latch check → test 8 fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/planner_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/planner_test.exs
 ```
 
 ## Completion and handoff

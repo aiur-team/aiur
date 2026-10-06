@@ -83,7 +83,7 @@ Additive. Request cost: ≤ 1 read per newly closed prerequisite.
 Mutation check: remove the cache → test 2 sees 10 calls.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/github/issues_test.exs test/aiur/build_queue/observer_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/github/issues_test.exs test/aiur/build_queue/observer_test.exs
 ```
 
 ## Completion and handoff

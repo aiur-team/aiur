@@ -64,16 +64,17 @@ RC-08 (topic), RC-22 (Gemini).
   Khala keeps working unchanged against it.
 - **Dependencies:** owner E7-Q1. Cross-feature: none.
 - **Tickets:**
-  - MP-E7-C1-T1 (Khala) — Extract the package; Khala imports switch to it;
+  - MP-E7-C1-T01 (Khala) — Extract the package; Khala imports switch to it;
     existing goldens move with it and still pass.
-  - MP-E7-C1-T2 (Khala) — Emit JSON Schema for the command, control record
+  - MP-E7-C1-T02 (Khala) — Emit JSON Schema for the command, control record
     and support map; add `scheduler.v1.json` (mode × boundary × activity →
     deliver) generated from the TS scheduler and checked in.
-  - MP-E7-C1-T3 (Khala) — Extend `release-npm.yml` to publish the package by
+  - MP-E7-C1-T03 (Khala) — Extend `release-npm.yml` to publish the package by
     a `listener-v*` tag; document in `packages/agent/docs/releasing.md`.
-  - MP-E7-C1-T4 (aiur) — Vendor step: copy JSON artifacts to
-    `src/priv/listener/v1/` with a sha256 manifest; CI fails on drift.
-  - MP-E7-C1-T5 (both) — Add `backlog_on_leave_async` and
+  - MP-E7-C1-T04 (aiur) — Vendor step: copy JSON artifacts to
+    `src/priv/listener_spec/v1/` with `src/priv/listener_spec/CHECKSUM`; CI
+    fails on drift. The spec is a build-time input only (RC-36).
+  - MP-E7-C1-T05 (both) — Add `backlog_on_leave_async` and
     `emulated_interrupt` to the spec as optional fields (contract §4, §6).
 - **Test strategy:** Khala's existing goldens unchanged (`__golden__/deliver-*.json`);
   schema validation tests for every fixture; aiur manifest check.
@@ -89,15 +90,15 @@ RC-08 (topic), RC-22 (Gemini).
 - **Dependencies:** MP-R7-C2; MP-R2 topic registry (optional; PubSub-only
   fallback); DESIGN-E7 for command names.
 - **Tickets:**
-  - MP-E7-C2-T1 — `Aiur.Listener.ModeStore` (persist under the run state
+  - MP-E7-C2-T01 — `Aiur.Listener.ModeStore` (persist under the run state
     dir; restart-safe; cleared on ticket exit from active states).
-  - MP-E7-C2-T2 — `Aiur.Listener.Effective.compute/2` (pure) against the
+  - MP-E7-C2-T02 — `Aiur.Listener.Effective.compute/2` (pure) against the
     contract §4 rules, table-tested with the shared support map.
-  - MP-E7-C2-T3 — Control API: CLI command (name per DESIGN-E7), HTTP
+  - MP-E7-C2-T03 — Control API: CLI command (name per DESIGN-E7), HTTP
     `POST /api/v1/:id/listen-mode` (writable-gated like `messages`), and a
     field in `issue_control_capabilities` (`requested`, `effective`,
     `effective_reason`, `version`).
-  - MP-E7-C2-T4 — Recompute on fallback and RC promotion; emit event with
+  - MP-E7-C2-T04 — Recompute on fallback and RC promotion; emit event with
     `actor: system`.
 - **Test strategy:** CAS conflict test (two writers, one 409); restart test
   (mode survives `Orchestrator` restart in test); transport-change test.
@@ -113,21 +114,27 @@ RC-08 (topic), RC-22 (Gemini).
   C4 primitive or `emulated_interrupt` (existing `:interrupt` path) when
   accepted; `async` → `held_async`, never notifies the running process.
   Command answers and digests keep their current policies (contract §2).
+  **RC-36:** the router (`Aiur.Listener.*`, component `listener-modes`) is
+  required core; `AgentChat.send/3` delegates to `Aiur.Listener.send/3`, and
+  the router delivers through `Aiur.Listener.DeliveryTarget`, implemented by
+  orchestration. Without a usable vendored spec it routes `:legacy`.
 - **Dependencies:** C2; MP-R7-C1 characterization (to prove the
-  non-message rows unchanged).
+  non-message rows unchanged); MP-R1-C3-T01 for the provider (C3-T06).
 - **Tickets:**
-  - MP-E7-C3-T1 — Queue item gains `listener_mode_at_claim`; `AgentQueue`
+  - MP-E7-C3-T01 — Queue item gains `listener_mode_at_claim`; `AgentQueue`
     builder for `:listener` items.
-  - MP-E7-C3-T2 — `DeliveryPolicy.deliver_now?/3` respects `async`
+  - MP-E7-C3-T02 — `DeliveryPolicy.deliver_now?/3` respects `async`
     (never wake) and `sync` (no interrupt); unit tests per mode × entry state
     (idle, active, sleeping, paused, self-paused).
-  - MP-E7-C3-T3 — Switch the four entry points; keep an explicit
+  - MP-E7-C3-T03 — Switch the four entry points; keep an explicit
     `delivery_policy:` override only for Command dispatch and internal
     callers.
-  - MP-E7-C3-T4 — Receipt mapping (contract §7) exposed by
+  - MP-E7-C3-T04 — Receipt mapping (contract §7) exposed by
     `AgentChat.delivery_status/2` and the HTTP API.
-  - MP-E7-C3-T5 — Elixir conformance test that runs `scheduler.v1.json`
+  - MP-E7-C3-T05 — Elixir conformance test that runs `scheduler.v1.json`
     rows against the scheduler.
+  - MP-E7-C3-T06 — Capability provider for `listener_modes`
+    (`not_installed` / `spec_invalid` / `disabled` / `available`; X-21).
 - **Test strategy:** mutation check per AGENTS.md — restore
   `delivery_policy :interrupt` at `agent_chat.ex:27` and confirm the
   "sync does not interrupt" test fails.
@@ -138,15 +145,15 @@ RC-08 (topic), RC-22 (Gemini).
 
 - **Outcome:** `steer/3` implemented where the harness has non-cancelling
   mid-turn input.
-- **Dependencies:** C3; MP-R7-C2-T2 (reserved callback).
+- **Dependencies:** C3; MP-R7-C2-T02 (reserved callback).
 - **Tickets:**
-  - MP-E7-C4-T1 — Codex `turn/steer` with `expectedTurnId`; on
+  - MP-E7-C4-T01 — Codex `turn/steer` with `expectedTurnId`; on
     `no active turn` or mismatch, fall back to the turn boundary (RQ-E7-1).
-  - MP-E7-C4-T2 — Muse steer if `ifBusy` supports it (RQ-E7-2); else mark
+  - MP-E7-C4-T02 — Muse steer if `ifBusy` supports it (RQ-E7-2); else mark
     `unsupported`.
-  - MP-E7-C4-T3 — `claude-repl`: classify pane input as steer if RQ-E7-3
+  - MP-E7-C4-T03 — `claude-repl`: classify pane input as steer if RQ-E7-3
     confirms mid-turn folding; sync for the REPL = type on the `Stop` hook.
-  - MP-E7-C4-T4 (sibling `aiur-claude`) — Fix `turn/steer` queue carry-over
+  - MP-E7-C4-T04 (sibling `aiur-claude`) — Fix `turn/steer` queue carry-over
     (R7 F7) or remove the method; record that headless Claude has no true
     steer (RQ-E7-4).
 - **Test strategy:** frame goldens per harness; foreground manual test with
@@ -155,36 +162,38 @@ RC-08 (topic), RC-22 (Gemini).
 
 ## MP-E7-C5 — Async pull tool and unread count
 
-- **Outcome:** agent tool `read_messages` (dynamic-tool surface for Codex,
+- **Outcome:** agent tool `aiur_read_messages` (dynamic-tool surface for Codex,
   Claude headless, OpenAI-compat; MCP-bridged for Claude headless), cursor
   ack, unread count in control capabilities; async → sync transition
   behaviour per E7-D4.
-- **Dependencies:** C3; MP-R7-C3-T1 (tool surface moved out of Codex).
+- **Dependencies:** C3; MP-R7-C3-T01 (tool surface moved out of Codex).
 - **Tickets:**
-  - MP-E7-C5-T1 — Tool spec + handler; per-agent cursor with CAS.
-  - MP-E7-C5-T2 — Unread count projection + PubSub update.
-  - MP-E7-C5-T3 — Transition handler (`notice` or `skip`).
-  - MP-E7-C5-T4 — Prompt guidance in `src/prompts/shared-agent-instructions.md`
-    telling agents when to call `read_messages` (only when async is
+  - MP-E7-C5-T01 — Tool spec + handler; per-agent cursor with CAS.
+  - MP-E7-C5-T02 — Unread count projection + PubSub update.
+  - MP-E7-C5-T03 — Transition handler (`notice` or `skip`).
+  - MP-E7-C5-T04 — Prompt guidance in `src/prompts/shared-agent-instructions.md`
+    telling agents when to call `aiur_read_messages` (only when async is
     effective; the prompt is rebuilt per turn, `prompt_builder.ex`).
 - **Research:** how `claude-repl` could get the tool (it has no
   `--mcp-config`); until then `async` is `unsupported` there.
 
 ## MP-E7-C6 — Hook delivery into attached sessions (Executor)
 
-- **Outcome:** `aiur hook deliver --harness claude|codex` (Node, in
-  `aiur-cli`, using the shared codecs) reads pending items for the attached
-  Executor session from the daemon and renders the hook envelope; an
+- **Outcome:** the daemon claims pending items for the attached Executor
+  session and renders the hook envelope in Elixir (tested against the shared
+  goldens); the hook itself is a plain `curl` command that always exits 0. An
   installer writes Claude `--settings`/project hooks and merges Codex
-  `hooks.json` without clobbering user hooks.
+  `hooks.json` without clobbering user hooks. No Node hook in `aiur-cli`
+  (see Phase C changes above).
 - **Dependencies:** C1, C3; **MP-E3** (attached-session identity and the
   Executor conversation record); RQ-E7-6.
 - **Tickets:**
-  - MP-E7-C6-T1 — Daemon endpoint: claim batch for an attached session by
-    boundary (`tool|prompt|stop`), loopback-only.
-  - MP-E7-C6-T2 — Node hook command using shared codecs; always exit 0.
-  - MP-E7-C6-T3 — Installer + uninstaller for Claude and Codex hooks.
-  - MP-E7-C6-T4 — Shared golden tests run in `aiur-cli`'s `bun test`.
+  - MP-E7-C6-T01 — Daemon endpoint: claim and render a batch for an
+    attached session by boundary (`tool|prompt|stop`), token-authenticated.
+  - MP-E7-C6-T02 — Deliver hook command (`curl`); always exit 0.
+  - MP-E7-C6-T03 — Installer + uninstaller for Claude and Codex hooks.
+  - MP-E7-C6-T04 — Elixir hook-envelope renderer tested against the shared
+    goldens (`mix test`).
 - **Test strategy:** goldens; manual: an Executor Claude Code session
   receives a `sync` message at `Stop` as a continuation.
 
@@ -195,11 +204,11 @@ RC-08 (topic), RC-22 (Gemini).
   unless DESIGN-E7 asks.
 - **Dependencies:** C2–C5; DESIGN-E7 approved.
 - **Tickets:**
-  - MP-E7-C7-T1 — Dashboard selector + requested/effective + unread.
-  - MP-E7-C7-T2 — TUI indicator and key (if DESIGN-E7 wants one).
-  - MP-E7-C7-T3 — Docs: `reference/cli.md`, `reference/configuration.md`
+  - MP-E7-C7-T01 — Dashboard selector + requested/effective + unread.
+  - MP-E7-C7-T02 — TUI indicator and key (if DESIGN-E7 wants one).
+  - MP-E7-C7-T03 — Docs: `reference/cli.md`, `reference/configuration.md`
     (default-mode key if added, checked by `scripts/check-config-docs.py`),
-    a concepts section, `aiur-agent` skill note about `read_messages`.
+    a concepts section, `aiur-agent` skill note about `aiur_read_messages`.
 - **Test strategy:** LiveView tests for each state in DESIGN-E7, including
   the unsupported/effective-differs and pending-confirmation states; the
   unknown-path mutation rule (AGENTS.md) for the effective-mode render.
@@ -210,5 +219,3 @@ RC-08 (topic), RC-22 (Gemini).
 
 RQ-E7-1 … RQ-E7-6 in [plan.md](plan.md#open-questions), plus: per-chunk
 items above.
-</content>
-</invoke>

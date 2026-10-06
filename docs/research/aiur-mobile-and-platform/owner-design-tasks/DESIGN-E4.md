@@ -3,7 +3,8 @@ design_task: DESIGN-E4
 feature_id: MP-E4
 owner: Kevin
 status: open (awaiting explicit approval)
-blocks: every MP-E4 implementation ticket (MP-E4-C1..C8)
+blocks: [MP-E3-C6-T01, MP-E4-C1-T01, MP-E4-C1-T02, MP-E4-C1-T03, MP-E4-C2-T01, MP-E4-C2-T02, MP-E4-C3-T01, MP-E4-C3-T02, MP-E4-C3-T03, MP-E4-C4-T01, MP-E4-C4-T02, MP-E4-C5-T01, MP-E4-C5-T02, MP-E4-C5-T03, MP-E4-C5-T04, MP-E4-C6-T01, MP-E4-C6-T02, MP-E4-C7-T01, MP-E4-C8-T01, MP-E4-C8-T02, MP-E6-C8-T03, MP-N6-C2-T03]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-E4 (waived entries excluded). Earlier wording: every MP-E4 implementation ticket (MP-E4-C1..C8)"
 shared_with: DESIGN-E3 (Executor mode of the same view), DESIGN-E2 (inline Command cards), DESIGN-E5 (mic on the composer), DESIGN-E7 (delivery mode indicator), DESIGN-N6 (phone "open in context" lands on an anchor)
 base_main_sha: 45a290e3
 date: 2026-10-06
@@ -56,17 +57,42 @@ interrupt and spawn stay where they are (D15).
 ## 4. Decisions that need your input
 
 1. **Layout** (yours to design): single chronology with an event rail, split
-   events/transcript, or other.
+   events/transcript, or other. Recommended starting point: **one chronology with an
+   event rail**, because it keeps the transcript the primary record and the Stream Deck
+   already proves the "event jumps into the transcript" model.
 2. **Default jump points**: which kinds are on by default; are CI results and
-   comments noise?
+   comments noise? Recommended: **on — progress, push, PR opened, PR merged, Command;
+   off — CI results and review comments** (one filter chip turns them on), because those
+   two are the most frequent and least often the reason for a jump.
 3. **Reasoning and raw tool output**: shown, collapsed, or hidden by default?
+   Recommended: **collapsed**, because the full chronology must stay one tap away while
+   the default view stays readable.
 4. **Secrets**: transcripts may contain secrets an agent printed. Mask likely
-   secrets at display time, or show raw?
+   secrets at display time, or show raw? Recommended: **mask by default, with a reveal
+   control for loopback dashboard sessions**; device principals always receive the
+   redacted body (Phase D, security review M5). Reason: the transcript is now served to
+   phones, and the redactor already exists for voice.
 5. **Retention**: confirm "keep every transcript locally forever; no automatic
-   pruning" (brief §3 history requirement).
-6. **Drawer**: keep as quick view, or replace with the full view?
+   pruning" (brief §3 history requirement). Measured disk cost (MP-E4-C1-T00,
+   preliminary, 2026-10-06; Phase D, CR-E4-9): lower bound 112 KB per hour per agent
+   (p50); upper bound 228 KB/h (p50) and 3.0 MB/h (p90) at the 64 KiB body cap. The final
+   C1-T00 figure replaces these before you approve. Recommended: **confirm keep-forever**, because
+   brief §3 requires full history; at the p50 upper bound that is about 2 GB per
+   agent-year of continuous work (p90: about 26 GB). Revisit if the final C1-T00 figure is
+   much larger.
+6. **Drawer**: keep as quick view, or replace with the full view? Recommended: **keep
+   it, with a "Full conversation" link**, because the drawer is the fast path from the
+   units table.
 7. **Anchor precision visibility**: show "approximate position" for observed
-   anchors, or hide the distinction?
+   anchors, or hide the distinction? Recommended: **show a subtle marker**, because a
+   silent approximate jump would read as an exact one.
+8. **Inline Command card placement** (Phase D, review T-8; used by MP-E4-C6-T02). Where an
+   open Command of this agent appears in the conversation. Options: (a) at its anchor
+   position in the chronology, with a pinned "Open Command" chip at the top that jumps to
+   it; (b) always pinned at the top. When the Command has no anchor: (i) pinned at the top
+   with "position unknown"; (ii) a link to `/commands/:id` only. Recommended: **(a) and
+   (i)**, because the card then sits next to the work that caused it and is never lost.
+   The card's content and states stay DESIGN-E2 §4's.
 
 ## 5. States to design
 
@@ -91,7 +117,7 @@ interrupt and spawn stay where they are (D15).
 ## 6. Acceptance conditions
 
 - Every state in §5 has a screen or explicit spec with copy.
-- Decisions 1–7 in §4 are answered in writing.
+- Every decision in §4 (1–8, including 8 card placement) is answered in writing.
 - Desktop and phone-width layouts are both specified (the phone reuses this view
   via WebView or native per MP-N1).
 - Jump from a Commands page entry and from a merged-PR event is shown end to end.

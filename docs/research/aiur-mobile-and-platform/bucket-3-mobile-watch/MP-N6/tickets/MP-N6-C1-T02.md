@@ -5,7 +5,7 @@ chunk_id: MP-N6-C1
 bucket: 3-mobile-watch
 title: GET /api/v1/device/commands?state=needs_you — reconciliation list on app open
 status: ready
-blocked_by: [DESIGN-N6 (no-UI release), MP-N6-C1-T01, MP-E2-C2-T2]
+blocked_by: [DESIGN-N6 (no-UI release), MP-N6-C1-T01, MP-E2-C2-T02]
 prior_units: []
 prior_boundaries: [DEC #27, WEB #34]
 prior_features: [MP-E2, MP-N3]
@@ -28,7 +28,7 @@ notifications (C6-T02) and by MP-N3 for "Commands awaiting" counts.
 
 ## Dependencies and blockers
 
-C1-T01 (scope), MP-E2-C2-T2 (`human_visible_at` maintained by the routing engine).
+C1-T01 (scope), MP-E2-C2-T02 (`human_visible_at` maintained by the routing engine).
 DESIGN-N6 no-UI release.
 
 ## Verified starting point
@@ -72,3 +72,6 @@ Commands (from `src/`): `mise exec -- mix test test/aiur_web/controllers/device_
 ## Completion and handoff
 
 - [ ] Dependents: C6-T02, MP-N3 counts.
+- [ ] Docs (same PR): the "Device API" section of `website/docs-app/guide/mobile-pairing.md`
+  (MP-N2-C9) lists `GET /api/v1/device/commands?state=needs_you`, its row fields and the
+  200-row cap.

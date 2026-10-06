@@ -108,7 +108,7 @@ enqueued with (contract §3 rule 6).
   Command row fails.
 - `"no code reads :listener_send_routing"` — a source-scan test (pattern of
   RC-11's scan test) so the flag cannot return.
-- Commands: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Commands: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test` (full suite; CI green on the head SHA per memory "narrow test runs
   hide bugs").
 - Manual (AGENTS.md recipe): `aiurdev --test`; Codex agent mid-turn; type in

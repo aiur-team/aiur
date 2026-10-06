@@ -21,7 +21,8 @@ researched: 2026-10-06
 
 - **Bucket 1 (Bucket-2-enabling, RC-09), MP-R2, chunk C5.** Inert: nothing
   reads the catalog at runtime until C6 (exporter) and C7 (catalog route).
-  Scheduled just before MP-N4/MP-N5 (RC-09), not in the refactor wave.
+  Scheduled at the start of wave 4 (RC-31, amending RC-09), because
+  MP-E6-C4-T05 and MP-E7-C2-T05 consume it there; C6/C7 stay in wave 5.
 - **User value (later):** a phone, watch or push producer can learn what
   the daemon may send it and in what shape, from one registry, instead of
   guessing from topic strings (contract §9).

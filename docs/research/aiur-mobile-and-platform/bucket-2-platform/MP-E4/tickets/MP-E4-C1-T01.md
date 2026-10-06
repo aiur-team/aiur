@@ -9,7 +9,7 @@ blocked_by: [DESIGN-E4, MP-E4-C1-T00]
 prior_units: [U6]
 prior_boundaries: [PRJ]
 prior_features: [MP-R1 (identity contract, instance_id)]
-prior_findings: [contract conversations-transcripts-anchors §3-§6, §8]
+prior_findings: [security M6 (operator provenance), contract conversations-transcripts-anchors §3-§6, §8]
 size_owner: n/a (new modules; no file over 500 lines touched)
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -92,11 +92,22 @@ canonical), case: :lower, padding: false), 0, 26)`; `canonical` is
 | `:command` | `command` | `agent` | body = command; `output` = `payload.output`; `meta` = `%{exit_code, cwd}` |
 | `:tool`, `payload.tool == "edit"` | `diff` | `tool` | body = title; `output` = diff text |
 | `:tool` (other) | `tool_result` | `tool` | body = display body; `output` = `payload.output`; `meta` = `%{tool, success}` |
-| `:user` | `operator_message` | `operator` (worker) / `executor_operator` (executor) | body |
+| `:user`, worker, `payload.delivery_id` set (daemon delivery evidence from `observe_operator_delivery/4`) | `operator_message` | `operator` | body |
+| `:user`, worker, **no** `delivery_id` (a provider record: tool result, aiur prompt, or anything an agent wrote into its own JSONL) | `system` | `provider_input` | body; `meta.provider_role = "user"` |
+| `:user`, executor (path validated by MP-E3-C1-T02) | `operator_message` | `executor_operator` | body |
 | `:system`, `:alert` | `system` | `system` | body; `meta.alert = true` for `:alert` |
 
 This adds two optional fields to contract §5 (`output`, `meta`); the contract
 is amended in the same PR (owner MP-E4).
+
+**Operator provenance (Phase D, security M6).** Provider JSONL files are
+agent-writable, and Claude `user` records also carry tool results and the aiur prompt.
+So a worker entry gets role `operator` **only** from daemon delivery evidence
+(`refs.delivery_id` set by the `observe_operator_delivery/4` tee, T03). The Remote-Control
+display path (`SessionLifecycle.display_tailer_handler/3`) reads the provider file, so
+its `:user` records always map to `provider_input`; the delivery tee writes the operator
+line for the same input, and the dedup key keeps them separate (different role). Views
+label `provider_input` "provider input", never as the operator (contract §5).
 
 **refs:** `provider_msg_id = msg_id`; `turn_id`; for `command`, `tool_result` and `diff`
 also `tool_call_id = payload.tool_call_id || msg_id`. The Codex tool item id
@@ -178,7 +189,7 @@ informational; identity stays `provider_id`.
 Commands (do not run plain `mix test`; it overwrites the real agent token):
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/conversation/ref_test.exs test/aiur/conversation/entry_test.exs \
   test/aiur/conversation/store_test.exs test/aiur/config/paths_conversation_test.exs
 env -C src mise exec -- make ci
@@ -189,6 +200,8 @@ env -C src mise exec -- make ci
 | `ref_test` "same identity → same id; owner case ignored" | equal ids for `Owner/Repo` and `owner/repo` | the `github_key/1` call (using `identity.identifier` instead) |
 | `ref_test` "unjoinable identity has no conversation" | `{:error, :unjoinable}` | the `joinable?/1` guard |
 | `entry_test` "assistant_delta skipped" | `:skip` | the delta clause |
+| `entry_test` "a provider user record with no matching delivery is not an operator_message" (M6) | worker `:user` event without `payload.delivery_id` → `kind: "system"`, `role: "provider_input"` | the `delivery_id` condition (map every `:user` to `operator` and it fails) |
+| `entry_test` "a daemon delivery is an operator_message" | worker `:user` with `payload.delivery_id: "d1"` → `kind: "operator_message"`, `role: "operator"`, `refs.delivery_id == "d1"` | — (condition must not over-match) |
 | `entry_test` "two identical commands at different times are two keys" | distinct `dedup_key` | `occurred_at` in the fallback tuple |
 | `entry_test` "200 KiB body keeps head and tail" | 16 KiB + marker + 16 KiB, `body_truncated: true`, valid UTF-8 | `bound/2` |
 | `entry_test` "4-byte emoji on the cut stays whole" | `String.valid?/1` true | the UTF-8 boundary walk |

@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, MP-N2-C7-T01]
 prior_units: [U1, U9]
 prior_boundaries: [CLI, K]
 prior_features: [MP-N4]
-prior_findings: []
+prior_findings: [security M1]
 size_owner: n/a (new modules)
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -75,7 +75,7 @@ New verb and route.
 4. `"response reports control and push separately"`. 5. `"one unpair_all journal entry"`.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/unpair_all_test.exs
 ```
 
@@ -84,3 +84,8 @@ env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOK
 - [ ] Tests pass with mutation checks (MP-N2 plan acceptance 6).
 - [ ] Docs: CLI reference `aiur mobile unpair-all`; pairing guide "Lost phone".
 - [ ] Dependents: MP-N2-C7-T04.
+- **Phase D:** the unpair-all write also deletes every device section of
+  `notification-preferences.json` (CR-N5-2 b). The revocation reaches live sockets through each
+  instance's store watcher, not through a broadcast from the writer (security M1; same as
+  MP-N2-C7-T01). Test: `"unpair-all empties devices.json in one rename"` (stat probe sees one
+  inode change). *Fails without:* the single atomic write.

@@ -46,12 +46,12 @@ amendment).
 
 | Ticket | One line |
 | --- | --- |
-| C1-T1 | Register the `queued` marker suffix in `github/labels.ex` (`@marker_suffixes`, `label_set/2` seeding). Add `Issue.queued?` set at ingestion (`github/issues.ex:1011-1012` pattern) |
-| C1-T2 | `IssueSync`: treat `queued?` as deliberate parking in `heal_or_leave_missing_state_label/3` and `legitimately_unowned?/1` (`issue_sync.ex:195-207, 392-395`) |
-| C1-T3 | Keep `{number, label_names, updated_at}` for every open issue the poll already reads, in `OpenIssueSnapshot` or a sibling ETS table, so queue observation costs no new reads (F8; RQ-5) |
-| C1-T4 | `Aiur.BuildQueue.Hints` ETS reader, plus a `DispatchPolicy` hook: `sort_issues_for_dispatch/1` prepends `Hints.rank/1`, and `dispatch_state_decision` gains `{:skip, :build_queue_hold}` |
-| C1-T5 | `ClaimProbe` implementation in orchestration: `claimed?/1` from `running`, `claimed`, `retry_attempts` and `auto_resume` inside the orchestrator call; `notify_demand/1` delegates to `note_queued_demand/1` |
-| C1-T6 | Source-scan test: no `Aiur.Orchestrator` or `Aiur.GitHub` reference under `build_queue/`; `Aiur.BuildOrder` only in `sources/build_order.ex` (R1 seam rules) |
+| C1-T01 | Register the `queued` marker suffix in `github/labels.ex` (`@marker_suffixes`, `label_set/2` seeding). Add `Issue.queued?` set at ingestion (`github/issues.ex:1011-1012` pattern) |
+| C1-T02 | `IssueSync`: treat `queued?` as deliberate parking in `heal_or_leave_missing_state_label/3` and `legitimately_unowned?/1` (`issue_sync.ex:195-207, 392-395`) |
+| C1-T03 | Keep `{number, label_names, updated_at}` for every open issue the poll already reads, in `OpenIssueSnapshot` or a sibling ETS table, so queue observation costs no new reads (F8; RQ-5) |
+| C1-T04 | `Aiur.BuildQueue.Hints` ETS reader, plus a `DispatchPolicy` hook: `sort_issues_for_dispatch/1` prepends `Hints.rank/1`, and `dispatch_state_decision` gains `{:skip, :build_queue_hold}` |
+| C1-T05 | `ClaimProbe` implementation in orchestration: `claimed?/1` from `running`, `claimed`, `retry_attempts` and `auto_resume` inside the orchestrator call; `notify_demand/1` delegates to `note_queued_demand/1` |
+| C1-T06 | Source-scan test: no `Aiur.Orchestrator` or `Aiur.GitHub` reference under `build_queue/`; `Aiur.BuildOrder` only in `sources/build_order.ex` (R1 seam rules) |
 
 **Tests:**
 - `test/aiur/github/labels_test.exs`: `agent:queued` + `agent:todo` parses to
@@ -80,10 +80,10 @@ action planning.
 
 | Ticket | One line |
 | --- | --- |
-| C2-T1 | `model.ex`: Queue, Item, Edge, Observation, Intent structs; JSON encode and decode with `version: 1` |
-| C2-T2 | `readiness.ex`: per-edge verdict and per-item readiness (contract §2.1–2.2), including cycle detection reusing the `GraphAnalysis.analyze/2` approach |
-| C2-T3 | `ordering.ex`: `downstream_open` via transitive closure; the rank key (plan §5.6 with OQ-1 applied) |
-| C2-T4 | `planner.ex`: `(queues, observations, intents, claim answers) → [action]`, where actions are `promote`, `begin_withdraw`, `withdraw`, `hold_release`, `attention_open`, `attention_resolve`, `mark_override`, `mark_external_hold`, `dequeue` |
+| C2-T01 | `model.ex`: Queue, Item, Edge, Observation, Intent structs; JSON encode and decode with `version: 1` |
+| C2-T02 | `readiness.ex`: per-edge verdict and per-item readiness (contract §2.1–2.2), including cycle detection reusing the `GraphAnalysis.analyze/2` approach |
+| C2-T03 | `ordering.ex`: `downstream_open` via transitive closure; the rank key (plan §5.6 with OQ-1 applied) |
+| C2-T04 | `planner.ex`: `(queues, observations, intents, claim answers) → [action]`, where actions are `promote`, `begin_withdraw`, `withdraw`, `hold_release`, `attention_open`, `attention_resolve`, `mark_override`, `mark_external_hold`, `dequeue` |
 
 **Tests:** table-driven unit tests, plus property tests.
 - Every row of contract §2.1 and §2.3.
@@ -103,13 +103,13 @@ writes labels safely, and survives restarts.
 
 | Ticket | One line |
 | --- | --- |
-| C3-T1 | `store.ex`: a `Config.Paths` key `build_queue_dir` under `decision_state_dir`; `JsonStore.write!` with atomic rename and fsync (F9); fail closed on corrupt data |
-| C3-T2 | `server.ex` reconcile loop. Triggers: after each tracker poll (RQ-5), Exchange hints (`ticket.*.pr.merged`, `ticket.*.issue.label.added.agent.*`, `ticket.*.agent.attention.error-*`, `ticket.*.dependency.merged_blocker_reconciled`), ResourceStore `:issue`/`:issue_dependency` changes, and a fallback timer |
-| C3-T3 | Write protocol: persist the intent → `Tracker.add_label`/`remove_label` → persist the outcome; pacing (`max_writes_per_minute`); backoff; pause on a GitHub budget hold |
-| C3-T4 | Withdrawal protocol (contract §2.4), with Hints hold and ClaimProbe |
-| C3-T5 | Competing-writer detection: override and external hold (plan §5.8) |
-| C3-T6 | Restart recovery: resolve dangling intents by observation; `queue recover` rebuilds from markers |
-| C3-T7 | Config section `build_queue.*`, `Aiur.Config.Schema.BuildQueue`: `enabled`, `reconcile_interval_seconds`, `max_writes_per_minute`, `observation_max_age_seconds`, `merged_open_grace_seconds`; supervision child gated on `enabled` |
+| C3-T01 | `store.ex`: a `Config.Paths` key `build_queue_dir` under `decision_state_dir`; `JsonStore.write!` with atomic rename and fsync (F9); fail closed on corrupt data |
+| C3-T02 | `server.ex` reconcile loop. Triggers: after each tracker poll (RQ-5), Exchange hints (`ticket.*.pr.merged`, `ticket.*.issue.label.added.agent.*`, `ticket.*.agent.attention.error-*`, `ticket.*.dependency.merged_blocker_reconciled`), ResourceStore `:issue`/`:issue_dependency` changes, and a fallback timer |
+| C3-T03 | Write protocol: persist the intent → `Tracker.add_label`/`remove_label` → persist the outcome; pacing (`max_writes_per_minute`); backoff; pause on a GitHub budget hold |
+| C3-T04 | Withdrawal protocol (contract §2.4), with Hints hold and ClaimProbe |
+| C3-T05 | Competing-writer detection: override and external hold (plan §5.8) |
+| C3-T06 | Restart recovery: resolve dangling intents by observation; `queue recover` rebuilds from markers |
+| C3-T07 | Config section `build_queue.*`, `Aiur.Config.Schema.BuildQueue`: `enabled`, `reconcile_interval_seconds`, `max_writes_per_minute`, `observation_max_age_seconds`, `merged_open_grace_seconds`; supervision child gated on `enabled` |
 
 **Tests (integration, with an in-memory tracker double that records calls):**
 - AC1, AC4, AC5, AC6, AC7, AC10, AC11 from plan §7.
@@ -125,17 +125,17 @@ writes labels safely, and survives restarts.
 **Outcome:** prerequisites and observations come from real data at bounded
 cost, and Build Orders stay optional.
 
-**Depends on:** C2 types, C1-T3. Cross-feature: MP-R2 E-A3 (closed-unmerged
+**Depends on:** C2 types, C1-T03. Cross-feature: MP-R2 E-A3 (closed-unmerged
 topic).
 
 | Ticket | One line |
 | --- | --- |
-| C4-T1 | `sources/executor_list.ex`: local ordered list with "after" edges; one-owner rule |
-| C4-T2 | `sources/build_order.ex`: adopt a root through `GraphProjection.demand/2` and `selected/2`; map native edges; health not `usable?` → `unknown` (F6); refresh on member change |
-| C4-T3 | Native `blocked_by` of queued items, from ResourceStore `:issue_blocked_by` within the `BoundedBlockedBy` TTL (RQ-2) |
-| C4-T4 | Closed-prerequisite `state_reason`: one conditional read per newly closed prerequisite, cached as terminal (RQ-8); request origin `build_queue_observe` so `aiur github-cost` attributes it |
-| C4-T5 | Failed-PR signal: a ticket PR closed unmerged with no open PR (RQ-1) |
-| C4-T6 | Merged-but-open detection: `pr.merged` hint, then the issue is still open after `merged_open_grace_seconds` |
+| C4-T01 | `sources/executor_list.ex`: local ordered list with "after" edges; one-owner rule |
+| C4-T02 | `sources/build_order.ex`: adopt a root through `GraphProjection.demand/2` and `selected/2`; map native edges; health not `usable?` → `unknown` (F6); refresh on member change |
+| C4-T03 | Native `blocked_by` of queued items, from ResourceStore `:issue_blocked_by` within the `BoundedBlockedBy` TTL (RQ-2) |
+| C4-T04 | Closed-prerequisite `state_reason`: one conditional read per newly closed prerequisite, cached as terminal (RQ-8); request origin `build_queue_observe` so `aiur github-cost` attributes it |
+| C4-T05 | Failed-PR signal: a ticket PR closed unmerged with no open PR (RQ-1) |
+| C4-T06 | Merged-but-open detection: `pr.merged` hint, then the issue is still open after `merged_open_grace_seconds` |
 
 **Tests:**
 - The Build Order source, with a stale snapshot fixture built from real
@@ -153,11 +153,11 @@ published inside the reserved namespaces.
 
 | Ticket | One line |
 | --- | --- |
-| C5-T1 | `attention.ex`: the only caller of `Aiur.Alerts.emit_system/2`; latches kept in the store; `.resolved` on clear (pattern: `issue_sync.ex:557-608`) |
-| C5-T2 | Prerequisite-failed alert naming the prerequisite, its cause and every transitively blocked item |
-| C5-T3 | `ExecutorBindings`: add `ticket.*.queue.attention.*` and `system.queue.attention.*` |
-| C5-T4 | Publish the `ticket.<id>.queue.*` live events (contract §4.3) |
-| C5-T5 | `promoted_unauthorized` detection from the dispatcher's decline (RQ-7) |
+| C5-T01 | `attention.ex`: the only caller of `Aiur.Alerts.emit_system/2`; latches kept in the store; `.resolved` on clear (pattern: `issue_sync.ex:557-608`) |
+| C5-T02 | Prerequisite-failed alert naming the prerequisite, its cause and every transitively blocked item |
+| C5-T03 | `ExecutorBindings`: add `ticket.*.queue.attention.#` and `system.queue.attention.#` (`#` so the `.resolved` suffix also matches) |
+| C5-T04 | Publish the `ticket.<id>.queue.*` live events (contract §4.3) |
+| C5-T05 | `promoted_unauthorized` detection from the dispatcher's decline (RQ-7) |
 
 **Tests:**
 - AC3: one alert for two dependents; no re-fire after a restart; resolve when
@@ -172,10 +172,10 @@ published inside the reserved namespaces.
 
 | Ticket | One line |
 | --- | --- |
-| C6-T1 | `aiur-engine.sh`: a `queue)` arm, a usage line and `cmd_queue` calling `run_control_rpc "Aiur.AgentControlCLI.queue(...)"` (F9); timeout sizing like `run_todo` |
-| C6-T2 | `Aiur.BuildQueueCLI`: verbs per DESIGN-E1; `--json` read model (contract §3); exit codes 0, non-zero and 124 |
-| C6-T3 | Refuse mutations in agent workspaces, reusing the `--test` guard (RQ-6) |
-| C6-T4 | Docs: `website/docs-app/reference/cli.md` (queue verbs; `--todo --only` now holds queue items); `reference/configuration.md` (every `build_queue.*` key, so `scripts/check-config-docs.py` passes); `.aiur/examples/` and `src/examples/workflows/` templates |
+| C6-T01 | `aiur-engine.sh`: a `queue)` arm, a usage line and `cmd_queue` calling `run_control_rpc "Aiur.AgentControlCLI.queue(...)"` (F9); timeout sizing like `run_todo` |
+| C6-T02 | `Aiur.BuildQueueCLI`: verbs per DESIGN-E1; `--json` read model (contract §3); exit codes 0, non-zero and 124 |
+| C6-T03 | Refuse mutations in agent workspaces, reusing the `--test` guard (RQ-6) |
+| C6-T04 | Docs: `website/docs-app/reference/cli.md` (queue verbs; `--todo --only` now holds queue items); `reference/configuration.md` (every `build_queue.*` key, so `scripts/check-config-docs.py` passes); `.aiur/examples/` and `src/examples/workflows/` templates |
 
 **Tests:**
 - CLI tests mirroring `build_orders_cli*_test.exs`.
@@ -189,14 +189,20 @@ published inside the reserved namespaces.
 **Outcome:** contract §4: progress facts for every queue and Build Order root,
 and milestone events with no bursts or repeats.
 
-**Depends on:** C3; the coordinator's ruling on who owns the
-`system.build_order.*` producer.
+**Depends on:** nothing for C7-T01 and C7-T03 (Build Order milestones need no
+queue); C3 for the queue producer C7-T02. RC-08 names MP-E1-C7 as the producer of
+`system.build_order.<root>.progress` and `system.queue.<id>.progress`.
+
+**Component owner (RC-40):** `Aiur.BuildProgress` (`src/lib/aiur/build_progress.ex`)
+belongs to the `build-orders` component. MP-E1-C7 writes the code; the queue is one
+producer (C7-T02) and the Build Order observer is the other (C7-T03). D18's default
+progress notifications therefore work without the queue.
 
 | Ticket | One line |
 | --- | --- |
-| C7-T1 | `progress.ex`: queue progress facts and `Aiur.BuildQueue.progress/1` |
-| C7-T2 | Build Order observer: catalog `RootSummary.progress` → facts; durable milestone latch per root generation |
-| C7-T3 | Milestone emission: only the highest milestone crossed, none from `unresolved`/`unknown` data, never repeated across a restart |
+| C7-T01 | `Aiur.BuildProgress` (`build_progress.ex`, `build-orders` component): `put_fact/1`, `facts/1`, `subscribe/0`, durable milestone latch per scope generation, highest-milestone-only emission |
+| C7-T02 | Queue progress producer `build_queue/progress.ex` → `BuildProgress.put_fact/1` |
+| C7-T03 | Build Order observer `build_order/progress_observer.ex`: catalog `RootSummary.progress` → facts |
 
 **Tests:**
 - 20% → 80% in one step emits only 75.
@@ -211,9 +217,9 @@ and milestone events with no bursts or repeats.
 
 | Ticket | One line |
 | --- | --- |
-| C8-T1 | LiveView (`/queue` or a panel on `/build-orders`, per DESIGN-E1) subscribing to a `build_queue:changed` PubSub topic from the Server |
-| C8-T2 | Item rows, rank explanation, prerequisites, attentions, data age |
-| C8-T3 | Sidebar and docs page (`website/docs-app/guide/`), if it is a new page |
+| C8-T01 | LiveView (`/queue` or a panel on `/build-orders`, per DESIGN-E1) subscribing to a `build_queue:changed` PubSub topic from the Server |
+| C8-T02 | Item rows, rank explanation, prerequisites, attentions, data age |
+| C8-T03 | Sidebar and docs page (`website/docs-app/guide/`), if it is a new page |
 
 **Tests:**
 - LiveView tests for each state.
@@ -228,10 +234,10 @@ in a real run.
 
 | Ticket | One line |
 | --- | --- |
-| C9-T1 | Update `.claude/skills/aiur-build` (creation labels; the reconciliation test currently rejects `agent:queued`, F10) and `aiur-run` (queue usage, override semantics) |
-| C9-T2 | `website/docs-app/concepts/ticket-lifecycle.md` marker table; `concepts/build-orders.md` "Queueing a Build Order"; `skills.md` if a skill changes |
-| C9-T3 | AC12, end to end through `scripts/aiurdev --test` in the wrapper tmux (AGENTS.md recipe), with `tmux capture-pane` evidence that the second agent starts |
-| C9-T4 | Budget note in the PR: label writes and observation reads per hour from `aiur github-cost` during C9-T3, with population counts (AGENTS.md "A claimed saving must be measured": this is instrumentation only, and claims no saving) |
+| C9-T01 | Update `.claude/skills/aiur-build` (creation labels; the reconciliation test currently rejects `agent:queued`, F10) and `aiur-run` (queue usage, override semantics) |
+| C9-T02 | `website/docs-app/concepts/ticket-lifecycle.md` marker table; `concepts/build-orders.md` "Queueing a Build Order"; `skills.md` if a skill changes |
+| C9-T03 | AC12, end to end through `scripts/aiurdev --test` in the wrapper tmux (AGENTS.md recipe), with `tmux capture-pane` evidence that the second agent starts |
+| C9-T04 | Budget note in the PR: label writes and observation reads per hour from `aiur github-cost` during C9-T03, with population counts (AGENTS.md "A claimed saving must be measured": this is instrumentation only, and claims no saving) |
 
 ---
 
@@ -259,6 +265,8 @@ in a real run.
   `system.build_order.<root>.*` progress is Build Orders. This contract defines
   the payload, and C7 places the producer in `build_order/`. Confirm.
 - **X-3 (MP-R2).** E-A3 requests a `ticket.<id>.pr.closed_unmerged` topic.
+  *Resolved (RC-08, RC-26): registered by MP-R2-C5-T03, produced by MP-E1-C4-T05.
+  X-2 is resolved by RC-08: the build-order progress producer is MP-E1-C7.*
 - **X-4 (MP-N5).** Milestone semantics (highest milestone only, a generation
   rule) feed N5's no-burst requirement. N5 owns the per-device suppression.
 
@@ -266,7 +274,8 @@ in a real run.
 
 ## Phase C resolution of research questions (2026-10-06)
 
-Final tickets: [tickets/README.md](tickets/README.md) (40 tickets). The
+Final tickets: [tickets/README.md](tickets/README.md) (41 tickets; Phase D added
+MP-E1-C3-T08, the `build_queue` capability provider, for X-21). The
 chunk-level ticket lines above are superseded by the ticket files.
 
 | ID | Resolution | Ticket |

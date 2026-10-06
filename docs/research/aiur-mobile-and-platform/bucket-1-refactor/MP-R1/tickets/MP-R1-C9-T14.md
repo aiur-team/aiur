@@ -64,7 +64,7 @@ researched: 2026-10-06
 
 As C9-T10–T13: pure move behind delegates, sized by responsibility after U6 has shrunk the
 renderers. The exact file split is fixed at ticket start from what U6 leaves (the line
-ranges above will have moved — MP-R1-C11-T2 refreshes them); the component assignment
+ranges above will have moved — MP-R1-C11-T02 refreshes them); the component assignment
 above is fixed now.
 
 ## Implementation steps

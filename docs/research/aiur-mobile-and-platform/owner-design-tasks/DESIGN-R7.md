@@ -3,7 +3,8 @@ design_task: DESIGN-R7
 feature_id: MP-R7
 owner: Kevin
 status: open (awaiting explicit approval)
-blocks: every MP-R7 implementation ticket (MP-R7-C1..C6)
+blocks: [MP-E7-C4-T01, MP-R7-C1-T01, MP-R7-C1-T02, MP-R7-C1-T03, MP-R7-C1-T04, MP-R7-C2-T01, MP-R7-C2-T02, MP-R7-C2-T03, MP-R7-C3-T01, MP-R7-C3-T02, MP-R7-C3-T03, MP-R7-C3-T04, MP-R7-C3-T05, MP-R7-C3-T06, MP-R7-C4-T01, MP-R7-C4-T02, MP-R7-C4-T03, MP-R7-C4-T04, MP-R7-C4-T05, MP-R7-C5-T01, MP-R7-C5-T02, MP-R7-C6-T01]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-R7 (waived entries excluded). Earlier wording: every MP-R7 implementation ticket (MP-R7-C1..C6)"
 base_main_sha: 45a290e3
 date: 2026-10-06
 related_plan: ../bucket-1-refactor/MP-R7/plan.md
@@ -42,10 +43,13 @@ explicit written approval.
 
 1. Is a foreground manual run (one Codex and one Claude agent, a chat-pane
    message to each, per AGENTS.md "Manual testing") enough proof for the
-   package move (C4)?  [ ] yes  [ ] also require a full dogfood run.
+   package move (C4)? Recommended: **yes**, because it exercises both delivery
+   families through the real TUI, which is the AGENTS.md definition of manual
+   testing.  [ ] yes  [ ] also require a full dogfood run.
 2. The `aiur-claude` sibling's `turn/steer` appears to drop text (R7 plan
    F7). It is unused today. File it now on the sibling repo, or leave it
-   for MP-E7?  [ ] file now  [ ] leave for E7.
+   for MP-E7? Recommended: **file now**, because a working `turn/steer` is a
+   precondition of MP-E7-C4.  [ ] file now  [ ] leave for E7.
 
 ## 3. States
 

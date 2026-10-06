@@ -5,7 +5,7 @@ chunk_id: MP-N4-C3
 bucket: 3-mobile-watch
 title: Push deregistration hook for revoke and unpair-all; per-instance purge
 status: ready
-blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C3-T03, MP-N2-C7-T3]
+blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C3-T03, MP-N2-C7-T03]
 prior_units: []
 prior_boundaries: [new #41 candidate push-relay]
 prior_features: [MP-N2]
@@ -21,11 +21,12 @@ researched: 2026-10-06
 
 Bucket 3, MP-N4, chunk C3. Two pieces:
 
-1. `Aiur.Push.Deregister.deregister(push_registration) :: :ok | {:pending, reason}`
-   (PROPOSED), a **pure library function** the MP-N2 gateway calls on revoke and
-   unpair-all (pairing contract §4.5; MP-N2-C7-T3 owns the persisted retry outbox). It
+1. `Aiur.Push.Deregister.deregister(push_registration) :: :ok | {:retry, reason}`
+   (PROPOSED), implementing MP-N2's behaviour `Aiur.Machine.PushDeregistrar`
+   (MP-N2-C7-T03; one interface, Phase D coordinator item N2-4), a **pure library function** the MP-N2 gateway calls on revoke and
+   unpair-all (pairing contract §4.5; MP-N2-C7-T03 owns the persisted retry outbox). It
    sends `DELETE <relay_url>/v1/handles/<handle>` with `Authorization: Bearer
-   <send_secret>`; `204`/`404` → `:ok`; anything else → `{:pending, reason}`.
+   <send_secret>`; `204`/`404` → `:ok`; anything else → `{:retry, reason}` (Phase D X-12: one return shape with the behaviour above and MP-N2-C7-T03:48; the gateway, not this function, renders that as "pending").
 2. Per-instance purge: when a device disappears from `devices.json` (mtime change), each
    instance's push component calls `Outbox.purge_device/1` and forgets its device state.
 
@@ -34,7 +35,7 @@ gateway reports push deregistration separately as "pending" when the relay is do
 
 ## Dependencies and blockers
 
-- C3-T03 (registry cache to diff), MP-N2-C7-T3 (gateway deregistration outbox calling
+- C3-T03 (registry cache to diff), MP-N2-C7-T03 (gateway deregistration outbox calling
   this function; until it exists, MP-N2 stubs the hook). DESIGN-N4: no UI.
 
 ## Verified starting point
@@ -60,14 +61,14 @@ gateway reports push deregistration separately as "pending" when the relay is do
 
 ## Non-happy paths
 
-- Relay down during revoke → `{:pending, :relay_unreachable}`; control revocation already
+- Relay down during revoke → `{:retry, :relay_unreachable}` (N2 reports it as `pending`); control revocation already
   happened, so the daemon sends nothing (registry miss) even while the handle exists.
   The only residual risk is that the relay keeps a dead handle until retry succeeds.
 - `push_registration` malformed → `:ok` with a warning (nothing to delete remotely).
 
 ## Compatibility and rollout
 
-Library function; no config. Gateway integration in MP-N2-C7-T3.
+Library function; no config. Gateway integration in MP-N2-C7-T03.
 
 ## Verification
 
@@ -76,7 +77,7 @@ Library function; no config. Gateway integration in MP-N2-C7-T3.
 | Test | Expected | Must fail without |
 | --- | --- | --- |
 | `"204 and 404 are ok"` | `:ok` | treat 404 as pending |
-| `"5xx and timeout are pending"` | `{:pending, _}` | swallow as ok |
+| `"5xx and timeout are retry"` | `{:retry, _}` | swallow as ok |
 | `"sends bearer send_secret"` | header present | omit header |
 | `"device removed from devices.json purges its outbox jobs"` | pending jobs terminal `{:dropped, :device_gone}` and no provider request (AC-N4-5) | skip the diff |
 | `"unpair-all removes every device → zero sends"` (V-S3 analogue) | 0 requests for queued jobs | — |
@@ -85,5 +86,5 @@ Commands (from `src/`): `mise exec -- mix test test/aiur/push/deregister_test.ex
 
 ## Completion and handoff
 
-- [ ] MP-N2-C7-T3 calls the function (cross-checked in its PR).
+- [ ] MP-N2-C7-T03 calls the function (cross-checked in its PR).
 - Dependents: MP-N2-C7, MP-N4-C7 (V-S2, V-S3).

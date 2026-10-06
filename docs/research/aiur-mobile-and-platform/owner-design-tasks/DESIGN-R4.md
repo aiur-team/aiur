@@ -3,7 +3,8 @@ design_task: DESIGN-R4
 feature_id: MP-R4
 owner: Kevin
 status: open (awaiting explicit approval)
-blocks: MP-R4-C1-T01..T02
+blocks: [MP-R4-C1-T01]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-R4 (waived entries excluded). Earlier wording: MP-R4-C1-T01..T02"
 base_main_sha: 45a290e3
 date: 2026-10-06
 related_plan: ../bucket-1-refactor/MP-R4/plan.md
@@ -36,10 +37,14 @@ explicit written approval.
 
 1. Keep the `hooks.aiur.dev` tunnel purely for GitHub webhooks.
    [ ] yes (recommended)  [ ] no: explain ______
-2. **Forwarded to DESIGN-N4 / MP-N4; answer there.** Self-hosted daemons cannot
-   hold Apple or Google push credentials for a published app (plan § 4.3), so
-   mobile push needs a publisher-operated push gateway or a self-built app.
-   This gate records only that you have seen the constraint.
+2. **Forwarded to [DESIGN-N4 D-8](DESIGN-N4.md#3-decisions-that-need-kevin)
+   (OQ-N4-1, publisher and default relay operator); answer there.** Self-hosted
+   daemons cannot hold Apple or Google push credentials for a published app
+   (plan § 4.3), so mobile push needs a publisher-operated push relay or a
+   self-built app. DESIGN-N4 D-8 lists the options (organisation accounts and a
+   hosted relay; self-built apps only; personal accounts) and recommends
+   organisation accounts with a hosted relay. This gate records only that you
+   have seen the constraint; that relay never uses `hooks.aiur.dev` (item 1).
    [ ] seen
 
 ## 3. Copy to approve (docs only)
@@ -48,8 +53,12 @@ This is the § Cloudflare tunnel boundary addition to `website/docs-app/apis/git
 
 > Any HTTPS ingress that forwards only `/api/v1/github/webhook` works —
 > Cloudflare is one example. Whoever operates the ingress can see each
-> delivery's metadata [and body — pending Phase C confirmation]. Without any
-> ingress, polling remains the complete fallback.
+> delivery's metadata and body; the webhook signature prevents forgery, not
+> reading. Without any ingress, polling remains the complete fallback.
+
+(Phase D, CR-R4-1: Phase C confirmed "body too" — TLS terminates at the ingress edge;
+Cloudflare edge certificates "secure the encrypted connection between your visitors and
+Cloudflare", https://developers.cloudflare.com/ssl/edge-certificates/, accessed 2026-10-06.)
 
 - [ ] Approved, or edits: ______
 
@@ -57,3 +66,9 @@ This is the § Cloudflare tunnel boundary addition to `website/docs-app/apis/git
 
 No new screens. The existing webhook states (not configured; configured but
 never delivered; delivering; silent past threshold) are unchanged.
+
+## 5. Acceptance
+
+The gate is complete when every box in §§ 1–3 carries your approval (item 2 needs
+only "seen"; its answer is recorded in DESIGN-N4 D-8), and you record "DESIGN-R4
+approved" with the date in this file.

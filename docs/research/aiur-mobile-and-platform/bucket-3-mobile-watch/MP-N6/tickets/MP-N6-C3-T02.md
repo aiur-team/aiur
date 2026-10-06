@@ -40,27 +40,67 @@ C1-T03 outcome table (HTTP + body); command contract §6 rules 1–5.
 
 ## Chosen design (fixed parts)
 
-Replace sends `replace: true` with a **new** idempotency key and the current
-`expected_version`.
+- Replace sends `replace: true` with a **new** idempotency key and the current
+  `expected_version`.
+- `outcomeToState(httpStatus, body) → StateKey` is a pure, total function over the C1-T03
+  table (plan §5.5 keys):
+
+| C1-T03 response | State |
+| --- | --- |
+| 200 `accepted` | S04 → S05 when `delivery.status` becomes delivered (C6-T01) |
+| 200 `duplicate` | same as the original outcome |
+| 409 `already_decided`, `replaceable: true` | S07 (Replace offered, confirmation per DESIGN-N6) |
+| 409 `already_decided`, `replaceable: false` | S06 (who / when / what from `winner`) |
+| 409 `answer_in_flight` | S08 "Delivering now — can't replace" |
+| 409 `answer_delivered` | S06 without Replace |
+| 409 `stale_version` | S10: refetch, keep draft and selection if option ids still exist |
+| 409 `withdrawn` (`status`) | S09 "No longer needed: <status>", form disabled |
+| 409 `nothing_to_replace` | refetch → S02 |
+| 409 `idempotency_conflict` | error state, no auto-retry |
+| 401 `device_revoked` / `device_auth_disabled` | S12 pairing screen; wipe that machine's drafts and in-memory data |
+| `capability_unavailable` (C1-T04) | S17 "Answer from the dashboard" |
+| network error | S11 (C3-T03), same key on Retry |
+| anything else | generic conflict + refresh; never success |
+
+- The winner's actor kind is shown as-is (`operator`, `operator_relayed`, `executor`); a
+  relayed answer is labelled as relayed (RC-41), never as the user's own.
 
 ## Implementation steps
 
-After approval.
+1. `packages/aiur-mobile/src/commands/outcomeToState.ts` (pure).
+2. `packages/aiur-mobile/src/commands/OutcomeBanner.tsx` and `ReplaceConfirm.tsx`.
+3. Wire into `commandViewModel.submit` (C3-T01).
+4. Docs: none beyond the C3-T01 guide section, because the outcomes are part of the same
+   "Answering a Command" page (add one paragraph on Replace there, same PR).
 
 ## Non-happy paths
 
-This ticket is the non-happy paths of submission.
+This ticket is the non-happy paths of submission (table above).
 
 ## Compatibility and rollout
 
 Unknown `reason` from a newer daemon → generic conflict state + refresh (never treated as
-success).
+success). Copy is DESIGN-E2 §4.4 (design-pending).
 
 ## Verification
 
-Component test per outcome; unknown-reason test must fail if mapped to `accepted`;
-device V-M2, V-M3.
+```text
+npm --prefix packages/aiur-mobile test -- test/commands/outcomeToState.test.ts test/commands/OutcomeBanner.test.tsx
+```
+
+| Test | Expected | Must fail without |
+| --- | --- | --- |
+| `outcomeToState: each C1-T03 row` (`it.each` over a fixture copied from the C1-T03 table) | the state in the table | each row (replace with one generic conflict → fails) |
+| `S07_replaceOnlyWhenReplaceable` | Replace shown only for `replaceable: true` | the flag check |
+| `replaceUsesNewKeyAndCurrentVersion` | body `replace: true`, new key, current version | key regeneration |
+| `S10_staleKeepsDraftWhenOptionsSurvive` | selection kept when option id still exists, dropped otherwise | the keep rule |
+| `S12_revokedWipesMachineData` | drafts for that machine deleted | the wipe |
+| `unknownReasonIsNeverSuccess` | unknown reason → generic conflict | default branch (map to S04 → fails) |
+| `relayedWinnerLabelledRelayed` | winner `operator_relayed` → relayed label | the label |
+
+Device: V-M2, V-M3.
 
 ## Completion and handoff
 
-- [ ] Dependents: MP-N4-C7-T02 (V-M1..V-M3).
+- [ ] Each test fails with its hunk reverted in a worktree.
+- Dependents: MP-N4-C7-T02 (V-M1..V-M3), C6-T01.

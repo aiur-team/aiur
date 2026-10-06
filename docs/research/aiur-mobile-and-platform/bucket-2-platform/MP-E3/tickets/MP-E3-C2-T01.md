@@ -9,7 +9,7 @@ blocked_by: [DESIGN-E3, MP-E3-C1-T02, MP-E4-C1-T02]
 prior_units: [U4]
 prior_boundaries: [EXE, CLD, PRJ]
 prior_features: [MP-R7 (transcript_source for attached sessions), MP-E4 (journal)]
-prior_findings: [MP-E3 plan §4.1 option A; contract conversations-transcripts-anchors §4-§5, §11]
+prior_findings: [security M6 and m10 (path gate), MP-E3 plan §4.1 option A; contract conversations-transcripts-anchors §4-§5, §11]
 size_owner: "n/a (new module; small option added to claude/transcript_tailer.ex, 260 lines)"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -79,7 +79,14 @@ PROPOSED `src/lib/aiur/executor/transcript_ingest.ex` (GenServer under a
   transcript_source: %{kind: :provider_file, locator_hash: h},
   start_reason: binding_start_reason}`. `:user` records and `queued_command`
   attachments become `operator_message` with role `executor_operator`; a
-  `queued_command` keeps `meta.origin: "remote_control"` (plan C2 design).
+  `queued_command` keeps `meta.origin: "remote_control"` (plan C2 design). This
+  mapping is accepted **only** because the Executor conversation is the operator's own
+  session **and** the tailed path passed `Aiur.Executor.TranscriptPath.validate/3`
+  (MP-E3-C1-T02, security M6/m10). Worker conversations never map a provider `user`
+  record to an operator role (MP-E4-C1-T01).
+- **Path gate:** the tailer starts only for a `transcript_path` that C1-T02 kept
+  (non-`nil`). At boot (step 3) the stored path is re-validated with the same function
+  before tailing; a path that now fails is treated as unreadable (`gap`), not tailed.
 - **Offset persistence:** `on_offset` → `Session.record_offset/2`, at most every
   2 s (and on terminate). The journal's `dedup_key` (record `uuid`) makes the
   overlap between the last persisted offset and the crash point harmless.
@@ -109,6 +116,9 @@ PROPOSED `src/lib/aiur/executor/transcript_ingest.ex` (GenServer under a
   offset; nothing is lost because the provider file is durable (contract §11).
 - **Foreign session in the same repo** (not attached): its hooks are refused
   in T01/T02, so no tailer starts for it.
+- **Stored path replaced by a symlink between runs:** boot re-validation fails, no
+  tailer starts, `gap :source_unreadable` is recorded, and `aiur executor-session`
+  shows the rejection reason.
 - **Huge backfill on first attach:** the journal writer batches (MP-E4-C1-T02);
   the tailer is unchanged at 400 ms polls.
 - **Privacy:** only the attached session's file is read; no scanning of
@@ -122,7 +132,7 @@ PROPOSED `src/lib/aiur/executor/transcript_ingest.ex` (GenServer under a
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/claude/transcript_tailer_test.exs test/aiur/executor/transcript_ingest_test.exs
 ```
 
@@ -136,10 +146,12 @@ env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test
 | "file truncated under same path → superseded + fork" | two session lines | shrink handling |
 | "partial trailing line not emitted" (existing behaviour) | not emitted until newline | — regression guard |
 | "no tailer for a non-attached session" | none started | binding check |
+| "boot does not tail a stored transcript_path that now fails validation" (m10) | fixture: stored path replaced by a symlink; no tailer, one `gap :source_unreadable` | boot re-validation (remove it and the tailer starts on the symlink) |
+| "hook event with transcript_path nil starts no tailer" | none started | path gate |
 
 Manual (RQ-E3-3, record in PR): attach a real Claude Code 2.1.x session, send a
 prompt, and measure seconds from the `Stop` hook to the assistant entry appearing
-in `History.list_entries(Ref.executor(), tail: true)`; report p50/max over 10
+in `History.list_entries(Ref.executor(), tail: true, principal: :internal)`; report p50/max over 10
 turns with the CLI version.
 
 ## Completion and handoff

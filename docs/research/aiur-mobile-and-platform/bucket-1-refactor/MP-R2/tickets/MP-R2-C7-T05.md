@@ -5,7 +5,7 @@ chunk_id: MP-R2-C7
 bucket: 1 (Bucket-2-enabling, RC-09)
 title: Paired-device access to the event feed — device bearer for the events token, revocation closes live channels
 status: blocked
-blocked_by: [DESIGN-R2 §2, DESIGN-N2, MP-N2-C6 (instance device auth), MP-N2-C7 (revocation), MP-R2-C7-T01, MP-R2-C7-T02]
+blocked_by: [DESIGN-R2 §2, DESIGN-N2, MP-N2-C1-T03, MP-N2-C6-T01, MP-N2-C7-T01, MP-R2-C7-T01, MP-R2-C7-T02]
 prior_units: []
 prior_boundaries: [BUS #10, WEB #34]
 prior_features: [MP-N2]
@@ -22,7 +22,11 @@ researched: 2026-10-06
 - **Bucket 1, MP-R2, chunk C7. Bucket-2-enabling (RC-09).**
 - **User value:** a paired phone or watch can follow the event feed with
   its device credential, and an unpaired or revoked device stops receiving
-  events within seconds, not at the next token expiry.
+  events within the revocation budget (≤ 2 s watcher interval plus the channel
+  round trip, pairing contract §4.4 latency table), not at the next token
+  expiry. That budget holds only because each instance runs its own
+  `Aiur.Machine.Store.Watcher` (below); a broadcast in the writer's BEAM alone would
+  not reach other instances (security M1).
 - **Deliverable:**
   1. `POST /api/v1/events/token` accepts a paired-device bearer (via
      MP-N2-C6's plug) and binds the issued token to that `device_id`.
@@ -39,8 +43,9 @@ researched: 2026-10-06
   (`router.ex:201-211`), so every `:dashboard_auth` route (including
   `/api/v1/events*`, C7-T01) accepts `Authorization: Bearer <access_token>`.
   Contract: `contracts/pairing-and-instance-registry.md` §4.4.
-- **MP-N2-C7** — revocation and unpair-all (§4.5); this ticket needs a
-  revocation signal from it (below).
+- **MP-N2-C7** — revocation and unpair-all (§4.5).
+- **MP-N2-C1-T03** — `Aiur.Machine.Store.Watcher`, the per-instance revocation
+  signal (below; pairing contract §4.4).
 - **RQ-TRANSPORT / RC-15** — remote devices reach the dashboard only over
   the HTTPS transport MP-N2 decides; until then device access is
   loopback/test only.
@@ -56,7 +61,7 @@ researched: 2026-10-06
 | Planned: `DELETE /v1/devices/<id>` and unpair-all; offline device learns on next request (`401 device_revoked`) | same contract §4.5 (line 205 at research time) |
 | Access token TTL 15 min; store holds only sha256(token) | same contract, credentials table (line 55) |
 | Channel lifetime model this extends (token expiry and credential-generation change stop the channel) | `src/lib/aiur_web/streamdeck_channel.ex:37,238-243`; C7-T02 |
-| MP-N2 tickets: C6-T1 plug wiring; C7-T1 revoke; C7-T2 unpair-all | `bucket-3-mobile-watch/MP-N2/chunks.md:98-123` |
+| MP-N2 tickets: C6-T01 plug wiring; C7-T01 revoke; C7-T02 unpair-all | `bucket-3-mobile-watch/MP-N2/chunks.md:98-123` |
 
 ## Chosen design
 
@@ -64,19 +69,24 @@ researched: 2026-10-06
   principal: `{:basic, generation}` (today) or `{:device, device_id}` (set by
   MP-N2-C6's plug in `conn.private`/assigns). The signed payload gains
   `device_id` (nil for Basic Auth). `verify_token/1` additionally calls
-  MP-N2's `verify_device/1` (C1-T3 `verify_token` family; the exact
+  MP-N2's `verify_device/1` (C1-T03 `verify_token` family; the exact
   function is whatever MP-N2-C6 exposes for "is this device still paired")
   when `device_id` is present.
 - **Token lifetime:** unchanged 300 s (C7-T02). It is shorter than the
   device access token's 15 min TTL, so a channel never outlives the
   credential that minted it.
-- **Revocation → channel stop (decided):** MP-N2-C7 broadcasts
+- **Revocation → channel stop (decided, security M1):** the revoke writer
+  is the gateway (a separate machine-level process) or the CLI while the
+  gateway is down, so a `local_broadcast` in the writer's BEAM never reaches
+  an instance BEAM. Instead each instance runs `Aiur.Machine.Store.Watcher`
+  (MP-N2-C1-T03): it stats `devices.json` (mtime, size, inode) every 2 s
+  and, on a change, diffs the active device ids and calls
   `Phoenix.PubSub.local_broadcast(Aiur.PubSub, "devices:revoked", {:device_revoked, device_id | :all})`
-  after its store write. `EventsChannel` subscribes on join when
-  `device_id` is set and stops on a matching id or `:all`. This mirrors
-  the existing credential-generation stop (`streamdeck_channel.ex:240-243`).
-  If MP-N2-C7 has not added the broadcast, this ticket adds it (one line
-  after the store write) and a test in MP-N2's suite.
+  **in that instance**. `EventsChannel` subscribes on join when `device_id`
+  is set and stops on a matching id or `:all`. This mirrors the existing
+  credential-generation stop (`streamdeck_channel.ex:240-243`). If
+  MP-N2-C1-T03 has not shipped the watcher, this ticket is blocked; it does
+  not add a writer-side broadcast as a substitute.
 - **Backstop:** even without the broadcast, a revoked device's channel ends
   at the 300 s token expiry and cannot obtain a new token
   (`401 device_revoked`). Worst-case exposure after revoke: 300 s of
@@ -120,20 +130,28 @@ MP-N2's test helpers; never `~/.aiur`):
 
 1. `"a paired device bearer can pull /api/v1/events"` → 200.
 2. `"a revoked device bearer gets 401 device_revoked and no records"`.
-3. `"a device-bound channel stops when that device is revoked"` — join,
-   broadcast `{:device_revoked, id}` → channel exits. **Fails without step 4.**
+3. `"a device-bound channel stops when devices.json is rewritten without notice"`
+   — start the instance's `Aiur.Machine.Store.Watcher` against the temp store, join
+   with a device-bound token, then rewrite `devices.json` directly (the row
+   marked revoked, exactly as the gateway or CLI writes it; no message is sent
+   to the watcher or the channel) → the channel exits within 2 s + 500 ms
+   (`assert_receive {:EXIT, _, _}, 2_500` with an injected 100 ms watcher
+   interval scaled accordingly). **Fails without step 4** (no subscription)
+   **and fails if the watcher is replaced by a writer-side broadcast**,
+   because the test never broadcasts.
 4. `"unpair-all stops device channels but not Basic-Auth channels"`.
 5. `"revoking device A leaves device B's channel open"`.
 6. `"token verification rejects a token whose device was revoked after issue"`
    — issue, revoke, connect → `:error`. **Fails without the step 3 device check.**
 
 ```text
-env -C <worktree>/src HOME=<tmp> GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test \
+env -C <worktree>/src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur_web/events_device_access_test.exs test/aiur_web/events_channel_test.exs \
   test/aiur_web/controllers/events_controller_test.exs
 ```
 
-Mutation check: remove the `devices:revoked` subscription → test 3 fails;
+Mutation check: remove the `devices:revoked` subscription, or stop the
+watcher child → test 3 fails;
 skip the device check in `verify_token/1` → test 6 fails. Clean worktree.
 
 Device test (MP-N2-C9 device-validation plan): on a paired phone, follow

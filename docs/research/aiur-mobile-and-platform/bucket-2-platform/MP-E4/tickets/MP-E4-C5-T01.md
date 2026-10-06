@@ -119,7 +119,7 @@ at the bottom (hook event `at_bottom`), insert; else insert and increment
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur_web/conversation/presenter_test.exs test/aiur_web/live/conversation_live_test.exs
 ```
 

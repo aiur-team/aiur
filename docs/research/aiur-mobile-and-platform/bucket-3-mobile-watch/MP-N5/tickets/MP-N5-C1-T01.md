@@ -5,7 +5,7 @@ chunk_id: MP-N5-C1
 bucket: 3-mobile-watch
 title: Notification preference schema v1 and machine-store file
 status: ready
-blocked_by: [DESIGN-N5 (no-UI release), MP-N4-C3-T00, MP-N2-C1-T1, MP-N2-C1-T2]
+blocked_by: [DESIGN-N5 (no-UI release; D-2 and D-4 gate only the `Defaults` constants, step 3), MP-N4-C3-T00, MP-N2-C1-T01, MP-N2-C1-T02]
 prior_units: []
 prior_boundaries: [new #41 candidate push-relay (notification-policy module set)]
 prior_features: [MP-N2, MP-N4]
@@ -31,7 +31,7 @@ blocker mute (C1-T05, blocked on DESIGN-N5 D-1).
 
 ## Dependencies and blockers
 
-- MP-N2-C1-T1/T2 (store layout, atomic writes, lock). MP-N4-C3-T00 (module path).
+- MP-N2-C1-T01/T02 (store layout, atomic writes, lock). MP-N4-C3-T00 (module path).
 - DESIGN-N5 header: "The preference store and policy engine (MP-N5-C1 API, C2, C3 logic)
   may proceed" — no-UI release.
 - Owner defaults pending in DESIGN-N5 (D-4 non-blocking Commands on by default; D-8 queue
@@ -58,6 +58,7 @@ blocker mute (C1-T05, blocked on DESIGN-N5 D-1).
       "defaults": {
         "commands_needs_you": "on",
         "commands_non_blocking": "on",
+        "commands_reminder_minutes": 30,
         "progress_step_pct": 25,
         "progress_completion": true,
         "pr_merged": false,
@@ -70,7 +71,10 @@ blocker mute (C1-T05, blocked on DESIGN-N5 D-1).
 - Overrides keyed by `instance_id` (RC-02); partial objects; unknown keys rejected on write,
   ignored on read (forward compatibility with a newer gateway).
 - `version` per device: monotonically increasing; writes require `expected_version`.
-- `Defaults` module holds D18 values plus the two pending owner values.
+- `commands_reminder_minutes ∈ {0 (off), 15, 30, 60}`; proposed default 30 (Phase D
+  feasibility M3; owner choice DESIGN-N5 D-2 / OQ-N5-2). Read by MP-N5-C2-T02.
+- `Defaults` module holds D18 values plus the three pending owner values (D-2 reminder,
+  D-4 non-blocking, D-8 queue milestones).
 - One file for all devices; per-device sections keep concurrent edits independent
   (each device edits only its own record).
 
@@ -80,6 +84,11 @@ blocker mute (C1-T05, blocked on DESIGN-N5 D-1).
    mtime cache; `write(device_id, record, expected_version)` delegating to the MP-N2 store
    writer).
 2. Tests with temp `XDG_CONFIG_HOME`.
+3. **Gated on DESIGN-N5 D-2 and D-4 (Phase D T-10):** the `Defaults` constants
+   `commands_non_blocking` and `commands_reminder_minutes` ship with the proposals above
+   and a `# set by DESIGN-N5 D-4` / `D-2` marker. This ticket may merge before the
+   answers only if the PR states that the two constants are provisional; the ticket is
+   not complete until they equal Kevin's answers.
 
 ## Non-happy paths
 
@@ -106,14 +115,17 @@ real state"):
 | `"missing file yields D18 defaults"` | step 25, completion true, pr_merged false, commands on | default `pr_merged: true` |
 | `"commands_needs_you cannot be turned off in v1"` | `{:error, …}` for `"off"` | accept any string |
 | `"step must be one of 0,10,25,50"` | 30 rejected | no enum check |
+| `"reminder minutes must be one of 0,15,30,60"` | 45 rejected; missing → default | no enum check |
 | `"stale expected_version is a conflict"` | conflict with current | last-writer-wins |
 | `"unknown override key rejected on write, ignored on read"` | both behaviours | symmetric handling |
 | `"corrupt file never suppresses Command notifications"` | `effective_commands/1` → on | propagate error to policy |
 
-Commands (from `src/`): `mise exec -- mix test test/aiur/push/preferences_test.exs`.
+Commands: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" mise exec -- mix test test/aiur/push/preferences_test.exs`.
 
 ## Completion and handoff
 
-- [ ] Schema doc block in moduledoc; D-4/D-8 constants marked "set by DESIGN-N5".
+- [ ] Schema doc block in moduledoc; D-2/D-4/D-8 constants marked "set by DESIGN-N5" and
+  equal to Kevin's answers before completion (T-10: `status: ready` here means
+  "researched; waiting on blocked_by").
 - Docs: none user-facing here (C5-T01 guide).
 - Dependents: C1-T02, C1-T03, C1-T04, C1-T05, C2-*.

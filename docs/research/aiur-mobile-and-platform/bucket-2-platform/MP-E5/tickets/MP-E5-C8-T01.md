@@ -5,7 +5,8 @@ chunk_id: MP-E5-C8
 bucket: 2-platform
 title: Device voice ticket endpoint and /voice/device socket for paired phones and watches (RC-16)
 status: ready
-blocked_by: ["DESIGN-E5 (waived for this ticket: no dashboard UI; native UI is DESIGN-N6/N7)", MP-E5-C2-T01, MP-N2-C1-T03, MP-N2-C6-T01]
+blocked_by: ["DESIGN-E5 (waived for this ticket: no dashboard UI; native UI is DESIGN-N6/N7)", MP-E5-C2-T01, MP-N2-C1-T03, MP-N2-C6-T01, MP-N2-C6-T03]
+wave: 5  # RC-29: needs MP-N2 device auth
 prior_units: [U8]
 prior_boundaries: [VOX, WEB]
 prior_features: [ui-08, integrations-51]
@@ -41,10 +42,12 @@ researched: 2026-10-06
 
 - **Predecessors:** MP-E5-C2-T01 (dictate topic + target validation); MP-N2-C1-T03
   (`Machine.Store.verify_token/1` and device rows); MP-N2-C6-T01 (`AiurWeb.DeviceAuth` plug).
-- **Contract requests (MP-N2, `CONTRACT-REQUESTS.md` R-2, R-3):** the plug sets
-  `conn.assigns.aiur_device_id` on success; the store exposes a cheap
-  `Machine.Store.device_active?(device_id) :: boolean` (mtime-cached read of
-  `devices.json`). Fallback if declined: `Enum.any?(Machine.Store.devices(), &(&1.device_id == id))`.
+- **Contract requests (MP-N2, `CONTRACT-REQUESTS.md` R-2, R-3), resolved in Phase D:** the
+  `:device_auth` pipeline (MP-N2-C6-T01) sets `conn.assigns.device_id` (one name for every
+  consumer, with MP-N5/MP-N6; R-2 modified); the store exposes
+  `Machine.Store.device_active?(device_id) :: boolean` (MP-N2-C1-T03, mtime-cached, fail
+  closed). Joins made with the phone's device credential may carry
+  `client.kind: "watch"` (voice-session §3.5 item 5; attribution only).
 - **Consumers:** MP-N6-C4-T02/T03, MP-N7 voice relay.
 - **May run concurrently with:** MP-E5-C3..C6 (different files).
 
@@ -67,7 +70,7 @@ researched: 2026-10-06
 
 ```elixir
 scope "/", AiurWeb do
-  pipe_through([:device_auth, :require_writable])   # :device_auth = MP-N2-C6 pipeline
+  pipe_through([:device_auth, :device_write, :require_writable])   # MP-N2-C6-T01 / C6-T03 pipelines
   post("/api/v1/device/voice-ticket", DeviceVoiceTicketController, :create)
   match(:*, "/api/v1/device/voice-ticket", ObservabilityApiController, :method_not_allowed)
 end
@@ -80,6 +83,14 @@ end
 - **Ticket.** `Phoenix.Token.sign(AiurWeb.Endpoint, "device-voice-v1", %{device_id: id,
   expires_at_ms: now + 60_000})`; verification also checks `expires_at_ms` and
   `device_active?/1` (as `streamdeck_auth.ex:24-34` re-checks the generation).
+- **Single use (Phase D, security m7; voice-session §3.5 item 1).** New
+  `AiurWeb.DeviceVoiceTicket.Used` (an ETS table owned by a small GenServer started next to the
+  endpoint): `connect/3` calls `claim(sha256(ticket), expires_at_ms)` after `verify/1`; a
+  second claim of the same hash before expiry returns `:already_used` and `connect` returns
+  `:error` (the client reads it as `ticket_used`, §8.1: fetch a new ticket silently). Expired
+  hashes are swept every 60 s. Atomicity: `:ets.insert_new/2`. A daemon restart empties the
+  table, which is safe because the 60 s ticket life outlasts no restart that a client could
+  exploit without also holding a valid bearer.
 - **Socket.**
 
 ```elixir
@@ -149,6 +160,8 @@ end
 | "the device socket refuses legacy topics" | `voice:conversation` join → `invalid_payload` |
 | "device sessions are capped per device, not per dashboard" | two joins OK, third `capacity`; a dashboard session still joins |
 | "the ticket never appears in logs" | `capture_log` around connect contains the device id and not the ticket string |
+| "second connect with the same ticket is refused" | first `connect` ok; second with the same ticket → `:error`; a fresh ticket connects |
+| "two concurrent connects with one ticket: exactly one succeeds" | two tasks race `connect`; one `{:ok, _}`, one `:error` |
 
 ```bash
 env -C src mise exec -- mix test test/aiur_web/device_voice_test.exs test/aiur_web/voice_channel_test.exs
@@ -161,7 +174,9 @@ Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-
 
 **Mutation checks.** Drop the `device_active?/1` check from `verify/1`: "revoked after
 issue" fails. Use the dashboard authority string for devices: "capped per device" fails.
-Remove `"ticket"` from `:filter_parameters`: the log test fails.
+Remove `"ticket"` from `:filter_parameters`: the log test fails. Skip the `claim/2` call:
+"second connect with the same ticket is refused" fails. Use `:ets.insert/2` instead of
+`insert_new/2`: the race test fails.
 
 Device test: with MP-N6's build, dictate from a physical phone over the tailnet and confirm
 the transcript arrives (recorded in MP-N6's device validation).
@@ -172,4 +187,6 @@ the transcript arrives (recorded in MP-N6's device validation).
 - [ ] Docs: `website/docs-app/apis/elevenlabs.md` "What voice does" table gains a "Paired
       phone or watch" row (the daemon still makes every ElevenLabs call); the device API
       itself is documented by MP-N2's API page.
-- **Dependents:** MP-E5-C8-T02, MP-E6-C7-T01, MP-N6-C4-T02/T03, MP-N7.
+- **Dependents:** MP-E5-C8-T02, MP-N6-C4-T02/T03, MP-N7. (MP-E6-C7-T01 is no longer a
+  dependent: RC-30 removed that edge; dashboard Converse uses the browser voice path. When
+  both exist, C7-T01's `voice:converse` channel is also routed on `/voice/device`.)

@@ -89,8 +89,11 @@ Output (string keys, JSON-ready):
      journal position; clients resolve it through E4 by `(instance, id)`;
      the bus never computes it).
   8. `class` = `entry.class` as a string; `payload_version` = entry's.
-- **Invariant (property):** `Map.keys(result)` is exactly the 13 envelope
-  keys; `Map.keys(refs) ⊆ entry.refs`; `Map.keys(attrs) ⊆ attr keys`.
+- **Invariant (property):** `Map.keys(result)` is exactly the 12 envelope
+  keys of the sample above (`v, instance, id, topic, class, occurred_at,
+  observed_at, source, refs, attrs, payload_version, anchor`). `seq` is the
+  13th wire key, but the exporter (C6) adds it, so `to_external/2` never
+  emits it (T-7); `Map.keys(refs) ⊆ entry.refs`; `Map.keys(attrs) ⊆ attr keys`.
 
 ## Implementation steps
 
@@ -137,7 +140,7 @@ Pure function, no config. Rollback: delete.
    `:skip`; `ticket.1.agent.custom.x` → `:skip`.
 6. `"anchor is null in v1"` — any exported event → `"anchor" => nil`.
 7. Property / table: for 1 000 generated payloads per exported entry, the
-   key-set invariant holds.
+   key-set invariant holds: exactly those 12 keys, and no `"seq"` key.
 
 ```text
 env -C <worktree>/src HOME=<tmp> GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test \

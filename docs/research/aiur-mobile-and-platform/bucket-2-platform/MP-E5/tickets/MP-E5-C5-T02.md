@@ -5,7 +5,7 @@ chunk_id: MP-E5-C5
 bucket: 2-platform
 title: Voice input on the Executor composer, with Executor target validation
 status: blocked
-blocked_by: [DESIGN-E5, DESIGN-E3, MP-E3-C5-T01, MP-E3-C6, MP-E5-C1-T03, MP-E5-C3-T01, MP-E5-C2-T01]
+blocked_by: [DESIGN-E5, DESIGN-E3, MP-E3-C5-T01, MP-E3-C6-T01, MP-E5-C1-T03, MP-E5-C3-T01, MP-E5-C2-T01]
 prior_units: []
 prior_boundaries: [VOX, WEB, EXE]
 prior_features: [ui-07]
@@ -33,8 +33,8 @@ researched: 2026-10-06
 ## Dependencies and blockers
 
 - **Owner:** DESIGN-E5 and DESIGN-E3 (composer layout).
-- **Predecessors:** MP-E3-C5-T1 (Executor send adapter over E7, "composer disabled with
-  reason when `effective: null`"); MP-E3-C6 (route/LiveView, proposed `/executor`);
+- **Predecessors:** MP-E3-C5-T01 (Executor send adapter over E7, "composer disabled with
+  reason when `effective: null`"); MP-E3-C6-T01 (route/LiveView, proposed `/executor`);
   MP-E5-C1-T03, C2-T01, C3-T01.
 - **Paths are PROPOSED** until MP-E3-C6 lands; plan refresh (`../plan.md` §10) rewrites them.
 

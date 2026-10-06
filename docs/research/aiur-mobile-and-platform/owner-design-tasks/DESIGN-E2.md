@@ -3,7 +3,8 @@ design_task: DESIGN-E2
 feature_id: MP-E2
 owner: Kevin (operator)
 status: open — not approved
-blocks: every MP-E2 implementation ticket with a user-visible surface (see ../bucket-2-platform/MP-E2/chunks.md)
+blocks: [MP-E2-C1-T01, MP-E2-C1-T02, MP-E2-C1-T03, MP-E2-C1-T04, MP-E2-C2-T01, MP-E2-C2-T02, MP-E2-C2-T03, MP-E2-C2-T04, MP-E2-C2-T05, MP-E2-C3-T01, MP-E2-C3-T02, MP-E2-C3-T03, MP-E2-C3-T04, MP-E2-C4-T01, MP-E2-C4-T02, MP-E2-C4-T03, MP-E2-C4-T04, MP-E2-C4-T05, MP-E2-C5-T01, MP-E2-C5-T02, MP-E2-C5-T03, MP-E2-C6-T01, MP-E2-C6-T02, MP-E2-C6-T03, MP-E2-C6-T04, MP-E2-C7-T01, MP-E2-C7-T02, MP-E2-C7-T03, MP-E2-C7-T04, MP-E2-C7-T05, MP-E2-C8-T01, MP-E2-C8-T02, MP-E2-C8-T03, MP-E2-C8-T04, MP-E3-C6-T03, MP-E4-C4-T02, MP-E4-C6-T02, MP-E5-C4-T01, MP-E5-C4-T02, MP-N4-C4-T03, MP-N4-C5-T03, MP-N5-C2-T02, MP-N6-C3-T01, MP-N6-C3-T02, MP-N7-C2-T03, MP-N7-C3-T03]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-E2 (waived entries excluded). Earlier wording: every MP-E2 implementation ticket with a user-visible surface (see ../bucket-2-platform/MP-E2/chunks.md)"
 shared_with: DESIGN-N6 (phone and watch response flow), DESIGN-E5 (voice controls), DESIGN-E4 (conversation anchors), DESIGN-N4/N5 (notification presentation and preferences)
 base_main_sha: 45a290e3
 date: 2026-10-06
@@ -69,7 +70,7 @@ Verified at `45a290e3`:
 | Agent conversation drawer | How an open Command for that agent appears inline (D15 allows answering there) | DESIGN-E4 |
 | Mic on a Command answer | Placement only; dictate/converse choice is DESIGN-E5 (D16) | DESIGN-E5 |
 | Stream Deck | Confirm the existing `answer_command` flow still fits: option keys and dictated custom response | DESIGN-R6 |
-| CLI output (`aiur commands`, `aiur executor-answer`, `aiur command request`, escalation messages) | Copy and the column set | — |
+| CLI output (`aiur commands`, `aiur executor-answer`, `aiur executor-ack`, `aiur command request`, escalation messages) | Copy and the column set | — |
 | Phone/watch | **Not here.** DESIGN-N6/N7 reuse §4–§6 | DESIGN-N6, DESIGN-N7 |
 
 ## 4. Shared Command presentation (normative for N6 and E5)
@@ -81,6 +82,8 @@ Kevin decides each item marked **[decide]**. The others are proposals to approve
 - **Short label** (2–3 words, for notification titles and narrow rows). Source:
   `context.short_summary`, or the native `header` (≤12 chars). **[decide]** whether a
   missing label falls back to the first words of the question or to the Command kind.
+  Recommended: **the first words of the question**, because the kind alone ("Decision")
+  does not tell two Commands apart in a notification list.
 - **Requester line:** worker `#<ticket>` with its agent, or "Executor". Plus age, e.g.
   "asked 12 min ago".
 - **Routing chip:** `With Executor` · `Needs you` · `Needs you and Executor` ·
@@ -98,8 +101,12 @@ Kevin decides each item marked **[decide]**. The others are proposals to approve
 - "Other / custom response" is always available as a text field (and mic, DESIGN-E5).
 - Multi-question native Commands: **[decide]** one card per question with a single
   Submit, or a stepper. Partial answers are not delivered (the native tool needs every
-  question answered).
+  question answered). **This gate owns the layout for the dashboard and the phone**
+  (§6 item 5); DESIGN-N6 D-4 decides only the watch fallback. Recommended: **one card
+  per question with a single Submit**, because the operator sees every question before
+  answering any.
 - Multi-select questions (Claude `multiSelect`): **[decide]** checkbox presentation.
+  Recommended: **checkboxes with a single Submit**, the platform-standard control.
 - Option detail (benefits, drawbacks, risk) is behind disclosure on narrow screens.
 
 ### 4.3 Escalation timeline
@@ -107,8 +114,10 @@ Kevin decides each item marked **[decide]**. The others are proposals to approve
 A compact timeline on the detail view, for example:
 "Asked 10:02 → With Executor → Executor did not act in 10 min → Needs you 10:12 →
 Answered by you 10:20 → Delivered 10:20". Each escalation names its cause
-(`executor_escalated`, `executor_timeout`, `executor_offline`, `executor_stalled`,
-`authority_human_required`, `executor_originated`).
+(the contract §5 closed list, Phase D CR-E2-4 a: `executor_escalated`,
+`executor_ack_timeout`, `executor_answer_timeout`, `executor_offline`, `executor_stalled`,
+`executor_not_answerable`, `authority_human_required`, `executor_originated`; the earlier
+`executor_timeout` is now the two timeout causes).
 
 ### 4.4 Answer outcomes the human can see
 
@@ -138,13 +147,18 @@ an error).
 1. **Escalation timeouts.** Proposed defaults: the Executor must acknowledge within
    **5 min** and answer or escalate within **15 min** of routing. After that the Command
    becomes "Needs you". A blocking, high-urgency Command uses half these values. Change
-   or approve. (Contract §5; configurable as `commands.escalation.*`.)
+   or approve. (Contract §5; configurable as `decisions.escalation.*`, inside the existing
+   `decisions:` section, `config/schema.ex:57`; Phase D CR-E2-4 b.)
 2. **Visibility of "With Executor" Commands.** Proposed: every open Command is visible in
    the inbox, but only "Needs you" Commands count in the banner and send notifications
    (N5 defaults, D18). Alternative: hide "With Executor" Commands behind a filter.
-3. **Wording** of the four routing chips and the escalation causes.
-4. **Option count exception** for native questions with 4 options (§4.2).
-5. **Multi-question layout** (§4.2).
+3. **Wording** of the four routing chips and the escalation causes. Recommended: the
+   §4.1 draft chips, and each cause as a short sentence ("Executor did not act in
+   10 min"), because the code values are not readable copy.
+4. **Option count exception** for native questions with 4 options (§4.2). Recommended:
+   **yes, show all 4**, because hiding a native option would change the agent's question.
+5. **Multi-question layout** (§4.2), for the dashboard and the phone. Recommended: **one
+   card per question with a single Submit** (§4.2). The watch fallback is DESIGN-N6 D-4.
 6. **Executor-originated Commands:** one inbox with a "From Executor" filter (proposed),
    or a separate section.
 7. **Can the human hand a "Needs you" Command back to the Executor?** Today's
@@ -152,6 +166,16 @@ an error).
    it for `human_required` and Executor-originated Commands.
 8. **Native questions while the agent is held.** The agent is waiting inside a tool call.
    Proposed copy on the unit row: "Waiting for your answer" instead of "Running".
+9. **Backend-only tickets before approval** (Phase D, CR-E2-4 d). The header above says
+   backend-only tickets (C1, C2, store parts of C3) may proceed before this task is
+   approved. Confirm, or require approval first. Recommended: **confirm**, because those
+   tickets add no user-facing surface and unblock MP-E2-C1, C2 and the C3 store parts.
+   [ ] confirm  [ ] wait for approval.
+10. **Codex `default_mode_request_user_input` flag** (reconciliation owner item). The free
+   spikes MP-E2-C4-T00 and C5-T00 can run now and report first; decide after reading them
+   whether to enable the flag in production. Recommended: **keep off until both spike
+   reports show the native question holds the turn without a timeout, then enable**,
+   because an unproven flag could stall Codex workers. [ ] enable  [ ] keep off.
 
 ## 7. Acceptance conditions
 

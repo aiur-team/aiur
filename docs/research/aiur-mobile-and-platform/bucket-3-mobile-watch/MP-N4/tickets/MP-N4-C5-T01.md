@@ -5,7 +5,7 @@ chunk_id: MP-N4-C5
 bucket: 3-mobile-watch
 title: Android per-machine Tink HPKE keysets and pinned machine keys
 status: ready
-blocked_by: [DESIGN-N4, DESIGN-N1, N1-C2-T2, MP-N2-C5-T5]
+blocked_by: [DESIGN-N4, DESIGN-N1, MP-N1-C2-T02, MP-N2-C5-T05]
 prior_units: []
 prior_boundaries: [mobile-app, push-relay]
 prior_features: [MP-N1, MP-N2]
@@ -29,7 +29,7 @@ for registration; pinned Ed25519 machine keys.
 
 ## Dependencies and blockers
 
-- N1-C2-T2 (Keystore wrapper), MP-N2-C5-T5 (pairing hand-off), DESIGN-N4 gate (no design
+- N1-C2-T02 (Keystore wrapper), MP-N2-C5-T05 (pairing hand-off), DESIGN-N4 gate (no design
   content needed here), DESIGN-N1.
 
 ## Verified starting point
@@ -50,7 +50,7 @@ for registration; pinned Ed25519 machine keys.
 
 ## Chosen design
 
-- Tink version pinned in the Gradle catalog (MP-N1-C1-T4 pins versions).
+- Tink version pinned in the Gradle catalog (MP-N1-C1-T04 pins versions).
 - Keyset handle stored with `AndroidKeysetManager` (keyset encrypted by the Keystore
   master key, `withMasterKeyUri("android-keystore://aiur_push_master")`), master key
   generated without unlocked-device requirement.
@@ -66,10 +66,15 @@ for registration; pinned Ed25519 machine keys.
 
 ## Non-happy paths
 
-- Before first unlock: credential-encrypted storage unavailable → `Locked`; C5-T02 posts
-  the fallback (behaviour of FCM delivery before first unlock is RQ-N4-4 / V-A3).
-- Keystore key invalidated (e.g. lock-screen removal on some OEMs): keyset unreadable →
-  treat as unknown kid → prompt re-pair for that machine.
+- Before first unlock: credential-encrypted storage unavailable → `Locked`. The messaging
+  service is **not** direct-boot-aware (RQ-N4-4 settled, E-F9), so in practice FCM
+  messages are handled after first unlock; `Locked` remains a defensive state.
+- Keystore key invalidated (e.g. lock-screen removal on some OEMs) or keyset unreadable
+  → `KeysUnavailable(machine_id?)`, a **local** cause, never mapped to unknown kid
+  (Phase D M6; AGENTS.md collapsed-cause rule). C5-T02 posts the uniform fallback; the
+  store sets `pushHealth = KEYS_LOST` for that machine, which the app reports as
+  `push_health: keys_lost` (contract §7) on its next online call through the MP-N2
+  gateway re-registration; the in-app open shows "Open aiur to re-pair".
 
 ## Compatibility and rollout
 
@@ -85,6 +90,7 @@ Min SDK per MP-N1; Tink has no extra OS floor (KD-N4-8).
 | `masterKeyNotUnlockedDeviceRequired` (instrumented) | key spec flag false | set the flag |
 | `onePerMachine` | 2 machines → 2 keysets | shared keyset |
 | `exportsRaw32BytePublicKey` | 32 bytes, equals vector pubkey for imported fixture | export serialized keyset |
+| `invalidatedMasterKeyIsKeysUnavailableNotUnknownKid` (instrumented: delete `aiur_push_master` from the Keystore) | `KeysUnavailable`, `pushHealth == KEYS_LOST` | map the read failure to unknown kid |
 
 Commands: `./gradlew :aiur-client-core:test` (and `connectedAndroidTest` for Keystore),
 paths per MP-N1-C1. Device: V-A1, V-A3 in C7.
@@ -92,4 +98,7 @@ paths per MP-N1-C1. Device: V-A1, V-A3 in C7.
 ## Completion and handoff
 
 - [ ] Export method + Tink version recorded in platform-evidence.md.
+- [ ] E-F7 re-read (Phase D m10): read the FCM troubleshooting page and the Android
+  "stopped state" documentation, record a dated quote for force-stopped delivery in
+  platform-evidence.md E-F7; V-A4 stays the deciding row.
 - Dependents: C5-T02, C5-T05.

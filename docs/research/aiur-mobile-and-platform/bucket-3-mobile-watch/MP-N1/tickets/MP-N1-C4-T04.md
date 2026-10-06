@@ -40,7 +40,7 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- DESIGN-N1 (sign-off line: it touches the dashboard, chunks.md N1-C4-T5) and **DESIGN-N6**
+- DESIGN-N1 (sign-off line: it touches the dashboard, chunks.md N1-C4-T05) and **DESIGN-N6**
   (whether a dashboard Command tap in the app goes native is a Command-response UX decision).
 - MP-N1-C4-T03 (message schema and native acceptance).
 - Not blocked on RQ-TRANSPORT: the emitter is inert in browsers and testable without TLS.

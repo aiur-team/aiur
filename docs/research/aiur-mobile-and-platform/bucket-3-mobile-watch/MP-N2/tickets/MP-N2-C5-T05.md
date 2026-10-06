@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, MP-N2-C5-T01, MP-N2-C5-T02, MP-N2-C5-T03, MP-N2-C5-T04, 
 prior_units: []
 prior_boundaries: [DEV]
 prior_features: [MP-N1, MP-R1]
-prior_findings: []
+prior_findings: [security m6 (QR and registry vectors carry the domain tag)]
 size_owner: n/a (test support and fixtures)
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -61,7 +61,10 @@ MP-N2-C7, MP-N2-C9-T02.
   not byte equality.
 - Ed25519 and HMAC are deterministic, so those vectors are byte-exact.
 - All signed bytes follow contract §4.0 (RFC 8785 JCS bodies without `secret_proof`/`sig`; QR query
-  string minus `sig`; device message `nonce.device_id.machine_id`; base64url without padding). Each
+  string minus `sig`; device message `nonce.device_id.machine_id`; base64url without padding).
+  Machine signatures cover a domain tag plus those bytes (security m6): `aiur-qr-v1\0` for
+  `qr_uri.json`, `aiur-registry-v1\0` for `canonical_response.json`. Device ECDSA and HMAC
+  proofs are unchanged (they already bind `machine_id`). Each
   vector file records the exact canonical bytes (hex) next to the result, so a Swift or Kotlin JCS
   bug shows up as a byte diff, not only a failed verify. These vectors are authoritative for
   MP-N1-C2-T03.
@@ -77,8 +80,9 @@ Production code: the mix task only (≈ 80 lines); it is excluded from the relea
 
 ## Non-happy paths
 
-Negative vectors: tampered QR field, expired `x`, raw r‖s signature, wrong domain prefix, wrong
-curve key. Each carries `expect: "reject"` and the error code.
+Negative vectors: tampered QR field, expired `x`, raw r‖s signature, wrong domain prefix
+(a registry-tagged signature presented as a QR signature, and an untagged one), wrong curve key.
+Each carries `expect: "reject"` and the error code.
 
 ## Compatibility and rollout
 
@@ -98,7 +102,7 @@ uses it.
 3. `"device client pairs, gets a token, lists instances and relinks"` end to end.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/pairing_vectors_test.exs test/aiur/machine/pairing_flow_integration_test.exs
 ```
 

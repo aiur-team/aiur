@@ -19,6 +19,9 @@ researched: 2026-10-06
 
 > **Plan refresh (wave 0).** `build_queue/` → `Aiur.BuildProgress` is a call to
 > a neutral module (not orchestration, not GitHub), allowed by the seam rules.
+> RC-40: `Aiur.BuildProgress` belongs to the `build-orders` component, so this is
+> the `build-queue → build-orders` optional edge. With `build-orders` absent the
+> queue skips `put_fact/1` and its read model shows progress as `unknown`.
 
 ## Identity and outcome
 
@@ -74,7 +77,7 @@ None.
 Mutation check: use `round` → test 1 fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/progress_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/progress_test.exs
 ```
 
 ## Completion and handoff

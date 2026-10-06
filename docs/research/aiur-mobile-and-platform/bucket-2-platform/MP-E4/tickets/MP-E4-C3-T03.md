@@ -112,7 +112,7 @@ push poll and webhook delays with margin):
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur/conversation/anchors_causal_test.exs \
   test/aiur/conversation/anchor_resolver_test.exs
 ```

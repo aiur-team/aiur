@@ -55,7 +55,7 @@ researched: 2026-10-06
 | `voice.conversation.roles_dir` | string | E6-OQ3 answer (recommendation `.aiur/voice/roles`) | relative paths resolve against the config file's directory, like `prompt_file:` (AGENTS.md "Layout") |
 | `voice.conversation.max_session_seconds` | integer | E6-OQ6 (recommendation 1200) | 60..3600 |
 | `voice.conversation.idle_timeout_seconds` | integer | E6-OQ6 (recommendation 120) | 15..900 |
-| `voice.conversation.daily_minutes_cap` | integer or null | E6-OQ6 (recommendation: owner sets; `null` = no cap) | ≥ 1 |
+| `voice.conversation.daily_minutes_cap` | integer or null | **Proposed `60`** (Phase D, M8; owner choice E6-OQ6): capped by default; an explicit `null` means no cap; `0` disables converse (refused with `cost_cap`) | ≥ 0 or `null` |
 | `voice.conversation.context_token_budget` | integer | 8000 (adjusted by spike RQ-E6-4) | 1000..32000 |
 
 - `voice.conversation` capability is `not_configured` until `agent_id` is set (contract §7).
@@ -88,6 +88,7 @@ implementer states which, citing `schema.ex`).
 | Test | Expected |
 | --- | --- |
 | `test/aiur/config/schema/voice_conversation_test.exs` "defaults match the owner decisions" | struct defaults equal the E6-OQ6/OQ7 numbers recorded in DESIGN-E6 |
+| "an omitted daily_minutes_cap loads as the capped default, not nil" | config without the key → `60` (or the DESIGN-E6 number); explicit `null` → `nil` |
 | "out-of-range values are rejected with the field name" | `max_session_seconds: 10` → error on that field |
 | "roles_dir resolves relative to the config file" | given `/tmp/x/.aiur/config`, `voice/roles` → `/tmp/x/.aiur/voice/roles` |
 | `python3 scripts/check-config-docs.py` | exit 0 |
@@ -103,7 +104,8 @@ Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-
 `~/.aiur/github-budget/agent-token` before and after.
 
 **Mutation check.** Remove one key's reference entry: `check-config-docs.py` fails. Change a
-range bound: the rejection test fails.
+range bound: the rejection test fails. Default `daily_minutes_cap` to `nil`: the capped-default
+test fails (Phase D, M8).
 
 ## Completion and handoff
 

@@ -3,7 +3,8 @@ design_task: DESIGN-R5
 feature_id: MP-R5
 owner: Kevin
 status: open (awaiting explicit approval)
-blocks: every MP-R5 implementation ticket (MP-R5-C1..C4)
+blocks: [MP-R5-C1-T01, MP-R5-C1-T02, MP-R5-C1-T03, MP-R5-C1-T04, MP-R5-C2-T01, MP-R5-C2-T02, MP-R5-C3-T01, MP-R5-C4-T01, MP-R5-C4-T02]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-R5 (waived entries excluded). Earlier wording: every MP-R5 implementation ticket (MP-R5-C1..C4)"
 base_main_sha: 45a290e3
 date: 2026-10-06
 related_plan: ../bucket-1-refactor/MP-R5/plan.md
@@ -47,9 +48,16 @@ works, and voice cannot.
 | Units page credits row | shown when a key exists | hidden (as with no key) |
 
 - [ ] Approved, or edits: ______
-- Should the dashboard mic button be **hidden** or **shown disabled with the
-  reason** when voice is not installed? [ ] hidden  [ ] disabled with reason
-  (recommended: disabled with reason, matching the no-key behaviour).
+- **Hidden or shown disabled when voice is not installed?** **This gate owns the
+  question for every surface** (Phase D, X9): R5 ships first, and DESIGN-E5 E5-OQ4
+  links here and keeps only the no-key case. Options: (a) **hidden**; (b) **shown
+  disabled with the reason** above. **Recommendation: (b) disabled with reason**,
+  because it matches the no-key behaviour and the pack-wide capability rule that an
+  unavailable option is shown with its reason, never silently removed (DESIGN-N1 §3
+  item 5, DESIGN-N5 §1). This is a recommendation for Kevin, not a decision.
+  Consequence (CR-R5-2): **hidden** makes MP-R5-C1-T04 wait for MP-E5-C2 (the
+  render-time capability check); **disabled with reason** keeps MP-R5 independent of
+  MP-E5. [ ] (a) hidden  [ ] (b) disabled with reason
 
 ## 3. Decisions needing your input
 
@@ -72,3 +80,9 @@ works, and voice cannot.
 
 Dictate-versus-converse, Executor targeting and mobile voice are **not**
 decided here: see DESIGN-E5 and DESIGN-E6.
+
+## 5. Acceptance
+
+The gate is complete when every box in §§ 1–3 carries your approval, the
+hidden-or-disabled choice in § 2 and both § 3 answers are recorded, and you
+record "DESIGN-R5 approved" with the date in this file.

@@ -54,8 +54,9 @@ Row content (final layout from DESIGN-N7):
 | `build_progress` Fact | only when present and `available`; never 0 for absent |
 | freshness | `as_of` age always visible; if `PhoneLink.phoneReachable == false` → "Needs iPhone nearby" + age; if machine unreachable per snapshot → per-row "Unreachable" + last-seen age |
 
-Row states from `row_state` (`live, stale, unreachable, gateway_offline, crashed, stopped,
-unsupported, removed`) map one-to-one to DESIGN-N7 visuals; an unrecognised value renders
+Row states from `row_state` (`live, starting, stale, unreachable, gateway_offline, crashed,
+stopped, unsupported, removed`; the closed set of MP-N7-C1-T01, RC-38; `starting` renders as
+"Starting" with its age, never as live) map one-to-one to DESIGN-N7 visuals; an unrecognised value renders
 as "Unknown" (never as live).
 
 Detail: list of that instance's `open_commands` (short summary, blocking marker, age),
@@ -98,9 +99,11 @@ xcodebuild test -workspace packages/aiur-mobile/ios/aiur.xcworkspace -scheme Aiu
 | `testPausedShowsPaused` | `globally_paused` → "Paused" | pause rule |
 | `testLowerBoundShowsAtLeast` | "≥ 3" | lower-bound rule |
 | `testDisabledBuildProgressHidden` | no build field | disabled rule |
+| `testStartingRowIsNotLive` | `row_state: "starting"` → "Starting" + age | the `starting` branch (map it to live → fails) |
 | `testUnknownRowStateRendersUnknown` | `row_state: "future_state"` → "Unknown" | default branch (replace with live → fails) |
 | `testNeedsIPhoneWhenUnreachable` | phoneReachable false → banner + age | reachability rule |
 | `testAbsentOpenCommandsIsNotEmpty` | absent list → "Open on iPhone to load" | omit-vs-empty rule |
+| `testTruncatedCountShown` | `truncated: 2` → "+2 more on iPhone" | the truncation banner (drop it → fails) |
 
 Device rows: DV-W3 (MP-N7-C6-T01).
 

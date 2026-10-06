@@ -56,12 +56,13 @@ It returns 33 lines in 29 files. Classification (RQ-R7-2 resolution):
 | 2 | `agent_runner/checkpoint_delivery:13` → `Codex.SessionRecovery` | leak | removed by C3-T02 |
 | 3 | `agent_runner/session_lifecycle:6` → `Claude.{DisplayTailer, Telemetry}` | leak | removed by C3-T03 |
 | 4 | `orchestrator/interrupts:7` → `Claude.ReplAgent` | leak | removed by C3-T04 |
-| 5 | `agent_resource_guard:16`, `app_server/adapter:11`, `git:14`, `orchestrator/agent_teardown:10`, `pause_containment:9`, `process_reaper:51`, `workspace/ownership/guardian:6`, `agent_runner/session_lifecycle:6` (`process_tree/1`) → `Claude.RemoteControl` **process helpers** (`graceful_kill*`, `process_tree`, `process_group_alive?`, `process_alive?`, `process_identity`, `reap_*`; `claude/remote_control.ex:224-360`) | misplaced generic helper | allowlist → owner **MP-R1-C5-T2** ("kill helper in kernel"; prior §3.3 "move kill-tree to K") |
+| 5 | `agent_resource_guard:16`, `app_server/adapter:11`, `git:14`, `orchestrator/agent_teardown:10`, `pause_containment:9`, `process_reaper:51`, `workspace/ownership/guardian:6`, `agent_runner/session_lifecycle:6` (`process_tree/1`) → `Claude.RemoteControl` **process helpers** (`graceful_kill*`, `process_tree`, `process_group_alive?`, `process_alive?`, `process_identity`, `reap_*`; `claude/remote_control.ex:224-360`) | misplaced generic helper | allowlist → owner **MP-R1-C5-T02** ("kill helper in kernel"; prior §3.3 "move kill-tree to K") |
 | 6 | `orchestrator/remote_control_mode:7` (`ensure_workspace_trusted`, `reap_orphaned_servers`, `ReplAgent.reap_orphaned_panes`), `shutdown:26` (`ReplAgent.sweep_own_panes`, `RemoteControl.reap_workspace_agents`), `orchestrator/agent_teardown:10` (pane teardown) | Remote Control policy | allowlist; reason: RC promotion policy is orchestrator-owned by R7 design (plan "not inside"), and REPL/RC is a live conditional cut (prior U7 `integrations-09`); decoupling it before that decision is waste |
-| 7 | `config.ex:1305` → `Codex.Config.validate_approval_policy/1`, `config.ex:1340` → `Claude.Config.validate!/0` | config schema | allowlist → owner **MP-R1-C4** (harness section registration, R1-C4 T2–T9 "harness") |
+| 7 | `config.ex:1305` → `Codex.Config.validate_approval_policy/1`, `config.ex:1340` → `Claude.Config.validate!/0` | config schema | allowlist → owner **MP-R1-C4-T03** (`config.ex:1305`, Codex approval policy) and **MP-R1-C4-T01** (`config.ex:1340`, registered semantic checks) — Phase D, CR-R7-5 |
 | 8 | `aiur.ex:432` → `Aiur.Claude.Telemetry` child spec | composition root | allowlist → owner **MP-R7-C4-T01** |
-| 9 | `aiur_web/controllers/observability_api_controller:9` → `Claude.HookEvents.dispatch/2` (`POST /api/v1/:id/claude-hook`) | web route | allowlist → owner **MP-R1-C6-T1** (component route registration) |
-| 10 | `provider_meter_probe:28` → `Claude.UsageApi`; `usage/grouped_scopes:47` → `Claude.Telemetry.UsageAdapter.Relationship`; `usage/headless/muse/session_usage:13` → `Muse.Usage` | accounting ⇄ harness | allowlist → **no named owner**; contract request to MP-R1 (accounting step S10 has no ticket) |
+| 9 | `aiur_web/controllers/observability_api_controller:9` → `Claude.HookEvents.dispatch/2` (`POST /api/v1/:id/claude-hook`) | web route | allowlist → owner **MP-R1-C6-T01** (component route registration) |
+| 10 | `provider_meter_probe:28` → `Claude.UsageApi`; `usage/grouped_scopes:47` → `Claude.Telemetry.UsageAdapter.Relationship`; `usage/headless/muse/session_usage:13` → `Muse.Usage` | accounting ⇄ harness | allowlist → owner **MP-R1-C11-T03**, which must cut the accounting (S10) ticket before wave 2 (Phase D, CR-R7-3) |
+| 14 | `config.ex:319,396,1405-1413` → `Aiur.CodingAgent` (backend catalog); `config/schema/agent_validation.ex:78,132`, `config/schema/agent.ex:120` → `Aiur.CodingAgent` | config → harness facade (R-down, not R-private) | allowlist in the R1 layer ratchet → owner **MP-R7-C3-T06** (Phase D, CR-R1-7) |
 | 11 | `agent_control_cli:30` → `Codex.EventHumanizer` (used for **every** backend at :2808) | surface | allowlist; replacing it with a per-backend humanizer would change `aiur agents` text for Claude agents, which DESIGN-R7 forbids. Reported to coordinator as a possible defect |
 | 12 | `coding_agent/registry:14` → `OpenAICompat.Registry`; `app_server/rpc/stream:5` → `Codex.StartupFailure`; `app_server/adapter:11,12` | inside component | not a violation: `coding_agent/**` and `app_server/**` are in `harness-adapters` (MP-R1 component-map row, migration-plan PR-03) |
 | 13 | `external_content:10`, `github/issue_dependencies:8`, `opencode/chat_completions/delta_renderer:134`, `coding_agent/route_failure:40` | comment/doc only | not a reference; the walker must ignore comments and `@doc` strings (a fixture proves it) |
@@ -94,7 +95,8 @@ Adding a harness (Gemini after #2870) is one string in `private_namespaces`.
 ## Implementation steps
 
 1. Add/extend the `harness-adapters` manifest entry as above.
-2. Add allowlist rows for classes 5–11, each naming its owner ticket.
+2. Add allowlist rows for classes 5–11, each naming its owner ticket (row 14 is
+   an R-down row in MP-R1's layer allowlist, listed here only for its owner).
 3. Add checker fixtures under MP-R1-C1-T06's fixture tree: one forbidden
    reference (`Aiur.Orchestrator.Foo` aliasing `Aiur.Codex.Frames`) that must
    fail, and one comment-only mention that must pass.

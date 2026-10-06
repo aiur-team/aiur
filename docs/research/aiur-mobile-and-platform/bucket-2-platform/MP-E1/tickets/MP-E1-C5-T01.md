@@ -18,7 +18,7 @@ researched: 2026-10-06
 # MP-E1-C5-T01 — `Aiur.BuildQueue.Attention`
 
 > **Plan refresh (wave 0).** Component map §4: attention is raised through one
-> local function that calls `Aiur.Alerts` today and `Signal.emit/2` after the
+> local function that calls `Aiur.Alerts` today and `Signal.alert/2` after the
 > signal port lands (R1 plan-refresh row PR-07). RC-08: the topics in contract
 > §4.3 are registered in MP-R2's catalog (R2-C5) later.
 
@@ -90,7 +90,7 @@ Mutation check: remove the latch → test 1 sees two events; bind with `*`
 instead of `#` → the bindings test fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/attention_test.exs test/aiur/executor_bindings_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/attention_test.exs test/aiur/executor_bindings_test.exs
 ```
 
 ## Completion and handoff

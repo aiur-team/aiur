@@ -107,3 +107,6 @@ Mutation check per row.
 - [ ] Fields served; `native_ref` never served; v1 bytes unchanged.
 - Docs: `website/docs-app/reference/cli.md` (`aiur commands --json` fields) — short entry.
 - Dependents: C2-T02 (appends routing keys), C7-T04, MP-N3, MP-N6.
+- Publish `packages/aiur-contracts/schemas/command.v2.schema.json` (the read-API Command
+  shape this ticket serializes) with a golden fixture, if MP-R1-C3-T06 has merged; otherwise
+  the first E2 ticket after it does (Phase D, MP-N1 request A3).

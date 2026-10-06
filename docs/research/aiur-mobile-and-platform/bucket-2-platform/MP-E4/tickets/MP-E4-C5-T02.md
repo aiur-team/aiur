@@ -57,17 +57,19 @@ researched: 2026-10-06
 | `tool_result` | tool name + success badge; `output` collapsible |
 | `diff` | file title; unified diff lines classed `+`/`-`/`@@`; long diffs collapsed after 200 lines |
 | `operator_message` | right-aligned operator bubble; `executor_operator` styled per DESIGN-E3 |
-| `system` | muted line; alerts flagged |
+| `system` | muted line; alerts flagged; role `provider_input` labelled "provider input" (never an operator bubble; security M6) |
 | `gap` | full-width row "No record from <from> to <to>" + reason copy per DESIGN-E4 |
 | session divider | between sessions: start reason and time ("Resumed after restart", "New session after /clear", …) |
 
 - **Truncation:** when `body_truncated` / `output_truncated`, render the marker
   "Middle of this output not stored (N bytes)". Never imply completeness.
-- **Masking (decision 4):** if approved, apply `SecretRedactor.redact/1` to
-  `body` and `output` at render time only (storage is never rewritten, D15),
-  and show "masked" on the entry; a per-entry "show raw" control appears only
-  in a writable dashboard. If not approved, render raw with the page-level
-  warning from C8-T02.
+- **Masking (decision 4; Phase D, security M5):** masking happens in the History
+  API by principal (contract §7), not in this component. The view passes
+  `principal: {:operator, :loopback | :basic_auth}` from the session and renders
+  "masked" on every entry with `redacted: true`. The per-entry "show raw" control
+  re-reads with `reveal: true` and appears only for a loopback session in a writable
+  dashboard. If the owner chooses "raw" for the dashboard, the History default changes
+  and this view still shows the page-level warning from C8-T02.
 - **Safety:** all text is escaped by HEEx; Markdown output goes through
   `AiurWeb.Markdown` (existing sanitizer path) only.
 
@@ -93,7 +95,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur_web/conversation/components_test.exs
 ```
 
@@ -102,7 +104,9 @@ env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test
 | "each kind renders its distinguishing element" (table test) | e.g. `$ git status`, `@@` line with diff class | each clause |
 | "truncated output shows the not-stored marker" | marker text with byte count | marker branch |
 | "hidden reasoning is counted, not dropped" (if decision 3 = hidden) | "1 reasoning block hidden" | the count |
-| "masking replaces a token-shaped string and labels it" (if decision 4 = mask) | redacted text + "masked" | `redact/1` call |
+| "redacted entry shows the masked label" | entry with `redacted: true` renders "masked" | label branch |
+| "show raw is absent for a Basic-Auth non-loopback session" | no control | loopback check |
+| "provider_input renders as provider input, not an operator bubble" (M6) | muted row with "provider input"; no operator-bubble class | role clause |
 | "unknown kind renders a generic row" | row with kind | fallback clause |
 | "markdown script tag is escaped" | no `<script>` in output | Markdown path |
 

@@ -90,9 +90,9 @@ Stream Deck (MP-R6)
   StreamdeckLogs → calls Conversation.Anchors(:observed rule) and History (behaviour-preserving)
 ```
 
-Required deps: event bus ids/history (BUS), `TrackerIdentity`. Optional:
-listener mode (MP-E7: without it the composer falls back to today's `AgentChat`
-path for workers, see §5), Commands (MP-E2), Executor (MP-E3). The journal must
+Required deps: event bus ids/history (BUS), `TrackerIdentity`, and the send router
+`Aiur.Listener.send/3` (core per RC-36; its `:legacy` mode keeps today's `AgentChat`
+behaviour, RC-05). Optional: Commands (MP-E2), Executor (MP-E3). The journal must
 work without the dashboard running (it is daemon-side).
 
 ## 4. Alternatives and recommendation
@@ -126,21 +126,13 @@ CLI). No editing, hiding or deleting of entries.
 
 ## 5. Send path before and after MP-E7
 
-E3 and E4 are wave 3 and E7 is wave 4
-([value-and-sequencing.md](../../value-and-sequencing.md)), so E4 must work
-before E7 exists:
-
-- **Workers, before E7:** the composer uses today's `AgentChat.send/3`
-  (`agent_chat.ex:14-19`) with its existing queued/delivered statuses. This is
-  not new behaviour; it moves the existing drawer composer into the new view.
-- **Workers and Executor, after E7:** the composer calls the listener-mode
-  service; the overlay shows E7 receipts.
-- **Executor, before E7:** read-only, composer disabled with the reason (MP-E3).
-
-**Superseded by RC-05 (Phase C):** MP-E7-C1–C3 move into wave 3 ahead of the
-write chunks, and E7-C3 ships behind a flag that keeps today's behaviour. E4-C6
-therefore ships once, on `Aiur.Listener.send/3`, with no interim `AgentChat`
-step (MP-E4-C6-T01).
+RC-05 (Phase C) and CR-E4-8 settle it (X-51): MP-E7-C1–C3 ship in wave 3 ahead of
+the E3/E4 write chunks, and E7-C3 ships behind a flag that keeps today's behaviour
+(`:legacy`, which still calls `AgentChat.send/3`, `agent_chat.ex:14-19`). E4-C6
+therefore ships once, on `Aiur.Listener.send/3`, with no interim `AgentChat` step
+(MP-E4-C6-T01); the overlay shows the listener receipts. The Executor composer is
+enabled only when MP-E3 reports an attached session (otherwise disabled with the
+reason).
 
 ## 6. Non-happy paths
 
@@ -166,8 +158,15 @@ step (MP-E4-C6-T01).
   display per DESIGN-E4.
 - Phone (MP-N6) deep links carry `conversation_id` + `pos`/`anchor_id` only; the
   body is fetched over the paired, authorized channel (MP-N2/N4).
-- No secret scrubbing is promised; the view must say transcripts may contain
-  secrets the agent printed (owner question on display-time masking).
+- **Read-time masking (Phase D, security M5):** device principals always receive
+  bodies passed through `SecretRedactor.redact/1` and `redact_urls/1`, flagged
+  `redacted: true`; the journal is never rewritten. The dashboard default is DESIGN-E4
+  decision 4 (proposed: mask, reveal on loopback). Masking is pattern-based and
+  best-effort, so the view still says transcripts may contain secrets (C2-T01, C2-T02,
+  C5-T02).
+- **Operator provenance (Phase D, security M6):** a worker entry is `operator` only with
+  daemon delivery evidence; other provider `user` records are `provider_input`
+  (C1-T01).
 
 ## 8. Acceptance criteria
 
@@ -204,7 +203,7 @@ step (MP-E4-C6-T01).
 | MP-E4-C3 | Anchor resolver + persisted anchors | C1, MP-R2 history read, MP-E2 source fields |
 | MP-E4-C4 | Jump-point catalogue (push, executor, Commands) + Command→conversation links | C3 |
 | MP-E4-C5 | Dashboard conversation view (worker; Executor mode for MP-E3) | C2, C4, **DESIGN-E4** |
-| MP-E4-C6 | Write surface: composer (AgentChat then E7) + inline answer of this agent's open Commands | C5, MP-E2, later MP-E7 |
+| MP-E4-C6 | Write surface: composer on `Aiur.Listener.send/3` (RC-05; no AgentChat step) + inline answer of this agent's open Commands | C5, MP-E2, MP-E7-C1–C3 (wave 3) |
 | MP-E4-C7 | Stream Deck logs on the shared anchor rule | C3, coordinate MP-R6 |
 | MP-E4-C8 | Importer for pre-journal history + retention/privacy docs | C1 |
 
@@ -214,7 +213,7 @@ step (MP-E4-C6-T01).
 - OQ-E4-1. Layout: one chronology with an event rail, or a split event list + transcript? (Designer's call; brief says Kevin designs it.)
 - OQ-E4-2. Which jump-point kinds are on by default, and is CI/comments noise?
 - OQ-E4-3. Show reasoning and raw tool output by default, collapsed, or hidden?
-- OQ-E4-4. Display-time masking of likely secrets: wanted, or show raw?
+- OQ-E4-4. Dashboard masking default (devices are always masked, security M5): mask with loopback reveal (proposed), or raw? = DESIGN-E4 decision 4.
 - OQ-E4-5. Retention: confirm "keep forever, no automatic pruning" (brief §3 implies yes).
 - OQ-E4-6. Does the existing drawer stay as the quick view with a link to the full view, or is it replaced?
 

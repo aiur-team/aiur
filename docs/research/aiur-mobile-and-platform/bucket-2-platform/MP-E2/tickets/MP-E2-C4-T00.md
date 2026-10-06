@@ -6,6 +6,7 @@ bucket: 2-platform
 title: "Spike R-Q1: Codex request_user_input through aiur's app-server frames"
 status: ready
 blocked_by: []
+design_gate: "n/a — research spike"  # RC-32: read-only research or local experiment
 prior_units: [U4]
 prior_boundaries: [CDX #21]
 prior_features: [MP-R7 (harness-adapter §6)]

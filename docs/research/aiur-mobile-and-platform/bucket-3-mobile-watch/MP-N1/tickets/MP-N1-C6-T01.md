@@ -26,24 +26,36 @@ researched: 2026-10-06
   1. iOS: `aps-environment` entitlement (development/production by build profile) and the
      Push Notifications + Background Modes `remote-notification` **off** (no background fetch is
      relied on, plan §8), via `app.config.ts`; the NSE target folder from MP-N1-C1-T03 stays the
-     extension that MP-N4-C4 fills.
+     extension that MP-N4-C4 fills. **Time Sensitive capability (Phase D feasibility m7):** the
+     app target carries `com.apple.developer.usernotifications.time-sensitive` = `true` (Xcode
+     capability "Time Sensitive Notifications"), because DESIGN-N4 D-3 may choose
+     `interruption-level: time-sensitive` and the level is set by the NSE after decryption
+     (notification contract §5, no level in clear). Without the entitlement iOS would downgrade
+     the level silently. Whether an NSE-set level is honoured is device row MP-N4 V-I5.
+     The app badge is set by the NSE / FCM service from the decrypted `summary.badge`
+     (notification contract §3, Phase D); this ticket only requests the `.badge` authorization
+     option alongside `.alert` and `.sound` in the permission call that MP-N4-C4 owns.
   2. Android: Firebase Messaging dependency and a `FirebaseMessagingService` subclass **declaration**
      (`AiurMessagingService`, class body owned by MP-N4-C5-T02) registered in the manifest through
      an Expo config plugin; `google-services.json` read from an operator-supplied path at build
      time (`AIUR_GOOGLE_SERVICES_JSON`), never committed.
-  3. `AiurNative.pushToken(): Promise<{platform: "apns"|"fcm", tokenHex: string} | {unavailable: reason}>`
-     implemented natively (`expo-notifications` `getDevicePushTokenAsync` is acceptable as the
-     source); reasons `permission_denied | not_configured | unknown`.
+  3. A native token getter that MP-N4-C4-T05 / MP-N4-C5-T05 call **inside native code**;
+     JavaScript gets only `AiurNative.pushToken(): Promise<{platform: "apns"|"fcm",
+     fingerprint: string /* 8 chars */} | {unavailable: reason}>` (Phase D, B4; the token
+     itself never crosses the bridge). `expo-notifications` `getDevicePushTokenAsync` must not
+     be used, because it returns the token to JS. Reasons `permission_denied |
+     not_configured | unknown`.
   4. A single event `AiurNative.onNotificationOpened(cb)` that forwards the **already-decrypted
-     destination** (set by MP-N4's NSE/service in `userInfo` / intent extras) to JS; MP-N6-C2-T02
+     destination** (set by MP-N4's NSE/service in `userInfo` / intent extras under the key
+     `aiur.destination`, notification contract §3.1 rule 5) to JS; MP-N6-C2-T02
      owns what happens next (routing, cold/warm start).
 - **Non-goals:** decryption, presentation, channels and `POST_NOTIFICATIONS` (MP-N4-C4/C5);
   relay registration (MP-N4-C4-T05, MP-N4-C5-T05); tap routing logic (MP-N6-C2-T02).
 
 ## Mapping from Phase B candidates
 
-N1-C6-T1 (NSE target) → MP-N1-C1-T03 + MP-N4-C4; N1-C6-T2 (FCM service) → MP-N4-C5 except the
-build plumbing here; N1-C6-T3 (tap routing) → MP-N6-C2-T02; N1-C6-T4 (token hand-off) → this
+N1-C6-T01 (NSE target) → MP-N1-C1-T03 + MP-N4-C4; N1-C6-T02 (FCM service) → MP-N4-C5 except the
+build plumbing here; N1-C6-T03 (tap routing) → MP-N6-C2-T02; N1-C6-T04 (token hand-off) → this
 ticket's `pushToken()` + MP-N4-C4-T05/C5-T05.
 
 ## Dependencies and blockers
@@ -92,6 +104,9 @@ Requires OQ-N4-1 for real devices. No server change.
   `exported=false` and the `com.google.firebase.MESSAGING_EVENT` intent filter; no
   `google-services.json` path → plugin emits the `not_configured` build constant. Mutation: drop
   the intent filter → fails.
+- Jest `plugins/__tests__/withPushEntitlements.test.ts`: the generated iOS entitlements contain
+  `com.apple.developer.usernotifications.time-sensitive: true` and `aps-environment`. Mutation:
+  drop the time-sensitive key → fails.
 - Jest `src/api/__tests__/pushToken.test.ts`: JS receives a fingerprint, never the full token
   (mutation: return the full token → fails).
 - `npm --prefix packages/aiur-mobile run check:targets` (MP-N1-C1-T03) still passes with the
@@ -101,11 +116,12 @@ Requires OQ-N4-1 for real devices. No server change.
 npm --prefix packages/aiur-mobile test -- plugins src/api/__tests__/pushToken.test.ts
 ```
 
-Device rows DV-P1, DV-P4, DV-P11, DV-P12 run in MP-N1-C10-T01 after MP-N4-C4/C5.
+Device rows run in MP-N1-C10-T01 after MP-N4-C4/C5: DV-P11, DV-P12, and the push rows linked from DV-P1/DV-P4 to the canonical MP-N4 matrix (V-I1..I5, V-A1..A6; Phase D M4).
 
 ## Completion and handoff
 
 - [ ] Tests pass; mutation checks recorded.
 - [ ] Docs: mobile build guide lists `AIUR_GOOGLE_SERVICES_JSON` and the Apple push capability
-      (build-time variables, not operator runtime env, so not AGENTS.md Auth).
+      (build-time variables, not operator runtime env, so not AGENTS.md Auth), and the Time
+      Sensitive capability.
 - [ ] Dependents: MP-N4-C4-T05, MP-N4-C5-T02/T05, MP-N6-C2-T02.

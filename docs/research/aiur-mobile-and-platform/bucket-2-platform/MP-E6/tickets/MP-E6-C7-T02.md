@@ -48,6 +48,12 @@ researched: 2026-10-06
 - State comes only from channel `state` events; the panel never infers it.
 - Context gaps from the session's `context` gaps list are shown as a persistent note.
 - Hook `ConversePanel` registered in `layouts.ex`.
+- **Ended and error reasons (Phase D, M7).** The panel renders `ended{reason}` and `error`
+  from the voice-session §8.1 table: the copy key and the Retry affordance (`none` / `now` /
+  `later`) come from the row, served to the page by
+  `Aiur.VoiceConversation.ClientErrors.table/0` (C4-T01) in the panel assigns. `cost_cap`,
+  `provider_quota`, `provider_unavailable`, `provider_error`, `transport_lost` and `unknown`
+  each have their own copy; none falls back to a generic "error".
 
 ## Implementation steps
 
@@ -72,6 +78,7 @@ Ships with DESIGN-E6. Rollback: revert.
 | browser "each server state renders its approved copy" | scripted fake channel through all states |
 | browser "context gaps are shown" | gap text visible |
 | LiveView "switching target ends the current session" (E6-OQ8 = yes) | `end` pushed |
+| browser "each §8.1 end reason renders its copy key and retry affordance" | table-driven over `ClientErrors.table/0`; `cost_cap` and `provider_quota` show no Retry, `transport_lost` shows Retry |
 
 ```bash
 env -C src/browser npm run test:units
@@ -79,7 +86,8 @@ make -C src fmt-check lint
 ```
 
 **Mutation check.** Render `listening` copy for unknown states: a test with an unknown state
-string fails (it must render the unknown copy).
+string fails (it must render the unknown copy). Replace the `cost_cap` branch with the generic
+error copy: the §8.1 table test fails.
 
 ## Completion and handoff
 

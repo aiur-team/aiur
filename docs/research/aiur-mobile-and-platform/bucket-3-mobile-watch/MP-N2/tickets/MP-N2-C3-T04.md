@@ -72,7 +72,7 @@ Init gains one question; existing answers and files untouched.
 5. Extend `src/test/aiur/init_test.exs` golden transcript with the new question (verify the golden helper name at implementation).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/init/mobile_test.exs test/aiur/init_test.exs
 ```
 

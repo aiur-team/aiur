@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, MP-N2-C3-T01, MP-N2-C1-T01, MP-N2-C1-T02, MP-N2-C1-T04]
 prior_units: [U1, U9]
 prior_boundaries: [CLI]
 prior_features: []
-prior_findings: [RQ-N2-6]
+prior_findings: [RC-42 same-user statement at enable, RQ-N2-6]
 size_owner: "aiur-engine.sh and cli.ex (U1/U9 share the engine; look up owners at the implementation SHA)"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -30,7 +30,11 @@ researched: 2026-10-06
   - `Aiur.Machine.CLI` (PROPOSED) with one function per verb, callable two ways (below).
   - `enable`: `Store.identity/0` (fail closed with the RC-01 message), `Store.init_machine_key/0`,
     `Settings.write(mobile.enabled: true)`, journal `mobile_enabled`, then prints next steps
-    (DESIGN-N2 copy). `disable`: `mobile.enabled: false`, journal entry; keeps devices (re-enable
+    (DESIGN-N2 copy). **Phase D (RC-42, security B1):** before enabling, `enable` prints the
+    same-user threat statement (pairing contract security sibling §S1; copy per DESIGN-N2 Q8).
+    If Q8 adopts the acceptance step, `enable` also refuses (exit 64, nothing written) without
+    `--accept-same-user-risk` on a non-TTY or an explicit "yes" on a TTY; the flag is a CLI
+    flag and goes in `reference/cli.md`. `disable`: `mobile.enabled: false`, journal entry; keeps devices (re-enable
     restores them) and says so.
 - **Non-goals:** the copy itself (DESIGN-N2), `aiur init` step (T04).
 
@@ -101,6 +105,9 @@ New verb; no existing command changes. `aiur` in an unconfigured directory behav
 - `src/test/aiur/machine/cli_test.exs` (temp HOME; no gateway):
   1. `"enable creates the machine key and sets mobile.enabled, without ~/.aiur/config"` (acceptance 2).
   2. `"enable without identity exits 4 and creates nothing"`. *Fails without:* the RC-01 guard.
+  2a. `"enable prints the same-user threat statement"` (RC-42; golden text from DESIGN-N2 Q8).
+     *Fails without:* the print. If Q8 adopts the acceptance step: `"non-TTY enable without
+     --accept-same-user-risk exits 64 and writes nothing"` (*fails without* the refusal).
   3. `"disable keeps device rows"`.
   4. `"devices --json renders last_seen_age_s and contains no token hash"` (grep for `hash`).
      *Fails without:* the projection that drops `token_hashes` (mutation: dump the row → fails).
@@ -113,7 +120,7 @@ New verb; no existing command changes. `aiur` in an unconfigured directory behav
      the engine directly with the same fake release; outputs equal.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/cli_test.exs test/aiur_engine_mobile_dispatch_test.exs
 ```
 

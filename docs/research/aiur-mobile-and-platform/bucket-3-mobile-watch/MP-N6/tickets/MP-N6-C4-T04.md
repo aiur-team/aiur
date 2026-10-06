@@ -5,7 +5,7 @@ chunk_id: MP-N6-C4
 bucket: 3-mobile-watch
 title: OS microphone permission at first press and the cloud-voice disclosure line
 status: blocked
-blocked_by: [DESIGN-E5 (permission and disclosure placement), MP-N6-C4-T01]
+blocked_by: [DESIGN-N6, DESIGN-E5 (permission and disclosure placement), MP-N6-C4-T01]
 prior_units: []
 prior_boundaries: [mobile-app]
 prior_features: [MP-E5, MP-N1]
@@ -27,7 +27,7 @@ machine; encrypted push does not make voice local).
 
 ## Dependencies and blockers
 
-**Blocked** on DESIGN-E5 placement/copy; C4-T01.
+**Blocked** on DESIGN-N6 (RC-33) and DESIGN-E5 placement/copy; C4-T01.
 
 ## Verified starting point
 
@@ -36,26 +36,50 @@ Voice-session §10 table (normative copy source); capability reports provider (v
 
 ## Chosen design (fixed parts)
 
-Disclosure text comes from a shared string table generated from §10, not re-written per
-screen.
+- Disclosure text comes from a shared string table generated from voice-session §10, not
+  re-written per screen: `packages/aiur-mobile/src/voice/disclosure.ts` exports one entry
+  per §10 row, including the Phase D row "System dictation (phone keyboard): audio to
+  Apple or Google under their policy; aiur receives text only" (security m10).
+- Which line shows is keyed by mode and provider from the capability report (§7):
+  Dictate → Dictate row; Converse → Converse row (audio, context and the LLM vendor
+  pass-through). Encrypted push is never presented as making voice local.
+- Permission is requested on the first option choice only, through the MP-N1 native
+  permission module; the result is cached in memory for the session.
 
 ## Implementation steps
 
-After approval.
+1. `src/voice/disclosure.ts` (table from §10) and `src/voice/micPermission.ts`.
+2. Disclosure line inside `VoiceChoiceSheet` (C4-T01) under each option.
+3. Denied → S16 with "Open Settings" (`Linking.openSettings()`); text answering stays.
+4. Docs (same PR): `website/docs-app/guide/mobile.md` § "Voice privacy" links the
+   voice-session §10 disclosure (or its published docs page).
 
 ## Non-happy paths
 
-Permission "ask every time" (iOS) → treated as granted for the session only.
+- Permission "ask every time" (iOS) → treated as granted for the session only.
+- Denied → S16; the choice sheet still opens, both options show "Microphone access off".
+- Provider unknown in the capability report → the generic "audio leaves this machine"
+  line, never "local".
 
 ## Compatibility and rollout
 
-n/a.
+Copy placement is DESIGN-E5 (design-pending); the text source is fixed (§10).
 
 ## Verification
 
-`permissionRequestedOnlyAfterChoice` (must fail if requested on screen open);
-`disclosureShownForElevenLabs`.
+```text
+npm --prefix packages/aiur-mobile test -- test/voice/disclosure.test.ts test/voice/micPermission.test.ts
+```
+
+| Test | Expected | Must fail without |
+| --- | --- | --- |
+| `permissionRequestedOnlyAfterChoice` | no permission call on screen open or sheet open | the lazy request |
+| `S16_deniedShowsSettingsLink` | denied → S16 with Settings action; text answering enabled | the denied branch |
+| `disclosureShownForElevenLabs` | Converse row names audio, context and the LLM vendor | the table row |
+| `disclosureMatchesContractRows` | every §10 row id present in `disclosure.ts` | a row (delete one → fails) |
+| `unknownProviderNeverSaysLocal` | unknown provider → generic line | the fallback |
 
 ## Completion and handoff
 
-- [ ] Docs: the notifications/voice guide links the §10 disclosure.
+- [ ] Each test fails with its hunk reverted in a worktree.
+- [ ] Docs: `website/docs-app/guide/mobile.md` "Voice privacy" (same PR).

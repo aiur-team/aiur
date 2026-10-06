@@ -5,7 +5,7 @@ chunk_id: MP-N4-C3
 bucket: 3-mobile-watch
 title: Fan-out and relay client — read device registry, seal per device, send, map responses
 status: ready
-blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C3-T02, MP-N4-C1-T03, MP-N4-C1-T04, MP-N2-C1-T1, MP-N2-C1-T2]
+blocked_by: [DESIGN-N4 (no-UI release), MP-N4-C3-T02, MP-N4-C1-T03, MP-N4-C1-T04, MP-N2-C1-T01, MP-N2-C1-T02, MP-N2-C1-T03]
 prior_units: []
 prior_boundaries: [new #41 candidate push-relay]
 prior_features: [MP-N2]
@@ -29,12 +29,13 @@ Non-goals: choosing audiences (MP-N5 passes device ids), deregistration (C3-T05)
 
 ## Dependencies and blockers
 
-- C3-T02 (outbox), C1-T03 (seal), C1-T04 (ids), MP-N2-C1-T1/T2 (store library: read
+- C3-T02 (outbox), C1-T03 (seal), C1-T04 (ids), MP-N2-C1-T01/T02 (store library: read
   `devices.json`, `identity.json`).
-- **CR-N4-2** (CONTRACT-REQUESTS.md): MP-N2-C1 exposes a read-only `sign/1` for instance
-  daemons so the machine private key is never copied into push code. If MP-N2 declines,
-  push-relay reads `machine_key` through the store library (same OS user, 0600) — the
-  ticket stays implementable either way; only the signer function's source changes.
+- **CR-N4-2** (CONTRACT-REQUESTS.md), settled by security m6: the MP-N2-C1 store library
+  exposes `Aiur.Machine.Store.sign(purpose, bytes)` with `purpose ∈ :qr | :registry | :push`
+  (pairing contract §4.0/§5); there is no `sign/1`. Push-relay calls `sign(:push, bytes)`, so
+  the machine private key is never copied into push code. The `:push` tag is the push
+  signature's existing domain tag (notification contract §4), so push vectors do not change.
 - DESIGN-N4 releases C3 core.
 
 ## Verified starting point
@@ -73,7 +74,8 @@ Non-goals: choosing audiences (MP-N5 passes device ids), deregistration (C3-T05)
 
 1. `registry.ex`, `sender.ex`, `relay_client.ex`, `device_state.ex` (PROPOSED).
 2. Wire `Outbox.next_due/1` → `Sender.deliver/1` → `Outbox.record/2`.
-3. Signer injection: `Application` env `:push_signer` defaulting to the MP-N2 function.
+3. Signer injection: `Application` env `:push_signer`, default
+   `&Aiur.Machine.Store.sign(:push, &1)` (MP-N2-C1; security m6).
 4. Tests against a Bandit test relay (Plug router in `test/support/fake_relay.ex`).
 
 ## Non-happy paths

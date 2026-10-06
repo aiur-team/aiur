@@ -128,7 +128,7 @@ format change is made before any client ships.
 codes and a `sig` verifiable with `machine_key.pub`.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/claim_test.exs test/aiur/machine/claim_endpoint_test.exs
 ```
 

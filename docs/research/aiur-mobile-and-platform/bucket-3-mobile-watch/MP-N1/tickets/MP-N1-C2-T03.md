@@ -5,7 +5,7 @@ chunk_id: MP-N1-C2
 bucket: 3-mobile-watch
 title: Device-side pairing and token protocol in both native cores (QR verify, claim/relink, challenge signing, token refresh, endpoint failover) against MP-N2 vectors
 status: blocked
-blocked_by: [DESIGN-N1, MP-N1-C2-T01, MP-N1-C2-T02, MP-N2-C5-T05, MP-N2-C5-T03, MP-N2-C5-T04]
+blocked_by: [DESIGN-N1, MP-N1-C2-T01, MP-N1-C2-T02, MP-N2-C5-T05, MP-N2-C5-T03, MP-N2-C5-T04, RQ-TRANSPORT]
 prior_units: []
 prior_boundaries: []
 prior_features: [MP-N2]
@@ -17,7 +17,7 @@ researched: 2026-10-06
 
 # MP-N1-C2-T03 — Pairing and token client in `AiurClientKit` and `aiur-client-core`
 
-Candidate N1-C2-T4 ("request signing against shared vectors"), widened to the whole
+Candidate N1-C2-T04 ("request signing against shared vectors"), widened to the whole
 device side of contract §3–§4 because signing alone is not a usable outcome.
 
 ## Identity and outcome
@@ -77,6 +77,12 @@ device side of contract §3–§4 because signing alone is not a usable outcome.
   (§4.1 and §4.2 say "canonical(...)" and "nonce‖device_id‖machine_id" without fixing bytes);
   the MP-N2-C5-T05 vectors are authoritative if MP-N2 decides otherwise, and this ticket
   follows the vectors.
+- **Domain-separated signatures (Phase D, security m6; pairing contract §4.0/§5).** QR
+  signatures verify over `"aiur-qr-v1\0" <> <query string without sig>` and registry
+  responses over `"aiur-registry-v1\0" <> <JCS body without sig>`. Both verifiers prepend
+  the tag before Ed25519 verification. MP-N2-C5-T05's `qr_uri.json` and
+  `canonical_response.json` record the tagged bytes and are authoritative; its negative
+  vectors include a registry-tagged signature presented as a QR signature.
 - **State machine per machine:**
   `unpaired → claiming → paired(token: none|valid(exp)|refreshing) → revoked(terminal)`;
   `paired → relinking → paired` on a QR whose `m` is known.
@@ -126,6 +132,9 @@ device side of contract §3–§4 because signing alone is not a usable outcome.
 - Vector-driven tests (identical names in Swift and Kotlin):
   - `qr_vectors_verify` / `qr_tampered_label_fails`: every valid QR vector verifies; flipping
     one char of `n` fails. Mutation: skip signature check → tampered test fails.
+  - `registry_tagged_signature_rejected_as_qr` (security m6): the MP-N2-C5-T05 negative
+    vector signed with the `aiur-registry-v1` tag fails QR verification. Mutation: drop the
+    domain tag (verify over the bare query string) → fails.
   - `claim_proof_matches_vector`: computed `secret_proof` equals the vector byte-for-byte.
     Mutation: drop canonicalization (use insertion-order JSON) → fails.
   - `challenge_signature_verifies_against_vector_key`: with the vector's software key, the

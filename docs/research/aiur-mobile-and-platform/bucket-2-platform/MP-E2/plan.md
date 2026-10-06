@@ -205,7 +205,13 @@ otherwise.
   actor kind `operator_relayed`, so the Executor can record an answer the operator gave in
   conversation, including for `human_required`. It is off by default
   (`executor.relay_operator_answers`), revocable by supersede or moot, and alerts on every
-  use. **MP-E2 treats `operator_relayed` as a human actor** for D11 (contract §6.3–6.4).
+  use. **MP-E2 treats `operator_relayed` as human-attributed but below a direct operator**
+  (RC-41, contract §6 rule 3a): `direct operator > operator_relayed > executor`. A relay
+  never supersedes or revises a direct operator answer and never answers an
+  Executor-originated Command; #3006's own guard for the first case is kept (C3-T01).
+  `human_required` holds against the Executor's CLI and API surfaces only, not against
+  a same-user process with the cookie; `actor_source` records the real entry point
+  (security M4, contract §4 and §6).
 
 ### 1.6 Surfaces
 
@@ -303,8 +309,10 @@ decides. No global toggle.
     either define the callback slots (no-op by default) or MP-E2-C4 adds them after R7.
   - *Notification (MP-N4):* consumes `human_needed` (no question text) and fetches content
     after authentication.
-  - *Capabilities:* `native_question_capture` (per harness) and `executor_live` are
-    published capability facts.
+  - *Capabilities:* `harness.<id>.native_question` with attribute `mode`
+    (`in_band_hold | defer_resume | none`) is the published capability fact (CR-E2-6,
+    X-17). "Executor live" is **not** a capability: it is the roster rule of contract §4
+    (`active | idle`, RC-37).
 
 ## 5. Non-happy paths
 
@@ -373,8 +381,8 @@ production**. These are in DESIGN-E2 §6.
   (D10)?
 - R-Q3: *(answered in Phase C, C2-T04)* what is the minimal Executor "acknowledgement" signal?
 - R-Q4: *(answered in Phase C, §0 and C1-T01)* does the projection reducer tolerate unknown v2 events on rollback?
-- R-Q5: where does #3005 land, and does it add `operator_relayed` to `decision_answer.ex`
-  allowed kinds?
+- R-Q5: *(answered in Phase D)* #3005/#3006 add `operator_relayed` to the answer actor
+  kinds (PR #3006 open on 2026-10-06); MP-E2 ranks it per RC-41 and rebases on #3006.
 
 ## 9. Plan refresh after the refactor
 

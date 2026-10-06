@@ -3,7 +3,8 @@ design_task: DESIGN-R3
 feature_id: MP-R3
 owner: Kevin
 status: open (awaiting explicit approval)
-blocks: every MP-R3 implementation ticket (MP-R3-C1-T01..T02, MP-R3-C2-T01..T02)
+blocks: [MP-R3-C1-T01, MP-R3-C2-T01]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-R3 (waived entries excluded). Earlier wording: every MP-R3 implementation ticket (MP-R3-C1-T01..T02, MP-R3-C2-T01..T02)"
 base_main_sha: 45a290e3
 date: 2026-10-06
 related_plan: ../bucket-1-refactor/MP-R3/plan.md
@@ -39,6 +40,8 @@ behaviour.
    - Choose: [ ] warning only  [ ] open a Bucket 2 feature.
 2. **Historical Draft spec banner.** `docs/voice-mode/spec.md` treats Tailscale
    as the access path.
+   - Recommended: **leave historical specs untouched**, because they are dated
+     records; the current docs pages carry the correction.
    - Choose: [ ] add a one-line "Tailscale is one supported network" banner
      [ ] leave historical specs untouched.
 
@@ -52,7 +55,18 @@ This is the § Tailscale addition to `website/docs-app/reference/optional-optimi
 > the dashboard binds. Beyond loopback, without a tailnet, Basic Auth crosses
 > the network in cleartext.
 
-- [ ] Approved as written, or with edits: ______
+And the § Transport paragraph in the same page (MP-R3-C2-T01; Phase D, CR-R3-1). It
+names no HTTPS method, so it does not pre-empt DESIGN-N2 §transport:
+
+> Aiur serves the dashboard over plain HTTP and never terminates TLS. Off the
+> machine, encryption is the network's job — a tailnet encrypts the path; a LAN
+> does not. Browsers allow the microphone only on HTTPS or `localhost`, so
+> dashboard dictation is disabled on a plain-HTTP address beyond loopback.
+
+Evidence: `http_server.ex:64,147`; `conversation-voice-controller.js:18-19`; MDN
+`getUserMedia` secure-context note (accessed 2026-10-06).
+
+- [ ] Both paragraphs approved as written, or with edits: ______
 
 ## 4. States
 

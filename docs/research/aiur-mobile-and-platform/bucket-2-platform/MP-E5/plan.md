@@ -5,7 +5,7 @@ feature_id: MP-E5
 bucket: 2-platform
 base_main_sha: 45a290e3
 date: 2026-10-06
-blocked_by: DESIGN-E5 (owner), MP-R5 (voice package), MP-E2 (Command answer contract), MP-E3 (Executor composer), MP-E7 (listener-mode send)
+blocked_by: DESIGN-E5 (owner), MP-R5 (voice package). MP-E2 (Command answer contract), MP-E3 (Executor composer) and MP-E7 (listener-mode send) block only the chunks that use them (C4 Command response on E2; Executor composer placement on E3; send-through on E7) — Phase D, X-53
 owns_contracts: contracts/voice-session.md (§2–§5, §7–§8 jointly with MP-E6)
 consumes_contracts: command request (MP-E2), listener mode (MP-E7), identity, capabilities (MP-R1)
 ---
@@ -53,7 +53,7 @@ to D16 but not identical, and the second button is the auto-submit loop.
 | `voice_input` function component (proposed, `AiurWeb`) | `<.voice_input for={textarea_id} send={button_id} surface={…} target={…} capabilities={…} />` renders the D16 choice, device picker, waveform, status, cancel | voice capability map (contract §7) | MP-E6 converse launcher |
 | Browser voice client (proposed split of the 539-line controller) | `capture.js` (getUserMedia, worklet, PCM), `transport.js` (socket/channel, events), `voice-input.js` (state machine, DOM) | Phoenix socket | — |
 | `AiurWeb.VoiceChannel` dictate topic | contract §3 join payload, `cancel` event, `reason_code` | voice package STT behaviour (MP-R5) | — |
-| Capability provider | `Voice.capabilities/0` → contract §7 | MP-R5 package config | — |
+| Capability provider | registered capability callback emitting `voice.stt` / `voice.tts` entries in the MP-R1 report shape (`state` ∈ `available|degraded|unavailable|unknown` plus a separate `reason`; contract §7; MP-E5-C2-T03) | MP-R5 package config | — |
 
 Prior mapping — `Prior-units:` U8 (BROWSER split of the controller; WEB split of
 `dashboard_live.ex`, 2,903 lines). `Prior-boundaries:` VOX #36, WEB #34, SD #35, DEC #27.
@@ -82,7 +82,8 @@ surfaces), `integrations-51`, `config-33`. `Size-owner:` BROWSER for the JS, WEB
   version returns a typed conflict; DESIGN-E2 §4 owns Command presentation and E5 only adds the
   mic placement.
 - **Consumes — MP-E7 listener mode:** assumes one send function for worker and Executor targets
-  returning `{message_id, status}`. E5 never picks the listener mode.
+  `send(conversation_ref, text, client_request_id, opts) → delivery_id` plus receipts
+  (voice-session §11). E5 never picks the listener mode.
 - **Consumes — MP-E3:** an Executor composer exists in the dashboard. E5 attaches to it.
 - **Consumes — MP-R5:** the STT behaviour and capability map. If R5 has not landed, E5-C2 works
   against the in-core `Aiur.ElevenLabs.Realtime` with the same seam.
@@ -92,7 +93,7 @@ surfaces), `integrations-51`, `config-33`. `Size-owner:` BROWSER for the JS, WEB
 
 | Case | Behaviour |
 | --- | --- |
-| No key / package absent | Capability `unconfigured` / `not_installed` at render; mode buttons hidden or disabled with the reason (E5-OQ4); typing and Send unaffected (V6). |
+| No key / package absent | Capability `unavailable` with reason `not_configured` / `not_installed` at render (the channel error code stays `unconfigured`, contract §7); mode buttons hidden or disabled with the reason (E5-OQ4); typing and Send unaffected (V6). |
 | Read-only dashboard | No voice controls (composer is already hidden, `conversation_drawer.ex:167,237-240`). |
 | Mic permission denied / no device / insecure origin | Existing copy (`:18-22`, `:446-454`); text already in the field is kept. |
 | Provider auth or quota error | `provider_auth` / `provider_quota` codes; partial text kept for editing. |
@@ -109,7 +110,7 @@ surfaces), `integrations-51`, `config-33`. `Size-owner:` BROWSER for the JS, WEB
 ## 6. Acceptance criteria
 
 1. The worker drawer, agent log modal, Executor composer and Command custom-response field each
-   render the same `voice_input` component when `voice.dictate` is available.
+   render the same `voice_input` component when `voice.stt` is available.
 2. Every activation shows the D16 choice; neither mode starts without a click/tap on its button.
    Loading `/commands/:id` or `/chat/...` never requests microphone permission (browser test
    asserts no `getUserMedia` call before a click).
@@ -174,3 +175,5 @@ replaces; E5-OQ4 no-key presentation; E5-OQ5 keyboard shortcut or hold-to-talk o
   IDs `voice.stt` / `voice.tts` (voice-session §7).
 - E5 depends on MP-R5-C1 as a hard predecessor (no in-core fallback seam): wave 4 follows
   wave 1.
+- RC-29 (Phase D): chunk C8 (device voice path) ships in **wave 5**, after MP-N2-C6, because it
+  needs N2 device tokens. C1-C7 stay in wave 4. RC-30: MP-E6-C7-T01 no longer waits for C8.

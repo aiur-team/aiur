@@ -62,9 +62,19 @@ Dev-only; not shipped in the app bundle (assert in a packaging test).
 
 ## Verification
 
-`packages/aiur-mobile/scripts/__tests__/fixture-gateway.test.mjs` (`node --test`): serves each
-scenario's `input.json` byte-identical; switching scenario changes the next response; the
-unreachable toggle closes the port.
+`packages/aiur-mobile/scripts/__tests__/fixture-gateway.test.mjs` (`node --test`):
+
+| # | Test | Must fail without |
+|---|---|---|
+| 1 | `"serves each scenario's input.json byte-identical"` (loops over every directory under the C3-T02 scenario root) | the scenario loader (serving a hard-coded body, or re-serialising JSON so bytes change) |
+| 2 | `"POST /__scenario/<name> changes the next /v1/instances response"` | the scenario switch endpoint (the second read returns the first scenario) |
+| 3 | `"the unreachable toggle closes the port for machine B only"` (connect to B fails with `ECONNREFUSED`; A still answers) | the per-machine unreachable toggle |
+| 4 | `"unknown --scenario exits 2 and lists the available names"` | the argument check (process starts with an empty scenario) |
+| 5 | `"HTTPS mode prints an SPKI pin that matches the served certificate"` (recompute sha256 of the peer certificate's SPKI) | pin printing derived from the served certificate |
+
+Mutation check: revert each production hunk named in the right-hand column in a worktree and
+confirm its test fails (pack rule, AGENTS.md "Tests must fail without the production change
+they guard"); report the command in the PR.
 
 ```bash
 node --test packages/aiur-mobile/scripts/__tests__/fixture-gateway.test.mjs

@@ -5,7 +5,7 @@ chunk_id: MP-N5-C1
 bucket: 3-mobile-watch
 title: Seed defaults at pairing and baseline progress trackers silently per instance
 status: ready
-blocked_by: [DESIGN-N5 (no-UI release), MP-N5-C1-T01, MP-N5-C2-T03, MP-N2-C5-T2]
+blocked_by: [DESIGN-N5 (no-UI release), MP-N5-C1-T01, MP-N5-C2-T03, MP-N2-C5-T02]
 prior_units: []
 prior_boundaries: [new #41 candidate push-relay, pairing gateway]
 prior_features: [MP-N2, MP-E1]
@@ -29,13 +29,13 @@ AC-N5-4).
 
 ## Dependencies and blockers
 
-- C1-T01 (record), C2-T03 (tracker state module), MP-N2-C5-T2 (claim endpoint hook).
+- C1-T01 (record), C2-T03 (tracker state module), MP-N2-C5-T02 (claim endpoint hook).
 - DESIGN-N5 no-UI release.
 
 ## Verified starting point
 
 - Pairing contract §4.1 (claim creates the device row; `parent_device_id`).
-- Progress facts from `Aiur.BuildQueue.progress/1` (MP-E1-C7, RC-10; queue-readiness
+- Progress facts from `Aiur.BuildProgress.facts/1` (MP-E1-C7, RC-10; queue-readiness
   contract §4.1, §5).
 
 ## Chosen design
@@ -76,3 +76,6 @@ Commands (from `src/`): `mise exec -- mix test test/aiur/push/policy/progress_ba
 ## Completion and handoff
 
 - [ ] AC-N5-4 covered. Dependents: C2-T03.
+- Docs: `website/docs-app/guide/` notifications page (owned by MP-N5-C5-T01) gains one
+  sentence: enabling progress or changing the step never sends past milestones
+  (Phase D T-6).

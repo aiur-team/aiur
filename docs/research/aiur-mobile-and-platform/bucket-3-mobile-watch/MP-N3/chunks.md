@@ -17,8 +17,8 @@ Source: [plan.md](plan.md) §8. Ticket bodies: [tickets/](tickets/README.md).
 | MP-N3-C4 App meta-dashboard screen | Native list, navigation, refresh, offline cache | C4-T01 frame and machine states; C4-T02 row; C4-T03 navigation and Executor chat button; C4-T04 refresh; C4-T05 offline cache; C4-T06 device validation |
 | MP-N3-C5 Fixture gateway | Synthetic multi-machine server | C5-T01 |
 
-Candidate → final: C1 T1+T6 → C1-T01; C2 T1+T3 → C2-T01, T2 → C2-T02; C3 T1+T2 → C3-T01,
-T3 → C3-T02; C4 T2 → C4-T02, T3+T4 → C4-T03, T6 → C4-T05, new C4-T06; C5 T1+T2 → C5-T01.
+Candidate → final: C1 T1+T6 → C1-T01; C2 T1+T3 → C2-T01, T02 → C2-T02; C3 T1+T2 → C3-T01,
+T3 → C3-T02; C4 T2 → C4-T02, T03+T04 → C4-T03, T06 → C4-T05, new C4-T06; C5 T1+T2 → C5-T01.
 
 Order: C1-T01 → (C1-T02..T05 in parallel) → C2-T01 → C2-T02. C3-T02 → C3-T01 → C5-T01 can run
 alongside C1/C2. C4 waits for MP-N1 shell tickets, MP-N2 pairing and DESIGN-N3.

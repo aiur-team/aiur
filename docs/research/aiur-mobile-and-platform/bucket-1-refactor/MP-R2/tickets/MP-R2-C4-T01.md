@@ -5,12 +5,12 @@ chunk_id: MP-R2-C4
 bucket: 1 (refactor)
 title: Finalize the logical event-bus component in components.json (paths, narrowed facades, owned config and state); no Mix app, no file moves
 status: blocked
-blocked_by: [DESIGN-R2 §1, MP-R1-C1-T1, MP-R1-C1-T3, MP-R2-C2-T01, MP-R2-C2-T02, MP-R2-C2-T03, MP-R2-C2-T04, MP-R2-C2-T05, MP-R2-C2-T06, MP-R2-C2-T07, MP-R2-C2-T08, MP-R2-C2-T09, MP-R2-C2-T10, MP-R2-C2-T11, MP-R2-C3-T01, MP-R2-C3-T02]
+blocked_by: [DESIGN-R2 §1, MP-R1-C1-T01, MP-R1-C1-T03, MP-R2-C2-T01, MP-R2-C2-T02, MP-R2-C2-T03, MP-R2-C2-T04, MP-R2-C2-T05, MP-R2-C2-T06, MP-R2-C2-T07, MP-R2-C2-T08, MP-R2-C2-T09, MP-R2-C2-T10, MP-R2-C2-T11, MP-R2-C3-T01, MP-R2-C3-T02]
 prior_units: [U7, U8]
 prior_boundaries: [BUS #10]
 prior_features: [MP-R1 (KD1, KD2, KD7; C1 manifest and checker)]
 prior_findings: []
-size_owner: n/a (manifest edit; components.json is formatted by check-components.py --format, MP-R1-C1-T1)
+size_owner: n/a (manifest edit; components.json is formatted by check-components.py --format, MP-R1-C1-T01)
 base_sha: 45a290e3
 researched: 2026-10-06
 ---
@@ -25,7 +25,7 @@ researched: 2026-10-06
   MP-R1's checker enforces and what the public component directory page
   (MP-R1-C10, MP-REQ4) lists.
 - **Deliverable.** The `event-bus` entry in root `components.json` updated
-  from MP-R1-C1-T1's initial "today's paths" version to its post-seam
+  from MP-R1-C1-T01's initial "today's paths" version to its post-seam
   shape: exact member paths, a narrowed `facades` list with
   `facade_pending: null`, `requires`/`optional`, and `owns` (config section,
   state paths). The checker runs green with the event-bus ratchet count at
@@ -44,11 +44,11 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **MP-R1-C1-T1** (manifest + schema + ownership check exist) and
-  **MP-R1-C1-T3** (module-reference rules: private module, layer,
+- **MP-R1-C1-T01** (manifest + schema + ownership check exist) and
+  **MP-R1-C1-T03** (module-reference rules: private module, layer,
   required→optional). Without T3 the narrowed facades are not enforced.
 - All C2 seam tickets and C3-T01/T02: each removes one ratchet edge or adds
-  a member file; this ticket fixes the final shape. (Per MP-R1-C1-T1, each
+  a member file; this ticket fixes the final shape. (Per MP-R1-C1-T01, each
   of those PRs already adds its new files to `components.json`; this ticket
   narrows facades and removes `facade_pending`.)
 - DESIGN-R2 §1.
@@ -56,8 +56,8 @@ researched: 2026-10-06
 
 ## Verified starting point (45a290e3)
 
-- No `components.json` at base (`MP-R1-C1-T1`: `git ls-tree 45a290e3 components.json` empty).
-- MP-R1 entry shape (MP-R1-C1-T1 ticket): `id`, `name`, `layer`, `kind`,
+- No `components.json` at base (`MP-R1-C1-T01`: `git ls-tree 45a290e3 components.json` empty).
+- MP-R1 entry shape (MP-R1-C1-T01 ticket): `id`, `name`, `layer`, `kind`,
   `paths`, `facades`, `facade_pending`, `requires`, `optional`,
   `owns{config, env, state, capabilities}`, `prior`.
 - MP-R1 event-bus row (`component-map.md` §3 L1): paths
@@ -134,7 +134,7 @@ Final entry (values; formatting is the checker's):
    `python3 scripts/check-components.py` and list remaining event-bus
    violations (expected: none).
 2. Edit the entry as above; run `python3 scripts/check-components.py --format`.
-3. Delete any event-bus rows from the checker's ratchet allowlist (MP-R1-C1-T5).
+3. Delete any event-bus rows from the checker's ratchet allowlist (MP-R1-C1-T05).
 4. Do **not** delete `src/test/aiur/events/bus_boundary_test.exs` here; C4-T03 does.
 
 ## Non-happy paths
@@ -145,7 +145,7 @@ Final entry (values; formatting is the checker's):
 - A non-bus module imports a now-private module (e.g. a test helper in
   `src/lib/aiur/test_reset.ex` uses `IdGenerator` internals): checker
   failure names it; route it through a facade function.
-- Manifest drift (new event file added later without an entry): MP-R1-C1-T1
+- Manifest drift (new event file added later without an entry): MP-R1-C1-T01
   ownership rule fails CI.
 
 ## Compatibility and rollout
@@ -155,7 +155,7 @@ Manifest only. No runtime effect, no config, no packaging change. Rollback: reve
 ## Verification
 
 - `python3 scripts/check-components.py` exits 0; the event-bus ratchet count
-  is 0 (printed by the checker, MP-R1-C1-T5).
+  is 0 (printed by the checker, MP-R1-C1-T05).
 - `bash scripts/test-check-components.sh` green (MP-R1's fixtures).
 - Negative check (worktree, not committed): add
   `Aiur.Events.Publisher.publish("ticket.1.x", %{})` to

@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, "DESIGN-N2 Q5 (QR on instance dashboards; Basic-Auth hol
 prior_units: [U6]
 prior_boundaries: [WEB]
 prior_features: []
-prior_findings: []
+prior_findings: [security m5 (QR visibility)]
 size_owner: "WEB — router.ex and a new LiveView module (do not grow dashboard_live.ex, 2,903 lines, per U8)"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -50,6 +50,16 @@ C5-T01, C4-T01.
 
 - Context kind check: the LiveView reads the session context; device-kind contexts (C6-T02) get the
   locked state.
+- **QR visibility rules (Phase D, security m5; recorded in DESIGN-N2 Q5).** Because of D19 a device
+  paired here can write on *every* writable instance of the machine, so the QR (the pairing secret)
+  is shown only when **all** hold; otherwise the page shows the "Pair new devices from the machine"
+  state with `aiur mobile qr` and never calls `qr/0` (so no secret is issued):
+  1. the session is Basic-Auth kind (not device kind);
+  2. `observability.dashboard_writable` is true (a read-only dashboard must not grant write
+     authority elsewhere);
+  3. the page origin is loopback or HTTPS: `socket.host_uri` scheme `https`, or a peer of
+     `{127,0,0,1}` / `::1` (`get_connect_info(socket, :peer_data)`). A non-loopback plain-HTTP
+     origin would send the secret in clear.
 - `:erpc` errors map to: `:noconnection` → "Gateway offline" state with the CLI command;
   `{:exception, …}` / timeout → `unknown` state (never a specific guessed cause).
 - QR auto-refreshes when expired only on user action ("Show a new code"), never on a timer, so an
@@ -78,9 +88,15 @@ New route only; hidden from navigation when mobile is disabled (shows the "enabl
 3. `"gateway offline renders the offline state with the CLI command"`.
 4. `"unexpected erpc error renders unknown, not offline"`. *Fails without:* the cause-neutral fallback.
 5. `"no timer-driven QR refresh"` (advance a fake clock; the stub records one `qr/0` call).
+6. `"read-only dashboard hides the QR and issues no secret"` (m5; `dashboard_writable: false`) →
+   locked state, stub records zero `qr/0` calls. *Fails without:* the writable check.
+7. `"non-loopback plain-HTTP origin hides the QR and issues no secret"` (m5; `host_uri`
+   `http://192.168.1.5:4000`, peer `{192,168,1,20}`) → locked state, zero `qr/0` calls. *Fails
+   without:* the origin check.
+8. `"loopback HTTP and HTTPS origins show the QR"` — the rules must not over-match.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur_web/live/mobile_settings_live_test.exs
 ```
 

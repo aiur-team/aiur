@@ -98,7 +98,7 @@ pull-only (equivalent to `notice` without the notice).
   **Mutation:** make `on_change/4` a no-op → fails.
   `"sync to steer does nothing"`; `"same version twice is idempotent"`;
   `"re-entering async supersedes an undelivered notice"` (notice rule only).
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur/listener`.
 - Manual: wrapper-tmux; agent in async, send 2 messages, switch to sync via
   the C7 control; the chat pane shows the notice (or nothing for `skip`).

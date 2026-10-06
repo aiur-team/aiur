@@ -41,8 +41,10 @@ human supersedes an undelivered Executor answer).
   Raw audio never retained (D17).
 - N6-R5. D11 semantics for every submission outcome; responses delivered to the
   requesting worker/session or to the Executor when it asked (D12), unchanged routing.
-- N6-R6. Works from a phone with only the relevant components installed: `commands`,
-  `pairing`, `push`; voice and conversations are optional and shown unavailable when absent.
+- N6-R6. Works from a phone with only the relevant components installed: `commands` and
+  `pairing` are required. `push` is optional (Phase D, X-56): the Command screen also opens
+  from the in-app needs-you list (C1-T02), so a missing `push` removes only the
+  notification entry. Voice and conversations are optional and shown unavailable when absent.
 - N6-R7. Watch: compact context, options, mic choice; no pause/resume/spawn (brief N7).
 
 ## 3. Repository findings (extends baseline N6)
@@ -57,13 +59,13 @@ human supersedes an undelivered Executor answer).
 | Deep-linkable web route exists | `router.ex:142-143` (`/commands/:decision_id`) | WebView fallback target if MP-N1 keeps this surface web |
 | Voice is a Phoenix socket requiring CSRF + session | `aiur_web/endpoint.ex:26` (`/voice`); baseline N1 constraints | a device-authenticated voice path is an MP-E5/MP-N2 dependency |
 | Delivery to the agent addresses the ticket, dispatch cap 7,800 chars | `decision_dispatch.ex:22,30` | not the client limit (see next row) |
-| **Phase C:** the answer validator caps `custom_response` at 4,000 chars and reports a stale version as `{:stale_version, expected, current}` | `decision_answer.ex:15,55-59,158-159` | the phone counts against 4,000; the device API maps stale version to `409 stale_version` |
+| **Phase C:** the answer validator caps `custom_response` at 4,000 chars and reports a stale version as `{:stale_version, expected, current}` | `decision_answer.ex:15,55-59,158-159` | the phone counts against 4,000; the device API maps stale version to `409 decision_conflict` with `reason: "stale_version"` (command contract §6 rule 8) |
 
 ## 4. Proposed boundaries
 
 | Component | Interface | Notes |
 | --- | --- | --- |
-| Device Command API (daemon, per instance; requires a device token, pairing contract §4.4; own router scope before the `/api/v1/:issue_identifier` catch-alls; answers also need `x-aiur-request: 1` and `:require_writable`, MP-N6-C1-T01) | `GET /api/v1/device/commands/:id` → Command view (E2 presentation fields, routing state, version, anchor ref, requester); `POST /api/v1/device/commands/:id/answer` `{expected_version, idempotency_key, option_id \| custom_text, via: "tap"\|"dictate"\|"converse"}`; `GET /api/v1/device/commands?state=needs_you` | thin adapter over the MP-E2 contract; device auth plug from MP-N2; `commands.answer` capability |
+| Device Command API (daemon, per instance; requires a device token, pairing contract §4.4; own router scope before the `/api/v1/:issue_identifier` catch-alls; answers also need `x-aiur-request: 1` and `:require_writable`, MP-N6-C1-T01) | `GET /api/v1/device/commands/:id` → Command view (E2 presentation fields, routing state, version, anchor ref, requester); `POST /api/v1/device/commands/:id/answer` `{expected_version, idempotency_key, option_id \| custom_response, via: "tap"\|"dictate"\|"converse"}`; `GET /api/v1/device/commands?state=needs_you` | thin adapter over the MP-E2 contract; device auth plug from MP-N2; `commands.answer` capability |
 | Destination resolver (app) | `resolve(destination) -> Screen` | owns contract §3.1 rules; pure + testable |
 | Command response screen (phone) | native or WebView per MP-N1/DESIGN-N1 | presentation normative in DESIGN-E2 §4 |
 | Watch Command card | MP-N7 app | compact; hands off to phone for long context |
@@ -91,7 +93,7 @@ sequenceDiagram
       D-->>A: Command view (version v, routing, options, anchor)
       A-->>A: render context, 2–3 options, custom, mic
       A->>D: POST answer {expected_version v, idempotency_key k, option}
-      D-->>A: outcome (accepted | already_resolved | superseded_executor | stale | withdrawn)
+      D-->>A: 200 accepted|duplicate, or 409 decision_conflict{reason: already_decided|answer_in_flight|answer_delivered|stale_version|withdrawn}
     end
   end
 ```
@@ -146,6 +148,19 @@ device_id}` taken from the device token, never from the body.
   choice sheet states that audio goes to that provider (brief §7); push encryption is not
   presented as making voice local.
 
+- **Confirmation stays on the client (Phase D, security m4).** A Converse draft becomes
+  `confirmed` only through a `confirm_draft` event that the authenticated device socket
+  sends when the user presses Confirm. A provider `tool_call` or a provider transcript
+  ("yes, send it") never confirms. Answers and messages that came from voice carry a
+  neutral "via voice" tag (`via: "dictate" | "converse"`), so model text is never shown as
+  the human's own typed words.
+- **Voice errors are typed (Phase D, feasibility M7).** Every voice-session §6 end reason
+  and §8 code maps to its own copy and retry rule from voice-session §8.1, through the
+  shared fixture `packages/aiur-mobile/fixtures/contract/voice/end-reasons.json`
+  (C4-T02/T03). `cost_cap` and `provider_quota` offer no retry; `transport_lost` (which
+  is also what a daemon restart looks like to a live client) offers Retry;
+  `provider_error` and `unknown` stay cause-neutral.
+
 ### 5.4 Watch (with MP-N7)
 
 - Card: short label, requester, question (2 lines), up to 3 option buttons (recommended
@@ -156,6 +171,34 @@ device_id}` taken from the device token, never from the body.
 - Direct answers from a notification action button (without opening the app) are **not**
   in v1: they bypass the context screen the brief requires and their background-launch
   and locked-device behaviour must be validated first (E-A8, V-W4). Revisit after DESIGN-N6.
+
+### 5.5 State keys (Phase D)
+
+Tests in C2–C6 are named after these keys. They follow the order of DESIGN-N6 §5; the
+gate owns copy and layout, the keys only name the state (handed to DESIGN-N6 to adopt).
+
+| Key | DESIGN-N6 §5 state | Key | DESIGN-N6 §5 state |
+| --- | --- | --- | --- |
+| `S01` | loading | `S10` | stale (changed underneath) |
+| `S02` | loaded | `S11` | unreachable / offline |
+| `S03` | submitting | `S12` | not paired / revoked |
+| `S04` | accepted / delivering | `S13` | Command not found |
+| `S05` | delivered | `S14` | instance changed |
+| `S06` | already answered | `S15` | voice unavailable |
+| `S07` | Executor answer pending (Replace) | `S16` | mic permission denied |
+| `S08` | too late to replace | `S17` | `commands.answer` unavailable |
+| `S09` | no longer needed | `S18` | unlock to view (Phase D addition, C2-T02) |
+
+### 5.6 Data on the phone (Phase D, security M5 and m3)
+
+- The phone never writes Command text, conversation entry bodies or transcript excerpts
+  to disk. They live in memory only and are dropped on background-kill and wiped on
+  `401 device_revoked`. Only the draft (selected option id, typed text and its
+  `idempotency_key`, §5.2) is stored, in the app's protected storage, and it is deleted on
+  submit success, on revoke and when the Command is terminal.
+- `summary.title` and the short label are agent-authored text inside a trusted app. The
+  Command screen and the needs-you list render them with a "from agent" style (gate-owned
+  look, DESIGN-N6/E2), never as app chrome or system text.
 
 ## 6. Non-happy paths
 
@@ -169,6 +212,14 @@ device_id}` taken from the device token, never from the body.
 - **Offline / unreachable** → draft stays on device (text and selected option), Retry;
   answers are **not** queued for automatic later send in v1 (a queued answer could land
   after the situation changed; OQ-N6-1).
+  **Deliberate exception (Phase D, feasibility m6):** a watch answer that the phone could
+  not forward is sent later through WatchConnectivity `transferUserInfo` (MP-N7 plan §4/§8).
+  It is safe only because the phone re-sends it with the watch's original
+  `idempotency_key` and `expected_version`, and the store refuses it as `stale_version` or
+  `already_decided` when the Command changed; the watch then shows `stale` (device row
+  DV-W4b). The phone itself never queues. If DESIGN-N6 D-1 adopts queuing, the phone uses
+  the same guard; if the owner rejects the watch exception, MP-N7 drops the
+  `transferUserInfo` fallback, and DV-W4b stays as a regression guard.
 - **App-level auth (optional):** if DESIGN-N6 requires Face ID / device unlock before
   submitting from a locked state, the submit button triggers it; reading context does not.
 - **Executor-first awareness:** a human answer from the phone is recorded on the same
@@ -191,18 +242,22 @@ device_id}` taken from the device token, never from the body.
 2. AC-N6-2 The mic is inactive after tap; recording starts only after pressing Mic and
    choosing Dictate or Converse (UI test asserts no audio session before both actions).
 3. AC-N6-3 Two devices answer concurrently: exactly one `accepted`, the other
-   `already_resolved` naming the first (integration test against the E2 store).
+   `409 decision_conflict` with `reason: "already_decided"` naming the first (integration
+   test against the E2 store).
 4. AC-N6-4 Executor answered but undelivered: phone shows Replace; Replace supersedes and
    the worker receives only the human answer (V-M3).
 5. AC-N6-5 Network failure after submit, retry: one answer recorded (same key).
-6. AC-N6-6 Revoked device gets `revoked` and no Command data in the response body.
+6. AC-N6-6 Revoked device gets `401 device_revoked` (pairing contract §4) and no Command
+   data in the response body.
 7. AC-N6-7 With voice absent, mic shows unavailable with reason; text answering works.
 8. AC-N6-8 The device API never accepts an actor from the request body (test sends a
    forged actor and asserts the recorded actor is the device).
 
 ## 9. Open questions
 
-**Owner (Kevin):** OQ-N6-1 queue offline answers for later send (proposal: no);
+**Owner (Kevin):** OQ-N6-1 queue offline answers for later send (proposal: no on the
+phone; the watch `transferUserInfo` late answer is the one deliberate, version-guarded
+exception, §6);
 OQ-N6-2 require Face ID / unlock to submit (proposal: OS unlock only; no extra prompt);
 OQ-N6-3 watch: allow Converse on the watch or hand off to phone (with DESIGN-N7);
 OQ-N6-4 multi-question native Commands on a phone/watch (follows DESIGN-E2 §6.5).

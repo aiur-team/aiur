@@ -5,7 +5,7 @@ chunk_id: MP-N1-C2
 bucket: 3-mobile-watch
 title: Generate Swift and Kotlin wire models from aiur-contracts JSON Schemas (quicktype, pinned) with a three-language fixture decode check (resolves N1-RQ2, AC8)
 status: blocked
-blocked_by: [DESIGN-N1, MP-N1-C1-T02, MP-N1-C2-T01, MP-N1-C2-T02, MP-R1-C3-T6]
+blocked_by: [DESIGN-N1, MP-N1-C1-T02, MP-N1-C2-T01, MP-N1-C2-T02, MP-R1-C3-T06]
 prior_units: []
 prior_boundaries: []
 prior_features: [MP-R1, MP-N2, MP-N3, MP-E2]
@@ -24,7 +24,7 @@ researched: 2026-10-06
   identically, so a field rename breaks CI instead of silently showing wrong numbers.
 - **Deliverable:**
   - `packages/aiur-mobile/scripts/gen-models.mjs` (PROPOSED) running a pinned `quicktype`
-    over the JSON Schemas in `packages/aiur-contracts/schema/` to produce
+    over the JSON Schemas in `packages/aiur-contracts/schemas/` to produce
     `native/apple-core/Sources/AiurClientKit/Generated/*.swift` (Codable) and
     `native/android-core/src/main/kotlin/dev/aiur/client/core/generated/*.kt`
     (kotlinx.serialization). Generated files are committed.
@@ -37,15 +37,16 @@ researched: 2026-10-06
 - **N1-RQ2 resolution:** generator = `quicktype` (pinned exact version), not hand-written
   models. Reason: three languages from one source; hand-written models would need the same
   fixtures anyway and drift silently between them.
-- **Non-goals:** TS types (owned by MP-R1-C3-T6, which picks the TS generator), crypto vectors
+- **Non-goals:** TS types (owned by MP-R1-C3-T06, which picks the TS generator), crypto vectors
   (MP-N2-C5-T05, MP-N4-C1-T04 own them).
 
 ## Dependencies and blockers
 
 - DESIGN-N1; MP-N1-C1-T02 (CI); MP-N1-C2-T01/T02 (target packages).
-- **MP-R1-C3-T6** (`packages/aiur-contracts` with JSON Schema). Schemas for `InstanceEntry`,
-  `InstanceSummary` and Commands must be published there by MP-N2/MP-N3/MP-E2 — **contract
-  request** (they are specified in markdown only today). Until then the ticket can ship with
+- **MP-R1-C3-T06** (`packages/aiur-contracts` with JSON Schema). Schemas for `InstanceEntry`,
+  `InstanceSummary` and Commands must be published there by MP-N2/MP-N3/MP-E2 — accepted in
+  Phase D (A3): MP-N2-C4-T04, MP-N3-C1-T01 and MP-E2-C1-T04 publish them under
+  `packages/aiur-contracts/schemas/`. Until then the ticket can ship with
   the capability schema alone and add the others when they land.
 
 ## Verified starting point (base 45a290e3)

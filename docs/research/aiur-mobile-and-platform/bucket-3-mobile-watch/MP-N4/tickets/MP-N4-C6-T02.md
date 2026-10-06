@@ -22,7 +22,11 @@ researched: 2026-10-06
 Bucket 3, MP-N4, chunk C6. Make the phone-posted (already decrypted) notifications
 bridge to a paired Wear OS watch with correct grouping, and make phone-side retraction
 dismiss the watch copy: set `setDismissalId` (stream key) and bridge tags per channel;
-keep Command notifications bridged, decide per DESIGN-N7 whether progress bridges.
+decide per DESIGN-N7 whether progress bridges. **Phase D (N7 item 4, N7-RQ2):** Command
+notifications are posted with `WearableExtender().setBridgeTag("aiur-command")` and
+`setDismissalId("<instance_id>:<decision_id>")`; the Wear app excludes that tag from bridging
+and posts its own Command notification (MP-N7-C3-T04). Both values come from the shared
+`fixtures/watch-link/constants.json` (MP-N7-C1-T01).
 
 ## Dependencies and blockers
 

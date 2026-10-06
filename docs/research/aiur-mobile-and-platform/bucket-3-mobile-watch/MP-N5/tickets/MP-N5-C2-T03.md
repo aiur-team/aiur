@@ -5,7 +5,7 @@ chunk_id: MP-N5-C2
 bucket: 3-mobile-watch
 title: Progress rules — per-device 10/25/50 % thresholds from the E1 read API and progress signal
 status: ready
-blocked_by: [DESIGN-N5 (no-UI release), MP-N5-C2-T01, MP-N5-C1-T02, MP-E1-C7]
+blocked_by: [DESIGN-N5 (no-UI release), MP-N5-C2-T01, MP-N5-C1-T02, MP-E1-C7-T02, MP-E1-C7-T03]
 prior_units: []
 prior_boundaries: [BO #30, new #41 candidate push-relay]
 prior_features: [MP-E1]
@@ -21,7 +21,7 @@ researched: 2026-10-06
 
 Bucket 3, MP-N5, chunk C2. Rule module `Aiur.Push.Policy.Rules.Progress` (PROPOSED)
 implementing N5 plan §5.2 per RC-10: on each E1 progress-changed signal, read
-`Aiur.BuildQueue.progress/1` facts and, per device with progress enabled and per scope
+`Aiur.BuildProgress.facts/1` facts and, per device with progress enabled and per scope
 `{build_order, root} | {queue, id}` and generation, compute
 `crossed = floor(percent / step) * step`; if `crossed > last_notified_pct`, emit **one**
 intent for `crossed` (`progress.milestone`, or `progress.complete` at 100 / completed),
@@ -39,11 +39,12 @@ agree").
 
 ## Dependencies and blockers
 
-- **MP-E1-C7** (`Aiur.BuildQueue.progress/1` + internal progress-changed signal + the
-  25 % milestone topics). CR-N5-4 asks MP-E1 for the signal's exact name and payload
-  (`{scope, generation}` is all N5 needs).
-- C2-T01 (Source, ledger), C1-T02 (effective step; masked when `build_queue` or
-  `build_orders` absent).
+- **MP-E1-C7-T02 and C7-T03** (producers behind `Aiur.BuildProgress.facts/1` + the progress-changed signal
+  `Aiur.BuildProgress.subscribe/0` → PubSub `"build_progress"`, `{:build_progress_changed,
+  fact}` + the 25 % `….progress` topics). CR-N5-4 is closed: the contract §4.0 names the
+  signal (Phase D X-14).
+- C2-T01 (Source, ledger), C1-T02 (effective step; build-order scope masked when `build_orders` is
+  absent, queue scope when `build_queue` is absent — RC-40).
 - DESIGN-N5 D-5 (re-notify when a reopened root completes again): implemented as the
   constant `@renotify_new_generation true` (proposal); if D-5 = no, the constant flips and
   the tracker ignores generation for `complete` only — both paths are tested, so the
@@ -57,7 +58,7 @@ agree").
   (`src/lib/aiur/build_order/root_summary.ex:6,8-27`).
 - Queue-readiness contract §4.1 (facts `{scope, completed, resolved, total, percent,
   resolution, observed_at, freshness}`), §4.2 (no bursts, no repeats per generation, none
-  from unresolved/unknown), §5 (`Aiur.BuildQueue.progress/1`).
+  from unresolved/unknown), §5 (`Aiur.BuildProgress.facts/1`, `subscribe/0`).
 - Existing test file for progress semantics: `src/test/aiur/build_order/root_summary_progress_test.exs`.
 
 ## Chosen design

@@ -5,7 +5,7 @@ chunk_id: MP-N1-C8
 bucket: 3-mobile-watch
 title: "Privacy disclosures: App Store privacy details and manifest, Play Data safety, in-app privacy text separating push privacy from cloud voice"
 status: blocked
-blocked_by: [DESIGN-N1, OQ-N1-1, MP-N4-C3-T06, MP-E6-C2-T2, MP-N1-C6-T01, MP-N1-C5-T02]
+blocked_by: [DESIGN-N1, OQ-N1-1, MP-N4-C3-T06, MP-E6-C2-T02, MP-N1-C6-T01, MP-N1-C5-T02]
 prior_units: []
 prior_boundaries: [SITE]
 prior_features: [MP-N4, MP-E5, MP-E6, MP-N7]
@@ -31,7 +31,15 @@ researched: 2026-10-06
   2. A disclosures matrix `packages/aiur-mobile/docs/privacy-matrix.md` (PROPOSED): one row per
      data flow (pairing, device token, sealed push payload, relay routing metadata per MP-N4,
      dashboard traffic, server STT via the machine, MP-E6 conversation provider, watch system
-     dictation), with who can read it.
+     dictation, **phone keyboard dictation in the WebView composer**), with who can read it.
+     **Copy sources (Phase D security m2, m10):** the relay/provider rows copy the metadata rows
+     of `contracts/notification-destination-and-payload.md` §1 verbatim, including the Phase D
+     additions: the key id `k` (`kid`) in the clear provider payload (stable per device and
+     machine, seen by Apple/Google); the FCM `collapse_key` `a`/`b` (tells Google "Command or
+     not"); `push_class` and priority (tell the relay and Apple/Google when a blocking Command
+     occurs); and the **device IP** the relay sees at `POST`/`DELETE /v1/handles`. The voice rows
+     copy `contracts/voice-session.md` §10, including the row "System dictation (watch/phone
+     keyboard): audio to Apple or Google under their policy; aiur receives text only".
   3. Store answers derived from the matrix: App Store privacy details; Play Data safety (only if
      distributed beyond internal testing).
   4. In-app "Privacy" screen text (DESIGN-N1 copy) rendering the same matrix.
@@ -40,7 +48,7 @@ researched: 2026-10-06
 ## Dependencies and blockers
 
 - OQ-N1-1 (which stores and tracks); MP-N4-C3-T06 (privacy tests define what the relay sees);
-  MP-E6-C2-T2 (conversation provider adapter: what reaches the provider); MP-N1-C6-T01;
+  MP-E6-C2-T02 (conversation provider adapter: what reaches the provider); MP-N1-C6-T01;
   MP-N1-C5-T02 (ATS justification text, if the degraded mode exists).
 
 ## Verified starting point (base `45a290e3`)
@@ -81,8 +89,11 @@ Docs and metadata; no runtime change except the Privacy screen.
 ## Verification
 
 Jest `src/screens/privacy/__tests__/privacyMatrix.test.ts`: every registered `privacyFlow` id
-(pairing, push, voice_server, voice_conversation, watch_dictation) has a matrix row and an
-in-app paragraph (mutation: delete the voice row → fails). Manual: Xcode "Generate Privacy Report"
+(pairing, push, push_metadata, voice_server, voice_conversation, watch_dictation,
+keyboard_dictation) has a matrix row and an
+in-app paragraph (mutation: delete the voice row → fails). `privacyMatrixCopiesContractRows`:
+the `push_metadata` row lists `kid`, `collapse_key`, `push_class`, `device IP` (mutation: drop
+`device IP` → fails). Manual: Xcode "Generate Privacy Report"
 on the archive from MP-N1-C8-T01 matches the manifest; record it.
 
 ```bash

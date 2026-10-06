@@ -18,6 +18,18 @@ Researched at aiur `45a290e3` and Khala `origin/main` `99e72a43` on
 today's interrupting dashboard, Stream Deck and `aiur message` sends.
 C7-T04 flips it only after DESIGN-E7 approves E7-D6 (the `sync` default).
 
+**RC-36 (Phase D): router in core, spec as a build-time input.** The send
+router (`Aiur.Listener.*`: `send/3`, mode store, scheduler; component
+`listener-modes`) is a **required** part of core. `AgentChat.send/3` delegates
+to it, and it delivers through `Aiur.Listener.DeliveryTarget`, which
+orchestration implements (C3-T03). The shared spec package (component
+`listener-spec`, MP-Q1/E7-D1) is vendored at build time into
+`src/priv/listener_spec/` with `src/priv/listener_spec/CHECKSUM` (C1-T04) and
+is never a runtime dependency. Spec absent → `:legacy` routing and
+`listener_modes: unavailable/not_installed`; checksum or decode failure →
+`:legacy` and `unavailable/spec_invalid`; flag `:legacy` with a good spec →
+`unavailable/disabled` (C3-T02, C3-T06).
+
 ## Ticket table
 
 | ID | Title | Repo | Status | blocked_by (besides DESIGN-E7) | Wave |
@@ -26,7 +38,7 @@ C7-T04 flips it only after DESIGN-E7 approves E7-D6 (the `sync` default).
 | [C1-T02](MP-E7-C1-T02.md) | Generate schema, `scheduler.v1.json`, envelope-only goldens | khala (cross-repo) | blocked | E7-D1, C1-T01 | 3 |
 | [C1-T05](MP-E7-C1-T05.md) | Add `backlog_on_leave_async` and `steer_carrier` to v1 before release | khala (cross-repo) | blocked | E7-D1, C1-T02 | 3 |
 | [C1-T03](MP-E7-C1-T03.md) | Publish by `listener-v*` tag via `release-npm.yml` | khala (cross-repo) | blocked | E7-D1, C1-T05, OWNER-NPM-FIRST-PUBLISH | 3 |
-| [C1-T04](MP-E7-C1-T04.md) | Vendor spec into `src/priv/listener/v1` with sha256 gate | aiur | blocked | E7-D1, C1-T03 | 3 |
+| [C1-T04](MP-E7-C1-T04.md) | Vendor spec into `src/priv/listener_spec/v1` with sha256 gate | aiur | blocked | E7-D1, C1-T03 | 3 |
 | [C2-T01](MP-E7-C2-T01.md) | `Aiur.Listener.ModeStore` (durable, CAS) | aiur | blocked | E7-D5 | 3 |
 | [C2-T02](MP-E7-C2-T02.md) | `Aiur.Listener.Effective.compute/2` | aiur | blocked | MP-R7-C2-T01, MP-R7-C2-T03 | 3 |
 | [C2-T03](MP-E7-C2-T03.md) | Internal listener control API (no HTTP/CLI/snapshot field) | aiur | ready | C2-T01, C2-T02 | 3 |
@@ -37,6 +49,7 @@ C7-T04 flips it only after DESIGN-E7 approves E7-D6 (the `sync` default).
 | [C3-T03](MP-E7-C3-T03.md) | Route every send entry point through `:listener`; `Aiur.Listener.send/3` | aiur | blocked | C3-T02, MP-R7-C1-T02 | 3 |
 | [C3-T04](MP-E7-C3-T04.md) | `Aiur.Listener.receipt/2` (contract §7) | aiur | ready | C3-T01 | 3 |
 | [C3-T05](MP-E7-C3-T05.md) | Conformance against vendored `scheduler.v1.json` | aiur | ready | C1-T04, C2-T02, C3-T02 | 3 |
+| [C3-T06](MP-E7-C3-T06.md) | Capability provider for `listener_modes` (X-21, RC-36) | aiur | blocked | C3-T03, MP-R1-C3-T01 | 3 |
 | [C4-T01](MP-E7-C4-T01.md) | **Precondition:** fix `aiur-claude` `turn/steer` text drop | claude-app-server (cross-repo) | blocked | DESIGN-R7 (§2 decision 2) | 4 |
 | [C4-T02](MP-E7-C4-T02.md) | Codex native steer via `turn/steer` | aiur | blocked | C3-T02, C3-T03, MP-R7-C2-T01, MP-R7-C2-T02 | 4 |
 | [C4-T03](MP-E7-C4-T03.md) | Muse native steer via MSP `turn/steer` | aiur | blocked | C4-T02, MP-R7-C2-T02 | 4 |
@@ -55,8 +68,9 @@ C7-T04 flips it only after DESIGN-E7 approves E7-D6 (the `sync` default).
 | [C7-T04](MP-E7-C7-T04.md) | Flip `:listener_send_routing` to `:listener`; delete legacy branch | aiur | blocked | E7-D6, C3-T03, C3-T05, C7-T01, C7-T03, C4-T02 | 4 |
 | [C7-T05](MP-E7-C7-T05.md) | Docs: concept, CLI reference, config key only if E7-D7, skill note | aiur | ready | C7-T03, C5-T01 | 4 |
 
-IDs above drop the `MP-E7-` prefix. Totals: 32 tickets (14 wave 3, 18
-wave 4): 13 ready, 19 blocked. Repos: 4 Khala, 1 claude-app-server, 27 aiur.
+IDs above drop the `MP-E7-` prefix. Totals: 33 tickets (15 wave 3, 18
+wave 4): 13 ready, 20 blocked. Repos: 4 Khala, 1 claude-app-server, 28 aiur.
+Phase D added C3-T06.
 
 ## Dependency order
 
@@ -68,7 +82,8 @@ Wave 3
           C3-T01 ─┬► C3-T02 (needs C2-T03) ─► C3-T03             │
                   └► C3-T04                                      │
           C1-T04 + C2-T02 + C3-T02 ─► C3-T05 ◄───────────────────┘
-          ── consumers: MP-E3-C5-T1, MP-E4-C6-T3 call Listener.send/3 and receipt/2
+          C3-T03 + MP-R1-C3-T01 ─► C3-T06 (capability provider)
+          ── consumers: MP-E3-C5-T01, MP-E4-C6-T03 call Listener.send/3 and receipt/2
 Wave 4
   C4-T01 (sibling precondition; headless Claude steer text)
   C3-T02/T03 ─► C4-T02 ─┬► C4-T03

@@ -117,5 +117,5 @@ Commands (from `src/`): `mise exec -- mix test test/aiur/push/crypto/hpke_test.e
 
 - [ ] All vector tests pass; mutation results named in the PR body.
 - [ ] No production caller passes `:ephemeral_private` (grep test in C1-T03's suite).
-- Docs: none. Dependents: C1-T03, C1-T04, C3-T03; native cores N1-C2-T3 use the same
+- Docs: none. Dependents: C1-T03, C1-T04, C3-T03; native cores N1-C2-T03 use the same
   vectors through C1-T04.

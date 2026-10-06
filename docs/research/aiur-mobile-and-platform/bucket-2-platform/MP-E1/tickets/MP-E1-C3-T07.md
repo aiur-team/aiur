@@ -83,7 +83,7 @@ Mutation check: skip the awaiting phase → test 3 fails; re-run unfinished
 intents blindly → test 1 sees 2 calls.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/recovery_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/recovery_test.exs
 ```
 
 ## Completion and handoff

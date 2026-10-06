@@ -104,7 +104,7 @@ Mutation check: revert each hunk separately; its test fails; restore. Run in a
 worktree with a clean `git status --porcelain` besides the revert.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/orchestrator/issue_sync_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/orchestrator/issue_sync_test.exs
 ```
 
 ## Completion and handoff

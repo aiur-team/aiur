@@ -5,11 +5,11 @@ chunk_id: MP-N2-C6
 bucket: 3-mobile-watch
 title: "Instance `AiurWeb.DeviceAuth`: accept device bearer tokens on `:dashboard_auth` routes; advert `mobile_device_auth` flag"
 status: blocked
-blocked_by: [DESIGN-N2, MP-N2-C1-T03, MP-N2-C5-T03, MP-N2-C2-T01, MP-R3-C1-T01]
+blocked_by: [DESIGN-N2, MP-N2-C1-T03, MP-N2-C5-T03, MP-N2-C2-T01, MP-R3-C1-T01, MP-N2-C10-T01]
 prior_units: [U6]
 prior_boundaries: [WEB]
 prior_features: [MP-R3, MP-R1]
-prior_findings: []
+prior_findings: [security M3 (transport check), m8 (device:<id>)]
 size_owner: "WEB — router.ex is in the U8 ledger (MP-N2-C6 named there); look up the owner at the implementation SHA"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -35,7 +35,7 @@ researched: 2026-10-06
 DESIGN-N2 (gate; no UI); MP-N2-C1-T03 (`Machine.Store.verify_token/1`, mtime cache, constant-time
 compare); MP-N2-C5-T03 (token format `aiurd_`); MP-N2-C2-T01 (advert writer); MP-R3-C1-T01 (route
 auth census, which must list the device pipeline as an allowed authenticator — CONTRACT-REQUESTS
-item 2). Concurrent with C6-T02/T03 after the predicate below exists.
+item 2); MP-N2-C10-T01 (Phase D: `HttpServer.bound_address/1` for the M3 transport check). Concurrent with C6-T02/T03 after the predicate below exists.
 
 ## Verified starting point (base `45a290e3`)
 
@@ -66,10 +66,20 @@ end
   with `aiurd_` → `{:bearer, token}`. Any other bearer (e.g. a supervisor token sent to the wrong
   route) is `:no_bearer`, so Basic Auth answers as today (no behaviour change for existing callers).
 - `authenticate/2`:
+  - **transport check first (Phase D, security M3; pairing security sibling §S3)**, before any
+    store read: accept only when (a) `conn.scheme == :https` (the HTTPS listener, MP-N2-C10-T01), or (b) `conn.remote_ip` is `{127,0,0,1}` or `::1` (only those count as loopback, MP-R3-C1-T01), or
+    (c) `conn.scheme == :http`, `transport.allow_cleartext_overlay` is true
+    **and** the HTTP listener's bound address (`Aiur.HttpServer.bound_address(:http)`, from
+    `Bandit.PhoenixAdapter.server_info/2`, PROPOSED in MP-N2-C10-T01) is inside `transport.cleartext_overlay_cidrs`
+    (default `100.64.0.0/10`, `fd7a:115c:a1e0::/48`; a wildcard bind never matches). Else
+    `401 {"error":"device_auth_insecure_transport"}`. One D19 token works on every instance,
+    so a token sniffed on one cleartext port must not be usable anywhere;
   - mobile disabled or no machine store → `401 {"error":"device_auth_disabled"}`;
   - store unreadable/corrupt → `401 device_auth_unavailable` (fail closed, contract §9);
   - `verify_token/1` → `{:ok, device}` sets `conn.private[:aiur_auth] = {:device, device_id}`,
-    `assigns[:auth_actor] = %{kind: :device, id: device_id}`, **does not** stage a session marker
+    `assigns[:auth_actor] = %{kind: :device, id: "device:" <> device_id, actor_source: :device}`
+    (the single attribution spelling, command contract §6, security m8: every writing
+    controller reads `auth_actor` instead of hard-coding `"dashboard"`), **does not** stage a session marker
     (bearer requests are stateless); `{:error, :expired}` → `401 token_expired`;
     `{:error, :revoked}` → `401 device_revoked`.
 - Authority: identical to a Basic-Auth operator on that instance (D19, contract §4.4) — the plug
@@ -79,8 +89,12 @@ end
 
 ## Implementation steps
 
-1. `src/lib/aiur_web/device_auth.ex` (≈ 120 lines). 2. Two-line branch in `router.ex`
+1. `src/lib/aiur_web/device_auth.ex` (≈ 150 lines, including the M3 transport check and CIDR
+   match via `:inet` address tuples). 2. Two-line branch in `router.ex`
    `dashboard_basic_auth/2`. 3. Advert flag wiring (C2-T01 calls `DeviceAuth.enabled?/0`).
+4. Writing controllers that accept `:dashboard_auth` (`observability_api_controller.ex`
+   message and Command actions) take the actor from `conn.assigns[:auth_actor]` when present
+   (m8).
 
 ## Non-happy paths
 
@@ -91,6 +105,9 @@ end
 | Bearer and Basic both sent | Bearer path wins; Basic is ignored (documented). |
 | Mobile disabled after tokens were issued | `device_auth_disabled` immediately (predicate read per request through the cached settings). |
 | `dashboard_writable: false` | Reads work; writes still 403 from `:require_writable`. |
+| Bearer on a LAN-bound plain-HTTP listener | `401 device_auth_insecure_transport`, store not read (M3). |
+| `allow_cleartext_overlay: true` but HTTP bound to `0.0.0.0` | refused: the flag alone is never enough (M3). |
+| Local reverse proxy forwarding remote traffic to loopback | accepted as loopback; the token is the boundary, and the pairing guide says so (MP-N2-C9-T01). |
 
 ## Compatibility and rollout
 
@@ -110,12 +127,28 @@ Stream Deck and supervisor tests must pass unchanged (MP-N2 plan acceptance 1).
 5. `"non-aiurd bearer falls through to basic auth"` (future-regression guard; comment says so).
 6. `"device token cannot POST /api/v1/:id/messages on a read-only dashboard"` → 403 `dashboard is read-only`.
 7. `"logs contain device_id and never the token"`.
+8. **`"device bearer on a non-loopback plain-HTTP listener is refused"`** (security M3) — conn
+   with `scheme: :http`, `remote_ip {192,168,1,20}`, injected bound address
+   `{192,168,1,5}` → `401 device_auth_insecure_transport`, and the injected store reader is not
+   called. *Fails without:* the listener check (remove it and the request gets 200).
+9. `"cleartext overlay accepted only when the bound address is in an overlay CIDR"` — bound
+   `100.101.2.3` + flag true → 200; bound `0.0.0.0` + flag true → 401; bound `100.101.2.3` +
+   flag false → 401. *Fails without:* the CIDR check (flag-only implementation passes the
+   first and third rows and fails the second).
+10. `"HTTPS listener and loopback peers accept the bearer"` — guard must not over-match.
+10a. Bind-matrix extension in the MP-R3-C1-T01 suite (`src/test/aiur/http_server_credential_gate_test.exs`):
+   `"device bearer refused on a LAN-bound plain HTTP listener"` for binds `0.0.0.0`, `::` and a
+   private LAN address, with and without `allow_cleartext_overlay`, through a real bound
+   listener. *Fails without:* the transport check.
+11. `"message sent with a device bearer records device:<id>"` (m8) — POST
+   `/api/v1/:issue/messages` with a bearer → the queued operator message's actor id is
+   `"device:<id>"`, not `"dashboard"`. *Fails without:* the controller reading `auth_actor`.
 
 Existing suites that must stay green: `test/aiur/http_server_credential_gate_test.exs`, every
 `test/aiur_web/*router*` and Stream Deck session test.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur_web/device_auth_test.exs test/aiur_web test/aiur/http_server_credential_gate_test.exs
 ```
 
@@ -126,3 +159,12 @@ env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOK
 - [ ] Docs: `website/docs-app/apis/` or the pairing guide states that device tokens carry operator
       authority and that `observability.dashboard_writable` still governs writes.
 - [ ] Dependents: MP-N2-C6-T02, MP-N2-C6-T03, MP-R1-C3 capability endpoint (accepts device tokens via this plug).
+
+## Phase D additions (contract requests CR-N5-1, CR-N6-1, E5 R-2)
+
+- Also define the router pipeline `:device_auth` for device-only scopes
+  (`/api/v1/device/*`): bearer required, no Basic-Auth fallback, same errors as above.
+- On success both paths set `conn.assigns.device_id` (besides `auth_actor`); routes never
+  read a device id from the body. Consumers: MP-N5-C1-T03, MP-N6-C1-T01, MP-E5-C8-T01.
+- Test: "`:device_auth` route rejects Basic Auth with 401" and "device_id assign equals the
+  token's device" (mutation: read `device_id` from params → fails).

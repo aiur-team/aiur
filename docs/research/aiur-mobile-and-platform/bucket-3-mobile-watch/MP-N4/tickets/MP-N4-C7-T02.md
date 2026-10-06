@@ -65,3 +65,5 @@ The report itself; reviewer checks that every §2 row has a result and evidence.
 
 - [ ] Report committed next to the plan with date, sample sizes, devices.
 - [ ] UNVERIFIED items resolved one way or the other (AC-N4-9).
+- [ ] Watch rows V-W1..V-W4 are not re-run here: link the MP-N7-C6-T01/T02 reports
+      (Phase D, N7 item 5).

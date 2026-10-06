@@ -76,6 +76,12 @@ end
   derives an id from the display number alone. If two conversations claim the
   same display identifier (the issue was transferred), it returns 409
   `ambiguous_subject` with both ids.
+- **Principal (Phase D, security M5).** The controller derives the History
+  principal from the authenticated connection, never from a parameter:
+  `conn.assigns.device_id` set (device bearer, MP-N2-C6-T01) → `{:device, id}`;
+  Basic Auth from a loopback peer → `{:operator, :loopback}`; other Basic Auth →
+  `{:operator, :basic_auth}`. A `reveal=true` query parameter is passed through and the
+  History layer ignores it for anything but loopback.
 - All responses carry `Cache-Control: no-store` (bodies may hold secrets,
   contract §12).
 - No write verbs; a POST to these paths is 405 via the method catch-all.
@@ -110,7 +116,7 @@ end
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur_web/conversation_api_controller_test.exs test/aiur_web/router_auth_test.exs
 ```
 
@@ -124,6 +130,8 @@ env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test
 | "requires dashboard auth when configured" (router_auth_test) | 401 without credentials | `:dashboard_auth` pipe |
 | "resolve executor when none attached → 404 subject_not_found" | 404 | resolve branch |
 | "response has Cache-Control: no-store" | header present | header line |
+| "device bearer read is masked" (M5) | request with a device bearer (MP-N2-C6-T01 test helper) → body without the fixture token, `redacted: true` | principal derivation (hard-code `{:operator, :basic_auth}` and it fails) |
+| "reveal=true from a non-loopback Basic-Auth peer stays masked" | masked body | loopback derivation |
 
 ## Completion and handoff
 

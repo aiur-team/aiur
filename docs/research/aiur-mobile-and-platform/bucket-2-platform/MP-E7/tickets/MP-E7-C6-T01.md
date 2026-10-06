@@ -43,10 +43,10 @@ researched: 2026-10-06
   `provider_session_id`) and **MP-E3-C1-T02** (hook token file, bearer auth,
   and the payload normalizer returning `{event, session_id, …}`). This
   endpoint reuses both; it must not define a second token or normalizer.
-  (MP-E3 chunks list them as "MP-E3-C1-T1/T2"; two-digit IDs assumed.)
+  (MP-E3 chunks list them as "MP-E3-C1-T01/T02"; two-digit IDs assumed.)
 - **MP-E7-C3-T02** (scheduler decision per mode × boundary) and
   **MP-E7-C6-T04** (Elixir envelope renderer).
-- **Order:** MP-E3-C1 → this → MP-E3-C5-T1 (Executor send adapter). **May run
+- **Order:** MP-E3-C1 → this → MP-E3-C5-T01 (Executor send adapter). **May run
   concurrently with** C6-T02/T03 once the path and response contract below are
   fixed.
 
@@ -57,7 +57,9 @@ researched: 2026-10-06
   (`aiur_web/router.ex:166-178`), fed by a stdout-silent, `curl -m 2`,
   always-exit-0 command (`claude/hook_settings.ex:26-45`).
 - MP-E3-C1-T02 plans `POST /api/v1/executor/hook` with a 0600 bearer token in
-  `<executor-state-dir>/hook-token`, always `202`, never blocking
+  `StatePaths.dir()/<repo>.<instance_key>.executor.hook-token` (per instance; read it
+  only through `Aiur.Executor.HookToken.path/0`/`read/0`, and the daemon URL from the
+  `…executor.hook-url` file at run time — listener-mode §8, Phase D CR-E3-4/5), always `202`, never blocking
   (MP-E3 `chunks.md` "MP-E3-C1"). That endpoint stays ingest-only and silent;
   delivery is a separate endpoint because its response body is printed into
   the session.
@@ -74,6 +76,7 @@ Request handling, in order:
 1. **Auth:** bearer token = MP-E3-C1-T02's hook token (constant-time
    compare). Remote IP must be loopback (`{127,0,0,1}` or `::1`), contract §12;
    otherwise `403`. Wrong/missing token → `401`, no state change.
+   The loopback `remote_ip` check is defence in depth, not the boundary: a local tunnel or reverse proxy that forwards remote traffic to `127.0.0.1` passes it. The hook token is the boundary. (pairing contract security sibling §S3; same wording as MP-E3-C1-T02; security m10.)
 2. **Normalize** with MP-E3's normalizer; reject if `session_id` ≠ the
    current binding's `provider_session_id` → `204` (a hook from another
    session must never receive Executor messages).
@@ -154,7 +157,7 @@ installed hooks then get `404` and print nothing.
   `"hook from a different session id returns 204"`; `"non-loopback remote_ip
   returns 403"`; `"wrong token returns 401 without state change"`;
   `"render failure restores the item to pending"`.
-- Command: `env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec --
+- Command: `env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec --
   mix test test/aiur_web/controllers test/aiur/orchestrator`.
 - Manual: see C6-T03 (end-to-end with a real Claude Code Executor session).
 
@@ -162,5 +165,8 @@ installed hooks then get `404` and print nothing.
 
 - [ ] Tests and mutation checks in PR.
 - [ ] Response contract (200 → print, else nothing) unchanged from this doc.
-- Docs: C7-T05 (concepts: how the Executor receives messages).
-- Dependents: C6-T02, C6-T03, MP-E3-C5-T1.
+- Docs: C7-T05 (concepts: how the Executor receives messages); that page carries the sentence
+  "The loopback `remote_ip` check is defence in depth, not the boundary: a local tunnel or
+  reverse proxy that forwards remote traffic to `127.0.0.1` passes it. The hook token is the
+  boundary."
+- Dependents: C6-T02, C6-T03, MP-E3-C5-T01.

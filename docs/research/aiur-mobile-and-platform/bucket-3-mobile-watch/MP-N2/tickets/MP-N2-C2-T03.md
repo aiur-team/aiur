@@ -86,7 +86,7 @@ Read-only. If U1/U9 change the record format, the fixture test fails loudly (tha
    (future-regression guard; comment says so).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/instance_record_test.exs
 ```
 

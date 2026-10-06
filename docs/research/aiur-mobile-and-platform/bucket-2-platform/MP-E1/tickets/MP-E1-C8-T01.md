@@ -85,7 +85,7 @@ Dashboard only; no API change. Respects existing dashboard auth.
 Mutation check: as listed (unknown → `0`, drop subscription).
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur_web/live/build_queue_live_test.exs test/aiur_web/operator_control_center/route_registry_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur_web/live/build_queue_live_test.exs test/aiur_web/operator_control_center/route_registry_test.exs
 ```
 
 ## Completion and handoff

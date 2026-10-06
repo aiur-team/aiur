@@ -5,7 +5,7 @@ chunk_id: MP-E2-C1
 bucket: 2-platform
 title: Persist v2 Command attributes in a request_attributed event
 status: blocked
-blocked_by: [DESIGN-E2]
+blocked_by: [DESIGN-E2, MP-R1-C11-T03]
 prior_units: [U6, U8]
 prior_boundaries: [DEC #27]
 prior_features: [MP-R1 (identity contract, session_ref)]
@@ -40,6 +40,8 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
+- **MP-R1-C11-T03** (final plan refresh after the refactor): enforces "refactor before
+  features" (D1, RC-35). Re-read this ticket's paths against the refreshed plan before starting.
 - Blocked by **DESIGN-E2** (pack rule: every implementation ticket waits on its gate;
   DESIGN-E2's header allows backend-only C1 to proceed once the coordinator relaxes it).
 - Predecessors: none in MP-E2. Cross-feature: MP-R1 identity contract for the

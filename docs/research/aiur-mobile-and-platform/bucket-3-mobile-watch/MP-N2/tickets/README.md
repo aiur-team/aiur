@@ -15,19 +15,19 @@ C10-T04 (T-B); C10-T01, T02 and T05 apply to both.
 | [MP-N2-C2-T03](MP-N2-C2-T03.md) | Safe parser for launcher .instance records (allow-listed keys, bash %q decoding, never exe | blocked | DESIGN-N2 | 1 |
 | [MP-N2-C3-T01](MP-N2-C3-T01.md) | ~/.aiur/machine settings schema and loader (mobile, gateway, pairing, transport), independ | blocked | DESIGN-N2 | 1 |
 | [MP-N2-C1-T02](MP-N2-C1-T02.md) | Device rows, pairing secrets and token hashes with atomic writes and a single-writer store | blocked | DESIGN-N2, MP-N2-C1-T01 | 2 |
-| [MP-N2-C10-T01](MP-N2-C10-T01.md) | Instance dashboards open a second, HTTPS listener from the machine transport settings | blocked | DESIGN-N2, RQ-TRANSPORT, MP-N2-C3-T01, MP-R3-C1-T02 | 2 |
+| [MP-N2-C10-T01](MP-N2-C10-T01.md) | Instance dashboards open a second, HTTPS listener from the machine transport settings | blocked | DESIGN-N2, RQ-TRANSPORT, MP-N2-C3-T01, MP-R3-C1-T01 | 2 |
 | [MP-N2-C3-T05](MP-N2-C3-T05.md) | Extend check-config-docs.py so every ~/.aiur/machine key must be documented (machine: pref | blocked | DESIGN-N2, MP-N2-C3-T01 | 2 |
-| [MP-N2-C1-T03](MP-N2-C1-T03.md) | verify_token/1 with an mtime-keyed cache, constant-time hash compare, expiry and revocatio | blocked | DESIGN-N2, MP-N2-C1-T02 | 3 |
+| [MP-N2-C1-T03](MP-N2-C1-T03.md) | verify_token/1 with an mtime-keyed cache, constant-time hash compare, expiry and revocatio | blocked | DESIGN-N2, MP-N2-C1-T02, MP-N2-C1-T04 | 4 |
 | [MP-N2-C1-T04](MP-N2-C1-T04.md) | Append-only machine journal with no secret fields | blocked | DESIGN-N2, MP-N2-C1-T02 | 3 |
-| [MP-N2-C2-T01](MP-N2-C2-T01.md) | Instance advertisement writer (<slug>.advert.json, 30 s refresh, device URL from the trans | blocked | DESIGN-N2, RQ-TRANSPORT, MP-N2-C3-T01, MP-N2-C10-T01, MP-R1-C2-T02, MP-R1-C2-T03 | 3 |
+| [MP-N2-C2-T01](MP-N2-C2-T01.md) | Instance advertisement writer (<slug>.advert.json, 30 s refresh, device URL from the trans | blocked | DESIGN-N2, RQ-TRANSPORT, MP-N2-C3-T01, MP-N2-C10-T01, MP-R1-C2-T02, MP-R1-C3-T02 | 3 |
 | [MP-N2-C4-T01](MP-N2-C4-T01.md) | Lean gateway boot (hidden node aiur-$USER-machine, no Aiur.Application tree) and its super | blocked | DESIGN-N2, MP-N2-C1-T02, MP-N2-C3-T01, MP-R1-C1-T01 | 3 |
 | [MP-N2-C2-T02](MP-N2-C2-T02.md) | Remove the advert on clean shutdown and define the stale-advert rule | blocked | DESIGN-N2, MP-N2-C2-T01 | 4 |
 | [MP-N2-C3-T02](MP-N2-C3-T02.md) | `aiur mobile` launcher dispatch, enable/disable/devices, and CLI write routing (gateway up | blocked | DESIGN-N2, MP-N2-C3-T01, MP-N2-C1-T01, MP-N2-C1-T02, MP-N2-C1-T04 | 4 |
-| [MP-N2-C4-T03](MP-N2-C4-T03.md) | Gateway device-token plug, signed versioned JSON responses (machine_key), and GET /v1/mach | blocked | DESIGN-N2, MP-N2-C4-T01, MP-N2-C1-T03, MP-N2-C1-T01 | 4 |
+| [MP-N2-C4-T03](MP-N2-C4-T03.md) | Gateway device-token plug, signed versioned JSON responses (machine_key), and GET /v1/mach | blocked | DESIGN-N2, MP-N2-C4-T01, MP-N2-C1-T03, MP-N2-C1-T01 | 5 |
 | [MP-N2-C2-T04](MP-N2-C2-T04.md) | Registry state machine (live/starting/stale/crashed/stopped/unknown) as a pure function, p | blocked | DESIGN-N2, MP-N2-C2-T02, MP-N2-C2-T03, MP-N2-C1-T02 | 5 |
 | [MP-N2-C3-T04](MP-N2-C3-T04.md) | Optional `aiur init` step: \"Pair a phone with this machine?\" for repo and global scopes | blocked | DESIGN-N2, MP-N2-C3-T02 | 5 |
 | [MP-N2-C4-T02](MP-N2-C4-T02.md) | Launcher lifecycle: `aiur mobile gateway start|stop|status`, pid file, best-effort auto-st | blocked | DESIGN-N2, MP-N2-C4-T01, MP-N2-C3-T02 | 5 |
-| [MP-N2-C3-T03](MP-N2-C3-T03.md) | `aiur mobile status [--json]`: machine, gateway, devices, registry snapshot, with an age o | blocked | DESIGN-N2, MP-N2-C3-T02, MP-N2-C2-T04, MP-N2-C4-T02 | 6 |
+| [MP-N2-C3-T03](MP-N2-C3-T03.md) | `aiur mobile status [--json]`: machine, gateway, devices, registry snapshot, with an age o | blocked | DESIGN-N2, MP-N2-C3-T02, MP-N2-C2-T04, MP-N2-C4-T02, MP-N2-C1-T03 | 6 |
 | [MP-N2-C4-T04](MP-N2-C4-T04.md) | GET /v1/instances registry endpoint and the instance RPC client (:erpc from the hidden gat | blocked | DESIGN-N2, MP-N2-C4-T03, MP-N2-C2-T04 | 6 |
 | [MP-N2-C10-T02](MP-N2-C10-T02.md) | Gateway HTTPS, https endpoints in QR and registry, cleartext guard and TLS health in statu | blocked | DESIGN-N2, RQ-TRANSPORT, MP-N2-C10-T01, MP-N2-C4-T01, MP-N2-C3-T03 | 7 |
 | [MP-N2-C10-T03](MP-N2-C10-T03.md) | Option T-A: `aiur mobile tls` status and setup guidance for publicly trusted certificates  | blocked | DESIGN-N2, "RQ-TRANSPORT (DESIGN-N2 §transport = T-A)", MP-N2-C10-T02, MP-N2-C3-T02 | 8 |
@@ -36,7 +36,7 @@ C10-T04 (T-B); C10-T01, T02 and T05 apply to both.
 | [MP-N2-C5-T02](MP-N2-C5-T02.md) | Gateway `POST /v1/pair/claim`: HMAC proof, single use, expiry, device limit and claim lock | blocked | DESIGN-N2, MP-N2-C5-T01, MP-N2-C1-T02, MP-N2-C1-T04, MP-N2-C4-T01, MP-N2-C4-T03 | 9 |
 | [MP-N2-C5-T03](MP-N2-C5-T03.md) | Gateway `/v1/token/challenge` and `/v1/token`: P-256 ECDSA proof of the device key, 15-min | blocked | DESIGN-N2, MP-N2-C5-T02, MP-N2-C1-T03 | 10 |
 | [MP-N2-C5-T04](MP-N2-C5-T04.md) | `GET /v1/machine` endpoint refresh and `POST /v1/pair/relink` for a known machine | blocked | DESIGN-N2, MP-N2-C5-T02, MP-N2-C5-T03, MP-N2-C10-T02 | 11 |
-| [MP-N2-C6-T01](MP-N2-C6-T01.md) | Instance `AiurWeb.DeviceAuth`: accept device bearer tokens on `:dashboard_auth` routes; ad | blocked | DESIGN-N2, MP-N2-C1-T03, MP-N2-C5-T03, MP-N2-C2-T01, MP-R3-C1-T01 | 11 |
+| [MP-N2-C6-T01](MP-N2-C6-T01.md) | Instance `AiurWeb.DeviceAuth`: accept device bearer tokens on `:dashboard_auth` routes; ad | blocked | DESIGN-N2, MP-N2-C1-T03, MP-N2-C5-T03, MP-N2-C2-T01, MP-R3-C1-T01, MP-N2-C10-T01 | 11 |
 | [MP-N2-C5-T05](MP-N2-C5-T05.md) | Reference device client (test harness) and cross-language pairing test vectors | blocked | DESIGN-N2, MP-N2-C5-T01, MP-N2-C5-T02, MP-N2-C5-T03, MP-N2-C5-T04, MP-R1-C3-T06 | 12 |
 | [MP-N2-C6-T02](MP-N2-C6-T02.md) | WebView session bootstrap: one-time device-session code and a device kind of the dashboard | blocked | DESIGN-N2, RQ-TRANSPORT, MP-N2-C10-T01, MP-N2-C6-T01, MP-R1-C2-T02 | 12 |
 | [MP-N2-C6-T03](MP-N2-C6-T03.md) | `:api_write` for native device calls: bearer-authenticated requests skip the Origin check  | blocked | DESIGN-N2, MP-N2-C6-T01, MP-N2-C10-T01 | 12 |
@@ -55,7 +55,7 @@ C10-T04 (T-B); C10-T01, T02 and T05 apply to both.
 
 ```text
 C3-T01 settings ─┬─► C10-T01 instance HTTPS ─► C2-T01 advert ─► C2-T02 ─► C2-T04 registry
-MP-R1-C2-T01 ─► C1-T01 ─► C1-T02 ─┬─► C1-T03, C1-T04 ─► C3-T02 CLI ─► C4-T02, C3-T04
+MP-R1-C2-T01 ─► C1-T01 ─► C1-T02 ─┬─► C1-T04 ─► C1-T03 (Phase D: integrity), C1-T04 ─► C3-T02 CLI ─► C4-T02, C3-T04
                                   └─► C4-T01 gateway ─► C4-T03 ─► C4-T04 ─► C10-T02 ─► C5-T01 QR
 C5-T01 ─► C5-T02 claim ─► C5-T03 token ─► C5-T04 relink ─► C5-T05 vectors ─► C5-T06 app screens
 C5-T03 ─► C6-T01 device auth ─► C6-T02 WebView session, C6-T03 write rule

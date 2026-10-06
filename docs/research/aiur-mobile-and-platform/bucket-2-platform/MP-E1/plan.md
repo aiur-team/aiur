@@ -18,6 +18,7 @@ consumes_contracts: [MP-CT-events-and-replay, MP-CT-identity-and-capabilities]
 | --- | --- |
 | [findings.md](findings.md) | Verified repository findings F1–F11, with `file:line` citations at `45a290e3` |
 | [chunks.md](chunks.md) | Chunks MP-E1-C1 to C9, candidate tickets, test strategy, research questions |
+| [plan-phase-c-changes.md](plan-phase-c-changes.md) | §11 of this plan (Phase C changes), moved to a sibling file for the 500-line limit |
 | [../../contracts/queue-readiness-and-build-progress.md](../../contracts/queue-readiness-and-build-progress.md) | The shared contract this feature owns |
 | [../../owner-design-tasks/DESIGN-E1.md](../../owner-design-tasks/DESIGN-E1.md) | The owner design gate. It blocks every implementation ticket |
 
@@ -103,7 +104,9 @@ src/lib/aiur/build_queue/            (all new; facade Aiur.BuildQueue)
   claim_probe.ex   ClaimProbe behaviour (impl lives in orchestration)
   hints.ex         ETS table owned by Server: rank and hold, read by dispatch
   attention.ex     the single function that calls Aiur.Alerts
-  progress.ex      progress facts and milestone latch (contract §4)
+  progress.ex      queue progress producer (C7-T02); the facts module
+                   `Aiur.BuildProgress` is `src/lib/aiur/build_progress.ex`,
+                   owned by the `build-orders` component (RC-40)
 src/lib/aiur/build_queue_cli.ex      CLI read/format (mirrors build_orders_cli.ex)
 src/lib/aiur_web/live/build_queue_live.ex   read-only view (blocked on DESIGN-E1)
 ```
@@ -247,7 +250,7 @@ reopened prerequisite, or a prerequisite that has failed.
 | closed, `not_planned` | **failed** (matches `EdgeState` `:terminal_unsatisfied`) | hold + attention; owner confirm OQ-2 |
 | closed, `duplicate` or unknown reason | unknown | hold + attention naming the cause |
 | `pr.merged` observed but issue still open after `build_queue.merged_open_grace_seconds` (600) | pending + attention | the closing-keyword gap (F7) |
-| observation stale / source unusable / cyclic | unknown | hold; one `system.queue.inputs_unavailable` attention after the grace period |
+| observation stale / source unusable / cyclic | unknown | hold; one `system.queue.attention.inputs_unavailable` attention after the grace period |
 
 - **One attention per failed prerequisite.** Topic
   `ticket.<prereq>.queue.attention.prerequisite_failed`, payload: prerequisite,
@@ -318,7 +321,7 @@ On boot the Server:
 
 The process is level-triggered, so a crash between a write and its record
 converges. If the store is lost or corrupt, the Server fails closed (no writes)
-and raises `system.queue.store_unavailable`. `aiur queue recover` rebuilds the
+and raises `system.queue.attention.store_unavailable`. `aiur queue recover` rebuilds the
 membership of open issues carrying the marker as one unordered ExecutorList,
 with no edges, held, for the operator to re-order.
 
@@ -436,7 +439,7 @@ Mobile only reads progress (contract §4).
 | `src/lib/aiur/build_queue/**` in the core app | `build-queue` component package (R1 map: "core now; package after R1") | MP-R1 carve step for L3 features |
 | `Aiur.BuildQueue.Hints` read in `orchestrator/dispatch_policy.ex` | Read in the `aiur_dispatch_policy` package; the hint port becomes a published interface | R1 orchestration split (prior boundaries ORC/DSP #12–13) |
 | `ClaimProbe` impl in `orchestrator/` | Moves with orchestration; same behaviour | Prior unit U2 ("who owns the authoritative ticket transition") must name the queue as the owner of the marker-only ↔ todo transitions |
-| `attention.ex` calls `Aiur.Alerts` | Calls `Signal.emit/2` (R1 plan-refresh row PR-07) | Signal port lands |
+| `attention.ex` calls `Aiur.Alerts` | Calls `Signal.alert/2` (R1 plan-refresh row PR-07) | Signal port lands |
 | In-BEAM `Exchange.subscribe` for hints | Same API from the `aiur_events` package; optionally a durable consumer cursor (events contract §7.1) | MP-R2 C3 |
 | Progress milestones as ledgered alerts/events | `exported` topics in the R2 catalog | MP-R2 C5/C6 |
 | `Aiur.GitHub.*` observation through the Tracker adapter | Unchanged interface; GitHub moves to `aiur_github` | Prior unit U5 |
@@ -449,56 +452,6 @@ Prior references for tickets:
 
 ## 11. Phase C changes (2026-10-06)
 
-Ticket research changed these parts of the design. Where this section and an
-earlier section disagree, this section wins. Tickets are in
-[tickets/README.md](tickets/README.md).
-
-1. **No GitHub code under `build_queue/` (§5.1).** `observer.ex` calls only
-   `Aiur.Tracker`. Four optional tracker callbacks carry the observations:
-   `open_issue_labels/1` (C1-T03), `blocked_by/1` (C4-T03), `issue_closure/1`
-   (C4-T04) and `ticket_pull_request/1` (C4-T05). The GitHub adapter
-   implements them; Linear answers `{:error, :unsupported}`
-   (`linear/tracker.ex:139-142`), which disables the queue.
-2. **Promotion is a conditional write (§5.4, RQ-4, RC-20).**
-   `Tracker.update_issue_state(id, "todo", expected_state: :none)`. C1-T04
-   adds `:none` to `validate_expected_state/2` (`github/issue_state.ex:170-188`),
-   which already re-reads the issue before it writes (`:142-161`).
-3. **Sort key (§5.6).** `Hints.sort_key/1` returns `{-downstream_open,
-   list_position}`, default `{0, 0}`, spliced into the existing key as
-   `{d, priority_rank, position, created_at, identifier}`. Prepending a
-   default 1-tuple, as §5.6 said, would be wrong: Erlang orders tuples by size
-   first (https://www.erlang.org/doc/system/expressions.html#term-comparisons,
-   accessed 2026-10-06).
-4. **ClaimProbe is batched (§5.5, RQ-7).** `status([id])` returns
-   `:claimed | :unclaimed | {:declined, reason}` per id from one call into the
-   orchestrator. The decline comes from `state.dispatch_declines`
-   (`orchestrator/state.ex:88`). `:unauthorized` is recorded there only while
-   free slots exist (`orchestrator/dispatcher.ex:1054-1070`), so
-   `promoted_unauthorized` is detected only then.
-5. **Hold reason.** `:build_queue_hold` is added to
-   `t:dispatch_decline_reason/0` and `@dispatch_decline_reasons`
-   (`dispatch_policy.ex:644-697`) and translated in
-   `PauseResume.resume_decline_reason/4` (`pause_resume.ex:2180-2209`), or
-   `resume_decline_reason_test.exs:19-51` fails.
-6. **Why the heal exemption is mandatory (§5.2, F5).** The conditional poll
-   returns every zero-state-label issue as "healable"
-   (`github/issues.ex:468-482`). Without the exemption a marker-only item either
-   gets `agent:todo` back (prior state known) or raises
-   `state-label-missing-no-evidence` on every poll (`issue_sync.ex:392-399`).
-7. **Progress owner (RC-10).** A neutral `Aiur.BuildProgress` holds facts, the
-   read API and the progress-changed signal. Two producers: the queue server
-   and `Aiur.BuildOrder.ProgressObserver`. Milestone topics are
-   `system.queue.<id>.progress` and `system.build_order.<root>.progress`
-   (RC-08).
-8. **Agent-workspace guard (RQ-6).** The `--test` guard is in `scripts/aiurdev`
-   (`:538-560, 727-739`), not the shared engine. `aiur queue` mutations copy
-   its test (`AIUR_AGENT_WORKSPACE`, set for every agent at
-   `agent_environment.ex:339`, or an `*/aiur-workspaces/*` path) in the engine,
-   and repeat the env check daemon-side as `test_reset.ex:79-95` does. It is a
-   guard, not a security boundary (§6 Authorization still holds).
-9. **Wave-0 rules (RC-19, RC-20).** MP-E1 is not gated on U0. Core edits stay
-   in the C1 hooks; U2 and U5 tickets rebase over them. The queue is a
-   sanctioned caller of the label-writer seam.
-10. **Size owners (RC-23).** Tickets record the owner from
-    `synthesis/u8-release-007/assignments.csv` as provisional and re-check the
-    then-current ledger when they start.
+Moved to [plan-phase-c-changes.md](plan-phase-c-changes.md) (Phase D, file-size
+limit; content unchanged). Where that section and an earlier section disagree,
+that section wins.

@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, RQ-TRANSPORT, MP-N2-C10-T01, MP-N2-C6-T01, MP-R1-C2-T02]
 prior_units: [U6]
 prior_boundaries: [WEB]
 prior_features: [MP-N1]
-prior_findings: []
+prior_findings: [security M2 (open WebView revocation), m7 (code not logged), review T-2 (bootstrap_path is authoritative)]
 size_owner: "WEB — financial_data_access.ex / proof.ex / router.ex; look up U8 owners at the implementation SHA"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -31,6 +31,15 @@ researched: 2026-10-06
      `connect_info`.
   4. `Proof` gains a device marker kind; `context_from_session/3`, `identity/2` and
      `FinancialDataAccess.authorize/1` accept it while the device row is active.
+  5. (Phase D, security M2) revocation reaches an **open** WebView LiveView: the session carries
+     `live_socket_id = "device_session:" <> device_id`; a revocation disconnects it, and every
+     `handle_event` from a device session re-checks the row before it runs.
+  6. (Phase D, security m7) the one-time code never reaches the request log.
+- **Bootstrap shape (Phase D, review T-2): this ticket is authoritative.** The native app POSTs
+  with its bearer, receives `{bootstrap_path}`, and **navigates the WebView** to it; the server
+  sets the cookie in that top-level response. Native code never reads `Set-Cookie` and never
+  injects cookies (`WKHTTPCookieStore` / `CookieManager` are not used). MP-N1-C4-T02 must follow
+  this shape (handed off to its owner; see `cross-feature-reviews/fix-handoffs.md`, security).
 - **Non-goals:** the app WebView host (MP-N1-C4-T02 calls these two endpoints); TLS (MP-N2-C10-T01).
 
 ## Dependencies and blockers
@@ -76,9 +85,30 @@ platform dependencies.
   still compare equal for the same session and different across devices.
   `identity/2` repeats the active check, so a LiveView that re-authorizes (`financial_data.ex:78`)
   loses access after revocation without a reload.
-- **Revocation push-down:** on store change the instance broadcasts
-  `ObservabilityPubSub` `{:device_revoked, id}`; `FinancialDataAccess.Generation`-style listeners
-  re-check on next event. Minimum guarantee: next authorize call fails.
+- **Revocation push-down (Phase D, security M2; pairing security sibling §S2).** The revoke
+  writer is another BEAM, so nothing is broadcast to this instance by the writer. Instead:
+  1. The GET handler also `put_session(conn, :live_socket_id, "device_session:" <> id)`.
+  2. PROPOSED `AiurWeb.DeviceSessionRevoker` (instance web tree) subscribes to the local
+     `devices:revoked` topic that `Aiur.Machine.Store.Watcher` (MP-N2-C1-T03) publishes, and for
+     each id calls `AiurWeb.Endpoint.broadcast("device_session:" <> id, "disconnect", %{})`, which
+     LiveView turns into a socket disconnect. Budget: ≤ 3 s after the store write.
+  3. An `on_mount` hook (`AiurWeb.DeviceSessionGuard`, added to every `live_session` that
+     `FinancialDataAccess` already guards) runs `attach_hook(socket, :device_write_guard,
+     :handle_event, …)` for device-kind sessions. Each event first calls
+     `Machine.Store.device_active?/1` (mtime-cached, so no extra I/O per event); if false it
+     returns `{:halt, push_navigate(socket, to: "/device-revoked")}` and the event
+     handler never runs. This covers the window before the disconnect lands and a watcher that
+     is down. Writes covered: composer sends, Command answers, decisions in `/commands`, and
+     every other `handle_event`.
+  4. Minimum guarantees: any write after the store write is refused at once; the socket closes
+     within the budget; plain HTTP requests fail on the next request (C6-T01).
+- **Log hygiene for the code (Phase D, security m7).** The code is a bearer value in a URL path.
+  (a) The route is declared with `log: false`. (b) The endpoint's
+  `plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])` (`endpoint.ex:61` at base) gains
+  `log: {AiurWeb.Endpoint, :request_log_level, []}`, which returns `false` for request paths
+  under `/device-session/` and `:info` otherwise, so `Phoenix.Logger` never prints the request
+  line (recheck the `:log` MFA contract against the pinned phoenix 1.8.9 `Phoenix.Logger` docs).
+  (c) `"code"` is added to `config :phoenix, :filter_parameters`.
 - **Cookie name per instance (contract §4.4).** Cookies do not isolate by port (RFC 6265 §8.5,
   <https://www.rfc-editor.org/rfc/rfc6265#section-8.5>, accessed 2026-10-06), and every instance on
   a host shares `advertise_host`, so one WebView cookie jar would hold a single `_aiur_key` for all
@@ -112,7 +142,8 @@ About 280 production lines.
 | Code reused or older than 30 s | `401` page "Session link expired" (DESIGN-N2 copy); app re-bootstraps once (MP-N1-C4-T02). |
 | `next` is absolute or external | Ignored; redirect to `/`. |
 | Instance restart | Cookie invalid (new secret); the WebView gets the Basic-Auth challenge or 503; the app detects 401/503 and re-bootstraps once. |
-| Device revoked with an open LiveView | Next authorize fails; the page shows its locked state; the app's next API call gets `device_revoked`. |
+| Device revoked with an open LiveView | Any `handle_event` after the store write is refused by the guard; the socket is disconnected within ≤ 3 s by the watcher; the reconnect fails `device_active?`, so the page shows its locked state; the app's next API call gets `device_revoked`. |
+| Watcher not running (crash) | The `handle_event` guard still refuses writes; reads continue until the next `identity/2` check or reconnect. The watcher's supervisor restarts it. |
 | Basic Auth also configured | Both marker kinds coexist; a browser user is unaffected. |
 
 ## Compatibility and rollout
@@ -137,9 +168,21 @@ sessions must pass unchanged.
    `instance_key`, one cookie jar: bootstrapping B leaves A's session valid). *Fails without:* the
    per-instance key (mutation: constant `_aiur_key` → A's LiveView mount loses authority).
 10. `"device auth disabled keeps the cookie name _aiur_key"` (future-regression guard).
+11. **`"revoked device LiveView is disconnected within budget"`** (security M2) — mount a LiveView
+    with a device session, then rewrite `devices.json` **directly from the test with file
+    operations** (as the gateway or CLI would from another BEAM; watcher `@poll_ms` 100), send no
+    message to any process, and assert the LiveView process exits with a disconnect within 3 s.
+    *Fails without:* the revoker's `Endpoint.broadcast` (or without `live_socket_id` in the session).
+12. **`"handle_event write from a revoked device session is refused"`** (M2) — stop the watcher,
+    revoke by direct file write, then `render_submit` the composer form → no operator message is
+    queued (queue double asserts zero calls) and the view navigates to `/device-revoked` (a static locked page, DESIGN-N2 copy; not under `/device-session/`, whose segment is the code).
+    *Fails without:* the `handle_event` guard.
+13. **`"device-session code never logged"`** (m7) — `capture_log(level: :debug)` around a GET of
+    `/device-session/<code>`; refute the code text. *Fails without:* the telemetry `log:` MFA
+    (mutation: drop it → Phoenix.Logger prints the path with the code).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur_web/device_session_test.exs test/aiur_web
 ```
 
@@ -150,4 +193,6 @@ Device: MP-N2-C9-T02 row P5 and MP-N1 DV-P9 (session expiry and revocation).
 - [ ] Tests pass with mutation checks.
 - [ ] CR-N2-4 (contract §4.4 rewritten to the one-time-code flow and device marker) applied by the owner.
 - [ ] Docs: pairing guide "Opening a dashboard on the phone".
+- [ ] The MP-R3-C1-T01 route census lists the device-session routes as authenticated in
+      this PR (Phase D, MP-N2 coordinator item 2).
 - [ ] Dependents: MP-N1-C4-T02 told the two endpoints and the retry rule.

@@ -71,6 +71,12 @@ researched: 2026-10-06
 - External callers: the OS registers the scheme (Expo `scheme: "aiur"`), so another app could
   open `aiur://…`. That only navigates; every screen re-fetches with its own device credential
   and the Command screen re-checks state (MP-N6). No action is performed from a URL.
+- **`aiur-pair:` is never a URL scheme (Phase D security m10).** Pairing payloads are accepted
+  **only** from the in-app QR scanner (`Scan` route, which takes no params from a URL). The app
+  does not register `aiur-pair` with the OS, and `linking.ts` rejects any URL whose scheme is
+  `aiur-pair` or whose path starts with `/pair`. A tapped link can therefore never start pairing
+  with an attacker's machine. The `Scan` result screen shows the machine label and the machine
+  key fingerprint and needs an explicit "Pair" tap (MP-N2-C5-T06 owns that screen's logic).
 - Back behaviour: `Instance` and `Command` push onto the stack from wherever the user is
   (DV-P11 "Back returns to the prior screen").
 
@@ -104,6 +110,12 @@ researched: 2026-10-06
     Mutation: accept any path starting with `/` → `//evil` case fails.
   - `rejects malformed ids` (25-char machine id). Mutation: drop length check → fails.
   - `never accepts a token query parameter` (`?token=…` is dropped from params).
+  - `rejects aiur-pair and pair paths` (`aiur-pair:…`, `aiur://pair?…`, `aiur://m/<id>/pair`) →
+    `Home`, and `Scan` is never reached from a URL. Mutation: route `aiur://pair` to `Scan` →
+    fails.
+  - `app config registers only the aiur scheme` (reads `app.config.ts` output; `scheme` equals
+    `"aiur"` and no `aiur-pair` intent filter or `CFBundleURLSchemes` entry exists). Mutation:
+    add `aiur-pair` → fails.
 - `test/shell/Navigator.test.tsx`: `Command pushed over Instance and Back returns to Instance`.
 - Manual: `npx uri-scheme open "aiur://m/<id>/i/<key>/command/<d>" --ios` on the simulator
   opens the Command placeholder. Device row DV-P11 runs after MP-N6-C2-T02.

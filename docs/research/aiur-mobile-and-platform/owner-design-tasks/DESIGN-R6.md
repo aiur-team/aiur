@@ -3,7 +3,8 @@ design_task: DESIGN-R6
 feature_id: MP-R6
 owner: Kevin
 status: open (awaiting explicit approval)
-blocks: every MP-R6 implementation ticket (MP-R6-C1..C3)
+blocks: [MP-E4-C7-T01, MP-R5-C1-T03, MP-R6-C1-T01, MP-R6-C2-T01, MP-R6-C3-T01]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-R6 (waived entries excluded). Earlier wording: every MP-R6 implementation ticket (MP-R6-C1..C3)"
 base_main_sha: 45a290e3
 date: 2026-10-06
 related_plan: ../bucket-1-refactor/MP-R6/plan.md
@@ -40,12 +41,14 @@ explicit written approval.
 ## 2. Decisions needing your input
 
 1. Is a hardware re-proof on your own deck required before the
-   contract-ownership change (C2) merges?
+   contract-ownership change (C2) merges? Recommended: **required, one manual
+   pass**, because the deck is your daily surface and one pass is cheap.
    [ ] required  [ ] emulator plus automated tests are enough.
 2. Should the event→transcript grouping the deck uses ("each line belongs to
    the last event at or before it") also be the starting rule for dashboard
    conversation navigation? This decision is final in DESIGN-E4; recording
-   your initial view helps the E4 planner.
+   your initial view helps the E4 planner. Recommended: **yes, start there**,
+   because the rule is already proven on the deck and E4 can still refine it.
    [ ] yes, start there  [ ] no / discuss.
 
 ## 3. States

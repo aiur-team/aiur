@@ -5,7 +5,7 @@ chunk_id: MP-N5-C2
 bucket: 3-mobile-watch
 title: Post-refactor path refresh for the notification policy
 status: ready
-blocked_by: [DESIGN-N5 (no-UI release), MP-N4-C3-T00, MP-R2-C5, MP-R2-C6, MP-E1-C7, MP-E2-C1-T3]
+blocked_by: [DESIGN-N5 (no-UI release), MP-N4-C3-T00, MP-R2-C5-T03, MP-R2-C6-T04, MP-E1-C7-T01, MP-E2-C1-T03]
 prior_units: [as landed by MP-R1]
 prior_boundaries: [EXE #26, DEC #27, BO #30, new #41 candidate push-relay]
 prior_features: [MP-R1, MP-R2, MP-E1, MP-E2]
@@ -28,8 +28,8 @@ actually shipped (they are proposals today):
 | `Aiur.Events.Exchange.subscribe/2` (`src/lib/aiur/events/exchange.ex:70`, messages `{:event, event}` `:93-108`) | `event-bus` package (MP-R2) |
 | `DurableConsumer.replay(after)` (MP-R2-C6-T04), `events.export.enabled` (MP-R2-C6-T01) | landed MP-R2-C6 |
 | `Aiur.DecisionStore.list/1` (`decision_store.ex:393`), `get/2` (`:388`) | `commands` package |
-| topics `ticket.<id>.agent.decision.human-needed`, `executor.decision.human-needed` (command contract §8; RC-08 wrote `ticket.<id>.decision.human-needed`) | MP-E2-C1-T3 as landed + MP-R2-C5 catalog |
-| `Aiur.BuildQueue.progress/1` + progress-changed signal (RC-10) | MP-E1-C7 as landed |
+| topics `ticket.<id>.agent.decision.human-needed`, `executor.decision.human-needed` (command contract §8; RC-08 wrote `ticket.<id>.decision.human-needed`) | MP-E2-C1-T03 as landed + MP-R2-C5 catalog |
+| `Aiur.BuildProgress.facts/1` + `subscribe/0` progress-changed signal (RC-10; component `build-orders`, RC-40) | MP-E1-C7 as landed |
 | `src/lib/aiur/push/policy/**` (PROPOSED) | `push-relay` package path (MP-N4-C3-T00) |
 
 ## Dependencies and blockers

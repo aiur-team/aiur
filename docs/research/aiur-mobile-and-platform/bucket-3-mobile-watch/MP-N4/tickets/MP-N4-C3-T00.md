@@ -5,7 +5,7 @@ chunk_id: MP-N4-C3
 bucket: 3-mobile-watch
 title: Post-refactor path refresh for the daemon push-relay component
 status: ready
-blocked_by: [DESIGN-N4 (no-UI release), MP-R1 component map landed (R1-C1), MP-R2-C5, MP-R2-C6]
+blocked_by: [DESIGN-N4 (no-UI release), MP-R1-C1-T04, MP-R1-C1-T05, MP-R2-C5-T03]
 prior_units: [U0–U9 as landed by MP-R1]
 prior_boundaries: [EXE #26, DEC #27, BO #30, new #41 candidate push-relay]
 prior_features: [MP-R1, MP-R2]
@@ -27,8 +27,11 @@ docs (or the in-repo plan if the pack has been promoted by then).
 
 ## Dependencies and blockers
 
-- MP-R1 component map and dependency checker (R1-C1) landed; MP-R2 catalog (C5) and
-  export journal / DurableConsumer (C6) landed or explicitly deferred.
+- MP-R1 component map and dependency checker landed: MP-R1-C1-T05 (rules and ratchet) and
+  MP-R1-C1-T04 (TypeScript walker). MP-R2 catalog: MP-R2-C5-T03 (topics registered).
+- MP-R2-C6 (export journal / DurableConsumer) is **not** a blocker: this ticket accepts it
+  "landed or explicitly deferred" (see Non-happy paths), so Phase D removed the `MP-R2-C6`
+  edge from `blocked_by`.
 - Everything in MP-N4-C1-T01..T04 and C3-T01..T07 cites this ticket first.
 
 ## Verified starting point

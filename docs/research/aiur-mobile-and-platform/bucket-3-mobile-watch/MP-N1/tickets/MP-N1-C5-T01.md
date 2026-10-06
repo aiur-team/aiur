@@ -86,7 +86,7 @@ AGENTS.md "a collapsed cause names the collapse at the source"):
 | Apple `.cannotFindHost`, `.notConnectedToInternet`, `.networkConnectionLost`; Android `UnknownHostException` | `unknown` with `detail: "dns_or_offline"` (not a TLS cause) |
 
 `ProbeResult` precedence: `device_revoked` (401 with that code) → `transport_error` →
-`version_mismatch` (404 on `/api/v1/capabilities`, or `min_client_version` above the app,
+`version_mismatch` (404 on `/api/v1/capabilities`, or `min_client_versions` above the app,
 RC-04) → `http_error` → `reachable`. The probe records `observedAt` and computes `ageMs`
 from the server's `age_ms` when present (MP-R1 clock-skew rule).
 

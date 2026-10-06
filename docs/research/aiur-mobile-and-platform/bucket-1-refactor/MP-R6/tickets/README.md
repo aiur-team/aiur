@@ -1,5 +1,10 @@
 # MP-R6 tickets
 
+- **U0 gate (X-58, RC-19).** Every MP-R6 ticket waits for U0 review of the prior plan
+  (`docs/plans/2026-09-29-001-refactor-production-readiness-plan.md`), because RC-19 keeps
+  that gate for refactor work. U0 has no ticket ID, so the gate is stated here and not in
+  `blocked_by`; the MP-R1-C11-T02 recheck does not replace it.
+
 Base `45a290e3`, researched 2026-10-06. RC-06 is applied: **R6-C1 extracts**
 the neutral anchor module without changing behaviour, MP-E4-C3 extends it, and
 MP-E4-C7 moves the deck onto the E4 journal. RC-07 is also applied: the E4

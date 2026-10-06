@@ -65,6 +65,10 @@ n/a — validation only.
 
 This ticket is verification; evidence = table + screenshots of MD-3 and MD-5.
 
+Mutation check: **n/a** — this ticket adds no production hunk and no automated test; the
+rows are manual device checks. Docs: **none** — it changes no user-facing surface; the evidence
+lives in the PR and the readiness report.
+
 ## Completion and handoff
 
 - [ ] MD-1..MD-7 pass on iPhone-min, iPhone-cur and Android-cur.

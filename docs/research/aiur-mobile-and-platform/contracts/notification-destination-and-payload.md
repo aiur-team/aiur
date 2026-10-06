@@ -3,7 +3,7 @@ contract_id: MP-CT-notification-destination-and-payload
 owner_feature: MP-N4
 co_authors: MP-N5 (intent and preference fields), MP-N6 (destination resolution)
 consumers: MP-N2, MP-N3, MP-N7, MP-E2, MP-E4, MP-R1, MP-R4
-status: draft v2 — Phase C (RC-02, RC-03, RC-08..RC-10 applied; crypto framing fixed, §11)
+status: draft v3 — Phase C (RC-02, RC-03, RC-08..RC-10 applied; crypto framing fixed, §11); Phase D fix pass (§12)
 base_main_sha: 45a290e3
 date: 2026-10-06
 ---
@@ -33,12 +33,27 @@ NotificationIntent (daemon, plaintext, never leaves the machine)
 | Party | Sees | Never sees |
 | --- | --- | --- |
 | Daemon (the machine) | everything | device private keys |
-| Relay service | daemon source IP; relay `handle`; `push_class`; `ttl_s`; opaque `collapse_token`; ciphertext length; time of send; platform push token and app topic (it must, to call APNs/FCM); handle↔push-token mapping, so it can link the handles of several machines paired to one device | summary text, repo, ticket, Command id, machine id, instance key, device encryption keys |
-| Apple (APNs) / Google (FCM) | push token, app topic / Firebase project, priority, push type, expiry/TTL, collapse id/key (opaque), payload length, time, the **generic fallback text** (§5), relay IP | everything inside `Sealed` |
+| Relay service | daemon source IP; relay `handle`; `push_class`; `ttl_s`; opaque `collapse_token`; ciphertext length; time of send; platform push token and app topic (it must, to call APNs/FCM); handle↔push-token mapping, so it can link the handles of several machines paired to one device; the **device IP** at `POST` / `DELETE /v1/handles` (§7); `kid` | summary text, repo, ticket, Command id, machine id, instance key, device encryption keys |
+| Apple (APNs) / Google (FCM) | push token, app topic / Firebase project, priority, push type, expiry/TTL, collapse id/key, payload length, time, the **generic fallback text** (§5), relay IP, and `k` (`kid`) in the clear wrapper | everything inside `Sealed` |
+
+**Metadata that is not opaque (Phase D, security m2).** These items are visible and carry
+meaning; store privacy answers (MP-N1-C8-T02) copy this list.
+
+| Item | Seen by | What it reveals |
+| --- | --- | --- |
+| `k` (`kid`) in the provider payload (§5) | Apple or Google, relay | a value stable per device and machine, so sends to one device from one machine can be linked over time |
+| FCM `collapse_key` `a` / `b` (§5) | Google, relay | whether a message belongs to a Command stream (`a`) or not (`b`) |
+| `push_class` and provider priority (`alert_high` ↔ `apns-priority: 10` / FCM `high`) | relay, Apple or Google | when a **blocking** Command needs the human (only `urgency: high` uses high priority) |
+| Device IP at `POST` / `DELETE /v1/handles` | relay | the network location of the phone at pairing and unpairing time |
+| Send time, payload length | relay, Apple or Google | activity pattern of the machine |
 | Paired device | everything in `ProtectedPayload` for its own key | other devices' payloads |
 
 The relay is **not trusted for confidentiality or authenticity**; it is trusted only not
 to drop or delay traffic. A relay that forges or replays a sealed blob is detected (§4).
+A relay, or anyone holding the APNs key or FCM sender credentials, can still make a device
+show the uniform fallback or any other clear alert when the NSE does not run (§5). Signed,
+decrypted content is the only authentic content; the app never treats a clear alert as a
+Command (Phase D, security m1).
 
 ## 2. NotificationIntent (daemon-internal)
 
@@ -68,12 +83,14 @@ before any send (persist-before-notify, matching `Aiur.DecisionStore`'s rule,
   "kind": "command.needs_you",
   "issued_at": "2026-10-06T17:02:11Z",
   "expires_at": "2026-10-07T17:02:11Z",
-  "stream": "cmd:dec_8f2…", "seq": 1,
+  "stream": "cmd:3f9a1c0e7b2d4a68", "seq": 1,
   "urgency": "high",
+  "attempt": 1,                          // 1 = first notice, 2 = the one bounded reminder (§6)
   "summary": {
     "title": "Migration decision",        // couple words, ≤ 40 chars, required
     "subtitle": "aiur · #2731",           // instance label · requester, ≤ 60 chars
-    "body": "Pick a schema migration strategy before #2731 can continue." // ≤ 160 chars, optional
+    "body": "Pick a schema migration strategy before #2731 can continue.", // ≤ 160 chars, optional
+    "badge": 2                            // optional: open blocking Commands needing the human on this instance
   },
   "destination": { … §3.1 … },
   "retracts": ["n_01J8…"]                // nids this payload replaces or withdraws, may be empty
@@ -97,7 +114,20 @@ canonical JSON form (Phase C change, §11).
   `summary.title` is a neutral placeholder for older apps.
 - **`summary.title` source.** For Commands: the E2 "short label" (`context.short_summary`
   or native header, DESIGN-E2 §4.1). The fallback when it is missing is decided in
-  DESIGN-E2 §4.1 [decide]; N4 only enforces the 40-char cap.
+  DESIGN-E2 §4.1 [decide]; N4 only enforces the 40-char cap. **This is agent-authored text
+  inside a trusted app** (Phase D, security m3). The sealed push is the only place it leaves
+  the machine; the export feed does not carry it. In the app, every surface that shows it
+  (notification detail, inbox row, Command header) renders it with a "from agent" style, so it
+  is never read as aiur's or the operator's own words. The OS notification title cannot be
+  styled; DESIGN-N4 decides whether the title is prefixed (for example "Agent: …").
+- **`attempt`** (additive in v1, Phase D, M3): `1` for the first `command.needs_you`, `2` for
+  the one bounded reminder (§6). Absent means `1`. The device may word a reminder differently
+  (DESIGN-N4); it replaces the first notification on the same `stream`.
+- **`summary.badge`** (additive in v1, Phase D, M3): the number of open **blocking** Commands
+  with the human on this instance when the payload was built. The iOS NSE sets
+  `bestAttemptContent.badge` to the sum over the device's instances that it knows; Android sets
+  `NotificationCompat.Builder.setNumber` and the launcher badge where the launcher supports it.
+  A missing value leaves the badge unchanged; it never resets it to 0.
 - **Signature.** Detached Ed25519 by the **machine identity key** (`machine_key`, MP-N2),
   over the domain-separated message in §4. Assumption A-N2-2 below.
 
@@ -110,9 +140,11 @@ canonical JSON form (Phase C change, §11).
   "repo": "aiur-team/aiur",               // display + sanity check only
   "target": {
     "kind": "command",                    // command | conversation | build_order | instance
-    "command_id": "dec_8f2…",             // Aiur.Decision decision_id
+    "command_id": "3f9a1c0e7b2d4a68",     // Aiur.Decision decision_id (16 hex chars, no prefix)
+    "command_version": 4,                 // Command version at send time, optional (Phase D, N7 item 3)
     "ticket": "2731",                     // nil for Executor-originated Commands
-    "agent": { "role": "worker", "session_id": "…" },   // role: worker | executor
+    "agent": { "role": "worker",          // role: worker | executor
+               "session_ref": { "conversation_id": "…", "session_seq": 3 } }, // CR-R1-5 SessionRef, optional
     "anchor_id": "anc_…",                 // MP-E4 event-to-conversation anchor, optional
     "root_id": null                       // build-order root for progress kinds
   }
@@ -136,6 +168,15 @@ Rules:
 4. No URL, hostname, IP or tailnet name appears in a destination. Reachability is the
    paired device's own registry (MP-N2), so a changed URL never invalidates a delivered
    notification.
+5. **Hand-off key (Phase D, B4 / N7 item 3).** After decryption the NSE (iOS) or the
+   messaging service (Android) puts this destination object, as JSON, under the single key
+   `aiur.destination` in `userInfo` / the intent extras. Every reader (MP-N1-C6-T01
+   `onNotificationOpened`, MP-N6-C2-T02, MP-N7-C2-T04) uses that key. Category
+   identifiers are `aiur.command`, `aiur.progress`, `aiur.other` (MP-N4-C4-T03); the
+   watch long-look binds to `aiur.command`.
+6. **Push token stays native (B4).** MP-N4-C4-T05 and MP-N4-C5-T05 read the APNs/FCM token
+   inside native code from MP-N1-C6-T01; JavaScript sees at most an 8-character
+   fingerprint.
 
 ### 3.2 Kinds and their destinations
 
@@ -215,12 +256,19 @@ the Notification Service Extension sets `categoryIdentifier`, `threadIdentifier`
 (per instance) and `interruptionLevel` after decryption so Apple never sees them.
 
 **Fallback.** If the extension cannot decrypt (device restarted and not yet unlocked,
-time limit, crash, unknown key), iOS displays the original alert (E-A3). Therefore the
+time limit, crash, unknown key, keys unreadable), iOS displays the original alert (E-A3). Therefore the
 clear alert is a **single uniform string for every kind**. The string is a DESIGN-N4
 decision; the default proposal is title `aiur`, body `New notification`. It must never
 name a machine, repo, ticket, kind or count, and title + body together are ≤ 200 bytes
 UTF-8 (§3 size budget). The daemon owns the string (one value per machine, shipped with
-the release); the relay service only copies the `fallback` field it is given (§8).
+the release). The relay service **pins** it per `app_topic` (Phase D, security m1; §8) and
+never places any other clear alert text.
+
+**Lock screen (Phase D, security m9; owner choice in DESIGN-N4).** Decrypted summaries are
+shown on the lock screen and forwarded to watches unless the device hides them. Default
+proposal: hide the body when locked. iOS sets `hiddenPreviewsBodyPlaceholder` on the category;
+Android posts with `VISIBILITY_PRIVATE` and a `publicVersion` that carries the uniform
+fallback text.
 
 ### FCM (Android)
 
@@ -231,6 +279,13 @@ Command streams, `b` for everything else) because FCM stores at most four collap
 per device (E-F2). No `notification` block — a notification block would be displayed by
 the system without the app decrypting it (E-F1). The app posts the notification itself
 from `onMessageReceived` after decrypting; failure posts the same uniform fallback.
+
+**Local key loss is not forgery (Phase D, M6).** If the device's own keys are unreadable
+(Android Keystore key invalidated, Tink keyset unreadable; iOS keychain read error other than
+`errSecInteractionNotAllowed`), the app posts the uniform fallback, marks the in-app state
+"Notifications need re-pairing", and reports `push_health: keys_lost` (§7) on its next online
+call. A verification failure on a **readable** keyset (unknown `kid`, bad signature, expired,
+seen `nid`) is still dropped silently on Android. The two causes are never merged.
 
 A high-priority FCM message must result in a visible notification, or FCM deprioritizes
 the app (E-F4). Rule: **only `urgency: high` uses high priority, and every `urgency: high`
@@ -256,6 +311,13 @@ payload that passes verification is displayed.** `command.resolved` uses normal 
   progress-changed signal, E1's milestone events stay at 25 %);
   `progress.complete` → `<scope>:<id>:<generation>:complete`;
   `pr.merged` → `pr:<repo>#<n>:merged`.
+- **Reminder (Phase D, M3).** One bounded reminder per blocking Command: `command.needs_you`
+  with `attempt: 2`, dedup key `cmd:<command_id>:reminder`, same `stream` and therefore the
+  same `collapse_token` (it replaces the first notice in APNs storage and on the device), next
+  `seq`. MP-N5-C2 sends it when the Command is still `with_human` after
+  `notifications.reminder_minutes` (proposed default 30; owner choice in DESIGN-N5 OQ-N5-2).
+  The key is distinct from E2's re-ask tick, so a re-ask still never sends (AC-N5-2), and a
+  resolved Command never gets a reminder.
 - Device rules: drop if `nid` seen; drop if a payload on the same `stream` with higher
   `seq` was already shown; drop if `expires_at` passed; apply `retracts` by removing the
   listed delivered notifications.
@@ -276,8 +338,14 @@ opaque `push_registration` of the device row in `devices.json`):
   "device_push_secret": "base64url(32 bytes)",
   "enc_keys": [{"kid":"k_…","x25519_pub":"base64url…"}],
   "capabilities": {"nse": true, "decrypt_while_locked": "after_first_unlock",
-                   "watch_forwarding": "unverified"} }
+                   "watch_forwarding": "unverified"},
+  "push_health": "ok" | "keys_lost" }
 ```
+
+`push_health` (Phase D, M6) is set by the device through the gateway on its next online call
+after local key loss. The machine shows that device as "phone notifications broken" on the
+dashboard and in `aiur mobile status`, and push-relay stops sealing to it until re-pairing
+replaces `enc_keys`.
 
 The MP-N2 gateway writes it; push-relay in each instance reads it. The record in one
 machine's store lists only the push keys made for that machine (§4: one key per device
@@ -298,6 +366,10 @@ contract §8), never in `~/.aiur/config`: `enabled` (default `false`),
 idempotency_key, fallback: {title, body}}`. `idempotency_key` is the `nid` (opaque); the
 relay answers a repeated `(handle, idempotency_key)` within 24 h with the first result
 and does not send twice. `fallback` is the uniform string of §5, identical for every send.
+The relay **pins** the fallback per `app_topic` from its own configuration
+(`AIUR_RELAY_FALLBACK_<APP_TOPIC_SLUG>` = JSON `{title, body}`, MP-N4-C2-T01). An envelope whose
+`fallback` differs answers `422 fallback_mismatch` and nothing is sent, so a daemon bug or a
+holder of a `send_secret` cannot put free text into the clear alert (Phase D, security m1).
 
 Responses: `202` accepted (relay does not wait for APNs); `404 handle_unknown` and
 `410 handle_gone` (APNs `Unregistered` / FCM `UNREGISTERED`) → push-relay marks that
@@ -312,9 +384,9 @@ needed on either side; "Request" is a change this contract asks the owner to mak
 
 | ID | Owner contract | Status | Detail |
 | --- | --- | --- | --- |
-| A-E2-1 | [command-request-and-resolution.md](command-request-and-resolution.md) §4, §8 | Matches | `human_needed` (`ticket.<id>.agent.decision.human-needed` / `executor.decision.human-needed`) fires **once per Command** when `human_visible_at` is first set, carrying `{decision_id, version, short_label, requester, blocking, urgency, cause}` and no question text. N5 maps it to `command.needs_you`; the dedup key is therefore per Command, not per routing epoch (§6). A Command deferred back to the Executor and escalated again does not push twice. |
+| A-E2-1 | [command-request-and-resolution.md](command-request-and-resolution.md) §4, §8 | Matches | `human_needed` (`ticket.<id>.agent.decision.human-needed` / `executor.decision.human-needed`) fires **once per Command** when `human_visible_at` is first set, carrying `{decision_id, version, requester_kind, blocking, urgency, cause}` (`requester_kind` ∈ `worker`, `executor`; no session refs; Phase D, CR-E2-5) and no question text. **Phase D (security m3):** `short_label` is no longer an event or feed attr; N5 reads it from the DecisionStore (Decision API) when it builds the sealed payload, so agent-authored text leaves the machine only inside `Sealed`. N5 maps it to `command.needs_you`; the dedup key is therefore per Command, not per routing epoch (§6). A Command deferred back to the Executor and escalated again does not push twice. |
 | A-E2-2 | same, §8 | Matches | Terminal slugs on the same topic scheme drive `command.resolved`; the DecisionStore snapshot (journaled) is the boot-time reconciliation source. |
-| A-E2-3 | same, §3 | Matches | `short_label` = `context.short_summary` → native `header` → `kind`. N4 caps it at 40 chars for the title. |
+| A-E2-3 | same, §3 | Matches | `short_label` = `context.short_summary` → native `header` → `kind`, read from the DecisionStore at payload build time (not from the event). N4 caps it at 40 chars for the title; it is agent-authored (§3). |
 | A-E2-4 | same, §6, §9 | Matches | Phone/watch answers use the same answer shape with `actor: {kind: :operator}`, `client: {surface: "phone"\|"watch", device_id}`; conflicts are HTTP 409 `decision_conflict` extended with the winning answer; `:duplicate` for same-key retries; `answer_delivered` / `answer_in_flight` for late supersede. MP-N6 §5.2 maps these. |
 | A-R2-1 | [events-and-replay.md](events-and-replay.md) §3, §6, §7 | Matches, with a note | Event ids are unique but **not a delivery order**. RC-09: the N5 policy reads the export feed through the DurableConsumer (MP-R2-C6-T04) when `events.export.enabled` is true, and otherwise a live `Exchange` subscription; in both modes boot and `gap` reconciliation from the owning stores plus the N5 dedup ledger give correctness, and the export journal only narrows the window in which live-class opt-in events are lost. `human_needed` and Command slugs are `journaled`; milestones are `ledgered`; `ticket.*.pr.merged` from GitHub is `live`, so a merge observed while the daemon is down is not notified (acceptable: opt-in, and staleness rules would drop it). |
 | A-N2-1 | [pairing-and-instance-registry.md](pairing-and-instance-registry.md) §1, §5 | Matches | `machine_id` (26-char base32), machine store `devices.json` read by every instance; the gateway is the single writer. |
@@ -322,10 +394,10 @@ needed on either side; "Request" is a change this contract asks the owner to mak
 | A-N2-3 | same, §2, §4.5, RC-3 | Matches | The device row has an opaque `push_registration`; this contract defines its content as the §7 record (`relay_url`, `handle`, `send_secret`, `enc_keys`, `device_push_secret`, capabilities). Revocation calls the MP-N4 deregistration hook. The device push key is separate from the P-256 device auth key, as N2 requires. |
 | A-N2-4 | same, §4.4 | Matches | Instances accept the device bearer token on existing protected routes; MP-N6 adds `/api/v1/device/commands*` that **require** a device token so the recorded actor carries `device_id`. MP-N5 preference writes go through the gateway (single writer of the machine store). |
 | A-N7-1 | same, RC-4 | Matches | A direct-push watch is a child device (`parent_device_id`) with its own push key; revoking the phone revokes it. |
-| A-E1-1 | [queue-readiness-and-build-progress.md](queue-readiness-and-build-progress.md) §4 | **Resolved by RC-10** | MP-E1-C7 exposes `Aiur.BuildQueue.progress/1` and an internal progress-changed signal; milestone events stay at 25/50/75/100. N5 reads the facts on each signal and computes per-device 10/25/50 thresholds, applying E1's no-burst / no-repeat / no-unknown rules per device step. Topic registration in the MP-R2-C5 catalog per RC-08. |
-| A-E4-1 | [conversations-transcripts-anchors.md](conversations-transcripts-anchors.md) | Matches | `anchor_id` = `anc_<sha256(event_ref, conversation_id)>`, with a `method` that may be `none`; absent anchors degrade per §3.1 rule 2. |
+| A-E1-1 | [queue-readiness-and-build-progress.md](queue-readiness-and-build-progress.md) §4 | **Resolved by RC-10** | MP-E1-C7 writes `Aiur.BuildProgress` (`facts/1`, `subscribe/0`, PubSub `"build_progress"`; owned by the `build-orders` component, RC-40) and an internal progress-changed signal; milestone events stay at 25/50/75/100. N5 reads the facts on each signal and computes per-device 10/25/50 thresholds, applying E1's no-burst / no-repeat / no-unknown rules per device step. Topic registration in the MP-R2-C5 catalog per RC-08. |
+| A-E4-1 | [conversations-transcripts-anchors.md](conversations-transcripts-anchors.md) | Matches | `anchor_id` is defined by the conversations contract §10 and is **opaque** here (X-33); the payload carries it as given, with a `method` that may be `none`; absent anchors degrade per §3.1 rule 2. |
 | A-E5-1 | [voice-session.md](voice-session.md) | Matches | Phone and watch authenticate voice sessions with the MP-N2 device credential; provider keys stay on the daemon. |
-| A-R1-1 | [identity-and-capabilities.md](identity-and-capabilities.md); MP-R1 capability-matrix §2 | Matches | Capability ids `push`, `pairing`, `build_orders.progress`, `build_queue`, `commands.answer`, `voice.stt`, `voice.conversation`. `push` uses only the contract's reason enum: `not_configured`, `disabled`, `not_running`, `dependency_unavailable` (`depends_on` e.g. `["pairing"]`, `["runtime.crypto"]`), `unknown`; `degraded` carries `since`. RC-02: payloads use `instance_id`. |
+| A-R1-1 | [identity-and-capabilities.md](identity-and-capabilities.md); MP-R1 capability-matrix §2 | Matches | Capability ids `push`, `pairing`, `build_orders.progress`, `build_queue`, `commands.answer`, `voice.stt`, `voice.conversation`. `push` uses only the contract's reason enum: `not_configured`, `disabled`, `not_running`, `dependency_unavailable` (`depends_on` e.g. `["pairing"]`, `["runtime.crypto"]`), `unknown`. No extra keys: `since` and `devices` are not registered attributes (identity §2.2, X-34); `aiur push status` reports them. RC-02: payloads use `instance_id`. |
 
 ## 10. Versioning
 
@@ -346,3 +418,17 @@ fields are allowed within `v: 1`; unknown fields are ignored.
 | Relay envelope adds `idempotency_key` and `fallback` | Daemon retries after a timeout must not double-send; the fallback string is owned by the daemon release, not the relay. |
 | Erlang `:crypto` evidence | E-C4 resolved for OTP 28 (MP-N4-C1-T01): RFC 9180 A.2.1 and RFC 8032 test 1 reproduced. |
 | A-E1-1 resolved | RC-10. |
+
+## 12. Phase D fix pass (2026-10-06)
+
+| Change | Source |
+| --- | --- |
+| §1 metadata rows: `kid`, FCM collapse key, `push_class` and priority, device IP at the relay | security m2 |
+| §1, §5, §8: the relay pins the fallback per `app_topic`; `422 fallback_mismatch` | security m1 |
+| §3 `summary.title` is agent-authored and rendered "from agent" in the app | security m3 |
+| §3 `attempt` and `summary.badge`; §6 one bounded reminder | feasibility M3 |
+| §5 local key loss posts the fallback; §7 `push_health` | feasibility M6 |
+| §5 lock-screen default proposal | security m9 |
+| §3.1 `agent.session_ref` replaces `session_id` | consistency X-11 (CR-R1-5) |
+| Hex `decision_id` examples | consistency X-32 |
+| A-E1-1 names `Aiur.BuildProgress` | consistency X-14, RC-40 |

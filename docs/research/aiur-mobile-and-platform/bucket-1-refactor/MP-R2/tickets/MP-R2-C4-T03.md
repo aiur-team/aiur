@@ -5,7 +5,7 @@ chunk_id: MP-R2-C4
 bucket: 1 (refactor)
 title: Swap the temporary bus boundary test for MP-R1's checker rule, and run the packaging acceptance (full suite on the merge ref + real aiurdev --test)
 status: blocked
-blocked_by: [DESIGN-R2 §1, MP-R2-C4-T01, MP-R1-C1-T3, MP-R1-C1-T5]
+blocked_by: [DESIGN-R2 §1, MP-R2-C4-T01, MP-R1-C1-T03, MP-R1-C1-T05]
 prior_units: [U8, U9]
 prior_boundaries: [BUS #10]
 prior_features: [MP-R1 (C1 checker)]
@@ -36,8 +36,8 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **C4-T01** (entry final, ratchet zero), **MP-R1-C1-T3** (module-reference
-  rules) and **MP-R1-C1-T5** (ratchet allowlist and CI wiring).
+- **C4-T01** (entry final, ratchet zero), **MP-R1-C1-T03** (module-reference
+  rules) and **MP-R1-C1-T05** (ratchet allowlist and CI wiring).
 - DESIGN-R2 §1. Must run on a main that contains every C1–C3 ticket.
 - Concurrent with C4-T05 (docs) and C5 tickets (inert).
 
@@ -48,7 +48,7 @@ researched: 2026-10-06
   recorded ratchet edges"; "every recorded ratchet edge still exists").
 - Required `lint` job runs `make fmt-check`, `make lint`, and Python
   drift gates such as `python3 scripts/check-config-docs.py`
-  (`.github/workflows/ci.yml:231-289`, step `:259-262`). MP-R1-C1-T1 adds
+  (`.github/workflows/ci.yml:231-289`, step `:259-262`). MP-R1-C1-T01 adds
   `python3 scripts/check-components.py` there.
 - Regression job runs `make regression` (`ci.yml:521-554`).
 - Characterization suites from C1 (deliberately green on main):
@@ -67,13 +67,13 @@ researched: 2026-10-06
 
 1. **Rule parity before deletion.** For each assertion class of
    `bus_boundary_test.exs`, show the checker equivalent with a failing
-   fixture in `scripts/test-check-components.sh` (MP-R1-C1-T6 harness):
+   fixture in `scripts/test-check-components.sh` (MP-R1-C1-T06 harness):
    - a bus member referencing a private module of another component
      (e.g. `Aiur.Orchestrator.State`) → private-module rule fails;
    - a bus member referencing an L3 component at all (`Aiur.Orchestrator`)
      → layer rule (R-down) fails;
    - a stale allowlist row → MP-R1's ratchet must fail on a listed edge that
-     no longer exists (if MP-R1-C1-T5 does not already enforce "no stale
+     no longer exists (if MP-R1-C1-T05 does not already enforce "no stale
      rows", add that to its fixtures through an MP-R1 request rather than
      keeping the ExUnit test).
 2. **Delete** `bus_boundary_test.exs` in the same PR.

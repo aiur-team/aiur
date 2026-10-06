@@ -69,10 +69,14 @@ Only affects files created by T01.
 3. Engine: `src/test/aiur_engine_stop_pidfile_test.exs` pattern — add `"aiur stop removes the advert next to the record"`. *Fails without:* the `rm -f` line.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/advert_test.exs test/aiur/shutdown_test.exs test/aiur_engine_stop_pidfile_test.exs
 ```
 
 ## Completion and handoff
 
 - [ ] Tests pass; mutation for 1 and 3 recorded. - [ ] Dependent: MP-N2-C2-T04.
+- Docs: none in this ticket. It adds an internal shutdown phase and a staleness predicate, with no
+  config key, CLI verb or user-facing surface (AGENTS.md "Docs ship with the change"). The
+  `stopped` and `stale` states a user sees are documented with `aiur mobile status`
+  (MP-N2-C3-T03, `reference/cli.md`) and in the pairing guide (MP-N2-C9-T01).

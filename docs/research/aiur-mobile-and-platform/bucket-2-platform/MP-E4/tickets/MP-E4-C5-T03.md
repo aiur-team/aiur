@@ -88,7 +88,7 @@ researched: 2026-10-06
 ## Verification
 
 ```bash
-env -C src HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN mise exec -- mix test \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test \
   test/aiur_web/live/conversation_live_navigation_test.exs
 npm --prefix src/browser run fixture:preflight
 env -C src/browser node scripts/run-browser-tests.mjs tests/conversation-jump.browser.spec.mjs

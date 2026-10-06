@@ -31,10 +31,10 @@ questions are in [DESIGN-R1](../../owner-design-tasks/DESIGN-R1.md).
 | Data source | One machine-readable manifest at the repository root, `components.json`, validated by `components.schema.json`. The same file drives the dependency checker (MP-R1-C1), so the page cannot describe a component the checker does not enforce. | (a) Hand-written Markdown table: drifts. (b) Generate from Elixir module attributes: misses non-Elixir components (sidecar, mobile, launcher). (c) A file under `website/`: puts code ownership in the docs tree and the checker would read docs. |
 | Page location | `website/docs-app/reference/components.md`, sidebar group **Reference**, item "Components", after "Optional Optimizations". | A new top-level group: more prominent but adds a group for one page; offered as DESIGN-R1 Q2. |
 | Rendering | VitePress build-time data loader `website/docs-app/reference/components.data.ts` that reads `../../../components.json` in `load()` and returns only public fields. Data loaders run only at build time and are serialized into the bundle as JSON (vitepress.dev/guide/data-loading, accessed 2026-10-06, VitePress 1.x; repo pins 1.6.4). A Vue component in `.vitepress/theme/components/` renders the table. | Pre-generated Markdown committed to the repo: a second copy to keep in sync. |
-| Planned features | A top-level `features` array in the manifest (MP-R1-C10-T1), because a planned feature often extends an existing component rather than adding one. Each entry has a one-line public summary, the feature ID (private), `extends`/`adds` component IDs and a `public` flag. Components that do not exist yet use `status: planned`. Rendered in a separate "Planned" section, never mixed into the installed-component table. No dates. | Linking research docs (not on `main`); a separate roadmap file (a second source). |
+| Planned features | A top-level `features` array in the manifest (MP-R1-C10-T01), because a planned feature often extends an existing component rather than adding one. Each entry has a one-line public summary, the feature ID (private), `extends`/`adds` component IDs and a `public` flag. Components that do not exist yet use `status: planned`. Rendered in a separate "Planned" section, never mixed into the installed-component table. No dates. | Linking research docs (not on `main`); a separate roadmap file (a second source). |
 | Sync check | `scripts/check-components.py` in the required `lint` job (same pattern as `check-config-docs.py`), plus `components.json` added to `website.yml` `paths` so a manifest change rebuilds the docs. | Docs-workflow-only check: does not run on source PRs. |
 
-Phase C result (MP-R1-C10-T2): resolved. In VitePress 1.6.4 a `watch` path that starts
+Phase C result (MP-R1-C10-T02): resolved. In VitePress 1.6.4 a `watch` path that starts
 with `.` is resolved against the loader file with no project-root check, and `load()` is
 plain Node, so the loader reads `../../../components.json` directly. The byte-equal copy
 fallback is not needed.
@@ -56,6 +56,7 @@ fallback is not needed.
 | `docs` | P | Docs page path(s) |
 | `paths` | – | Source globs, for the checker |
 | `facades` | – | Public modules, for the checker |
+| `added_by` | – | Feature that adds the component (`MP-R1`, `MP-E7`, `MP-N2` …); decides whether rule I4 applies (§7) |
 | `feature_id` | P (planned only) | `MP-…` ID, shown only if DESIGN-R1 approves exposing IDs |
 | `allowlist` | – | Ratcheting dependency violations |
 
@@ -76,21 +77,42 @@ summary and "planned" only. Final layout, wording and badges are DESIGN-R1.
 3. Every `docs` path exists in `website/docs-app`.
 4. Every `config` section name appears in `reference/configuration.md` (reuse
    `check-config-docs.py`'s resolver rather than re-parse).
-5. Every capability ID exists in the capability table.
+5. Every capability ID exists in the capability table. Template IDs such as
+   `harness.<id>.native_question` match by pattern: `<id>` stands for one lowercase
+   segment, and the fixture `capability_template_id_passes` (`harness.codex.native_question`)
+   must pass while `harness.native_question` fails (X-46).
 6. The sidebar in `config.ts` links `/reference/components`.
 7. The `lint` step is skipped on docs-only PRs (`ci.yml:260`,
    `docs_only != 'true'`), so a website-only PR could delete a page the manifest
-   links. Run the docs checks (`check-components.py --docs`) in the required `workflow security` job, which runs on every PR. `website.yml`'s `guards` job is not a required check (MP-R1-C10-T4).
+   links. Run the docs checks (`check-components.py --docs`) in the required `workflow security` job, which runs on every PR. `website.yml`'s `guards` job is not a required check (MP-R1-C10-T04).
 8. A test script `scripts/test-check-components.sh` guards the checker (pattern:
    `scripts/test-check-config-docs.sh`), with a fixture that must fail for each rule
    (AGENTS.md "tests must fail without the production change").
 
 ## 6. Going live (D20)
 
-- MP-R1-C10-T1 to T3 (manifest public fields, loader, page) can merge behind a
-  `noindex` page that is **not** in the sidebar, so the docs build exercises it.
-- MP-R1-C10-T4 (sidebar entry and publish) is blocked on: S16 merged, the final
-  plan-refresh run (S17), and DESIGN-R1 approved.
+- MP-R1-C10-T01 to T04 (manifest public fields, loader, page, docs-sync checks and CI
+  wiring) can merge behind a `noindex` page that is **not** in the sidebar, so the docs
+  build exercises it.
+- MP-R1-C10-T05 (sidebar entry and publish) is blocked on: S16 merged, the final
+  plan-refresh run (S17, MP-R1-C11-T03), and DESIGN-R1 approved. (X-44)
 - After go-live, AGENTS.md "Where each thing is documented" gains a row: "New or
   changed component → `components.json` (the page regenerates)". That is the docs
   rule change; it ships in the same PR.
+
+## 7. Planned components the page lists (X-29, X-45)
+
+The manifest carries these rows with `status: planned` from MP-R1-C1, so the page can
+list them and C10-T01 rule I4 can be met:
+
+| Component | `added_by` | Named in `features[].adds` of |
+|---|---|---|
+| `listener-spec` (build-time spec package shared with Khala) | MP-E7 | MP-E7 |
+| `machine-gateway` (pairing gateway + `aiur_machine` store library) | MP-N2 | MP-N2 |
+| `relay-service` (`services/push-relay-service`) | MP-N4 | MP-N4 |
+| `notification-policy` (policy + preferences store) | MP-N5 | MP-N5 |
+
+Rule I4 applies only to planned components whose `added_by` is an MP-E or MP-N feature.
+Components that Bucket-1 work adds (`aiur-contracts`, `web-kit`) carry
+`added_by: MP-R1`, are exempt from I4, and are listed as component capabilities, not as
+planned features (consistency review §4 gap 4; confirm in DESIGN-R1).

@@ -74,14 +74,15 @@ dictionaries) with a common envelope:
 
 | `type` | Body (required fields in bold) |
 |---|---|
-| `snapshot` | **`as_of`**, **`phone_reachable_to_machine`** `{machine_id: "reachable"|"unreachable"}`, **`instances[]`**: `{instance_id, machine_label, repository_label, row_state, executor_state, active_agents: Fact, awaiting: Fact, awaiting_blocking: Fact, build_progress: Fact?, background_agents: Fact?, affordances}`; **`open_commands[]`** capped at 10 per instance: `{instance_id, decision_id, short_summary, urgency, blocking, created_at}` |
-| `get_command` | **`instance_id`**, **`decision_id`** |
+| `snapshot` | **The only watch snapshot schema (RC-38).** **`as_of`**; **`machines[]`** `{machine_id, label, reachability: reachable|unreachable|revoked, observed_at, cause?}`; **`instances[]`**: `{instance_id, machine_label, repository_label, disambiguator?, row_state, executor_state, active_agents: Fact, fleet_paused: Fact?, awaiting: Fact, awaiting_blocking: Fact, build_progress: Fact?, background_agents: Fact?, affordances}`; **`open_commands[]`** capped at 10 per instance: `{instance_id, decision_id, short_summary, urgency, blocking, created_at}`; `truncated?` (count of dropped instances). `row_state` ∈ `live | starting | stale | unreachable | gateway_offline | crashed | stopped | unsupported | removed` (closed; `starting` added in Phase D X-03). MP-N1-C3-T04 builds the instance part; MP-N7-C1-T05 merges `open_commands`. |
+| `get_command` | **`instance_id`** + **`decision_id`**, **or** `latest_notified: true` (Phase D M5: the watch received only the uniform fallback; the phone answers from the last destination its NSE decrypted, at most 15 minutes old, else `not_found`) |
 | `get_command_result` | **`outcome`** ∈ `ok | not_found | unreachable | revoked | unknown`; `card` when ok: `{decision_id, version, short_summary, excerpt_lines[≤2], options[≤3]{id,label}, recommended_option_id?, status, resolved?{by_surface, at, summary}}` |
-| `answer` | **`instance_id`**, **`decision_id`**, **`expected_version`**, **`idempotency_key`**, **`created_at`**, exactly one of `selected_option_id` / `custom_response` |
+| `answer` | **`instance_id`**, **`decision_id`**, **`expected_version`**, **`idempotency_key`**, **`created_at`**, exactly one of `option_id` / `custom_response` (X-13: the wire key matches `decision_answer.ex:58` and `DecisionStore.answer/5`) |
 | `answer_result` | **`idempotency_key`**, **`outcome`** ∈ `delivered | duplicate | conflict | stale | failed | unknown`, `winner?`, `reason?` |
 | `voice_turn` | **`session`**, **`seq`**, **`mode`** ∈ `dictate | converse`, **`target`** `{instance_id, decision_id?}`, **`audio`** `{format: "pcm_s16le_16k_mono"|"aac_lc", file_ref}` |
 | `voice_result` | **`session`**, **`seq`**, **`outcome`**, `transcript?`, `reply_text?`, `reply_audio_ref?` |
 | `voice_session_end` | **`session`**, **`reason`** |
+| `open_on_phone` (watch → phone; Phase D, owned by MP-N6-C5-T03) | **`destination`** (notification contract §3.1 shape: names objects only, no Command content), `intent?` ∈ `answer | converse`. The phone opens the native Command screen at that destination; nothing is answered or recorded. |
 | `notify` (Wear only, phone → watch) | **`instance_id`**, **`decision_id`**, **`title`**, **`short_summary`**, **`dismissal_id`** (`<instance_id>:<decision_id>`), `urgency` |
 | `notify_cancel` (Wear only) | **`dismissal_id`**, **`reason`** ∈ `resolved | revoked | superseded` |
 
@@ -93,12 +94,17 @@ Invariants (encoded in schemas and in negative fixtures):
 
 1. Unknown `v` major → reject; unknown fields → ignore (forward compatibility).
 2. `snapshot` never contains question text beyond `short_summary`, never transcript
-   text, tokens, URLs or `device_id`. Max encoded size 32 KiB (a Data Layer item is limited
+   text, tokens, URLs or `device_id`. Max encoded size **16 KiB** (RC-38; one budget for the
+   builder MP-N1-C3-T04 and the sender MP-N7-C1-T05). A Data Layer item is limited
    to 100 KB, <https://developer.android.com/training/wearables/data/data-items>, accessed
    2026-10-06, page updated 2026-09-22; WatchConnectivity application-context size is not
-   documented, so the budget is set by us and enforced by test).
-3. `answer` has exactly one of `selected_option_id`/`custom_response`; `custom_response`
-   ≤ 4,000 characters (the E5 dictated-field cap, `MP-E5-C4-T3`).
+   documented, so the budget is set by us and enforced by test). Truncation order when over
+   budget (applied by MP-N7-C1-T05, after MP-N1-C3-T04's instance budget): drop
+   `open_commands` beyond 5 per instance, then `background_agents`, then whole instances in
+   the order `stopped`, `crashed`, oldest `stale`, counting them in `truncated`. `live` and
+   `starting` rows, `row_state` and the other Facts are never dropped.
+3. `answer` has exactly one of `option_id`/`custom_response`; `custom_response`
+   ≤ 4,000 characters (the E5 dictated-field cap, `MP-E5-C4-T03`).
 4. `outcome` values are closed sets; a client receiving an unlisted value treats it as
    `unknown` (AGENTS.md "a collapsed cause names the collapse at the source").
 
@@ -107,9 +113,9 @@ Invariants (encoded in schemas and in negative fixtures):
 1. Add `packages/aiur-mobile/fixtures/watch-link/schema/` with one JSON Schema (draft
    2020-12) per message and `envelope.schema.json`.
 2. Add `fixtures/watch-link/valid/*.json` (at least one per type, plus: snapshot with every
-   `row_state`; Fact in each status; answer with option and with custom text) and
+   `row_state` including `starting`; Fact in each status; answer with option and with custom text; `open_on_phone` with and without `intent`) and
    `fixtures/watch-link/invalid/*.json` (both answer fields; neither; `v: 2`; Fact
-   `unavailable` carrying `value: 0`; oversize snapshot generated by a script).
+   `unavailable` carrying `value: 0`; oversize snapshot generated by a script; `open_on_phone` with `intent: "submit"` and with a `destination` carrying `short_summary`).
 3. Generate Swift `Codable` and Kotlin `kotlinx.serialization` models with the generator
    pinned by MP-N1-C2-T04 into `native/apple-core/Sources/AiurClientKit/WatchLink/` and
    `native/android-core/src/main/kotlin/.../watchlink/` (PROPOSED).
@@ -147,7 +153,7 @@ packages/aiur-mobile/native/android-core/gradlew -p packages/aiur-mobile/native/
 | `WatchLinkFixtureTests.testValidFixturesRoundTrip` (Swift, Kotlin twin) | every valid fixture decodes and re-encodes | the generated models (delete one field from a model → fails) |
 | `testInvalidFixturesRejected` | every invalid fixture fails | the "exactly one of" validator (remove it → `answer-both.json` decodes → fails) |
 | `testUnavailableFactCarriesNoValue` | `fact-unavailable-with-zero.json` rejected | the Fact `value` presence rule |
-| `testSnapshotSizeBudget` | generated 33 KiB snapshot rejected; 31 KiB accepted | the size check |
+| `testSnapshotSizeBudget` | generated 17 KiB snapshot rejected; 15.9 KiB accepted | the size check (16 KiB, RC-38) |
 | `watch-link.privacy.test.ts` | no forbidden key in any valid fixture | the scanner list |
 
 Mutation check: run each "must fail without" by reverting the named hunk in a worktree
@@ -155,7 +161,7 @@ Mutation check: run each "must fail without" by reverting the named hunk in a wo
 
 ## Completion and handoff
 
-- [ ] Schemas and fixtures for all ten types; decode tests green in TS, Swift, Kotlin.
+- [ ] Schemas and fixtures for all eleven types (including `open_on_phone`, fixtures `fixtures/watch-link/valid|invalid/open_on_phone*.json`); decode tests green in TS, Swift, Kotlin.
 - [ ] CI job from MP-N1-C1-T02 runs the three commands.
 - [ ] Docs: none (internal protocol; no CLI, config or user surface).
-- Dependents: MP-N7-C1-T02, C1-T03, C1-T04, C1-T05, C2-T02, C3-T02, C4-T03.
+- Dependents: MP-N7-C1-T02, C1-T03, C1-T04, C1-T05, C2-T02, C3-T02, C4-T03; MP-N1-C3-T04 (RC-38: builds the snapshot instance part against this schema).

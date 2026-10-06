@@ -26,7 +26,8 @@ researched: 2026-10-06
   leak (runner, app-server core, Claude and OpenAI-compat adapters all call a
   module named after Codex). MP-E7-C5 (`read_messages` pull tool) and MP-E2 add
   tools to this surface; they must not add them under `Aiur.Codex.*`.
-- **Deliverable:** the eleven `Aiur.Codex.DynamicTool*` modules are renamed into
+- **Deliverable:** the twelve `Aiur.Codex.DynamicTool*` modules (the facade plus
+  eleven submodules, 12 files, census below) are renamed into
   the existing neutral namespace `Aiur.AgentTools` (which already holds
   `Aiur.AgentTools.Catalog` and `Aiur.AgentTools.MCP`). Every caller switches.
   Tool names, specs, argument validation, error payloads and quotas are
@@ -46,7 +47,7 @@ researched: 2026-10-06
   files except `app_server/adapter.ex`, which only T01 touches in C3).
   Conflicts with any open PR touching `src/lib/aiur/codex/dynamic_tool/**`
   (rebase; this ticket is a rename).
-- Consumers waiting on it: MP-E7-C5-T1 (pull tool), MP-E2 native-capture tickets.
+- Consumers waiting on it: MP-E7-C5-T01 (pull tool), MP-E2 native-capture tickets.
 
 ## Verified starting point (base `45a290e3`)
 
@@ -106,7 +107,8 @@ researched: 2026-10-06
    `defmodule`, `@behaviour` and `alias` lines only. Update the moduledoc of
    `dispatch.ex` ("Executes client-side tool calls requested by coding-agent
    turns").
-2. Update the nine production callers listed above to alias
+2. Update the eight production caller files listed above (comment-only
+   mentions excluded) to alias
    `Aiur.AgentTools.Dispatch` (or call `Aiur.AgentTools.Catalog.specs/0` where
    only specs are needed — `codex/frames.ex`, `claude/coding_agent.ex`,
    `open_ai_compat/tool_spec.ex`; behaviour identical because `Catalog.specs/0`
@@ -167,13 +169,14 @@ Tests (all must pass unchanged in assertions; only module names change):
   `@handlers` in `dispatch.ex` and confirm MP-R7-C1-T03 and the catalog guard
   test fail.
 
-Commands (from repo root; isolate `HOME` and unset `GITHUB_TOKEN`/`GH_TOKEN`
-because a local `mix test` boots aiur and writes `~/.aiur/github-budget`):
+Commands (from repo root). `mix test` boots aiur and writes
+`~/.aiur/github-budget`, so every test command isolates `HOME` and
+`XDG_CONFIG_HOME` and unsets `GITHUB_TOKEN`/`GH_TOKEN` (review T-4):
 
 ```text
 env -C src mise exec -- mix compile --warnings-as-errors
-env -C src mise exec -- mix test test/aiur/agent_tools/ test/aiur/agent_runner/tool_executor_test.exs test/aiur/claude/coding_agent_test.exs test/aiur/codex/coding_agent_test.exs test/aiur/open_ai_compat/
-env -C src mise exec -- mix aiur.affected_tests
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" mise exec -- mix test test/aiur/agent_tools/ test/aiur/agent_runner/tool_executor_test.exs test/aiur/claude/coding_agent_test.exs test/aiur/codex/coding_agent_test.exs test/aiur/open_ai_compat/
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" mise exec -- mix aiur.affected_tests
 env -C src mise exec -- mix lint
 mise exec -- rg -n --fixed-strings -- 'Codex.DynamicTool' src/ scripts/
 ```
@@ -189,5 +192,5 @@ covers it.
 - [ ] PR body reports moved vs changed lines and the mutation statement.
 - Docs: none (no user-facing surface; AGENTS.md "Docs ship with the change"
   does not apply). MP-R7-C6-T01 documents the tool surface for contributors.
-- Dependents: MP-R7-C3-T05 (boundary rule drops this edge), MP-E7-C5-T1,
+- Dependents: MP-R7-C3-T05 (boundary rule drops this edge), MP-E7-C5-T01,
   MP-E2 native capture.

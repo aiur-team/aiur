@@ -33,7 +33,10 @@ researched: 2026-10-06
   3. The owner messages are renamed to the RC-14 names. Every receiver is
      updated in the same PR:
      - `{:elevenlabs_transcript, k, t}` → `{:voice_transcript, k, t}`
-     - `{:elevenlabs_error, r}` → `{:voice_error, r}`
+     - `{:elevenlabs_error, r}` → `{:voice_error, %{code: c, message: r}}` (Phase D,
+       E5 R-1: `message` is today's string `r`, so displayed text is unchanged;
+       `c` is the voice-session §8 provider code the adapter already distinguishes at
+       `realtime.ex:402-409`, else `:provider_error`)
      - `{:elevenlabs_closed}` → `{:voice_closed}`
      - `{:elevenlabs_audio, …}` → `{:voice_audio, …}` (TTS; see CR-R5-1)
 - **Non-goals:**
@@ -109,7 +112,8 @@ defmodule Aiur.Voice.Provider do
 end
 
 defmodule Aiur.Voice.Transcriber do
-  # owner receives {:voice_transcript, :partial | :final, String.t()}, {:voice_error, String.t()}, {:voice_closed}
+  # owner receives {:voice_transcript, :partial | :final, String.t()},
+  #   {:voice_error, %{code: atom(), message: String.t()}}, {:voice_closed}
   @callback start(keyword()) :: {:ok, pid()} | {:error, :unconfigured | term()}   # opts include owner: pid
   @callback push(pid(), String.t()) :: :ok      # base64 PCM16 16 kHz mono, relayed verbatim
   @callback commit(pid()) :: :ok                # flush tail; the session closes itself after
@@ -238,6 +242,6 @@ Mutation checks (revert each; the tree is dirty only by that hunk):
   (AGENTS.md: internal refactors need no docs).
 - **Dependents:**
   - T02 and T03 (callers move to the facade);
-  - MP-R1-C3-T2: the `voice.stt` capability callback should read
+  - MP-R1-C3-T02: the `voice.stt` capability callback should read
     `Aiur.Voice.availability/0`;
   - MP-E5 and MP-E6 build sessions on this port.

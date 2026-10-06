@@ -3,7 +3,8 @@ design_task: DESIGN-E5
 feature_id: MP-E5
 owner: Kevin (operator)
 status: open — not approved
-blocks: MP-E5-C3, C4, C5, C6 (see ../bucket-2-platform/MP-E5/chunks.md); the mic choice used by MP-E6-C7
+blocks: [MP-E5-C3-T01, MP-E5-C3-T02, MP-E5-C3-T03, MP-E5-C4-T01, MP-E5-C4-T02, MP-E5-C5-T01, MP-E5-C5-T02, MP-E5-C6-T01, MP-E5-C6-T02, MP-E5-C6-T03, MP-E5-C7-T01, MP-N1-C4-T05, MP-N6-C4-T01, MP-N6-C4-T02, MP-N6-C4-T03, MP-N6-C4-T04, MP-N6-C5-T02, MP-N7-C4-T01, MP-N7-C4-T02, MP-N7-C4-T03, MP-N7-C4-T04]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-E5 (waived entries excluded). Earlier wording: MP-E5-C3, C4, C5, C6 (see ../bucket-2-platform/MP-E5/chunks.md); the mic choice used by MP-E6-C7"
 shared_with: DESIGN-E6 (Converse panel), DESIGN-E2 §4 (Command presentation), DESIGN-E3 (Executor composer), DESIGN-N6 and DESIGN-N7 (phone/watch mic choice), DESIGN-R5 (key setup)
 base_main_sha: 45a290e3
 date: 2026-10-06
@@ -48,12 +49,13 @@ Verified at `45a290e3`, `components/operator_control_center/conversation_drawer.
 
 | ID | Decision | Options | Engineering recommendation |
 | --- | --- | --- | --- |
-| E5-OQ1 | How the D16 choice appears | (a) two always-visible buttons, Dictate and Converse; (b) one mic button that opens a two-button chooser | Either works. (b) is the same shape on phone and watch (brief N6 "explicit mic button"). |
+| E5-OQ1 | How the D16 choice appears | (a) two always-visible buttons, Dictate and Converse; (b) one mic button that opens a two-button chooser | **(b)**, because it is the same shape on phone and watch (brief N6 "explicit mic button"), so one design serves every client. |
 | E5-OQ2 | The existing auto-send voice chat | (a) remove when MP-E6 ships, Converse means the assistant; (b) keep as a third, clearly labelled option; (c) remove now | (a). Until E6 ships, keep it where it is under its current label; do not call it Converse. |
 | E5-OQ3 | Dictating a Command answer | auto-select "Custom response" when you start dictating? append to or replace existing text? | auto-select; append. |
-| E5-OQ4 | No ElevenLabs key / voice not installed | hide the buttons, or show them disabled with a reason and a link to setup | disabled with reason when not configured; hidden when the package is not installed |
+| E5-OQ4 | No ElevenLabs key (not configured) | hide the buttons, or show them disabled with a reason and a link to setup | **Disabled with the reason and a setup link**, matching today's no-key copy. The **not-installed** case is asked once, in [DESIGN-R5 §2](DESIGN-R5.md#2-new-state-needing-your-copy-voice-package-not-installed) (recommended there: also disabled with reason). |
 | E5-OQ5 | Keyboard | shortcut to start/stop dictation? hold-to-talk on desktop (the Stream Deck holds)? | toggle stays; add `Escape` to cancel; no hold-to-talk |
-| E5-OQ6 | Device picker placement | inline (today) or in a settings popover | your call |
+| E5-OQ6 | Device picker placement | inline (today) or in a settings popover | **Popover**, because with (b) in E5-OQ1 the composer has room for one mic control only. |
+| E5-OQ7 | Does dictation (browser and the MP-E5-C8 device path, including watch D-relay) need a daily STT-minute cap? (Phase D, feasibility M8.) Today: a 9,600,000-byte (about 5 min) per-session cap and 2-per-device / 8-global concurrency caps; account quota surfaces as `provider_quota` | (a) no daily cap in v1; (b) a daily STT minute cap | **(a) no daily STT cap in v1**, because dictation is short, review-then-Send and capped per session; revisit if provider cost reports show watch relay usage above 30 min/day. |
 
 ## 4. States to design (each surface)
 
@@ -78,11 +80,20 @@ Button labels and tooltips for Dictate and Converse; each status line above; the
 reasons; the privacy line next to the mic ("Audio is sent to ElevenLabs for transcription;
 aiur keeps no audio" — final wording from contract §10).
 
+Strings found during ticket research (Phase D, E5 R-5). Until approved, each ticket reuses an
+existing string and says which:
+
+- "field did not open" (MP-E5-C4-T01);
+- "this device was unpaired" (MP-E5-C8-T02, shown by native clients);
+- "dictation is not active" (MP-E5-C2-T02, defensive path);
+- "a dashboard script did not load" (MP-E5-C1-T02, optional).
+
 ## 6. Acceptance conditions
 
 - The choice, every state in §4 and all copy are designed for all five surfaces in §2 (one
   design may cover several surfaces if stated).
-- E5-OQ1..OQ6 are answered.
+- Every decision in §3 is answered (E5-OQ1…OQ7; for E5-OQ4, the not-installed half is
+  answered in DESIGN-R5 §2).
 - You confirm dictation keeps review-then-Send.
 - The mic never activates on page load, on opening a Command, or from a notification.
 - Phone/watch implications noted for DESIGN-N6/N7.

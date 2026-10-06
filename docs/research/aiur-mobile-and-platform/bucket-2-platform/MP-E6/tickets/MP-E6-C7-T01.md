@@ -5,7 +5,7 @@ chunk_id: MP-E6-C7
 bucket: 2-platform
 title: voice:converse channel — full-duplex audio relay between clients and the session
 status: blocked
-blocked_by: [DESIGN-E6, MP-E6-C4-T01, MP-E6-C2-T03, MP-E5-C2-T01, MP-E5-C8-T01]
+blocked_by: [DESIGN-E6, MP-E6-C4-T01, MP-E6-C2-T03, MP-E5-C2-T01]
 prior_units: []
 prior_boundaries: [VOX, WEB]
 prior_features: [ui-08]
@@ -23,7 +23,8 @@ researched: 2026-10-06
 - **User value:** the browser (and later phone/watch via the device socket) can hold a live
   spoken conversation with the assistant; the daemon keeps the key and the transcript.
 - **Deliverable:** `AiurWeb.VoiceConverseChannel` (PROPOSED) on topic `voice:converse`,
-  routed on `/voice` (dashboard) and `/voice/device` (MP-E5-C8-T01). Join payload contract
+  routed on `/voice` (dashboard). The `/voice/device` route comes from MP-E5-C8-T01's
+  device socket once both land (wave 5); this ticket does not wait for it (RC-30). Join payload contract
   §3.2 with `mode: "converse"`; client events §3.3 (`audio`, `end`, `confirm_draft`,
   `discard_draft`, `playback_state`, `client_text`); daemon events §3.4 (`state`,
   `transcript`, `assistant_text`, `audio`/`audio_done`, `interrupted`, `draft`, `delivery`,
@@ -34,7 +35,8 @@ researched: 2026-10-06
 
 - **Owner:** DESIGN-E6 gates all of C7 (DESIGN-E6 header).
 - **Predecessors:** C4-T01 (session API), C2-T03, MP-E5-C2-T01 (`VoiceTargets`,
-  `reason_code` mapping reused), MP-E5-C8-T01 (device socket).
+  `reason_code` mapping reused). Not MP-E5-C8-T01: dashboard Converse uses the browser voice
+  path (RC-30).
 
 ## Verified starting point (base `45a290e3`)
 
@@ -80,7 +82,7 @@ New topic; inert until the panel exists. Rollback: revert.
 | "a privacy preflight failure refuses the join" | `privacy_preflight_failed` |
 | "a reconnect with the same client_session_id re-attaches" | same conversation id |
 | "leaving ends the session after the grace period" | `session_ended{transport_lost}` in transcript |
-| "a device socket can converse; a revoked device is ended" | with MP-E5-C8 fixtures |
+| "a device socket can converse; a revoked device is ended" | added by MP-E5-C8-T01/T02 with their fixtures (RC-30) |
 | "downlink chunks larger than 131,072 bytes are split" | two pushes |
 
 ```bash

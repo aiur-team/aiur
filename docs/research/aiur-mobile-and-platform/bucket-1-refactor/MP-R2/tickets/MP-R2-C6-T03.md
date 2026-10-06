@@ -74,15 +74,15 @@ C6-T02).
 
 **Epoch rules (decision):** a new random `epoch` is created only when
 (a) no meta and no segments exist (first enable or operator moved the
-directory away), or (b) `meta.instance != InstanceRef.current()` (moved root
+directory away), or (b) `meta.instance != InstanceId.current()` (moved root
 or identity reset, C5-T04). Then all old segments are moved into
 `events/export/old-<epoch>/` (not deleted; operator evidence) and `seq`
 restarts at 1. A daemon restart, an Exchange crash, or an exporter crash do
 **not** change the epoch (they produce `gap`, C6-T02).
 
-**Reader** (`Aiur.Events.Export.read/3`, C6-T02 interface; the client's
-last epoch is compared by the caller, C7, which passes it as an option to
-`Reader.read/4`):
+**Reader** (`Aiur.Events.Export.read(after_seq, limit, patterns, opts \\ [])`,
+the C6-T02 interface; a caller that knows the client's last epoch, C6-T04 or C7,
+passes it as `opts[:epoch]`):
 - `epoch` given and ≠ current → `{:reset, %{oldest_seq, head_seq, epoch}}`.
 - `after < oldest_seq - 1` → `{:reset, %{oldest_seq, head_seq, epoch}}`.
 - `after > head_seq` → `{:reset, %{oldest_seq, head_seq, epoch}}` (cursor from a newer journal

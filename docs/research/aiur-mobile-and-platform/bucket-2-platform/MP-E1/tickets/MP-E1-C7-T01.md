@@ -21,8 +21,11 @@ researched: 2026-10-06
 > progress-changed signal, milestones at 25%. RC-08: milestone topics
 > `system.queue.<queue_id>.progress` and `system.build_order.<root>.progress`
 > (producer MP-E1-C7), registered in MP-R2's catalog later and possibly
-> exported (R2-C5/C6). After MP-R1 this module joins the `build-queue`
-> component or becomes its own; the API is the stable interface for MP-N3/N5/N7.
+> exported (R2-C5/C6). RC-40: this module belongs to the **`build-orders`**
+> component. MP-E1-C7 writes it; the queue (C7-T02) is one producer and the Build
+> Order observer (C7-T03) the other. D18's defaults need no queue. The API is the
+> stable interface for MP-N3/N5/N7; MP-N5 gates build-order options on capability
+> `build_orders` and queue options on `build_queue`.
 
 ## Identity and outcome
 
@@ -102,7 +105,7 @@ Mutation check: emit every crossed milestone → test 1 sees three; keep the
 latch in memory only → test 2 fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_progress_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_progress_test.exs
 ```
 
 ## Completion and handoff

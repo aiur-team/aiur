@@ -9,7 +9,7 @@ blocked_by: [DESIGN-E2, MP-E2-C1-T01, MP-E2-C1-T03]
 prior_units: [U6]
 prior_boundaries: [DEC #27]
 prior_features: [MP-R2 (MP-R2-C5-T01 catalog, RC-08), MP-N4/N5 (consumers)]
-prior_findings: [RC-08, contract §4, §5, §8]
+prior_findings: [security m3 (short_label not exported), RC-08, contract §4, §5, §8]
 size_owner: "DECISIONS (decision_store.ex: one public fn + one handle_call; decision_event.ex / decision_projection.ex: list extension only)"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -37,8 +37,10 @@ researched: 2026-10-06
 - Blocked by **DESIGN-E2**; predecessors C1-T01 (seams), C1-T03 (topics).
 - **RC-08:** `ticket.<id>.agent.decision.human-needed` and `executor.decision.human-needed`
   are registered by MP-R2-C5-T01's catalog (journaled, exported, refs
-  `{decision_id, decision_version}`, attrs `{short_label, requester_kind, blocking,
-  urgency, cause}`). If MP-R2-C5-T01 has landed, this PR adds/verifies the two entries
+  `{decision_id, decision_version}`, exported attrs `{requester_kind, blocking, urgency,
+  cause}`; Phase D, security m3: `short_label` is agent-authored text, so it stays in the
+  journaled event and the sealed push only and is **not** a feed attr, events contract §9).
+  The catalog entry's attr allowlist therefore omits `short_label`. If MP-R2-C5-T01 has landed, this PR adds/verifies the two entries
   (the catalog test fails otherwise); if not, nothing to register — the topics live in
   the DecisionStore-owned namespace (`events-and-replay.md` §9) and R2-C5 registers them.
 - May run concurrently with C2-T01.
@@ -116,6 +118,7 @@ env -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- env -C src mix 
 | "escalated after answer is refused" | `{:error, {:invalid_transition, _}}` | `with_executor`+no-answer guard |
 | "human-needed payload has no question text" | captured publish payload has no `question`, `options`, `context` keys | payload builder |
 | "executor topic for executor requester" | `executor.decision.human-needed` | Topics use |
+| "exported human-needed attrs carry no short_label" (m3; only if MP-R2-C5-T01 has landed, else the row moves to that ticket) | catalog export of a fixture event → attrs keys exactly `requester_kind, blocking, urgency, cause` | the attr allowlist (add `short_label` and the row fails) |
 
 Mutation check per row (worktree; revert only the named hunk).
 

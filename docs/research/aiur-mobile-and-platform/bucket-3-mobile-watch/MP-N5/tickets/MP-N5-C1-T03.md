@@ -5,7 +5,7 @@ chunk_id: MP-N5-C1
 bucket: 3-mobile-watch
 title: Settings API — gateway GET/PATCH /v1/notification-settings and instance notification-options
 status: ready
-blocked_by: [DESIGN-N5 (no-UI release), MP-N5-C1-T02, MP-N2-C4-T4, MP-N2-C6-T1, RQ-TRANSPORT (RC-15)]
+blocked_by: [DESIGN-N5 (no-UI release), MP-N5-C1-T02, MP-N2-C4-T04, MP-N2-C6-T01, RQ-TRANSPORT (RC-15)]
 prior_units: []
 prior_boundaries: [WEB #34 (router), pairing gateway (MP-N2)]
 prior_features: [MP-N2]
@@ -34,7 +34,7 @@ Bucket 3, MP-N5, chunk C1. Two endpoints, both device-token authenticated:
 
 ## Dependencies and blockers
 
-- C1-T02; MP-N2-C4-T4 (gateway routes + token plug), MP-N2-C6-T1 (instance device-auth
+- C1-T02; MP-N2-C4-T04 (gateway routes + token plug), MP-N2-C6-T01 (instance device-auth
   pipeline). RQ-TRANSPORT (RC-15): the phone reaches these over the transport DESIGN-N2
   chooses; the API itself does not change with the choice, but end-to-end use waits.
 - DESIGN-N5 no-UI release.

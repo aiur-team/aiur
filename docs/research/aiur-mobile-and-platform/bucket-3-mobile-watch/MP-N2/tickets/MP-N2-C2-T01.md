@@ -5,7 +5,7 @@ chunk_id: MP-N2-C2
 bucket: 3-mobile-watch
 title: Instance advertisement writer (<slug>.advert.json, 30 s refresh, device URL from the transport listener)
 status: blocked
-blocked_by: [DESIGN-N2, RQ-TRANSPORT, MP-N2-C3-T01, MP-N2-C10-T01, MP-R1-C2-T02, MP-R1-C2-T03]
+blocked_by: [DESIGN-N2, RQ-TRANSPORT, MP-N2-C3-T01, MP-N2-C10-T01, MP-R1-C2-T02, MP-R1-C3-T02]
 prior_units: []
 prior_boundaries: [WEB, CLI]
 prior_features: [MP-R1, MP-N3]
@@ -34,7 +34,7 @@ researched: 2026-10-06
 - DESIGN-N2 gate; RQ-TRANSPORT and **MP-N2-C10-T01** (`Aiur.HttpServer.device_url/0` and the
   transport mode); MP-N2-C3-T01 (settings: `mobile.enabled`, `transport.*`).
 - MP-R1-C2-T02 (daemon composes `instance_id` from the launcher's `AIUR_INSTANCE_KEY`) and
-  MP-R1-C2-T03 (`repository`). Until those exist this ticket cannot use one source of identity.
+  MP-R1-C3-T02 (the `repository` section provider; MP-R1-C2 has no T03, and C2-T02 leaves the repository section to C3-T02). Until those exist this ticket cannot use one source of identity.
 - Concurrent with: MP-N2-C1-*, MP-N2-C2-T03/T04.
 - Dependents: T02, T04, MP-N2-C4-T04, MP-N3-C2.
 
@@ -127,7 +127,7 @@ the launcher's record reader globs only `"$dir"/*.instance` (`aiur-engine.sh:222
    `"advert writer is present with and without dashboard"`. *Fails without:* the unconditional child entry.
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/advert_writer_test.exs
 ```
 

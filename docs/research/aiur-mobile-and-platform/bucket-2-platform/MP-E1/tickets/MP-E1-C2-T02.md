@@ -101,7 +101,7 @@ Mutation check: map `not_planned` to `:satisfied` with default opts → its row
 fails; drop the age check → the stale test fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/
 ```
 
 ## Completion and handoff

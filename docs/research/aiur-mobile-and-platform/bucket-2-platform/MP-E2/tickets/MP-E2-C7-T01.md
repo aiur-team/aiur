@@ -57,9 +57,12 @@ researched: 2026-10-06
   **unknown** chip (approved wording; draft "Routing…"), never a guessed state.
 - Filter param `route=needs_you|with_executor|from_executor|resolved` (URL, shareable).
   `needs_you` = open ∧ `route_state in [:with_human, :with_both]`.
-- Banner: if §6.2 approves "only needs you", the count source is a new
-  `DecisionQuery.counts/1` field `needs_you` computed from the projection (not the page);
-  otherwise unchanged.
+- `DecisionQuery.counts/1` (read through `DecisionProvider.counts/1`) gains the field
+  `needs_you`, computed from the projection with `needs_you?/1`, **whatever §6.2
+  decides**. It is the public read MP-N3-C1-T03 calls without the LiveView, so the
+  phone count matches the dashboard (Phase D, CR-N3-2).
+- Banner: if §6.2 approves "only needs you", the banner reads that field; otherwise
+  unchanged.
 - Fleet column: same rule as the banner (one helper, `Aiur.Commands.Routing.Policy.needs_you?/1`).
 - Age rendering: rows show "asked N min ago" from `created_at` and, when routed to the
   human by escalation, "needs you since …" from `human_visible_at` (AGENTS.md: a computed

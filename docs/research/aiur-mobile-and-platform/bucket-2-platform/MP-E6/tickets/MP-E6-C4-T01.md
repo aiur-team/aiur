@@ -5,7 +5,7 @@ chunk_id: MP-E6-C4
 bucket: 2-platform
 title: Conversation session process, supervision, state machine, limits and end reasons
 status: ready
-blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C2-T01, MP-E6-C6-T01, MP-E6-C2-T04, MP-E6-C3-T01, MP-E6-C3-T03]
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C2-T01, MP-E6-C6-T01, MP-E6-C6-T02, MP-E6-C2-T04, MP-E6-C3-T01, MP-E6-C3-T03]
 prior_units: []
 prior_boundaries: [VOX]
 prior_features: [integrations-51]
@@ -32,15 +32,21 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **Predecessors:** C2-T01 (provider behaviour + fake), C6-T01 (transcript writer), C2-T04
-  (cleanup queue), C3-T01 (limits config), C3-T03 (preflight).
+- **Predecessors:** C2-T01 (provider behaviour + fake), C6-T01 (transcript writer), C6-T02
+  (`minutes_today/0` and boot reconciliation), C2-T04 (cleanup queue), C3-T01 (limits
+  config), C3-T03 (preflight).
 - **Contracts:** voice-session §6 state table, §9 write rule.
 
 ## Verified starting point (base `45a290e3`)
 
 - Supervision placement: voice-related children are started from the application child list
   (`Aiur.ElevenLabs.Quota`, `src/lib/aiur.ex:355`); MP-R5-C2-T03 moves voice children into
-  the voice package's child spec — the session supervisor joins that spec.
+  the voice package's child spec. **Phase D (E6 R-5, modified):** the session supervisor,
+  `ProviderCleanup` and the preflight cache owner do **not** join the voice-stt spec; they
+  are the voice-conversation component's own `child_specs/0`, assembled by the composition
+  root like other optional components (MP-R1-C8-T08 pattern), because voice-conversation is
+  a separate optional component (component-map L3). Until that assembly exists, start them
+  from the application child list next to `Aiur.ElevenLabs.Quota`.
 - Lease limiter: `AiurWeb.VoiceSessionLimiter.acquire/2` with owner monitor
   (`voice_session_limiter.ex:22-56`). The session lives in core (`Aiur.*`) and must not call
   `AiurWeb`; the **channel** (C7-T01) acquires the lease and passes ownership, keeping layers
@@ -49,10 +55,20 @@ researched: 2026-10-06
 ## Chosen design
 
 - **Start sequence:** validate target via the read port (C4-T02) → `Preflight.check/1` →
-  daily-cap check (sum of today's session durations from the transcript index, C6-T02) →
+  daily-cap check (`TranscriptIndex.minutes_today/0`, C6-T02, which counts crashed and
+  still-open sessions; a cap of `0` refuses with `cost_cap`) →
   `TranscriptStore.open(conversation_id, session_started{…})` (fsync) → `ContextBuilder`
   (C4-T03) → `Provider.open/1`. Any failure returns its contract §8 code and writes
   `session_ended{reason}` if the transcript was opened.
+- **Provider conversation id (Phase D, M1):** on the §4.1 `provider_conversation_id{id}`
+  event the session appends and fsyncs `provider_conversation{provider, id, at}` **before** it
+  leaves `connecting`. From then on a crash cannot lose the id: the boot reconciliation in
+  C6-T02 finds it and enqueues the deletion.
+- **Client error table (Phase D, M7):** new module `Aiur.VoiceConversation.ClientErrors`
+  (`table/0`, `retry/1`, `copy_key/1`) holds the voice-session §8.1 rows
+  ([voice-session-client-errors.md](../../../contracts/voice-session-client-errors.md)). Every
+  end reason and error code this session emits must be a key of that table. `cost_cap` is the
+  one spelling for the end reason and the error code (`cost_cap_reached` is retired).
 - **State machine:** exactly contract §6 table; state is pushed to subscribers as
   `{:voice_conversation_state, id, state}` after the transcript append.
 - **Persist-before-notify:** every `UserTranscript{final?: true}`, `AgentText{final?: true}`,
@@ -86,6 +102,8 @@ researched: 2026-10-06
 | Disk write fails | session ends `unknown`; nothing broadcast for the unwritten event |
 | Two sessions same target | allowed (MP-E6 plan §8); separate ids |
 | Daemon stop | `terminate/2` best-effort appends `session_ended{transport_lost}`; cleanup enqueue is persisted |
+| Daemon crash, OOM or `aiurdev restart` (no `terminate/2`) | nothing is written now; the boot reconciliation (C6-T02) appends `session_ended{daemon_restart}` and enqueues the provider deletion from the `provider_conversation` record. The client saw `transport_lost`. |
+| Provider quota exhausted (provider error class quota) | `ended{provider_quota}`; never mapped to `provider_error` or `cost_cap` |
 
 ## Compatibility and rollout
 
@@ -102,6 +120,10 @@ Inert until the channel (C7-T01) calls it. Rollback: revert.
 | "a failed preflight never opens the provider" | FakeProvider `open` count 0; reason `privacy_preflight_failed` |
 | "unexpected provider close reconnects once then errors" | two closes → `ended{provider_error}`; `open` count 2 |
 | "state transitions follow contract §6" | scripted events → states sequence equals the table |
+| "provider conversation id is on disk before listening" | FakeProvider emits the id, then the subscriber kills itself on the `listening` state; the file already has `provider_conversation` |
+| "every emitted end reason and code is in ClientErrors.table" | drive each end path; each reason is a table key with the §8.1 retry value |
+| "ClientErrors.table equals the contract fixture" | decode `packages/aiur-mobile/fixtures/contract/voice/end-reasons.json` when present (else the checked-in copy `test/fixtures/voice/end-reasons.json`, same bytes); rows equal |
+| "quota error ends with provider_quota, cap with cost_cap" | two scripted runs; reasons differ |
 
 ```bash
 env -C src mise exec -- mix test test/aiur/voice_conversation/session_test.exs
@@ -113,7 +135,12 @@ Temp state dir via `:decision_state_dir` app env. Run in an implementation workt
 and after.
 
 **Mutation checks.** Broadcast before append: the first test fails. Skip `enqueue` on end:
-the idle test fails.
+the idle test fails. Write `provider_conversation` after `listening` (or not at all): the
+"on disk before listening" test fails. Map quota to `provider_error`: the quota test fails.
+
+**Docs.** `website/docs-app/concepts/` voice page (the converse session lifecycle, end
+reasons and the daily cap), and `reference/configuration.md` is owned by C3-T01. If the
+concepts page does not exist yet, C9-T01 creates it and this ticket adds the end-reason table.
 
 ## Completion and handoff
 

@@ -83,7 +83,7 @@ No config.
 Mutation check: skip intent matching → test 4 fails (own write seen as override).
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/competing_writers_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/competing_writers_test.exs
 ```
 
 ## Completion and handoff

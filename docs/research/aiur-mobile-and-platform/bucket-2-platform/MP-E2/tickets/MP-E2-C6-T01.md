@@ -8,8 +8,8 @@ status: blocked
 blocked_by: [DESIGN-E2, MP-E2-C1-T01, MP-E2-C1-T03, MP-E2-C2-T03]
 prior_units: [U6, U3]
 prior_boundaries: [DEC #27, EXE #26, CLI #31]
-prior_features: [MP-R1-C9-T5 (AgentControlCLI split; rebase if landed)]
-prior_findings: [D12, contract §2 (sentinel ticket), §4 (human_only), plan §1.5]
+prior_features: [MP-R1-C9-T05 (AgentControlCLI split; rebase if landed)]
+prior_findings: [RC-41, security B2 (rule 4b), D12, contract §2 (sentinel ticket), §4 (human_only), plan §1.5]
 size_owner: "CLI (aiur-engine.sh; agent_control_cli.ex 3,482 — delegator only); DECISIONS (one guard in decision_store.ex executor answer policy)"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -28,8 +28,12 @@ researched: 2026-10-06
   [--blocking] [--urgency low|normal|high|critical] [--ticket <n>] [--context-file <path>]
   [--short-summary <text>] [--executor-id <id>] [--idempotency-key <key>]`
   creating a Command with `requester.kind: :executor`, `origin: :executor_cli`, reserved
-  ticket `"executor"`, routed `human_only` by Routing (`executor_originated`); and a store
-  guard: an Executor actor may not answer a Command it raised.
+  ticket `"executor"`, routed `human_only` by Routing (`executor_originated`); and two
+  store guards: an Executor actor may not answer a Command it raised, and an
+  `operator_relayed` answer to an Executor-originated Command is refused (RC-41,
+  contract §6 rule 4b, security B2). The second guard closes the path where
+  `executor.relay_operator_answers: true` lets the Executor answer its own question as
+  "the operator".
 - **Non-goals:** delivery of the answer back (C6-T02); `aiur ask` alias (C6-T03); UI
   filter (C6-T04).
 
@@ -71,10 +75,17 @@ researched: 2026-10-06
   to that ticket's worker.
 - Suggested-responses rule (C1-T02) applies with origin `:executor_cli` too (2–3 options
   recommended; warn otherwise).
-- Guard: in the executor clause of `validate_answer_policy_context/2`, refuse when
+- Guard 1: in the executor clause of `validate_answer_policy_context/2`, refuse when
   `Requester.executor?(request)`:
   `{:answer_invalid, {:executor_scope, :executor_originated}}` (delegates to
   `Aiur.Commands.Routing.Policy.executor_may_answer?/1`, so the store gains one call).
+- Guard 2 (RC-41): in the same function, for an `:operator_relayed` actor (the clause
+  #3006 adds, or a new clause matching the kind by name if #3006 has not merged), refuse
+  when `Requester.executor?(request)`:
+  `{:answer_invalid, :relay_on_executor_command}`. It applies to answer, revise and
+  supersede, because all three validate the policy context. The relay CLI (#3006) maps
+  it to "this Command was raised by the Executor; the operator must answer it on a
+  surface they log in to (dashboard, Stream Deck or phone)" (exit 1).
 
 ## Implementation steps
 
@@ -83,7 +94,8 @@ researched: 2026-10-06
 3. `aiur-engine.sh`: `cmd_command_request` (parse repeated `--option`, base64 each),
    usage line, dispatch case `command)` with subcommand `request` (unknown subcommand →
    usage, exit 64).
-4. `decision_store.ex`: one `cond` branch in the executor policy clause.
+4. `decision_store.ex`: one `cond` branch in the executor policy clause and one in the
+   relayed-actor clause (both delegate to `Routing.Policy`).
 5. Docs: `website/docs-app/reference/cli.md` entry (AGENTS.md: CLI command ⇒ cli.md).
 
 ## Non-happy paths
@@ -97,6 +109,9 @@ researched: 2026-10-06
   identified, not authenticated, exactly like `executor-answer`).
 - Executor tries `executor-answer` on its own Command: refused with a clear message
   ("you raised this Command; it needs the human").
+- Executor tries `operator-relay-answer` on its own Command with relay enabled:
+  refused (guard 2), and no `answer_recorded` is written.
+- A relayed answer to a **worker** Command is unaffected (guard 2 must not over-match).
 
 ## Compatibility and rollout
 
@@ -119,8 +134,12 @@ bash -n packaging/npm/aiur-cli/libexec/aiur-engine.sh
 | "same idempotency key returns duplicate" | same id, status duplicate | `source_id` |
 | "executor cannot answer its own Command" | `{:error, {:answer_invalid, {:executor_scope, :executor_originated}}}` | step 4 |
 | "operator answers it" | `{:ok, %{status: :accepted}}` | — (guard must not over-match) |
+| **"relay answer to an executor-originated Command is refused"** (B2) | `DecisionStore.answer/5` with actor `%{kind: :operator_relayed}` and `actor_source: :relay_cli` → `{:error, {:answer_invalid, :relay_on_executor_command}}`; `decisions.ndjson` byte length unchanged | guard 2 |
+| "relay revise of an operator answer on an executor-originated Command is refused" | same refusal through `revise/5` | guard 2 on the revise path |
+| "relay answer to a worker Command is still accepted" | `{:ok, %{status: :accepted}}` (fixture kind until #3006 merges) | — (guard 2 must not over-match) |
 
-Mutation check per row. Manual: from the Executor repo root, `scripts/aiurdev command
+Mutation check per row: revert that guard in a worktree, confirm the row fails, restore;
+report the commands in the PR. Manual: from the Executor repo root, `scripts/aiurdev command
 request "Ship the beta today?" --option yes="Ship" --option no="Wait"` while
 `aiurdev --test` runs; `/commands` lists it as needing you.
 

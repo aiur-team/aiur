@@ -3,7 +3,8 @@ design_task: DESIGN-N7
 feature_id: MP-N7
 owner: Kevin (operator)
 status: open — not approved
-blocks: every MP-N7 implementation ticket (../bucket-3-mobile-watch/MP-N7/chunks.md, N7-C1..C5)
+blocks: [MP-N1-C3-T04, MP-N4-C6-T01, MP-N4-C6-T02, MP-N4-C6-T03, MP-N6-C5-T01, MP-N6-C5-T02, MP-N6-C5-T03, MP-N7-C1-T01, MP-N7-C1-T02, MP-N7-C1-T03, MP-N7-C1-T04, MP-N7-C1-T05, MP-N7-C2-T01, MP-N7-C2-T02, MP-N7-C2-T03, MP-N7-C2-T04, MP-N7-C2-T05, MP-N7-C2-T06, MP-N7-C3-T01, MP-N7-C3-T02, MP-N7-C3-T03, MP-N7-C3-T04, MP-N7-C3-T05, MP-N7-C4-T01, MP-N7-C4-T02, MP-N7-C4-T03, MP-N7-C4-T04, MP-N7-C4-T05, MP-N7-C5-T01, MP-N7-C5-T02, MP-N7-C6-T01, MP-N7-C6-T02]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-N7 (waived entries excluded). Earlier wording: every MP-N7 implementation ticket (../bucket-3-mobile-watch/MP-N7/chunks.md, N7-C1..C5)"
 shared_with: DESIGN-N6 (Command response content and states), DESIGN-E2 (Command states and copy), DESIGN-E5/E6 (Dictate and Converse controls), DESIGN-N3 (instance status terms), DESIGN-N4 (notification text)
 base_main_sha: 45a290e3
 date: 2026-10-06
@@ -41,12 +42,14 @@ and [framework-evidence.md](../bucket-3-mobile-watch/MP-N1/framework-evidence.md
 |---|---|---|
 | D-N7-1 | Phone-dependent watch apps only in v1 (OQ-N7-1) | Yes |
 | D-N7-2 | Default Dictate path: system recognizer, or always through the phone and ElevenLabs (OQ-N7-2) | System recognizer, with a disclosure line |
-| D-N7-3 | Converse latency acceptance: the maximum acceptable time from end of speech to the reply starting | Set a number (for example 4 s); DV-W6 measures it |
+| D-N7-3 | Converse latency acceptance: the maximum acceptable time from end of speech to the reply starting. **This gate owns watch Converse; DESIGN-N6 D-3 links here.** | **4 s** (median, DV-W6), because a longer silence on a watch reads as a failure; DV-W6 measures it |
 | D-N7-4 | If Converse misses D-N7-3: "Continue on phone" hand-off acceptable? (OQ-N7-3) | Yes |
 | D-N7-5 | Glanceables: complication or Tile with the blocking count (OQ-N7-4) | Yes, count + oldest age |
-| D-N7-6 | Apple Watch and Wear OS together in v1, or Apple Watch first (OQ-N7-5) | Your devices decide |
+| D-N7-6 | Apple Watch and Wear OS together in v1, or Apple Watch first (OQ-N7-5) | **Apple Watch first, unless DESIGN-N1 D-N1-8 lists a Wear OS device**, because only a platform with a validation device can pass its DV rows |
 | D-N7-7 | Short labels for the list: executor state, active agents, awaiting count, build % | Reuse dashboard terms, abbreviated |
 | D-N7-8 | Context depth on the Command card: summary only, or summary + 2-line excerpt + recommendation marker | Summary + 2 lines + marker |
+| D-N7-9 | Option buttons in the Apple Watch long-look (conditional MP-N7-C2-T06) | **Answered in [DESIGN-N4 D-7](DESIGN-N4.md#3-decisions-that-need-kevin)**, which owns payload content (recommended there: no labels; the card opens) |
+| D-N7-10 | If DV-W1 fails (the watch shows the uniform fallback instead of decrypted text, because iPhone forwarding is vendor-claimed only; Phase D, feasibility M5): (a) accept it — the default action opens the watch app, which loads the Command card from the iPhone in one tap (`get_command {latest_notified}`), and DV-W1 passes on decrypted text or on the fallback with the card one tap away; (b) build direct watch push (N7-RQ4: its own key and a second MP-N2 pairing scope, a new conditional chunk) | **(a)**, because it needs no second pairing scope and keeps MP-N7 completable |
 
 ## 4. Screens to design
 
@@ -79,6 +82,7 @@ and [framework-evidence.md](../bucket-3-mobile-watch/MP-N1/framework-evidence.md
 
 - Screens 1–8 (and 9 if chosen) designed for both a small and a large watch size on each platform you ship (D-N7-6).
 - Every state in §5 covered where it applies.
-- D-N7-1..D-N7-8 answered.
+- Every decision in §3 answered here (D-N7-1…D-N7-8 and D-N7-10); D-N7-9 answered in
+  DESIGN-N4 D-7.
 - An inventory of interactive controls per screen shows no orchestration control (AC6 in the plan).
 - Kevin records "DESIGN-N7 approved" with the date in this file. Until then every MP-N7 ticket is blocked.

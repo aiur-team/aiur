@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, MP-N2-C1-T01]
 prior_units: []
 prior_boundaries: [K]
 prior_features: []
-prior_findings: [RQ-N2-6]
+prior_findings: [RC-42 / security B1 (journal every row), RQ-N2-6]
 size_owner: n/a (new files)
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -82,6 +82,11 @@ researched: 2026-10-06
   paired_at, last_seen_at, push_registration, token_hashes`. `last_seen_at` updates are batched by
   T03 (not every request) to avoid write amplification.
 - Readers (instances, MP-N2-C6) never take the lock: rename gives them a whole file.
+- **Journal every row (Phase D, RC-42, security B1):** `put_device/1` and the relink path
+  call an optional `journal:` callback **inside the same lock hold, before** the
+  `devices.json` rename. MP-N2-C1-T04 (which depends on this ticket) passes
+  `Journal.append(:paired | :relinked, …)` there and owns the test; this ticket only adds
+  the callback slot and its ordering test (13).
 
 ## Implementation steps
 
@@ -124,9 +129,12 @@ Library only. Files appear only after `aiur mobile enable`. Rollback: none neede
 10. `"corrupt devices.json is never overwritten"` — mutation attempt returns `:store_corrupt` and the
     file bytes are unchanged. *Fails without:* the fail-closed decode.
 11. `"token hashes keep at most 4 and prune expired"`.
+13. `"journal callback runs before the devices.json rename, inside the lock"` — a callback that
+    raises leaves `devices.json` unchanged. *Fails without:* the ordering (call it after the
+    rename and the row is written).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/store_records_test.exs test/aiur/machine/store_lock_test.exs
 ```
 

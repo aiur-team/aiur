@@ -9,7 +9,7 @@ blocked_by: [DESIGN-N2, MP-N2-C1-T01, MP-N2-C1-T02, MP-N2-C3-T02, MP-N2-C4-T01, 
 prior_units: [U1, U9]
 prior_boundaries: [CLI, K]
 prior_features: [MP-R1]
-prior_findings: []
+prior_findings: [security m6]
 size_owner: "n/a (new modules under src/lib/aiur/machine/); launcher dispatch lines shared with U1/U9 — recheck at the implementation SHA"
 base_sha: 45a290e3
 researched: 2026-10-06
@@ -69,7 +69,7 @@ endpoints and `t=`; at level M this fits QR version ≤ 15, which phone cameras 
 
 **Canonical signed string.** Fields in fixed order, each `key=value` with RFC 3986
 percent-encoding, joined by `&`, exactly as they appear in the URI before `&sig=`:
-`m, n, e…(in order), k, s, x, [t]`. `sig = base64url_nopad(Ed25519(machine_key, canonical))`, i.e. over the URI query string with `sig` removed, parameters in contract §3 order (contract §4.0, settled).
+`m, n, e…(in order), k, s, x, [t]`. `sig = base64url_nopad(Ed25519(machine_key, "aiur-qr-v1\0" <> canonical))`, computed by `Store.sign(:qr, canonical)` (security m6: a domain tag per purpose, so a QR signature can never be replayed as a registry or push signature), i.e. over the tag plus the URI query string with `sig` removed, parameters in contract §3 order (contract §4.0).
 The phone verifies with `k` and then pins `k` (contract §3). The same canonicalisation is
 published as test vectors (MP-N2-C5-T05).
 
@@ -120,7 +120,8 @@ outstanding secrets expire within 10 minutes.
 
 `src/test/aiur/machine/qr_uri_test.exs` and `src/test/aiur/machine/pairing_test.exs` (temp HOME/XDG):
 
-1. `"qr uri round-trips and the signature verifies with k"`. *Fails without:* signing in `build/1`.
+1. `"qr uri round-trips and the signature verifies with k"` (verifier prepends `aiur-qr-v1\0`). *Fails without:* signing in `build/1`.
+1a. `"qr signature over the untagged query string does not verify"` (m6). *Fails without:* the tag.
 2. `"changing any field invalidates the signature"` (flip one byte in `e`, `x`, `t`). *Fails without:*
    covering that field in `canonical/1` (mutation: drop `e` from the canonical string).
 3. `"t= appears only when the transport mode is self_signed"`.
@@ -133,7 +134,7 @@ outstanding secrets expire within 10 minutes.
 8. `"render produces a non-empty terminal QR for a 480-char uri"` (`EQRCode.encode(uri, :m) |> EQRCode.render()` output captured).
 
 ```bash
-env HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" -u GITHUB_TOKEN -u GH_TOKEN \
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" XDG_CONFIG_HOME="$(mktemp -d)" \
   mise exec -- mix test test/aiur/machine/qr_uri_test.exs test/aiur/machine/pairing_test.exs
 ```
 

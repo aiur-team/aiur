@@ -5,7 +5,7 @@ chunk_id: MP-R2-C5
 bucket: 1 (Bucket-2-enabling, RC-09)
 title: Instance identity provider for exported envelopes (instance_id from MP-R1 Identity; feed unavailable when identity is degraded)
 status: blocked
-blocked_by: [DESIGN-R2 §2, MP-R2-C5-T02, MP-R1-C2-T1 (machine identity.json), MP-R1-C2-T2 (instance_id composition)]
+blocked_by: [DESIGN-R2 §2, MP-R2-C5-T02, MP-R1-C2-T01 (machine identity.json), MP-R1-C2-T02 (instance_id composition)]
 prior_units: [U8]
 prior_boundaries: [BUS #10]
 prior_features: [MP-R1 (owns identity contract, RC-04), MP-N2]
@@ -20,7 +20,7 @@ researched: 2026-10-06
 ## Identity and outcome
 
 - **Bucket 1 (Bucket-2-enabling, RC-09), MP-R2, chunk C5.** Inert until C6.
-- **Deliverable:** `Aiur.Events.InstanceRef` — one function
+- **Deliverable:** `Aiur.Events.InstanceId` — one function
   `current() :: {:ok, instance_id} | {:error, reason}` that the exporter
   (C6-T02) calls once per boot and stamps into every envelope and into
   `export.meta.json`. It is an adapter over MP-R1's `Aiur.Identity`; the bus
@@ -33,7 +33,7 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **MP-R1-C2-T1/T2** (identity owner per RC-04): `identity.json` created at
+- **MP-R1-C2-T01/T02** (identity owner per RC-04): `identity.json` created at
   first daemon boot (RC-01) and the daemon composing `instance_id`. Until
   they land there is no stable id to stamp; status `blocked`.
 - C5-T02 (envelope takes `instance:` from opts).
@@ -52,13 +52,13 @@ At `45a290e3` no instance id exists in the daemon (contract §3 "Implicit
 | `Aiur.Identity.Machine.ensure/1` at boot (PROPOSED by MP-R1) | same, line 57 |
 | Moved project root → new `instance_key` → new instance | same, §1.2 |
 
-PROPOSED: `src/lib/aiur/events/instance_ref.ex`,
-`src/test/aiur/events/instance_ref_test.exs`.
+PROPOSED: `src/lib/aiur/events/instance_id.ex`,
+`src/test/aiur/events/instance_id_test.exs`.
 
 ## Chosen design
 
 ```elixir
-defmodule Aiur.Events.InstanceRef do
+defmodule Aiur.Events.InstanceId do
   @spec current() :: {:ok, String.t()} | {:error, :identity_unavailable}
   def current do
     case provider().instance_id() do
@@ -74,7 +74,7 @@ end
 - `provider/0` = `Application.get_env(:aiur, __MODULE__, Aiur.Identity)`
   (default in `src/config/config.exs`), so the bus has no compile-time edge
   to the identity component; the function name `instance_id/0` follows
-  whatever MP-R1-C2-T2 ships (adjust the one call if MP-R1 names it
+  whatever MP-R1-C2-T02 ships (adjust the one call if MP-R1 names it
   differently).
 - **Identity unavailable ⇒ export unavailable.** The exporter (C6-T02) does
   not start writing: it reports `events_unavailable` with reason
@@ -91,7 +91,7 @@ end
 
 ## Implementation steps
 
-1. Add `InstanceRef` and the config default.
+1. Add `InstanceId` and the config default.
 2. Document in its moduledoc the two consumer rules above (C6-T02 and
    C6-T03 implement them).
 3. Add to the C1-T06 member list.
@@ -112,7 +112,7 @@ the safe direction.
 
 ## Verification
 
-`instance_ref_test.exs` with a `FakeIdentity` provider in app env:
+`instance_id_test.exs` with a `FakeIdentity` provider in app env:
 
 1. `"returns the provider's instance id"` → `{:ok, "m26chars/abc123"}`.
 2. `"nil, empty or raising provider is identity_unavailable"` — three cases.
@@ -121,7 +121,7 @@ the safe direction.
    integration guard (listed there).
 
 ```text
-env -C <worktree>/src HOME=<tmp> GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/events/instance_ref_test.exs
+env -C <worktree>/src HOME=<tmp> GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/events/instance_id_test.exs
 ```
 
 Mutation check: change the guard to `id when is_binary(id)` → the empty
@@ -129,7 +129,7 @@ string case in test 2 fails; restore → pass.
 
 ## Completion and handoff
 
-- [ ] MP-R1-C2-T1/T2 merged; provider call matches their API.
+- [ ] MP-R1-C2-T01/T02 merged; provider call matches their API.
 - [ ] Tests 1–2 added and mutation-checked.
 - [ ] Docs: none (C7-T01 documents `instance` in the wire format).
 - Dependents: C6-T02, C6-T03 (epoch on identity change), C7-T03

@@ -104,7 +104,7 @@ Mutation check: drop one docs row → `check-config-docs.py` fails; remove a
 bound → test 2 fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/config_test.exs test/aiur/build_queue/settings_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/config_test.exs test/aiur/build_queue/settings_test.exs
 python3 scripts/check-config-docs.py && bash scripts/test-check-config-docs.sh
 ```
 

@@ -60,8 +60,8 @@ researched: 2026-10-06
 ## Implementation steps
 
 1. Apply the selected row.
-2. Under (a) or (c), the deletion PR also removes `Speaker` usage from `VoiceChannel` (MP-R5's
-   `Aiur.Voice.Speaker` stays for MP-E6).
+2. Under (a) or (c), the deletion PR also removes `Synthesizer` usage from `VoiceChannel` (MP-R5's
+   `Aiur.Voice.Synthesizer` stays for MP-E6).
 
 ## Non-happy paths
 

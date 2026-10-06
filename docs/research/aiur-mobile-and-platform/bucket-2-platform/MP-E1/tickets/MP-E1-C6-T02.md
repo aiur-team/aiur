@@ -99,7 +99,7 @@ Mutation check: remove the engine guard → test 1 fails; remove the daemon
 check → test 3 fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/scripts_aiurdev_test.exs test/aiur/build_queue_cli_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/scripts_aiurdev_test.exs test/aiur/build_queue_cli_test.exs
 bash website/docs-app/scripts/check-cli-reference.sh
 ```
 

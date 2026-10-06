@@ -5,7 +5,7 @@ chunk_id: MP-N1-C3
 bucket: 3-mobile-watch
 title: TypeScript affordance resolver — precedence table, version handling and the shared fixture table of the client capability model
 status: blocked
-blocked_by: [DESIGN-N1, MP-N1-C1-T01, MP-R1-C3-T6]
+blocked_by: [DESIGN-N1, MP-N1-C1-T01, MP-R1-C3-T06]
 prior_units: []
 prior_boundaries: []
 prior_features: [MP-R1]
@@ -17,7 +17,7 @@ researched: 2026-10-06
 
 # MP-N1-C3-T01 — Affordance resolver (TS)
 
-Candidate tickets merged: N1-C3-T2 (precedence) and N1-C3-T3 (version handling); version
+Candidate tickets merged: N1-C3-T02 (precedence) and N1-C3-T03 (version handling); version
 handling is step 4 of the same precedence function.
 
 ## Identity and outcome
@@ -49,12 +49,12 @@ function resolve(id: AffordanceId, inputs: ResolverInputs, now: number): Afforda
 ## Dependencies and blockers
 
 - DESIGN-N1 (surface 5 wording does not change the function, but the gate applies).
-- MP-R1-C3-T6 (capability report TS types). Capability IDs are those of
+- MP-R1-C3-T06 (capability report TS types). Capability IDs are those of
   `bucket-1-refactor/MP-R1/capability-matrix.md` §2 (e.g. `instance.status`, `commands.read`,
   `commands.answer`, `agents.message`, `build_orders.progress`, `executor.conversation`,
   `voice.stt`, `voice.tts`, `voice.conversation`, `push`, `listener_modes`).
-- RC-04: `boot_id`, `min_client_version` and the typed `capability_unavailable` error are in the
-  MP-R1 report; this ticket consumes `min_client_version` (step 4).
+- RC-04: `boot_id`, `min_client_versions` and the typed `capability_unavailable` error are in the
+  MP-R1 report; this ticket consumes `min_client_versions` (step 4).
 - Concurrent with MP-N1-C2-*.
 
 ## Verified starting point (base 45a290e3)
@@ -89,7 +89,7 @@ function resolve(id: AffordanceId, inputs: ResolverInputs, now: number): Afforda
 2. `fixtures/capability/cases.json`: array of `{name, affordance, inputs, now, expect}`;
    at least one case per state per affordance where reachable (~60 cases), including:
    old server (`contract_version` below `introducedIn`) → `needs_update`; report 404 →
-   `needs_update`; `min_client_version` above build → `needs_update`; revoked beats
+   `needs_update`; `min_client_versions` above build → `needs_update`; revoked beats
    unreachable; unreachable beats unavailable; unavailable `build_orders.progress` →
    `unavailable` (not `0`); `degraded` voice.tts optional → converse `degraded`;
    permission denied mic → `needs_permission`; stale (age 61 s foreground) → `stale`.

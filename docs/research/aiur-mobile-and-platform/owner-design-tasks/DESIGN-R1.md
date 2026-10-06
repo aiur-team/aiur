@@ -3,7 +3,8 @@ design_task: DESIGN-R1
 feature_id: MP-R1
 owner: Kevin
 status: open (awaiting explicit approval)
-blocks: every MP-R1 implementation ticket (MP-R1-C1..C11); MP-R1-C10-T4 (publish) additionally needs §3 approved
+blocks: [MP-R1-C1-T01, MP-R1-C1-T02, MP-R1-C1-T03, MP-R1-C1-T04, MP-R1-C1-T05, MP-R1-C1-T06, MP-R1-C2-T01, MP-R1-C2-T02, MP-R1-C3-T01, MP-R1-C3-T02, MP-R1-C3-T03, MP-R1-C3-T04, MP-R1-C3-T05, MP-R1-C3-T06, MP-R1-C3-T07, MP-R1-C4-T01, MP-R1-C4-T02, MP-R1-C4-T03, MP-R1-C4-T04, MP-R1-C4-T05, MP-R1-C5-T01, MP-R1-C5-T02, MP-R1-C5-T03, MP-R1-C5-T04, MP-R1-C5-T05, MP-R1-C5-T06, MP-R1-C6-T01, MP-R1-C6-T02, MP-R1-C6-T03, MP-R1-C6-T04, MP-R1-C7-T01, MP-R1-C7-T02, MP-R1-C7-T03, MP-R1-C7-T04, MP-R1-C7-T05, MP-R1-C7-T06, MP-R1-C7-T07, MP-R1-C7-T08, MP-R1-C8-T01, MP-R1-C8-T02, MP-R1-C8-T03, MP-R1-C8-T04, MP-R1-C8-T05, MP-R1-C8-T06, MP-R1-C8-T07, MP-R1-C8-T08, MP-R1-C8-T09, MP-R1-C9-T01, MP-R1-C9-T02, MP-R1-C9-T03, MP-R1-C9-T04, MP-R1-C9-T05, MP-R1-C9-T06, MP-R1-C9-T07, MP-R1-C9-T08, MP-R1-C9-T09, MP-R1-C9-T10, MP-R1-C9-T11, MP-R1-C9-T12, MP-R1-C9-T13, MP-R1-C9-T14, MP-R1-C10-T01, MP-R1-C10-T02, MP-R1-C10-T03, MP-R1-C10-T04, MP-R1-C10-T05, MP-R1-C11-T01, MP-R1-C11-T02, MP-R1-C11-T03]
+blocks_note: "Phase D: the list is the tickets whose blocked_by names DESIGN-R1 (waived entries excluded). Earlier wording: every MP-R1 implementation ticket (MP-R1-C1..C11); MP-R1-C10-T04 (publish) additionally needs §3 approved"
 base_main_sha: 45a290e3
 date: 2026-10-06
 related_plan: ../bucket-1-refactor/MP-R1/plan.md
@@ -29,6 +30,10 @@ moves config section ownership. Kevin confirms:
   defines each key changes. `aiur init` output is unchanged.
 - [ ] **No new required setup step.** Nothing in the refactor asks an existing user
   to do anything after upgrading.
+- [ ] **Bucket-2 enabling work inside R1 and R2 (identity, the capabilities endpoint,
+  the event export) appears in the component directory as capabilities of existing
+  components, not as "planned" feature entries** (Phase D review, directory item 4).
+  Recommended: confirm, because those are shipped APIs, not features.
 
 ## 2. Operator surfaces R1 adds (approve or reject each)
 
@@ -87,7 +92,7 @@ Not applicable: offline, permission-denied, stale/resolved (public static docs).
 - [ ] Q1–Q8 answered.
 - [ ] Page copy (title, intro, section headings, badge meanings) approved.
 - [ ] Kevin approves the first generated page from the post-refactor manifest before
-  the sidebar entry ships (C10-T4).
+  the sidebar entry ships (C10-T04).
 
 ## 4. Linked features
 

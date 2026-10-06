@@ -82,7 +82,7 @@ Mutation check: add `alias Aiur.Orchestrator` to `hints.ex` in a worktree →
 test 1 fails; remove → passes. Drop the alias expansion → test 3 fails.
 
 ```bash
-env -C src HOME=$(mktemp -d) GITHUB_TOKEN= GH_TOKEN= mise exec -- mix test test/aiur/build_queue/seam_test.exs
+env -C src -u GITHUB_TOKEN -u GH_TOKEN HOME="$(mktemp -d)" mise exec -- mix test test/aiur/build_queue/seam_test.exs
 ```
 
 ## Completion and handoff

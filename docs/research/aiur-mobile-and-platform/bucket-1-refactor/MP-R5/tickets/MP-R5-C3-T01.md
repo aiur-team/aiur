@@ -5,8 +5,8 @@ chunk_id: MP-R5-C3
 bucket: 1-refactor
 title: Move the ElevenLabs provider into an optional package, and run CI on core without it
 status: blocked
-blocked_by: [DESIGN-R5, MP-R5-C1-T04, MP-R5-C2-T01, MP-R5-C2-T02, RQ-R5-PKG]
-prior_units: [U8]
+blocked_by: [DESIGN-R5, MP-R5-C1-T04, MP-R5-C2-T01, MP-R5-C2-T02]
+prior_units: [U7, U8]
 prior_boundaries: ["VOX #36", "CFG #2"]
 prior_features: [integrations-51, ui-16]
 prior_findings: []
@@ -24,8 +24,10 @@ researched: 2026-10-06
   module absent" (brief R5) is real, not simulated.
 - **Deliverable:**
   - Move `Aiur.ElevenLabs` (provider), `Realtime` (+ 3 transport modules),
-    `TTS`, `Quota`, `Config.Schema.ElevenLabs` and `Init.ElevenLabs` into a
-    physical package.
+    `TTS`, `Quota` and `Init.ElevenLabs` into a physical package.
+    `Config.Schema.ElevenLabs` stays in the core `config` component: MP-R1-C4-T05
+    (RQ4) keeps every section a literal `embeds_one` in the root schema, so a
+    core-only build still parses a leftover `elevenlabs:` section.
   - Add a CI job that compiles and tests core with the package excluded.
   - Release packaging includes the package by default, unless DESIGN-R5 §3.1
     says otherwise.
@@ -35,13 +37,16 @@ researched: 2026-10-06
 
 ## Dependencies and blockers
 
-- **RQ-R5-PKG (open; it gates this ticket).** MP-R1's
+- **RQ-R5-PKG answered in Phase D:** the physical form is an in-repo Mix path
+  dependency under `packages/elixir/<app>/` (MP-R1 migration-plan §5 "Physical
+  form"). The promotion criteria below still gate the move. MP-R1's
   [promotion test](../../MP-R1/migration-plan.md) (§ 5) allows a component to
   become a physical package only when all five criteria hold:
   - zero allowlisted dependency violations for 2 consecutive releases;
   - component-declared child specs;
   - its own state and tests;
-  - a registered config section;
+  - a registered config section (after MP-R1-C4-T05 RQ4 this means manifest
+    ownership, `owns.config`, which C2-T02 adds);
   - a second consumer or a stated independent-release need.
 
   At base, voice meets none of them. C1 and C2 satisfy criteria 2–4. Criterion
