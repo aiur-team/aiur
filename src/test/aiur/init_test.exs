@@ -1097,6 +1097,9 @@ defmodule Aiur.InitTest do
 
       assert File.read!(target) =~ "prewarm:\n  enabled: false"
       assert File.read!(target) != before
+      joined = Enum.join(puts_log(), "\n")
+      assert joined =~ "Saved declined warm-base pre-warm to"
+      refute joined =~ "Added warm-base pre-warm to"
       refute_received {:append, ^target, _yaml}
       refute_received {:prewarm_build, _url, _cmd}
     end
@@ -1752,6 +1755,7 @@ defmodule Aiur.InitTest do
       joined = Enum.join(log, "\n")
 
       assert joined =~ "Generate new token (classic)"
+      assert joined =~ "Administration: Read-only"
       assert joined =~ "Fine-grained token (recommended)"
       assert joined =~ "Check `repo` (broad access that includes Administration)"
       assert joined =~ "Only select repositories"
@@ -2011,7 +2015,7 @@ defmodule Aiur.InitTest do
       refute_received {:install, :claude}
     end
 
-    test "an aiur-claude older than the minimum warns and init still completes", %{
+    test "an aiur-claude still below the minimum after install stops init", %{
       dir: dir,
       target: target
     } do
