@@ -3264,8 +3264,10 @@ probe_rate_limit() {
   immediate_cooldown=$(secondary_delay_ms "$error_file" "$output_file")
   budget_hold token "$immediate_cooldown"
   budget_release
-  resource=core
-  admission_resource=core
+  # The recovery probe is unmetered, including at the hourly admission gate.
+  # Keep the family for attribution and shared pacing, but spend no core slot.
+  resource=none
+  admission_resource=none
   endpoint_family=rate_limit
   budget_ignore_token_cooldown=1
   if budget_acquire; then

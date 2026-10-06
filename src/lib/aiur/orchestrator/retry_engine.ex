@@ -1073,23 +1073,25 @@ defmodule Aiur.Orchestrator.RetryEngine do
   #   * the preflight diagnostic `{:github_auth_preflight_failed,
   #     %{classification: :local_hold, detail: ...}}` that `ensure_preflight/1`
   #     surfaces when the held request is the preflight probe itself.
-  defp local_budget_hold_reason({:aiur, :locally_held, hold}) when is_map(hold), do: hold
-  defp local_budget_hold_reason({:github, :local_hold, %{hold: hold}}) when is_map(hold), do: hold
+  @doc false
+  @spec local_budget_hold_reason(term()) :: map() | nil
+  def local_budget_hold_reason({:aiur, :locally_held, hold}) when is_map(hold), do: hold
+  def local_budget_hold_reason({:github, :local_hold, %{hold: hold}}) when is_map(hold), do: hold
 
-  defp local_budget_hold_reason({:github, :local_hold, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold),
+  def local_budget_hold_reason({:github, :local_hold, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold),
     do: hold
 
-  defp local_budget_hold_reason({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold), do: hold
+  def local_budget_hold_reason({:github, :transport, %{reason: {:aiur, :locally_held, hold}}}) when is_map(hold), do: hold
 
-  defp local_budget_hold_reason({:workspace_github_connectivity_failed, _workspace, inner}),
+  def local_budget_hold_reason({:workspace_github_connectivity_failed, _workspace, inner}),
     do: local_budget_hold_reason(inner)
 
-  defp local_budget_hold_reason({:github_auth_preflight_failed, %{classification: :local_hold} = diagnostic}),
+  def local_budget_hold_reason({:github_auth_preflight_failed, %{classification: :local_hold} = diagnostic}),
     do: local_budget_hold_reason(Map.get(diagnostic, :detail))
 
-  defp local_budget_hold_reason(%{hold: hold}) when is_map(hold), do: hold
-  defp local_budget_hold_reason(%{reason: {:aiur, :locally_held, hold}}) when is_map(hold), do: hold
-  defp local_budget_hold_reason(_reason), do: nil
+  def local_budget_hold_reason(%{hold: hold}) when is_map(hold), do: hold
+  def local_budget_hold_reason(%{reason: {:aiur, :locally_held, hold}}) when is_map(hold), do: hold
+  def local_budget_hold_reason(_reason), do: nil
 
   defp local_budget_reset_delay(hold) do
     case Map.get(hold, :reset_at) || Map.get(hold, "reset_at") do
