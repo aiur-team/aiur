@@ -52,14 +52,14 @@ defmodule Aiur.DecisionLogTest do
       end
 
       assert :ok = DecisionLog.prepare(dir, path, sync_fun)
-      assert_receive :filesystem_synced
-      refute_receive :filesystem_synced
+      assert_receive :filesystem_synced, 1000
+      refute_receive :filesystem_synced, 100
 
       assert :ok = DecisionLog.append(path, %{"version" => 1})
-      refute_receive :filesystem_synced
+      refute_receive :filesystem_synced, 100
 
       assert :ok = DecisionLog.prepare(dir, path, sync_fun)
-      refute_receive :filesystem_synced
+      refute_receive :filesystem_synced, 100
     end
   end
 

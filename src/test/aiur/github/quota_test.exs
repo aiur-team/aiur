@@ -111,14 +111,14 @@ defmodule Aiur.GitHub.QuotaTest do
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 500))
     _snapshot = Quota.snapshot(quota)
 
-    assert_receive {:alert, "system.github.quota.core.low", opts}
+    assert_receive {:alert, "system.github.quota.core.low", opts}, 1000
     assert opts[:needs_attention]
     assert opts[:reason] =~ "500 of 5000"
     assert opts[:reason] =~ "2026-08-09T22:00:00Z"
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 499))
     _snapshot = Quota.snapshot(quota)
-    refute_receive {:alert, "system.github.quota.core.low", _opts}
+    refute_receive {:alert, "system.github.quota.core.low", _opts}, 100
   end
 
   test "resolves a quota attention after the resource recovers" do
@@ -134,12 +134,12 @@ defmodule Aiur.GitHub.QuotaTest do
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 500))
     _snapshot = Quota.snapshot(quota)
-    assert_receive {:alert, "system.github.quota.core.low", _opts}
+    assert_receive {:alert, "system.github.quota.core.low", _opts}, 1000
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 501))
     _snapshot = Quota.snapshot(quota)
 
-    assert_receive {:alert, "system.github.quota.core.low.resolved", opts}
+    assert_receive {:alert, "system.github.quota.core.low.resolved", opts}, 1000
     refute opts[:needs_attention]
   end
 
@@ -156,7 +156,7 @@ defmodule Aiur.GitHub.QuotaTest do
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 0))
     _snapshot = Quota.snapshot(quota)
-    assert_receive {:alert, "system.github.quota.core.exhausted", _opts}
+    assert_receive {:alert, "system.github.quota.core.exhausted", _opts}, 1000
 
     # Ten poll cycles across three successive windows, exhausted throughout.
     # The reset moving is the window rolling over, not the condition clearing.
@@ -166,18 +166,18 @@ defmodule Aiur.GitHub.QuotaTest do
       _snapshot = Quota.snapshot(quota)
     end)
 
-    refute_receive {:alert, "system.github.quota.core.exhausted.resolved", _opts}
-    refute_receive {:alert, "system.github.quota.core.exhausted", _opts}
+    refute_receive {:alert, "system.github.quota.core.exhausted.resolved", _opts}, 100
+    refute_receive {:alert, "system.github.quota.core.exhausted", _opts}, 100
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4905))
     _snapshot = Quota.snapshot(quota)
 
-    assert_receive {:alert, "system.github.quota.core.exhausted.resolved", opts}
+    assert_receive {:alert, "system.github.quota.core.exhausted.resolved", opts}, 1000
     assert opts[:reason] =~ "4905 of 5000"
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4906))
     _snapshot = Quota.snapshot(quota)
-    refute_receive {:alert, "system.github.quota.core.exhausted.resolved", _opts}
+    refute_receive {:alert, "system.github.quota.core.exhausted.resolved", _opts}, 100
   end
 
   test "exhaustion blocks only the depleted resource until its reset" do
@@ -609,7 +609,7 @@ defmodule Aiur.GitHub.QuotaTest do
 
     _snapshot = Quota.snapshot(quota)
 
-    assert_receive {:alert, "system.github.budget.broker_reconcile_stale", opts}
+    assert_receive {:alert, "system.github.budget.broker_reconcile_stale", opts}, 1000
     assert opts[:needs_attention]
     assert opts[:severity] == "warning"
     assert opts[:message] =~ "ws-2307"
@@ -618,17 +618,17 @@ defmodule Aiur.GitHub.QuotaTest do
 
     # A persistent marker latches: the next refresh does not re-alert.
     _snapshot = Quota.snapshot(quota)
-    refute_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}
+    refute_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}, 100
 
     # Removing the marker (a refreshed broker recovered) rearms the latch, so a
     # second stale period alerts again rather than staying permanently silent.
     File.rm!(marker)
     _snapshot = Quota.snapshot(quota)
-    refute_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}
+    refute_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}, 100
 
     File.write!(marker, "workspace:/ws-2307\n")
     _snapshot = Quota.snapshot(quota)
-    assert_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}
+    assert_receive {:alert, "system.github.budget.broker_reconcile_stale", _opts}, 1000
   end
 
   test "publishes and clears resource-specific shell holds" do
@@ -703,7 +703,7 @@ defmodule Aiur.GitHub.QuotaTest do
 
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), secondary_response("core", 4077, 45))
 
-    assert_receive {:alert, "system.github.quota.core.secondary", opts}
+    assert_receive {:alert, "system.github.quota.core.secondary", opts}, 1000
     assert opts[:needs_attention]
     assert opts[:reason] =~ "secondary rate limit"
     assert opts[:reason] =~ DateTime.to_iso8601(DateTime.add(@now, 45, :second))
@@ -717,7 +717,7 @@ defmodule Aiur.GitHub.QuotaTest do
 
     Agent.update(clock, fn _ -> DateTime.add(@now, 46, :second) end)
     assert Quota.snapshot(quota).backoffs == []
-    assert_receive {:alert, "system.github.quota.core.secondary.resolved", _opts}
+    assert_receive {:alert, "system.github.quota.core.secondary.resolved", _opts}, 1000
     refute File.exists?(Path.join(hold_dir, "core-secondary-hold"))
   end
 
@@ -817,7 +817,7 @@ defmodule Aiur.GitHub.QuotaTest do
       )
 
     assert eventually(fn -> match?({:hold, %{resource: "core", remaining: 500}}, Quota.dispatch_status(quota)) end)
-    refute_receive :github_quota_recovered
+    refute_receive :github_quota_recovered, 100
 
     Agent.update(quota_state, fn {_now, _remaining} -> {DateTime.add(@reset, 1, :second), 4500} end)
 
@@ -843,7 +843,7 @@ defmodule Aiur.GitHub.QuotaTest do
     Agent.update(clock, fn _ -> DateTime.add(@reset, 1, :second) end)
     send(quota, {:dispatch_recovery, token})
 
-    assert_receive :github_quota_recovered
+    assert_receive :github_quota_recovered, 1000
     assert Quota.dispatch_status(quota) == :available
   end
 

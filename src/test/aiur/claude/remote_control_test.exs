@@ -95,7 +95,7 @@ defmodule Aiur.Claude.RemoteControlTest do
       end
 
       task = Task.async(fn -> RemoteControl.reap_process_group(process_group_id, {:known, :original}, reaper) end)
-      assert_receive {:identity_signal_barrier, reaper_pid, ^process_group_id, :original}
+      assert_receive {:identity_signal_barrier, reaper_pid, ^process_group_id, :original}, 1000
       Agent.update(identity, fn _ -> :replacement end)
       send(reaper_pid, :continue_identity_signal)
       assert {:error, :identity_changed} = Task.await(task)

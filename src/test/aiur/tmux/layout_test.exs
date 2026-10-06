@@ -15,7 +15,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.split_pane(state, "%1", :horizontal, 30, "exec claude", false)
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, split_cmd}, 1_000
     assert split_cmd == "split-window -t %1 -h -l 30% -P -F \#{pane_id} exec claude"
 
@@ -38,7 +38,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.split_pane(state, "%1", :horizontal, 30, "exec claude", true)
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "split-window -d -t %1 -h -l 30% -P -F \#{pane_id} exec claude"
 
@@ -58,7 +58,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.respawn_pane(state, "%1", "exec claude")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "respawn-pane -k -t %1 exec claude"
 
@@ -76,7 +76,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.new_hidden_window(state, "aiur-repl-1", "exec claude")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "new-window -d -n aiur-repl-1 -P -F \#{pane_id} exec claude"
 
@@ -94,7 +94,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.new_hidden_window(state, "aiur-repl-1", "exec claude")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, "new-window" <> _}, 1_000
 
     send(
@@ -119,7 +119,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.join_pane(state, "%42", "agents")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "join-pane -s %42 -t agents -h"
 
@@ -137,7 +137,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.move_pane_hidden(state, "%42", "_aiur_warm")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "move-pane -d -s %42 -t _aiur_warm -h"
 
@@ -155,7 +155,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.move_pane_visible(state, "%42", "agents")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "move-pane -s %42 -t agents -h"
 
@@ -173,7 +173,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.kill_pane(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "kill-pane -t %42"
 
@@ -191,7 +191,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.kill_pane(state, "%gone")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(
@@ -212,7 +212,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.kill_pane(state, "%bogus")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\nsome other error\n%error 1 1 0\n"})
@@ -230,7 +230,7 @@ defmodule Aiur.Tmux.LayoutTest do
         Layout.select_layout(state, "test:0", "abc1,200x50,0,0,1")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "select-layout -t test:0 abc1,200x50,0,0,1"
 

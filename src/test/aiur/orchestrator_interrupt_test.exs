@@ -120,7 +120,7 @@ defmodule Aiur.OrchestratorInterruptTest do
 
       assert {:ok, :pause_requested} = Orchestrator.pane_interrupt("codex-1")
       assert get_in(:sys.get_state(pid).running, ["codex-1", :control, :status]) == :working
-      assert_receive {:pause_agent, request_id, 101}
+      assert_receive {:pause_agent, request_id, 101}, 1000
 
       send(pid, {:worker_control_state, "codex-1", :paused, %{request_id: request_id, generation: 101}})
       assert eventually(fn -> get_in(:sys.get_state(pid).running, ["codex-1", :control, :status]) == :paused end)

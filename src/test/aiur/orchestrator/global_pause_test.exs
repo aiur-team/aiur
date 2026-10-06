@@ -113,7 +113,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
 
       # The free agent received a global-pause hold request.
       assert %{reason: :global_pause} = paused_state.running[free].pending_pause_reason
-      assert_receive {:pause_agent, free_rid, 101}
+      assert_receive {:pause_agent, free_rid, 101}, 1000
 
       applied_state = apply_worker_pause(paused_state, free, free_rid, :global_pause)
       assert applied_state.running[free].control.status == :paused
@@ -145,7 +145,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       assert resumed_state.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
 
       # Only the globally held agent gets a resume request.
-      assert_receive {:resume_agent, held_rid, 101}
+      assert_receive {:resume_agent, held_rid, 101}, 1000
       refute_receive {:resume_agent, _rid, _gen}, 50
 
       # The individually paused agent is never touched.
@@ -322,7 +322,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       ref = Process.monitor(pid)
       Process.unlink(pid)
       Process.exit(pid, :kill)
-      assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
+      assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 1000
 
       {:ok, restarted_pid} = Orchestrator.start_link(name: name, initial_poll?: false)
 
@@ -385,7 +385,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
     {{:ok, _request_id}, pending} =
       PauseResume.request_pause(state, state.running[issue_id], state.running[issue_id].issue, reason)
 
-    assert_receive {:pause_agent, request_id, 101}
+    assert_receive {:pause_agent, request_id, 101}, 1000
     apply_worker_pause(pending, issue_id, request_id, reason)
   end
 

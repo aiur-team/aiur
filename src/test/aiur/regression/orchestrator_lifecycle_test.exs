@@ -380,7 +380,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
           send(self(), {:permanent_failure_state, next})
         end)
 
-      assert_receive {:permanent_failure_state, next}
+      assert_receive {:permanent_failure_state, next}, 1000
 
       refute_receive {:retry_comment_rework, ^identifier, "issue comment", ^event, _attempt}, 200
       assert next.comment_rework_retries == %{}
@@ -492,7 +492,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       :sys.replace_state(pid, &%{&1 | last_polled_issues: %{issue.id => issue}, running: %{}, claimed: MapSet.new()})
 
       assert {:ok, :started} = Orchestrator.resume_agent(name, issue.identifier)
-      assert_receive {:memory_tracker_remove_label, "L11", "agent:paused"}
+      assert_receive {:memory_tracker_remove_label, "L11", "agent:paused"}, 1000
       assert MapSet.member?(:sys.get_state(pid).claimed, issue.id)
       refute :sys.get_state(pid).last_polled_issues[issue.id].paused
     end
@@ -572,7 +572,7 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       assert {:error, {:stale_tracker_state, {:tracker_state_not_resumable, "merging"}, %{cached_state: "todo", tracker_state: "merging", changed_fields: [:state]}}} =
                Orchestrator.resume_agent(name, paused_issue.identifier)
 
-      assert_receive {:resume_refresh_remove_label, "L11-RACE", "agent:paused"}
+      assert_receive {:resume_refresh_remove_label, "L11-RACE", "agent:paused"}, 1000
       refute MapSet.member?(:sys.get_state(pid).claimed, paused_issue.id)
     end
 

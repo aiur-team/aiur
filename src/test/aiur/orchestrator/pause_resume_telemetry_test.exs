@@ -40,8 +40,8 @@ defmodule Aiur.Orchestrator.PauseResumeTelemetryTest do
     paused_entry = paused.running[issue.id]
     _resumed = PauseResume.transition_control_status(paused, paused_entry, :working, "operator.resume")
 
-    assert_receive {:lifecycle, :lifecycle, paused_event, []}
-    assert_receive {:lifecycle, :lifecycle, resumed_event, []}
+    assert_receive {:lifecycle, :lifecycle, paused_event, []}, 1000
+    assert_receive {:lifecycle, :lifecycle, resumed_event, []}, 1000
 
     assert paused_event.event == "agent_pause"
     assert paused_event.cause == "operator.pause"

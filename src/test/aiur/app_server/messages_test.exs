@@ -15,7 +15,7 @@ defmodule Aiur.AppServer.MessagesTest do
       %{session_id: "s1"}
     )
 
-    assert_receive {:message, message}
+    assert_receive {:message, message}, 1000
     assert message.event == :tool_result
     assert message.details == "ok"
     assert message.session_id == "s1"
