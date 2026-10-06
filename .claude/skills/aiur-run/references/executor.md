@@ -173,6 +173,16 @@ a rationale, and an idempotency key. Use a stable `--executor-id` for the run
 when available (the CLI otherwise records `aiur-cli`), so replay stays
 idempotent and stale events cannot overwrite a later answer.
 
+If the human has already answered in the attended conversation, use
+`operator-relay-answer` with the current version, one choice, a verbatim
+`--quote`, stable `--relayed-by` identity and an idempotency key. The operator
+must first enable `executor.relay_operator_answers`. The distinct
+`operator_relayed` actor and info alert preserve who decided and who recorded.
+Never enable this policy yourself or substitute an operator-attributed API.
+If disabled, report that relay recording is disabled and direct the operator
+to the dashboard. Use its revision/moot flow to correct a relay, or relay a
+corrected answer with `--supersede` before delivery.
+
 A decided answer that no agent has received yet can still be changed. It is
 addressed to the ticket, so a later worker of the same ticket receives it.
 Withdraw it with `executor-moot`, or replace it with `executor-answer

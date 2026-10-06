@@ -17,6 +17,7 @@ defmodule Aiur.DecisionHistory do
     "human" => :human_operator,
     "human_operator" => :human_operator,
     "operator" => :human_operator,
+    "operator_relayed" => :operator_relayed,
     "executor" => :executor,
     "supervisor" => :supervising_agent,
     "supervising_agent" => :supervising_agent,
@@ -131,6 +132,7 @@ defmodule Aiur.DecisionHistory do
       choice: choice(record, answer, revision_answer),
       rationale: first_value([value(record, :rationale), value(revision, :reason), value(answer, :rationale)]),
       supervisor_basis: supervisor_basis(answer, revision_answer),
+      operator_quote: first_value([value(revision_answer, :operator_quote), value(answer, :operator_quote)]),
       dispatch_result: value(record, :dispatch_result),
       acknowledgement_result: value(record, :acknowledgement_result),
       revision_of: revision_of,
@@ -333,6 +335,7 @@ defmodule Aiur.DecisionHistory do
 
   defp normalize_actor_type(_type), do: :unknown
 
+  defp actor_type_label(:operator_relayed), do: "Operator (relayed)"
   defp actor_type_label(:human_operator), do: "Operator"
   defp actor_type_label(:executor), do: "Executor"
   defp actor_type_label(:supervising_agent), do: "Supervising agent"
@@ -340,6 +343,7 @@ defmodule Aiur.DecisionHistory do
   defp actor_type_label(:system), do: "System"
   defp actor_type_label(:unknown), do: "Unknown source"
 
+  defp default_actor_label(:operator_relayed, id), do: "answered by operator, relayed by #{id}"
   defp default_actor_label(:human_operator, _id), do: actor_type_label(:human_operator)
   defp default_actor_label(:executor, _id), do: actor_type_label(:executor)
   defp default_actor_label(type, id), do: id || actor_type_label(type)

@@ -27,7 +27,7 @@ Run the command from the repository that owns the run. An instance is keyed to t
 | Inspect live state | `status`, `agents`, `watch`, `alerts`, `usage`, `github-cost`, `github-usage` | Read-only reports from the running daemon. |
 | Operate the fleet | `set max-agents`, `pause`, `resume`, `message`, `reset-budget`, `stop`, `restart` | Steers a live run. |
 | Mirror a dashboard page | `units`, `commands`, `build-orders`, `analytics` | Read-only terminal forms of the dashboard pages. |
-| Act on durable records | `ask`, `asks`, `executor-answer`, `executor-escalate`, `executor-moot`, `executor-emit`, `executor-listen`, `findings` | Decision inbox, Executor events, and findings ledger. |
+| Act on durable records | `ask`, `asks`, `executor-answer`, `operator-relay-answer`, `executor-escalate`, `executor-moot`, `executor-emit`, `executor-listen`, `findings` | Decision inbox, Executor events, and findings ledger. |
 
 Background mode is the shape that matters for an agent Executor. `aiur --bg` starts the daemon with no board and no panes, the dashboard stays up, and every command below reads and writes the same live state through that detached daemon.
 
@@ -212,6 +212,8 @@ do not erase whole-host pressure; and missing values remain `null` in JSON and
 | `aiur commands --cursor TOKEN` | Continues a paginated decision query. | `aiur commands --cursor TOKEN` |
 | `aiur commands --limit 20` | Sets a positive result limit. | `aiur commands --limit 20` |
 | `aiur commands --json` | Emits machine-readable decision rows. | `aiur commands --json` |
+| `aiur operator-relay-answer DECISION-ID` | Records an operator's already-given answer when `executor.relay_operator_answers: true`. Requires `--expected-version`, exactly one of `--option` or `--custom-response`, `--quote` (verbatim operator words), `--relayed-by` (Executor identity), and `--idempotency-key`. Accepted for `human_required`; recorded as `operator_relayed`, never a direct operator answer. | `aiur operator-relay-answer dec_123 --expected-version 1 --option keep --quote "keep them" --relayed-by attended-executor --idempotency-key palette-1` |
+| `aiur operator-relay-answer DECISION-ID --supersede` | Relays the operator's corrected answer before worker delivery, preserving the prior answer in history. Subject to the same in-flight and delivered guards as `executor-answer --supersede`. | `aiur operator-relay-answer dec_123 --expected-version 1 --option replace --quote "replace them instead" --relayed-by attended-executor --idempotency-key palette-2 --supersede` |
 | `aiur executor-answer DECISION-ID` | Records a supervising-Executor answer to one open decision. It requires `--expected-version`, `--rationale`, `--idempotency-key`, and exactly one of `--option` or `--custom-response`. | `aiur executor-answer dec_123 --expected-version 1 --option morning --rationale "Lowest risk" --idempotency-key run-1` |
 | `aiur executor-answer DECISION-ID --expected-version 1` | Optimistic-concurrency guard. It must be a positive integer and must match the decision's current version, so a stale answer is rejected instead of overwriting a newer one. | `aiur executor-answer dec_123 --expected-version 1 --option morning --rationale "Lowest risk" --idempotency-key run-1` |
 | `aiur executor-answer DECISION-ID --option morning` | Selects one of the decision's offered option IDs. It is mutually exclusive with `--custom-response`. | `aiur executor-answer dec_123 --expected-version 1 --option morning --rationale "Lowest risk" --idempotency-key run-1` |

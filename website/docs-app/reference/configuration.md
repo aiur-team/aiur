@@ -677,6 +677,14 @@ The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` 
 
 An exported value wins, followed by the global file and then the repository file. The value must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup; an absent or empty value leaves the API disabled.
 
+## executor
+
+| Key | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `executor.relay_operator_answers` | boolean | false | Allows an attended Executor to record an operator's already-given answer through `operator-relay-answer`, including `human_required` Commands. |
+
+Enable this only when you authorize your Executor to relay your answers. Each relay records a distinct `operator_relayed` actor, verbatim quote, relayer identity and acceptance timestamp, and emits an informational alert. This does not grant the Executor authority to choose an answer; `executor-answer` retains its authority and reversibility floors. Disable the key to revoke further recording. Existing relay answers remain in history and can be revised or mooted through the dashboard's existing operator flows.
+
 ## decisions
 
 | Key | Type | Default | Controls |

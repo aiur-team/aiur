@@ -579,6 +579,8 @@ defmodule Aiur.DecisionStore do
         revision_follow_up_projector: revision_projector,
         revision_follow_up_resolver: revision_resolver,
         event_id_reserver: Keyword.get(opts, :event_id_reserver, &IdGenerator.reserve_durable_id/0),
+        relay_enabled: Keyword.get(opts, :relay_enabled, &Config.relay_operator_answers?/0),
+        relay_notifier: Keyword.get(opts, :relay_notifier, &Aiur.OperatorRelay.notify/2),
         executor_attention_opener: Keyword.get(opts, :executor_attention_opener, &ExecutorCommandAttention.open/3),
         executor_request_boot_reconciler: Keyword.get(opts, :executor_request_boot_reconciler, &ExecutorEvents.reconcile_requested/1),
         executor_request_publisher: Keyword.get(opts, :executor_request_publisher, &ExecutorEvents.publish_requested/1),
@@ -1157,11 +1159,17 @@ defmodule Aiur.DecisionStore do
 
   defp handle_answer(decision_id, payload, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
-         {:ok, actor} <- fetch_actor(opts) do
+         {:ok, actor} <- fetch_actor(opts),
+         :ok <- require_relay_enabled(actor, state) do
       accept_or_replay_answer(decision, payload, actor, opts, state)
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
+  end
+
+  defp require_relay_enabled(actor, state) do
+    kind = Map.get(actor, :kind, Map.get(actor, "kind"))
+    if kind in [:operator_relayed, "operator_relayed"] and state.relay_enabled.() != true, do: {:error, {:answer_invalid, {:operator_relay, :disabled}}}, else: :ok
   end
 
   defp accept_or_replay_answer(%Decision{answer: nil} = decision, payload, actor, opts, state) do
@@ -1178,7 +1186,8 @@ defmodule Aiur.DecisionStore do
   defp handle_revision(decision_id, payload, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          %DecisionAnswer{} <- Decision.active_answer(decision),
-         {:ok, actor} <- fetch_actor(opts) do
+         {:ok, actor} <- fetch_actor(opts),
+         :ok <- require_relay_enabled(actor, state) do
       case find_revision_replay(decision, payload) do
         %DecisionRevision{} = accepted -> replay_revision(decision, accepted, payload, actor, opts, state)
         nil -> accept_revision_unless_moot(decision, payload, actor, opts, state)
@@ -1366,6 +1375,7 @@ defmodule Aiur.DecisionStore do
   defp persist_revision(decision, revision, state) do
     case build_and_persist_event(:revision_recorded, decision, revision, revision.recorded_at, state) do
       {:ok, next_state, updated} ->
+        notify_operator_relay(revision.answer, updated, next_state)
         next_state = ensure_superseded_revision_follow_ups(next_state, updated)
         current = Map.fetch!(next_state.current, updated.decision_id)
         next_state = maybe_schedule_after_answer(next_state, current, false)
@@ -1523,6 +1533,8 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  # operator_relayed records the operator's choice under the opt-in guard;
+  # it carries operator authority, not the Executor's decision-making authority.
   defp validate_answer_policy_context(%DecisionAnswer{}, %Decision{}), do: :ok
 
   defp answer_error({:answer_invalid, {:stale_version, expected, current}}),
@@ -1558,9 +1570,16 @@ defmodule Aiur.DecisionStore do
     end
   end
 
+  defp notify_operator_relay(%DecisionAnswer{actor: %{kind: :operator_relayed}} = answer, decision, state),
+    do: state.relay_notifier.(decision, answer)
+
+  defp notify_operator_relay(_answer, _decision, _state), do: :ok
+
   defp persist_answer(decision, answer, state) do
     case build_and_persist_event(:answer_recorded, decision, answer, answer.accepted_at, state) do
       {:ok, next_state, updated} ->
+        notify_operator_relay(answer, updated, next_state)
+
         next_state =
           next_state
           |> maybe_schedule_after_answer(updated, false)

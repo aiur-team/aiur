@@ -80,6 +80,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionDetail do
               <li :for={entry <- @history_rows}>
                 <span class="timeline-time mono">{format_datetime(entry.changed_at)}</span>
                 <strong>{humanize(entry.change)}</strong>
+                <p :if={present?(Map.get(entry, :operator_quote))}>Operator quote: {entry.operator_quote}</p>
                 <p :if={present?(entry.rationale)}>{entry.rationale}</p>
                 <div class="timeline-facts">
                   <span class="actor-tag">

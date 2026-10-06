@@ -341,6 +341,11 @@ defmodule Aiur.AgentControlCLI do
     guarded("commands", fn -> CommandsCLI.run(opts) |> exit_marker() end)
   end
 
+  @spec operator_relay_answer(keyword()) :: :ok
+  def operator_relay_answer(opts) when is_list(opts) do
+    guarded("operator-relay-answer", fn -> opts |> Aiur.OperatorRelayCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
+  end
+
   @spec executor_answer(keyword()) :: :ok
   def executor_answer(opts) when is_list(opts) do
     guarded("executor-answer", fn -> opts |> ExecutorCommandCLI.answer(error_fun: &control_error/1) |> exit_marker() end)
