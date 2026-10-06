@@ -59,7 +59,7 @@ defmodule Aiur.AllowedContributors.Refresh do
     if sha != state.ledger.sha or entries != state.ledger.entries or source != state.ledger.allowlist_source,
       do: alert_change(state, snapshot, sha, entries)
 
-    Logger.info("allowed_contributors refreshed source=#{source || "file@absent"}")
+    Logger.info("allowed_contributors refreshed source=#{source}")
     ledger = Ledger.put_allowlist(state.ledger, sha, entries, source)
     _ = Ledger.save(ledger, state.ledger_path)
     %{state | snapshot: snapshot, ledger: ledger}
@@ -86,7 +86,7 @@ defmodule Aiur.AllowedContributors.Refresh do
 
     state.alert_fun.(
       "allowed_contributors.changed",
-      "Allowed contributors changed (#{state.ledger.allowlist_source || "none"} -> #{Source.label(snapshot) || "file@absent"}): " <>
+      "Allowed contributors changed (#{state.ledger.allowlist_source || "none"} -> #{Source.label(snapshot)}): " <>
         "added #{inspect(added)}, removed #{inspect(removed)}.",
       reason: "Allowed-contributor trust set changed; confirm the change was intended",
       needs_attention: true,
