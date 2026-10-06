@@ -834,6 +834,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
     }
   end
 
+  defp tracker_preflight_detail({:github_auth_preflight_failed, %{reason: :local_hold, detail: %{hold: %{reason: reason, resource: resource}}}}),
+    do: "#{reason} (#{resource})"
+
   defp tracker_preflight_detail({:github_auth_preflight_failed, diagnostic}) when is_map(diagnostic) do
     Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
   end

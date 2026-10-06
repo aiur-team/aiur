@@ -2599,6 +2599,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     ready = issue("preflight-empty")
     state = %State{max_concurrent_agents: 12, effective_concurrent_agents: 12, last_polled_issues: %{ready.id => ready}, blocked_ticket_ids: MapSet.new()}
     owner = self()
+    hold = %{reason: :shared_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 60)}
+    reason = {:github_auth_preflight_failed, %{reason: :local_hold, classification: :local_hold, detail: %{hold: hold}, request_error: inspect({:aiur, :locally_held, hold})}}
 
     held =
       Dispatcher.maybe_dispatch(
@@ -2607,7 +2609,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           send(owner, :dispatch_attempted)
           state
         end,
-        fn state -> {:error, :missing_github_token, state} end
+        fn state -> {:error, reason, state} end
       )
 
     refute_received :dispatch_attempted
@@ -2615,15 +2617,18 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert capacity.available == 12
     assert capacity.queued_demand? == true
 
-    assert {:tracker_preflight, %{detail: :missing_github_token}} =
+    assert {:tracker_preflight, %{detail: "shared_budget (core)"}} =
              CapacityBinding.binding(capacity)
+
+    assert {:tracker_preflight, %{detail: "shared_budget (core)"}} =
+             CapacityBinding.binding(%{capacity | queued_demand?: false}, %{tracker_snapshot_fresh?: true})
 
     output =
       ExUnit.CaptureIO.capture_io(fn ->
         Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: []}, %{status: :fresh}})
       end)
 
-    assert output =~ ~r/binding: tracker preflight, reason=missing_github_token held=\d+s/
+    assert output =~ ~r/binding: tracker preflight, reason=shared_budget \(core\) held=\d+s/
     assert CapacityBinding.short_label(CapacityBinding.binding(capacity)) =~ ~r/held=\d+s/
     assert Slots.dispatch_hold_status(held, held.dispatch_hold.held_since_ms + 90_000).held_for_seconds == 90
   end
