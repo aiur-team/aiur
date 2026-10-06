@@ -36,7 +36,8 @@ one org id fail config validation with the dotted config key.
 When this key is present, it is the **whole list** and Aiur never fetches the
 file. `allowed_contributors: {}`, `allowed_contributors:` (null), or empty
 `users` and `orgs` arrays explicitly admit nobody. Removing the key restores
-the file fallback. Config changes take effect on reload or restart, raising
+the file fallback. Removing config revokes its old entries even if the file
+cannot be fetched; intake defers until the file is available. Config changes take effect on reload or restart, raising
 `allowed_contributors.changed` with the entries added and removed.
 
 ## The file fallback
@@ -144,8 +145,9 @@ Every accept, reject, and deferral is appended to
 `~/.aiur/repo/<owner>/<repo>/executor/<repo>.allowed-contributors.audit.ndjson`
 and logged by the daemon. Each record carries the issue number, the numeric
 author id, the reason, `allowlist_source` (`config` or `file@<sha>`), the
-allow-list commit SHA (`null` for config), and the producer (`webhook`
-or `poll`). The seen set and the last-shown allow-list SHA live beside it in
+allow-list commit SHA (`null` for config, absent or unavailable files), and the producer (`webhook`
+or `poll`). Missing file snapshots use `file@absent` or `file@unavailable`.
+The seen set and the last-shown allow-list SHA live beside it in
 `<repo>.allowed-contributors.json`.
 
 ## Threat model

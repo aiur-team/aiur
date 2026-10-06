@@ -59,10 +59,11 @@ defmodule Aiur.AllowedContributors.Source do
   end
 
   @doc "Identifies the trust source independently of the issue producer."
-  @spec label(term()) :: String.t() | nil
+  @spec label(snapshot() | nil | :absent) :: String.t()
   def label(%{source: "config"}), do: "config"
   def label(%{sha: sha}) when is_binary(sha), do: "file@#{sha}"
-  def label(_snapshot), do: nil
+  def label(:absent), do: "file@absent"
+  def label(nil), do: "file@unavailable"
 
   defp fetch_file(owner, repo, opts) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)

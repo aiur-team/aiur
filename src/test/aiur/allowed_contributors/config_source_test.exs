@@ -103,6 +103,51 @@ defmodule Aiur.AllowedContributors.ConfigSourceTest do
     assert switched =~ "config -> file@#{Fixture.sha()}"
   end
 
+  test "removing config revokes its users even when the fallback cannot be read", context do
+    {:ok, selection} = Agent.start_link(fn -> %{config: %{"users" => [42]}, token: nil} end)
+
+    {server, gh} =
+      Fixture.start(context,
+        body: "user 43\n",
+        config_fun: fn -> Agent.get(selection, & &1.config) end,
+        token_fun: fn -> Agent.get(selection, & &1.token) end
+      )
+
+    assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(), server)
+    assert_received {:alert, "allowed_contributors.changed", _initial}
+    Agent.update(selection, &%{&1 | config: nil})
+    :ok = AllowedContributors.refresh(server)
+    assert {:deferred, :allowlist_unavailable} = AllowedContributors.observe(Fixture.candidate(number: 102), server)
+    refute_received {:github_get, _url}
+    assert_received {:alert, "allowed_contributors.changed", removed}
+    assert removed =~ "config -> file@unavailable"
+    assert removed =~ ~s(removed ["user:42"])
+    Agent.update(selection, &%{&1 | token: "token"})
+    Agent.update(gh, &%{&1 | body: {:error, :timeout}})
+    :ok = AllowedContributors.refresh(server)
+    assert {:deferred, :allowlist_unavailable} = AllowedContributors.observe(Fixture.candidate(number: 103), server)
+    Agent.update(gh, &%{&1 | body: "user 43\n"})
+    :ok = AllowedContributors.refresh(server)
+    assert {:reject, :not_allowed} = AllowedContributors.observe(Fixture.candidate(number: 103), server)
+    assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(number: 104, author_id: 43), server)
+  end
+
+  test "a raised fallback read cannot restore revoked config trust", context do
+    {:ok, selection} = Agent.start_link(fn -> %{"users" => [42]} end)
+
+    {server, _gh} =
+      Fixture.start(context,
+        config_fun: fn -> Agent.get(selection, & &1) end,
+        request_fun: fn _req -> raise "transport crashed" end
+      )
+
+    assert {:accept, "user"} = AllowedContributors.observe(Fixture.candidate(), server)
+    Agent.update(selection, fn _ -> nil end)
+    :ok = AllowedContributors.refresh(server)
+    assert {:deferred, :allowlist_unavailable} = AllowedContributors.observe(Fixture.candidate(number: 102), server)
+    assert :sys.get_state(server).snapshot == nil
+  end
+
   test "invalid config source fails closed and identifies config in its alert", context do
     {server, _gh} = Fixture.start(context, allowed_contributors: %{"users" => ["alice"]})
     assert {:reject, :allowlist_invalid} = AllowedContributors.observe(Fixture.candidate(), server)

@@ -21,8 +21,13 @@ defmodule Aiur.AllowedContributors.Refresh do
   def run(state) do
     config = state.config_fun.()
 
-    if is_nil(config), do: refresh_file(state), else: fetch(state, allowed_contributors: config)
+    if is_nil(config), do: state |> switch_to_file() |> refresh_file(), else: fetch(state, allowed_contributors: config)
   end
+
+  # A removed config is no longer an eligible trust source. File read failures
+  # may retain a previous file snapshot, but must not preserve revoked config.
+  defp switch_to_file(%{snapshot: %{source: "config"}} = state), do: apply_fetch({:ok, nil}, state)
+  defp switch_to_file(state), do: state
 
   defp refresh_file(state) do
     case state.token_fun.() do
@@ -33,6 +38,10 @@ defmodule Aiur.AllowedContributors.Refresh do
         Logger.warning("allowed_contributors refresh_skipped source=file reason=missing_github_token; intake defers until a token is available")
         state
     end
+  rescue
+    error ->
+      Logger.error("allowed_contributors refresh_raised source=file error=#{Exception.message(error)}")
+      state
   end
 
   defp fetch(state, opts),
@@ -56,6 +65,7 @@ defmodule Aiur.AllowedContributors.Refresh do
     %{state | snapshot: snapshot, ledger: ledger}
   end
 
+  defp describe(nil), do: {nil, []}
   defp describe(:absent), do: {nil, []}
   defp describe(%{sha: sha, allowlist: {:invalid, _reason}}), do: {sha, ["invalid"]}
   defp describe(%{sha: sha, allowlist: list}), do: {sha, AllowList.diff(AllowList.empty(), list).added}
