@@ -593,6 +593,8 @@ jobs:
 
   browser:
     name: browser harness
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
     needs: changes
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -635,7 +637,9 @@ jobs:
       - name: Run visual regression baselines
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser
-        run: npm run test:visual
+        run: |
+          npm run test:visual
+          npm run test:visual
       - name: Verify browser failure evidence, redaction, and teardown
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser

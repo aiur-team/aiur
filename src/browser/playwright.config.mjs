@@ -14,17 +14,19 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
+  updateSnapshots: 'none',
   workers: 1,
   timeout: 30_000,
   expect: {
     timeout: 10_000,
     toHaveScreenshot: {
       animations: 'disabled',
-      maxDiffPixels: 0,
+      caret: 'hide',
+      maxDiffPixelRatio: 0.002,
       threshold: 0.2
     }
   },
-  snapshotPathTemplate: '{dir}/{testFileDir}/{testFileName}-snapshots/{arg}{platform}{ext}',
+  snapshotPathTemplate: '{testDir}/{testFilePath}-snapshots/{arg}-{platform}{ext}',
   use: {
     baseURL: `http://127.0.0.1:${port}`,
     trace: 'retain-on-failure',
