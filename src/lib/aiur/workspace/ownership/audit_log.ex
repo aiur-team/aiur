@@ -14,9 +14,8 @@ defmodule Aiur.Workspace.Ownership.AuditLog do
     with {:ok, root} <- Paths.decision_state_dir(),
          dir = Path.join(root, "workspace-ownership"),
          path = Keyword.get(opts, :path, Application.get_env(:aiur, :workspace_ownership_audit_path, Path.join(dir, @filename))),
-         :ok <- DecisionLog.prepare(Path.dirname(path), path),
-         :ok <- DecisionLog.append(path, JSONSafe.normalize(record)) do
-      :ok
+         :ok <- DecisionLog.prepare(Path.dirname(path), path) do
+      DecisionLog.append(path, JSONSafe.normalize(record))
     end
   rescue
     error -> {:error, {:audit_write_failed, Exception.message(error)}}

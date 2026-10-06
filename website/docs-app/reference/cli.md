@@ -86,7 +86,7 @@ A `workspace_ownership_waiting` row reports the held generation and provider-exi
 
 Before release, the daemon appends and fsyncs an audit record with actor, ticket, generation, proof, and timestamp to `workspace-ownership/workspace-recovery-audit.ndjson` in its state directory. Automatic releases identify the guardian; operator retries identify the daemon's OS account.
 
-If writing fails, the lease stays held and status names `aiur workspace-recover <ticket-identifier> <generation>` as the retry command. Older receipts, remote providers, same-boot holds, and unreadable boot IDs cannot be recovered by this command.
+If writing fails, the lease stays held and status names `aiur workspace-recover <ticket-identifier> <generation>` as the retry command; legacy receipts, remote providers, same-boot holds, and unreadable boot IDs are ineligible.
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |

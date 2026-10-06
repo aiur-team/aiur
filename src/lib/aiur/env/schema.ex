@@ -183,6 +183,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_TMUX_SOCKET", type: :string, group: :runtime, purpose: "tmux socket name the launcher uses."},
     {"AIUR_ERLANG_COOKIE", type: :secret, group: :runtime, purpose: "BEAM distribution cookie; launcher generates one if unset.", fetch: "openssl rand -hex 32"},
     {"AIUR_INSTANCE_KEY", type: :string, validate: false, example: false, group: :runtime, purpose: "Per-instance key hashing the project root; set by the launcher."},
+    {"USER", type: :string, group: :runtime, purpose: "Daemon OS account recorded as the actor for operator workspace recovery audits."},
     {"AIUR_NOFILE_SOFT_LIMIT", type: :integer, validate: false, example: false, group: :runtime, purpose: "Effective open-file soft limit; exported by the launcher."},
     {"AIUR_AGENT_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Agent-queue tempfile path; set by the launcher."},
     {"AIUR_SESSION_TMPFILE", type: :path, validate: false, example: false, group: :runtime, purpose: "Session tempfile path; set by the launcher."},
