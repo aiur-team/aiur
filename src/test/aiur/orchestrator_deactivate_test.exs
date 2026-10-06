@@ -1766,6 +1766,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
         refute Map.has_key?(updated_state.running, issue_id)
         refute MapSet.member?(updated_state.claimed, issue_id)
         refute Process.alive?(agent_pid)
+        # The save and delete of a closed ticket's workspace run in a task (#2743).
+        assert_receive {:workspace_cleanup_finished, ^issue_identifier, :ok}, 10_000
         refute File.exists?(workspace)
         assert :none == SessionHandle.load(issue_identifier, "codex")
       after
@@ -7313,7 +7315,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
         {:DOWN, ^ref, :process, ^agent_pid, :killed} -> :ok
       end
 
-      # The pr-<pr#> workspace is gone — no orphan left behind.
+      # The pr-<pr#> workspace is gone — no orphan left behind. The save and
+      # delete run in a task (#2743).
+      assert_receive {:workspace_cleanup_finished, "pr-77", :ok}, 10_000
       refute File.exists?(pr_workspace)
     end
 
