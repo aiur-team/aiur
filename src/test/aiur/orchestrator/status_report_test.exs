@@ -2,11 +2,37 @@ defmodule Aiur.Orchestrator.StatusReportTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{State, StatusReport}
+  alias Aiur.Orchestrator.{CapacityBinding, SnapshotStore, State, StatusReport}
   alias Aiur.{ProgressRetention, TrackerIdentity}
   alias Aiur.Workspace.Ownership
   alias Aiur.Workspace.Ownership.Store
   alias AiurWeb.OperatorControlCenter.UnitsRow
+
+  test "snapshot projection retains last dispatch poll age and never-polled state" do
+    now_ms = System.monotonic_time(:millisecond)
+    state = %State{last_dispatch_poll_at_ms: now_ms - 481_000}
+    snapshot = StatusReport.snapshot_payload(StatusReport.snapshot_input(state))
+    assert snapshot.polling.last_dispatch_poll_age_ms >= 481_000
+    assert snapshot.polling.last_dispatch_poll_age_ms < 482_000
+    never = StatusReport.snapshot_payload(StatusReport.snapshot_input(%State{}))
+    assert never.polling.last_dispatch_poll_age_ms == nil
+  end
+
+  test "retained snapshots age a dispatch poll until it becomes stale" do
+    orchestrator = self()
+    on_exit(fn -> SnapshotStore.forget(orchestrator) end)
+    now_ms = System.monotonic_time(:millisecond)
+    state = %State{last_dispatch_poll_at_ms: now_ms - 479_000, poll_interval_ms: 240_000}
+    snapshot = StatusReport.snapshot_payload(StatusReport.snapshot_input(state))
+    :ok = SnapshotStore.publish(orchestrator, snapshot)
+    {:current, first, _metadata} = SnapshotStore.read(orchestrator, 50)
+    assert CapacityBinding.dispatch_poll_status(first.polling).freshness == :fresh
+    Process.sleep(1_100)
+    {:current, retained, metadata} = SnapshotStore.read(orchestrator, 50)
+    assert retained.polling.last_dispatch_poll_age_ms > 480_000
+    assert metadata.age_ms >= 1_100
+    assert CapacityBinding.dispatch_poll_status(retained.polling).freshness == :stale
+  end
 
   test "calculates the remaining poll interval" do
     assert StatusReport.next_poll_in_ms(nil, 10) == nil

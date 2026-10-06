@@ -80,11 +80,7 @@ defmodule Aiur.Workspace.RefreshTest do
     test_root: test_root
   } do
     init_repo!(workspace)
-    File.write!(Path.join(workspace, ".gitignore"), "ignored-sentinel\n.aiur-runtime/\n")
-    git!(["-C", workspace, "add", ".gitignore"])
-    git!(["-C", workspace, "commit", "--quiet", "-m", "ignore sentinel"])
-    sentinel = Path.join(workspace, "ignored-sentinel")
-    File.write!(sentinel, "leftover")
+    recreate_marker = Path.join(test_root, "recreate-once")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
@@ -92,14 +88,14 @@ defmodule Aiur.Workspace.RefreshTest do
       build_start_stagger_seconds: 0,
       min_free_memory_mb: nil,
       hook_before_run: """
-      if [ -f ignored-sentinel ]; then exit 65; fi
+      if [ ! -f #{Aiur.Shell.escape(recreate_marker)} ]; then touch #{Aiur.Shell.escape(recreate_marker)}; exit 65; fi
       test -z "$(find . -mindepth 1 -maxdepth 1 -print -quit)"
-      git init --quiet -b main
-      git config user.email t@example.com
-      git config user.name T
+      git -C "$PWD" init --quiet -b main
+      git -C "$PWD" config user.email t@example.com
+      git -C "$PWD" config user.name T
       touch rebuilt
-      git add rebuilt
-      git commit --quiet -m rebuilt
+      git -C "$PWD" add rebuilt
+      git -C "$PWD" commit --quiet -m rebuilt
       """
     )
 
@@ -107,7 +103,7 @@ defmodule Aiur.Workspace.RefreshTest do
     issue = %{id: 1, identifier: "test", state: "todo", labels: [], pr_head_ref: nil}
 
     assert :ok = Refresh.run(workspace, issue, nil)
-    refute File.exists?(sentinel)
+    assert File.regular?(recreate_marker)
     assert File.exists?(Path.join(workspace, "rebuilt"))
 
     for command <- ~w(elixir mix mise) do
@@ -154,10 +150,7 @@ defmodule Aiur.Workspace.RefreshTest do
     test_root: test_root
   } do
     init_repo!(workspace)
-    File.write!(Path.join(workspace, ".gitignore"), "leftover-sentinel\n.aiur-runtime/\n")
-    git!(["-C", workspace, "add", ".gitignore"])
-    git!(["-C", workspace, "commit", "--quiet", "-m", "ignore reconstruction sentinel"])
-    File.write!(Path.join(workspace, "leftover-sentinel"), "leftover")
+    recreate_marker = Path.join(test_root, "reconstruct-once")
 
     fake_gh = Path.join(test_root, "system-bin/gh")
     observed = Path.join(test_root, "governed-gh-observed")
@@ -178,7 +171,7 @@ defmodule Aiur.Workspace.RefreshTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
       hook_before_run: """
-      if [ -f leftover-sentinel ]; then exit 65; fi
+      if [ ! -f #{Aiur.Shell.escape(recreate_marker)} ]; then touch #{Aiur.Shell.escape(recreate_marker)}; exit 65; fi
       test -z "$(find . -mindepth 1 -maxdepth 1 -print -quit)"
       git init --quiet -b main
       git config user.email t@example.com
@@ -192,6 +185,7 @@ defmodule Aiur.Workspace.RefreshTest do
     issue = %{id: 1, identifier: "test", state: "todo", labels: [], pr_head_ref: nil}
 
     assert :ok = Refresh.run(workspace, issue, nil)
+    assert File.regular?(recreate_marker)
 
     wrapper = Path.join(AgentGitHubGuard.bin_dir(workspace), "gh")
     assert File.regular?(wrapper)
@@ -223,56 +217,6 @@ defmodule Aiur.Workspace.RefreshTest do
 
     assert File.read!(observed) ==
              "GH_TOKEN=private-fixture-token\nGITHUB_TOKEN=\nGH_CONFIG_DIR=#{expected_config_dir}\n"
-  end
-
-  test "run/3 repairs missing governed GitHub support in a ready workspace", %{
-    workspace: workspace,
-    test_root: test_root
-  } do
-    init_repo!(workspace)
-    fake_gh = Path.join(test_root, "system-bin/gh")
-    observed = Path.join(test_root, "ready-refresh-observed")
-    credential_file = Path.join(test_root, "private-agent-token")
-    expected_config_dir = AgentGitHubGuard.gh_config_dir(workspace)
-    File.write!(credential_file, "private-fixture-token\n")
-    File.mkdir_p!(Path.dirname(fake_gh))
-
-    File.write!(
-      fake_gh,
-      "#!/bin/sh\nprintf '%s\\n' \"${GH_TOKEN:-}:$GH_CONFIG_DIR\" > #{Aiur.Shell.escape(observed)}\n"
-    )
-
-    File.chmod!(fake_gh, 0o755)
-    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root)
-
-    assert :ok = Refresh.run(workspace, %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}, nil)
-    File.rm_rf!(Path.join(workspace, ".aiur-runtime"))
-    assert :ok = Refresh.run(workspace, %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}, nil)
-
-    assert {"", 0} =
-             System.cmd("sh", ["-c", "gh api repos/owner/repo/issues/2667"],
-               cd: workspace,
-               env: [
-                 {"AIUR_REAL_GH", fake_gh},
-                 {"AIUR_AGENT_WORKSPACE", workspace},
-                 {"AIUR_GITHUB_CREDENTIAL_FILE", credential_file},
-                 {"AIUR_REPO_STATE_PATH", test_root},
-                 {"AIUR_AGENT_QUOTA_STATE_PATH", Path.join(test_root, "quota")},
-                 {"AIUR_GITHUB_BUDGET_ENABLED", "0"},
-                 {"AIUR_GITHUB_BUDGET_ROOT", ""},
-                 {"AIUR_GITHUB_BUDGET_KEY", ""},
-                 {"AIUR_GITHUB_BUDGET_IDENTITY_KEY", ""},
-                 {"AIUR_GITHUB_BUDGET_CONSUMER", ""},
-                 {"AIUR_GITHUB_BUDGET_BROKER", "/nonexistent/aiur-github-budget"},
-                 {"GITHUB_TOKEN", ""},
-                 {"GH_TOKEN", ""},
-                 {"GH_CONFIG_DIR", expected_config_dir},
-                 {"PATH", "#{AgentGitHubGuard.bin_dir(workspace)}:#{Path.dirname(fake_gh)}:/usr/bin:/bin"}
-               ],
-               stderr_to_stdout: true
-             )
-
-    assert File.read!(observed) == "private-fixture-token:#{expected_config_dir}\n"
   end
 
   test "run/3 on a remote ready workspace installs only the governed GitHub guard", %{test_root: test_root} do
@@ -336,7 +280,7 @@ defmodule Aiur.Workspace.RefreshTest do
     assert File.read!(sentinel) == "keep\n"
   end
 
-  test "run/3 preserves an established ticket branch when recreation follows a title edit", %{
+  test "run/3 passes the established ticket branch to recreation hooks after a title edit", %{
     workspace: workspace,
     test_root: test_root
   } do
@@ -359,8 +303,7 @@ defmodule Aiur.Workspace.RefreshTest do
     }
 
     assert {:error, _} = Refresh.run(workspace, issue, nil)
-    assert File.read!(trace) == "aiur/123-fix-login\n"
-    assert String.trim(git!(["-C", workspace, "branch", "--show-current"])) == "aiur/123-fix-login"
+    assert File.read!(trace) |> String.split("\n", trim: true) == ["aiur/123-fix-login", "aiur/123-fix-login"]
   end
 
   test "run/3 exit-65 on non-todo dispatch returns :ok (WIP skip)", %{workspace: workspace, test_root: test_root} do

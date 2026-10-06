@@ -7,7 +7,7 @@ defmodule Aiur.Workspace.Provisioner do
   require Logger
   alias Aiur.{AgentGitHubGuard, Config, RepoBase, TicketBranch, Tracker}
   alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.Workspace.{Checkout, Context, DirtyGuard, Materialize, Reconstruction, Remote}
+  alias Aiur.Workspace.{Checkout, Context, DirtyGuard, Materialize, Reconstruction, Remote, WipPreservation}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
   @remote_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentScratch]
@@ -392,15 +392,41 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
-  @spec recreate(Path.t(), worker_host()) :: :ok | {:error, term()}
-  def recreate(workspace, nil), do: force_recreate_workspace(workspace, legacy_branch_name(workspace), nil)
+  @doc """
+  Deletes `workspace` and provisions it again. The only public way to do so:
+  the uncommitted work in it is saved first, and a dirty workspace whose work
+  cannot be saved is kept (#2743). A remote checkout cannot be saved on this
+  daemon, so it is recreated only after an operator authorized the discard
+  (`Aiur.Workspace.WipPreservation.authorize_discard/1`).
+  """
+  @spec recreate(Path.t(), worker_host(), String.t() | nil, String.t(), String.t()) :: :ok | {:error, term()}
+  def recreate(workspace, nil, pr_head_ref, branch_name, ticket) when is_binary(branch_name) and is_binary(ticket) do
+    WipPreservation.guard_destroy(workspace, ticket, "recreate the stale workspace", fn ->
+      force_recreate_workspace(workspace, branch_name, pr_head_ref)
+    end)
+  end
 
-  def recreate(workspace, worker_host) when is_binary(worker_host) do
+  def recreate(workspace, worker_host, _pr_head_ref, _branch_name, ticket) when is_binary(worker_host) and is_binary(ticket) do
+    leaf = Path.basename(workspace)
+
+    if WipPreservation.discard_authorized?(leaf) do
+      with :ok <- recreate_remote(workspace, worker_host) do
+        WipPreservation.emit_discarded_alert(ticket, "#{worker_host}:#{workspace}", :remote_worker_unsupported)
+        WipPreservation.consume_discard(leaf)
+        WipPreservation.clear_hold(leaf)
+      end
+    else
+      # The exit-65 refusal that leads here already proves the checkout is
+      # dirty, and its state cannot be saved to this daemon's state dir.
+      WipPreservation.refuse(workspace, ticket, "recreate the stale workspace on #{worker_host}", :remote_worker_unsupported)
+    end
+  end
+
+  defp recreate_remote(workspace, worker_host) do
     script =
       [
         "set -eu",
         Remote.remote_shell_assign("workspace", workspace),
-        DirtyGuard.remote_check_script(),
         "rm -rf \"$workspace\"",
         "mkdir -p \"$workspace\""
       ]
@@ -415,24 +441,13 @@ defmodule Aiur.Workspace.Provisioner do
     end
   end
 
-  @spec recreate(Path.t(), worker_host(), String.t() | nil, String.t()) :: :ok | {:error, term()}
-  def recreate(workspace, nil, pr_head_ref, branch_name) when is_binary(branch_name) do
-    force_recreate_workspace(workspace, branch_name, pr_head_ref)
-  end
-
-  def recreate(workspace, worker_host, _pr_head_ref, _branch_name) when is_binary(worker_host),
-    do: recreate(workspace, worker_host)
-
   defp create_workspace(workspace) do
     cold_fallback_workspace(workspace)
   end
 
   defp force_recreate_workspace(workspace, branch_name, pr_head_ref) do
     Reconstruction.with_log_lock(workspace, fn ->
-      case DirtyGuard.check(workspace, nil) do
-        :ok -> replace_workspace(workspace, branch_name, pr_head_ref)
-        {:error, _reason} = error -> error
-      end
+      replace_workspace(workspace, branch_name, pr_head_ref)
     end)
   end
 
