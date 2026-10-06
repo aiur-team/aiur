@@ -55,7 +55,7 @@ defmodule Aiur.PeriodicWorker do
       @impl GenServer
       def handle_info(_other, state), do: {:noreply, state}
 
-      defoverridable start_link: 1
+      defoverridable start_link: 1, start_link: 0
     end
   end
 

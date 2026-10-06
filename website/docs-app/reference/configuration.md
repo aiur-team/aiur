@@ -173,6 +173,12 @@ Freshness thresholds follow this cadence. You do not set them separately.
   dispatchable tickets keeps the base interval so work is not left waiting
   behind a backed-off sweep (#2138).
 
+## monitoring
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `monitoring.daemon_heartbeat_stale_ms` | integer | 3,600,000 | Threshold in milliseconds for recording a retrospective daemon heartbeat gap on Executor startup. A durable `system.daemon.gap` informational event is emitted only when a stale heartbeat is corroborated by the lifecycle journal; its cause is `clean_shutdown` when a stop was recorded and `unknown` for an unclosed start. Missing heartbeat files are ignored. This is not live monitoring and cannot alert while Aiur is stopped. Default is 1 hour (3,600,000 ms). |
+
 ## webhooks
 
 | Key | Type | Default | Controls |

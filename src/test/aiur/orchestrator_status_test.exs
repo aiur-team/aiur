@@ -773,6 +773,27 @@ defmodule Aiur.OrchestratorStatusTest do
            } = snapshot.capacity_hold
   end
 
+  test "provider capacity hold projects freshness details for status" do
+    detail = "codex=stale observed_at=2026-10-06T10:00:00Z next_probe=unknown"
+
+    snapshot =
+      %State{
+        capacity_hold: %{
+          signal: :provider,
+          measured: ["codex"],
+          detail: detail,
+          threshold: :all_usage_limited,
+          held_since_ms: System.monotonic_time(:millisecond),
+          alerted?: false
+        }
+      }
+      |> StatusReport.snapshot_input()
+      |> StatusReport.snapshot_payload()
+
+    assert snapshot.capacity_hold.signal == :provider
+    assert snapshot.capacity_hold.detail == detail
+  end
+
   # How long the hold has lasted and how old its measurement is are independent:
   # a hold extended by a fresh probe keeps ageing while its figure does not. Only
   # the sample age says whether `measured` still describes the host (#2527).

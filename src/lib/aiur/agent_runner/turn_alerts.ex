@@ -11,17 +11,21 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   alias Aiur.{Alerts, CodingAgent, Issue}
   alias Aiur.CodingAgent.RouteFailure
 
-  @spec maybe_emit_usage_limit_alert(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: :ok
+  @doc "Emits the quota alert, forwarding ledger options such as `:now` for clock-consistent incident replay."
+  @spec maybe_emit_usage_limit_alert(Issue.t(), Path.t() | nil, String.t() | nil, map(), keyword()) :: :ok
+  def maybe_emit_usage_limit_alert(issue, workspace, worker_host, pause_payload, ledger_opts \\ [])
+
   def maybe_emit_usage_limit_alert(
         issue,
         workspace,
         worker_host,
-        %{kind: :usage_limit_exhausted} = pause_payload
+        %{kind: :usage_limit_exhausted} = pause_payload,
+        ledger_opts
       ) do
     reset_hint = pause_payload[:reset_hint]
     backend = Aiur.ModelAvailability.backend_key(pause_payload[:backend])
 
-    case Aiur.ModelAvailability.mark_limited(backend, pause_payload[:reset_at] || reset_hint) do
+    case Aiur.ModelAvailability.mark_limited(backend, pause_payload[:reset_at] || reset_hint, ledger_opts) do
       :ok -> :ok
       {:error, reason} -> Logger.error("Unable to persist provider limit issue=#{issue.identifier} backend=#{backend} reason=#{inspect(reason)}; reset remains in worker pause state")
     end
@@ -46,7 +50,7 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     :ok
   end
 
-  def maybe_emit_usage_limit_alert(_issue, _workspace, _worker_host, _pause_payload), do: :ok
+  def maybe_emit_usage_limit_alert(_issue, _workspace, _worker_host, _pause_payload, _ledger_opts), do: :ok
 
   @doc """
   Applies #1923's route-failure disposition to a failed turn: a rejected

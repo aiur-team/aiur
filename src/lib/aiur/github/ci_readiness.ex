@@ -546,7 +546,7 @@ defmodule Aiur.GitHub.CiReadiness do
         name: #{required_check_name}
         runs-on: ubuntu-latest
         steps:
-          - run: echo 'Replace this with your project test command.'
+          - run: echo 'Replace this with your project test command.' >&2; exit 1
     """
   end
 

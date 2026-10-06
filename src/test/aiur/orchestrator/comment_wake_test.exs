@@ -208,6 +208,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       assert log =~ "ignored for idle issue"
       assert log =~ ":unlabeled_issue"
+      assert log =~ "ticket.1944.agent.attention.comment_wake_idle_issue"
     end
 
     test "does not route a trusted comment on an explicitly parked ticket even with an active label" do

@@ -16,6 +16,15 @@ defmodule Aiur.ConfigTest do
     end
   end
 
+  describe "daemon_heartbeat_stale_ms/0" do
+    test "defaults to 3600000 milliseconds (1 hour) when monitoring section is absent" do
+      # This test verifies the default is applied by the schema
+      # The actual value is retrieved from settings
+      assert is_integer(Config.daemon_heartbeat_stale_ms())
+      assert Config.daemon_heartbeat_stale_ms() == 3_600_000
+    end
+  end
+
   describe "base_branch/2" do
     test "returns a configured non-empty branch" do
       assert Config.base_branch(%{base_branch: "develop"}, config_path: "/tmp/aiur/config", cwd: "/tmp/repo") == "develop"

@@ -2200,6 +2200,9 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
+  defp admission_detail(%{signal: :provider, detail: detail}) when is_binary(detail),
+    do: "provider, #{detail}"
+
   defp admission_detail(%{signal: signal}), do: to_string(signal)
   defp admission_detail(_hold), do: "admission"
 

@@ -247,15 +247,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # failing open when no limits are observed or there is nothing dispatchable.
   # Per-issue provider selection (`CodingAgent.select_for_dispatch/1`) still owns
   # the mixed-backend case; this gate only surfaces the fleet-wide saturation.
-  @spec provider_gate([String.t()]) :: :dispatch | :hold
-  def provider_gate(backends) when is_list(backends) and backends != [] do
-    case ModelAvailability.first_available(backends) do
-      nil -> :hold
-      _backend -> :dispatch
+  # As a side effect, when we would hold due to all backends being limited,
+  # trigger probes for any stale limits to refresh the cached readings.
+  @spec provider_gate([String.t()], keyword()) :: :dispatch | :hold
+  def provider_gate(backends, opts \\ [])
+
+  def provider_gate(backends, opts) when is_list(backends) and backends != [] do
+    case ModelAvailability.first_available(backends, opts) do
+      nil ->
+        # All backends are limited; trigger probes for any stale limits
+        # This is a non-blocking side effect that happens in the background
+        ModelAvailability.probe_stale_limits(backends, opts)
+        :hold
+
+      _backend ->
+        :dispatch
     end
   end
 
-  def provider_gate(_backends), do: :dispatch
+  def provider_gate(_backends, _opts), do: :dispatch
 
   @doc false
   @spec github_quota_gate(:available | {:hold, map()} | term()) :: :dispatch | :hold
@@ -344,8 +354,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
            threshold: Map.get(build_status, :capacity)
          }}
 
-      queued_demand? and provider_gate(provider_backends) == :hold ->
-        {:hold, %{signal: :provider, measured: provider_backends, threshold: :all_usage_limited}}
+      queued_demand? and provider_gate(provider_backends, Map.get(probes, :provider_gate_opts, [])) == :hold ->
+        provider_opts = Map.get(probes, :provider_gate_opts, [])
+
+        {:hold,
+         %{
+           signal: :provider,
+           measured: provider_backends,
+           detail: ModelAvailability.provider_freshness_detail(provider_backends, provider_opts),
+           threshold: :all_usage_limited
+         }}
 
       true ->
         :dispatch

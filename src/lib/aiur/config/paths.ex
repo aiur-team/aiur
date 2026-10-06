@@ -214,6 +214,20 @@ defmodule Aiur.Config.Paths do
   end
 
   @doc """
+  Resolves the daemon heartbeat file path.
+
+  The heartbeat file is written on daemon startup and refreshed periodically
+  to allow the Executor to detect daemon downtime. It lives in the executor-
+  scoped state directory alongside other per-repository state files.
+  """
+  @spec daemon_heartbeat_path() :: {:ok, Path.t()} | {:error, atom()}
+  def daemon_heartbeat_path do
+    with {:ok, root} <- decision_state_dir() do
+      {:ok, Path.join([root, "executor", "#{repo_name()}.daemon-heartbeat"])}
+    end
+  end
+
+  @doc """
   Resolves the daemon-private runtime state directory.
 
   Runtime state is what the daemon reads back after a restart: the event-ID

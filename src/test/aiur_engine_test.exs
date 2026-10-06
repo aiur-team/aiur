@@ -589,6 +589,28 @@ printf 'INNER_SCOPE=%s\n' "${AIUR_DEV_TEST_TICKET_IDS:-missing}"
            ]
   end
 
+  test "dashboard defaults to loopback even with Tailscale and dashboard credentials" do
+    bin = Aiur.TestSupport.tmp_root!("aiur-dashboard-tailscale")
+    File.mkdir_p!(bin)
+    tailscale = Path.join(bin, "tailscale")
+    File.write!(tailscale, "#!/bin/sh\nprintf '100.64.0.42\\n'\n")
+    File.chmod!(tailscale, 0o755)
+    on_exit(fn -> File.rm_rf!(bin) end)
+
+    {host, 0} =
+      run_sourced_engine("default_dashboard_host", [
+        {"PATH", "#{bin}:#{System.get_env("PATH")}"},
+        {"AIUR_DASHBOARD_USERNAME", "tester"},
+        {"AIUR_DASHBOARD_PASSWORD", "test-password"},
+        {"AIUR_DEFAULT_DASHBOARD_HOST", nil}
+      ])
+
+    assert host == "127.0.0.1"
+
+    {override_host, 0} = run_sourced_engine("default_dashboard_host", [{"AIUR_DEFAULT_DASHBOARD_HOST", "0.0.0.0"}])
+    assert override_host == "0.0.0.0"
+  end
+
   test "run argv leaves dashboard host resolution to config unless explicitly overridden" do
     script = """
     print_run_argv() {

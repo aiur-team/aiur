@@ -48,6 +48,9 @@ defmodule Aiur.Application do
     # always names the instance that started. Best-effort — a journal write
     # failure must never crash boot.
     record_daemon_start()
+    # Write the initial heartbeat file so the Executor can detect daemon downtime.
+    # Best-effort: heartbeat write failure must not crash boot.
+    Aiur.DaemonHeartbeat.write!()
     Aiur.Shutdown.record_workspace_root()
     Aiur.Shutdown.record_alert_ledger_path()
     install_signal_handlers()
@@ -446,6 +449,7 @@ defmodule Aiur.Application do
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,
+      Aiur.DaemonHeartbeatWriter,
       Aiur.Logs.Retention,
       # The daemon-resident Executor recording path is armed on EVERY run, with
       # or without `--executor`. Recording is the only part that cannot be added

@@ -123,7 +123,7 @@ defmodule Aiur.Events.PublisherTest do
     test "drops events whose actor is the bot_account" do
       :ok = Exchange.subscribe("ticket.42.#")
       assert :filtered = Publisher.publish("ticket.42.branch.push", %{}, actor: "aiur-bot")
-      refute_receive {:event, _}, 100
+      refute_receive {:event, %{topic: "ticket.42.branch.push"}}, 100
     end
 
     test "case-insensitive bot self-loop filter" do

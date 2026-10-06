@@ -599,6 +599,8 @@ defmodule Aiur.Orchestrator.CommentWake do
   def maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
     case idle_rework_decision(state, issue_number, event) do
       {:skip, reason} ->
+        emit_idle_comment_refusal(issue_number, reason)
+
         Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
         state = cancel_comment_rework_retry(state, issue_number, source)
@@ -613,6 +615,14 @@ defmodule Aiur.Orchestrator.CommentWake do
           else: state
 
       {:error, reason} ->
+        emit_comment_rework_refusal(
+          issue_number,
+          "comment_wake_state_unresolved",
+          "Comment on issue #{issue_number} could not be evaluated for rework",
+          "Could not resolve the issue state (#{inspect(reason)}).",
+          "check tracker access and retry the comment delivery"
+        )
+
         Logger.warning(
           "#{source} rework gate skipped; issue state could not be resolved: " <>
             "issue_identifier=#{issue_number} reason=#{inspect(reason)}"
@@ -630,6 +640,8 @@ defmodule Aiur.Orchestrator.CommentWake do
             |> seed_idle_comment_wake_event(issue_number, event)
 
           {{:skip, reason}, state} ->
+            emit_idle_comment_refusal(issue_number, reason)
+
             Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
             # No seeding here, deliberately. An IDLE ticket in an active state
@@ -642,6 +654,14 @@ defmodule Aiur.Orchestrator.CommentWake do
             cancel_comment_rework_retry(state, issue_number, source)
 
           {{:error, reason}, state} ->
+            emit_comment_rework_refusal(
+              issue_number,
+              "comment_wake_state_update_failed",
+              "Comment on issue #{issue_number} could not update its rework state",
+              "The rework state update failed (#{inspect(reason)}).",
+              "check tracker permissions and retry the comment delivery"
+            )
+
             Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
             schedule_comment_rework_retry(state, issue_number, source, event, attempt, reason)
@@ -867,7 +887,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       emit_refused_review_rework_alert(issue_number, event, reason)
     else
-      Logger.info("#{source} rework write skipped for active issue: #{context}")
+      Logger.info("#{source} active comment rework skipped: #{context}")
     end
 
     state
@@ -890,11 +910,46 @@ defmodule Aiur.Orchestrator.CommentWake do
           "(#{inspect(reason)}); it is still sitting in its review state.",
       reason:
         "The rework gate refused the transition for a live changes-requested review, and a review " <>
-          "submission is delivered only once, so nothing re-derives it. Move the ticket to `rework` " <>
-          "or re-review the pull request to release it.",
+          "submission is delivered only once, so nothing re-derives it. Remedy: move the ticket to " <>
+          "rework or re-review it after addressing the gate condition.",
       needs_attention: true,
       severity: "warning",
       central: true
+    )
+  end
+
+  defp emit_idle_comment_refusal(issue_number, reason)
+       when reason in [:parked, :unlabeled_issue, :no_open_pr, :rework_attempt_limit_reached] do
+    remedy =
+      case reason do
+        :parked -> "unpark the issue and assign its intended agent state"
+        :unlabeled_issue -> "assign an agent state if this issue should be worked"
+        :no_open_pr -> "open a pull request before requesting rework"
+        :rework_attempt_limit_reached -> "move the ticket to rework or re-review it after addressing the gate condition"
+      end
+
+    Alerts.emit_custom(
+      "ticket.#{issue_number}.agent.attention.comment_wake_idle_issue",
+      "Comment on idle issue #{issue_number} was not acted on (#{inspect(reason)})",
+      issue: to_string(issue_number),
+      reason: "Idle issue rework gate refused the comment (#{inspect(reason)}). Remedy: #{remedy}.",
+      needs_attention: false,
+      severity: "info",
+      event_source: :system
+    )
+  end
+
+  defp emit_idle_comment_refusal(_issue_number, _reason), do: :ok
+
+  defp emit_comment_rework_refusal(issue_number, suffix, message, reason, remedy) do
+    Alerts.emit_custom(
+      "ticket.#{issue_number}.agent.attention.#{suffix}",
+      message,
+      issue: to_string(issue_number),
+      reason: "#{reason} Remedy: #{remedy}.",
+      needs_attention: false,
+      severity: "info",
+      event_source: :system
     )
   end
 
@@ -1100,11 +1155,11 @@ defmodule Aiur.Orchestrator.CommentWake do
 
     state
     |> Orchestrator.enqueue_event_digest_item(identifier, [event], event)
-    |> dispatch_reworked_comment_issue(identifier)
+    |> dispatch_reworked_comment_issue(identifier, event)
   end
 
-  defp dispatch_reworked_comment_issue(%State{} = state, identifier) when is_binary(identifier) do
-    case fetch_comment_dispatch_issue(identifier) do
+  defp dispatch_reworked_comment_issue(%State{} = state, identifier, event) when is_binary(identifier) do
+    case fetch_comment_dispatch_issue(identifier, event) do
       {:ok, %Issue{} = issue} ->
         dispatch_reworked_comment_issue(state, issue)
 
@@ -1137,14 +1192,44 @@ defmodule Aiur.Orchestrator.CommentWake do
       # log at all — a paused, parked, already-running or unauthorized ticket
       # simply never woke and nothing said why. #2797 owns the general
       # silent-decline pattern; this is the one on the rework-comment path.
-      Logger.info(
-        "Trusted comment dispatch declined: issue_identifier=#{issue.identifier} state=#{inspect(issue.state)} paused=#{issue.paused} parked=#{issue.parked} running=#{Map.has_key?(state.running, issue.id)} reason=dispatch_policy_refused"
+      paused = issue.paused
+      parked = issue.parked
+      running = Map.has_key?(state.running, issue.id)
+
+      reason_details =
+        case {paused, parked, running} do
+          {true, _, _} -> "issue is paused"
+          {_, true, _} -> "issue is parked"
+          {_, _, true} -> "issue is already running"
+          _ -> "dispatch policy does not permit this state"
+        end
+
+      Alerts.emit_custom(
+        "ticket.#{issue.identifier}.agent.attention.comment_wake_dispatch_declined",
+        "Comment on issue #{issue.identifier} was not acted on: #{reason_details}",
+        issue: issue.identifier,
+        reason: dispatch_decline_reason(reason_details, issue),
+        needs_attention: false,
+        severity: "info",
+        event_source: :system
       )
 
       Orchestrator.schedule_poll_cycle_start()
       state
     end
   end
+
+  defp dispatch_decline_reason("issue is paused", _issue),
+    do: "Dispatch policy refused to wake the paused issue. Remedy: resume the issue, then retry the comment delivery."
+
+  defp dispatch_decline_reason("issue is parked", _issue),
+    do: "Dispatch policy refused to wake the parked issue. Remedy: unpark it and assign its intended agent state."
+
+  defp dispatch_decline_reason("issue is already running", _issue),
+    do: "Dispatch policy refused a duplicate wake for an issue with a running agent. Remedy: let that agent finish or send the comment to its session."
+
+  defp dispatch_decline_reason(_details, issue),
+    do: "Dispatch policy refused the issue in state #{inspect(issue.state)}. Remedy: move it to an active state eligible for dispatch, then retry the comment delivery."
 
   # The successful state transition above captures the comment's rework intent,
   # but dispatch admission must continue to use the subsequently fetched state.
@@ -1170,8 +1255,10 @@ defmodule Aiur.Orchestrator.CommentWake do
     state
   end
 
-  defp fetch_comment_dispatch_issue(identifier) do
-    case Tracker.fetch_issue_states_by_ids([identifier]) do
+  defp fetch_comment_dispatch_issue(identifier, event) do
+    fetcher = Map.get(event, :comment_dispatch_issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
+
+    case fetcher.([identifier]) do
       {:ok, [%Issue{} = issue | _]} ->
         {:ok, issue}
 
@@ -1227,8 +1314,6 @@ defmodule Aiur.Orchestrator.CommentWake do
         revalidate_comment_reactivation(state, running_entry, issue_number, source)
 
       {{:skip, reason}, state} ->
-        context = comment_reactivation_context(running_entry, issue_number)
-
         # A skipped *label write* is not automatically a skipped *wake*. The
         # ticket is already `agent:rework` and its threads are all resolved, so
         # the gate is right to refuse a transition — but the agent's provider
@@ -1252,18 +1337,42 @@ defmodule Aiur.Orchestrator.CommentWake do
         #
         # No `rework` write happens here, so #2422's loop stays closed.
         if wake_without_rework_write?(reason) do
+          context = comment_reactivation_context(running_entry, issue_number)
           Logger.info("#{source} waking without rework write: #{context} reason=#{inspect(reason)}")
 
           state
           |> Orchestrator.enqueue_event_digest_item(to_string(issue_number), [event], event)
           |> revalidate_comment_reactivation(running_entry, issue_number, source, require_state: "rework")
         else
+          Alerts.emit_custom(
+            "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue",
+            "Comment on inactive issue #{issue_number} was ignored (#{inspect(reason)})",
+            issue: to_string(issue_number),
+            reason:
+              "Inactive issues are not dispatch candidates and do not accept comment-based reactivation (#{inspect(reason)}). Remedy: change the issue to an active state, then retry the comment delivery.",
+            needs_attention: false,
+            severity: "info",
+            event_source: :system
+          )
+
+          context = comment_reactivation_context(running_entry, issue_number)
           Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
+
           state
         end
 
       {{:error, reason}, state} ->
         context = comment_reactivation_context(running_entry, issue_number)
+
+        Alerts.emit_custom(
+          "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_state_failed",
+          "Reactivation for issue #{issue_number} failed (#{inspect(reason)})",
+          issue: to_string(issue_number),
+          reason: "Could not update issue state during reactivation (#{inspect(reason)}). Remedy: check tracker permissions and retry reactivation.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
 
         Logger.warning("#{source} reactivation skipped; state update failed: #{context} reason=#{inspect(reason)}")
 
@@ -1421,8 +1530,10 @@ defmodule Aiur.Orchestrator.CommentWake do
     end
   end
 
-  defp write_comment_rework(issue_key, telemetry_ticket, source, _event, attempt_id) do
-    case Tracker.update_issue_state(to_string(issue_key), "rework") do
+  defp write_comment_rework(issue_key, telemetry_ticket, source, event, attempt_id) do
+    update_issue_state_fun = Map.get(event, :comment_update_issue_state_fun, &Tracker.update_issue_state/2)
+
+    case update_issue_state_fun.(to_string(issue_key), "rework") do
       :ok ->
         Lifecycle.record(
           to_string(telemetry_ticket),
@@ -1483,21 +1594,44 @@ defmodule Aiur.Orchestrator.CommentWake do
         reactivate_when_state_matches(state, running_entry, refreshed_issue, issue_number, source, opts)
 
       {:skip, reason} ->
+        Alerts.emit_custom(
+          "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue_reactivation",
+          "Reactivation for inactive issue #{issue_number} was ignored (#{inspect(reason)})",
+          issue: to_string(issue_number),
+          reason: "Inactive issues cannot be reactivated by comments (#{inspect(reason)}). Remedy: change the issue to an active state, then retry the comment delivery.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
+
         Logger.info("#{source} ignored for inactive issue: #{context} reason=#{inspect(reason)}")
+
         state
 
       {:error, reason} ->
+        Alerts.emit_custom(
+          "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_refresh_failed",
+          "Reactivation for issue #{issue_number} failed - could not refresh state (#{inspect(reason)})",
+          issue: to_string(issue_number),
+          reason: "Could not fetch the current issue state during reactivation (#{inspect(reason)}). Remedy: check tracker access and retry reactivation.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
+
         Logger.warning("#{source} reactivation skipped; issue refresh failed: #{context} reason=#{inspect(reason)}")
 
         state
     end
   end
 
-  defp fetch_current_reactivation_issue(%{issue: %Issue{id: issue_id} = issue})
+  defp fetch_current_reactivation_issue(%{issue: %Issue{id: issue_id} = issue} = running_entry)
        when is_binary(issue_id) do
+    fetcher = Map.get(running_entry, :comment_reactivation_issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
+
     case Dispatcher.revalidate_issue_for_dispatch(
            issue,
-           &Tracker.fetch_issue_states_by_ids/1,
+           fetcher,
            DispatchPolicy.terminal_state_set()
          ) do
       {:ok, %Issue{} = refreshed_issue} -> {:ok, refreshed_issue}

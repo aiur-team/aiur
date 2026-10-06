@@ -2,12 +2,12 @@
 
 import fs from 'fs';
 import path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(__dirname, '..');
-const distDir = path.join(packageRoot, 'dist');
+const distDir = path.resolve(packageRoot, process.argv[2] ?? 'dist');
 const srcCssDir = path.join(packageRoot, 'src', 'css');
 const distCssDir = path.join(distDir, 'css');
 
@@ -23,7 +23,7 @@ if (!fs.existsSync(distCssDir)) {
 // Run TypeScript compiler
 console.log('Building TypeScript...');
 try {
-  execSync(`tsc --project ${path.join(packageRoot, 'tsconfig.json')}`, {
+  execFileSync(path.join(packageRoot, 'node_modules', '.bin', 'tsc'), ['--project', path.join(packageRoot, 'tsconfig.json'), '--outDir', path.join(distDir, 'js')], {
     cwd: packageRoot,
     stdio: 'inherit'
   });

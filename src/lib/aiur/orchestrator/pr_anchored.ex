@@ -143,17 +143,40 @@ defmodule Aiur.Orchestrator.PrAnchored do
     cond do
       Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) ->
         Logger.info("#{source} PR-anchored dispatch skipped; already running/claimed: pr=#{issue.identifier}")
+        emit_pr_anchored_dispatch_refusal(issue, :already_running)
 
         state
 
       Slots.available_slots(state) <= 0 ->
         Logger.info("#{source} PR-anchored dispatch deferred; agent cap full: pr=#{issue.identifier}")
+        emit_pr_anchored_dispatch_refusal(issue, :agent_cap_full)
 
         state
 
       true ->
         admit_pr_anchored_unit(state, issue, source, event, attempt)
     end
+  end
+
+  defp emit_pr_anchored_dispatch_refusal(%Issue{} = issue, cause) do
+    {message, remedy} =
+      case cause do
+        :already_running ->
+          {"PR comment was not routed because its PR agent is already running or claimed", "send the comment to that agent's session or retry after it finishes"}
+
+        :agent_cap_full ->
+          {"PR comment was deferred because the agent capacity is full", "free an agent slot and retry the PR comment"}
+      end
+
+    Alerts.emit_custom(
+      "ticket.#{issue.identifier}.agent.attention.pr_anchored_dispatch_#{cause}",
+      "#{message} (PR ##{issue.identifier})",
+      issue: to_string(issue.identifier),
+      reason: "Trusted PR input was not routed (#{cause}). Remedy: #{remedy}.",
+      needs_attention: false,
+      severity: "info",
+      event_source: :system
+    )
   end
 
   # `maybe_choose_under_load/4` runs the choose-fun only when the admission gate

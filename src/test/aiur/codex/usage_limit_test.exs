@@ -65,6 +65,10 @@ defmodule Aiur.Codex.UsageLimitTest do
     assert pause.reset_at == @reset_at
     refute_received {:agent_message, :turn_ended_with_error}
 
+    # Replay the runner's first observation on the same clock as the session.
+    # A second worker reporting this limit before its reset must not arm backoff.
+    TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, nil, Map.put(pause, :backend, "codex"), now: @observed_at)
+
     # 2. The paused turn's own failed completion arrives late, inside the
     # resumed turn. It belongs to the first pause and must not pause again.
     assert {:ok, _session} = CodexAgent.run_turn(session, "resume", issue, on_message: on_message)
@@ -87,8 +91,14 @@ defmodule Aiur.Codex.UsageLimitTest do
     assert elapsed >= @turn_timeout_ms and elapsed < @turn_timeout_ms + 2_000
 
     # The runner's pause boundary records the limit with a real deadline.
-    TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, nil, Map.put(pause, :backend, "codex"))
-    assert get_in(ModelAvailability.load(), ["backends", "codex", "reset_at"]) == @reset_at
+    repeated_at = DateTime.add(@observed_at, 60)
+    TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, nil, Map.put(pause, :backend, "codex"), now: repeated_at)
+    ledger = get_in(ModelAvailability.load(), ["backends", "codex"])
+    assert ledger["reset_at"] == @reset_at
+    assert ledger["observed_at"] == DateTime.to_iso8601(repeated_at)
+    assert ledger["limited_observed_at"] == DateTime.to_iso8601(repeated_at)
+    assert ledger["limit_streak"] == 1
+    refute Map.has_key?(ledger, "backoff_until")
     # Availability is read against the incident's clock, not the test run's: the
     # backend is held until the recorded reset and is available again after it.
     {:ok, recorded_reset, 0} = DateTime.from_iso8601(@reset_at)
