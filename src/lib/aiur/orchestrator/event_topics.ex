@@ -3,7 +3,7 @@ defmodule Aiur.Orchestrator.EventTopics do
   Parses and classifies orchestrator event bus topics.
   """
 
-  alias Aiur.Orchestrator.{CiLifecycle, CommentWake, PushRouting, State}
+  alias Aiur.Orchestrator.{CiLifecycle, CommentWake, Lifecycle, PushRouting, State}
 
   @spec route(State.t(), map()) :: State.t()
   def route(%State{} = state, %{topic: topic} = event) when is_binary(topic) do
@@ -27,6 +27,13 @@ defmodule Aiur.Orchestrator.EventTopics do
 
   defp route_classified(state, {:pause_request, identifier}, event),
     do: PushRouting.maybe_pause_on_request(state, identifier, event)
+
+  # Answering a blocking Command releases the dispatch gate in DecisionStore.
+  # Wake the normal poll so it refreshes that gate and reclaims a worker that
+  # reconciliation stopped while the Command was open. The dispatch poll still
+  # applies tracker, capacity, and other open-Command guards.
+  defp route_classified(state, {:decision_answered, _identifier}, _event),
+    do: Lifecycle.wake_tick(state)
 
   defp route_classified(state, {:agent_unblocked, blocker_identifier}, %{topic: topic} = event) do
     cond do
@@ -164,9 +171,18 @@ defmodule Aiur.Orchestrator.EventTopics do
          :nomatch <- tag_topic(:ci_failed, parse_ci_failed_topic(topic)),
          :nomatch <- tag_topic(:ci_passed, parse_ci_passed_topic(topic)),
          :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
+         :nomatch <- tag_topic(:decision_answered, parse_decision_answered_topic(topic)),
          :nomatch <- tag_topic(:agent_unblocked, parse_agent_unblocked_topic(topic)),
          :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
       tag_topic(:system_branch_push, parse_system_branch_push_topic(topic))
+    end
+  end
+
+  @spec parse_decision_answered_topic(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_decision_answered_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.agent\.decision\.answered\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
     end
   end
 

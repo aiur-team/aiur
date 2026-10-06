@@ -3,7 +3,7 @@ defmodule Aiur.Tracker do
   Adapter boundary for issue tracker reads and writes.
   """
 
-  alias Aiur.Config
+  alias Aiur.{Config, TestTicketScope}
 
   @callback fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
@@ -14,6 +14,7 @@ defmodule Aiur.Tracker do
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   @callback fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   @callback fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  @callback fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   @callback fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) ::
               {:ok, [map()]} | {:error, term()}
   @callback fetch_open_pull_request_for_branch(String.t() | integer()) ::
@@ -32,22 +33,22 @@ defmodule Aiur.Tracker do
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues do
-    adapter().fetch_candidate_issues()
+    adapter().fetch_candidate_issues() |> TestTicketScope.filter_result()
   end
 
   @spec fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states) do
-    adapter().fetch_issues_by_states(states)
+    adapter().fetch_issues_by_states(states) |> TestTicketScope.filter_result()
   end
 
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states, opts) do
-    adapter().fetch_issues_by_states(states, opts)
+    adapter().fetch_issues_by_states(states, opts) |> TestTicketScope.filter_result()
   end
 
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids) do
-    adapter().fetch_issue_states_by_ids(issue_ids)
+    adapter().fetch_issue_states_by_ids(issue_ids) |> TestTicketScope.filter_result()
   end
 
   @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
@@ -58,9 +59,10 @@ defmodule Aiur.Tracker do
     if Code.ensure_loaded?(tracker_adapter) and
          function_exported?(tracker_adapter, :fetch_issue_states_by_ids_conditional, 2) do
       dispatch_fetch_issue_states_by_ids_conditional(tracker_adapter, issue_ids, cache)
+      |> TestTicketScope.filter_result()
     else
       with {:ok, issues} <- tracker_adapter.fetch_issue_states_by_ids(issue_ids),
-           do: {:ok, issues, cache}
+           do: TestTicketScope.filter_result({:ok, issues, cache})
     end
   end
 
@@ -122,6 +124,11 @@ defmodule Aiur.Tracker do
   @spec fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number) do
     adapter().fetch_classified_pr_review_comments(pr_number)
+  end
+
+  @spec fetch_classified_pr_reviews(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_classified_pr_reviews(pr_number) do
+    adapter().fetch_classified_pr_reviews(pr_number)
   end
 
   @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer()) ::

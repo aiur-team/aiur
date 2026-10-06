@@ -1460,8 +1460,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp rewake_ci_wait_entry(state, issue, running_entry) do
     cond do
-      not ci_wait_state?(issue.state) ->
-        state
+      not ci_wait_state?(effective_ci_state(issue)) ->
+        resolve_departed_ci_wait(state, issue, running_entry)
 
       Issue.paused?(issue) ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
@@ -1472,6 +1472,42 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       true ->
         transition_ci_wait_fallback(state, issue)
     end
+  end
+
+  # The ticket left `ci-wait` while its agent is still parked with
+  # `paused_reason: :ci_wait`, and this timer is the last one armed for it:
+  # `handle_ci_wait_rewake/4` has already dropped the rewake from the map, and
+  # the CI poll only reads tickets in `ci-wait`/`human-review`
+  # (`@ci_poll_states`), so no CI verdict will ever be produced for this ticket
+  # again. Returning `state` here therefore strands the agent paused
+  # "(CI waiting)" forever on a pull request whose checks are green — the
+  # aiur-team/khala stall where #138 and #146 sat parked with
+  # `pause_reason=ci_wait` while their tracker label had already moved to
+  # `agent:rework`.
+  #
+  # Hand the ticket back to the ordinary reconcile for the state it is actually
+  # in. An active state resumes the parked agent (Reconciler's `:ci_wait` pause
+  # branch); anything else — operator-paused, routed away, `human-review`
+  # (which the CI poll still covers), terminal — only refreshes the entry,
+  # exactly as before.
+  defp resolve_departed_ci_wait(state, issue, running_entry) do
+    issue = effective_issue_state(issue)
+
+    if resumable_departed_ci_wait?(issue, running_entry) do
+      Reconciler.maybe_reactivate_or_refresh(state, issue)
+    else
+      Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+    end
+  end
+
+  # Scoped to a *paused* entry: that is the stranded shape, and it is the one
+  # `Reconciler.maybe_reactivate_or_refresh/2` resumes through its `:ci_wait`
+  # pause branch. A deactivated entry keeps the previous behaviour.
+  defp resumable_departed_ci_wait?(%Issue{} = issue, running_entry) do
+    get_in(running_entry, [:control, :status]) == :paused and
+      not Issue.paused?(issue) and
+      DispatchPolicy.issue_routable_to_worker?(issue) and
+      DispatchPolicy.active_issue_state?(issue.state, DispatchPolicy.active_state_set())
   end
 
   defp transition_ci_wait_fallback(state, issue) do

@@ -156,6 +156,11 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       when is_binary(issue_identifier),
       do: queue_api_call(server, {:claim_next_operator_queue_item, issue_identifier})
 
+  @spec claim_operator_response(GenServer.server(), String.t(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_operator_response(server, identifier, command) when is_binary(command) and command != "" do
+    queue_api_call(server, {:claim_operator_response, identifier, command})
+  end
+
   @spec mark_queue_item_consumed(GenServer.server(), integer()) :: :ok | {:error, term()}
   def mark_queue_item_consumed(server, item_id) when is_integer(item_id),
     do: queue_api_call(server, {:mark_queue_item_consumed, item_id})
@@ -425,6 +430,20 @@ defmodule Aiur.Orchestrator.OperatorMessages do
       )
 
     queue_claim_reply(state, queue_store, item)
+  end
+
+  @spec claim_operator_response_call(State.t(), String.t(), String.t()) :: tuple()
+  def claim_operator_response_call(state, identifier, command) do
+    {store, item} =
+      AgentQueueStore.claim_next_deliverable_matching(state.queue_store, identifier, fn
+        %{category: :operator_message, body: %{text: text}} when is_binary(text) ->
+          List.first(String.split(String.trim(text), ~r/\s+/, parts: 2)) == command
+
+        _ ->
+          false
+      end)
+
+    queue_claim_reply(state, store, item)
   end
 
   @spec operator_message_status_call(State.t(), integer()) ::

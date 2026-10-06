@@ -74,7 +74,7 @@ The installed command is `aiur`. In a clone of the Aiur repo itself, use the loc
 
 The npm package installs the CLI, not the repo-local coding-agent skills. This skill is
 already available if you are reading it; for a different Executor agent, make
-`.claude/skills` (and the shared `.codex/skills` links) available from a source checkout or
+`.claude/skills` (and the shared `.codex/skills` and `.agents/skills` links) available from a source checkout or
 through that agent's supported skill-install mechanism.
 
 `iarc` is an operator alias for `aiur`; IAR and AYR are common spellings of the name.

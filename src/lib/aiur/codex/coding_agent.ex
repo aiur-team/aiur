@@ -5,6 +5,7 @@ defmodule Aiur.Codex.CodingAgent do
   @behaviour Aiur.AppServer.Adapter
 
   alias Aiur.AppServer.{Adapter, InterruptHandshake, Messages, ProviderTurnLedger, Rpc}
+  alias Aiur.AppServer.Rpc.StreamDiagnostics
 
   alias Aiur.Codex.{
     AccountGeneration,
@@ -14,6 +15,7 @@ defmodule Aiur.Codex.CodingAgent do
     Interrupts,
     OperatorDelivery,
     SessionLifecycle,
+    StartupFailure,
     TurnEvents,
     TurnLoop
   }
@@ -139,10 +141,47 @@ defmodule Aiur.Codex.CodingAgent do
          })}
       else
         {:error, reason} ->
-          AccountGeneration.process_stopped(lifecycle_session)
-          SessionLifecycle.cleanup_port(port, containment)
-          {:error, reason}
+          handle_startup_failure(port, reason, identifier, opts, lifecycle_session, containment)
       end
+    end
+  end
+
+  defp handle_startup_failure(port, reason, identifier, opts, lifecycle_session, containment) do
+    reason = recover_startup_exit(port, reason)
+    record_startup_exit(port, reason, identifier, opts)
+    StreamDiagnostics.clear(port)
+    AccountGeneration.process_stopped(lifecycle_session)
+    SessionLifecycle.cleanup_port(port, containment)
+    {:error, reason}
+  end
+
+  defp record_startup_exit(port, {:port_exit, status}, identifier, opts) do
+    StartupFailure.record(identifier, Keyword.get(opts, :attempt_id), status, StreamDiagnostics.recent_text(port))
+  end
+
+  defp record_startup_exit(_port, _reason, _identifier, _opts), do: :ok
+
+  defp recover_startup_exit(port, :port_closed) do
+    collect_startup_exit(port, System.monotonic_time(:millisecond) + 100, "")
+  end
+
+  defp recover_startup_exit(_port, reason), do: reason
+
+  defp collect_startup_exit(port, deadline, pending) do
+    receive do
+      {^port, {:data, {:eol, chunk}}} ->
+        StreamDiagnostics.record(port, pending <> to_string(chunk))
+        collect_startup_exit(port, deadline, "")
+
+      {^port, {:data, {:noeol, chunk}}} ->
+        next = String.slice(pending <> to_string(chunk), -1_000, 1_000)
+        collect_startup_exit(port, deadline, next)
+
+      {^port, {:exit_status, status}} ->
+        if pending != "", do: StreamDiagnostics.record(port, pending)
+        {:port_exit, status}
+    after
+      max(0, deadline - System.monotonic_time(:millisecond)) -> :port_closed
     end
   end
 

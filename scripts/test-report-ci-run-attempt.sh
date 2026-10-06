@@ -61,17 +61,45 @@ for job in "${jobs[@]}"; do
     exit 1
   fi
 
-  if [[ "$(grep -Fc '        if: ${{ github.run_attempt > 1 }}' <<<"$block")" -ne 1 ]]; then
+  disclose_step="$(
+    awk '
+      $0 == "      - name: Disclose rerun attempt" { inside = 1; print; next }
+      inside && /^      - name: / { inside = 0 }
+      inside { print }
+    ' <<<"$block"
+  )"
+
+  # Semantic, not literal (#docs-only CI). The disclosure must still be limited
+  # to reruns, but its `if:` may carry further, unrelated conditions -- the
+  # docs-only path gate ANDs one in. Pinning the whole line made this guard fail
+  # on a change that does not touch rerun disclosure at all, so assert only the
+  # predicate that keeps the step a *rerun* disclosure.
+  if ! grep -Eq '^        if: .*github\.run_attempt > 1' <<<"$disclose_step"; then
     echo "blocking CI job $job must skip rerun disclosure on the first attempt" >&2
     exit 1
   fi
 
-  grep -Fq '        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"' <<<"$block"
+  # Exact, and deliberately so: the reporter invocation and both of its
+  # arguments are the thing this guard exists to pin down.
+  grep -Fq '        run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"' <<<"$disclose_step"
 
-  checkout_line="$(grep -n '      - name: Checkout' <<<"$block" | head -1 | cut -d: -f1)"
-  report_line="$(grep -n '      - name: Disclose rerun attempt' <<<"$block" | cut -d: -f1)"
+  # Disclosure must be the first step after checkout. Compare step positions,
+  # not line offsets: the old `checkout_line + 2` arithmetic encoded the number
+  # of lines in the checkout step, so it broke the moment that step grew an
+  # `if:` line.
+  mapfile -t step_names < <(sed -n 's/^      - name: //p' <<<"$block")
+  checkout_index=-1
+  disclose_index=-1
+  for index in "${!step_names[@]}"; do
+    if [[ "${step_names[$index]}" == "Checkout" && "$checkout_index" -lt 0 ]]; then
+      checkout_index="$index"
+    fi
+    if [[ "${step_names[$index]}" == "Disclose rerun attempt" ]]; then
+      disclose_index="$index"
+    fi
+  done
 
-  if [[ "$report_line" -ne $((checkout_line + 2)) ]]; then
+  if [[ "$checkout_index" -lt 0 || "$disclose_index" -ne $((checkout_index + 1)) ]]; then
     echo "blocking CI job $job must disclose reruns immediately after checkout" >&2
     exit 1
   fi

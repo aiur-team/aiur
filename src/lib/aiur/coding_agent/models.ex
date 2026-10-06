@@ -84,9 +84,20 @@ defmodule Aiur.CodingAgent.Models do
     case parse(model) do
       {:ok, %{tier: tier}} when is_binary(tier) -> tier
       {:ok, %{prefix: prefix}} -> prefix
-      :error -> slug_family(model)
+      :error -> claude_family(model) || slug_family(model)
     end
   end
+
+  # Anthropic ids put the family before the version (`claude-opus-5-5`,
+  # `opus-5-5`), which the generic grammar cannot parse.
+  defp claude_family(model) when is_binary(model) do
+    case Regex.named_captures(@claude_family, model) do
+      %{"family" => family} -> family
+      nil -> nil
+    end
+  end
+
+  defp claude_family(_model), do: nil
 
   @doc """
   The vendor namespace of an aggregator slug (`anthropic` for

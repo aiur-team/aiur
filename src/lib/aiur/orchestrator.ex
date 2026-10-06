@@ -617,6 +617,9 @@ defmodule Aiur.Orchestrator do
   def claim_next_operator_queue_item(server, identifier),
     do: OM.claim_next_operator_queue_item(server, identifier)
 
+  @spec claim_operator_response(GenServer.server(), String.t(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_operator_response(server, identifier, command), do: OM.claim_operator_response(server, identifier, command)
+
   @spec mark_queue_item_consumed(GenServer.server(), integer()) :: :ok | {:error, term()}
   def mark_queue_item_consumed(server, item_id),
     do: OM.mark_queue_item_consumed(server, item_id)
@@ -883,6 +886,10 @@ defmodule Aiur.Orchestrator do
   def handle_call({:claim_next_operator_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
       do: OM.claim_next_operator_queue_item_call(state, issue_identifier)
+
+  def handle_call({:claim_operator_response, identifier, command}, _from, state)
+      when is_binary(identifier) and is_binary(command) and command != "",
+      do: OM.claim_operator_response_call(state, identifier, command)
 
   def handle_call({:mark_queue_item_consumed, item_id}, _from, state)
       when is_integer(item_id),

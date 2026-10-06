@@ -8,6 +8,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
           on_message: (map() -> :ok),
           on_safe_checkpoint: fun(),
           on_operator_message: fun(),
+          on_operator_response: fun(),
           live_opts: keyword()
         }
 
@@ -48,6 +49,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
           Aiur.DecisionStore,
           live_opts
         ),
+      on_operator_response: CheckpointDelivery.operator_response_handler(issue, orchestrator, live_opts),
       on_operator_message:
         CheckpointDelivery.operator_immediate_handler(
           issue,

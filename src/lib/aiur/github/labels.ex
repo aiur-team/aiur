@@ -95,8 +95,8 @@ defmodule Aiur.GitHub.Labels do
 
   def marker_suffix?(_suffix), do: false
 
-  @spec model_labels([String.t()]) :: [String.t()]
-  def model_labels(backends), do: CodingAgent.override_labels(backends)
+  @spec model_labels([String.t()], (String.t() -> [String.t()])) :: [String.t()]
+  def model_labels(backends, ids_for \\ &CodingAgent.models/1), do: CodingAgent.override_labels(backends, ids_for)
 
   # The `model:remote` flag (force remote-control on at launch) only
   # makes sense when the claude backend is chosen; it pairs with a

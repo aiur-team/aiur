@@ -29,9 +29,11 @@ defmodule Aiur.BuildOrder.GraphProjection.Snapshot do
           authority_epoch: authority_epoch(),
           generation: pos_integer() | :unknown,
           data: data(),
-          health: ProviderHealth.t()
+          health: ProviderHealth.t(),
+          membership_health: ProviderHealth.t() | nil,
+          status_health: ProviderHealth.t() | nil
         }
 
   @enforce_keys [:scope, :repository, :generation, :health]
-  defstruct [:scope, :repository, :generation, :data, :health, authority_epoch: :unknown]
+  defstruct [:scope, :repository, :generation, :data, :health, :membership_health, :status_health, authority_epoch: :unknown]
 end

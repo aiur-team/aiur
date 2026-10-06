@@ -232,11 +232,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:windows, meter_windows(assigns.card))
 
     ~H"""
-    <div class="rs-model rs-provider-row">
+    <div class="rs-model rs-provider-row" data-provider={@card.provider}>
       <div class="rs-head">
         <%!-- One logo per row, on the far left, so every row starts with the same landmark. Decorative: the name beside it already identifies the provider. --%>
         <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
         <span class="rs-name">{@card.provider_label}</span>
+        <span :if={get_in(@card, [:identity, :state]) == :unverified} class="rs-limit-meta">Account unverified</span>
+        <span :if={get_in(@card, [:health, :age_label])} class="rs-limit-meta">{@card.health.age_label}</span>
       </div>
       <div class="rs-provider-body">
         <div class="rs-limits">
@@ -248,11 +250,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           </div>
           <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
             <span class="rs-limit-label">Limits</span>
-            <div class="rs-meter"><i style="width:0%"></i></div>
+            <div class="rs-meter" aria-label="Usage not observed"></div>
+            <span :if={@card.provider == :muse} class="rs-limit-meta">Not observed</span>
           </div>
           <div :for={window <- @windows} class="rs-limit">
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
-            <div class="rs-meter"><i class={meter_class(meter_percent(window), 80, 90)} style={"width:#{meter_percent(window)}%"}></i></div>
+            <div class="rs-meter"><i class={meter_class(meter_percent(window), 80, 90)} style={"width:#{min(max(meter_percent(window), 0), 100)}%"}></i></div>
             <span class="rs-limit-meta rs-limit-meta-wide">{model_window_meta(window, @now)}</span>
             <span class="rs-limit-meta rs-limit-meta-compact">{model_window_compact_meta(window, @now)}</span>
           </div>
@@ -730,6 +733,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp window_meta(%{kind: :credit, credits: %{status: status}} = _window, _now) do
     to_string(status) <> " balance"
   end
+
+  defp window_meta(%{used_percent: percent, meter: %{kind: :exact}} = window, now) when is_number(percent),
+    do: "#{percent}% · #{reset_text(window.resets_at, now)}"
 
   defp window_meta(%{meter: %{kind: :exact, now: percent}} = window, now), do: "#{percent}% · #{reset_text(window.resets_at, now)}"
   defp window_meta(window, now), do: "#{window.coverage_label} · #{reset_text(window.resets_at, now)}"
