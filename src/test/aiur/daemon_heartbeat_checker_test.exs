@@ -44,6 +44,26 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
     refute opts[:message] =~ DateTime.to_iso8601(heartbeat_at)
   end
 
+  test "an older unmatched start does not override a later clean shutdown" do
+    now = DateTime.utc_now()
+    heartbeat_at = DateTime.add(now, -14_400, :second)
+    stopped_at = DateTime.add(now, -7_200, :second)
+    path = heartbeat_file(heartbeat_at)
+
+    events = [
+      %{kind: :start, run_id: "crashed-run", at: DateTime.add(heartbeat_at, -5, :second)},
+      %{kind: :start, run_id: "clean-run", at: DateTime.add(stopped_at, -3_600, :second)},
+      %{kind: :stop, run_id: "clean-run", at: stopped_at}
+    ]
+
+    parent = self()
+    assert :ok = check(path, events, capture_alert(parent))
+
+    assert_receive {:alert, "system.daemon.gap", opts}
+    assert opts[:reason] == "clean_shutdown"
+    assert opts[:message] =~ DateTime.to_iso8601(stopped_at)
+  end
+
   test "a stale heartbeat without lifecycle evidence does not call a first boot a daemon gap" do
     path = heartbeat_file(DateTime.add(DateTime.utc_now(), -7_200, :second))
 
