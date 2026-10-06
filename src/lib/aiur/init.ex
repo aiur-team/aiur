@@ -231,13 +231,17 @@ defmodule Aiur.Init do
           :ok
 
         :github_token ->
-          if github_token_present?(deps) do
-            provision_github_with_token(io, deps, tracker, agents, pair)
-          else
-            token_setup_instructions(io)
-            :ok
-          end
+          provision_github_with_optional_token(io, deps, tracker, agents, pair)
       end
+    end
+  end
+
+  defp provision_github_with_optional_token(io, deps, tracker, agents, pair) do
+    if github_token_present?(deps) do
+      provision_github_with_token(io, deps, tracker, agents, pair)
+    else
+      token_setup_instructions(io)
+      :ok
     end
   end
 
