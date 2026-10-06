@@ -200,8 +200,6 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     # This is the successful turn result produced by the interrupt-error
     # classifier. Once the turn is retired, the safe checkpoint must leave the
     # interrupt-requested item pending for the production boundary drain.
-    assert {:ok, :turn_interrupted_for_operator_message} = interrupt_result
-
     retired_state = %{active_turn_state | outstanding_turns: 0}
 
     assert OperatorDelivery.maybe_process_safe_checkpoint(
@@ -260,7 +258,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
 
     assert Process.get(call_key) == 2
     Process.delete(call_key)
-    assert interrupt_result == {:ok, :turn_interrupted_for_operator_message}
+    assert {:ok, :turn_interrupted_for_operator_message} = interrupt_result
 
     delivered_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), retired_state, %{kind: :notification})
     after_second_checkpoint = OperatorDelivery.maybe_process_safe_checkpoint(session(), delivered_state, %{kind: :notification})
