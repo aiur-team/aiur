@@ -28,7 +28,8 @@ defmodule Aiur.AllowedContributors.Ledger do
           seen: %{optional(String.t()) => integer()},
           rate: %{optional(pos_integer()) => [integer()]},
           sha: String.t() | nil,
-          entries: [String.t()]
+          entries: [String.t()],
+          allowlist_source: String.t() | nil
         }
 
   @doc "Milliseconds a seen issue number is remembered; also intake's age horizon."
@@ -43,6 +44,7 @@ defmodule Aiur.AllowedContributors.Ledger do
           seen: Map.filter(seen, fn {key, at} -> is_binary(key) and is_integer(at) end),
           rate: decode_rate(data["rate"]),
           sha: string_or_nil(data["sha"]),
+          allowlist_source: string_or_nil(data["allowlist_source"]) || legacy_source(data["sha"]),
           entries: Enum.filter(List.wrap(data["entries"]), &is_binary/1)
         }
 
@@ -71,8 +73,8 @@ defmodule Aiur.AllowedContributors.Ledger do
   @spec put_rate(t(), %{optional(pos_integer()) => [integer()]}) :: t()
   def put_rate(ledger, rate), do: %{ledger | rate: rate}
 
-  @spec put_allowlist(t(), String.t() | nil, [String.t()]) :: t()
-  def put_allowlist(ledger, sha, entries), do: %{ledger | sha: sha, entries: entries}
+  @spec put_allowlist(t(), String.t() | nil, [String.t()], String.t() | nil) :: t()
+  def put_allowlist(ledger, sha, entries, source), do: %{ledger | sha: sha, entries: entries, allowlist_source: source}
 
   @spec save(t(), Path.t()) :: :ok | {:error, term()}
   def save(ledger, path) do
@@ -82,6 +84,7 @@ defmodule Aiur.AllowedContributors.Ledger do
       "seen" => ledger.seen,
       "rate" => Map.new(ledger.rate, fn {author, stamps} -> {Integer.to_string(author), stamps} end),
       "sha" => ledger.sha,
+      "allowlist_source" => ledger.allowlist_source,
       "entries" => ledger.entries
     })
   rescue
@@ -90,7 +93,7 @@ defmodule Aiur.AllowedContributors.Ledger do
       {:error, error}
   end
 
-  defp empty, do: %{seen: %{}, rate: %{}, sha: nil, entries: []}
+  defp empty, do: %{seen: %{}, rate: %{}, sha: nil, entries: [], allowlist_source: nil}
 
   defp decode_rate(rate) when is_map(rate) do
     for {author, stamps} <- rate,
@@ -102,6 +105,9 @@ defmodule Aiur.AllowedContributors.Ledger do
   end
 
   defp decode_rate(_rate), do: %{}
+
+  defp legacy_source(sha) when is_binary(sha), do: "file@#{sha}"
+  defp legacy_source(_sha), do: nil
 
   defp string_or_nil(value) when is_binary(value), do: value
   defp string_or_nil(_value), do: nil

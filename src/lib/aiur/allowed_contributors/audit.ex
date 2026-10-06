@@ -5,7 +5,7 @@ defmodule Aiur.AllowedContributors.Audit do
   One ndjson record per decision — accept, reject, or deferred — naming the
   issue, the numeric author id, the reason, the allow-list commit SHA the
   decision was made against (`nil` when no allow-list was held), and which
-  producer saw it. The same fields go to the daemon log, so the decision is
+  producer saw it. `allowlist_source` distinguishes config from `file@<sha>`. The same fields go to the daemon log, so the decision is
   greppable even when the file is not at hand. Logins are recorded only as a
   display aid; nothing reads them back as identity.
   """
@@ -16,8 +16,8 @@ defmodule Aiur.AllowedContributors.Audit do
 
   @type decision :: :accept | :reject | :deferred
 
-  @spec record(Path.t(), decision(), map(), term(), String.t() | nil, String.t()) :: :ok
-  def record(path, decision, candidate, reason, sha, at) do
+  @spec record(Path.t(), decision(), map(), term(), String.t() | nil, String.t(), String.t() | nil) :: :ok
+  def record(path, decision, candidate, reason, sha, at, allowlist_source) do
     record = %{
       "at" => at,
       "decision" => Atom.to_string(decision),
@@ -26,13 +26,14 @@ defmodule Aiur.AllowedContributors.Audit do
       "author_login" => candidate.author_login,
       "reason" => format_reason(reason),
       "allowlist_sha" => sha,
+      "allowlist_source" => allowlist_source,
       "source" => Atom.to_string(candidate.source)
     }
 
     Logger.info(
       "allowed_contributors decision=#{decision} issue=#{inspect(candidate.number)} " <>
         "author_id=#{inspect(candidate.author_id)} reason=#{record["reason"]} " <>
-        "allowlist_sha=#{inspect(sha)} source=#{candidate.source}"
+        "allowlist_sha=#{inspect(sha)} allowlist_source=#{inspect(allowlist_source)} source=#{candidate.source}"
     )
 
     append(path, record)

@@ -26,6 +26,7 @@ defmodule Aiur.AllowedContributors.State do
     :audit_path,
     :ledger,
     :token_fun,
+    :config_fun,
     :request_fun,
     :publish_fun,
     :alert_fun,
@@ -49,6 +50,7 @@ defmodule Aiur.AllowedContributors.State do
           rate_limit: pos_integer(),
           refresh_ms: pos_integer() | :infinity,
           last_on_demand_refresh: integer() | nil,
+          config_fun: (-> map() | nil),
           token_fun: (-> String.t() | nil),
           request_fun: (map() -> term()),
           publish_fun: (String.t(), map(), keyword() -> term()),
@@ -70,6 +72,7 @@ defmodule Aiur.AllowedContributors.State do
       ledger: Ledger.load(ledger_path),
       rate_limit: Keyword.get(opts, :rate_limit, @rate_limit),
       refresh_ms: Keyword.get(opts, :refresh_ms, @refresh_ms),
+      config_fun: Keyword.get(opts, :config_fun, &allowed_contributors/0),
       token_fun: Keyword.get(opts, :token_fun, &Config.token/0),
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       publish_fun: Keyword.get(opts, :publish_fun, &Publisher.publish/3),
@@ -78,6 +81,8 @@ defmodule Aiur.AllowedContributors.State do
       aiur_logins_fun: Keyword.get(opts, :aiur_logins_fun, &aiur_logins/0)
     }
   end
+
+  defp allowed_contributors, do: Aiur.Config.settings!().tracker.github.allowed_contributors
 
   defp aiur_logins do
     [Config.bot_account(), Config.daemon_account()]
