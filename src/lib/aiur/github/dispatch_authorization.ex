@@ -15,6 +15,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # caches stay in `:persistent_term` (#2298 rework B4).
   @timeline_table :aiur_github_dispatch_authorization_timelines
   @max_cache_entries 1_000
+  @deferral_alert_threshold 5
 
   # Timeline page size in BYTES is driven by content Aiur does not control: each
   # event embeds the full actor, label, and often issue objects — ~2.5–3.5 KiB
@@ -142,6 +143,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     )
 
     authorization = if authorized?, do: :authorized, else: :denied
+    clear_deferrals(issue)
     %{issue | dispatch_authorized?: authorized?, dispatch_authorization: authorization}
   end
 
@@ -165,6 +167,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     )
 
     maybe_alert_deferral(issue, cause, reason)
+    note_deferral(issue, cause, reason)
 
     %{issue | dispatch_authorized?: false, dispatch_authorization: :deferred}
   end
@@ -327,8 +330,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     first_etag = response_etag(response, nil)
 
     case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-      nil -> {:ok, events ++ page, first_etag, true}
-      next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page, first_etag)
+      nil -> {:ok, events ++ prune_events(page), first_etag, true}
+      next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ prune_events(page), first_etag)
     end
   end
 
@@ -338,8 +341,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     case request_fun.(timeline_request(url, token, nil)) do
       {:ok, %{status: 200, body: page} = response} when is_list(page) ->
         case Transport.parse_next_page_url(Map.get(response, :headers, [])) do
-          nil -> {:ok, events ++ page, first_etag, false}
-          next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page, first_etag)
+          nil -> {:ok, events ++ prune_events(page), first_etag, false}
+          next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ prune_events(page), first_etag)
         end
 
       {:ok, %{status: 304}} ->
@@ -597,13 +600,14 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     updated = %{
       fingerprints: Map.put(cache.fingerprints, fingerprint, event_id),
       decisions: Map.put(cache.decisions, {id, label, event_id}, decision),
-      alerted: cache.alerted
+      alerted: cache.alerted,
+      deferrals: cache.deferrals
     }
 
     :persistent_term.put(
       @cache_key,
       if(map_size(updated.decisions) > @max_cache_entries,
-        do: %{fingerprints: %{}, decisions: %{}, alerted: %{}},
+        do: %{fingerprints: %{}, decisions: %{}, alerted: %{}, deferrals: cache.deferrals},
         else: updated
       )
     )
@@ -633,6 +637,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp deny_ambiguous(issue, reason) do
     log_decision(:deny, issue, "ambiguous", nil, nil, reason)
     maybe_alert_ambiguity(issue, reason)
+    clear_deferrals(issue)
     %{issue | dispatch_authorized?: false, dispatch_authorization: :denied}
   end
 
@@ -657,8 +662,76 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   defp maybe_alert_once(issue, reason, emit), do: emit.(issue, reason)
 
   defp cache do
-    :persistent_term.get(@cache_key, %{fingerprints: %{}, decisions: %{}, alerted: %{}})
+    :persistent_term.get(@cache_key, %{fingerprints: %{}, decisions: %{}, alerted: %{}, deferrals: %{}})
   end
+
+  defp prune_events(events) do
+    Enum.map(events, fn
+      event when is_map(event) ->
+        Map.take(event, ["id", "event", "type", "created_at", "label", "actor"])
+
+      other ->
+        other
+    end)
+  end
+
+  defp note_deferral(%Issue{id: id} = issue, cause, reason) when is_binary(id) do
+    cache = cache()
+    existing = Map.get(cache.deferrals, id, %{count: 0, alerted?: false})
+    count = existing.count + 1
+    should_alert? = cause != "transport_limit" and count >= @deferral_alert_threshold and not existing.alerted?
+    deferral = %{count: count, alerted?: existing.alerted? or should_alert?}
+    deferrals = cache.deferrals |> bounded_deferral_cache() |> Map.put(id, deferral)
+    :persistent_term.put(@cache_key, %{cache | deferrals: deferrals})
+    if should_alert?, do: alert_persistent_deferral(issue, reason)
+  end
+
+  defp note_deferral(_issue, _cause, _reason), do: :ok
+
+  defp clear_deferrals(%Issue{id: id} = issue) when is_binary(id) do
+    cache = cache()
+
+    case Map.pop(cache.deferrals, id) do
+      {nil, _deferrals} ->
+        :ok
+
+      {%{alerted?: true}, deferrals} ->
+        :persistent_term.put(@cache_key, %{cache | deferrals: deferrals})
+        alert_deferral_resolved(issue)
+
+      {_streak, deferrals} ->
+        :persistent_term.put(@cache_key, %{cache | deferrals: deferrals})
+    end
+  end
+
+  defp clear_deferrals(_issue), do: :ok
+
+  defp bounded_deferral_cache(deferrals) when map_size(deferrals) >= @max_cache_entries, do: %{}
+  defp bounded_deferral_cache(deferrals), do: deferrals
+
+  defp alert_persistent_deferral(issue, reason) do
+    Alerts.emit_custom(
+      deferral_topic(issue.id),
+      "Dispatch remains deferred for issue #{issue.identifier || issue.id} after #{@deferral_alert_threshold} consecutive checks (#{inspect(reason)}).",
+      issue: issue,
+      reason: "GitHub dispatch authorization has been deferred for #{@deferral_alert_threshold} consecutive checks: #{inspect(reason)}",
+      needs_attention: true,
+      severity: "warning"
+    )
+  end
+
+  defp alert_deferral_resolved(%Issue{id: id} = issue) do
+    Alerts.emit_custom(
+      deferral_topic(id) <> ".resolved",
+      "Dispatch authorization checks have recovered for issue #{issue.identifier || id}.",
+      issue: issue,
+      reason: "GitHub dispatch authorization is no longer deferred",
+      needs_attention: false,
+      severity: "info"
+    )
+  end
+
+  defp deferral_topic(id), do: "ticket.#{id}.agent.attention.dispatch_authorization.deferred"
 
   defp bounded_alert_cache(alerted) when map_size(alerted) >= @max_cache_entries, do: %{}
   defp bounded_alert_cache(alerted), do: alerted
