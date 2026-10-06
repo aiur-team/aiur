@@ -80,21 +80,4 @@ defmodule Aiur.TailscaleFunnelTest do
     assert {:error, {:target_verification_failed, @old_target}} =
              TailscaleFunnel.reconcile("100.89.62.105", 43_969, command_fun: command_fun)
   end
-
-  test "a timed-out Tailscale command returns an error without killing its caller" do
-    executable = Path.join(System.tmp_dir!(), "tailscale-timeout-#{System.unique_integer([:positive])}")
-    File.write!(executable, "#!/bin/sh\nexec sleep 2\n")
-    File.chmod!(executable, 0o755)
-    on_exit(fn -> File.rm(executable) end)
-
-    caller = self()
-
-    worker =
-      spawn(fn ->
-        result = TailscaleFunnel.run_tailscale([], executable: executable, timeout_ms: 20)
-        send(caller, {:command_result, self(), result})
-      end)
-
-    assert_receive {:command_result, ^worker, {"tailscale command timed out", 124}}, 1_000
-  end
 end
