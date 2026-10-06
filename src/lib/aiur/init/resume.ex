@@ -172,7 +172,8 @@ defmodule Aiur.Init.Resume do
   def append_section(io, deps, target, section, answer) do
     case deps.append_config.(target, section.to_yaml.(answer)) do
       {:ok, path} ->
-        io.puts.(["Added ", section.label, " to ", Format.dim(path)])
+        message = if section.opted_in?.(answer), do: ["Added ", section.label], else: ["Saved declined ", section.label]
+        io.puts.([message, " to ", Format.dim(path)])
         :ok
 
       {:error, reason} ->
