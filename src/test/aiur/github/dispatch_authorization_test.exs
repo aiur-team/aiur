@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.DispatchAuthorizationTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentPubSub, Issue}
+  alias Aiur.{AgentPubSub, AlertFeed, Issue}
   alias Aiur.GitHub.{DispatchAuthorization, ReadCache}
 
   setup do
@@ -874,13 +874,13 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     end
 
     assert authorize_with_events(issue(), events, ["trusted"], request_fun: request_fun).dispatch_authorized?
-    assert_receive {:page_request, 50, nil}
-    assert_receive {:page_request, 20, nil}
+    assert_receive {:page_request, 50, nil}, 1000
+    assert_receive {:page_request, 20, nil}, 1000
 
     next_issue = issue(updated_at: ~U[2026-01-02 00:00:00Z])
     assert authorize_with_events(next_issue, events, ["trusted"], request_fun: request_fun).dispatch_authorized?
-    assert_receive {:page_request, 50, nil}
-    assert_receive {:page_request, 20, ~s("page-20-v1")}
+    assert_receive {:page_request, 50, nil}, 1000
+    assert_receive {:page_request, 20, ~s("page-20-v1")}, 1000
   end
 
   test "prunes embedded source payloads before holding a timeline" do
@@ -911,8 +911,18 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     authorize_with_events(issue(), [], ["trusted"], request_fun: unavailable)
     authorize_with_events(issue_b, [], ["trusted"], request_fun: unavailable)
-    assert_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred", needs_attention: true}}
-    assert_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred", needs_attention: true}}
+
+    assert_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred", needs_attention: true, source_ticket_id: "42"}},
+                   1000
+
+    assert_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred", needs_attention: true, source_ticket_id: "43"}},
+                   1000
+
+    assert active_deferral_topics() ==
+             MapSet.new([
+               "ticket.42.agent.attention.dispatch_authorization.deferred",
+               "ticket.43.agent.attention.dispatch_authorization.deferred"
+             ])
 
     # A fetched timeline with missing label evidence is an ambiguous denial for
     # this active ticket; that definitive result closes only its own alert.
@@ -920,15 +930,30 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     denied = authorize_with_events(active, [], ["trusted"])
     refute denied.dispatch_authorized?
     assert denied.dispatch_authorization == :denied
-    assert_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred.resolved", needs_attention: false}}
+
+    assert_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred.resolved", needs_attention: false}},
+                   1000
+
     refute_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred.resolved"}}, 50
+    assert active_deferral_topics() == MapSet.new(["ticket.43.agent.attention.dispatch_authorization.deferred"])
 
     # Ticket 43 is independently cleared by verified label evidence.
     authorized =
       authorize_with_events(issue_b, [labeled_event(11, "agent:todo", "trusted", "2026-01-02T00:00:00Z")], ["trusted"])
 
     assert authorized.dispatch_authorized?
-    assert_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred.resolved", needs_attention: false}}
+
+    assert_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred.resolved", needs_attention: false}},
+                   1000
+
+    assert active_deferral_topics() == MapSet.new()
+  end
+
+  defp active_deferral_topics do
+    AlertFeed.list(needs_attention: true)
+    |> Enum.map(& &1["topic"])
+    |> Enum.filter(&(is_binary(&1) and String.contains?(&1, "dispatch_authorization.deferred")))
+    |> MapSet.new()
   end
 
   defp fat_timeline(count, padding_bytes) do
