@@ -62,8 +62,11 @@ try {
   // Every surface renders from one writable fixture process, so the documented
   // controls appear enabled rather than behind the read-only banner.
   for (const writable of [true]) {
-    const selectedSurfaces = surfaces;
-    const fixture = startFixture(writable);
+    const workedExample = process.argv.includes("--worked-build-order");
+    const selectedSurfaces = workedExample
+      ? [{ ...surfaces.find((surface) => surface.name === "build-orders"), name: "build-order-waves-lanes", clipHeight: 1800 }]
+      : surfaces;
+    const fixture = startFixture(writable, workedExample);
 
     try {
       await waitUntilReady(fixture);
@@ -123,7 +126,7 @@ try {
   await browser.close();
 }
 
-function startFixture(writable) {
+function startFixture(writable, workedExample) {
   const docsTmp = path.join(
     tmpdir(),
     `aiur-executor-control-center-docs-${process.pid}-${port}-${writable ? "writable" : "readonly"}`,
@@ -153,6 +156,7 @@ function startFixture(writable) {
         AIUR_DOCS_PORT: String(port),
         AIUR_DOCS_TMP: docsTmp,
         AIUR_DOCS_WRITABLE: String(writable),
+        AIUR_DOCS_WORKED_BUILD_ORDER: String(workedExample),
         AIUR_DASHBOARD_PASSWORD: "",
         AIUR_DASHBOARD_USERNAME: "",
         AIUR_SUPERVISOR_TOKEN: "",

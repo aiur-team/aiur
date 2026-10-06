@@ -535,7 +535,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
       root_node_id: "EXAMPLE_BUILD_ORDER_ROOT",
       plan_version: 1,
       icon: "cube",
-      workstreams: Enum.map(@build_order_lanes, &%{id: &1, title: String.capitalize(&1)}),
+      workstreams: Enum.map(build_order_lanes(), &%{id: &1, title: String.capitalize(&1)}),
       tickets: build_order_tickets()
     }
   end
@@ -567,9 +567,17 @@ defmodule Aiur.Docs.ControlCenterFixture do
       Map.new(build_order_plan(), fn {id, _title, _lane, _phase, _complexity, _depends_on} ->
         state =
           cond do
-            id in @build_order_completed -> "completed"
-            id in @build_order_cancelled -> "cancelled"
-            true -> "open"
+            System.get_env("AIUR_DOCS_WORKED_BUILD_ORDER") == "true" ->
+              if build_order_number(id) <= 408, do: "completed", else: "open"
+
+            id in @build_order_completed ->
+              "completed"
+
+            id in @build_order_cancelled ->
+              "cancelled"
+
+            true ->
+              "open"
           end
 
         {to_string(build_order_number(id)), %{"lifecycle" => state}}
@@ -578,7 +586,28 @@ defmodule Aiur.Docs.ControlCenterFixture do
     %{"state" => "in_progress", "members" => members}
   end
 
+  defp build_order_lanes do
+    if System.get_env("AIUR_DOCS_WORKED_BUILD_ORDER") == "true",
+      do: ~w(platform api web quality),
+      else: @build_order_lanes
+  end
+
   defp build_order_plan do
+    if System.get_env("AIUR_DOCS_WORKED_BUILD_ORDER") == "true",
+      do: worked_build_order_plan(),
+      else: overview_build_order_plan()
+  end
+
+  # Four independent chains: four members per wave, two waves completed.
+  defp worked_build_order_plan do
+    for phase <- 1..4, {lane, index} <- Enum.with_index(build_order_lanes()) do
+      number = 401 + (phase - 1) * 4 + index
+      dependencies = if phase == 1, do: [], else: ["EX-#{number - 4}"]
+      {"EX-#{number}", "Example #{lane} step #{phase}", lane, phase, 2, dependencies}
+    end
+  end
+
+  defp overview_build_order_plan do
     [
       {"EX-401", "Scaffold the example monorepo and toolchain", "platform", 1, 3, []},
       {"EX-402", "Add the continuous integration gate", "platform", 2, 2, ["EX-401"]},

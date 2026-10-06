@@ -66,7 +66,7 @@ This synthetic 16-member pack has four lanes and four waves, part way through ex
 
 | Where | What it tells you |
 | --- | --- |
-| Lane headers | Members and completion for each lane. Each lane has four members; the first two are completed. |
+| Lane headers | Members and completion for each lane. Each lane has four members; the first two are completed. “100% partial” covers only known work estimates, not all four tickets. |
 | Wave rows | How wide the front is at each depth. This pack has 4, 4, 4, then 4 members. |
 | Card badges | The tracker number and complexity for one member. |
 | Edges | Dependencies. Each member depends on the preceding wave's member in its lane. |
