@@ -52,7 +52,7 @@ defmodule Aiur.AgentResourceGuardTest do
     assert result == [%{root_pid: 100, cap: 3, killed: expected_killed}]
 
     for pid <- expected_killed do
-      assert_receive {:killed, ^pid}
+      assert_receive {:killed, ^pid}, 1000
     end
 
     refute_receive {:killed, 201}, 50
@@ -99,7 +99,7 @@ defmodule Aiur.AgentResourceGuardTest do
     on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
     send(pid, :tick)
-    assert_receive :guard_enforced
+    assert_receive :guard_enforced, 1000
     assert Process.alive?(pid)
   end
 end

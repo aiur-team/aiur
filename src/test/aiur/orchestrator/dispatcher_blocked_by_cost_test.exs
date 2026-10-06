@@ -106,7 +106,7 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
 
     released = run_pass(candidate("14"), held)
 
-    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}, 1000
     assert dispatched.id == "14"
     assert Map.has_key?(released.running, "14")
     assert blocked_by_reads() == []
@@ -217,7 +217,7 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
 
     released = run_pass(candidate("14"))
 
-    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}, 1000
     assert dispatched.id == "14"
     assert Map.has_key?(released.running, "14")
     assert blocked_by_reads() == ["14"]

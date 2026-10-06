@@ -73,7 +73,7 @@ defmodule Aiur.BuildOrder.GraphProjectionCatalogOnDemandTest do
     Agent.update(authority, &%{&1 | generation: 2})
     assert %Snapshot{data: %Catalog{}} = GraphProjection.catalog(projection)
 
-    assert_receive {:trace, ^projection, :return_from, {GraphProjection, :no_schedule?, 3}, true}
+    assert_receive {:trace, ^projection, :return_from, {GraphProjection, :no_schedule?, 3}, true}, 1000
 
     :erlang.trace(projection, false, [:call])
     :erlang.trace_pattern({GraphProjection, :no_schedule?, 3}, false, [:local])

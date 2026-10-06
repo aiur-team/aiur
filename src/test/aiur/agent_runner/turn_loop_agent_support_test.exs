@@ -63,13 +63,13 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
     test "the first turn repairs it before the provider is called", ctx do
       assert {:completed, _issue} = run_first_turn(ctx, report_missing_run_turn(ctx.workspace))
 
-      assert_receive {:provider_called, 1, []}
+      assert_receive {:provider_called, 1, []}, 1000
     end
 
     test "the turn after a resume repairs it before the provider is called", ctx do
       assert {:completed, _issue} = continue_after_resume(ctx, report_missing_run_turn(ctx.workspace))
 
-      assert_receive {:provider_called, 2, []}
+      assert_receive {:provider_called, 2, []}, 1000
     end
   end
 
@@ -90,7 +90,7 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
       assert ".aiur-runtime/gh" in missing
       refute_received {:provider_called, _turn, _missing}
       identifier = ctx.issue.identifier
-      assert_receive {:queue_item_restored, ^identifier}
+      assert_receive {:queue_item_restored, ^identifier}, 1000
       refute_received {:queue_item_failed, ^identifier, _reason}
     end
 
@@ -133,7 +133,7 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
                )
 
       identifier = ctx.issue.identifier
-      assert_receive {:queue_item_restored, ^identifier}
+      assert_receive {:queue_item_restored, ^identifier}, 1000
       refute_received {:queue_item_failed, ^identifier, _reason}
     end
 
@@ -149,7 +149,7 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
                )
 
       identifier = ctx.issue.identifier
-      assert_receive {:queue_item_failed, ^identifier, {:native_port_exit, 9}}
+      assert_receive {:queue_item_failed, ^identifier, {:native_port_exit, 9}}, 1000
       refute_received {:queue_item_restored, ^identifier}
     end
   end

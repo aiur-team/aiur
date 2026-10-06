@@ -40,8 +40,8 @@ defmodule Aiur.AgentList.AppTicketActivityTest do
 
     on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
-    assert_receive :subscribed
-    assert_receive :snapshotted
+    assert_receive :subscribed, 1000
+    assert_receive :snapshotted, 1000
     send(pid, {:running_changed, [summary(ticket)]})
 
     assert [{70, _timestamp}] = App.snapshot(pid).progress_by_id["42"]

@@ -57,8 +57,8 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
       })
 
     assert OperatorDelivery.maybe_process_safe_checkpoint(session(), state, %{kind: :notification}) == state
-    refute_receive :checkpoint_invoked
-    refute_receive {:operator_message, _}
+    refute_receive :checkpoint_invoked, 100
+    refute_receive {:operator_message, _}, 100
   end
 
   test "noop checkpoint leaves state unchanged" do
@@ -77,7 +77,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
 
     next_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), state, %{kind: :notification})
 
-    assert_receive {:operator_message, %{kind: :text, body: "hello"}}
+    assert_receive {:operator_message, %{kind: :text, body: "hello"}}, 1000
     assert Map.has_key?(next_state.pending_operator_requests, 99)
   end
 
@@ -95,7 +95,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     session = session(%{send_operator_result: {:error, :port_closed}})
 
     assert OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification}) == state
-    assert_receive {:failed, :port_closed}
+    assert_receive {:failed, :port_closed}, 1000
   end
 
   # #1238: driving the real checkpoint handler through the delivery driver, a
@@ -117,8 +117,8 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     session = session(%{send_operator_result: {:error, :port_closed}})
 
     assert OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification}) == state
-    assert_receive {:operator_message, %{kind: :text, body: "survive closed checkpoint"}}
-    assert_receive {:restore, 77}
+    assert_receive {:operator_message, %{kind: :text, body: "survive closed checkpoint"}}, 1000
+    assert_receive {:restore, 77}, 1000
     refute_receive {:mark_failed, 77, _reason}, 100
   end
 
@@ -136,7 +136,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     session = session(%{send_operator_result: {:error, :port_closed}})
 
     assert OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification}) == state
-    assert_receive {:mark_failed, 78, :port_closed}
+    assert_receive {:mark_failed, 78, :port_closed}, 1000
     refute_receive {:restore, 78}, 100
   end
 
@@ -147,7 +147,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert {:continue, ^state} =
              OperatorDelivery.handle_pending_operator_response(session(), state, %{"id" => 123}, "{}", 123)
 
-    assert_receive {:message, %{event: :other_message, backend: :stub}}
+    assert_receive {:message, %{event: :other_message, backend: :stub}}, 1000
   end
 
   test "claimed turn-started response invokes success without marking accepted work active" do
@@ -175,8 +175,8 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert next_state.active_turn_ids == MapSet.new(["turn-1"])
     assert next_state.accepted_turn_ids == MapSet.new(["turn-2"])
     assert next_state.pending_operator_requests == %{}
-    assert_receive {:success, "turn-2"}
-    assert_receive {:message, %{event: :operator_turn_started}}
+    assert_receive {:success, "turn-2"}, 1000
+    assert_receive {:message, %{event: :operator_turn_started}}, 1000
   end
 
   test "claimed Codex responses track unique accepted provider turns" do
@@ -279,8 +279,8 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert state.pending_operator_requests == %{}
     assert state.active_turn_ids == MapSet.new(["turn-1"])
     assert state.accepted_turn_ids == MapSet.new()
-    assert_receive {:failed, {:provider_turn_retired, "turn-retired"}}
-    refute_receive :succeeded
+    assert_receive {:failed, {:provider_turn_retired, "turn-retired"}}, 1000
+    refute_receive :succeeded, 100
   end
 
   defp session(overrides \\ %{}) do

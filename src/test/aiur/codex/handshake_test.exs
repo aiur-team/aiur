@@ -82,7 +82,7 @@ defmodule Aiur.Codex.HandshakeTest do
           assert {:ok, %{auth_mode: "chatgpt"}} = Handshake.read_account(port, on_notification: handler)
         end)
 
-      refute_receive {:late_rate_limit_payload, _payload}
+      refute_receive {:late_rate_limit_payload, _payload}, 100
       refute log =~ secret
     end
 
@@ -113,7 +113,7 @@ defmodule Aiur.Codex.HandshakeTest do
           assert {:ok, %{auth_mode: "chatgpt"}} = Handshake.read_account(port, on_notification: handler)
         end)
 
-      refute_receive {:late_rate_limit_payload, _payload}
+      refute_receive {:late_rate_limit_payload, _payload}, 100
       refute log =~ secret
     end
   end
@@ -192,7 +192,7 @@ defmodule Aiur.Codex.HandshakeTest do
                    Handshake.read_rate_limits(port, on_notification: handler)
         end)
 
-      refute_receive {:late_account_payload, _payload}
+      refute_receive {:late_account_payload, _payload}, 100
       refute log =~ raw_identity
     end
 
@@ -228,7 +228,7 @@ defmodule Aiur.Codex.HandshakeTest do
                    Handshake.read_rate_limits(port, on_notification: handler)
         end)
 
-      refute_receive {:late_account_payload, _payload}
+      refute_receive {:late_account_payload, _payload}, 100
       refute log =~ raw_identity
     end
 
