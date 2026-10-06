@@ -194,17 +194,19 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
       })
 
     # This is the successful turn result produced by the interrupt-error
-    # classifier. The production runner drains the operator queue after that
-    # successful turn result; the drain and subsequent checkpoint share the
-    # same real queue state.
+    # classifier. Once the turn is retired, the safe checkpoint must leave the
+    # interrupt-requested item pending for the production boundary drain.
     assert {:ok, :turn_interrupted_for_operator_message} = interrupt_result
+
+    retired_state = %{active_turn_state | outstanding_turns: 0}
 
     assert OperatorDelivery.maybe_process_safe_checkpoint(
              session(),
-             active_turn_state,
+             retired_state,
              %{kind: :notification}
-           ) == active_turn_state
+           ) == retired_state
 
+    refute_receive {:operator_message, _}, 100
     assert GenServer.call(orch, {:get_item, item.id}).status == :pending
 
     test_session = %{backend: "codex", workspace: "/path/that/does/not/exist"}
@@ -226,8 +228,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert_receive {:queued_turn, "deliver after turn boundary"}, 1000
     refute_receive {:queued_turn, "deliver after turn boundary"}, 100
 
-    terminal_state = %{active_turn_state | outstanding_turns: 0}
-    delivered_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), terminal_state, %{kind: :notification})
+    delivered_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), retired_state, %{kind: :notification})
     after_second_checkpoint = OperatorDelivery.maybe_process_safe_checkpoint(session(), delivered_state, %{kind: :notification})
 
     refute_receive {:operator_message, %{kind: :text, body: "deliver after turn boundary"}}, 100
