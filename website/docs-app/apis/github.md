@@ -313,6 +313,18 @@ Aiur's poll is state-based, so a longer interval delays a wake without losing on
 
 ## API budgets
 
+Daemon admissions use one resident Python broker per Aiur process. It reuses
+its SQLite connection and batches queued commands before replying. Shell
+`gh` guards keep the one-shot interface against the same shared database;
+separate daemons never get separate quota ledgers for a shared credential.
+
+A broker deadline is a **local hold**, before a request reaches GitHub.
+Aiur backs off, keeps the ticket claim, and preserves worker attempt counters,
+even when the bounded in-call retries run out. Broker holds do not report lost
+GitHub connectivity. Sustained broker retry pressure still appears as
+`system.github.budget_broker_degraded`; reduce host load or SQLite contention.
+
+
 | Budget | Unit | Where to read it |
 | --- | --- | --- |
 | Core | REST requests | The Units meter, `aiur units`, or `aiur github-cost --budget core`. |

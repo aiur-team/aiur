@@ -434,8 +434,11 @@ defmodule Aiur.GitHub.AuthPreflightTest do
                )
 
       # Transient per the shared classifier; the diagnostic names the timeout.
-      assert diagnostic.classification == :timeout
+      assert diagnostic.classification == :local_hold
       assert diagnostic.detail == %{reason: :github_budget_broker_timeout}
+      assert AuthPreflight.local_hold_reason?({:github_auth_preflight_failed, diagnostic})
+      assert diagnostic.message =~ "local budget broker"
+      refute diagnostic.message =~ "raise the relevant"
       # `max_waits` waits + the final failing attempt; it never pins the caller.
       assert count(sleep_counter) == LocalHold.max_waits()
     end

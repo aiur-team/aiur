@@ -7,6 +7,16 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
   alias Aiur.Orchestrator.{Lifecycle, State, TrackerHealth}
   alias Aiur.Webhooks.ModeRegistry
 
+  test "a broker timeout becomes local health backoff rather than connectivity loss" do
+    {:github, classification, detail} = reason = Aiur.GitHub.Errors.classify_error({:error, :github_budget_broker_timeout})
+    state = TrackerHealth.note_github_connectivity_failure(%State{poll_interval_ms: 1_000}, :broker_probe, reason)
+    assert state.github_connectivity.broker_probe == {:local_hold, 1}
+    assert state.github_poll_delays.broker_probe > 0
+    {_streaks, alerts} = GitHubConnectivity.note_failure(%{broker_probe: {classification, 2}}, :broker_probe, classification)
+    assert alerts == []
+    assert detail.reason == :github_budget_broker_timeout
+  end
+
   test "uses the base interval when no GitHub delay is active" do
     state = %State{poll_interval_ms: 1_000, github_poll_delays: %{}, running: %{"issue-1" => %{}}}
     assert TrackerHealth.next_poll_delay_ms(state) == 1_000
