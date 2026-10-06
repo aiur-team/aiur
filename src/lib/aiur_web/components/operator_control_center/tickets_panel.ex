@@ -26,6 +26,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
 
   attr(:view, :map, required: true)
   attr(:visible, :integer, default: nil)
+  attr(:writable, :boolean, default: false)
   attr(:search_event, :string, default: "search-tickets")
   attr(:clear_search_event, :string, default: "clear-ticket-search")
 
@@ -113,6 +114,10 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
         <span>{@message}</span>
       </div>
 
+      <p :if={@rows != [] and !@writable} id="tickets-agent-readonly" class="units-state readonly-banner">
+        Read-only dashboard: adding an agent is unavailable here. Run <code>aiur --todo &lt;ticket-id&gt;</code> from this repository to queue a ticket.
+      </p>
+
       <div :if={@status in [:empty, :unsupported]} class="units-state empty-state">{@message}</div>
 
       <div :if={@searchable? and @search_status == :no_matches} class="units-state empty-state tk-no-matches">{@search_message}</div>
@@ -154,10 +159,12 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
                   id={"ticket-add-agent-#{row.token}"}
                   type="button"
                   class="units-icon-action"
-                  phx-click="open-add-agent"
+                  phx-click={if @writable, do: "open-add-agent"}
                   phx-value-ticket={row.token}
-                  aria-label={"Add an agent to ticket #{row.identifier}"}
-                  title="Add an agent"
+                  disabled={!@writable}
+                  aria-describedby={if !@writable, do: "tickets-agent-readonly"}
+                  aria-label={if @writable, do: "Add an agent to ticket #{row.identifier}", else: "Add an agent to ticket #{row.identifier} unavailable on this read-only dashboard"}
+                  title={if @writable, do: "Add an agent", else: "Read-only dashboard — use the CLI"}
                 >{icon(:robot)}</button>
               </td>
             </tr>

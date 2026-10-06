@@ -290,6 +290,7 @@ defmodule Aiur.ProviderMeterProbeTest do
              %{provider: :kimi, observed?: false, reason: :session_observation_only},
              %{provider: :deepseek, observed?: false, reason: :disabled},
              %{provider: :openrouter, observed?: false, reason: :missing_api_key},
+             %{provider: :muse, observed?: false, reason: :unsupported},
              %{provider: :fake, observed?: false, reason: :unsupported}
            ]
   end

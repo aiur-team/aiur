@@ -75,12 +75,15 @@ defmodule Aiur.Workspace.RefreshTest do
     refute File.exists?(before_run_marker)
   end
 
-  test "run/3 exit-65 recreation restores permanent build wrappers before dispatch", %{
+  test "run/3 exit-65 recreation restores the full agent support tree when checkout is clean", %{
     workspace: workspace,
     test_root: test_root
   } do
     init_repo!(workspace)
-    sentinel = Path.join(workspace, "leftover-sentinel")
+    File.write!(Path.join(workspace, ".gitignore"), "ignored-sentinel\n.aiur-runtime/\n")
+    git!(["-C", workspace, "add", ".gitignore"])
+    git!(["-C", workspace, "commit", "--quiet", "-m", "ignore sentinel"])
+    sentinel = Path.join(workspace, "ignored-sentinel")
     File.write!(sentinel, "leftover")
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -89,7 +92,7 @@ defmodule Aiur.Workspace.RefreshTest do
       build_start_stagger_seconds: 0,
       min_free_memory_mb: nil,
       hook_before_run: """
-      if [ -f leftover-sentinel ]; then exit 65; fi
+      if [ -f ignored-sentinel ]; then exit 65; fi
       test -z "$(find . -mindepth 1 -maxdepth 1 -print -quit)"
       git init --quiet -b main
       git config user.email t@example.com
@@ -111,9 +114,17 @@ defmodule Aiur.Workspace.RefreshTest do
       assert File.regular?(Path.join([workspace, ".aiur-runtime", "build-bin", command]))
     end
 
-    refute File.exists?(Path.join([workspace, ".aiur-runtime", "bin"]))
-    refute File.exists?(Path.join([workspace, ".aiur-runtime", "tmp"]))
-    refute File.exists?(Path.join([workspace, ".claude", "skills", "aiur-agent"]))
+    # #2697: recreation must reinstall every support piece, not only the build
+    # wrappers. The agent env points PATH, GH_CONFIG_DIR and the quota path here.
+    for command <- ~w(gh git aiur-github-budget) do
+      assert File.regular?(Path.join([workspace, ".aiur-runtime", "bin", command]))
+    end
+
+    assert File.dir?(Path.join([workspace, ".aiur-runtime", "gh"]))
+    assert File.dir?(Path.join([workspace, ".aiur-runtime", "github-quota"]))
+    assert File.dir?(Path.join([workspace, ".aiur-runtime", "tmp"]))
+    assert File.dir?(Path.join([workspace, ".claude", "skills", "aiur-agent"]))
+    assert Aiur.AgentGitHubGuard.missing_workspace_support(workspace) == []
 
     probe_bin = Path.join(test_root, "probe-bin")
     File.mkdir_p!(probe_bin)
@@ -180,7 +191,8 @@ defmodule Aiur.Workspace.RefreshTest do
     }
 
     assert {:error, _} = Refresh.run(workspace, issue, nil)
-    assert File.read!(trace) == "aiur/123-fix-login\naiur/123-fix-login\n"
+    assert File.read!(trace) == "aiur/123-fix-login\n"
+    assert String.trim(git!(["-C", workspace, "branch", "--show-current"])) == "aiur/123-fix-login"
   end
 
   test "run/3 exit-65 on non-todo dispatch returns :ok (WIP skip)", %{workspace: workspace, test_root: test_root} do

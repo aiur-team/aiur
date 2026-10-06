@@ -219,6 +219,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert %ProviderHealth{state: :healthy, complete?: true, last_success_at: ~U[2026-08-02 12:00:00Z]} = PackStatus.health(poller)
     healthy_snapshot = PlanningSource.catalog()
     assert healthy_snapshot.health.state == :healthy
+    assert healthy_snapshot.status_health.state == :healthy
     assert healthy_snapshot.generation > initial_generation
 
     Agent.update(response, fn _ -> :failure end)
@@ -238,8 +239,9 @@ defmodule Aiur.BuildOrder.PackStatusTest do
            } = PackStatus.health(poller)
 
     snapshot = PlanningSource.catalog()
-    assert snapshot.health.state == :stale
-    assert snapshot.health.failure == :pack_status_refresh_failed
+    assert snapshot.health.state == :healthy
+    assert snapshot.status_health.state == :stale
+    assert snapshot.status_health.failure == :pack_status_refresh_failed
     assert snapshot.generation == healthy_snapshot.generation
 
     [root] = snapshot.data.entries

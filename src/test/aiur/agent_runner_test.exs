@@ -272,6 +272,16 @@ defmodule Aiur.AgentRunnerTest do
              )
     end
 
+    test "Muse re-dispatches only a pre-write closed turn/start, not an uncertain native outcome" do
+      assert AgentRunner.transient_run_error?({:turn_start_failed, :port_closed}, "muse")
+
+      refute AgentRunner.transient_run_error?({:turn_start_failed, {:port_exit, 9}}, "muse")
+      refute AgentRunner.transient_run_error?({:native_port_exit, 9}, "muse")
+      refute AgentRunner.transient_run_error?({:turn_start_failed, :response_timeout}, "muse")
+      refute AgentRunner.transient_run_error?({:turn_start_failed, :provider_rejected}, "muse")
+      refute AgentRunner.transient_run_error?(:port_closed, "muse")
+    end
+
     test "an active-turn mismatch is transient only for Codex" do
       reason =
         {:turn_interrupt_failed,

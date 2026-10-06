@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper}
+  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
   alias Aiur.Events.{Exchange, Publisher}
 
   alias Aiur.Orchestrator.{
@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     ControlLifecycleStore,
     DispatchPolicy,
     GlobalPauseStore,
+    OrphanedWorkers,
     PauseResume,
     RemoteControlMode,
     Slots,
@@ -36,6 +37,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     "ticket.*.ci.passed",
     "ticket.*.agent.pause.request",
     "ticket.*.agent.unblocked",
+    "ticket.*.agent.decision.answered",
     "ticket.*.branch.push",
     "system.*.branch.push"
   ]
@@ -77,6 +79,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
+    :ok = TestTicketScope.validate!()
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
     Process.flag(:trap_exit, true)
@@ -147,6 +150,10 @@ defmodule Aiur.Orchestrator.Lifecycle do
         Map.put(state.global_pause, :globally_paused, state.globally_paused)
       )
 
+    # Runner tasks survive an Orchestrator-only restart, but this generation
+    # cannot track them. Stop them before startup cleanup or the first poll, so
+    # the ticket is redispatched instead of refused as a live session (#2705).
+    state = OrphanedWorkers.stop_untracked_runners(state)
     state = WorkspaceCleanup.run_terminal_workspace_cleanup(state)
     state = WorkspaceCleanup.run_startup_todo_workspace_cleanup(state)
     RemoteControlMode.cleanup_stray_remote_control_servers()
@@ -222,6 +229,9 @@ defmodule Aiur.Orchestrator.Lifecycle do
   @spec handle_tick(State.t()) :: {:noreply, State.t()}
   def handle_tick(%State{} = state) do
     state = refresh_runtime_config(state)
+    # A crashed control call can roll the state back past a runner it already
+    # spawned; that runner holds its lease with no running entry (#2705).
+    state = OrphanedWorkers.stop_untracked_runners(state)
     state = PauseResume.expire_pending_controls(state, DateTime.utc_now(), @control_ack_timeout_ms)
 
     state = %{
@@ -321,6 +331,39 @@ defmodule Aiur.Orchestrator.Lifecycle do
         tick_token: tick_token,
         next_poll_due_at_ms: System.monotonic_time(:millisecond) + delay_ms
     }
+  end
+
+  @doc """
+  Pulls the next scheduled tick forward after an event made work dispatchable.
+
+  It only moves a tick that is already scheduled, and only earlier. The new
+  due time is never ahead of the GitHub poll floor, measured from the last
+  dispatch poll. If the pending tick is already due at or before that time,
+  it is left alone, so a burst of events can never keep pushing polling back.
+  An Orchestrator with no pending tick timer either has a poll cycle in flight
+  (whose end schedules the next tick) or has polling disabled or frozen, and
+  an event must not restart polling behind that policy.
+  """
+  @spec wake_tick(State.t()) :: State.t()
+  def wake_tick(%State{tick_timer_ref: timer_ref, poll_frozen: frozen} = state)
+      when is_reference(timer_ref) and frozen != true do
+    now_ms = System.monotonic_time(:millisecond)
+    target_ms = max(now_ms, earliest_poll_at_ms(state, now_ms))
+
+    if is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= target_ms,
+      do: state,
+      else: schedule_tick(state, target_ms - now_ms)
+  end
+
+  def wake_tick(%State{} = state), do: state
+
+  defp earliest_poll_at_ms(state, now_ms) do
+    floor_ms = TrackerHealth.github_next_poll_delay_ms(state) || 0
+
+    case state.last_dispatch_poll_at_ms do
+      last_ms when is_integer(last_ms) -> last_ms + floor_ms
+      _never_polled -> now_ms + floor_ms
+    end
   end
 
   defp schedule_initial_tick(state, false), do: %{state | next_poll_due_at_ms: nil}

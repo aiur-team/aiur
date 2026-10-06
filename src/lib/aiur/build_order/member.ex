@@ -48,7 +48,7 @@ defmodule Aiur.BuildOrder.Member do
   def new(attributes) when is_map(attributes) do
     identity = identity(Map.get(attributes, :identity))
     {title, title_diagnostic} = title(Map.get(attributes, :title))
-    {url, url_diagnostic} = url(Map.get(attributes, :url), identity)
+    {url, url_diagnostic} = url(Map.get(attributes, :url), identity, Map.get(attributes, :draft?) == true)
     metadata = Metadata.parse(Map.get(attributes, :labels, []))
     marker_diagnostics = marker_diagnostics(Map.get(attributes, :marker))
     {dependencies, dependency_diagnostics} = dependencies(attributes)
@@ -147,9 +147,10 @@ defmodule Aiur.BuildOrder.Member do
     end
   end
 
-  defp url(value, nil), do: safe_url(value)
+  defp url(nil, _identity, true), do: {nil, nil}
+  defp url(value, nil, _draft?), do: safe_url(value)
 
-  defp url(value, identity) do
+  defp url(value, identity, _draft?) do
     case Bounded.github_issue_url_for(value, identity) do
       {:ok, url} -> {url, nil}
       :error -> {nil, Diagnostic.new(:invalid_url)}

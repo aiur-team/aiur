@@ -134,6 +134,11 @@ defmodule AiurWeb.OperatorControlCenter.AgentLogModal do
   def format_error(:message_too_long), do: "Message is too long."
   def format_error(:interrupt_not_supported), do: "Interrupt is not available right now."
   def format_error(:timeout), do: "Send timed out."
+
+  def format_error({:outcome_unknown, _info}),
+    do: "Aiur did not answer in time, so the message may still be queued. Check the log, or press Send again to retry without a duplicate."
+
+  def format_error({:not_queued, :timeout}), do: "Send timed out and was not queued."
   def format_error(:unavailable), do: "Orchestrator unavailable."
   def format_error(:ambiguous_identifier), do: "Agent actions require a unique typed target."
   def format_error(:globally_paused), do: "Aiur is globally paused; per-ticket control has no effect. Resume Aiur globally first."

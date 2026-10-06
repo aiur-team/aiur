@@ -25,7 +25,7 @@ If you want your agent to be the Executor, ask it to "run aiur"; the repository 
 
 1. **Polls a tracker** (Linear, GitHub Issues, or in-memory) for candidate work.
 2. **Creates an isolated workspace** per selected item and clones your repo into it.
-3. **Launches a coding agent** (Codex or Claude) inside the workspace with your `.aiur/config`
+3. **Launches a coding agent** (such as Codex, Claude, or Muse) inside the workspace with your `.aiur/config`
    YAML config and prompt template.
 4. **Drives the run** through repeated turns until the item reaches a terminal state
    (`Done`, `Closed`, `Cancelled`, `Duplicate`), then cleans up the workspace.
@@ -293,8 +293,9 @@ on your `PATH`:
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev restart [--no-build]` | Stop the session, rebuild the release when sources are newer, then start again detached; `--no-build` bounces on the release already on disk |
 | `aiurdev status` | Show active agents and their running/paused/idle state, GitHub CI readiness, and `SUPERVISION N/N` liveness; a degraded or unavailable supervision tree returns nonzero |
-| `aiurdev executor-answer <decision-id> --expected-version <n> (--option <id>\|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]` | Record a direct Command answer with an explicit Executor actor; version and idempotency fields make listener replay safe |
+| `aiurdev executor-answer <decision-id> --expected-version <n> (--option <id>\|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]` | Record a direct Command answer with an explicit Executor actor; version and idempotency fields make listener replay safe; `--supersede` replaces a decided answer that no agent has received |
 | `aiurdev executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]` | Leave a Command open and raise one keyed operator notification when Executor judgment is insufficient |
+| `aiurdev executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]` | Retire a void Command, or withdraw a decided answer that no agent has received; a mooted answer is never delivered |
 | `aiurdev units [--scope live\|unfinished\|all\|none] [--condition active\|alert\|paused\|queued\|finished]... [--format auto\|table\|records] [--json]` | Render the dashboard's Units ticket view, including its filters and source freshness; `--format` picks the human layout (`auto` uses a table only on a wide terminal); `--json` emits the stable envelope |
 | `aiurdev analytics [--range run\|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]` | Render the Analytics dashboard snapshot for an explicit chart window |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
@@ -728,7 +729,7 @@ the same pressure evidence. This telemetry is measurement-only; it does not adap
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
   the concurrency cap; a configured memory floor or start stagger remains active
   independently.
-  Local Codex and Claude launches prepend shell-independent `elixir`, `mix`, and
+  Local Codex, Claude, and Muse launches prepend shell-independent `elixir`, `mix`, and
   `mise` entrypoints, and local workspace lifecycle hooks run with the same admission
   environment before agent support is installed. This keeps `after_create` and
   `before_run` warm-up builds under the fleet cap as well as builds started during

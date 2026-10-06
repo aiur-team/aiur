@@ -36,8 +36,9 @@ defmodule Aiur.LiveConversationRestartTest do
     Process.exit(prior, :kill)
     assert_receive {:DOWN, ^ref, :process, ^prior, :killed}, 2_000
 
-    replacement = await_replacement(prior, 200)
-    assert is_pid(replacement)
+    # Wait for the whole `:rest_for_one` cascade, not only the replacement:
+    # returning mid-cascade leaves later shared children down for the next test.
+    assert {:ok, replacement} = Aiur.TestSupport.await_supervised_restart(LiveConversation, prior)
     assert :sys.get_state(replacement).snapshots == %{}
 
     assert_receive {:live_conversation_restarted, "projection:" <> _, %DateTime{}}, 2_000
@@ -53,18 +54,5 @@ defmodule Aiur.LiveConversationRestartTest do
               generation_handle: ^handle,
               messages: []
             }} = LiveConversation.resolve(handle)
-  end
-
-  defp await_replacement(_prior, 0), do: flunk("LiveConversation was not restarted")
-
-  defp await_replacement(prior, attempts) do
-    case Process.whereis(LiveConversation) do
-      pid when is_pid(pid) and pid != prior ->
-        pid
-
-      _other ->
-        Process.sleep(10)
-        await_replacement(prior, attempts - 1)
-    end
   end
 end

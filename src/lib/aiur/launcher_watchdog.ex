@@ -86,5 +86,5 @@ defmodule Aiur.LauncherWatchdog do
 
   defp parse_pid(_), do: :error
 
-  defp default_alive?(pid), do: File.dir?("/proc/#{pid}")
+  defp default_alive?(pid), do: Aiur.ProcessIdentity.alive?(pid)
 end

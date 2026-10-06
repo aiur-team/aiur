@@ -289,7 +289,7 @@ defmodule Aiur.ProviderMeterProbe do
         {:ok, workspace}
 
       _unset ->
-        workspace = Workspace.workspace_path_under(Config.workspace_root(), @probe_identifier)
+        workspace = Config.workspace_root() |> Workspace.workspace_path_under(@probe_identifier) |> Path.expand()
 
         case File.mkdir_p(workspace) do
           :ok -> {:ok, workspace}

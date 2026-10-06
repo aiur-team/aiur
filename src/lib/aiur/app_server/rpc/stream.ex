@@ -2,8 +2,7 @@ defmodule Aiur.AppServer.Rpc.Stream do
   @moduledoc false
 
   require Logger
-
-  @max_log_bytes 1_000
+  alias Aiur.Codex.StartupFailure
 
   @spec log_non_json(binary(), String.t(), String.t(), keyword()) :: :ok | nil
   def log_non_json(data, stream_label, backend_label, opts \\ []) do
@@ -15,7 +14,7 @@ defmodule Aiur.AppServer.Rpc.Stream do
   end
 
   defp log_stream_line(data, stream_label, backend_label) do
-    text = data |> to_string() |> String.trim() |> String.slice(0, @max_log_bytes)
+    text = StartupFailure.safe_excerpt(to_string(data))
 
     if text != "" do
       if String.match?(text, ~r/\b(error|warn|warning|failed|fatal|panic|exception)\b/i) do

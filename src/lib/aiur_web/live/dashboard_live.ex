@@ -128,6 +128,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:elevenlabs_quota, elevenlabs_quota_snapshot())
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
+      |> assign(:pending_message_ids, %{})
       |> assign(:chat_errors, %{})
       |> assign(:decision_actions, %{})
       |> assign(:global_pause_error, nil)
@@ -162,6 +163,8 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:ticket_context_row, nil)
       |> assign(:ticket_context_subscriptions, MapSet.new())
       |> assign(:conversation_drawer, nil)
+      |> assign(:conversation_from_route?, false)
+      |> assign(:conversation_notice, nil)
       |> assign(:conversation_handle, nil)
       |> assign(:conversation_identity, nil)
       |> assign(:conversation_row, nil)
@@ -185,20 +188,51 @@ defmodule AiurWeb.DashboardLive do
   end
 
   @impl true
-  def handle_params(params, _uri, socket) do
+  def handle_params(params, uri, socket) do
     filter = normalize_filter(params["filter"])
+    conversation_route? = String.starts_with?(URI.parse(uri).path || "", "/chat/")
 
     {:noreply,
      socket
      |> assign(:decision_filter, filter)
      |> assign(:table_sort, normalize_table_sort(params["sort"]))
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
+     |> assign(:conversation_from_route?, conversation_route?)
      |> assign_units_selection(params)
      |> assign_decision_page(filter, params)
      |> load_history(:first_page)
      |> assign_selected_decision(params["decision_id"])
+     |> maybe_open_conversation_route(if(conversation_route?, do: params, else: %{}))
      |> maybe_canonicalize_units_url(params)}
   end
+
+  defp maybe_open_conversation_route(socket, %{"owner" => owner, "repository" => repository, "identifier" => identifier}) do
+    catalog = Map.get(socket.assigns.payload, :units, %{})
+    rows = get_in(catalog, [:snapshot, :rows]) || []
+
+    case Enum.find(rows, &conversation_route_row?(&1, owner, repository, identifier)) do
+      nil ->
+        assign(socket, :conversation_notice, "Chat is unavailable for this ticket.")
+
+      row ->
+        with token when is_binary(token) <- UnitsPresenter.row_token(row),
+             handle when is_binary(handle) <- conversation_handle(row),
+             {:ok, %{state: state} = snapshot} when state in [:live, :stale, :ended, :known_empty] <-
+               resolve_conversation(handle) do
+          socket |> assign(:conversation_notice, nil) |> open_conversation(row, token, handle, snapshot)
+        else
+          _unavailable -> assign(socket, :conversation_notice, "Chat is unavailable for this ticket.")
+        end
+    end
+  end
+
+  defp maybe_open_conversation_route(socket, _params), do: assign(socket, :conversation_notice, nil)
+
+  defp conversation_route_row?(%{identity: %TrackerIdentity{} = identity}, owner, repository, identifier) do
+    identity.owner == owner and identity.repository == repository and identity.identifier == identifier
+  end
+
+  defp conversation_route_row?(_row, _owner, _repository, _identifier), do: false
 
   @impl true
   def handle_info(:runtime_tick, socket) do
@@ -457,9 +491,13 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event("open-add-agent", %{"ticket" => token}, socket) when is_binary(token) do
-    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
-      {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
-      {:error, :not_found} -> {:noreply, socket}
+    if socket.assigns.writable and dashboard_writable?() do
+      case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+        {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
+        {:error, :not_found} -> {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
     end
   end
 
@@ -537,7 +575,13 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("read-conversation", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-conversation", _params, socket) do
-    {:noreply, close_conversation(socket)}
+    socket = close_conversation(socket)
+
+    if socket.assigns.conversation_from_route? do
+      {:noreply, push_patch(socket, to: units_path(socket, socket.assigns.units_selection), replace: true)}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_event(event, params, socket) when event in @decision_events do
@@ -811,6 +855,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:ticket_context, nil)
       |> Map.put_new(:unit_controls, %{})
       |> Map.put_new(:conversation_drawer, nil)
+      |> Map.put_new(:conversation_notice, nil)
       |> Map.put_new(:conversation_origin_id, nil)
       |> Map.put_new(:units_selection, UnitsURL.default_selection())
       |> Map.put_new(
@@ -922,6 +967,7 @@ defmodule AiurWeb.DashboardLive do
         />
 
         <section class="section-card units-card" aria-labelledby="route-title">
+          <p :if={@conversation_notice} id="conversation-notice" role="status" class="bo-state-card">{@conversation_notice}</p>
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>
@@ -946,7 +992,7 @@ defmodule AiurWeb.DashboardLive do
         <%!-- The searched view, so the reveal batches and counts the matches
         rather than the whole backlog behind them. --%>
         <p :if={@add_agent_notice} id="add-agent-notice" class="add-agent-note" role="status">{@add_agent_notice}</p>
-        <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} />
+        <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} writable={@writable} />
       </div>
 
       <AgentLogModal.agent_log_modal
@@ -1126,7 +1172,7 @@ defmodule AiurWeb.DashboardLive do
     selection = socket.assigns.units_selection
     expected = UnitsURL.params(selection) |> maybe_put_table_sort(socket.assigns[:table_sort]) |> Map.new()
 
-    if socket.assigns.live_action == :index and map_size(params) > 0 and
+    if socket.assigns.live_action == :index and not socket.assigns.conversation_from_route? and map_size(params) > 0 and
          params != expected do
       push_patch(socket, to: units_path(socket, selection), replace: true)
     else
@@ -1184,13 +1230,13 @@ defmodule AiurWeb.DashboardLive do
   # "Would route to" column, and which now lives only here.
   #
   # The requested model is preferred over the resolved one so a family alias stays
-  # an alias. `CodingAgent.override_labels/0` seeds aliases ahead of pinned versions
+  # an alias. `CodingAgent.override_labels/0` seeds family tags and no versions
   # because "a pinned tag expires with its version"; preselecting `gpt-5.6-sol` for a
   # `codex:sol` routing entry would write that expiry onto the ticket and strand it
   # on 5.6 while every untouched ticket follows the alias forward.
   #
   # `normalize_selection/1` clamps whichever value wins to the backend's seedable
-  # vocabulary, so a model aiur does not list falls back to the backend default.
+  # vocabulary (registry plus what its CLI reported), so an unlisted model falls back to the backend default.
   defp add_agent_modal(row) do
     routing = row.routing
 
@@ -2598,6 +2644,7 @@ defmodule AiurWeb.DashboardLive do
   defp clear_chat_state(socket, identifier) do
     socket
     |> assign(:drafts, Map.delete(socket.assigns.drafts, identifier))
+    |> assign(:pending_message_ids, Map.delete(socket.assigns.pending_message_ids, identifier))
     |> assign(:chat_errors, Map.delete(socket.assigns.chat_errors, identifier))
   end
 
@@ -2607,17 +2654,43 @@ defmodule AiurWeb.DashboardLive do
 
   defp send_operator_message(socket, _target, _key, ""), do: socket
 
+  # Each Send press is one user action with its own message id (#2717). When
+  # the daemon does not answer in time, the outcome is unknown: the id and the
+  # draft are kept, so pressing Send again with the same text retries this
+  # send and cannot queue a copy. Success clears both. A changed draft is a
+  # new message and gets a new id.
   defp send_operator_message(socket, target, key, text) do
-    case send_agent_message(target, text) do
-      {:ok, _request_id} -> clear_chat_state(socket, key)
-      {:error, reason} -> put_chat_error(socket, key, reason)
+    message_id = message_id_for_send(socket, key, text)
+
+    case send_agent_message(target, text, message_id) do
+      {:ok, _request_id} ->
+        clear_chat_state(socket, key)
+
+      {:error, {:outcome_unknown, _info} = reason} ->
+        socket
+        |> assign(:pending_message_ids, Map.put(socket.assigns.pending_message_ids, key, {message_id, text}))
+        |> assign(:drafts, Map.put(socket.assigns.drafts, key, text))
+        |> put_chat_error(key, reason)
+
+      {:error, reason} ->
+        socket
+        |> assign(:pending_message_ids, Map.delete(socket.assigns.pending_message_ids, key))
+        |> put_chat_error(key, reason)
     end
   end
 
-  defp send_agent_message(target, text) do
+  defp message_id_for_send(socket, key, text) do
+    case Map.get(socket.assigns.pending_message_ids, key) do
+      {message_id, ^text} -> message_id
+      _new_action -> "dashboard-" <> Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)
+    end
+  end
+
+  defp send_agent_message(target, text, message_id) do
     case Endpoint.config(:agent_chat_send_fun) do
+      fun when is_function(fun, 3) -> fun.(target, text, message_id: message_id)
       fun when is_function(fun, 2) -> fun.(target, text)
-      _fun -> AgentChat.send(target, text)
+      _fun -> AgentChat.send(target, text, message_id: message_id)
     end
   end
 

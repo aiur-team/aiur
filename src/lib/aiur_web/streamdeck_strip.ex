@@ -132,9 +132,8 @@ defmodule AiurWeb.StreamdeckStrip do
   defp agent_icon(:alert), do: "!"
 
   defp provider_logo(provider) do
-    case provider |> to_string() |> String.downcase() do
-      "claude" -> "/provider-assets/claude-symbol.svg"
-      "codex" -> "/provider-assets/codex-color.svg"
+    case Aiur.CodingAgent.provider_descriptor(provider |> to_string() |> String.downcase()) do
+      %{logo: logo} -> logo
       _ -> nil
     end
   end

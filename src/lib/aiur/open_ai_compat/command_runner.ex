@@ -7,7 +7,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
   @timeout_ms 300_000
   @sandbox_real_gh "/opt/aiur-real-gh"
   @system_gh_paths ~w(/usr/bin/gh /usr/local/bin/gh)
-  @inherited_env_names ~w(GITHUB_TOKEN GH_TOKEN LANG LC_ALL TERM)
+  @inherited_env_names ~w(LANG LC_ALL TERM)
   @system_roots ~w(/usr)
   @system_files ~w(
     /etc/ca-certificates

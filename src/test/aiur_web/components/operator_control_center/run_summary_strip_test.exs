@@ -996,7 +996,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    [_, codex_row, claude_row | _] = String.split(html, ~s(<div class="rs-model rs-provider-row">))
+    document = Floki.parse_fragment!(html)
+    codex_row = document |> Floki.find("[data-provider=codex]") |> Floki.raw_html()
+    claude_row = document |> Floki.find("[data-provider=claude]") |> Floki.raw_html()
     assert codex_row =~ "/provider-assets/codex-color.svg"
     refute codex_row =~ "/provider-assets/claude-symbol.svg"
     assert claude_row =~ "/provider-assets/claude-symbol.svg"

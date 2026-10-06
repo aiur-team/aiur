@@ -150,6 +150,8 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
   `event_type` is the `X-GitHub-Event` header value, `repo` the tracked
   `"owner/name"` the caller already resolved. Never raises: the caller is an
   HTTP endpoint, and a cache write is never worth failing a delivery over.
+  Membership-owner failures are the exception: they exit to the delivery
+  handler's error boundary, because an unconfirmed edge is not a cache hit.
 
   Options:
 
@@ -198,6 +200,9 @@ defmodule Aiur.Events.GithubWebhook.Deposit do
       Logger.warning("GithubWebhook.Deposit skipped type=#{inspect(event_type)} error=#{Exception.message(error)}")
       []
   catch
+    :exit, {:membership_unavailable, _reason} = failure ->
+      exit(failure)
+
     kind, reason ->
       # The caller absorbs a throw or exit as `%{status: :error}` for the whole
       # delivery. A cache write is never worth that, so it is caught here too.

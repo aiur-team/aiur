@@ -193,6 +193,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
+    assert html =~ "Tickets completed"
     assert html =~ ~s(phx-hook="SortableTable")
     assert html =~ "data-sort-client-only"
     assert html =~ "Root forty-two"
@@ -202,6 +203,30 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert {:catalog, []} in calls
     assert {:subscribe_sources, []} in calls
     refute Enum.any?(calls, &match?({:demand, _}, &1))
+  end
+
+  test "catalog completion and selected estimated work keep distinct labels and values", %{first: first} do
+    member = breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)
+    catalog_root = progress_root(first, "Root forty-two", progress: 0, progress_resolution: :resolved, progress_resolved_count: 1, member_count: 1)
+
+    install_source(
+      catalog: catalog_snapshot([catalog_root], 1, :healthy),
+      selected: [selected_snapshot(first, "Root forty-two", 1, :healthy, members: [member])],
+      sources_loader: fn -> sources_for_member(member.identity, :working, nil, 28) end
+    )
+
+    {:ok, catalog_view, catalog_html} = live(build_conn(), "/build-orders")
+    assert catalog_html =~ "Tickets completed"
+    assert catalog_html |> Floki.parse_document!() |> progress_cell("Root forty-two") |> Floki.text() =~ "0%"
+    refute catalog_html =~ "Estimated work progress"
+
+    detail_html = render_patch(catalog_view, "/build-orders/42")
+
+    assert detail_html |> Floki.parse_document!() |> Floki.find(".bo-waves-caption") |> Floki.text() |> String.trim() ==
+             "Estimated work progress · complexity weighted"
+
+    assert detail_html =~ "Overall"
+    assert detail_html |> Floki.parse_document!() |> Floki.find(".bo-waves-head .bo-wave-seg:first-child .bo-wave-seg-pct") |> Floki.text() |> String.trim() == "28%"
   end
 
   # #2544: on a repository with no webhooks the catalog only ever republishes
@@ -1211,6 +1236,68 @@ defmodule AiurWeb.BuildOrderLiveTest do
     send(view.pid, {:ticket_detail_updated, %{identity: identity(99, "NODE-99")}})
     _ = render(view)
     assert FakeDataSource.calls(source) == calls_before
+  end
+
+  test "member context links running and paused chat but leaves completed and unstarted chat unavailable", %{first: first} do
+    completed = %{member(9) | lifecycle: Lifecycle.from_github("CLOSED", "COMPLETED")}
+    draft = %{member(10) | draft?: true}
+    selected = selected_snapshot(first, "Root forty-two", 1, :healthy, members: [member(7), member(8), completed, draft])
+    handles = Map.new(7..8, fn number -> {number, "conversation:" <> String.duplicate(Integer.to_string(number), 43)} end)
+
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected],
+      sources_loader: fn ->
+        %{
+          execution: %{
+            running: [
+              %{tracker_identity: identity(7, "NODE-7"), work_state: :working, live_conversation: %{generation_handle: handles[7]}},
+              %{tracker_identity: identity(8, "NODE-8"), work_state: :paused, tracker_paused: true, live_conversation: %{generation_handle: handles[8]}}
+            ],
+            retrying: [],
+            # StatusReport.idle_issue_snapshot/6 carries no conversation handle
+            # after the worker leaves the running bucket.
+            idle: [%{tracker_identity: identity(9, "NODE-9"), work_state: :idle}]
+          },
+          activity: %{generation: 1, entries: []}
+        }
+      end
+    )
+
+    endpoint_config =
+      Keyword.put(Application.get_env(:aiur, Endpoint), :live_conversation_resolve_fun, fn handle ->
+        case Enum.find(handles, fn {_number, candidate} -> candidate == handle end) do
+          {7, _handle} -> {:ok, %{state: :live, messages: [%{content: "Current conversation"}]}}
+          {8, _handle} -> {:ok, %{state: :stale, messages: [%{content: "Paused conversation"}]}}
+          nil -> {:error, :unavailable}
+        end
+      end)
+
+    Application.put_env(:aiur, Endpoint, endpoint_config)
+    :ok = Endpoint.config_change([{Endpoint, endpoint_config}], [])
+
+    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    render_async(view, 2_000)
+    assert render(view) =~ "Estimated work progress"
+
+    for number <- 7..8 do
+      view |> element(~s([data-bo-card="#{number}"][phx-click="open-ticket-context"])) |> render_click()
+      html = render(view)
+      assert html =~ ~s(href="/chat/owner/repo/#{number}")
+      assert html =~ "Read chat"
+      view |> element(~s(button[phx-click="build-order-context-close"])) |> render_click()
+    end
+
+    view |> element(~s([data-bo-card="9"][phx-click="open-ticket-context"])) |> render_click()
+    html = render(view)
+    refute html =~ ~s(href="/chat/owner/repo/9")
+    assert html =~ "Chat is unavailable."
+    view |> element(~s(button[phx-click="build-order-context-close"])) |> render_click()
+
+    view |> element(~s([data-bo-card="10"][phx-click="open-ticket-context"])) |> render_click()
+    html = render(view)
+    refute html =~ ~s(href="/chat/owner/repo/10")
+    assert html =~ "Chat has not started for this ticket."
   end
 
   test "releases the selected demand and context subscriptions on termination", %{first: first} do
