@@ -1,62 +1,40 @@
-import { Page } from '@playwright/test'
+import type { Page } from '@playwright/test'
+import { fileURLToPath } from 'node:url'
 
-/**
- * Seed the theme in localStorage before page load
- * @param page Playwright page instance
- * @param theme 'light' or 'dark'
- */
 export async function seedTheme(page: Page, theme: 'light' | 'dark'): Promise<void> {
-  await page.addInitScript(({ theme }) => {
-    localStorage.setItem('aiur-theme', theme)
-  }, { theme })
+  await page.addInitScript((theme) => localStorage.setItem('aiur-theme', theme), theme)
 }
 
-/**
- * Route Google Fonts requests to local fixture copies
- * Eliminates network dependency and ensures font availability
- * @param page Playwright page instance
- */
+const families = [
+  ['Bungee', 'Bungee-Regular.woff2', '400'],
+  ['Space Grotesk', 'SpaceGrotesk-Variable.woff2', '300 700'],
+  ['JetBrains Mono', 'JetBrainsMono-Variable.woff2', '100 800']
+] as const
+
 export async function routeFonts(page: Page): Promise<void> {
-  const fixtureRoot = 'file:///' + __dirname.replace(/\\/g, '/').replace('/tests/support', '') + '/fixtures/fonts'
-
-  await page.route('**/fonts.googleapis.com/**', async (route) => {
-    // Return a local CSS that imports vendored fonts
-    await route.abort()
-  })
-
-  await page.route('**/fonts.gstatic.com/**', async (route) => {
-    const url = route.request().url()
-    // Extract font file name from URL
-    const match = url.match(/fonts\.gstatic\.com\/s\/([^/?]+)\//)
-    if (match) {
-      // Attempt to serve from local fixtures; if not found, abort
-      const fontPath = `${fixtureRoot}/${match[1]}.woff2`
-      await route.fetch({ url: fontPath }).catch(() => route.abort())
-    } else {
-      await route.abort()
-    }
-  })
-}
-
-/**
- * Settle the page: wait for fonts to load and animations to stabilize
- * Ensures deterministic visual rendering by waiting for:
- * - Font loading completion (document.fonts.ready)
- * - Paint cycles (2x requestAnimationFrame)
- * @param page Playwright page instance
- */
-export async function settle(page: Page): Promise<void> {
-  // Wait for all fonts to load
-  await page.evaluate(() => document.fonts.ready)
-
-  // Wait 2x requestAnimationFrame to let paint cycles settle
-  await page.evaluate(() => {
-    return new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          resolve()
-        })
-      })
+  await page.route('https://fonts.googleapis.com/**', (route) => route.fulfill({
+    contentType: 'text/css',
+    body: families.map(([family, file, weight]) =>
+      `@font-face { font-family: '${family}'; font-style: normal; font-weight: ${weight}; font-display: block; src: url('https://fonts.gstatic.com/visual/${file}') format('woff2'); }`
+    ).join('\n')
+  }))
+  await page.route('https://fonts.gstatic.com/**', async (route) => {
+    const file = new URL(route.request().url()).pathname.split('/').pop()
+    if (!families.some(([, name]) => name === file)) throw new Error(`Unexpected font: ${file}`)
+    await route.fulfill({
+      contentType: 'font/woff2',
+      path: fileURLToPath(new URL(`../fixtures/fonts/${file}`, import.meta.url))
     })
   })
+}
+
+export function screenshotMask(page: Page) {
+  return [page.locator('#termScreen')]
+}
+
+export async function settle(page: Page): Promise<void> {
+  await page.evaluate(() => document.fonts.ready)
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  }))
 }

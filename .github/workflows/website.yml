@@ -58,12 +58,7 @@ jobs:
         run: npm run test:brand
       - name: Test visual regressions
         run: |
-          docker run --rm -v ${{ github.workspace }}:/work -w /work/website \
-            mcr.microsoft.com/playwright:v1.54.1-noble \
-            bash -c "npm ci && npm run typecheck && npm run assert && \
-                     npm install -g bun && \
-                     (cd docs-app && bun install --frozen-lockfile && bun run build) && \
-                     npm run build && npm run test:visual"
+          npm run test:visual:docker
       - name: Upload visual test results on failure
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

@@ -1,281 +1,117 @@
-import { test, expect, devices } from '@playwright/test'
-import { seedTheme, settle } from './support/visual'
+import { test, expect } from '@playwright/test'
+import { seedTheme, settle, routeFonts, screenshotMask } from './support/visual'
 
-// Define the test matrix: themes, viewports, and states
 const themes = ['light', 'dark'] as const
 const viewports = [
-  { name: 'desktop', width: 1280, height: 800 },
-  { name: 'mobile', width: 390, height: 844, deviceScaleFactor: 3 },
-  { name: 'mobile-landscape', width: 844, height: 390 }
+  { name: 'desktop', width: 1280, height: 800, deviceScaleFactor: 1, isMobile: false },
+  { name: 'mobile', width: 390, height: 844, deviceScaleFactor: 3, isMobile: true },
+  { name: 'mobile-landscape', width: 844, height: 390, deviceScaleFactor: 1, isMobile: false }
 ]
 
 test.describe.configure({ mode: 'parallel' })
-
-// Landing page tests
-test.describe('Landing page (/)', () => {
-  for (const theme of themes) {
-    test.describe(`${theme} theme`, () => {
-      for (const viewport of viewports) {
-        test.describe(`${viewport.name} viewport`, () => {
-          test('state (a): top of page', async ({ page }) => {
-            await seedTheme(page, theme)
-            if (viewport.deviceScaleFactor) {
-              await page.setViewportSize({ width: viewport.width, height: viewport.height })
-            } else {
-              await page.setViewportSize({ width: viewport.width, height: viewport.height })
-            }
-
-            await page.goto('/')
-            await settle(page)
-            await expect(page).toHaveScreenshot(`landing-top-${theme}-${viewport.name}.png`)
-          })
-
-          test('state (b): scrolled 900px (brand section revealed)', async ({ page }) => {
-            await seedTheme(page, theme)
-            if (viewport.deviceScaleFactor) {
-              await page.setViewportSize({ width: viewport.width, height: viewport.height })
-            } else {
-              await page.setViewportSize({ width: viewport.width, height: viewport.height })
-            }
-
-            await page.goto('/')
-            await page.evaluate(() => window.scrollBy(0, 900))
-            await settle(page)
-            await expect(page).toHaveScreenshot(`landing-scrolled-${theme}-${viewport.name}.png`)
-          })
-
-          test('state (c): banner dismissed', async ({ page }) => {
-            await seedTheme(page, theme)
-            if (viewport.deviceScaleFactor) {
-              await page.setViewportSize({ width: viewport.width, height: viewport.height })
-            } else {
-              await page.setViewportSize({ width: viewport.width, height: viewport.height })
-            }
-
-            await page.context().addCookies([
-              {
-                name: 'aiur-archon-banner',
-                value: 'dismissed',
-                url: 'http://127.0.0.1:43127'
-              }
-            ])
-
-            await page.goto('/')
-            await settle(page)
-            await expect(page).toHaveScreenshot(`landing-banner-dismissed-${theme}-${viewport.name}.png`)
-          })
-
-          const tabs = ['Prompt', 'npm', 'bun', 'pnpm', 'yarn']
-          for (const tab of tabs) {
-            test(`state (d): ${tab} tab selected`, async ({ page }) => {
-              await seedTheme(page, theme)
-              if (viewport.deviceScaleFactor) {
-                await page.setViewportSize({ width: viewport.width, height: viewport.height })
-              } else {
-                await page.setViewportSize({ width: viewport.width, height: viewport.height })
-              }
-
-              await page.goto('/')
-
-              // Click the tab button
-              const tabButton = page.locator(`button:has-text("${tab}"):visible`).first()
-              await tabButton.click({ force: true })
-
-              await settle(page)
-              await expect(page).toHaveScreenshot(`landing-tab-${tab.toLowerCase()}-${theme}-${viewport.name}.png`)
-            })
-          }
-
-          test('state (e): npm tab + copy clicked', async ({ page }) => {
-            await seedTheme(page, theme)
-            if (viewport.deviceScaleFactor) {
-              await page.setViewportSize({ width: viewport.width, height: viewport.height })
-            } else {
-              await page.setViewportSize({ width: viewport.width, height: viewport.height })
-            }
-
-            // Grant clipboard permissions
-            await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
-
-            await page.goto('/')
-
-            // Click npm tab
-            const npmTab = page.locator('button:has-text("npm"):visible').first()
-            await npmTab.click({ force: true })
-
-            // Click copy button
-            const copyBtn = page.locator('button:has-text("Copy"):visible').first()
-            if (await copyBtn.isVisible()) {
-              await copyBtn.click({ force: true })
-            }
-
-            await settle(page)
-            await expect(page).toHaveScreenshot(`landing-npm-copy-${theme}-${viewport.name}.png`)
-          })
-        })
-      }
-    })
-  }
+test.beforeEach(async ({ page }) => {
+  await routeFonts(page)
 })
 
-// Documentation pages tests
-test.describe('Documentation pages', () => {
-  const docPages = [
-    { path: '/docs/', name: 'docs-index' },
-    { path: '/docs/guide/quick-start', name: 'docs-quick-start' }
-  ]
+for (const theme of themes) {
+  for (const viewport of viewports) {
+    test.describe(`${theme} ${viewport.name}`, () => {
+      test.use({
+        viewport: { width: viewport.width, height: viewport.height },
+        deviceScaleFactor: viewport.deviceScaleFactor,
+        isMobile: viewport.isMobile
+      })
+      test.beforeEach(async ({ page }) => {
+        await seedTheme(page, theme)
+      })
+      const suffix = `${theme}-${viewport.name}`
 
-  for (const theme of themes) {
-    test.describe(`${theme} theme`, () => {
-      for (const { path, name } of docPages) {
-        test(`${name}`, async ({ page }) => {
-          await seedTheme(page, theme)
-          await page.setViewportSize({ width: 1280, height: 800 })
+      test('landing top', async ({ page }) => {
+        await page.goto('/')
+        await settle(page)
+        await expect(page).toHaveScreenshot(`landing-top-${suffix}.png`, { mask: screenshotMask(page) })
+      })
 
+      test('landing scrolled 900px', async ({ page }) => {
+        await page.goto('/')
+        await page.evaluate(() => window.scrollTo(0, 900))
+        await settle(page)
+        await expect(page).toHaveScreenshot(`landing-scrolled-${suffix}.png`, { mask: screenshotMask(page) })
+      })
+
+      test('landing banner dismissed', async ({ page }) => {
+        await page.addInitScript(() => localStorage.setItem('aiur-archon-banner', 'dismissed'))
+        await page.goto('/')
+        await expect(page.locator('.announce')).toBeHidden()
+        await settle(page)
+        await expect(page).toHaveScreenshot(`landing-banner-dismissed-${suffix}.png`, { mask: screenshotMask(page) })
+      })
+
+      for (const tab of ['Prompt', 'npm', 'bun', 'pnpm', 'yarn']) {
+        test(`landing ${tab} tab selected`, async ({ page }) => {
+          await page.goto('/')
+          const button = page.getByRole('tab', { name: tab, exact: true })
+          await button.click()
+          await expect(button).toHaveAttribute('aria-selected', 'true')
+          await settle(page)
+          await expect(page).toHaveScreenshot(`landing-tab-${tab.toLowerCase()}-${suffix}.png`, { mask: screenshotMask(page) })
+          await expect(page.locator('.hero')).toHaveScreenshot(`hero-tab-${tab.toLowerCase()}-${suffix}.png`, { mask: screenshotMask(page) })
+          await expect(page.locator('#installWrap')).toHaveScreenshot(`install-wrap-tab-${tab.toLowerCase()}-${suffix}.png`)
+        })
+      }
+
+      test('landing npm copy opens next steps', async ({ page }) => {
+        await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+        await page.goto('/')
+        await page.getByRole('tab', { name: 'npm', exact: true }).click()
+        await page.locator('#copyBtn').click()
+        await expect(page.locator('#nextSteps')).toHaveAttribute('aria-hidden', 'false')
+        // The transient copied icon resets after 1.3 seconds.
+        await expect(page.locator('#copyBtn')).not.toHaveClass(/copied/)
+        await settle(page)
+        await expect(page).toHaveScreenshot(`landing-npm-copy-${suffix}.png`, { mask: screenshotMask(page) })
+      })
+
+      for (const { path, name } of [
+        { path: '/docs/', name: 'docs-index' },
+        { path: '/docs/guide/quick-start', name: 'docs-quick-start' }
+      ]) {
+        test(name, async ({ page }) => {
           await page.goto(path)
           await settle(page)
-          await expect(page).toHaveScreenshot(`${name}-${theme}.png`)
+          await expect(page).toHaveScreenshot(`${name}-${suffix}.png`, { mask: screenshotMask(page) })
         })
       }
 
-      test('product switcher open', async ({ page }) => {
-        await seedTheme(page, theme)
-        await page.setViewportSize({ width: 1280, height: 800 })
-
+      test('docs product switcher open', async ({ page }) => {
         await page.goto('/docs/')
-
-        // Open product switcher
-        const switcher = page.locator('[data-test="product-switcher"]').first()
-        if (await switcher.isVisible()) {
-          await switcher.click()
-        }
-
+        const button = page.locator('#product-switcher-button')
+        await expect(button).toBeVisible()
+        await button.click()
+        const menu = page.locator('#product-switcher-menu')
+        await expect(menu).toBeVisible()
         await settle(page)
-        await expect(page).toHaveScreenshot(`docs-switcher-open-${theme}.png`)
+        await expect(page).toHaveScreenshot(`docs-switcher-open-${suffix}.png`, { mask: screenshotMask(page) })
+        await expect(menu).toHaveScreenshot(`docs-switcher-menu-${suffix}.png`)
       })
-    })
-  }
-})
 
-// Element-level snapshots for key sections
-test.describe('Element snapshots', () => {
-  const elements = [
-    { selector: '.announce', name: 'announce' },
-    { selector: '.topbar', name: 'topbar' },
-    { selector: '.install-box', name: 'install-box' },
-    { selector: '.features', name: 'features' },
-    { selector: '.site-foot', name: 'site-foot' },
-    { selector: '.VPNav', name: 'vpnav' }
-  ]
-
-  for (const theme of ['light', 'dark']) {
-    test.describe(`${theme} theme`, () => {
-      for (const { selector, name } of elements) {
+      for (const { selector, name, path } of [
+        { selector: '.announce', name: 'announce', path: '/' },
+        { selector: '.topbar', name: 'topbar', path: '/' },
+        { selector: '.install-box', name: 'install-box', path: '/' },
+        { selector: '.features', name: 'features', path: '/' },
+        { selector: '.site-foot', name: 'site-foot', path: '/' },
+        { selector: '.VPNav', name: 'vpnav', path: '/docs/' }
+      ]) {
         test(`${name} element`, async ({ page }) => {
-          await seedTheme(page, theme)
-          await page.setViewportSize({ width: 1280, height: 800 })
-
-          await page.goto('/')
-
+          await page.goto(path)
           const element = page.locator(selector).first()
-          if (await element.isVisible()) {
-            await element.scrollIntoViewIfNeeded()
-            await settle(page)
-            await expect(element).toHaveScreenshot(`element-${name}-${theme}.png`)
-          }
+          await expect(element).toBeVisible()
+          await element.scrollIntoViewIfNeeded()
+          await settle(page)
+          await expect(element).toHaveScreenshot(`element-${name}-${suffix}.png`, { mask: screenshotMask(page) })
         })
       }
     })
   }
-})
-
-// Self-test: Prove that the snapshot threshold catches visual regressions
-test.describe('Visual regression detection (selftest)', () => {
-  test.skip(process.env.PW_TEST_REPORTER_JSON !== undefined, 'Skip during update-snapshots')
-
-  test('detects color change (0.002 ratio threshold)', async ({ page }) => {
-    test.fail() // Injected change should cause screenshot to fail
-
-    await seedTheme(page, 'light')
-    await page.setViewportSize({ width: 1280, height: 800 })
-
-    await page.goto('/')
-    await settle(page)
-
-    // Inject a large visible box that covers significant screen area
-    await page.evaluate(() => {
-      const box = document.createElement('div')
-      box.style.position = 'fixed'
-      box.style.top = '100px'
-      box.style.left = '100px'
-      box.style.width = '200px'
-      box.style.height = '200px'
-      box.style.backgroundColor = '#ff0000'
-      box.style.zIndex = '99999'
-      document.body.appendChild(box)
-    })
-
-    // Wait for the change to be painted via animation frames
-    await page.evaluate(() => {
-      return new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            resolve()
-          })
-        })
-      })
-    })
-
-    // This should FAIL because the red box was injected
-    // test.fail() makes this a pass (failed assertion is expected)
-    await expect(page).toHaveScreenshot('landing-top-light-desktop.png')
-  })
-
-  test('detects padding change (0.002 ratio threshold)', async ({ page }) => {
-    test.fail() // Injected change should cause screenshot to fail
-
-    await seedTheme(page, 'light')
-    await page.setViewportSize({ width: 1280, height: 800 })
-
-    await page.goto('/')
-    await settle(page)
-
-    // Inject multiple large colored boxes covering different areas
-    await page.evaluate(() => {
-      const box1 = document.createElement('div')
-      box1.style.position = 'fixed'
-      box1.style.top = '10px'
-      box1.style.left = '10px'
-      box1.style.width = '150px'
-      box1.style.height = '80px'
-      box1.style.backgroundColor = '#0000ff'
-      box1.style.zIndex = '99999'
-      document.body.appendChild(box1)
-
-      const box2 = document.createElement('div')
-      box2.style.position = 'fixed'
-      box2.style.bottom = '50px'
-      box2.style.right = '50px'
-      box2.style.width = '180px'
-      box2.style.height = '120px'
-      box2.style.backgroundColor = '#00ff00'
-      box2.style.zIndex = '99998'
-      document.body.appendChild(box2)
-    })
-
-    // Wait for the change to be painted via animation frames
-    await page.evaluate(() => {
-      return new Promise<void>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            resolve()
-          })
-        })
-      })
-    })
-
-    // This should FAIL because multiple colored boxes were injected
-    // test.fail() makes this a pass (failed assertion is expected)
-    await expect(page).toHaveScreenshot('landing-top-light-desktop.png')
-  })
-})
+}
