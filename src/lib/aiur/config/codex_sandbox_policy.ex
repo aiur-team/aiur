@@ -288,12 +288,31 @@ defmodule Aiur.Config.CodexSandboxPolicy do
   end
 
   defp local_workspace_writable_roots(workspace_root) do
-    append_unique([workspace_root], local_git_metadata_root(workspace_root))
+    git_root = local_git_metadata_root(workspace_root)
+
+    [workspace_root]
+    |> append_unique(git_root)
+    |> append_unique(local_agents_root(workspace_root, git_root))
   end
 
   defp remote_workspace_writable_roots(workspace_root) do
-    append_unique([workspace_root], Path.join(workspace_root, ".git"))
+    [workspace_root, Path.join(workspace_root, ".git"), Path.join(workspace_root, ".agents")]
   end
+
+  # Codex protects .agents by default, including the skills symlink Git must
+  # replace when updating a checkout. Grant the directory, not the symlink's
+  # target; .codex retains its default protection and skills stay discoverable.
+  defp local_agents_root(workspace_root, git_root) when is_binary(git_root) do
+    agents_root = Path.join(workspace_root, ".agents")
+
+    case File.lstat(agents_root) do
+      {:ok, %File.Stat{type: :directory}} -> agents_root
+      {:error, :enoent} -> agents_root
+      _ -> nil
+    end
+  end
+
+  defp local_agents_root(_workspace_root, _git_root), do: nil
 
   defp local_git_metadata_root(workspace_root) do
     with git when is_binary(git) <- System.find_executable("git"),
