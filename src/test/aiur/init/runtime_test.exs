@@ -1,6 +1,7 @@
 defmodule Aiur.Init.RuntimeTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Init.GitHub
   alias Aiur.Init.Runtime
   alias Aiur.Init.Templates
   alias Aiur.RepoBase
@@ -58,7 +59,7 @@ defmodule Aiur.Init.RuntimeTest do
     System.put_env("GITHUB_APP_PRIVATE_KEY", "configured-for-daemon")
 
     assert Runtime.runtime_deps().github_token.() == "explicit-init-token"
-    assert Aiur.Init.GitHub.require_github_token() == {:ok, "explicit-init-token"}
+    assert GitHub.require_github_token() == {:ok, "explicit-init-token"}
   end
 
   test "runtime token dependency never substitutes the CI readiness credential" do
@@ -75,7 +76,7 @@ defmodule Aiur.Init.RuntimeTest do
     System.put_env("AIUR_CI_READINESS_TOKEN", "operator-only-token")
 
     assert Runtime.runtime_deps().github_token.() == nil
-    assert {:error, message} = Aiur.Init.GitHub.require_github_token()
+    assert {:error, message} = GitHub.require_github_token()
     assert message =~ "GITHUB_TOKEN not set"
   end
 
