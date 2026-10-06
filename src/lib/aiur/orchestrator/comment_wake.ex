@@ -599,16 +599,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   def maybe_transition_idle_issue_to_rework(state, issue_number, source, event, attempt) do
     case idle_rework_decision(state, issue_number, event) do
       {:skip, reason} ->
-        Alerts.emit_custom(
-          "ticket.#{issue_number}.agent.attention.comment_wake_idle_issue",
-          "Comment on idle issue #{issue_number} was ignored (#{inspect(reason)})",
-          issue: to_string(issue_number),
-          reason:
-            "Idle issues are dispatch candidates that pick up comments on their own. Reason: #{inspect(reason)}. Remedy: wait for dispatch, or submit a formal PR review with `gh pr review --request-changes` if you intended to request changes.",
-          needs_attention: false,
-          severity: "info",
-          event_source: :system
-        )
+        emit_idle_comment_refusal(issue_number, reason)
 
         Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
@@ -628,7 +619,8 @@ defmodule Aiur.Orchestrator.CommentWake do
           issue_number,
           "comment_wake_state_unresolved",
           "Comment on issue #{issue_number} could not be evaluated for rework",
-          "Could not resolve the issue state (#{inspect(reason)})."
+          "Could not resolve the issue state (#{inspect(reason)}).",
+          "check tracker access and retry the comment delivery"
         )
 
         Logger.warning(
@@ -648,16 +640,7 @@ defmodule Aiur.Orchestrator.CommentWake do
             |> seed_idle_comment_wake_event(issue_number, event)
 
           {{:skip, reason}, state} ->
-            Alerts.emit_custom(
-              "ticket.#{issue_number}.agent.attention.comment_wake_idle_issue",
-              "Comment on idle issue #{issue_number} was ignored (#{inspect(reason)})",
-              issue: to_string(issue_number),
-              reason:
-                "Idle issues are dispatch candidates that pick up comments on their own. Reason: #{inspect(reason)}. Remedy: wait for dispatch, or submit a formal PR review with `gh pr review --request-changes` if you intended to request changes.",
-              needs_attention: false,
-              severity: "info",
-              event_source: :system
-            )
+            emit_idle_comment_refusal(issue_number, reason)
 
             Logger.info("#{source} ignored for idle issue: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
 
@@ -675,7 +658,8 @@ defmodule Aiur.Orchestrator.CommentWake do
               issue_number,
               "comment_wake_state_update_failed",
               "Comment on issue #{issue_number} could not update its rework state",
-              "The rework state update failed (#{inspect(reason)})."
+              "The rework state update failed (#{inspect(reason)}).",
+              "check tracker permissions and retry the comment delivery"
             )
 
             Logger.warning("#{source} rework transition skipped; state update failed: issue_identifier=#{issue_number} reason=#{inspect(reason)}")
@@ -903,16 +887,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       emit_refused_review_rework_alert(issue_number, event, reason)
     else
-      Alerts.emit_custom(
-        "ticket.#{issue_number}.agent.attention.comment_wake_rework_skipped",
-        "Comment on active issue #{issue_number} did not trigger rework (#{inspect(reason)})",
-        issue: to_string(issue_number),
-        reason:
-          "The comment was recognized as not requiring rework (#{inspect(reason)}). It will be available to the agent on next dispatch. Remedy: submit a formal PR review with `gh pr review --request-changes` to request changes.",
-        needs_attention: false,
-        severity: "info",
-        event_source: :system
-      )
+      :ok
     end
 
     state
@@ -935,20 +910,43 @@ defmodule Aiur.Orchestrator.CommentWake do
           "(#{inspect(reason)}); it is still sitting in its review state.",
       reason:
         "The rework gate refused the transition for a live changes-requested review, and a review " <>
-          "submission is delivered only once, so nothing re-derives it. Remedy: submit a formal " <>
-          "`gh pr review --request-changes` review after addressing the gate condition.",
+          "submission is delivered only once, so nothing re-derives it. Remedy: move the ticket to " <>
+          "rework or re-review it after addressing the gate condition.",
       needs_attention: true,
       severity: "warning",
       central: true
     )
   end
 
-  defp emit_comment_rework_refusal(issue_number, suffix, message, reason) do
+  defp emit_idle_comment_refusal(issue_number, reason)
+       when reason in [:parked, :unlabeled_issue, :no_open_pr, :rework_attempt_limit_reached] do
+    remedy =
+      case reason do
+        :parked -> "unpark the issue and assign its intended agent state"
+        :unlabeled_issue -> "assign an agent state if this issue should be worked"
+        :no_open_pr -> "open a pull request before requesting rework"
+        :rework_attempt_limit_reached -> "move the ticket to rework or re-review it after addressing the gate condition"
+      end
+
+    Alerts.emit_custom(
+      "ticket.#{issue_number}.agent.attention.comment_wake_idle_issue",
+      "Comment on idle issue #{issue_number} was not acted on (#{inspect(reason)})",
+      issue: to_string(issue_number),
+      reason: "Idle issue rework gate refused the comment (#{inspect(reason)}). Remedy: #{remedy}.",
+      needs_attention: false,
+      severity: "info",
+      event_source: :system
+    )
+  end
+
+  defp emit_idle_comment_refusal(_issue_number, _reason), do: :ok
+
+  defp emit_comment_rework_refusal(issue_number, suffix, message, reason, remedy) do
     Alerts.emit_custom(
       "ticket.#{issue_number}.agent.attention.#{suffix}",
       message,
       issue: to_string(issue_number),
-      reason: "#{reason} Remedy: ask for a formal PR review with `gh pr review --request-changes` so the rework gate can process it.",
+      reason: "#{reason} Remedy: #{remedy}.",
       needs_attention: false,
       severity: "info",
       event_source: :system
@@ -1210,8 +1208,7 @@ defmodule Aiur.Orchestrator.CommentWake do
         "ticket.#{issue.identifier}.agent.attention.comment_wake_dispatch_declined",
         "Comment on issue #{issue.identifier} was not acted on: #{reason_details}",
         issue: issue.identifier,
-        reason:
-          "Dispatch policy refused to wake the issue (#{reason_details}, state=#{inspect(issue.state)}). Remedy: resolve the pause/park/running state, or submit a formal PR review with `gh pr review --request-changes` to request changes.",
+        reason: dispatch_decline_reason(reason_details, issue),
         needs_attention: false,
         severity: "info",
         event_source: :system
@@ -1221,6 +1218,18 @@ defmodule Aiur.Orchestrator.CommentWake do
       state
     end
   end
+
+  defp dispatch_decline_reason("issue is paused", _issue),
+    do: "Dispatch policy refused to wake the paused issue. Remedy: resume the issue, then retry the comment delivery."
+
+  defp dispatch_decline_reason("issue is parked", _issue),
+    do: "Dispatch policy refused to wake the parked issue. Remedy: unpark it and assign its intended agent state."
+
+  defp dispatch_decline_reason("issue is already running", _issue),
+    do: "Dispatch policy refused a duplicate wake for an issue with a running agent. Remedy: let that agent finish or send the comment to its session."
+
+  defp dispatch_decline_reason(_details, issue),
+    do: "Dispatch policy refused the issue in state #{inspect(issue.state)}. Remedy: move it to an active state eligible for dispatch, then retry the comment delivery."
 
   # The successful state transition above captures the comment's rework intent,
   # but dispatch admission must continue to use the subsequently fetched state.
@@ -1326,17 +1335,6 @@ defmodule Aiur.Orchestrator.CommentWake do
         #
         # No `rework` write happens here, so #2422's loop stays closed.
         if wake_without_rework_write?(reason) do
-          Alerts.emit_custom(
-            "ticket.#{issue_number}.agent.attention.comment_wake_wake_no_rework",
-            "Comment on issue #{issue_number} triggered wake without rework write (#{inspect(reason)})",
-            issue: to_string(issue_number),
-            reason:
-              "Comment reactivated the issue but did not request rework (#{inspect(reason)}). The agent will see the comment on next dispatch. Remedy: submit a formal PR review with `gh pr review --request-changes` to request changes.",
-            needs_attention: false,
-            severity: "info",
-            event_source: :system
-          )
-
           context = comment_reactivation_context(running_entry, issue_number)
           Logger.info("#{source} waking without rework write: #{context} reason=#{inspect(reason)}")
 
@@ -1349,7 +1347,7 @@ defmodule Aiur.Orchestrator.CommentWake do
             "Comment on inactive issue #{issue_number} was ignored (#{inspect(reason)})",
             issue: to_string(issue_number),
             reason:
-              "Inactive issues are not dispatch candidates and do not accept comment-based reactivation (#{inspect(reason)}). Remedy: change the issue's state manually, wait for a state change, or submit a formal PR review with `gh pr review --request-changes` to request changes.",
+              "Inactive issues are not dispatch candidates and do not accept comment-based reactivation (#{inspect(reason)}). Remedy: change the issue to an active state, then retry the comment delivery.",
             needs_attention: false,
             severity: "info",
             event_source: :system
@@ -1368,8 +1366,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_state_failed",
           "Reactivation for issue #{issue_number} failed (#{inspect(reason)})",
           issue: to_string(issue_number),
-          reason:
-            "Could not update issue state during reactivation (#{inspect(reason)}). Remedy: check the issue's current state, retry the reactivation, or submit a formal PR review with `gh pr review --request-changes` to request changes.",
+          reason: "Could not update issue state during reactivation (#{inspect(reason)}). Remedy: check tracker permissions and retry reactivation.",
           needs_attention: false,
           severity: "info",
           event_source: :system
@@ -1597,8 +1594,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           "ticket.#{issue_number}.agent.attention.comment_wake_inactive_issue_reactivation",
           "Reactivation for inactive issue #{issue_number} was ignored (#{inspect(reason)})",
           issue: to_string(issue_number),
-          reason:
-            "Inactive issues cannot be reactivated by comments (#{inspect(reason)}). Remedy: change the issue's state manually, wait for the state to change, or submit a formal PR review with `gh pr review --request-changes` to request changes.",
+          reason: "Inactive issues cannot be reactivated by comments (#{inspect(reason)}). Remedy: change the issue to an active state, then retry the comment delivery.",
           needs_attention: false,
           severity: "info",
           event_source: :system
@@ -1613,8 +1609,7 @@ defmodule Aiur.Orchestrator.CommentWake do
           "ticket.#{issue_number}.agent.attention.comment_wake_reactivation_refresh_failed",
           "Reactivation for issue #{issue_number} failed - could not refresh state (#{inspect(reason)})",
           issue: to_string(issue_number),
-          reason:
-            "Could not fetch the current issue state during reactivation (#{inspect(reason)}). Remedy: retry the reactivation, check if the issue is accessible, or submit a formal PR review with `gh pr review --request-changes` to request changes.",
+          reason: "Could not fetch the current issue state during reactivation (#{inspect(reason)}). Remedy: check tracker access and retry reactivation.",
           needs_attention: false,
           severity: "info",
           event_source: :system
