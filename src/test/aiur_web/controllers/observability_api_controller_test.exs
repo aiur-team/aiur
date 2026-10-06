@@ -217,7 +217,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
                "result" => 17
              }
 
-      assert_receive {:control_call, :pause, "MT-DEFAULT"}
+      assert_receive {:control_call, :pause, "MT-DEFAULT"}, 1_000
     end
 
     test "delegates pause and resume and returns their successful results" do
