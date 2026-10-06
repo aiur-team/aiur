@@ -1253,6 +1253,11 @@ defmodule Aiur.Workspace.OwnershipTest do
   test "owner exit after expect_provider creates recoverable hold - regression for Khala#533" do
     ticket = "ownership-regression-khala-533-#{System.unique_integer([:positive])}"
     {:ok, boot} = Agent.start_link(fn -> "boot-before" end)
+    {:ok, telemetry} = Agent.start_link(fn -> [] end)
+
+    telemetry_fun = fn ownership, boundary, outcome ->
+      Agent.update(telemetry, &[{ownership, boundary, outcome} | &1])
+    end
 
     boot_id_fun = fn ->
       case Agent.get(boot, & &1) do
@@ -1263,13 +1268,19 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(boot)
+      Aiur.TestSupport.safe_stop(telemetry)
       _ = Store.delete(ticket)
     end)
 
     # Regression test: Owner exits between expect_provider and track_provider
     # This is the scenario from Khala#533 that left workspaces stuck in reaping
     # Directly claim and expect provider (like the runner would)
-    assert {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert {:ok, lease} =
+             Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+               host_boot_id_fun: boot_id_fun,
+               telemetry_fun: telemetry_fun
+             )
+
     assert :ok = Ownership.expect_provider(lease, :local)
     assert {:ok, %{provider_expected?: true, provider: nil} = receipt} = Store.get(ticket)
 
@@ -1278,7 +1289,12 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
 
     # Daemon restarts and restores guardian - it goes into reaping
-    assert {:ok, held} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert {:ok, held} =
+             Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry,
+               host_boot_id_fun: boot_id_fun,
+               telemetry_fun: telemetry_fun
+             )
+
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
 
     # Hold status shows :same_boot - provider might still be running
@@ -1297,7 +1313,11 @@ defmodule Aiur.Workspace.OwnershipTest do
     Agent.update(boot, fn _ -> "boot-after" end)
 
     # Daemon restores guardian with new boot proof
-    assert {:ok, _recovered} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert {:ok, _recovered} =
+             Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry,
+               host_boot_id_fun: boot_id_fun,
+               telemetry_fun: telemetry_fun
+             )
 
     assert %{generation: ^generation, proof: :boot_changed_release_pending} =
              HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store, boot_id_fun)
@@ -1310,6 +1330,11 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert output =~ "released workspace hold for #{ticket} generation #{generation}"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
+
+    assert Enum.any?(Agent.get(telemetry, & &1), fn
+             {%{generation: ^generation}, :point, :operator_release_after_provider_exit_proof} -> true
+             _ -> false
+           end)
 
     # Redispatch can now claim the workspace with a new generation
     assert {:ok, replacement} = Ownership.claim(ticket)
