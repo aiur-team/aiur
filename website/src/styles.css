@@ -812,4 +812,4 @@
   }
   .foot-links a:hover { color: var(--fg); }
   .foot-links a svg { width: 17px; height: 17px; display: block; }
-  .foot-links .github-link { gap: 0; }
+  .foot-links .github-link { gap: 8px; }
