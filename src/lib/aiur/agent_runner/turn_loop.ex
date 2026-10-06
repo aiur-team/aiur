@@ -100,7 +100,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
       WipPreservation.with_pending_notices(
         workspace,
         issue.identifier,
-        TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns)
+        build_turn_prompt(issue, workspace, opts, turn_number, max_turns)
       )
 
     # The prompt is one of the three no-op witnesses (#2806): two consecutive
@@ -214,6 +214,12 @@ defmodule Aiur.AgentRunner.TurnLoop do
       {:error, reason} = error ->
         settle_turn_error(turn_context, backend, reason, error)
     end
+  end
+
+  @doc false
+  @spec build_turn_prompt(Issue.t(), Path.t(), keyword(), pos_integer(), pos_integer() | nil) :: String.t()
+  def build_turn_prompt(issue, workspace, opts, turn_number, max_turns) do
+    TurnPrompt.build_turn_prompt(issue, Keyword.put(opts, :workspace, workspace), turn_number, max_turns)
   end
 
   # Provider-classified recoverable session failures must not fail the durable queue item: restore it and
