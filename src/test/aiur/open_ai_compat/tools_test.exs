@@ -151,7 +151,7 @@ defmodule Aiur.OpenAICompat.ToolsTest do
                system_cmd: runner
              )
 
-    assert_receive {:command, "/usr/bin/bwrap", args, [stderr_to_stdout: true]}
+    assert_receive {:command, "/usr/bin/bwrap", args, [stderr_to_stdout: true]}, 1000
 
     assert "--clearenv" in args
     refute ["--ro-bind", "/", "/"] in Enum.chunk_every(args, 3, 1, :discard)

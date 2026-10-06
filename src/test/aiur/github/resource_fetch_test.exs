@@ -245,7 +245,7 @@ defmodule Aiur.GitHub.ResourceFetchTest do
                ResourceFetch.need(key, recorder, freshness: {:max_age_ms, 60_000})
 
       assert count(calls) == 1
-      assert_receive {:github_resource_changed, %{key: ^key, data?: true}}
+      assert_receive {:github_resource_changed, %{key: ^key, data?: true}}, 1000
       assert ResourceStore.etag(key) == ~s("e12")
 
       # A second consumer inside the window rides on that one call.
@@ -260,7 +260,7 @@ defmodule Aiur.GitHub.ResourceFetchTest do
       {:ok, _data, first} =
         ResourceFetch.need(key, fn _opts -> {:ok, %{"id" => 13, "updated_at" => "2026-08-17T00:00:00Z"}} end, freshness: :strict)
 
-      assert_receive {:github_resource_changed, %{key: ^key, data_version: "2026-08-17T00:00:00Z"}}
+      assert_receive {:github_resource_changed, %{key: ^key, data_version: "2026-08-17T00:00:00Z"}}, 1000
 
       {:ok, _data, second} =
         ResourceFetch.need(key, fn _opts -> {:ok, %{"id" => 13, "updated_at" => "2026-08-17T03:00:00Z"}} end, freshness: :strict)
@@ -269,7 +269,7 @@ defmodule Aiur.GitHub.ResourceFetchTest do
       assert second.version == "2026-08-17T03:00:00Z"
       # The edit reached the subscribers rather than being swallowed as a
       # redelivery of the same identity.
-      assert_receive {:github_resource_changed, %{key: ^key, data_version: "2026-08-17T03:00:00Z"}}
+      assert_receive {:github_resource_changed, %{key: ^key, data_version: "2026-08-17T03:00:00Z"}}, 1000
     end
 
     test "a caller may name the version itself when it is not an updated_at" do

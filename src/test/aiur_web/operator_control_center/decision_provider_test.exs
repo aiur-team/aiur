@@ -235,9 +235,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
              DecisionProvider.list(%{"limit" => 1}, decision_store: store, decision_metrics: metrics)
 
     assert row.decision_id == newest.decision_id
-    assert_receive {:metric_snapshot, newest_id}
+    assert_receive {:metric_snapshot, newest_id}, 1000
     assert newest_id == newest.decision_id
-    refute_receive {:metric_snapshot, _other_id}
+    refute_receive {:metric_snapshot, _other_id}, 100
   end
 
   test "list stops latency enrichment after the first unavailable metric snapshot", %{store: store} do
@@ -251,9 +251,9 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
              DecisionProvider.list(%{"limit" => 3}, decision_store: store, decision_metrics: metrics)
 
     assert Enum.map(rows, & &1.latency) == List.duplicate(%{status: :unavailable, snapshot: nil}, 3)
-    assert_receive {:metric_snapshot, newest_id}
+    assert_receive {:metric_snapshot, newest_id}, 1000
     assert newest_id == newest.decision_id
-    refute_receive {:metric_snapshot, _other_id}
+    refute_receive {:metric_snapshot, _other_id}, 100
   end
 
   test "exact retained detail keeps partial health without turning a missing ID into an outage", %{store: store} do

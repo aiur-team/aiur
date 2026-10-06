@@ -263,7 +263,7 @@ defmodule Aiur.Events.GithubWebhookTest do
                  reconcile_fun: fn hint -> send(parent, {:reconcile, hint}) end
                )
 
-      assert_receive {:reconcile, %{kind: :issue_state, ticket: "42"}}
+      assert_receive {:reconcile, %{kind: :issue_state, ticket: "42"}}, 1000
     end
 
     test "unlabeled, closed, reopened and opened reconcile the same way, so out-of-order deliveries converge" do
@@ -375,7 +375,7 @@ defmodule Aiur.Events.GithubWebhookTest do
                    reconcile_fun: fn hint -> send(parent, {:reconcile, hint}) end
                  )
 
-        assert_receive {:reconcile, %{kind: :review_thread, ticket: "42", action: ^action}}
+        assert_receive {:reconcile, %{kind: :review_thread, ticket: "42", action: ^action}}, 1000
       end
     end
 
@@ -968,7 +968,7 @@ defmodule Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe do
   `:request_refresh` GenServer call as `:request_refresh_called` and a raw
   `:run_poll_cycle` message as `:run_poll_cycle_received`, so a test can tell
   the two wake shapes apart — the mutant that reverts the default to a raw
-  `:run_poll_cycle` send would fail the `refute_receive`.
+  `:run_poll_cycle` send would fail the `refute_receive`., 100
   """
   use GenServer
 

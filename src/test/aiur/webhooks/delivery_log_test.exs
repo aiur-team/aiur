@@ -114,7 +114,7 @@ defmodule Aiur.Webhooks.DeliveryLogTest do
 
     assert :new == DeliveryLog.claim(:delivery, "c-4", log)
 
-    assert_receive {:alert, "webhook_delivery_log.ceiling_exceeded", ceiling_message, _meta}
+    assert_receive {:alert, "webhook_delivery_log.ceiling_exceeded", ceiling_message, _meta}, 1000
     assert ceiling_message =~ "duplicate protection is degraded"
 
     # The oldest entry was evicted before its window expired; the newest survived.
@@ -150,7 +150,7 @@ defmodule Aiur.Webhooks.DeliveryLogTest do
     assert :new == DeliveryLog.claim(:delivery, "d-degraded", log)
     assert {:duplicate, _at} = DeliveryLog.claim(:delivery, "d-degraded", log)
 
-    assert_receive {:alert, "webhook_delivery_log.unavailable", message, _meta}
+    assert_receive {:alert, "webhook_delivery_log.unavailable", message, _meta}, 1000
     assert message =~ "no longer survives restart"
     assert {:append_failed, :eacces} = DeliveryLog.health(log)
   end
@@ -167,7 +167,7 @@ defmodule Aiur.Webhooks.DeliveryLogTest do
 
     assert {:corrupt, 2, _reason} = DeliveryLog.health(restarted)
     assert {:duplicate, _at} = DeliveryLog.claim(:delivery, "d-good", restarted)
-    assert_receive {:alert, "webhook_delivery_log.corrupted", _message, _meta}
+    assert_receive {:alert, "webhook_delivery_log.corrupted", _message, _meta}, 1000
   end
 
   test "an unresolvable state directory fails open rather than dropping deliveries", context do
@@ -179,7 +179,7 @@ defmodule Aiur.Webhooks.DeliveryLogTest do
 
     assert {:unavailable, _reason} = DeliveryLog.health(log)
     assert :new == DeliveryLog.claim(:delivery, "d-open", log)
-    assert_receive {:alert, "webhook_delivery_log.unavailable", _message, _meta}
+    assert_receive {:alert, "webhook_delivery_log.unavailable", _message, _meta}, 1000
   end
 
   test "the append stream is compacted once it outgrows the live set", context do

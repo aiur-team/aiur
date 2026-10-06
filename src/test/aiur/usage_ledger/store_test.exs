@@ -62,7 +62,7 @@ defmodule Aiur.UsageLedger.StoreTest do
     assert {:ok, acknowledgement} = append(name, first)
     assert acknowledgement.position == 1
     assert acknowledgement.delta.relationship_revision == "codex-app-server-2026-07"
-    assert_receive {:usage_ledger_delta, ^acknowledgement}
+    assert_receive {:usage_ledger_delta, ^acknowledgement}, 1000
     GenServer.stop(pid)
 
     {:ok, restarted} = start_store(root, name)
@@ -86,7 +86,7 @@ defmodule Aiur.UsageLedger.StoreTest do
 
     assert {:duplicate, durable_duplicate} = append(name, changed_retry)
     assert durable_duplicate.position == acknowledgement.position
-    refute_receive {:usage_ledger_delta, _}
+    refute_receive {:usage_ledger_delta, _}, 100
     GenServer.stop(restarted)
   end
 
@@ -151,7 +151,7 @@ defmodule Aiur.UsageLedger.StoreTest do
       )
 
     assert {:error, :persistence_failed} = append(name, envelope(%{}))
-    refute_receive {:published, _}
+    refute_receive {:published, _}, 100
     assert {:degraded, :persistence_failed} = health(name)
     GenServer.stop(pid)
   end

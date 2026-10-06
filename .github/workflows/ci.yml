@@ -177,6 +177,8 @@ jobs:
         run: bash scripts/test-check-env-example.sh
       - name: Test coverage-shard parity guard
         run: bash scripts/test-check-test-shard-parity.sh
+      - name: Test bare assert_receive guard
+        run: bash scripts/test-check-bare-assert-receive.sh
       - name: Test hourly retrospective visual check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
       - name: Test hourly dashboard analyzer

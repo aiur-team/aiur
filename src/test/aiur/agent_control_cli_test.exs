@@ -247,8 +247,8 @@ defmodule Aiur.AgentControlCLITest do
         send(parent, {ref, :stdout, stdout})
       end)
 
-    assert_receive {^ref, :stdout, stdout}
-    assert_receive {^ref, :exit_code, exit_code}
+    assert_receive {^ref, :stdout, stdout}, 1000
+    assert_receive {^ref, :exit_code, exit_code}, 1000
     {stdout, stderr, exit_code}
   end
 
@@ -546,7 +546,7 @@ defmodule Aiur.AgentControlCLITest do
 
       # The queued identifiers ride along so the daemon keeps polling at the
       # base interval until it has actually seen them (#2640).
-      assert_receive {:todo_request_refresh, ["11"]}
+      assert_receive {:todo_request_refresh, ["11"]}, 1000
       assert stderr == ""
     end
 
@@ -559,7 +559,7 @@ defmodule Aiur.AgentControlCLITest do
 
       {stdout, stderr, 0} = capture_todo(["11"], deps: todo_deps(issues, request_refresh_result: :unavailable))
 
-      assert_receive {:todo_request_refresh, ["11"]}
+      assert_receive {:todo_request_refresh, ["11"]}, 1000
       assert stdout =~ "queued 1 ticket(s)"
       assert stderr =~ "the daemon did not accept a poll refresh; queued tickets wait for its next scheduled poll"
     end
@@ -579,7 +579,7 @@ defmodule Aiur.AgentControlCLITest do
 
       {stdout, stderr, 0} = capture_todo(~w(138 139), deps: todo_deps(issues))
 
-      assert_receive {:todo_request_refresh, ["138", "139"]}
+      assert_receive {:todo_request_refresh, ["138", "139"]}, 1000
       assert stdout =~ "• #138 kept sym:rework"
       assert stdout =~ "kept 2 in flight"
       assert stderr == ""
@@ -1477,7 +1477,7 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~ "CI readiness: not ready for main"
-    refute_receive :ci_readiness_checked
+    refute_receive :ci_readiness_checked, 100
   end
 
   test "status reports unavailable before the dispatcher has a readiness result" do
@@ -2550,7 +2550,7 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
 
-    assert_receive :resume_called
+    assert_receive :resume_called, 1000
     assert output =~ "aiur: resumed #44 (was: running)"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
@@ -3166,7 +3166,7 @@ defmodule Aiur.AgentControlCLITest do
     stderr =
       capture_io(:stderr, fn ->
         output = capture_io(fn -> AgentControlCLI.message("44", "don't stop") end)
-        assert_receive {:message_id, "cli-" <> _ = message_id}
+        assert_receive {:message_id, "cli-" <> _ = message_id}, 1000
 
         assert output =~ "aiur: outcome unknown for message to #44"
         assert output =~ "(message id #{message_id})"
@@ -3201,9 +3201,9 @@ defmodule Aiur.AgentControlCLITest do
       AgentControlCLI.message("44", "continue")
     end)
 
-    assert_receive {:sent, "continue", "retry-1"}
-    assert_receive {:sent, "continue", "cli-" <> _ = second}
-    assert_receive {:sent, "continue", "cli-" <> _ = third}
+    assert_receive {:sent, "continue", "retry-1"}, 1000
+    assert_receive {:sent, "continue", "cli-" <> _ = second}, 1000
+    assert_receive {:sent, "continue", "cli-" <> _ = third}, 1000
     refute second == third
   end
 

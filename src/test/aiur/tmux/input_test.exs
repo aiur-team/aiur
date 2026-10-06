@@ -15,7 +15,7 @@ defmodule Aiur.Tmux.InputTest do
         Input.send_keys_literal(state, "%42", "hello")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "send-keys -t %42 -l hello"
 
@@ -33,7 +33,7 @@ defmodule Aiur.Tmux.InputTest do
         Input.send_enter(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "send-keys -t %42 Enter"
 
@@ -51,7 +51,7 @@ defmodule Aiur.Tmux.InputTest do
         Input.clear_input(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "send-keys -t %42 C-u"
 
@@ -69,7 +69,7 @@ defmodule Aiur.Tmux.InputTest do
         Input.send_interrupt(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "send-keys -t %42 C-c"
 
@@ -87,7 +87,7 @@ defmodule Aiur.Tmux.InputTest do
         Input.send_escape(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "send-keys -t %42 Escape"
 
@@ -106,7 +106,7 @@ defmodule Aiur.Tmux.InputTest do
         Input.paste_text(state, "%42", text)
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
 
     assert_receive {:tmux_mock_out, "load-buffer -b " <> rest1}, 1_000
     [buffer, tmp] = String.split(rest1, " ", parts: 2)

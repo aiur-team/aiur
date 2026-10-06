@@ -84,11 +84,11 @@ defmodule Aiur.OrchestratorMaxDurationTest do
           send(self(), {:duration_overrun_result, RuntimeWatchdog.apply_overrun_check(state, 60)})
         end)
 
-      assert_receive {:duration_overrun_result, next}
+      assert_receive {:duration_overrun_result, next}, 1000
 
       # The worker is told to park cooperatively — this is the load-bearing
       # behavior that replaced the old terminate+retry kill.
-      assert_receive {:pause_agent, request_id, 101} when is_integer(request_id)
+      assert_receive {:pause_agent, request_id, 101} when is_integer(request_id), 1000
 
       # Entry survives — pausing keeps the agent in the list, not killed —
       # and no retry is scheduled for it (the kill path is gone).
@@ -155,7 +155,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert {{:ok, :resumed}, next} =
                PauseResume.resume_paused_issue(state, state.running[issue_id])
 
-      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id)
+      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id), 1000
 
       assert {:noreply, next} =
                Orchestrator.handle_info(
@@ -192,7 +192,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert {{:ok, :resumed}, next} =
                PauseResume.resume_paused_issue(state, state.running[issue_id])
 
-      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id)
+      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id), 1000
 
       assert {:noreply, next} =
                Orchestrator.handle_info(
@@ -236,7 +236,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert {{:ok, :resumed}, next} =
                PauseResume.resume_paused_issue(state, state.running[issue_id], false)
 
-      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id)
+      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id), 1000
 
       assert {:noreply, next} =
                Orchestrator.handle_info(
@@ -282,7 +282,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert {{:ok, :resumed}, next} =
                PauseResume.resume_paused_issue(state, state.running[issue_id])
 
-      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id)
+      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id), 1000
 
       assert {:noreply, next} =
                Orchestrator.handle_info(

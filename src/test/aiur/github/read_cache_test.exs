@@ -836,7 +836,7 @@ defmodule Aiur.GitHub.ReadCacheTest do
       # next; the setup block resets whatever it finds.
       ref = Process.monitor(owner)
       GenServer.stop(owner)
-      assert_receive {:DOWN, ^ref, :process, ^owner, _reason}
+      assert_receive {:DOWN, ^ref, :process, ^owner, _reason}, 1000
 
       # The restart also restarts every later application child. Wait for all
       # of them, so the next test does not start inside that cascade.

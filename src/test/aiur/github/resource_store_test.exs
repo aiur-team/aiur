@@ -1334,7 +1334,7 @@ defmodule Aiur.GitHub.ResourceStoreTest do
     # The sampler **keeps watching after it sees a regression** and reports the
     # sequence it observed at the end. An earlier version stopped recursing on the
     # first sighting, so every failure surfaced as a bare 10-second
-    # `assert_receive` timeout and the two assertions that tell the two defects
+    # `assert_receive` timeout and the two assertions that tell the two defects, 1000
     # apart — a true lost update, where the final count is short, against a
     # transient rollback, where it is not — never ran. A probe that detects a race
     # but cannot describe it costs more time than it saves.

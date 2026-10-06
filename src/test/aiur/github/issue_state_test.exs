@@ -65,8 +65,8 @@ defmodule Aiur.GitHub.IssueStateTest do
 
       # Both issue reads on the transition (the initial and the active-label
       # re-check) carried the stored validator.
-      assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}
-      assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}
+      assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}, 1000
+      assert_receive {:request, %{method: :get, etag: ~s("issue-etag")}}, 1000
     end
 
     test "adds the new state label first, then removes the old one (no zero-label window)" do
@@ -220,9 +220,9 @@ defmodule Aiur.GitHub.IssueStateTest do
 
       assert {:error, _} = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
 
-      assert_receive {:request, %{method: :get}}
-      assert_receive {:request, %{method: :get}}
-      assert_receive {:request, %{method: :post}}
+      assert_receive {:request, %{method: :get}}, 1000
+      assert_receive {:request, %{method: :get}}, 1000
+      assert_receive {:request, %{method: :post}}, 1000
       # No DELETE ever fires: the old sym:todo label is never removed, so the
       # issue never passes through a zero-state-label state.
       refute_receive {:request, %{method: :delete}}, 100
@@ -271,9 +271,9 @@ defmodule Aiur.GitHub.IssueStateTest do
 
       assert :ok = IssueState.update_issue_state("42", "rework", request_fun: request_fun)
 
-      assert_receive {:request, %{method: :get}}
-      assert_receive {:request, %{method: :get}}
-      assert_receive {:request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}
+      assert_receive {:request, %{method: :get}}, 1000
+      assert_receive {:request, %{method: :get}}, 1000
+      assert_receive {:request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}, 1000
       # The just-added (already-present) label is excluded from the removal set,
       # so no DELETE ever fires and the ticket keeps exactly one state label.
       refute_receive {:request, %{method: :delete}}, 100
@@ -347,8 +347,8 @@ defmodule Aiur.GitHub.IssueStateTest do
                IssueState.update_issue_state("42", "rework", request_fun: request_fun)
 
       # Only deletes non-terminal active labels; does not POST a new label or PATCH close
-      assert_receive {:request, %{method: :get}}
-      assert_receive {:request, %{method: :delete}}
+      assert_receive {:request, %{method: :get}}, 1000
+      assert_receive {:request, %{method: :delete}}, 1000
       refute_receive {:request, %{method: :post}}, 100
       refute_receive {:request, %{method: :patch}}, 100
     end
@@ -399,9 +399,9 @@ defmodule Aiur.GitHub.IssueStateTest do
                IssueState.update_issue_state("42", "rework", request_fun: request_fun)
 
       # Two GETs, one DELETE (the stale rework label), no POST
-      assert_receive {:request, %{method: :get}}
-      assert_receive {:request, %{method: :get}}
-      assert_receive {:request, %{method: :delete}}
+      assert_receive {:request, %{method: :get}}, 1000
+      assert_receive {:request, %{method: :get}}, 1000
+      assert_receive {:request, %{method: :delete}}, 1000
       refute_receive {:request, %{method: :post}}, 100
     end
 
@@ -427,7 +427,7 @@ defmodule Aiur.GitHub.IssueStateTest do
                  request_fun: request_fun
                )
 
-      assert_receive {:request, %{method: :get}}
+      assert_receive {:request, %{method: :get}}, 1000
       refute_receive {:request, %{method: _method}}, 100
     end
 
@@ -468,16 +468,16 @@ defmodule Aiur.GitHub.IssueStateTest do
                  request_fun: request_fun
                )
 
-      assert_receive {:request, %{method: :get, url: issue_url}}
+      assert_receive {:request, %{method: :get, url: issue_url}}, 1000
       assert issue_url =~ "/issues/42"
       # One open-pull-request listing, not two: the `head=<owner>:aiur/42` probe
       # that used to run in front of it matched only branches the listing's own
       # filter already accepts, so it was a billed request that answered nothing
       # the next one did not.
-      assert_receive {:request, %{method: :get, url: ticket_pull_url}}
+      assert_receive {:request, %{method: :get, url: ticket_pull_url}}, 1000
       assert ticket_pull_url =~ "/pulls?"
       refute ticket_pull_url =~ "head="
-      assert_receive {:request, %{method: :get, url: ^issue_url}}
+      assert_receive {:request, %{method: :get, url: ^issue_url}}, 1000
       refute_receive {:request, %{method: _method}}, 100
     end
   end
