@@ -4,6 +4,9 @@ defmodule Aiur.OperatorRelayAnswerTest do
   import ExUnit.CaptureIO
   alias Aiur.{CommandsCLI, Config, Decision, DecisionAnswer, DecisionDispatch, DecisionHistory, DecisionStore, OperatorRelayCLI, Workflow}
 
+  alias AiurWeb.ControlCenterPresenter
+  alias AiurWeb.OperatorControlCenter.{DecisionCard, DecisionPresenter, History}
+
   setup do
     dir = Aiur.TestSupport.tmp_root!("operator-relay-3005")
     File.mkdir_p!(dir)
@@ -213,18 +216,18 @@ defmodule Aiur.OperatorRelayAnswerTest do
     decision = request(store)
     relay(decision, store)
     {:ok, recorded} = DecisionStore.get(decision.decision_id, store)
-    [row] = AiurWeb.OperatorControlCenter.DecisionPresenter.present(recorded)
-    history = AiurWeb.ControlCenterPresenter.compose(%{}, [recorded], DecisionHistory.list(server: store), %{}).history
+    [row] = DecisionPresenter.present(recorded)
+    history = ControlCenterPresenter.compose(%{}, [recorded], DecisionHistory.list(server: store), %{}).history
 
     html =
       Phoenix.LiveViewTest.render_component(
-        &AiurWeb.OperatorControlCenter.DecisionCard.decision_card/1,
+        &DecisionCard.decision_card/1,
         %{decision: row, history: history, writable: false, selected: true, now: DateTime.utc_now()}
       )
 
     card_html =
       Phoenix.LiveViewTest.render_component(
-        &AiurWeb.OperatorControlCenter.DecisionCard.decision_card/1,
+        &DecisionCard.decision_card/1,
         %{decision: row, writable: false, now: DateTime.utc_now()}
       )
 
@@ -234,7 +237,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
 
     history_html =
       Phoenix.LiveViewTest.render_component(
-        &AiurWeb.OperatorControlCenter.History.history/1,
+        &History.history/1,
         %{rows: [row], loaded: 1, total: 1}
       )
 
