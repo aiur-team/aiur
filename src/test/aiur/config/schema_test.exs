@@ -886,6 +886,33 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.telemetry_retention_prune_interval_bytes == 128
     end
 
+    test "Monitoring section parses with defaults" do
+      {:ok, settings} = Schema.parse(%{})
+      assert settings.monitoring.daemon_heartbeat_stale_ms == 3_600_000
+    end
+
+    test "Monitoring section accepts explicit values" do
+      {:ok, settings} =
+        Schema.parse(%{
+          "monitoring" => %{
+            "daemon_heartbeat_stale_ms" => 7_200_000
+          }
+        })
+
+      assert settings.monitoring.daemon_heartbeat_stale_ms == 7_200_000
+    end
+
+    test "Monitoring section rejects non-positive values" do
+      {:error, {:invalid_workflow_config, message}} =
+        Schema.parse(%{
+          "monitoring" => %{
+            "daemon_heartbeat_stale_ms" => 0
+          }
+        })
+
+      assert String.contains?(message, "daemon_heartbeat_stale_ms")
+    end
+
     test "Upgrade section parses with defaults" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.upgrade.check_enabled == true

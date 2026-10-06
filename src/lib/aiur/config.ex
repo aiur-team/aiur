@@ -1163,6 +1163,15 @@ defmodule Aiur.Config do
   end
 
   @doc """
+  Heartbeat staleness threshold in milliseconds for daemon downtime detection.
+  Defaults to 3,600,000 (1 hour).
+  """
+  @spec daemon_heartbeat_stale_ms() :: pos_integer()
+  def daemon_heartbeat_stale_ms do
+    settings!().monitoring.daemon_heartbeat_stale_ms
+  end
+
+  @doc """
   Retention limits for the durable run-telemetry stream.
 
   - `:max_bytes` — maximum file size in bytes. Whole boot groups are pruned
