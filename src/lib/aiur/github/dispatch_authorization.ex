@@ -478,12 +478,10 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
       :missing ->
         decision = {:ambiguous, :missing_label_event}
-        cache_decision(issue, label, "missing", decision)
         decision
 
       :invalid ->
         decision = {:ambiguous, :missing_label_event_id}
-        cache_decision(issue, label, "invalid", decision)
         decision
     end
   end

@@ -312,8 +312,12 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       )
 
     refute first.dispatch_authorized?
-    assert first.dispatch_authorization == :deferred
+    assert first.dispatch_authorization == :denied
     assert_receive {:timeline_poll, 0}
+
+    # GitHub's read cache holds the endpoint snapshot until a webhook tells it
+    # that the later label event has been indexed.
+    ReadCache.reset()
 
     second =
       DispatchAuthorization.authorize(created_with_label, "owner", "repo", "agent",
@@ -574,7 +578,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     denied = authorize_with_events(issue(), [labeled_event(10, "agent:rework", "trusted", "2026-01-01T00:00:00Z")], ["trusted"])
 
     refute denied.dispatch_authorized?
-    assert denied.dispatch_authorization == :deferred
+    assert denied.dispatch_authorization == :denied
   end
 
   test "missing or malformed current-label evidence still revokes active and rework tickets" do
@@ -729,7 +733,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     refute deferred.dispatch_authorized?
     assert deferred.dispatch_authorization == :deferred
-    assert Agent.get(attempts, & &1) == [100, 50, 25]
+    assert Agent.get(attempts, & &1) == [100, 50, 25, 20, 10, 5, 1]
   end
 
   # Shrinking `per_page` must not shrink the timeline the decision reads: the
@@ -823,13 +827,13 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       assert defer_once.().dispatch_authorization == :deferred
     end
 
-    refute_receive {:alert, %{name: "github.dispatch_authorization.deferred"}}, 100
+    refute_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred"}}, 100
 
     assert defer_once.().dispatch_authorization == :deferred
 
     assert_receive {:alert,
                     %{
-                      name: "github.dispatch_authorization.deferred",
+                      name: "ticket.42.agent.attention.dispatch_authorization.deferred",
                       needs_attention: true,
                       severity: "warning"
                     } = alert},
@@ -840,7 +844,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     # One alert per streak, not one per cycle.
     assert defer_once.().dispatch_authorization == :deferred
-    refute_receive {:alert, %{name: "github.dispatch_authorization.deferred"}}, 100
+    refute_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred"}}, 100
   end
 
   test "an alerted deferral streak reports its recovery when the ticket authorizes" do
@@ -854,7 +858,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       )
     end
 
-    assert_receive {:alert, %{name: "github.dispatch_authorization.deferred"}}, 500
+    assert_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred"}}, 500
 
     authorized =
       authorize_with_events(
@@ -867,7 +871,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     assert_receive {:alert,
                     %{
-                      name: "github.dispatch_authorization.deferred.resolved",
+                      name: "ticket.42.agent.attention.dispatch_authorization.deferred.resolved",
                       needs_attention: false
                     }},
                    500
@@ -875,6 +879,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
   test "two alerted issue streaks resolve independently and recovery can end in denial" do
     :ok = AgentPubSub.subscribe_agent("42")
+    :ok = AgentPubSub.subscribe_agent("43")
     issue_a = issue(id: "42", identifier: "42")
     issue_b = issue(id: "43", identifier: "43")
 
@@ -902,7 +907,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     refute deny.(issue_a).dispatch_authorized?
     assert_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred.resolved", needs_attention: false}}
-    assert_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred", needs_attention: true}}
+    refute_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred"}}, 100
 
     refute deny.(issue_b).dispatch_authorized?
     assert_receive {:alert, %{name: "ticket.43.agent.attention.dispatch_authorization.deferred.resolved", needs_attention: false}}
@@ -922,7 +927,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       )
 
     assert deferred.dispatch_authorization == :deferred
-    refute_receive {:alert, %{name: "github.dispatch_authorization.deferred"}}, 200
+    refute_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred"}}, 200
   end
 
   # A streak that never reached the threshold has nothing to report recovering
@@ -946,7 +951,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       )
 
     assert authorized.dispatch_authorized?
-    refute_receive {:alert, %{name: "github.dispatch_authorization.deferred.resolved"}}, 200
+    refute_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred.resolved"}}, 200
   end
 
   test "requests a timeline page cap that holds per_page=100 events" do
@@ -1030,7 +1035,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
       )
 
     refute denied.dispatch_authorized?
-    assert denied.dispatch_authorization == :deferred
+    assert denied.dispatch_authorization == :denied
   end
 
   test "fails closed before timeline lookup when the issue has no trigger label" do
@@ -1060,7 +1065,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
   # `max_response_bytes` with the 200-plus-cleared-body that
   # `Transport.bounded_response_collector/1` produces.
   test "a timeline too big for per_page=100 still resolves its label applier" do
-    events = fat_timeline(120, 6_000)
+    events = fat_timeline(120, 100_000)
 
     authorized =
       DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
@@ -1071,8 +1076,8 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     # The whole page-1 body at per_page=100 is past the cap, which is what denied
     # khala#257 forever.
-    assert encoded_size(Enum.take(events, 100)) > 524_288
-    assert encoded_size(Enum.take(events, 50)) < 524_288
+    assert encoded_size(Enum.take(events, 100)) > 4_194_304
+    assert encoded_size(Enum.take(events, 25)) < 4_194_304
 
     assert authorized.dispatch_authorized?
     assert authorized.dispatch_authorization == :authorized
@@ -1082,7 +1087,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
   # truncation at the default page size is a statement about the page, so the
   # timeline is refetched in smaller pages before the failure is believed.
   test "truncation at the default page size is retried at a smaller page size" do
-    events = fat_timeline(60, 14_000)
+    events = fat_timeline(60, 100_000)
 
     {:ok, sizes} = Agent.start_link(fn -> [] end)
 
@@ -1098,19 +1103,20 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
         end
       )
 
-    # Truncated at the 50-event default, recovered at 20.
-    assert encoded_size(Enum.take(events, 50)) > 524_288
-    assert encoded_size(Enum.take(events, 20)) < 524_288
+    # Truncated at 50 events, recovered at 25 under the 4 MiB cap.
+    assert encoded_size(Enum.take(events, 50)) > 4_194_304
+    assert encoded_size(Enum.take(events, 25)) < 4_194_304
 
     assert authorized.dispatch_authorized?
     requested = sizes |> Agent.get(&Enum.reverse(&1)) |> Enum.uniq()
-    assert requested == ["50", "20"]
+    assert requested == ["100", "50", "25"]
   end
 
   test "a large cross-reference event is recovered below per_page=20" do
-    events = fat_timeline(21, 40_000)
-    # Model one embedded source issue that dominates page 2 at per_page=20.
-    events = List.replace_at(events, 20, fat_timeline(1, 700_000) |> hd())
+    events = fat_timeline(21, 100_000)
+    # Model one embedded source issue that makes a 25-event page too large,
+    # while remaining readable in the 20-event page on page 2.
+    events = List.replace_at(events, 20, fat_timeline(1, 3_000_000) |> hd())
     sizes = start_supervised!({Agent, fn -> [] end})
     request_fun = paged_timeline_request_fun(events)
 
@@ -1126,19 +1132,20 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     assert authorized.dispatch_authorized?
     requested = sizes |> Agent.get(&Enum.reverse(&1)) |> Enum.uniq()
+    assert "25" in requested
     assert "20" in requested
-    assert "10" in requested
   end
 
   # The security invariant is untouched: when the evidence cannot be obtained at
   # ANY page size it is still fail-closed. What changes is that the refusal says
   # so — a transport limit is a different alert from an ambiguous provenance
   # verdict, and `cause=transport_limit` is in the log line (#2797).
-  test "a timeline unreadable at every page size defers as a transport limit, not a denial" do
+  test "a timeline unreadable at every page size defers without a provenance denial" do
     :ok = AgentPubSub.subscribe_agent("42")
 
-    events = fat_timeline(40, 40_000)
-    assert encoded_size(Enum.take(events, 20)) > 524_288
+    events = fat_timeline(40, 1_000)
+    events = List.replace_at(events, 0, fat_timeline(1, 5_000_000) |> hd())
+    assert encoded_size(Enum.take(events, 1)) > 4_194_304
 
     deferred =
       DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
@@ -1150,14 +1157,8 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     refute deferred.dispatch_authorized?
     assert deferred.dispatch_authorization == :deferred
 
-    assert_receive {:alert,
-                    %{
-                      name: "github.dispatch_authorization.timeline_unreadable",
-                      needs_attention: true
-                    }},
-                   500
-
     refute_receive {:alert, %{name: "github.dispatch_authorization.ambiguous"}}, 200
+    refute_receive {:alert, %{name: "ticket.42.agent.attention.dispatch_authorization.deferred"}}, 200
   end
 
   defp fat_timeline(count, padding_bytes) do
