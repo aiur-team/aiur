@@ -2,7 +2,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner.CheckpointDelivery
-  alias Aiur.AppServer.OperatorDelivery
+  alias Aiur.AppServer.{Interrupts, OperatorDelivery}
 
   defmodule StubBackend do
     def send_operator_message(session, message) do
@@ -123,6 +123,21 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
   end
 
   test "a queued operator message is delivered once at the next safe checkpoint" do
+    error = %{"code" => -32_004, "message" => "No active turn to interrupt."}
+
+    completed_turn_state =
+      state(%{
+        active_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(["turn-1"]),
+        outstanding_turns: 1,
+        pending_interrupt_request_id: 80,
+        interrupt_action: :operator_message,
+        current_turn_id: "turn-1"
+      })
+
+    assert {:ok, :turn_interrupted_for_operator_message} =
+             Interrupts.handle_no_active_turn_error(completed_turn_state, error)
+
     item = %{category: :operator_message, id: 79, body: %{text: "deliver after turn boundary"}}
     {:ok, orch} = CheckpointOrchestrator.start_link(report: self(), checkpoint: {:ok, item})
     issue = %Aiur.Issue{identifier: "OD-#{System.unique_integer([:positive])}", id: "gid-od"}
