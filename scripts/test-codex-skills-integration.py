@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 def run(args, **kwargs):
     return subprocess.run(args, text=True, stdout=subprocess.PIPE,
-                          stderr=subprocess.STDOUT, **kwargs)
+                          stderr=kwargs.pop("stderr", subprocess.STDOUT), **kwargs)
 
 
 def git(workspace, *args):
@@ -82,7 +82,7 @@ def runtime_roots(workspace):
     result = run(["mise", "exec", "--", "elixir",
                   "-r", str(ROOT / "src/lib/aiur/path_safety.ex"),
                   "-r", str(ROOT / "src/lib/aiur/config/codex_sandbox_policy.ex"),
-                  "-e", code, "--", str(workspace)], cwd=ROOT, check=True)
+                  "-e", code, "--", str(workspace)], cwd=ROOT, stderr=subprocess.PIPE, check=True)
     return result.stdout.strip().splitlines()
 
 
