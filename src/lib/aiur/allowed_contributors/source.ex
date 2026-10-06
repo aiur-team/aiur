@@ -1,6 +1,7 @@
 defmodule Aiur.AllowedContributors.Source do
   @moduledoc """
-  Reads `.github/ALLOWED-CONTRIBUTORS` from the repository's **default branch**,
+  Selects the operator config list when present, otherwise reads
+  `.github/ALLOWED-CONTRIBUTORS` from the repository's **default branch**,
   pinned to the commit that last touched it.
 
   Four REST reads, never GraphQL:
@@ -31,7 +32,7 @@ defmodule Aiur.AllowedContributors.Source do
   @path ".github/ALLOWED-CONTRIBUTORS"
   @sha ~r/\A[0-9a-f]{40}\z/
 
-  @type snapshot :: %{sha: String.t(), allowlist: AllowList.t() | {:invalid, term()}}
+  @type snapshot :: %{optional(:source) => String.t(), :sha => String.t() | nil, :allowlist => AllowList.t() | {:invalid, term()}}
 
   @doc "The repository-relative path of the allow-list file."
   @spec path() :: String.t()
@@ -45,6 +46,25 @@ defmodule Aiur.AllowedContributors.Source do
   """
   @spec fetch(String.t(), String.t(), keyword()) :: {:ok, snapshot() | :absent} | {:error, term()}
   def fetch(owner, repo, opts) do
+    case Keyword.get(opts, :allowed_contributors) do
+      nil ->
+        fetch_file(owner, repo, opts)
+
+      config ->
+        case AllowList.from_config(config) do
+          {:ok, list} -> {:ok, %{sha: nil, source: "config", allowlist: list}}
+          {:error, reason} -> {:ok, %{sha: nil, source: "config", allowlist: {:invalid, reason}}}
+        end
+    end
+  end
+
+  @doc "Identifies the trust source independently of the issue producer."
+  @spec label(term()) :: String.t() | nil
+  def label(%{source: "config"}), do: "config"
+  def label(%{sha: sha}) when is_binary(sha), do: "file@#{sha}"
+  def label(_snapshot), do: nil
+
+  defp fetch_file(owner, repo, opts) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
     token = Keyword.fetch!(opts, :token)
     base = "#{Transport.base_url()}/repos/#{owner}/#{repo}"

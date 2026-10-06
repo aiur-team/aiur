@@ -44,6 +44,7 @@ defmodule Aiur.Config.Schema.Github do
     field(:identity_mode, :string, default: "separate_account")
     field(:trusted_accounts, {:array, :string}, default: [])
     field(:allowed_users, {:array, :string}, default: [])
+    field(:allowed_contributors, :map)
     field(:human_mergers, {:array, :string}, default: [])
     field(:planning_root_limit, :integer, default: @max_planning_root_limit)
     field(:planning_page_budget, :integer, default: @max_planning_page_budget)
@@ -77,7 +78,10 @@ defmodule Aiur.Config.Schema.Github do
   def changeset(schema, attrs) do
     schema
     |> cast(
-      attrs,
+      Map.update(attrs, "allowed_contributors", nil, fn
+        nil -> %{}
+        value -> value
+      end),
       [
         :repo,
         :label_prefix,
@@ -85,6 +89,7 @@ defmodule Aiur.Config.Schema.Github do
         :identity_mode,
         :trusted_accounts,
         :allowed_users,
+        :allowed_contributors,
         :human_mergers,
         :planning_root_limit,
         :planning_page_budget,
@@ -121,6 +126,7 @@ defmodule Aiur.Config.Schema.Github do
     |> cast_embed(:github_app, with: &GithubApp.changeset/2)
     |> validate_unique_credential_ids()
     |> validate_inclusion(:identity_mode, ["separate_account", "single_account"], message: "must be \"separate_account\" or \"single_account\"")
+    |> validate_allowed_contributors()
     |> validate_login_list(:allowed_users)
     |> validate_login_list(:human_mergers)
     |> validate_number(:planning_root_limit,
@@ -146,6 +152,19 @@ defmodule Aiur.Config.Schema.Github do
     |> validate_number(:agent_graphql_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
     |> validate_number(:agent_search_limit_per_hour, greater_than_or_equal_to: 0, less_than_or_equal_to: 100_000)
     |> validate_endpoint_concurrency()
+  end
+
+  defp validate_allowed_contributors(changeset) do
+    case fetch_change(changeset, :allowed_contributors) do
+      {:ok, value} ->
+        case Aiur.AllowedContributors.AllowList.from_config(value) do
+          {:ok, _list} -> changeset
+          {:error, message} -> add_error(changeset, :allowed_contributors, message)
+        end
+
+      :error ->
+        changeset
+    end
   end
 
   # Credential ids name rows in `aiur github-usage` and select a credential in

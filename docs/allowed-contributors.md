@@ -14,11 +14,36 @@ dispatched exactly like an operator-filed one: when an account in
 `agent:todo`). A contributor who labels their own issue, or anyone else's,
 dispatches nothing.
 
-## The file
+## Config
 
-The file is `.github/ALLOWED-CONTRIBUTORS` on the repository's **default
-branch**. It has no other location and no fallback. With no file, the feature
-is off and nobody is admitted.
+Set `tracker.github.allowed_contributors` in the operator's Aiur config:
+
+```yaml
+tracker:
+  github:
+    allowed_contributors:
+      users: [583231, 9876543]
+      orgs:
+        - id: 9919
+          login: github
+```
+
+User and org ids must be positive numeric int64 values, not strings or logins.
+Org logins only address the membership API; the returned numeric org id must
+still match. Unknown fields, invalid ids or logins, and conflicting logins for
+one org id fail config validation with the dotted config key.
+
+When this key is present, it is the **whole list** and Aiur never fetches the
+file. `allowed_contributors: {}`, `allowed_contributors:` (null), or empty
+`users` and `orgs` arrays explicitly admit nobody. Removing the key restores
+the file fallback. Config changes take effect on reload or restart, raising
+`allowed_contributors.changed` with the entries added and removed.
+
+## The file fallback
+
+When the config key is absent, Aiur reads `.github/ALLOWED-CONTRIBUTORS` on the
+repository's **default branch**. The file has no alternate location. With no
+config key and no file, the feature is off and nobody is admitted.
 
 ```text
 # Trusted outside contributors. Logins after '#' are comments only.
@@ -50,7 +75,7 @@ gh api orgs/<org> --jq .id
 
 ## Precedence
 
-Aiur reads the file only from the default branch reported by
+When the config key is absent, Aiur reads the file only from the default branch reported by
 `GET /repos/{owner}/{repo}`. It resolves that branch's head commit with
 `GET /repos/{owner}/{repo}/branches/{branch}` and reads the file at that SHA.
 It never uses the branch *name* as a ref, because a tag with the same name
@@ -101,7 +126,10 @@ check fails closed.
 
 ## Revoking
 
-- **One account:** delete its `user` line and merge to the default branch. The
+- **Config entries:** remove the user id or org entry and reload config (or
+  restart). Set `allowed_contributors: {}` to revoke everyone without enabling
+  the file fallback.
+- **File account:** delete its `user` line and merge to the default branch. The
   change takes effect at the next refresh, within 10 minutes.
 - **One org member:** remove them from the org. They stop counting once the
   5-minute positive cache expires.
@@ -115,7 +143,8 @@ and an issue already labelled for dispatch stays labelled.
 Every accept, reject, and deferral is appended to
 `~/.aiur/repo/<owner>/<repo>/executor/<repo>.allowed-contributors.audit.ndjson`
 and logged by the daemon. Each record carries the issue number, the numeric
-author id, the reason, the allow-list commit SHA, and the producer (`webhook`
+author id, the reason, `allowlist_source` (`config` or `file@<sha>`), the
+allow-list commit SHA (`null` for config), and the producer (`webhook`
 or `poll`). The seen set and the last-shown allow-list SHA live beside it in
 `<repo>.allowed-contributors.json`.
 
@@ -125,7 +154,8 @@ or `poll`). The seen set and the last-shown allow-list SHA live beside it in
   authenticated API response or an HMAC-verified payload, never a login taken
   from issue text.
 - An allowed contributor cannot extend trust. Nothing they write is read as
-  configuration, and the file changes only through the default branch.
+  configuration. Config is operator-owned; the fallback file changes only
+  through the default branch.
   Protect `.github/ALLOWED-CONTRIBUTORS` with CODEOWNERS and branch
   protection so that only repository admins can merge changes to it.
 - A compromised allowed account can produce at most 5 wakes an hour and
