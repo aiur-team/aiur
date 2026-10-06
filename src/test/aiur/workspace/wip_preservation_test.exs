@@ -650,7 +650,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
           record_order(ref, [])
         end)
 
-      assert_receive :tracer_ready
+      assert_receive :tracer_ready, 1_000
 
       state = %Orchestrator.State{
         running: %{
