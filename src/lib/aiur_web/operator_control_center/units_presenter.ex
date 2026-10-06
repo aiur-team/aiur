@@ -201,29 +201,23 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
         end
       end)
 
-    running =
-      Enum.map(status.running, fn public_row ->
-        case Sources.identity(public_row) do
-          %TrackerIdentity{} = identity ->
-            case Map.get(internal_by_identity, Sources.key(identity)) do
-              nil ->
-                public_row
-
-              internal_row ->
-                public_row
-                |> Map.put(:telemetry_attempt_id, Map.get(internal_row, :telemetry_attempt_id))
-                |> Map.put(:context_usage, public_context_usage(Map.get(internal_row, :context_usage)))
-            end
-
-          _identity ->
-            public_row
-        end
-      end)
+    running = Enum.map(status.running, &enrich_public_running_row(&1, internal_by_identity))
 
     Map.put(status, :running, running)
   end
 
   defp enrich_internal_usage_fields(status, _snapshot), do: status
+
+  defp enrich_public_running_row(public_row, internal_by_identity) do
+    with %TrackerIdentity{} = identity <- Sources.identity(public_row),
+         internal_row when not is_nil(internal_row) <- Map.get(internal_by_identity, Sources.key(identity)) do
+      public_row
+      |> Map.put(:telemetry_attempt_id, Map.get(internal_row, :telemetry_attempt_id))
+      |> Map.put(:context_usage, public_context_usage(Map.get(internal_row, :context_usage)))
+    else
+      _missing_identity_or_snapshot -> public_row
+    end
+  end
 
   defp public_context_usage(%{used_tokens: used} = context) when is_integer(used) and used >= 0 do
     Map.take(context, [:used_tokens, :window_tokens, :used_percent, :pressure])

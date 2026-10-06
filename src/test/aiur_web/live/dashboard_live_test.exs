@@ -20,6 +20,7 @@ defmodule AiurWeb.DashboardLiveTest do
   }
 
   alias Aiur.Agent.UsageSnapshotService
+  alias Aiur.Usage.Headless.Codex.ThreadUsage
   alias Aiur.BuildOrder.Lifecycle
   alias Aiur.DecisionMetrics.Canonical, as: DecisionMetricsCanonical
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
@@ -5722,7 +5723,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp attempt_usage_cells(identity) do
-    relationship_revision = Aiur.Usage.Headless.Codex.ThreadUsage.relationship_revision()
+    relationship_revision = ThreadUsage.relationship_revision()
     ticket = TrackerIdentity.github_key(identity)
 
     for {attempt_id, values} <- [
@@ -5737,7 +5738,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp attempt_usage_record(identity) do
-    thread_usage = Aiur.Usage.Headless.Codex.ThreadUsage
+    thread_usage = ThreadUsage
 
     usage_envelope =
       envelope(%{
