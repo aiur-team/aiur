@@ -40,6 +40,7 @@ defmodule Aiur.Agent.UsageSnapshotService do
   end
 
   @doc false
+  @spec aggregate_metrics_from_cells(map(), map() | nil) :: UsageSnapshot.cumulative_metrics()
   def aggregate_metrics_from_cells(cells, reported_dimensions \\ nil) do
     revisions = cells |> Map.keys() |> Enum.map(fn {dims, _measure} -> Map.get(dims, :relationship_revision) end) |> Enum.uniq()
 

@@ -40,7 +40,11 @@ The operator-facing UI and CLI call these records **Commands**.
 
 Each current-run Units row shows Aiur orchestration turns for the current running attempt and the provider's current context occupancy. A turn counts a distinct `session_started` event, not a model request. An unknown count or context observation appears as `—`; context is separate from cumulative token usage.
 
-Open a Units row's conversation to see its **Cumulative Token Usage** panel. For a running Codex agent, the panel scopes the provider-reported thread snapshot to its current attempt and ticket; otherwise it shows the ticket scope. It shows input, output, cached input, derived uncached input, cached proportion, the scope, and observation age. Current context occupancy remains a separate value. Unsupported, missing, ambiguous, or incomplete measurements remain `—`; a missing observation timestamp is labeled as unknown. The panel uses Codex thread snapshots and does not add the overlapping per-turn stream.
+Open a Units row's conversation to see its **Cumulative Token Usage** panel. For a running Codex agent, it uses the current attempt; otherwise it shows ticket scope.
+
+The panel shows input, output, cached input, derived uncached input, cached proportion, scope, and observation age. Current context occupancy remains separate.
+
+Unsupported, missing, ambiguous, or incomplete measurements remain `—`. A missing observation timestamp is labeled unknown. The panel uses Codex thread snapshots without adding the overlapping per-turn stream.
 
 GUI data tables sort by their meaningful column headings. The first click sorts descending, the second reverses the order, and the active heading shows its direction. Icon and action columns are not sortable.
 
