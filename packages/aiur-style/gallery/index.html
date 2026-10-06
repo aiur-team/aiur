@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>aiur-style Gallery</title>
+  <link rel="stylesheet" href="../dist/aiur-style.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      --aiur-bg: #1a1b1e;
+      --aiur-fg: #ffffff;
+      color-scheme: dark light;
+    }
+
+    html[data-theme="light"] {
+      --aiur-bg: #ffffff;
+      --aiur-fg: #1a1b1e;
+    }
+
+    html[data-theme="dark"] {
+      --aiur-bg: #1a1b1e;
+      --aiur-fg: #ffffff;
+    }
+
+    body {
+      background-color: var(--aiur-bg);
+      color: var(--aiur-fg);
+      font: 16px system-ui, -apple-system, sans-serif;
+      line-height: 1.5;
+      padding: 2rem;
+    }
+
+    .gallery-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 3rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--aiur-fg);
+    }
+
+    h1 {
+      font-size: 2rem;
+      font-weight: 700;
+    }
+
+    .theme-toggle {
+      cursor: pointer;
+      padding: 0.5rem 1rem;
+      border: 1px solid var(--aiur-fg);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--aiur-fg);
+      font: inherit;
+    }
+
+    .theme-toggle:hover {
+      background-color: var(--aiur-fg);
+      color: var(--aiur-bg);
+    }
+
+    .gallery-sections {
+      display: grid;
+      gap: 3rem;
+    }
+
+    .section {
+      padding: 2rem;
+      border: 1px solid var(--aiur-fg);
+      border-radius: 8px;
+      background-color: rgba(255, 255, 255, 0.02);
+    }
+
+    .section h2 {
+      font-size: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .section p {
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="gallery-header">
+    <h1>aiur-style Gallery</h1>
+    <button class="theme-toggle" id="theme-toggle">
+      Switch Theme
+    </button>
+  </div>
+
+  <div class="gallery-sections">
+    <!-- Components will be added here in future tickets -->
+    <div class="section">
+      <h2>Components Coming Soon</h2>
+      <p>This gallery scaffolding will be populated with component examples as they are added to the package.</p>
+    </div>
+  </div>
+
+  <script>
+    // Parse theme from URL query parameter
+    const params = new URLSearchParams(window.location.search);
+    const urlTheme = params.get('theme');
+    if (urlTheme === 'light' || urlTheme === 'dark') {
+      document.documentElement.setAttribute('data-theme', urlTheme);
+    }
+
+    // Theme toggle button
+    const toggleBtn = document.getElementById('theme-toggle');
+    const html = document.documentElement;
+
+    toggleBtn.addEventListener('click', () => {
+      const currentTheme = html.getAttribute('data-theme') || 'dark';
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      html.setAttribute('data-theme', newTheme);
+
+      // Update URL
+      const newUrl = new URL(window.location);
+      newUrl.searchParams.set('theme', newTheme);
+      window.history.replaceState({}, '', newUrl);
+    });
+  </script>
+</body>
+</html>
