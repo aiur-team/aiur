@@ -1,6 +1,7 @@
 defmodule AiurWeb.StreamdeckChannelTest do
   use ExUnit.Case, async: false
   import Phoenix.ChannelTest
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   import Plug.Conn, only: [put_req_header: 3]
   import Plug.Test
@@ -786,16 +787,20 @@ defmodule AiurWeb.StreamdeckChannelTest do
       assert_reply(push(socket, "focus", %{"identifier" => "984"}), :ok, %{"focused" => "984"})
       assert_push("commands", _payload)
 
-      assert_reply(
+      ref =
         push(socket, "answer_command", %{
           "decision_id" => decision.decision_id,
           "version" => decision.version,
           "idempotency_key" => "sd-e2e-1",
           "option_id" => "ship"
-        }),
-        :ok,
-        %{"status" => "accepted"}
-      )
+        })
+
+      # The reply is the completion barrier for the real store's fsynced answer.
+      # Match only the ref here so an error reply fails the assertions immediately;
+      # a missing reply still fails at ExUnit's test timeout.
+      reply = receive_barrier(%Phoenix.Socket.Reply{ref: ^ref})
+      assert reply.status == :ok
+      assert reply.payload["status"] == "accepted"
 
       assert {:ok, current} = Aiur.DecisionStore.get(decision.decision_id, store)
       assert current.answer.actor == %{kind: :operator, id: "streamdeck"}
