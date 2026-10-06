@@ -351,12 +351,12 @@ defmodule Aiur.Config.SchemaTest do
       assert message =~ "eligible registered fallback backend"
     end
 
-    test "accepts a non-default eligible primary/fallback pair" do
+    test "accepts a non-default primary with the registered fallback" do
       assert {:ok, settings} =
-               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "fake"}})
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "codex", "rate_limit_fallback" => "claude"}})
 
-      assert settings.agent.rate_limit_primary == "claude"
-      assert settings.agent.rate_limit_fallback == "fake"
+      assert settings.agent.rate_limit_primary == "codex"
+      assert settings.agent.rate_limit_fallback == "claude"
     end
 
     test "accepts an empty string to disable" do
