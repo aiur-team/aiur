@@ -29,7 +29,7 @@ defmodule Aiur.AlertsTest do
     # Per Ticket B, the close sound moved from `task.done` to the
     # GitHub-authoritative `ticket.*.issue.state.changed` topic.
     expected_sound = Path.join(System.user_home!(), "alerts/advisor-upgrade-complete.wav")
-    assert_receive {:played_sound, ^expected_sound}
+    assert_receive {:played_sound, ^expected_sound}, 1000
 
     log_path = Path.join(workspace, "logs/agent.md")
     ndjson_path = Path.join(workspace, "logs/agent.ndjson")
@@ -1184,7 +1184,7 @@ defmodule Aiur.AlertsTest do
                )
 
       expected_sound = Path.join(System.user_home!(), "alerts/advisor-upgrade-complete.wav")
-      assert_receive {:fallback_player_called, ^expected_sound}
+      assert_receive {:fallback_player_called, ^expected_sound}, 1000
     end
 
     test "swallows a player function that raises and still emits" do
@@ -1255,7 +1255,7 @@ defmodule Aiur.AlertsTest do
                  player: probe
                )
 
-      assert_receive {:probe, "https://example.test/ring.mp3"}
+      assert_receive {:probe, "https://example.test/ring.mp3"}, 1000
     end
   end
 
@@ -1304,7 +1304,7 @@ defmodule Aiur.AlertsTest do
       assert :ok =
                Alerts.emit_system("ticket.MT-CFG.agent.paused", issue: "MT-CFG", player: probe)
 
-      assert_receive {:played, ^stuck_file}
+      assert_receive {:played, ^stuck_file}, 1000
     end
 
     test "mapping mode loads the config alerts_file and joins bare sound names to sound_dir", %{
@@ -1341,7 +1341,7 @@ defmodule Aiur.AlertsTest do
       assert :ok =
                Alerts.emit_system("ticket.MT-CFG.agent.paused", issue: "MT-CFG", player: probe)
 
-      assert_receive {:played, ^expected}
+      assert_receive {:played, ^expected}, 1000
     end
 
     test "OS-default mode falls back to the host OS sound for the category", %{
@@ -1362,7 +1362,7 @@ defmodule Aiur.AlertsTest do
       # it, otherwise assert the no-op (nothing played) safety path.
       case Enum.find(Alerts.os_sound_candidates(:stuck, :os.type()), &File.exists?/1) do
         nil -> refute_receive {:played, _sound}, 100
-        path -> assert_receive {:played, ^path}
+        path -> assert_receive {:played, ^path}, 1000
       end
     end
 
@@ -1382,7 +1382,7 @@ defmodule Aiur.AlertsTest do
                Alerts.emit_system("ticket.MT-CFG.issue.state.changed", issue: "MT-CFG", player: probe)
 
       expected = Path.join(System.user_home!(), "alerts/advisor-upgrade-complete.wav")
-      assert_receive {:played, ^expected}
+      assert_receive {:played, ^expected}, 1000
     end
   end
 end

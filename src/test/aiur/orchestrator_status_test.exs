@@ -2607,7 +2607,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     :ok = AgentPubSub.subscribe_running()
     :ok = StatusReport.notify_dashboard(:sys.get_state(pid))
-    assert_receive {:running_changed, summaries}
+    assert_receive {:running_changed, summaries}, 1000
 
     assert %{tracker_identity: ^running_identity} =
              Enum.find(summaries, &(&1.identifier == "MT-701"))
@@ -3064,7 +3064,7 @@ defmodule Aiur.OrchestratorStatusTest do
              Orchestrator.send_operator_message(orchestrator_name, "MT-CHAT", %{kind: :text, body: "hello"})
 
     assert is_integer(request_id)
-    assert_receive {:agent_queue_updated, "MT-CHAT", ^request_id, false}
+    assert_receive {:agent_queue_updated, "MT-CHAT", ^request_id, false}, 1000
 
     assert {:ok, %{id: ^request_id, category: :operator_message, body: %{text: "hello"}}} =
              OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-CHAT")
@@ -3078,7 +3078,7 @@ defmodule Aiur.OrchestratorStatusTest do
             }} = Orchestrator.control_capabilities(orchestrator_name, "MT-CHAT")
 
     assert {:ok, pause_request_id} = Orchestrator.pause_agent(orchestrator_name, "MT-CHAT")
-    assert_receive {:pause_agent, ^pause_request_id, _generation}
+    assert_receive {:pause_agent, ^pause_request_id, _generation}, 1000
 
     assert {:ok, interrupt_request_id} =
              Orchestrator.send_operator_message(
@@ -3125,7 +3125,7 @@ defmodule Aiur.OrchestratorStatusTest do
         end
       end)
 
-    assert_receive :queued_evidence_worker_ready
+    assert_receive :queued_evidence_worker_ready, 1000
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
@@ -3161,9 +3161,10 @@ defmodule Aiur.OrchestratorStatusTest do
                        payload: %{
                          operator_message: %{request_id: ^request_id, status: :queued}
                        }
-                     }}}
+                     }}},
+                   1000
 
-    assert_receive {:queued_evidence_worker_message, :second, {:agent_queue_updated, "MT-QUEUED-EVIDENCE", ^request_id, _deliver_now?}}
+    assert_receive {:queued_evidence_worker_message, :second, {:agent_queue_updated, "MT-QUEUED-EVIDENCE", ^request_id, _deliver_now?}}, 1000
   end
 
   test "provider acknowledgements clear only matching lifecycle fence items" do
@@ -3235,7 +3236,8 @@ defmodule Aiur.OrchestratorStatusTest do
                           provider_turn_id: "provider-turn-1"
                         }
                       }
-                    }}
+                    }},
+                   1000
 
     assert {:ok, %{id: ^second_id}} =
              Orchestrator.claim_next_queue_item(orchestrator_name, "MT-FENCE")
@@ -3318,8 +3320,8 @@ defmodule Aiur.OrchestratorStatusTest do
                })
     end
 
-    assert_receive {:agent_queue_updated, "MT-COALESCED-FENCE", first_id, _deliver_now?}
-    assert_receive {:agent_queue_updated, "MT-COALESCED-FENCE", second_id, _deliver_now?}
+    assert_receive {:agent_queue_updated, "MT-COALESCED-FENCE", first_id, _deliver_now?}, 1000
+    assert_receive {:agent_queue_updated, "MT-COALESCED-FENCE", second_id, _deliver_now?}, 1000
 
     state = :sys.get_state(pid)
 
@@ -3381,7 +3383,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert accepted.status == :pending
     assert accepted.correlation == correlation
-    assert_receive {:agent_queue_updated, "MT-OCC", accepted_id, _}
+    assert_receive {:agent_queue_updated, "MT-OCC", accepted_id, _}, 1000
     assert accepted_id == accepted.id
 
     running = :sys.get_state(pid).running
@@ -3407,7 +3409,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert retried.id == accepted.id
     assert retried.status == :pending
-    assert_receive {:agent_queue_updated, "MT-OCC", retried_id, _}
+    assert_receive {:agent_queue_updated, "MT-OCC", retried_id, _}, 1000
     assert retried_id == accepted.id
 
     assert {:error, {:idempotency_conflict, "act_123"}} =
@@ -3446,7 +3448,7 @@ defmodule Aiur.OrchestratorStatusTest do
                }
              })
 
-    assert_receive {:agent_queue_updated, "MT-SLEEP", item_id, true}
+    assert_receive {:agent_queue_updated, "MT-SLEEP", item_id, true}, 1000
 
     assert {:ok,
             %{
@@ -3485,7 +3487,7 @@ defmodule Aiur.OrchestratorStatusTest do
                }
              })
 
-    assert_receive {:agent_queue_updated, "MT-PAUSED", item_id, false}
+    assert_receive {:agent_queue_updated, "MT-PAUSED", item_id, false}, 1000
 
     assert {:ok,
             %{
@@ -3525,7 +3527,7 @@ defmodule Aiur.OrchestratorStatusTest do
              })
 
     # Standby agent is woken so it can pull main and resume in its held slot.
-    assert_receive {:agent_queue_updated, "MT-MAIN-SLEEP", item_id, true}
+    assert_receive {:agent_queue_updated, "MT-MAIN-SLEEP", item_id, true}, 1000
 
     assert {:ok,
             %{
@@ -3564,7 +3566,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     # A manual pause is never woken by a main update; the notice waits in queue
     # until the operator resumes.
-    assert_receive {:agent_queue_updated, "MT-MAIN-PAUSED", item_id, false}
+    assert_receive {:agent_queue_updated, "MT-MAIN-PAUSED", item_id, false}, 1000
 
     assert {:ok,
             %{
@@ -3606,7 +3608,7 @@ defmodule Aiur.OrchestratorStatusTest do
     # The headline acceptance criterion: a main update never interrupts an
     # in-flight turn. The notice is queued NON-interrupting and seen at the next
     # turn boundary, leaving whether/when to pull main to the agent.
-    assert_receive {:agent_queue_updated, "MT-MAIN-WORK", item_id, false}
+    assert_receive {:agent_queue_updated, "MT-MAIN-WORK", item_id, false}, 1000
 
     assert {:ok,
             %{
@@ -3638,7 +3640,7 @@ defmodule Aiur.OrchestratorStatusTest do
                %{topic: "ticket.MT-IDLE-TURN.pr.review_comment", comment: %{body: "please fix"}}
              })
 
-    assert_receive {:agent_queue_updated, "MT-IDLE-TURN", item_id, true}
+    assert_receive {:agent_queue_updated, "MT-IDLE-TURN", item_id, true}, 1000
 
     assert {:ok,
             %{
@@ -3672,7 +3674,7 @@ defmodule Aiur.OrchestratorStatusTest do
                %{topic: "ticket.MT-WORK.pr.review_comment", comment: %{body: "please fix"}}
              })
 
-    assert_receive {:agent_queue_updated, "MT-WORK", item_id, false}
+    assert_receive {:agent_queue_updated, "MT-WORK", item_id, false}, 1000
 
     assert {:ok,
             %{
@@ -3711,7 +3713,7 @@ defmodule Aiur.OrchestratorStatusTest do
                }
              })
 
-    assert_receive {:agent_queue_updated, "MT-WORK-REVIEW", item_id, true}
+    assert_receive {:agent_queue_updated, "MT-WORK-REVIEW", item_id, true}, 1000
 
     assert {:ok,
             %{
@@ -3742,7 +3744,7 @@ defmodule Aiur.OrchestratorStatusTest do
                body: "please address the review"
              })
 
-    assert_receive {:agent_queue_updated, "MT-SLEEP-CHAT", ^request_id, true}
+    assert_receive {:agent_queue_updated, "MT-SLEEP-CHAT", ^request_id, true}, 1000
 
     assert {:ok,
             %{

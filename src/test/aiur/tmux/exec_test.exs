@@ -17,7 +17,7 @@ defmodule Aiur.Tmux.ExecTest do
         Exec.run_command(state, "list-panes -t x")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "list-panes -t x"
 
@@ -40,7 +40,7 @@ defmodule Aiur.Tmux.ExecTest do
         Exec.run_args(state, ["send-keys", "-t", "%42", "hello world"])
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "send-keys -t %42 hello world"
 
@@ -58,7 +58,7 @@ defmodule Aiur.Tmux.ExecTest do
         Exec.run_args(state, ["list-panes", "-t", "test:0", "-F", "\#{pane_id}"])
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "list-panes -t test:0 -F \#{pane_id}"
 
@@ -76,7 +76,7 @@ defmodule Aiur.Tmux.ExecTest do
         Exec.run_args(state, ["kill-pane", "-t", "%bogus"])
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\ncan't find pane: %bogus\n%error 1 1 0\n"})

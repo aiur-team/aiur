@@ -98,7 +98,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     assert hold.resource == "core"
     assert hold.remaining == 0
     assert hold.limit == 5000
-    refute_receive :request_sent
+    refute_receive :request_sent, 100
   end
 
   test "records GraphQL quota and mutation attribution", %{quota: quota} do
@@ -163,7 +163,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
              })
 
     assert hold.resource == "graphql"
-    refute_receive :graphql_request_sent
+    refute_receive :graphql_request_sent, 100
 
     assert {:error, {:aiur, :locally_held, %{resource: "graphql"}}} =
              Transport.github_graphql(&Transport.default_request_fun/1, "token", "query { viewer { login } }", %{})
@@ -352,7 +352,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
                token: "shared-token"
              })
 
-    refute_receive :request_sent
+    refute_receive :request_sent, 100
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)

@@ -59,12 +59,12 @@ defmodule Aiur.GitHub.CycleFetchCacheTest do
         assert {:ok, :value} =
                  CycleFetchCache.fetch(:key, fn ->
                    send(parent, :fetch_started)
-                   assert_receive :release
+                   assert_receive :release, 1000
                    {:ok, :value}
                  end)
       end)
 
-    assert_receive :fetch_started
+    assert_receive :fetch_started, 1000
     assert :ok = Task.await(Task.async(fn -> CycleFetchCache.end_cycle() end))
     send(fetch_task.pid, :release)
     assert {:ok, :value} = Task.await(fetch_task)

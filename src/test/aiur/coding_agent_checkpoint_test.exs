@@ -16,8 +16,8 @@ defmodule Aiur.CodingAgentCheckpointTest do
       assert {:ok, _turn_session} =
                CodexAgent.run_turn(session, "initial prompt", issue, on_safe_checkpoint: callback)
 
-      refute_receive {:checkpoint_seen, _checkpoint}
-      refute_receive {:delivered, _payload}
+      refute_receive {:checkpoint_seen, _checkpoint}, 100
+      refute_receive {:delivered, _payload}, 100
 
       assert_stable_turn_texts(trace_file, ["initial prompt"])
       refute_traced_method(trace_file, "turn/interrupt")
@@ -31,8 +31,8 @@ defmodule Aiur.CodingAgentCheckpointTest do
       assert {:ok, _turn_session} =
                ClaudeAgent.run_turn(session, "initial prompt", issue, on_safe_checkpoint: callback)
 
-      refute_receive {:checkpoint_seen, _checkpoint}
-      refute_receive {:delivered, _payload}
+      refute_receive {:checkpoint_seen, _checkpoint}, 100
+      refute_receive {:delivered, _payload}, 100
 
       assert_stable_turn_texts(trace_file, ["initial prompt"])
       refute_traced_method(trace_file, "turn/interrupt")

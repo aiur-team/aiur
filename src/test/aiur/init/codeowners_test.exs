@@ -66,7 +66,7 @@ defmodule Aiur.Init.CodeownersTest do
     codeowners_path = Path.join([dir, ".github", "CODEOWNERS"])
     assert File.read!(codeowners_path) =~ "@octocat"
 
-    refute_receive {:confirm, "Add @octocat to CODEOWNERS so aiur trusts your PR/issue comments?"}
+    refute_receive {:confirm, "Add @octocat to CODEOWNERS so aiur trusts your PR/issue comments?"}, 100
   end
 
   for {name, invalid} <- [{"newline", "bad\n* @intruder"}, {"comment", "bad #comment"}, {"multiple owners", "first @second"}, {"App bot", "agent[bot]"}] do

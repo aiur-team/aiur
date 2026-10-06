@@ -106,7 +106,7 @@ defmodule Aiur.BuildOrder.GraphProjectionPubSubTest do
 
     assert_receive {:subscribed, ^catalog_subscriber, :ok}, 2_000
     assert_receive {:subscribed, ^selected_subscriber, :ok}, 2_000
-    refute_receive {:reader_started, {:selected, ^identity}, _reader}
+    refute_receive {:reader_started, {:selected, ^identity}, _reader}, 100
 
     monitor = Process.monitor(selected_subscriber)
     Process.exit(selected_subscriber, :kill)
@@ -123,10 +123,11 @@ defmodule Aiur.BuildOrder.GraphProjectionPubSubTest do
                    2_000
 
     refute_receive {
-      :subscriber_event,
-      ^catalog_subscriber,
-      {:graph_projection_generation, %Snapshot{scope: :catalog}}
-    }
+                     :subscriber_event,
+                     ^catalog_subscriber,
+                     {:graph_projection_generation, %Snapshot{scope: :catalog}}
+                   },
+                   100
 
     assert Process.alive?(projection)
     Process.exit(catalog_subscriber, :kill)
@@ -164,7 +165,7 @@ defmodule Aiur.BuildOrder.GraphProjectionPubSubTest do
                    },
                    2_000
 
-    refute_receive {:graph_projection_generation, %Snapshot{}}
+    refute_receive {:graph_projection_generation, %Snapshot{}}, 100
     assert %Snapshot{data: ^initial, generation: 1} = GraphProjection.catalog(projection)
   end
 

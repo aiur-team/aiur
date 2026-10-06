@@ -116,7 +116,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     assert {:error, :tracker_down} =
              TargetSelection.github_comment_poll_targets(%State{}, opts)
 
-    refute_receive :unexpected_watch_fetch
+    refute_receive :unexpected_watch_fetch, 100
   end
 
   test "merges cursors and remembers only successful review targets" do

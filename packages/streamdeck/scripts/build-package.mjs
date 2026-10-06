@@ -25,9 +25,15 @@ const output = resolve(args.get("output") ?? join(packageRoot, "package-dist"));
 const commit = required("commit");
 const version = required("version");
 const sourceDateEpoch = required("source-date-epoch");
-const releaseTag = args.get("release-tag") ?? `streamdeck-${commit}`;
+const releaseTag = args.get("release-tag") ?? "streamdeck-nightly";
+// A fixed asset base (for example `aiur-streamdeck-nightly-linux-x64`) names the
+// archive and manifest without the version or digest, so a rolling release can
+// replace them in place at a stable download URL. The manifest still records
+// the SHA-256, which is then the only integrity check for that archive.
+const assetBase = args.get("asset-base");
 if (!/^[0-9a-f]{40}$/i.test(commit)) throw new Error("--commit must be a full Git commit SHA");
 if (!/^\d+$/.test(sourceDateEpoch)) throw new Error("--source-date-epoch must be Unix seconds");
+if (assetBase !== undefined && !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(assetBase)) throw new Error("--asset-base must be a plain file name stem");
 
 const run = (command, commandArgs, options = {}) => {
   const result = spawnSync(command, commandArgs, { encoding: "utf8", ...options });
@@ -88,7 +94,7 @@ try {
   run("gzip", ["-n", "-f", tarPath]);
   await rename(`${tarPath}.gz`, archive);
   const digest = await sha256(archive);
-  const artifact = `${artifactBase}-${digest}.tar.gz`;
+  const artifact = assetBase ? `${assetBase}.tar.gz` : `${artifactBase}-${digest}.tar.gz`;
   await rename(archive, join(output, artifact));
   const manifest = {
     version,
@@ -99,7 +105,7 @@ try {
     content_address: `releases/download/${releaseTag}/${artifact}`,
     release_asset_path: `releases/download/${releaseTag}/${artifact}`,
   };
-  await writeFile(join(output, `${artifactBase}.json`), `${JSON.stringify(manifest, null, 2)}\n`);
+  await writeFile(join(output, `${assetBase ?? artifactBase}.json`), `${JSON.stringify(manifest, null, 2)}\n`);
   process.stdout.write(`${join(output, artifact)}\n`);
 } finally {
   await rm(stage, { recursive: true, force: true });

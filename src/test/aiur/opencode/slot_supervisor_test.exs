@@ -74,7 +74,7 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
 
       owner = self()
       claimant = spawn(fn -> send(owner, {:claimed, SlotSupervisor.acquire_slot()}) end)
-      assert_receive {:claimed, {1, ^pid}}
+      assert_receive {:claimed, {1, ^pid}}, 1000
       Process.exit(claimant, :kill)
 
       assert_reserve_stop(pid)
