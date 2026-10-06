@@ -114,6 +114,41 @@ defmodule Aiur.Workspace.RemoveTest do
     assert File.dir?(workspace)
   end
 
+  test "remote HEAD query failure exits closed", %{test_root: test_root} do
+    workspace = Path.join(test_root, "remote-workspace")
+    fake_bin = Path.join(test_root, "bin")
+    File.mkdir_p!(Path.join(workspace, ".git"))
+    File.mkdir_p!(fake_bin)
+    fake_git = Path.join(fake_bin, "git")
+    File.write!(fake_git, "#!/bin/sh\ncase \"$*\" in *rev-parse*) exit 128 ;; *) exit 0 ;; esac\n")
+    File.chmod!(fake_git, 0o755)
+
+    {_, status} =
+      System.cmd("bash", ["-c", Remove.remote_dirty_check() <> "\nrm -rf \"$workspace\""],
+        env: [{"workspace", workspace}, {"PATH", fake_bin <> ":" <> System.get_env("PATH")}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 76
+    assert File.dir?(workspace)
+  end
+
+  # This is a deliberate future-regression guard: the clean-unborn-HEAD path
+  # was already removable before checking for unpushed commits was added.
+  test "regression guard keeps a clean remote repository with no commits removable", %{test_root: test_root} do
+    workspace = Path.join(test_root, "remote-workspace")
+    {_, 0} = System.cmd("git", ["init", "--quiet", workspace])
+
+    {_, status} =
+      System.cmd("bash", ["-c", Remove.remote_dirty_check() <> "\nrm -rf \"$workspace\""],
+        env: [{"workspace", workspace}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0
+    refute File.exists?(workspace)
+  end
+
   test "remote dirty check preserves a clean checkout with a local-only commit", %{test_root: test_root} do
     workspace = Path.join(test_root, "remote-workspace")
     remote = Path.join(test_root, "origin.git")
@@ -140,7 +175,7 @@ defmodule Aiur.Workspace.RemoveTest do
       )
 
     assert status == 75
-    assert output =~ "commits not present on any remote"
+    assert output =~ "unpushed commits"
     assert File.read!(Path.join(workspace, "local-only.txt")) == "committed work"
     assert {commit, 0} = System.cmd("git", ["-C", workspace, "rev-parse", "HEAD"])
     assert String.trim(commit) == String.trim(local_commit)
