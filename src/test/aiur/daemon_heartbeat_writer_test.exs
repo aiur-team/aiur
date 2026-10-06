@@ -4,11 +4,9 @@ defmodule Aiur.DaemonHeartbeatWriterTest do
   alias Aiur.DaemonHeartbeatWriter
 
   defp safe_stop(pid) do
-    try do
-      if Process.alive?(pid), do: GenServer.stop(pid, :shutdown)
-    catch
-      :exit, _reason -> :ok
-    end
+    if Process.alive?(pid), do: GenServer.stop(pid, :shutdown)
+  catch
+    :exit, _reason -> :ok
   end
 
   setup do

@@ -1,8 +1,8 @@
 defmodule Aiur.DaemonHeartbeatTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.DaemonHeartbeat
   alias Aiur.Config.Paths
+  alias Aiur.DaemonHeartbeat
 
   setup do
     temp_root = Aiur.TestSupport.tmp_root!("aiur-daemon-heartbeat")

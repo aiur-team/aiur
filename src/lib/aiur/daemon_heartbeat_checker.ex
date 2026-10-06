@@ -56,25 +56,7 @@ defmodule Aiur.DaemonHeartbeatChecker do
           (String.t(), keyword() -> :ok | {:error, term()})
         ) :: :ok
   def check_and_alert!(path_fun, threshold_fun, emit_fun) do
-    case read_heartbeat_age(path_fun) do
-      {:ok, age_ms} ->
-        case safe_call_threshold(threshold_fun) do
-          threshold_ms when is_integer(threshold_ms) and threshold_ms > 0 ->
-            if age_ms > threshold_ms do
-              emit_stale_alert(emit_fun, age_ms, threshold_ms)
-            else
-              emit_resolved_alert(emit_fun)
-            end
-
-          invalid_threshold ->
-            Logger.warning("daemon_heartbeat_checker config_error reason=invalid_threshold threshold=#{inspect(invalid_threshold)}")
-            :ok
-        end
-
-      {:error, reason} ->
-        Logger.debug("daemon_heartbeat_checker heartbeat_read_failed reason=#{inspect(reason)}")
-        emit_stale_alert(emit_fun, nil, nil)
-    end
+    evaluate_heartbeat(read_heartbeat_age(path_fun), safe_call_threshold(threshold_fun), emit_fun)
   rescue
     error ->
       Logger.warning("daemon_heartbeat_checker check_and_alert_crashed error=#{inspect(error)}")
@@ -83,6 +65,25 @@ defmodule Aiur.DaemonHeartbeatChecker do
     kind, reason ->
       Logger.warning("daemon_heartbeat_checker check_and_alert_crashed kind=#{kind} reason=#{inspect(reason)}")
       :ok
+  end
+
+  defp evaluate_heartbeat({:ok, age_ms}, threshold_ms, emit_fun)
+       when is_integer(threshold_ms) and threshold_ms > 0 do
+    if age_ms > threshold_ms do
+      emit_stale_alert(emit_fun, age_ms, threshold_ms)
+    else
+      emit_resolved_alert(emit_fun)
+    end
+  end
+
+  defp evaluate_heartbeat({:ok, _age_ms}, invalid_threshold, _emit_fun) do
+    Logger.warning("daemon_heartbeat_checker config_error reason=invalid_threshold threshold=#{inspect(invalid_threshold)}")
+    :ok
+  end
+
+  defp evaluate_heartbeat({:error, reason}, _threshold_ms, emit_fun) do
+    Logger.debug("daemon_heartbeat_checker heartbeat_read_failed reason=#{inspect(reason)}")
+    emit_stale_alert(emit_fun, nil, nil)
   end
 
   # Read the heartbeat file and calculate its age in milliseconds.
