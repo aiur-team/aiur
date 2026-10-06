@@ -1787,6 +1787,7 @@ defmodule Aiur.AgentControlCLITest do
           # off / failed-fetch fleet is "has not polled yet", never a claim
           # about ticket supply (#2138).
           candidate_snapshot_fresh?: true,
+          last_dispatch_poll_at_ms: System.monotonic_time(:millisecond),
           idle_poll_backoff: %{active?: false, factor: 5.0},
           last_polled_issues: %{
             "issue-paused" => Map.put(queued_issue(), :paused, true),
