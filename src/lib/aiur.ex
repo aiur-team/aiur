@@ -108,7 +108,14 @@ defmodule Aiur.Application do
         children ++ [supervision_health_child(children)],
         name: Aiur.Supervisor
       )
-      |> tap(fn _ -> start_upgrade_check() end)
+      |> tap(fn
+        {:ok, _supervisor} ->
+          start_upgrade_check()
+          start_build_order_funnel_check(not no_dashboard? and Aiur.Config.build_order_funnel_health_check_enabled?(settings))
+
+        _error ->
+          :ok
+      end)
     end
   end
 
@@ -137,6 +144,17 @@ defmodule Aiur.Application do
 
     :ok
   end
+
+  defp start_build_order_funnel_check(true) do
+    if Application.get_env(:aiur, :env) != :test and
+         is_integer(Aiur.HttpServer.bound_port()) do
+      Task.start(&Aiur.BuildOrderFunnelHealth.check/0)
+    end
+
+    :ok
+  end
+
+  defp start_build_order_funnel_check(false), do: :ok
 
   @doc false
   @spec maybe_validate_environment() :: :ok
