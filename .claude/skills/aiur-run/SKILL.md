@@ -349,7 +349,7 @@ if [ ! -f "$wake_path" ]; then
 fi
 
 tail -F -n0 "$wake_path" \
-  | jq -rc --unbuffered 'select((.topic_class // "") | test("allowed_contributor|branch\\.push|pr\\.ready_for_review|pr\\.opened|ci\\.failed|agent\\.attention|retry_exhausted|tokens_exhausted|connectivity_lost")) | "\(.topic_class) ticket=\(.ticket // "-") pr=\(.pr_number // "-") observation=\(.observation // "-")"'
+  | jq -rc --unbuffered 'select((.topic_class // "") | test("allowed_contributor|branch\\.push|pr\\.ready_for_review|pr\\.opened|agent\\.handoff\\.human_review|ci\\.failed|agent\\.attention|retry_exhausted|tokens_exhausted|connectivity_lost")) | "\(.topic_class) ticket=\(.ticket // "-") pr=\(.pr_number // "-") observation=\(.observation // "-")"'
 ```
 
 Each detail is a trap someone already hit: `tail -F` (follow by name), not
@@ -429,6 +429,8 @@ applies. It reconciles a compile-time set of reviewed bindings on every start:
   `system.github.connectivity_lost`
 - PR lifecycle: `ticket.*.pr.opened`, `ticket.*.branch.push`,
   `ticket.*.pr.merged`, and `ticket.*.pr.ready_for_review`
+- Agent handoff: `ticket.*.agent.handoff.human_review` when a ticket enters
+  `agent:human-review`, carrying the pull request number and head SHA when known
 - attention and CI: `ticket.*.agent.attention.*`,
   `ticket.*.agent.paused`, `ticket.*.agent.error.tokens_exhausted`,
   `ticket.*.agent.retry_exhausted`, `ticket.*.pr.parked_ready`, and

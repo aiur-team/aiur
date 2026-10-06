@@ -1081,6 +1081,19 @@ defmodule Aiur.Orchestrator.IssueSync do
       previous_state == "error" ->
         resolve_observed_error_transition_alert(state, issue)
 
+      current_state == "human-review" ->
+        Alerts.emit_system(
+          "ticket.#{issue.identifier}.issue.label.added.agent.human-review",
+          issue: issue,
+          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          reason: task_state_alert_reason(current_state),
+          needs_attention: task_state_needs_attention?(current_state),
+          severity: task_state_alert_severity(current_state)
+        )
+
+        publish_human_review_handoff(issue)
+        clear_observed_error_alert(state, issue.id)
+
       true ->
         # Ticket B: label-flip alerts route through the new topic shape so
         # the alerts file can glob-match per state without one entry per state.
@@ -1098,6 +1111,48 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+
+  defp publish_human_review_handoff(%Issue{} = issue) do
+    {pr_number, head_sha} = human_review_pr_details(issue)
+
+    Alerts.emit_system("ticket.#{issue.identifier}.agent.handoff.human_review",
+      issue: issue,
+      reason: "Agent handed the ticket to human review",
+      needs_attention: true,
+      severity: "warning",
+      exchange_payload: %{
+        "action" => "human_review",
+        "pr_number" => pr_number,
+        "head_sha" => head_sha
+      }
+    )
+  end
+
+  defp human_review_pr_details(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository}, id: id, branch_name: branch_name})
+       when is_binary(id) and is_binary(branch_name) do
+    key = Aiur.GitHub.ResourceStore.key_for_repo(:branch_pull_request_listing, "#{owner}/#{repository}", id)
+    key |> Aiur.GitHub.ResourceStore.data() |> human_review_pr_listing_identity(branch_name)
+  rescue
+    _ -> {nil, nil}
+  end
+
+  defp human_review_pr_details(_issue), do: {nil, nil}
+
+  defp human_review_pr_listing_identity(%{"pull_requests" => pull_requests}, branch_name) when is_list(pull_requests),
+    do: pull_requests |> Enum.find(&human_review_pr_branch?(&1, branch_name)) |> human_review_pr_identity()
+
+  defp human_review_pr_listing_identity(pull_requests, branch_name) when is_list(pull_requests),
+    do: pull_requests |> Enum.find(&human_review_pr_branch?(&1, branch_name)) |> human_review_pr_identity()
+
+  defp human_review_pr_listing_identity(_listing, _branch_name), do: {nil, nil}
+
+  defp human_review_pr_branch?(%{"head" => %{"ref" => ref}}, branch_name), do: ref == branch_name
+  defp human_review_pr_branch?(_pull_request, _branch_name), do: false
+
+  defp human_review_pr_identity(%{"number" => number, "head" => %{"sha" => sha}}) when is_integer(number) and is_binary(sha),
+    do: {number, sha}
+
+  defp human_review_pr_identity(_pull_request), do: {nil, nil}
 
   defp reconcile_observed_error_alert(state, issue, "error"),
     do: emit_observed_error_transition_alert(state, issue)

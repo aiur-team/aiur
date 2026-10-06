@@ -97,6 +97,18 @@ defmodule Aiur.ExecutorWakeProjectionTest do
     assert {:ok, %{"author_id" => nil}} = ExecutorWakeProjection.project(%{event | author_id: "42"})
   end
 
+  test "projects human-review handoffs with their pull request and head SHA" do
+    sha = String.duplicate("d", 40)
+    event = %{id: 13, topic: "ticket.42.agent.handoff.human_review", action: "human_review", pr_number: 3019, head_sha: sha}
+
+    assert {:ok, record} = ExecutorWakeProjection.project(event)
+    assert record["ticket"] == "42"
+    assert record["topic_class"] == "ticket.agent.handoff.human_review"
+    assert record["pr_number"] == 3019
+    assert record["head_sha"] == sha
+    assert record["action"] == "human_review"
+  end
+
   test "only a trusted GitHub-stamped event retains author trust" do
     codeowners = trust_author!("trusted-reviewer")
     on_exit(fn -> restore_codeowners(codeowners) end)
