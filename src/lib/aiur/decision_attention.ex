@@ -15,6 +15,7 @@ defmodule Aiur.DecisionAttention do
   alias Aiur.Events.SubscriptionStore
 
   @default_reask_interval_ms :timer.minutes(15)
+  @condition_attention_ttl_ms :timer.minutes(15)
   @default_import_limit 100
   # The outer registry call must outlast DecisionStore's 60-second write call
   # so the caller cannot time out while the registry later opens the alert.
@@ -26,6 +27,7 @@ defmodule Aiur.DecisionAttention do
           worker_host: String.t() | nil,
           slug: String.t(),
           question: String.t(),
+          opened_at: DateTime.t(),
           timer_ref: reference() | nil
         }
 
@@ -125,6 +127,8 @@ defmodule Aiur.DecisionAttention do
       reask_interval_ms: Keyword.get(opts, :reask_interval_ms, @default_reask_interval_ms),
       alert_emitter: Keyword.get(opts, :alert_emitter, &emit_alert/1),
       resolution_emitter: Keyword.get(opts, :resolution_emitter, &emit_resolution_alert/1),
+      now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
+      condition_attention_ttl_ms: condition_attention_ttl_ms(opts),
       attention_loader: Keyword.get(opts, :attention_loader, &AlertFeed.list_decision_attentions/0),
       decision_projector: Keyword.get(opts, :decision_projector, &DecisionStore.project_attention/2),
       import_limit: import_limit(opts),
@@ -147,6 +151,7 @@ defmodule Aiur.DecisionAttention do
       worker_host: worker_host,
       slug: slug,
       question: question,
+      opened_at: state.now_fun.(),
       timer_ref: nil
     }
 
@@ -176,6 +181,7 @@ defmodule Aiur.DecisionAttention do
       worker_host: worker_host,
       slug: slug,
       question: question,
+      opened_at: state.now_fun.(),
       timer_ref: nil
     }
 
@@ -183,34 +189,7 @@ defmodule Aiur.DecisionAttention do
   end
 
   def handle_call({:resolve, issue, slug}, _from, state) do
-    identifier = issue_identifier!(issue)
-    key = {identifier, slug}
-    attention = Map.get(state.attentions, key) || %{}
-    cancel_timer(attention)
-
-    :ok = SubscriptionStore.attach(identifier)
-    :ok = SubscriptionStore.resolve_attention(identifier, slug)
-
-    state.resolution_emitter.(%{
-      issue: issue,
-      workspace: Map.get(attention, :workspace),
-      worker_host: Map.get(attention, :worker_host),
-      slug: slug
-    })
-
-    resolved_during_import =
-      if state.importing? do
-        MapSet.put(state.resolved_during_import, key)
-      else
-        state.resolved_during_import
-      end
-
-    {:reply, :ok,
-     %{
-       state
-       | attentions: Map.delete(state.attentions, key),
-         resolved_during_import: resolved_during_import
-     }}
+    {:reply, :ok, resolve_attention(state, issue, slug)}
   end
 
   @impl true
@@ -220,9 +199,13 @@ defmodule Aiur.DecisionAttention do
         {:noreply, state}
 
       attention ->
-        emit(state.alert_emitter, attention)
-        next_attention = schedule_reask(attention, state.reask_interval_ms)
-        {:noreply, %{state | attentions: Map.put(state.attentions, key, next_attention)}}
+        if stale_condition_attention?(attention, state) do
+          {:noreply, resolve_attention(state, attention.issue, attention.slug)}
+        else
+          emit(state.alert_emitter, attention)
+          next_attention = schedule_reask(attention, state.reask_interval_ms)
+          {:noreply, %{state | attentions: Map.put(state.attentions, key, next_attention)}}
+        end
     end
   end
 
@@ -371,8 +354,19 @@ defmodule Aiur.DecisionAttention do
       worker_host: nil,
       slug: slug,
       question: question,
+      opened_at: source_created_at || state.now_fun.(),
       timer_ref: nil
     }
+
+    if stale_condition_attention?(attention, state) do
+      resolve_attention(state, issue, slug)
+    else
+      restore_actionable_attention(attention, source_created_at, key, state)
+    end
+  end
+
+  defp restore_actionable_attention(attention, source_created_at, key, state) do
+    identifier = issue_identifier!(attention.issue)
 
     opts = [
       source: %{agent_id: "legacy_attention", session_id: nil, event_id: nil},
@@ -385,19 +379,77 @@ defmodule Aiur.DecisionAttention do
         :ok = SubscriptionStore.attach(identifier)
 
         if actionable_decision?(result) do
-          :ok = SubscriptionStore.add_attention(identifier, slug)
+          :ok = SubscriptionStore.add_attention(identifier, attention.slug)
           next_attention = schedule_reask(attention, state.reask_interval_ms)
           %{state | attentions: Map.put(state.attentions, key, next_attention)}
         else
-          :ok = SubscriptionStore.resolve_attention(identifier, slug)
+          :ok = SubscriptionStore.resolve_attention(identifier, attention.slug)
           state.resolution_emitter.(attention)
           state
         end
 
       {:error, reason} ->
-        Logger.warning("decision_attention legacy_import_rejected issue_identifier=#{identifier} slug=#{slug} reason=#{inspect(reason)}")
+        Logger.warning("decision_attention legacy_import_rejected issue_identifier=#{identifier} slug=#{attention.slug} reason=#{inspect(reason)}")
 
         state
+    end
+  end
+
+  defp resolve_attention(state, issue, slug) do
+    identifier = issue_identifier!(issue)
+    key = {identifier, slug}
+    attention = Map.get(state.attentions, key) || %{}
+    cancel_timer(attention)
+
+    :ok = SubscriptionStore.attach(identifier)
+    :ok = SubscriptionStore.resolve_attention(identifier, slug)
+
+    state.resolution_emitter.(%{
+      issue: issue,
+      workspace: Map.get(attention, :workspace),
+      worker_host: Map.get(attention, :worker_host),
+      slug: slug
+    })
+
+    resolved_during_import =
+      if state.importing? do
+        MapSet.put(state.resolved_during_import, key)
+      else
+        state.resolved_during_import
+      end
+
+    %{
+      state
+      | attentions: Map.delete(state.attentions, key),
+        resolved_during_import: resolved_during_import
+    }
+  end
+
+  # These slugs describe mutable main-branch CI state. The alert is a snapshot,
+  # not a daemon-observed condition, so an unrefreshed snapshot expires instead
+  # of being re-raised forever as if the red result were still current.
+  defp stale_condition_attention?(%{slug: slug, opened_at: %DateTime{} = opened_at}, state) do
+    condition_attention?(slug) and
+      DateTime.diff(state.now_fun.(), opened_at, :millisecond) >= state.condition_attention_ttl_ms
+  end
+
+  defp stale_condition_attention?(_attention, _state), do: false
+
+  defp condition_attention?(slug) do
+    base_branch = Aiur.Config.base_branch()
+    branch_red = "#{base_branch}-red"
+    branch_ci_red = "#{base_branch}-ci-red"
+    detailed_ci_red_prefix = branch_ci_red <> "-"
+
+    slug in [branch_red, branch_ci_red] or
+      (String.starts_with?(slug, detailed_ci_red_prefix) and
+         byte_size(slug) > byte_size(detailed_ci_red_prefix))
+  end
+
+  defp condition_attention_ttl_ms(opts) do
+    case Keyword.get(opts, :condition_attention_ttl_ms, @condition_attention_ttl_ms) do
+      ttl when is_integer(ttl) and ttl > 0 -> ttl
+      _invalid -> @condition_attention_ttl_ms
     end
   end
 

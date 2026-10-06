@@ -1895,7 +1895,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     # HttpServer.bound_port/0 reports the real port.
     assert config.server.port == 0
 
-    # Dashboard is read-only by default until the parity pass (#371).
+    # Dashboard writes are enabled by default for authenticated operators.
     assert config.observability.dashboard_writable == true
     assert Config.dashboard_writable?()
 
