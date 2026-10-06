@@ -20,7 +20,6 @@ defmodule AiurWeb.DashboardLiveTest do
   }
 
   alias Aiur.Agent.UsageSnapshotService
-  alias Aiur.Usage.Headless.Codex.ThreadUsage
   alias Aiur.BuildOrder.Lifecycle
   alias Aiur.DecisionMetrics.Canonical, as: DecisionMetricsCanonical
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
@@ -32,6 +31,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
+  alias Aiur.Usage.Headless.Codex.ThreadUsage
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
   alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, FleetFilters, Overview, PayloadLoader, UnitsPresenter}
 
