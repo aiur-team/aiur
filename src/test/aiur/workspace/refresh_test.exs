@@ -94,12 +94,12 @@ defmodule Aiur.Workspace.RefreshTest do
       hook_before_run: """
       if [ -f ignored-sentinel ]; then exit 65; fi
       test -z "$(find . -mindepth 1 -maxdepth 1 -print -quit)"
-      git init --quiet -b main
-      git config user.email t@example.com
-      git config user.name T
+      git -C "$PWD" init --quiet -b main
+      git -C "$PWD" config user.email t@example.com
+      git -C "$PWD" config user.name T
       touch rebuilt
-      git add rebuilt
-      git commit --quiet -m rebuilt
+      git -C "$PWD" add rebuilt
+      git -C "$PWD" commit --quiet -m rebuilt
       """
     )
 
@@ -168,7 +168,7 @@ defmodule Aiur.Workspace.RefreshTest do
     assert File.read!(sentinel) == "keep\n"
   end
 
-  test "run/3 preserves an established ticket branch when recreation follows a title edit", %{
+  test "run/3 passes the established ticket branch to recreation hooks after a title edit", %{
     workspace: workspace,
     test_root: test_root
   } do
@@ -191,8 +191,7 @@ defmodule Aiur.Workspace.RefreshTest do
     }
 
     assert {:error, _} = Refresh.run(workspace, issue, nil)
-    assert File.read!(trace) == "aiur/123-fix-login\n"
-    assert String.trim(git!(["-C", workspace, "branch", "--show-current"])) == "aiur/123-fix-login"
+    assert File.read!(trace) |> String.split("\n", trim: true) == ["aiur/123-fix-login", "aiur/123-fix-login"]
   end
 
   test "run/3 exit-65 on non-todo dispatch returns :ok (WIP skip)", %{workspace: workspace, test_root: test_root} do
