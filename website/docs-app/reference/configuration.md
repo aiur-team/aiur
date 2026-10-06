@@ -29,7 +29,7 @@ The generated `.env.example` groups variables under `## Required`, `## Optional 
 | `pre_warmed_sessions` | integer | 3 | Number of opencode sessions booted early; 0 disables pre-warm. |
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `prompt_file` | string | nil | Per-repository Liquid prompt template. |
-| `debug` | boolean | false | Enables file logging without the CLI debug flag. |
+| `debug` | boolean | false | Enables debug-level file logging without the CLI debug flag; background runs already retain normal-level logs. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
 | `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
 | `executor_takeover_continuous_alert_hours` | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
@@ -192,11 +192,19 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 
 ## workspace
 
+The `wip_*` keys bound the save of uncommitted work described in [Saved uncommitted work](/reference/cli#saved-uncommitted-work).
+
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `workspace.root` | string path | tmp `aiur_workspaces` | Root for agent workspaces. |
 | `workspace.bootstrap_image` | string | nil | Docker image for warm build-cache seeding. |
 | `workspace.bootstrap_image_pull` | boolean | false | Pulls the bootstrap image before seeding. |
+| `workspace.wip_max_bytes` | integer | 52428800 | Cap in bytes of one save of uncommitted work (50 MiB). Untracked files past it are skipped; the tracked patch is always kept. |
+| `workspace.wip_max_file_bytes` | integer | 10485760 | An untracked file larger than this (10 MiB) is skipped in a save. |
+| `workspace.wip_max_dir_files` | integer | 10000 | An untracked directory with more files than this, or a nested repository, is skipped whole. |
+| `workspace.wip_command_timeout_ms` | integer | 60000 | Time limit of each `git` and `tar` command of a save. A timeout keeps the workspace, except for a closed ticket. |
+| `workspace.wip_retention_bytes` | integer | 2147483648 | Cap in bytes of all of `wip-preserved/` (2 GiB). Closed tickets' saves are pruned first. |
+| `workspace.wip_retention_days` | integer | 14 | Saves older than this are pruned. The newest save of an open ticket is never pruned. |
 
 ## worker
 
@@ -662,6 +670,7 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 | --- | --- | --- | --- |
 | `observability.dashboard_enabled` | boolean | true | Reserved compatibility setting; use the launch-time `--no-dashboard` flag to suppress the listener in foreground or background mode. |
 | `observability.dashboard_writable` | boolean | true | Enables dashboard write paths. Set to `false` to disable them. A dashboard bound beyond loopback refuses to start without both dashboard basic-auth environment variables; a loopback listener binds without them and fails closed (see below). |
+| `observability.build_order_funnel_health_check` | boolean | false | Opts into one bounded startup check of the local Build Order endpoint and configured Tailscale Funnel HTTPS 443 target. Leave disabled when Funnel serves another purpose. |
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |
 | `observability.telemetry_enabled` | boolean | true | Records run telemetry for analytics. |
@@ -672,6 +681,14 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 `dashboard_writable` is an authorization gate, not an authentication mechanism. Every usable dashboard requires `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`.
 
 A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set. A dashboard bound beyond loopback refuses to start without both credentials.
+
+When `observability.build_order_funnel_health_check` is enabled, Aiur checks the local `/build-orders/1` endpoint and reads `tailscale funnel status --json` once after dashboard startup. Both the HTTP receive and Tailscale command timeouts are five seconds; a timed-out process is closed.
+
+HTTP 200, redirects 301/302/304/307/308, and 401 (authentication required) count as reachable. Other statuses, including 201, 204, and 303, do not.
+
+A stale proxy target raises `system.build_order_funnel.target_mismatch`; an unreachable endpoint raises `system.build_order_funnel.target_unreachable`; and an endpoint timeout raises `system.build_order_funnel.target_timeout`.
+
+An unavailable or unparseable Tailscale status raises `system.build_order_funnel.health_check_error`. Tailscale is not detected or queried unless this setting is explicitly enabled.
 
 The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential. Generate it with `openssl rand -base64 32`, then put `AIUR_SUPERVISOR_TOKEN=<generated-token>` in `~/.aiur/.env` (global) or the repository `.env` (project-local).
 

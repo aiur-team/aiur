@@ -229,6 +229,8 @@ defmodule Aiur.Orchestrator.Slots do
       effective: effective_concurrent_agent_limit(state),
       available: available_slots(state),
       capacity_hold: state.capacity_hold,
+      dispatch_hold: dispatch_hold_status(state, System.monotonic_time(:millisecond)),
+      dispatch_selection_hold: state.dispatch_selection_hold,
       load: Map.get(sample, :load, :unavailable),
       load_threshold: Map.get(sample, :load_threshold),
       schedulers: Map.get(sample, :schedulers),
@@ -236,6 +238,22 @@ defmodule Aiur.Orchestrator.Slots do
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max
     }
+  end
+
+  @spec dispatch_hold_status(State.t(), integer()) :: map()
+  def dispatch_hold_status(%State{} = state, now_ms) do
+    case state.dispatch_hold do
+      %{reason: reason, detail: detail, held_since_ms: held_since_ms} ->
+        %{
+          held?: true,
+          reason: reason,
+          detail: detail,
+          held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0)
+        }
+
+      _other ->
+        %{held?: false, reason: nil, detail: nil, held_for_seconds: 0}
+    end
   end
 
   defp queued_dispatch_demand?(%State{candidate_snapshot_fresh?: false}), do: false
