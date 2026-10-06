@@ -107,8 +107,13 @@ CE skills frame it.
 
 ## Docs ship in the same PR
 
+For Aiur repository changes, follow the page map below. In other repositories,
+follow that repository's documentation policy and update the pages its change
+affects; do not create a `website/docs-app/` path just because Aiur's skill
+names one.
+
 Documentation is part of the change, not a follow-up ticket. Update
-`website/docs-app/` **in this PR** when your work:
+Aiur's `website/docs-app/` **in this PR** when your Aiur work:
 
 - adds or changes a **config key** (`.aiur/config`, `Aiur.Config.Schema.*`) →
   `reference/configuration.md`, plus the `.aiur/examples/` and
@@ -136,11 +141,19 @@ blocking finding is the only enforcement they have.
 
 ## The loop
 
+**Resolve validation from the target repository first.** Read
+[`validation.md`](validation.md) before choosing commands. The Elixir examples
+below apply only to Aiur's Elixir core, not to every workspace Aiur operates.
+For other repositories, substitute their documented build/typecheck, formatter,
+focused test runner, test-tree paths and CI gate at each step.
+
 1. Implement
 2. Add / update / run tests
-3. Update `website/docs-app/` if the change crossed the threshold above
+3. Update the target repository's documentation if its change requires it;
+   for Aiur changes, use `website/docs-app/` and the threshold above
 4. Run the scoped local pre-PR verification gate before opening or finalizing
-   the PR: `mix compile --warnings-as-errors`, `mix format`, and affected tests
+   the PR using the target repository's commands. For Aiur's Elixir core:
+   `mix compile --warnings-as-errors`, `mix format`, and affected tests
    only (the test files for modules you touched plus directly related tests),
    each run with `mix test --max-cases 4`. Compute that scoped set
    deterministically instead of guessing it: from the workspace root run
@@ -169,11 +182,11 @@ blocking finding is the only enforcement they have.
    collect the sibling `test/aiur/github_client_test.exs`. A large green
    directory-scoped run does not prove those root-level files ran.
 5. Fix every verification failure from the scoped local gate before continuing.
-   Do not gate PR-opening on a clean full-suite `mix test` run or loop on
-   unrelated suite flakes; CI runs the full `make ci` on every PR and is the
-   authoritative full-suite gate.
+   Do not loop on unrelated suite flakes. Use the target repository's required
+   CI gate; do not assume it has `make ci`. For Aiur's Elixir core, do not gate
+   PR-opening on a clean full-suite `mix test` run: CI runs the full `make ci`.
 
-   **Before you diagnose a failure that looks impossible, rule out a stale test
+   **For an Elixir failure that looks impossible, rule out a stale test
    build.** `mix compile --force` rebuilds `dev`, **not** `test`, so a stale
    artifact in `_build/test` survives it. Use:
 
@@ -280,11 +293,14 @@ blocking finding is the only enforcement they have.
    hold clears. Any other broker diagnostic remains fail-closed and must not be
    relabelled as this self-clearing condition.
 
-   Immediately before pushing, run
-   `aiur guard-pr-deletions "$AIUR_BASE_BRANCH"`. The command fetches the exact
-   configured base and refuses a PR when its tree deletes more than 50 base
-   files that none of the feature commits touched. Never bypass a refusal:
-   repair the wrong or stale base, or alert the Executor.
+   A repository may enforce file deletion policy as a required check that
+   fails when a pull request removes files. **A red deletion check is not a CI
+   failure to fix.** Do not restore files you deleted on purpose to make it
+   green, and **never add an allow-deletions label, or any label that
+   authorizes the deletion, to your own pull request** — that label exists so a
+   human can approve a deletion after reviewing it, and an agent applying it to
+   its own work defeats the only control standing behind the guard above. Stop,
+   and tell the Executor what you deleted and why.
 8. **Open the PR as a draft** with that branch as `--head` and the authoritative
    integration branch as `--base`: `gh pr create --draft --head "$branch"
    --base "$AIUR_BASE_BRANCH" ...` (not ready for review yet). If a PR already
@@ -306,22 +322,37 @@ blocking finding is the only enforcement they have.
 13. Recheck current-base ancestry after fixes. If the base moved, integrate it,
     rerun the scoped gate, and push before continuing.
 14. If you still believe the work is complete and correct and only CI remains,
-    keep the PR as a draft, add the `agent:ci-wait` label, and end the turn. Do
+    keep the PR as a draft, move the ticket with
+    `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do
     not loop on `gh pr checks` + sleep: the daemon polls CI centrally and
     returns the dispatch slot while this runner is paused.
 15. On a delivered terminal CI event:
     - **Passed:** fetch the configured base once. If its current remote head is
       still an ancestor of the tested PR head, trust the delivered result without re-polling,
       mark the PR ready for review, emit the required 100% progress sample, and
-      add `agent:human-review`. If the base moved, integrate it yourself,
-      validate, push, and return to `agent:ci-wait` for fresh exact-head CI.
+      move the ticket with `aiur_set_ticket_state({ "state": "human-review" })`.
+      Use that tool, never `gh issue edit --remove-label agent:ci-wait
+      --add-label agent:human-review`: the daemon's CI-pass handoff already
+      swapped `agent:ci-wait` for `agent:in-progress` before it woke you, so the
+      removal is a no-op and the ticket ends up carrying both state labels —
+      undispatchable, and healed by a guess (#2805). If the base moved,
+      integrate it yourself, validate, push, and return to `agent:ci-wait` for
+      fresh exact-head CI.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
-      the ticket in `agent:rework`, and begin the repair loop.
+      the ticket in `agent:rework` (`aiur_set_ticket_state`), and begin the
+      repair loop.
 16. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
     follow the pass or failure path; if it is still pending, return to
-    `agent:ci-wait` and end the turn without polling again.
+    `agent:ci-wait` (`aiur_set_ticket_state`) and end the turn without polling
+    again.
 
 Do **not** self-merge. Always await user review after marking the PR ready.
+
+**Every state move goes through `aiur_set_ticket_state({ "state": "<state>" })`,
+never a raw `gh issue edit --add-label` / `--remove-label`.** The tool makes the
+target the ticket's sole `agent:*` state label from the issue Aiur re-reads at
+write time; a label you name yourself may already be gone, and the leftover pair
+is undispatchable. `turn-workflow.md` has the full rule.
 
 **When you flip the label to `agent:ci-wait` or `agent:human-review`, your turn
 loop ends naturally.** Do not keep polling `gh pr checks`, `gh pr view`, or
@@ -342,10 +373,10 @@ functionality is confirmed working in the CLI.
 
 Manual CLI verification is in addition to the scoped local pre-PR verification
 gate above, not a replacement for it. A PR is not ready for human review until
-compile, format, affected tests with the four-case cap, and scoped credo strict
-have passed locally.
-The full suite is CI's job through `make ci`; do not loop locally on full-suite
-flakes before opening or finalizing the PR.
+the target repository's required local checks pass. In Aiur's Elixir core,
+use compile, format and affected tests with the four-case cap; Credo belongs
+to CI as specified above. Use the target repository's full CI gate, which is
+`make ci` for Aiur's Elixir core; do not loop locally on unrelated suite flakes.
 
 ## Closing keyword in the PR description
 

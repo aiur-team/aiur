@@ -37,7 +37,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
           <label class="add-agent-field">
             <span>Agent</span>
             <div class="field-select">
-              <select name="backend" disabled={@modal.options.backends == []}>
+              <select name="backend" disabled={@modal.pending? or @modal.options.backends == []}>
                 <option :for={backend <- @modal.options.backends} value={backend} selected={backend == @modal.selection.backend}>
                   {backend}
                 </option>
@@ -48,7 +48,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
           <label class="add-agent-field">
             <span>Model</span>
             <div class="field-select">
-              <select name="model">
+              <select name="model" disabled={@modal.pending?}>
                 <option value="" selected={blank?(@modal.selection.model)}>Backend default</option>
                 <option :for={model <- @modal.options.models} value={model} selected={model == @modal.selection.model}>
                   {model}
@@ -60,7 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
           <label class="add-agent-field" :if={@modal.options.efforts != []}>
             <span>Effort</span>
             <div class="field-select">
-              <select name="effort">
+              <select name="effort" disabled={@modal.pending?}>
                 <option value="" selected={blank?(@modal.selection.effort)}>Backend default</option>
                 <option :for={effort <- @modal.options.efforts} value={effort} selected={effort == @modal.selection.effort}>
                   {effort}
@@ -72,7 +72,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
           <label class="add-agent-field">
             <span>Complexity</span>
             <div class="field-select">
-              <select name="complexity">
+              <select name="complexity" disabled={@modal.pending?}>
                 <option value="" selected={is_nil(@modal.selection.complexity)}>Untagged</option>
                 <option
                   :for={complexity <- @modal.options.complexities}
@@ -87,7 +87,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
             <p class="section-eyebrow">Labels to apply</p>
             <div class="ut-pill-row">
               <span :for={label <- @modal.plan.add} class="u-pill u-label">{label}</span>
-              <span :if={@modal.plan.add == []} class="tk-muted">Nothing to add — the ticket already carries these labels.</span>
+              <span :if={@modal.plan.add == []} class="tk-muted">Labels already present — check admission without changing them.</span>
             </div>
           </div>
 
@@ -102,11 +102,13 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
             The routing configuration could not be read, so nothing is prefilled.
           </p>
 
+          <p :if={@modal.pending?} class="add-agent-note" role="status">Saving labels and checking admission… You can close this dialog while the request completes.</p>
+
           <p :if={@modal.result} class={["add-agent-note", result_tone(@modal.result)]} role="status">{result_message(@modal.result)}</p>
 
           <div class="add-agent-actions">
             <button type="button" class="btn ghost" phx-click="close-add-agent">Cancel</button>
-            <button type="submit" class="btn" disabled={!@writable or empty_plan?(@modal.plan) or applied?(@modal.result)}>Confirm</button>
+            <button type="submit" class="btn" disabled={!@writable or @modal.pending?}>{if @modal.pending?, do: "Applying…", else: if(empty_plan?(@modal.plan), do: "Check admission", else: "Confirm")}</button>
           </div>
         </form>
 
@@ -121,9 +123,6 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
   defp empty_plan?(%{add: [], remove: []}), do: true
   defp empty_plan?(_plan), do: false
 
-  defp applied?({:ok, _labels}), do: true
-  defp applied?(_result), do: false
-
   defp result_tone({:ok, _labels}), do: "is-applied"
   defp result_tone(_result), do: "is-error"
 
@@ -137,6 +136,7 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
     do: "Applied #{Enum.join(applied, ", ")}, then stopped: #{reason_text(reason)} The ticket is partly labelled."
 
   defp result_message({:error, :no_labels}), do: "This selection changes nothing on the ticket."
+  defp result_message({:error, message}) when is_binary(message), do: message
   defp result_message({:error, reason}), do: "Could not apply labels: #{reason_text(reason)}"
   defp result_message(_result), do: ""
 

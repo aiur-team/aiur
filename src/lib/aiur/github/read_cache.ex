@@ -208,8 +208,7 @@ defmodule Aiur.GitHub.ReadCache do
   def invalidate_all, do: invalidate([:root])
 
   @doc """
-  What the cache holds and what it has done, for `aiur github-cost` and the
-  GitHub cache page.
+  What the cache holds and what it has done, for `aiur github-cost`.
 
   `available?` is answered before any figure, because a cache that is not
   running and a cache that is holding nothing are different facts.

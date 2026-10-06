@@ -4,6 +4,21 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreviewTest do
   alias Aiur.{CodingAgent, Issue, Workflow}
   alias AiurWeb.OperatorControlCenter.AgentRoutingPreview
 
+  test "changing routing preserves an existing lifecycle instead of appending todo" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_active_states: ["todo", "in-progress"]
+    )
+
+    selection = %{backend: "codex", model: nil, effort: nil, complexity: 3}
+
+    for state <- ["in-progress", "human-review", "done"] do
+      plan = AgentRoutingPreview.plan(selection, ["agent:" <> state])
+      refute "agent:todo" in plan.add
+      refute ("agent:" <> state) in plan.remove
+      assert "complexity:3" in plan.add
+    end
+  end
+
   test "predicts the routed backend, model, and effort from the configured routing table" do
     write_workflow_file!(Workflow.workflow_file_path(), agent_routing: %{3 => "codex:gpt-5.6-terra:high"})
 
@@ -56,6 +71,18 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreviewTest do
     assert options.complexities == [1, 2, 3, 4, 5]
     assert is_list(options.models)
     assert is_list(options.efforts)
+  end
+
+  test "options keep models only the backend's CLI reported, with their families" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_kind: "codex")
+    cache = Path.join(Path.dirname(Workflow.workflow_file_path()), "preview-model-catalog.json")
+    {:ok, _} = Aiur.ModelDiscovery.refresh("codex", path: cache, discover: fn _ -> {:ok, ["gpt-5.7-astra"]} end)
+
+    models = AgentRoutingPreview.options("codex", path: cache).models
+
+    # A `model:astra` ticket must keep its choice when the modal opens.
+    assert "gpt-5.7-astra" in models
+    assert "astra" in models
   end
 
   test "an out-of-vocabulary selection is clamped instead of becoming a tracker label" do

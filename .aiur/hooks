@@ -24,7 +24,6 @@ after_create: |
   else
     git checkout -B "$AIUR_TICKET_BRANCH" "origin/$base_branch"
   fi
-  git update-ref refs/aiur/branch-start "$(git merge-base "origin/$base_branch" HEAD)"
   cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
   mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"
   touch "$cache_root/meta/findings.ndjson"
@@ -123,9 +122,6 @@ before_run: |
       fi
     fi
     git merge --no-edit "origin/$base_branch"
-  fi
-  if ! git rev-parse --verify --quiet 'refs/aiur/branch-start^{commit}' >/dev/null; then
-    git update-ref refs/aiur/branch-start "$(git merge-base "origin/$base_branch" HEAD)"
   fi
   if [ -f mise.toml ]; then
     mise trust mise.toml >/dev/null 2>&1 || true

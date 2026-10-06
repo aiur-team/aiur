@@ -45,6 +45,48 @@ defmodule Aiur.GitHub.PullRequestsTest do
     end
   end
 
+  describe "fetch_classified_pr_reviews/2" do
+    test "strictly revalidates the formal review list and classifies its author" do
+      repo_root = Aiur.TestSupport.tmp_root!("formal-reviews-codeowners")
+      codeowners = Path.join(repo_root, ".github/CODEOWNERS")
+      File.mkdir_p!(Path.dirname(codeowners))
+      File.write!(codeowners, "* @owner\n")
+      on_exit(fn -> File.rm_rf!(repo_root) end)
+
+      review = %{
+        "id" => 92_794,
+        "state" => "CHANGES_REQUESTED",
+        "body" => "Please fix the failure path",
+        "submitted_at" => "2026-09-28T12:00:00Z",
+        "user" => %{"login" => "owner"}
+      }
+
+      outsider = %{review | "id" => 92_795, "user" => %{"login" => "guest"}}
+
+      request_fun = fn req ->
+        assert req.url =~ "/repos/owner/repo/pulls/92794/reviews?per_page=100"
+        send(self(), {:review_request, Map.get(req, :etag)})
+
+        case Map.get(req, :etag) do
+          nil -> {:ok, %{status: 200, body: [review, outsider], headers: [{"etag", ~s("review-etag")}]}}
+          ~s("review-etag") -> {:ok, %{status: 304, headers: [{"etag", ~s("review-etag")}]}}
+        end
+      end
+
+      opts = [request_fun: request_fun, repo_root: repo_root]
+
+      assert {:ok, [%{authoritative: true}, %{authoritative: false}]} =
+               PullRequests.fetch_classified_pr_reviews(92_794, opts)
+
+      assert_receive {:review_request, nil}
+
+      assert {:ok, [%{authoritative: true}, %{authoritative: false}]} =
+               PullRequests.fetch_classified_pr_reviews(92_794, opts)
+
+      assert_receive {:review_request, ~s("review-etag")}
+    end
+  end
+
   describe "fetch_compare_files/3" do
     test "returns content-sensitive {filename, sha} fingerprints from the compare endpoint" do
       body = %{
@@ -116,6 +158,35 @@ defmodule Aiur.GitHub.PullRequestsTest do
     test "returns :head_ref_missing when head ref absent from body" do
       request_fun = fn _ -> {:ok, %{status: 200, body: %{"head" => %{}}}} end
       assert {:error, :head_ref_missing} = PullRequests.fetch_pull_request_head_ref(1, request_fun: request_fun)
+    end
+  end
+
+  describe "fetch_pull_request_was_draft/2" do
+    # #2707: classifies a PR a poll first sees ready. Only a `ready_for_review`
+    # event proves it was a draft; a PR opened ready has none.
+    test "answers true when the issue events hold a ready_for_review event" do
+      request_fun = fn %{method: :get, url: url} ->
+        assert url =~ "/issues/10/events?per_page=100"
+        {:ok, %{status: 200, body: [%{"event" => "labeled"}, %{"event" => "ready_for_review"}]}}
+      end
+
+      assert {:ok, true} = PullRequests.fetch_pull_request_was_draft(10, request_fun: request_fun)
+    end
+
+    test "answers false for a short history with no ready_for_review event" do
+      request_fun = fn _request -> {:ok, %{status: 200, body: [%{"event" => "labeled"}]}} end
+      assert {:ok, false} = PullRequests.fetch_pull_request_was_draft(10, request_fun: request_fun)
+    end
+
+    test "answers true for a full page it cannot see past" do
+      events = List.duplicate(%{"event" => "labeled"}, 100)
+      request_fun = fn _request -> {:ok, %{status: 200, body: events}} end
+      assert {:ok, true} = PullRequests.fetch_pull_request_was_draft(10, request_fun: request_fun)
+    end
+
+    test "returns an error for a failed read" do
+      request_fun = fn _request -> {:ok, %{status: 502, body: %{}}} end
+      assert {:error, _reason} = PullRequests.fetch_pull_request_was_draft(10, request_fun: request_fun)
     end
   end
 

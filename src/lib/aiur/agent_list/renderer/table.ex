@@ -4,6 +4,7 @@ defmodule Aiur.AgentList.Renderer.Table do
   It composes cells while preserving the selected-row escape discipline.
   """
 
+  alias Aiur.AgentContextPresentation
   alias Aiur.AgentList.Renderer.{Cells, Layout, Markers, Model, Style, Text}
 
   # ---------- table ----------------------------------------------------------
@@ -14,6 +15,9 @@ defmodule Aiur.AgentList.Renderer.Table do
       if layout.show_progress?, do: [" ", Text.cell("PROGRESS", Layout.progress_cell_width())], else: []
 
     runtime_header = [" ", Text.cell("TIME", Layout.runtime_cell_width())]
+
+    context_header =
+      if layout.show_context?, do: [" ", Text.cell("CTX", Layout.context_cell_width())], else: []
 
     model_header =
       if layout.model_width > 0, do: [Text.cell("MODEL", layout.model_width), " "], else: []
@@ -29,6 +33,7 @@ defmodule Aiur.AgentList.Renderer.Table do
       " ",
       Text.cell("LATEST", layout.latest_width),
       progress_header,
+      context_header,
       runtime_header
     ]
 
@@ -51,6 +56,12 @@ defmodule Aiur.AgentList.Renderer.Table do
       )
     ]
   end
+
+  defp context_block(summary, %{show_context?: true}) do
+    [" ", Style.dim(), Text.cell(AgentContextPresentation.compact(summary[:context_usage]), Layout.context_cell_width()), Style.reset()]
+  end
+
+  defp context_block(_summary, _layout), do: []
 
   @spec render_rows(term(), term(), term(), term(), term(), term()) :: term()
   def render_rows([], _idx, _selection_focus, inner_width, layout, _markers) do
@@ -119,6 +130,8 @@ defmodule Aiur.AgentList.Renderer.Table do
 
     runtime_block = [" ", Style.dim(), Cells.runtime_cell(summary), Style.reset()]
 
+    context_block = context_block(summary, layout)
+
     body = [
       "│ ",
       marker,
@@ -135,10 +148,12 @@ defmodule Aiur.AgentList.Renderer.Table do
       latest_cell,
       Style.reset(),
       progress_block,
+      context_block,
       runtime_block
     ]
 
     progress_width = if layout.show_progress?, do: Layout.progress_cell_width() + 1, else: 0
+    context_width = if layout.show_context?, do: Layout.context_cell_width() + 1, else: 0
     runtime_width = Layout.runtime_cell_width() + 1
     model_width = if layout.model_width > 0, do: layout.model_width + 1, else: 0
 
@@ -151,7 +166,7 @@ defmodule Aiur.AgentList.Renderer.Table do
     plain_visual =
       2 + 2 + layout.id_width + Layout.rc_cell_width() + Layout.state_cell_width() + Layout.attention_cell_width() +
         model_width + layout.title_width + 1 + layout.latest_width + progress_width +
-        runtime_width
+        context_width + runtime_width
 
     # Reserve the last column for the right `│` border so each row
     # closes cleanly. Pad to (inner_width - 1) then append the bar.

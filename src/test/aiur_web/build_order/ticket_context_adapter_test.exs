@@ -49,7 +49,7 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
     assert Enum.map(view.base.capabilities, &{&1.label, &1.available?, &1.href}) == [
              {"Issue", true, issue_url(2)},
              {"Pull request", true, "https://github.com/owner/repo/pull/77"},
-             {"Chat", true, "/chat/2"},
+             {"Chat", true, "/chat/owner/repo/2"},
              {"Commands", true, "/commands/2"},
              {"Planning doc", false, nil}
            ]
@@ -173,9 +173,9 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
     graph = model([selected], [])
 
     cases = [
-      {:chat, %{available?: true, destination: "/chat/2", identity: selected.identity, active?: false, readable?: true}, "Chat is inactive."},
-      {:chat, %{available?: true, destination: "/chat/2", identity: selected.identity, active?: true, readable?: false}, "Chat is unreadable."},
-      {:chat, %{available?: true, destination: "/chat/2", identity: identity(2, provider_id: "OTHER"), active?: true, readable?: true}, "Chat is unavailable for this ticket."},
+      {:chat, %{available?: true, destination: "/chat/owner/repo/2", identity: selected.identity, active?: false, readable?: true}, "Chat is inactive."},
+      {:chat, %{available?: true, destination: "/chat/owner/repo/2", identity: selected.identity, active?: true, readable?: false}, "Chat is unreadable."},
+      {:chat, %{available?: true, destination: "/chat/owner/repo/2", identity: identity(2, provider_id: "OTHER"), active?: true, readable?: true}, "Chat is unavailable for this ticket."},
       {:commands, %{available?: true, destination: "/commands/2", identity: selected.identity, readable?: false}, "Commands are unreadable."},
       {:commands, %{available?: false, identity: selected.identity, reason: :stale}, "Commands are stale."},
       {:commands, %{available?: false, identity: selected.identity, reason: :unauthorized}, "Commands are unauthorized."}
@@ -224,12 +224,12 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
     graph = model([selected], [])
 
     for {kind, destination, expected_reason} <- [
-          {:chat, "/chat/2?capability=private", "Chat is unavailable."},
-          {:chat, "/chat/2#token=private", "Chat is unavailable."},
+          {:chat, "/chat/owner/repo/2?capability=private", "Chat is unavailable."},
+          {:chat, "/chat/owner/repo/2#token=private", "Chat is unavailable."},
           {:chat, "/commands/2", "Chat is unavailable."},
           {:commands, "/commands/2?token=private", "Commands are unavailable."},
           {:commands, "/commands/2#capability=private", "Commands are unavailable."},
-          {:commands, "/chat/2", "Commands are unavailable."}
+          {:commands, "/chat/owner/repo/2", "Commands are unavailable."}
         ] do
       capability =
         %{available?: true, destination: destination, identity: selected.identity, readable?: true}
@@ -332,7 +332,7 @@ defmodule AiurWeb.BuildOrder.TicketContextAdapterTest do
         identity: identity,
         number: 77
       },
-      chat: %{available?: true, destination: "/chat/2", identity: identity, active?: true, readable?: true},
+      chat: %{available?: true, destination: "/chat/owner/repo/2", identity: identity, active?: true, readable?: true},
       commands: %{available?: true, destination: "/commands/2", identity: identity, readable?: true}
     }
   end

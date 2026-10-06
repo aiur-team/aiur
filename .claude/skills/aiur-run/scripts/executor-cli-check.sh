@@ -7,6 +7,16 @@ set -euo pipefail
 
 cli_command="${AIUR_CMD:-aiur}"
 repo_root="${AIUR_EXECUTOR_REPO_ROOT:-${AIUR_REPO_ROOT:-}}"
+# The CLI is aimed at $repo_root by running it FROM there, never by exporting
+# AIUR_REPO_ROOT. That variable means two different things to the two launchers:
+# the engine reads it as "the project whose daemon to address", but the dev
+# shim (scripts/aiurdev) reads it as "the aiur source checkout to build and run
+# the release from". Injecting a consumer repository through it made aiurdev
+# look for its engine under that repository and fail with exit 127 before any
+# daemon was reached — so every hourly check reported a healthy fleet as
+# malformed (#2670). Both launchers key the instance by the cwd's repo-local
+# config, which is exactly what the direct `aiurdev status` from that
+# repository does, so the cwd is the one targeting mechanism they agree on.
 timeout_seconds="${AIUR_META_CLI_TIMEOUT_SECONDS:-10}"
 slow_ms="${AIUR_META_CLI_SLOW_MS:-8000}"
 config_file="${AIUR_EXECUTOR_CONFIG:-}"
@@ -37,6 +47,13 @@ read -r -a cli_parts <<< "$cli_command"
   printf 'AIUR_CMD must name the Aiur CLI command\n' >&2
   exit 64
 }
+# A relative path such as `scripts/aiurdev` (the documented dev setting) is
+# relative to the caller, so pin it before every invocation changes directory
+# into $repo_root. A bare command name has no slash and stays a PATH lookup.
+case "${cli_parts[0]}" in
+  /*) ;;
+  */*) cli_parts[0]="$PWD/${cli_parts[0]}" ;;
+esac
 
 now_ms() {
   local value
@@ -61,12 +78,14 @@ run_cli() {
   local name="$1" stdout_file="$2" stderr_file="$3" pid started now status timed_out=0 process_group=0
   started="$(now_ms)"
   if command -v setsid >/dev/null 2>&1; then
-    setsid env AIUR_REPO_ROOT="$repo_root" "${cli_parts[@]}" "$name" >"$stdout_file" 2>"$stderr_file" &
+    (
+      cd "$repo_root" && exec setsid env -u AIUR_REPO_ROOT "${cli_parts[@]}" "$name"
+    ) >"$stdout_file" 2>"$stderr_file" &
     process_group=1
   else
     (
-      AIUR_REPO_ROOT="$repo_root" "${cli_parts[@]}" "$name" >"$stdout_file" 2>"$stderr_file"
-    ) &
+      cd "$repo_root" && exec env -u AIUR_REPO_ROOT "${cli_parts[@]}" "$name"
+    ) >"$stdout_file" 2>"$stderr_file" &
   fi
   pid=$!
 
@@ -127,6 +146,13 @@ finding_for() {
   elif [ "$non_empty" -eq 0 ]; then
     jq -nc --arg name "$name" --argjson elapsed_ms "$elapsed_ms" \
       '{kind:"cli",command:$name,reason:"empty_output",elapsed_ms:$elapsed_ms}'
+  elif [ "$exit_code" -eq 126 ] || [ "$exit_code" -eq 127 ]; then
+    # The shell never reached the CLI's own logic (missing or non-executable
+    # command, or a launcher that could not find its engine). That is a probe
+    # misconfiguration, and naming it keeps a wrapper defect from reading as a
+    # daemon that answers garbage.
+    jq -nc --arg name "$name" --argjson elapsed_ms "$elapsed_ms" --argjson exit_code "$exit_code" \
+      '{kind:"cli",command:$name,reason:"command_unavailable",elapsed_ms:$elapsed_ms,exit_code:$exit_code}'
   elif [ "$well_formed_value" -eq 0 ]; then
     jq -nc --arg name "$name" --argjson elapsed_ms "$elapsed_ms" \
       '{kind:"cli",command:$name,reason:"malformed_output",elapsed_ms:$elapsed_ms}'
@@ -161,7 +187,7 @@ read_identity() {
   fi
 
   local identity_output
-  identity_output="$(AIUR_REPO_ROOT="$repo_root" "${cli_parts[@]}" __identity 2>/dev/null || true)"
+  identity_output="$(cd "$repo_root" && env -u AIUR_REPO_ROOT "${cli_parts[@]}" __identity 2>/dev/null || true)"
   while IFS='=' read -r key value; do
     case "$key" in
       AIUR_SESSION_PREFIX|AIUR_INSTANCE_KEY|AIUR_RELEASE_NODE) printf '%s\n' "$key=$value" >> "$identity_file" ;;

@@ -29,6 +29,8 @@
  * support.**
  */
 
+import { randomUUID } from "node:crypto";
+
 import { normalizeAiurDictation } from "./aiur-speech.js";
 
 export interface StreamDeckAgentState {
@@ -316,6 +318,10 @@ export interface StreamDeckChannel {
    * rather than a fixed verb: the server validates and length-caps it, then
    * hands it to the same AgentChat path as the dashboard chat box, so a spoken
    * message and a typed one are indistinguishable downstream.
+   *
+   * Each call is one press and carries its own `message_id`. A frame queued
+   * before the join is re-sent with the same id, so a re-send cannot queue a
+   * second copy (#2717). Two presses with the same text are two messages.
    */
   say(identifier: string, text: string): void;
   /**
@@ -557,7 +563,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   return {
     focus: (identifier) => send("focus", { identifier }),
     control: (identifier, action) => send("control", { identifier, action }),
-    say: (identifier, text) => send("say", { identifier, text }),
+    say: (identifier, text) => send("say", { identifier, text, message_id: randomUUID() }),
     voiceStart: () => send("voice_start", {}),
     voiceAudio: (session, base64) => send("voice_audio", { session, audio: base64 }),
     voiceStop: (session) => send("voice_stop", { session }),

@@ -71,19 +71,27 @@ defmodule Aiur.Config.Schema do
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
   def parse(config) when is_map(config) do
-    config
-    |> Attrs.normalize_keys()
-    |> Attrs.drop_nil_values()
-    |> changeset()
-    |> apply_action(:validate)
-    |> case do
-      {:ok, settings} ->
-        {:ok, finalize_settings(settings)}
+    config = config |> Attrs.normalize_keys() |> Attrs.drop_nil_values()
 
-      {:error, changeset} ->
-        {:error, {:invalid_workflow_config, Errors.format_errors(changeset)}}
+    with :ok <- reject_obsolete_root_sections(config) do
+      config
+      |> changeset()
+      |> apply_action(:validate)
+      |> case do
+        {:ok, settings} ->
+          {:ok, finalize_settings(settings)}
+
+        {:error, changeset} ->
+          {:error, {:invalid_workflow_config, Errors.format_errors(changeset)}}
+      end
     end
   end
+
+  defp reject_obsolete_root_sections(%{"codex" => _}) do
+    {:error, {:invalid_workflow_config, "codex is no longer supported at the workflow root; move its settings to agent.codex"}}
+  end
+
+  defp reject_obsolete_root_sections(_config), do: :ok
 
   @spec resolve_turn_sandbox_policy(%__MODULE__{}, Path.t() | nil) :: map()
   def resolve_turn_sandbox_policy(settings, workspace \\ nil) do

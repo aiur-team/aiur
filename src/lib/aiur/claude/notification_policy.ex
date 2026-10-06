@@ -1,6 +1,8 @@
 defmodule Aiur.Claude.NotificationPolicy do
   @moduledoc false
 
+  alias Aiur.Claude.ResetTime
+
   @limit_markers [
     "rate limit",
     "rate_limit",
@@ -53,6 +55,42 @@ defmodule Aiur.Claude.NotificationPolicy do
   def usage_limit_exhausted?(text) when is_binary(text), do: limit_text?(text)
 
   def usage_limit_exhausted?(_payload), do: false
+
+  @doc """
+  Classifies the refusal the `claude` CLI itself reported for a failed turn.
+
+  The CLI prints the session-limit banner as a synthetic assistant message
+  (`error: "rate_limit"`, `is_api_error_message: true`) and a result with
+  `api_error_status: 429`, then exits 1 with nothing on stderr. The aiur-claude
+  app server forwards that provenance as `turn/failed.params.provider_error`.
+  Only this field is trusted: assistant text that repeats the banner is not a
+  refusal (#2727).
+  """
+  @spec provider_refusal(map(), DateTime.t()) :: {:paused, map()} | :unclassified
+  def provider_refusal(%{"provider_error" => %{"error" => error} = provider_error}, now) when is_binary(error) do
+    if error in @limit_types or provider_error["api_error_status"] in @limit_statuses do
+      reason =
+        case provider_error["message"] do
+          message when is_binary(message) and message != "" -> message
+          _ -> "Claude usage limit exhausted"
+        end
+
+      hint = reset_hint(reason)
+
+      {:paused,
+       %{
+         kind: :usage_limit_exhausted,
+         reason: reason,
+         reset_hint: hint,
+         reset_at: ResetTime.parse(hint, now),
+         provider_error: error
+       }}
+    else
+      :unclassified
+    end
+  end
+
+  def provider_refusal(_params, _now), do: :unclassified
 
   @doc """
   Classifies free-text provider output — the non-JSON lines a refusing `claude`
@@ -120,17 +158,22 @@ defmodule Aiur.Claude.NotificationPolicy do
   def usage_limit_pause(payload) do
     reason = error_reason(payload)
 
+    hint = find_value(payload, ["reset_at", :reset_at, "resetAt", :resetAt]) || reset_hint(reason)
+
     %{
       kind: :usage_limit_exhausted,
       reason: reason,
-      # A structured reset field when the provider sent one; otherwise the
-      # "resets <time>" the refusal states in prose, which is the only form the
-      # session-limit banner carries.
-      reset_hint: find_value(payload, ["reset_at", :reset_at, "resetAt", :resetAt]) || reset_hint(reason)
+      reset_hint: hint,
+      reset_at: ResetTime.parse(hint)
     }
   end
 
+  # The app-server puts provider stderr in error. Envelope metadata such as
+  # turn_id is not part of the diagnostic and must not contaminate reset hints.
   @spec error_reason(term()) :: String.t()
+  def error_reason(%{"error" => error}) when is_binary(error), do: error
+  def error_reason(%{error: error}) when is_binary(error), do: error
+
   def error_reason(payload) do
     case payload_text(payload) do
       "" -> "Claude usage limit exhausted"

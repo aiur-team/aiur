@@ -331,12 +331,7 @@ defmodule Aiur.BuildOrder.AdHocSourceTest do
   end
 
   defp ensure_pubsub! do
-    unless Process.whereis(Aiur.PubSub) do
-      {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
-      start_supervised!({Phoenix.PubSub, name: Aiur.PubSub})
-    end
-
-    :ok
+    Aiur.TestSupport.ensure_pubsub_running()
   end
 
   defp eventually(fun, attempts \\ 100) do

@@ -25,13 +25,15 @@ defmodule Aiur.BuildOrder.BoundedTest do
   test "accepts only the exact query-free Chat route for one issue identity" do
     identity = identity(42)
 
-    assert Bounded.chat_route_for("/chat/42", identity) == {:ok, "/chat/42"}
+    assert Bounded.chat_route_for("/chat/owner/repo/42", identity) == {:ok, "/chat/owner/repo/42"}
 
     for unsafe <- [
-          "/chat/41",
-          "/chat/42?capability=private",
-          "/chat/42#token=private",
-          "/chat/42/extra",
+          "/chat/owner/repo/41",
+          "/chat/other/repo/42",
+          "/chat/owner/other/42",
+          "/chat/owner/repo/42?capability=private",
+          "/chat/owner/repo/42#token=private",
+          "/chat/owner/repo/42/extra",
           "/commands/42"
         ] do
       assert Bounded.chat_route_for(unsafe, identity) == :error

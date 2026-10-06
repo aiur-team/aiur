@@ -213,6 +213,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     running_entry
     |> failure_retry_metadata({:startup_failed, reason})
     |> Map.put(:error, "startup failed: #{inspect(reason)}")
+    |> Map.put(:last_failure_at, get_in(running_entry, [:runtime_terminal_failure, :observed_at]))
   end
 
   defp maybe_reap_orphaned_agent_shell(state, running_entry) do
@@ -319,16 +320,22 @@ defmodule Aiur.Orchestrator.RetryEngine do
   defp restore_fenced_failed_items(queue_store, _fence), do: queue_store
 
   @doc false
-  @spec wait_for_workspace_ownership(State.t(), String.t(), String.t(), term(), term()) :: State.t()
-  def wait_for_workspace_ownership(%State{} = state, issue_id, identifier, owner, wait)
-      when is_binary(issue_id) and is_binary(identifier) do
+  @spec wait_for_workspace_ownership(State.t(), String.t(), String.t(), term(), term(), map()) :: State.t()
+  def wait_for_workspace_ownership(state, issue_id, identifier, owner, wait, retry_defaults \\ %{})
+
+  # `retry_defaults` fills the redispatch envelope for a caller that has no
+  # running row or retry entry to read it from, such as a runner stopped
+  # because it outlived the Orchestrator that dispatched it.
+  def wait_for_workspace_ownership(%State{} = state, issue_id, identifier, owner, wait, retry_defaults)
+      when is_binary(issue_id) and is_binary(identifier) and is_map(retry_defaults) do
     context = workspace_wait_context(state, issue_id)
+    context = %{context | retry: Map.merge(retry_defaults, context.retry)}
     demonitor_workspace_runner(context.running)
     waiting_state = install_workspace_wait(state, issue_id, identifier, owner, context)
     synchronize_workspace_wait(waiting_state, identifier, wait)
   end
 
-  def wait_for_workspace_ownership(state, _issue_id, _identifier, _owner, _wait), do: state
+  def wait_for_workspace_ownership(state, _issue_id, _identifier, _owner, _wait, _retry_defaults), do: state
 
   defp workspace_wait_context(state, issue_id) do
     %{running: Map.get(state.running, issue_id), retry: Map.get(state.retry_attempts, issue_id, %{})}
@@ -372,6 +379,12 @@ defmodule Aiur.Orchestrator.RetryEngine do
   # reaches the orchestrator. Subscribe again only after the row exists, then
   # store the acknowledged guardian generation that is allowed to release it.
   defp synchronize_workspace_wait(state, identifier, :available), do: release_workspace_wait(state, identifier)
+
+  # The caller already knows the exact generation and subscribes on its own,
+  # so the Orchestrator never blocks on a guardian that is slow to answer.
+  defp synchronize_workspace_wait(state, identifier, {:bound, guardian, generation})
+       when is_pid(guardian) and is_integer(generation),
+       do: bind_workspace_wait(state, identifier, guardian, generation)
 
   defp synchronize_workspace_wait(state, identifier, _wait) do
     case Ownership.wait_for_release(identifier, self()) do
@@ -487,6 +500,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
     priority = pick_retry_priority(previous_retry, metadata)
     issue_state = pick_retry_issue_state(previous_retry, metadata)
+    last_failure_at = pick_retry_last_failure_at(previous_retry, metadata)
     prior_work? = pick_retry_prior_work(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
     retry_poll_failures = pick_retry_poll_failures(previous_retry, metadata)
@@ -587,6 +601,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               due_at_ms: due_at_ms,
               identifier: identifier,
               error: error,
+              last_failure_at: last_failure_at,
               transient_reason: transient_reason,
               retry_poll_failures: retry_poll_failures,
               prior_work: prior_work?,
@@ -630,6 +645,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         metadata = %{
           identifier: Map.get(retry_entry, :identifier),
           error: Map.get(retry_entry, :error),
+          last_failure_at: Map.get(retry_entry, :last_failure_at),
           transient_reason: Map.get(retry_entry, :transient_reason),
           retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
           prior_work: Map.get(retry_entry, :prior_work, false),
@@ -1442,6 +1458,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp pick_retry_error(previous_retry, metadata) do
     metadata[:error] || Map.get(previous_retry, :error)
+  end
+
+  defp pick_retry_last_failure_at(previous_retry, metadata) do
+    metadata[:last_failure_at] || Map.get(previous_retry, :last_failure_at)
   end
 
   # The structured (non-formatted) failure reason, retained so retry exhaustion

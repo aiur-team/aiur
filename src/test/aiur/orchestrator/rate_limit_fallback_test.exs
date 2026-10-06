@@ -200,6 +200,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         RateLimitFallback.reconcile(
           state,
           reconcile_opts(
+            state: %{"backends" => %{}},
             add_label_fun: fn identifier, label ->
               send(test_pid, {:label_op, {:add, identifier, label}})
               :ok
@@ -248,6 +249,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         RateLimitFallback.reconcile(
           state,
           reconcile_opts(
+            state: %{"backends" => %{}},
             add_label_fun: fn _, _ -> :ok end,
             teardown_fun: fn current_state, _running_entry, _reason -> current_state end,
             dispatch_fun: fn current_state, issue, _attempt, _worker_host ->
@@ -310,6 +312,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       assert RateLimitFallback.reconcile(
                state,
                reconcile_opts(
+                 state: %{"backends" => %{}},
                  add_label_fun: fn identifier, label ->
                    send(test_pid, {:label_op, {:add, identifier, label}})
 
@@ -446,6 +449,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         RateLimitFallback.reconcile(
           state,
           reconcile_opts(
+            state: %{"backends" => %{}},
             add_label_fun: fn _, _ -> :ok end,
             teardown_fun: fn current_state, _, _ -> current_state end,
             dispatch_fun: fn current_state, _, _, _ -> current_state end,
@@ -542,6 +546,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         RateLimitFallback.reconcile(
           state,
           reconcile_opts(
+            state: %{"backends" => %{}},
             add_label_fun: fn identifier, label ->
               send(test_pid, {:label_op, {:add, identifier, label}})
               :ok
@@ -578,6 +583,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       assert RateLimitFallback.reconcile(
                state,
                reconcile_opts(
+                 state: %{"backends" => %{}},
                  add_label_fun: fn identifier, label ->
                    send(test_pid, {:label_op, {:add, identifier, label}})
                    {:error, :tracker_unavailable}

@@ -3,6 +3,7 @@ defmodule Aiur.Opencode.ChatCompletions.TurnStreamTest do
 
   import Plug.Test
 
+  alias Aiur.AgentRunner.TurnLoop
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Opencode.ChatCompletions.TurnStream
 
@@ -30,6 +31,22 @@ defmodule Aiur.Opencode.ChatCompletions.TurnStreamTest do
       # finalize_stream({:failed, reason}) chunks the inspect(reason) before "stop"
       assert result.resp_body =~ "boom"
       assert result.resp_body =~ ~s("finish_reason":"stop")
+    end
+
+    test "a correlated operator pause renders resume guidance without claiming an approval" do
+      identifier = "paused-#{System.unique_integer()}"
+      turn_id = "paused-turn-#{System.unique_integer()}"
+      result = {:paused, %{control: %{request_id: 77, generation: 4}}}
+      reason = TurnLoop.turn_done_reason(result)
+
+      assert reason == :paused
+      :ok = ActiveTurns.put(identifier, turn_id)
+      :ok = ActiveTurns.mark_closed(identifier, turn_id, reason)
+      response = TurnStream.stream(conn(:post, "/"), identifier, turn_id)
+
+      assert response.resp_body =~ "Agent is paused. Resume the agent to continue."
+      refute response.resp_body =~ "approval"
+      assert response.resp_body =~ ~s("finish_reason":"stop")
     end
 
     test "an :input_required late close renders the approval notice" do
