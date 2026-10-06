@@ -2,8 +2,10 @@ defmodule Aiur.CodingAgent.ModelLabel do
   @moduledoc """
   Resolves the spec of a `model:<spec>` ticket label to what it selects.
 
-  The order is fixed: a backend name (`claude`), then a non-selecting flag
-  (`remote`, an effort such as `high`), then a backend-prefixed model
+  The order is fixed: a dispatchable backend name (`claude`), then a
+  non-selecting flag (`remote`, an effort such as `high`), then a registered
+  but unavailable backend name or a spec whose registered backend prefix is
+  longer than any dispatchable prefix, then a backend-prefixed model
   (`codex-astra`), then a bare model or family name (`astra`, `opus`).
 
   A backend-prefixed label always selects its backend and passes its variant
@@ -50,8 +52,8 @@ defmodule Aiur.CodingAgent.ModelLabel do
     cond do
       spec in dispatchable -> {:backend, spec}
       flag?(spec, flags) -> :not_a_selector
+      names_backend?(spec, dispatchable, registered) -> :not_a_selector
       prefixed = prefixed(spec, dispatchable) -> prefixed
-      names_backend?(spec, registered) -> :not_a_selector
       true -> bare(spec, dispatchable, opts)
     end
   end
@@ -60,7 +62,24 @@ defmodule Aiur.CodingAgent.ModelLabel do
   # DeepSeek off) selects nothing. It must not be re-read as a model name —
   # an aggregator lists a `deepseek` family, and routing a ticket there would
   # contradict the operator leaving DeepSeek disabled.
-  defp names_backend?(spec, registered), do: Enum.any?(registered, &(spec == &1 or String.starts_with?(spec, &1 <> "-")))
+  defp names_backend?(spec, dispatchable, registered) do
+    spec in registered or
+      longer_backend_prefix?(spec, registered, dispatchable)
+  end
+
+  defp longer_backend_prefix?(spec, registered, dispatchable) do
+    registered_prefix = backend_prefix(spec, registered)
+    dispatchable_prefix = backend_prefix(spec, dispatchable)
+
+    registered_prefix != nil and
+      String.length(registered_prefix) > String.length(dispatchable_prefix || "")
+  end
+
+  defp backend_prefix(spec, backends) do
+    backends
+    |> Enum.filter(&String.starts_with?(spec, &1 <> "-"))
+    |> Enum.max_by(&String.length/1, fn -> nil end)
+  end
 
   # A flag also covers its prefixed form (`remote-opus` is the remote flag
   # carrying a variant), matching the pre-existing alias rule.

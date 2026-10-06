@@ -6,9 +6,9 @@ defmodule Aiur.Init.GitHub do
   """
 
   alias Aiur.{Codeowners.Edit, Config, Workflow}
+  alias Aiur.Config.EnvRef
   alias Aiur.GitHub.BotIdentity
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.Transport
@@ -193,10 +193,17 @@ defmodule Aiur.Init.GitHub do
   @doc false
   @spec require_github_token() :: {:ok, String.t()} | {:error, String.t()}
   def require_github_token do
-    case GitHubConfig.token() do
+    case github_token() do
       token when is_binary(token) and token != "" -> {:ok, token}
       _ -> {:error, "GITHUB_TOKEN not set — add it to #{@env_file_name} (#{@token_url})"}
     end
+  end
+
+  @doc false
+  @spec github_token() :: String.t() | nil
+  def github_token do
+    System.get_env("GITHUB_TOKEN")
+    |> EnvRef.normalize_secret()
   end
 
   @doc false
@@ -218,8 +225,16 @@ defmodule Aiur.Init.GitHub do
   def label_error_message(other), do: inspect(other)
 
   @spec detect_github_login() :: String.t() | nil
-  def detect_github_login do
-    case HostCommand.run(["api", "user", "--jq", ".login"], stderr_to_stdout: true, bot_token: true) do
+  @spec detect_github_login(([String.t()], keyword() -> {String.t(), non_neg_integer()})) :: String.t() | nil
+  def detect_github_login(command_fun \\ &HostCommand.run/2) do
+    # The operator identity must come from the local `gh` login, not the
+    # daemon's credential. Clear both direct token overrides and the governed
+    # credential-file override so the host keyring is the only authentication
+    # source for this lookup.
+    case command_fun.(["api", "user", "--jq", ".login"],
+           stderr_to_stdout: true,
+           env: [{"AIUR_GITHUB_CREDENTIAL_FILE", nil}, {"GH_TOKEN", nil}, {"GITHUB_TOKEN", nil}]
+         ) do
       {output, 0} ->
         output
         |> String.trim()
