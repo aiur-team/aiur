@@ -1178,10 +1178,7 @@ defmodule Aiur.Orchestrator.IssueSync do
           state
       end
 
-    resolve_retry_exhausted_alert(state, issue)
-  end
-
-  defp resolve_retry_exhausted_alert(%State{} = state, %Issue{} = issue) do
+    # Also resolve error-retry_exhausted if it was active (emitted directly from retry_engine, not tracked in observed_error_alerts)
     retry_exhausted_topic = "ticket.#{issue.identifier}.agent.attention.error-retry_exhausted"
 
     if active_attention?(state, retry_exhausted_topic) do
