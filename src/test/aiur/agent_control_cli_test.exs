@@ -1520,6 +1520,35 @@ defmodule Aiur.AgentControlCLITest do
     assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
   end
 
+  test "status shows provider freshness detail for a provider capacity hold" do
+    snapshot = %{
+      statuses: [],
+      global_pause: %{globally_paused: false, paused_at: nil, source: nil},
+      capacity:
+        unconstrained_capacity(%{
+          capacity_hold: %{
+            signal: :provider,
+            measured: ["codex"],
+            detail: "backends=codex=stale observed_at=2026-10-06T10:00:00Z next_probe=unknown",
+            threshold: :all_usage_limited,
+            held_since_ms: System.monotonic_time(:millisecond),
+            measured_at: DateTime.utc_now()
+          }
+        }),
+      polling: %{}
+    }
+
+    freshness = %{status: :current, reason: nil, age_seconds: 0}
+
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(fleet_view: {:ok, snapshot, freshness})
+      end)
+
+    assert output =~
+             "AGENTS 0/2 (binding: provider, backends=codex=stale observed_at=2026-10-06T10:00:00Z next_probe=unknown sampled=0s ago)"
+  end
+
   test "status reports only the daemon's own admission hold as the binding constraint", %{orchestrator: pid} do
     local_schedulers = System.schedulers_online()
     local_load = local_schedulers * 2.0
