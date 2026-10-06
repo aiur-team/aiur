@@ -226,34 +226,40 @@ defmodule Aiur.Init do
   defp provision(io, deps, tracker, agents, pair, daemon_auth \\ :github_token)
 
   defp provision(io, deps, %{kind: "github"} = tracker, agents, pair, daemon_auth) do
-    Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
-
-    case daemon_auth do
-      :github_app ->
-        :ok
-
-      :github_token ->
-        if ensure_github_token(io, deps) do
-          provision_github_with_token(io, deps, tracker, agents, pair)
-        else
-          token_setup_instructions(io)
-          undispatchable_warning(io)
+    with :ok <- Aiur.Init.AgentCli.check_agent_clis(io, deps, agents) do
+      case daemon_auth do
+        :github_app ->
           :ok
-        end
+
+        :github_token ->
+          provision_github_with_optional_token(io, deps, tracker, agents, pair)
+      end
     end
   end
 
   defp provision(io, deps, %{kind: "linear"} = tracker, agents, _pair, _daemon_auth) do
-    Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
-    linear_walkthrough(io, tracker)
-    final_screen(io)
-    :ok
+    with :ok <- Aiur.Init.AgentCli.check_agent_clis(io, deps, agents) do
+      linear_walkthrough(io, tracker)
+      final_screen(io)
+      :ok
+    end
   end
 
   defp provision(io, deps, _tracker, agents, _pair, _daemon_auth) do
-    Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
-    final_screen(io)
-    :ok
+    with :ok <- Aiur.Init.AgentCli.check_agent_clis(io, deps, agents) do
+      final_screen(io)
+      :ok
+    end
+  end
+
+  defp provision_github_with_optional_token(io, deps, tracker, agents, pair) do
+    if ensure_github_token(io, deps) do
+      provision_github_with_token(io, deps, tracker, agents, pair)
+    else
+      token_setup_instructions(io)
+      undispatchable_warning(io)
+      :ok
+    end
   end
 
   defp maybe_setup_env(io, deps, tracker, :github_token), do: Scaffold.setup_env(io, deps, tracker)
