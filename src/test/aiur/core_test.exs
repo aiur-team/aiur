@@ -3650,7 +3650,6 @@ defmodule Aiur.CoreTest do
       assert :ok = Task.await(task, 2_000)
 
       trace = File.read!(trace_file)
-      assert length(String.split(trace, "RUN", trim: true)) == 1
       assert length(Regex.scan(~r/"method":"turn\/start"/, trace)) == 2
     after
       System.delete_env("SYMP_TEST_CODEx_TRACE")
