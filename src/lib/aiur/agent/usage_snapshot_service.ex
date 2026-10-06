@@ -101,32 +101,12 @@ defmodule Aiur.Agent.UsageSnapshotService do
 
   defp attempt_observation(ticket, attempt_id, source_position) do
     after_position = max(source_position - 10_000, 0)
-    ticket_key = TrackerIdentity.github_key(ticket)
 
     case Aiur.UsageLedger.scan(after: after_position, limit: 10_000) do
       {:ok, records} ->
-        complete_scan? =
-          after_position == 0 and length(records) < 10_000 and
-            (records == [] or hd(records).position == 1) and
-            (records == [] or List.last(records).position >= source_position)
-
-        matching =
-          Enum.filter(records, fn record ->
-            envelope = record.envelope
-
-            record.position <= source_position and envelope.provider == :codex and
-              envelope.relationship_revision == ThreadUsage.relationship_revision() and
-              (is_nil(attempt_id) or envelope.attribution.attempt_id == attempt_id) and
-              TrackerIdentity.github_key(envelope.attribution.tracker_identity) == ticket_key
-          end)
-
-        reported_dimensions =
-          Map.new([:input, :output, :cached_input], fn dimension ->
-            complete? = complete_scan? and matching != [] and Enum.all?(matching, &is_integer(Map.get(&1.envelope.tokens, dimension)))
-            {dimension, complete?}
-          end)
-
-        observed_at = matching |> Enum.map(& &1.envelope.ingested_at) |> Enum.max_by(&DateTime.to_unix/1, fn -> nil end)
+        matching = matching_observations(records, ticket, attempt_id, source_position)
+        reported_dimensions = reported_dimensions(records, matching, after_position, source_position)
+        observed_at = latest_observation_at(matching)
         %{observed_at: observed_at, reported_dimensions: reported_dimensions}
 
       _unavailable ->
@@ -134,6 +114,38 @@ defmodule Aiur.Agent.UsageSnapshotService do
     end
   rescue
     _error -> %{observed_at: nil, reported_dimensions: %{}}
+  end
+
+  defp matching_observations(records, ticket, attempt_id, source_position) do
+    ticket_key = TrackerIdentity.github_key(ticket)
+
+    Enum.filter(records, fn record ->
+      envelope = record.envelope
+
+      record.position <= source_position and envelope.provider == :codex and
+        envelope.relationship_revision == ThreadUsage.relationship_revision() and
+        (is_nil(attempt_id) or envelope.attribution.attempt_id == attempt_id) and
+        TrackerIdentity.github_key(envelope.attribution.tracker_identity) == ticket_key
+    end)
+  end
+
+  defp reported_dimensions(records, matching, after_position, source_position) do
+    complete_scan? = complete_scan?(records, after_position, source_position)
+
+    Map.new([:input, :output, :cached_input], fn dimension ->
+      complete? = complete_scan? and matching != [] and Enum.all?(matching, &is_integer(Map.get(&1.envelope.tokens, dimension)))
+      {dimension, complete?}
+    end)
+  end
+
+  defp complete_scan?(records, after_position, source_position) do
+    after_position == 0 and length(records) < 10_000 and
+      (records == [] or hd(records).position == 1) and
+      (records == [] or List.last(records).position >= source_position)
+  end
+
+  defp latest_observation_at(matching) do
+    matching |> Enum.map(& &1.envelope.ingested_at) |> Enum.max_by(&DateTime.to_unix/1, fn -> nil end)
   end
 
   defp assemble(agent_id, ticket, attempt_id, metrics, observed_at) do
