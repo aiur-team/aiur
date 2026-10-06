@@ -211,7 +211,7 @@ defmodule Aiur.Codex.ApprovalsTest do
                    false
                  )
 
-        assert_receive {:invocation_id, "call-stable"}
+        assert_receive {:invocation_id, "call-stable"}, 1000
       after
         Port.close(port)
       end

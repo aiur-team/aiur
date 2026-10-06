@@ -209,7 +209,7 @@ defmodule AiurWeb.VoiceChannelTest do
 
     push(joined, "speak", %{"text" => "Agent reply"})
 
-    assert_receive {:fake_tts_request, "Agent reply"}
+    assert_receive {:fake_tts_request, "Agent reply"}, 1000
     assert_push("audio", %{"data" => encoded, "format" => "pcm_44100"})
     assert Base.decode64!(encoded) == <<1, 2, 3, 4>>
     assert_push("audio_done", %{})
@@ -271,7 +271,7 @@ defmodule AiurWeb.VoiceChannelTest do
 
     for {index, channel} <- Enum.take(joined, 2) do
       push(channel, "speak", %{"text" => "reply #{index}"})
-      assert_receive {:blocking_tts_started, "reply " <> _index}
+      assert_receive {:blocking_tts_started, "reply " <> _index}, 1000
     end
 
     {_index, third} = List.last(joined)

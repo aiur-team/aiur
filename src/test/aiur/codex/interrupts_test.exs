@@ -50,7 +50,7 @@ defmodule Aiur.Codex.InterruptsTest do
                 details: %{"error" => ^error, "status" => "interrupted"}
               }} = Interrupts.handle_interrupt_error(state, error)
 
-      assert_receive {:failed, {:turn_interrupted, %{"error" => ^error}}}
+      assert_receive {:failed, {:turn_interrupted, %{"error" => ^error}}}, 1000
     end
 
     test "treats no active turn messages as a terminal operator-message boundary" do

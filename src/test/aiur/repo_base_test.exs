@@ -1286,7 +1286,7 @@ defmodule Aiur.RepoBaseTest do
       # ref matches no monitor, then kill the original so its :DOWN is swallowed
       # against the replaced record. No completion signal can ever arrive.
       {dead_probe, dead_ref} = spawn_monitor(fn -> :ok end)
-      assert_receive {:DOWN, ^dead_ref, :process, ^dead_probe, :normal}
+      assert_receive {:DOWN, ^dead_ref, :process, ^dead_probe, :normal}, 1000
       refute Process.alive?(dead_probe)
 
       :sys.replace_state(pid, fn state ->
@@ -1312,7 +1312,7 @@ defmodule Aiur.RepoBaseTest do
       pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 50)
       Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
       {dead_probe, dead_ref} = spawn_monitor(fn -> :ok end)
-      assert_receive {:DOWN, ^dead_ref, :process, ^dead_probe, :normal}
+      assert_receive {:DOWN, ^dead_ref, :process, ^dead_probe, :normal}, 1000
       refute Process.alive?(dead_probe)
 
       :sys.replace_state(pid, fn state ->
@@ -1342,7 +1342,7 @@ defmodule Aiur.RepoBaseTest do
       pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 50)
       Phoenix.PubSub.subscribe(Aiur.PubSub, "prewarm:phase")
       {dead_build, dead_ref} = spawn_monitor(fn -> :ok end)
-      assert_receive {:DOWN, ^dead_ref, :process, ^dead_build, :normal}
+      assert_receive {:DOWN, ^dead_ref, :process, ^dead_build, :normal}, 1000
       refute Process.alive?(dead_build)
 
       :sys.replace_state(pid, fn state ->
@@ -1420,7 +1420,7 @@ defmodule Aiur.RepoBaseTest do
       # already-dead record so the :DOWN is swallowed and release depends purely
       # on the watchdog observing the dead worker.
       {dead_build, dead_ref} = spawn_monitor(fn -> :ok end)
-      assert_receive {:DOWN, ^dead_ref, :process, ^dead_build, :normal}
+      assert_receive {:DOWN, ^dead_ref, :process, ^dead_build, :normal}, 1000
       refute Process.alive?(dead_build)
 
       :sys.replace_state(pid, fn state ->
@@ -1440,7 +1440,7 @@ defmodule Aiur.RepoBaseTest do
     test "the periodic poll restarts a dead checking probe (absorbing-state fix)", %{server: pid, cfg: cfg} do
       pid = restart_enabled_server(pid, cfg, dispatch_hold_timeout_ms: 50)
       {dead_probe, dead_ref} = spawn_monitor(fn -> :ok end)
-      assert_receive {:DOWN, ^dead_ref, :process, ^dead_probe, :normal}
+      assert_receive {:DOWN, ^dead_ref, :process, ^dead_probe, :normal}, 1000
       refute Process.alive?(dead_probe)
 
       :sys.replace_state(pid, fn state ->
@@ -1547,7 +1547,7 @@ defmodule Aiur.RepoBaseTest do
       %{state | phase: :building, build: %{pid: build_pid, ref: ref, head: head}}
     end)
 
-    assert_receive {:build_pid, build_pid}
+    assert_receive {:build_pid, build_pid}, 1000
     build_pid
   end
 

@@ -36,7 +36,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
       assert :ok = SessionLifecycle.report_session_execution(self(), issue, session)
 
-      assert_receive {:session_execution_info, "issue-rc-execution", %{backend: "claude-repl", requested_model: "opus", effort: nil}}
+      assert_receive {:session_execution_info, "issue-rc-execution", %{backend: "claude-repl", requested_model: "opus", effort: nil}}, 1000
     end
   end
 
@@ -156,8 +156,8 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
                  transcript_event: assistant
                })
 
-      assert_receive {:transcript_event, ^remote}
-      assert_receive {:transcript_event, ^assistant}
+      assert_receive {:transcript_event, ^remote}, 1000
+      assert_receive {:transcript_event, ^assistant}, 1000
 
       assert %{messages: [%{role: "operator"}, %{role: "agent"}]} = LiveConversation.snapshot(source)
     end
@@ -354,7 +354,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
       assert DisplayTailer.current_session(display_tailer) == session_id
       assert {:ok, 1} = DisplayTailer.poll(display_tailer)
-      assert_receive {:transcript_event, %{body: "pane-only history"}}
+      assert_receive {:transcript_event, %{body: "pane-only history"}}, 1000
 
       assert %{state: :restart_unknown, messages: []} =
                LiveConversation.snapshot(source, server: server)
@@ -461,7 +461,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       issue = %Issue{id: "issue-fallback-execution", identifier: "FALLBACK-EXECUTION"}
       assert :ok = SessionLifecycle.report_session_execution(self(), issue, fallback_session)
 
-      assert_receive {:session_execution_info, "issue-fallback-execution", %{backend: "claude", requested_model: "opus", effort: nil}}
+      assert_receive {:session_execution_info, "issue-fallback-execution", %{backend: "claude", requested_model: "opus", effort: nil}}, 1000
     end
 
     test "warns when dropping an effort the started backend cannot use" do

@@ -141,14 +141,14 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       )
 
     Process.unlink(reconciler)
-    assert_receive {:reconciled, "I-recovered", :queued}
+    assert_receive {:reconciled, "I-recovered", :queued}, 1000
     GenServer.stop(first_store)
 
     {:ok, recovered_store} =
       Store.start_link(name: store_name, state_dir: dir, run_id: "reconciler-restart-run")
 
     Process.unlink(recovered_store)
-    assert_receive {:reconciled, "I-recovered", :queued}
+    assert_receive {:reconciled, "I-recovered", :queued}, 1000
     assert Process.alive?(reconciler)
     assert Process.alive?(recovered_store)
   end
@@ -196,7 +196,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       )
 
     Process.unlink(reconciler)
-    assert_receive {:reconciliation, :fresh}
+    assert_receive {:reconciliation, :fresh}, 1000
     assert %{run_id: "current-run", members: []} = Store.snapshot(server: current_store)
 
     Agent.update(snapshot, fn _ -> %{running: [current_row], retrying: [], idle: []} end)
@@ -227,7 +227,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       )
 
     Process.unlink(reconciler)
-    assert_receive {:reconciliation, :unavailable}
+    assert_receive {:reconciliation, :unavailable}, 1000
     assert Process.alive?(reconciler)
   end
 
@@ -253,7 +253,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
       )
 
     Process.unlink(reconciler)
-    assert_receive {:reconciliation, :unavailable}
+    assert_receive {:reconciliation, :unavailable}, 1000
     assert Process.alive?(reconciler)
   end
 

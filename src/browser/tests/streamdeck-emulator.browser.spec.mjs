@@ -87,7 +87,7 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
   try {
     await openStreamdeck(page)
 
-    const packageUrl = 'https://github.com/aiur-team/aiur/releases/download/streamdeck-0098e3ac86a2e49e685e8e6ff67248373de43f1d/aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz'
+    const packageUrl = 'https://github.com/aiur-team/aiur/releases/download/streamdeck-nightly/aiur-streamdeck-nightly-linux-x64.tar.gz'
     // The Download control is a button that opens the setup modal; it no longer
     // starts a download and there is no separate "Install +" button.
     await expect(page.locator('#streamdeck-download-control')).toHaveCount(1)
@@ -105,7 +105,8 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
 
     await expect(dialog.getByText(/Walk me through installing the Aiur Stream Deck \+ sidecar on Linux/)).toBeVisible()
     await expect(dialog.getByText('packages/streamdeck/README.md')).toBeVisible()
-    await expect(dialog).not.toContainText('0098e3ac86a2e49e685e8e6ff67248373de43f1d')
+    // The rolling asset carries no commit hash; nothing per-commit leaks into the dialog.
+    await expect(dialog).not.toContainText(/streamdeck-[0-9a-f]{40}/)
 
     // The prompt wraps over as many rows as it needs: no sideways scroll, no
     // clipped tail, at the narrowest supported width.

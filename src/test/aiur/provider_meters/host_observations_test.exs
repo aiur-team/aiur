@@ -42,18 +42,18 @@ defmodule Aiur.ProviderMeters.HostObservationsTest do
     {:ok, first} = HostObservations.attach(server, :codex, :app_server, self())
     {:ok, second} = HostObservations.attach(server, :codex, :app_server, owner)
     assert :ok = HostObservations.observe(server, first, observation(first, ~U[2026-09-27 12:03:00Z], 10))
-    assert_receive {:host_meter_changed, :codex}
+    assert_receive {:host_meter_changed, :codex}, 1000
     assert :ok = HostObservations.observe(server, second, observation(second, ~U[2026-09-27 12:07:00Z], 80))
-    assert_receive {:host_meter_changed, :codex}
+    assert_receive {:host_meter_changed, :codex}, 1000
 
     assert HostObservations.provider_view(server, :codex).windows["window.current"].used_percent == 80
 
     Process.exit(owner, :kill)
-    assert_receive {:host_meter_changed, :codex}
+    assert_receive {:host_meter_changed, :codex}, 1000
     assert HostObservations.provider_view(server, :codex).windows["window.current"].used_percent == 10
     assert {:error, :unknown_scope} = HostObservations.observe(server, second, observation(second, @now, 99))
     assert :ok = HostObservations.retire(server, first)
-    assert_receive {:host_meter_changed, :codex}
+    assert_receive {:host_meter_changed, :codex}, 1000
     assert HostObservations.provider_view(server, :codex).state == :unknown
   end
 

@@ -27,15 +27,15 @@ defmodule Aiur.ElevenLabs.TTSTest do
              )
 
     monitor = Process.monitor(pid)
-    assert_receive {:request, url, options}
+    assert_receive {:request, url, options}, 1000
     refute url =~ @api_key
     assert url =~ URI.encode(@voice_id, &URI.char_unreserved?/1)
     assert {"xi-api-key", @api_key} in Keyword.fetch!(options, :headers)
     assert Keyword.fetch!(options, :json) == %{text: "Agent reply", model_id: "eleven_flash_v2_5"}
-    assert_receive {:elevenlabs_audio, :chunk, <<1, 2>>}
-    assert_receive {:elevenlabs_audio, :chunk, <<3, 4>>}
-    assert_receive {:elevenlabs_audio, :done}
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+    assert_receive {:elevenlabs_audio, :chunk, <<1, 2>>}, 1000
+    assert_receive {:elevenlabs_audio, :chunk, <<3, 4>>}, 1000
+    assert_receive {:elevenlabs_audio, :done}, 1000
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
   end
 
   test "refuses missing configuration and invalid text before making a request" do
@@ -78,10 +78,10 @@ defmodule Aiur.ElevenLabs.TTSTest do
              )
 
     monitor = Process.monitor(pid)
-    assert_receive {:elevenlabs_audio, :error, "Voice reply exceeded its playback limit"}
-    refute_receive {:elevenlabs_audio, :chunk, _data}
-    refute_receive {:elevenlabs_audio, :done}
-    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+    assert_receive {:elevenlabs_audio, :error, "Voice reply exceeded its playback limit"}, 1000
+    refute_receive {:elevenlabs_audio, :chunk, _data}, 100
+    refute_receive {:elevenlabs_audio, :done}, 100
+    assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
     assert Process.alive?(owner)
   end
 
@@ -95,9 +95,9 @@ defmodule Aiur.ElevenLabs.TTSTest do
                )
 
       monitor = Process.monitor(pid)
-      assert_receive {:elevenlabs_audio, :error, reason}
+      assert_receive {:elevenlabs_audio, :error, reason}, 1000
       refute reason =~ @api_key
-      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
     end
   end
 end

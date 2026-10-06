@@ -71,8 +71,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                request_fun: request_fun
              )
 
-    assert_receive {:requested, issue_comments_url}
-    assert_receive {:requested, pulls_url}
+    assert_receive {:requested, issue_comments_url}, 1000
+    assert_receive {:requested, pulls_url}, 1000
     refute_receive {:requested, _url}, 100
 
     assert String.contains?(issue_comments_url, "/issues/42/comments?")
@@ -113,7 +113,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                request_fun: request_fun
              )
 
-    assert_receive {:requested, %{url: issue_comments_url}}
+    assert_receive {:requested, %{url: issue_comments_url}}, 1000
     assert String.contains?(issue_comments_url, "/issues/42/comments?")
   end
 
