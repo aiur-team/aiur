@@ -179,7 +179,11 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   test "accepts the unconfigured pull request trigger emitted by the scaffold" do
-    assert CiReadiness.evaluate("main", [{".github/workflows/ci.yml", CiReadiness.scaffold()}], ["ci / required"]).ready?
+    scaffold = CiReadiness.scaffold()
+
+    assert CiReadiness.evaluate("main", [{".github/workflows/ci.yml", scaffold}], ["ci / required"]).ready?
+    assert scaffold =~ "exit 1"
+    refute scaffold =~ "exit 0"
   end
 
   test "does not treat a workflow excluded from the base branch as a PR workflow" do
@@ -298,25 +302,45 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:required_check_not_produced, ["ci / required"]} in readiness.issues
   end
 
-  test "reports a missing configured base branch after confirming repository access" do
+  test "reports a missing configured base branch only after establishing repository visibility" do
     parent = self()
 
     request_fun = fn %{url: url} ->
-      send(parent, {:readiness_url, url})
+      send(parent, {:requested, url})
 
-      cond do
-        String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
-        url =~ "/branches/develop" -> {:ok, %{status: 404, body: %{}}}
-        true -> flunk("unexpected URL: #{url}")
+      if String.ends_with?(url, "/repos/owner/repo") do
+        {:ok, %{status: 200, body: %{"default_branch" => "main"}}}
+      else
+        assert url =~ "/branches/develop"
+        {:ok, %{status: 404, body: %{}}}
       end
     end
 
     assert {:ok, %{ready?: false, issues: [:base_branch_missing]}} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
 
-    assert_receive {:readiness_url, "https://api.github.com/repos/owner/repo"}, 1000
-    assert_receive {:readiness_url, branch_url}, 1000
+    assert_receive {:requested, repo_url}
+    assert String.ends_with?(repo_url, "/repos/owner/repo")
+    assert_receive {:requested, branch_url}
     assert branch_url =~ "/branches/develop"
+    refute_receive {:requested, _url}
+  end
+
+  test "classifies repository HTTP 403 as access failure without probing the branch" do
+    parent = self()
+
+    request_fun = fn %{url: url} ->
+      send(parent, {:requested, url})
+      assert String.ends_with?(url, "/repos/owner/repo")
+      {:ok, %{status: 403, body: %{}}}
+    end
+
+    assert {:error, {:github, :http, %{status: 403}}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+
+    assert_receive {:requested, repo_url}
+    assert String.ends_with?(repo_url, "/repos/owner/repo")
+    refute_receive {:requested, _url}
   end
 
   test "reports org repository authorization when the repository 404s before requesting its branch" do
@@ -335,9 +359,9 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:error, {:github_org_repository_not_accessible, %{organization: "acme", repo: "acme/private-repo", token_type: :classic_pat}}} =
              CiReadiness.inspect_repository(request_fun, "ghp_test-token", "acme", "private-repo", "main")
 
-    assert_receive {:readiness_request, "https://api.github.com/repos/acme/private-repo", "ghp_test-token"}, 1000
-    assert_receive {:readiness_request, "https://api.github.com/orgs/acme", "ghp_test-token"}, 1000
-    refute_receive {:readiness_request, _url, _token}, 100
+    assert_receive {:readiness_request, "https://api.github.com/repos/acme/private-repo", "ghp_test-token"}
+    assert_receive {:readiness_request, "https://api.github.com/orgs/acme", "ghp_test-token"}
+    refute_receive {:readiness_request, _url, _token}
   end
 
   test "keeps a repository 404 ambiguous when the owner is not proven to be an organization" do
@@ -436,13 +460,13 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:ok, %{issues: [:no_pr_workflow, :no_required_check]}} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", branch)
 
-    assert_receive {:readiness_url, repo_url}, 1000
+    assert_receive {:readiness_url, repo_url}
     assert String.ends_with?(repo_url, "/repos/owner/repo")
 
-    assert_receive {:readiness_url, branch_url}, 1000
+    assert_receive {:readiness_url, branch_url}
     assert branch_url =~ "/branches/feature%2F%23%26gate"
 
-    assert_receive {:readiness_url, workflow_url}, 1000
+    assert_receive {:readiness_url, workflow_url}
     assert workflow_url =~ "?ref=feature%2F%23%26gate"
   end
 
