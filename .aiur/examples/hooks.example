@@ -91,9 +91,10 @@ before_run: |
       {
         echo "# Base branch merge conflict"
         echo
-        echo "This workspace's branch conflicts with origin/$base_branch. The preflight merge was aborted, so HEAD remains on the ticket branch. Merge origin/$base_branch and resolve these files before continuing:"
+        echo "This workspace's branch conflicts with origin/$base_branch. The preflight merge was aborted, so HEAD remains on the ticket branch."
         echo
-        printf '%s\n' "$conflicted_files"
+        echo "## Conflicting files"
+        printf '%s\n' "$conflicted_files" | sed 's/^/- /'
       } > logs/before-run-merge-conflict.md
       echo "Base branch merge conflict with origin/$base_branch; merge it and resolve these files before continuing:" >&2
       printf '%s\n' "$conflicted_files" >&2

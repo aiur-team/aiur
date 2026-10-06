@@ -92,7 +92,9 @@ defmodule Aiur.AgentRunner.TurnLoop do
       max_turns: max_turns
     } = turn_context
 
-    prompt = TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns)
+    prompt =
+      TurnPrompt.build_turn_prompt(issue, Keyword.put(opts, :workspace, workspace), turn_number, max_turns)
+
     # The prompt is one of the three no-op witnesses (#2806): two consecutive
     # continuation prompts differ only in `#N`, so an unchanged prompt means the
     # agent was handed no new input for this turn.

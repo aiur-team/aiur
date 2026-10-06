@@ -4,17 +4,17 @@ defmodule Aiur.DogfoodHooksTest do
   alias Aiur.Workspace.Reconstruction
 
   @hooks_path Path.expand("../../../.aiur/hooks", __DIR__)
+  @example_hooks_path Path.expand("../../../.aiur/examples/hooks.example", __DIR__)
   @config_path Path.expand("../../../.aiur/config", __DIR__)
   @gitignore_path Path.expand("../../../.gitignore", __DIR__)
   @prompt_path Path.expand("../../../.aiur/prompt.md", __DIR__)
-  @example_prompt_path Path.expand("../../../.aiur/examples/prompt.md.example", __DIR__)
   @contributing_path Path.expand("../../../CONTRIBUTING.md", __DIR__)
 
   @external_resource @hooks_path
+  @external_resource @example_hooks_path
   @external_resource @config_path
   @external_resource @gitignore_path
   @external_resource @prompt_path
-  @external_resource @example_prompt_path
   @external_resource @contributing_path
 
   setup do
@@ -313,13 +313,45 @@ defmodule Aiur.DogfoodHooksTest do
     assert String.trim(git!(["-C", workspace, "rev-parse", "HEAD"])) == ticket_head
     assert git!(["-C", workspace, "diff", "--name-only", "--diff-filter=U"]) == ""
     assert File.read!(Path.join(workspace, "logs/before-run-merge-conflict.md")) =~ "README.md"
-    assert File.read!(@prompt_path) =~ "If `logs/before-run-merge-conflict.md` exists, read it before continuing"
-    assert File.read!(@example_prompt_path) =~ "If `logs/before-run-merge-conflict.md` exists, read it before continuing"
+    assert File.read!(Path.join(workspace, "logs/before-run-merge-conflict.md")) =~ "## Conflicting files\n- README.md"
+
+    rendered_prompt =
+      Aiur.AgentRunner.TurnPrompt.build_turn_prompt(
+        %Aiur.Issue{id: "3011", identifier: "3011", title: "Resolve base conflict"},
+        [resumed: true, workspace: workspace],
+        1,
+        nil
+      )
+
+    assert rendered_prompt =~ "- `README.md`"
+
+    assert {example_output, 0} = run_hook_from(@example_hooks_path, "before_run", workspace, context.origin)
+    assert example_output =~ "README.md"
+    assert File.read!(Path.join(workspace, "logs/before-run-merge-conflict.md")) =~ "## Conflicting files\n- README.md"
     state = cache_root(workspace)
     assert File.read!(Path.join(state, ".aiur-hex/cache.ets")) == "rewritten hex cache\n"
     assert File.read!(Path.join(state, ".aiur-mix/archives/hex.ez")) == "rewritten mix cache\n"
     assert File.read!(Path.join(state, ".aiur-hex/packages/hexpm/reused.tar")) == "reusable package cache\n"
     refute File.exists?(reused_package)
+  end
+
+  test "before_run fails when a merge is blocked without file conflicts", context do
+    workspace = Path.join(context.test_root, "untracked-overwrite")
+    File.mkdir_p!(workspace)
+    assert_hook_ok!("after_create", workspace, context.origin)
+
+    File.write!(Path.join(context.seed, "collide.txt"), "tracked on stable\n")
+    git!(["-C", context.seed, "add", "collide.txt"])
+    git!(["-C", context.seed, "commit", "--quiet", "-m", "add collide file"])
+    git!(["-C", context.seed, "push", "--quiet", "origin", configured_base()])
+
+    File.write!(Path.join(workspace, "collide.txt"), "untracked workspace file\n")
+
+    assert {output, status} = run_hook("before_run", workspace, context.origin)
+    assert status != 0
+    assert output =~ "without file conflicts"
+    refute File.exists?(Path.join(workspace, "logs/before-run-merge-conflict.md"))
+    assert File.read!(Path.join(workspace, "collide.txt")) == "untracked workspace file\n"
   end
 
   test "before_run refuses to overwrite tracked WIP", context do
@@ -408,7 +440,11 @@ defmodule Aiur.DogfoodHooksTest do
   end
 
   defp run_hook(name, workspace, origin) do
-    System.cmd("sh", ["-c", Map.fetch!(dogfood_hooks!(), name)],
+    run_hook_from(@hooks_path, name, workspace, origin)
+  end
+
+  defp run_hook_from(hooks_path, name, workspace, origin) do
+    System.cmd("sh", ["-c", Map.fetch!(dogfood_hooks!(hooks_path), name)],
       cd: workspace,
       stderr_to_stdout: true,
       env: [
@@ -423,8 +459,8 @@ defmodule Aiur.DogfoodHooksTest do
 
   defp cache_root(workspace), do: Path.join(Path.dirname(workspace), "repo-state")
 
-  defp dogfood_hooks! do
-    {:ok, hooks} = YamlElixir.read_from_file(@hooks_path)
+  defp dogfood_hooks!(path \\ @hooks_path) do
+    {:ok, hooks} = YamlElixir.read_from_file(path)
     hooks
   end
 
