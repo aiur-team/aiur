@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
   import Phoenix.Component, only: [assign: 3]
 
+  alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.PollCadence
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, Endpoint}
   alias AiurWeb.OperatorControlCenter.{DecisionProvider, TicketsPresenter, UnitsPresenter}
@@ -147,10 +148,28 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     retained_counts = retained_counts(decision_store)
 
     payload
+    |> put_units_status_snapshot(orchestrator: orchestrator, timeout: snapshot_timeout_ms)
     |> Map.put(:retained_counts, retained_counts)
     |> update_in([:provider_health], &Map.put(&1, :retained_counts, retained_counts.health.status))
     |> then(&Map.put(&1, :units, UnitsPresenter.load(&1, units_options())))
     |> Map.put(:tickets, TicketsPresenter.load(tickets_options()))
+  end
+
+  defp put_units_status_snapshot(payload, opts) do
+    orchestrator = Keyword.fetch!(opts, :orchestrator)
+    timeout = Keyword.fetch!(opts, :timeout)
+
+    case SnapshotStore.read(orchestrator, timeout) do
+      {status, snapshot, freshness} when status in [:current, :stale] ->
+        Map.put(payload, :units_status_snapshot, Map.put(snapshot, :snapshot_freshness, freshness))
+
+      _unavailable_or_unpublished ->
+        payload
+    end
+  rescue
+    _error -> payload
+  catch
+    :exit, _reason -> payload
   end
 
   defp providers do

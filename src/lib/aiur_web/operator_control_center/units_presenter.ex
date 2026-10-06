@@ -187,6 +187,45 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   defp status_source(payload) do
+    payload
+    |> presenter_status_source()
+    |> enrich_internal_usage_fields(Map.get(payload, :units_status_snapshot))
+  end
+
+  defp enrich_internal_usage_fields(status, %{running: internal_running}) when is_list(internal_running) do
+    internal_by_identity =
+      Enum.reduce(internal_running, %{}, fn internal_row, rows ->
+        case Sources.identity(internal_row) do
+          %TrackerIdentity{} = identity -> Map.put(rows, Sources.key(identity), internal_row)
+          _identity -> rows
+        end
+      end)
+
+    running = Enum.map(status.running, &enrich_public_running_row(&1, internal_by_identity))
+
+    Map.put(status, :running, running)
+  end
+
+  defp enrich_internal_usage_fields(status, _snapshot), do: status
+
+  defp enrich_public_running_row(public_row, internal_by_identity) do
+    with %TrackerIdentity{} = identity <- Sources.identity(public_row),
+         internal_row when not is_nil(internal_row) <- Map.get(internal_by_identity, Sources.key(identity)) do
+      public_row
+      |> Map.put(:telemetry_attempt_id, Map.get(internal_row, :telemetry_attempt_id))
+      |> Map.put(:context_usage, public_context_usage(Map.get(internal_row, :context_usage)))
+    else
+      _missing_identity_or_snapshot -> public_row
+    end
+  end
+
+  defp public_context_usage(%{used_tokens: used} = context) when is_integer(used) and used >= 0 do
+    Map.take(context, [:used_tokens, :window_tokens, :used_percent, :pressure])
+  end
+
+  defp public_context_usage(_context), do: nil
+
+  defp presenter_status_source(payload) do
     fleet = Map.get(payload, :fleet, %{})
     health = source_health(payload, :fleet, fleet)
 
