@@ -15,6 +15,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DecisionStore,
     DispatchBudgetStore,
     Issue,
+    ModelAvailability,
     RepoBase,
     SystemCpu,
     Tracker
@@ -2200,6 +2201,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp capacity_reason_measurements(reason) do
     Map.take(reason, [
       :measured,
+      :detail,
       :threshold,
       :reclaimable_cpu_percent,
       :reclaimable_cpu_threshold
@@ -2314,7 +2316,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       probes.build_status
     )
     |> maybe_record_provider_constraint(
-      DispatchPolicy.provider_gate(probes.provider_backends),
+      DispatchPolicy.provider_gate(probes.provider_backends, Map.get(probes, :provider_gate_opts, [])),
       probes.provider_backends
     )
     |> maybe_record_github_quota_constraint(Map.get(probes, :github_quota, :available))
@@ -2350,7 +2352,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp maybe_record_build_constraint(state, _gate, _status), do: state
 
   defp maybe_record_provider_constraint(state, :hold, backends),
-    do: record_capacity_constraint(state, :provider, "backends=#{inspect(backends)}")
+    do: record_capacity_constraint(state, :provider, ModelAvailability.provider_freshness_detail(backends))
 
   defp maybe_record_provider_constraint(state, _gate, _backends), do: state
 
