@@ -218,6 +218,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       %{snapshot: snapshot, observed_at: observed_at, observed_at_ms: observed_at_ms} = cached ->
         snapshot = orchestrator |> overlay_global_pause(snapshot) |> maybe_put_fleet_rows(cached, opts)
         metadata = metadata(orchestrator, cached, observed_at, observed_at_ms, timeout)
+        snapshot = advance_dispatch_poll_age(snapshot, metadata.age_ms)
 
         case metadata.status do
           :stale ->
@@ -229,6 +230,13 @@ defmodule Aiur.Orchestrator.SnapshotStore do
         end
     end
   end
+
+  defp advance_dispatch_poll_age(%{polling: %{last_dispatch_poll_age_ms: age}} = snapshot, elapsed_ms)
+       when is_integer(age) and age >= 0 do
+    put_in(snapshot, [:polling, :last_dispatch_poll_age_ms], age + elapsed_ms)
+  end
+
+  defp advance_dispatch_poll_age(snapshot, _elapsed_ms), do: snapshot
 
   @impl true
   def init(_opts), do: {:ok, %{pending: %{}, task_ref: nil, monitor_ref: nil, timer_ref: nil}}
