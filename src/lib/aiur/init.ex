@@ -314,7 +314,10 @@ defmodule Aiur.Init do
   defp undispatchable_warning(io) do
     io.puts.("\n⚠️  No labels were created. This repo cannot dispatch until they exist.")
     io.puts.("   Run `aiur init` again once GITHUB_TOKEN is in #{@env_file_name} to create them,")
-    io.puts.("   or create them by hand with `gh label create` (agent:*, model:*, complexity:*).")
+    io.puts.("   or create them by hand, for example:")
+    io.puts.("     gh label create --force 'agent:todo' --description 'ready to be worked'")
+    io.puts.("     gh label create --force 'agent:in-progress' --description 'being worked'")
+    io.puts.("     gh label create --force 'agent:rework' --description 'needs changes'")
   end
 
   defp provision_github_with_token(io, deps, tracker, agents, pair) do
