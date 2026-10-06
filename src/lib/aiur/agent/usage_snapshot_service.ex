@@ -107,17 +107,22 @@ defmodule Aiur.Agent.UsageSnapshotService do
 
     case ledger_scan_fun.(after: after_position, limit: 10_000) do
       {:ok, records} ->
-        matching = matching_observations(records, ticket, attempt_id, source_position)
-        reported_dimensions = reported_dimensions(records, matching, after_position, source_position)
-        observed_at = latest_observation_at(matching)
-        %{observed_at: observed_at, reported_dimensions: reported_dimensions}
+        build_attempt_observation(records, ticket, attempt_id, after_position, source_position)
 
       _unavailable ->
-        %{observed_at: nil, reported_dimensions: %{}}
+        unavailable_observation()
     end
   rescue
-    _error -> %{observed_at: nil, reported_dimensions: %{}}
+    _error -> unavailable_observation()
   end
+
+  defp build_attempt_observation(records, ticket, attempt_id, after_position, source_position) do
+    matching = matching_observations(records, ticket, attempt_id, source_position)
+    reported_dimensions = reported_dimensions(records, matching, after_position, source_position)
+    %{observed_at: latest_observation_at(matching), reported_dimensions: reported_dimensions}
+  end
+
+  defp unavailable_observation, do: %{observed_at: nil, reported_dimensions: %{}}
 
   defp matching_observations(records, ticket, attempt_id, source_position) do
     ticket_key = TrackerIdentity.github_key(ticket)
