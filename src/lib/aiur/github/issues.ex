@@ -4,14 +4,17 @@ defmodule Aiur.GitHub.Issues do
   """
 
   require Logger
-  alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TrackerIdentity}
+  alias Aiur.AllowedContributors
+  alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
+    BoundedBlockedBy,
     CycleFetchCache,
     DependenciesApi,
     DispatchAuthorization,
     Errors,
     Labels,
+    OpenIssueSnapshot,
     ResourceStore,
     StatePolicy,
     Transport
@@ -22,11 +25,14 @@ defmodule Aiur.GitHub.Issues do
   @max_issue_response_bytes 65_536
   # The open-issue list (`issues?state=open&per_page=100`) can be an order of
   # magnitude larger than any single issue: 44+ open issues plus their labels,
-  # assignees, and bodies measured ~390 KiB, which the single-issue cap
-  # truncates. The list endpoint gets its own, larger bound so a growing
-  # backlog does not silently fail the candidate fetch as `{:github, :http,
-  # %{status: 200}}` (#2140).
-  @max_issue_list_response_bytes 1_048_576
+  # assignees, and bodies measured ~390 KiB (#2140), and a backlog whose ticket
+  # bodies are full specifications measured 2.9 MiB across 45 issues (#2533).
+  # The bound is sized to the endpoint's real ceiling rather than an observed
+  # backlog: GitHub caps a page at 100 issues and a body at 64 KiB, so one page
+  # of maximal bodies plus metadata stays under 16 MiB. A response that still
+  # exceeds it is reported as `:response_too_large` by `conditional_get/4`
+  # instead of the self-contradictory `{:github, :http, %{status: 200}}`.
+  @max_issue_list_response_bytes 16_777_216
 
   @spec max_issue_response_bytes() :: pos_integer()
   def max_issue_response_bytes, do: @max_issue_response_bytes
@@ -279,8 +285,11 @@ defmodule Aiur.GitHub.Issues do
   # It does *not* follow that re-depositing an unchanged issue is silent: the
   # store's change test includes `:source`, and these two readers deposit under
   # different sources, so alternating readers of an unchanged issue do publish.
-  # Nothing subscribes to `:issue` yet, and the honest fix belongs in the store's
-  # change test rather than here, so this is named rather than worked around.
+  # `Aiur.BuildOrder.GraphProjection` subscribes to `:issue`, and such a publish
+  # rebuilds its catalog from the store. That rebuild is a store read, not a
+  # GitHub read, and it buys no graph read unless a member's lifecycle actually
+  # moved (#2608). The honest fix belongs in the store's change test rather than
+  # here, so this is named rather than worked around.
   #
   # `:processed` is deliberately never passed: fetching an issue is not the same
   # as having acted on it, and marking it handled here would suppress the wake
@@ -378,6 +387,7 @@ defmodule Aiur.GitHub.Issues do
       active_states = Config.active_states() |> Enum.map(&StatePolicy.normalize_state/1) |> MapSet.new()
 
       with {:ok, issues} <- fetch_label_issue_pages(request_fun, url, token, owner, repo, prefix, []) do
+        record_open_issues(owner, repo, issues)
         {:ok, filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix)}
       end
     end
@@ -400,6 +410,8 @@ defmodule Aiur.GitHub.Issues do
 
       case fetch_label_issue_pages_conditional(ctx, url, cache) do
         {:ok, issues, updated_cache} ->
+          record_open_issues(ctx.owner, ctx.repo, issues)
+
           candidates =
             filter_and_authorize_candidates_with_degenerate(
               issues,
@@ -417,6 +429,24 @@ defmodule Aiur.GitHub.Issues do
           error
       end
     end
+  end
+
+  # Both listings are unfiltered and fully paginated, and they answer `{:ok, _}`
+  # only when every page was read, so `issues` names every open issue. That is
+  # the close signal the dispatch gate's blocker states use (#2714).
+  defp record_open_issues(owner, repo, issues) do
+    OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id))
+    # Second producer for allowed-contributor intake (#2957).
+    AllowedContributors.offer_open_issues(issues)
+  end
+
+  # GitHub reports `performed_via_github_app` (null when not App-created) on
+  # every issue. An absent key is unknown provenance, which allowed-contributor
+  # intake treats as App-created (fail closed).
+  defp created_via_app(gh_issue) do
+    if Map.has_key?(gh_issue, "performed_via_github_app"),
+      do: not is_nil(gh_issue["performed_via_github_app"]),
+      else: nil
   end
 
   defp filter_and_authorize_candidates(issues, active_states, request_fun, token, owner, repo, prefix) do
@@ -443,7 +473,7 @@ defmodule Aiur.GitHub.Issues do
       end)
 
     authorized = authorize_dispatches(dispatchable, request_fun, token, owner, repo, prefix)
-    healable = Enum.filter(rest, &degenerate_state_labels?/1)
+    healable = rest |> Enum.filter(&degenerate_state_labels?/1) |> TestTicketScope.filter_issues()
     authorized ++ healable
   end
 
@@ -881,9 +911,8 @@ defmodule Aiur.GitHub.Issues do
     request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
 
     case ctx.request_fun.(request) do
-      {:ok, %{status: 200, body: body} = response} ->
-        retained_etag = Transport.header(Map.get(response, :headers, []), "etag") || etag
-        {:ok, body, retained_etag, response}
+      {:ok, %{status: 200} = response} ->
+        conditional_ok_response(response, etag, max_response_bytes)
 
       {:ok, %{status: 304} = response} ->
         retained_etag = Transport.header(Map.get(response, :headers, []), "etag") || etag
@@ -897,15 +926,41 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  defp authorize_issue(issue, request_fun, token, owner, repo, prefix) do
-    DispatchAuthorization.authorize(
-      issue,
-      owner,
-      repo,
-      prefix,
-      request_fun: request_fun,
-      token: token
-    )
+  # The bounded collector halts an over-limit body and hands back a 200 with an
+  # empty body (`Transport.bounded_response_collector/1`). Left unrecognised,
+  # that fell through the list-page match to `Errors.github_status_error/1` and
+  # surfaced as `{:github, :http, %{status: 200}}` — a "failure" carrying a
+  # success status, which hid the real cause for a spec-heavy backlog (#2533).
+  # Name it instead, before the ordinary 200 path claims it.
+  defp conditional_ok_response(%{private: %{aiur_response_too_large: true}}, _etag, max_response_bytes) do
+    {:error, {:github, :http, %{status: 200, reason: :response_too_large, max_response_bytes: max_response_bytes}}}
+  end
+
+  defp conditional_ok_response(%{body: body} = response, etag, _max_response_bytes) do
+    retained_etag = Transport.header(Map.get(response, :headers, []), "etag") || etag
+    {:ok, body, retained_etag, response}
+  end
+
+  # A 200 without a body key never reached the list-page match before either;
+  # keep routing it to the generic status path rather than raising here.
+  defp conditional_ok_response(response, _etag, _max_response_bytes), do: {:http_error, response}
+
+  defp authorize_issue(%Issue{} = issue, request_fun, token, owner, repo, prefix) do
+    # Dispatch-time revalidation can observe a ticket that closed after the
+    # open-candidate snapshot. Reject that terminal state before provenance
+    # authorization buys a timeline read and raises an ambiguity alert.
+    if DispatchPolicy.terminal_issue_state?(issue.state, DispatchPolicy.terminal_state_set()) do
+      issue
+    else
+      DispatchAuthorization.authorize(
+        issue,
+        owner,
+        repo,
+        prefix,
+        request_fun: request_fun,
+        token: token
+      )
+    end
   end
 
   # GitHub's issues collection includes pull requests in the shared number
@@ -941,6 +996,9 @@ defmodule Aiur.GitHub.Issues do
       url: gh_issue["html_url"],
       assignee_id: get_in(gh_issue, ["assignee", "login"]),
       creator_login: get_in(gh_issue, ["user", "login"]),
+      creator_id: get_in(gh_issue, ["user", "id"]),
+      creator_type: get_in(gh_issue, ["user", "type"]),
+      created_via_app?: created_via_app(gh_issue),
       dispatch_revision: dispatch_revision,
       # `dispatch_authorized?: false` means "not verified to dispatch", and the
       # tri-state `dispatch_authorization` starts `:deferred` ("not yet checked")
@@ -972,6 +1030,10 @@ defmodule Aiur.GitHub.Issues do
   per-cycle fetch cache so repeated dispatch attempts of the same issue reuse
   the same dependency snapshot.
 
+  Across cycles, the edge list and each blocker's state are served from the
+  store while younger than `Aiur.GitHub.BoundedBlockedBy.max_age_ms/0`, and
+  re-read unconditionally only once either is older (#2714).
+
   Returns `{:error, reason}` when the dependency read fails; callers treat that
   as *unknown* blockers and hold dispatch (fail-closed), because dispatching on
   unknown blockers would reintroduce exactly the "dispatches work GitHub knows
@@ -981,10 +1043,14 @@ defmodule Aiur.GitHub.Issues do
   def hydrate_blocked_by(%Issue{} = issue) do
     # The dispatch gate must never be served a blocked-by list the store holds
     # that has silently gone stale — a blocker added on GitHub's side without
-    # Aiur's own write or a webhook delivery must still hold dispatch. So this
-    # entry point always revalidates with the stored ETag (a free 304 when
-    # unchanged) instead of serving the held body blind (#2326).
-    hydrate_blocked_by(issue, revalidate: true)
+    # Aiur's own write or a webhook delivery must still hold dispatch, and a
+    # blocker that has since closed must stop holding it (#2326). The held
+    # body's embedded blocker states cannot be trusted and a conditional read
+    # cannot refresh them (#2550, #2552), but re-reading the list on every pass
+    # cost two thirds of a daemon's core budget (#2714). So the gate reads the
+    # edges and the blocker states separately, each within a stated bound: see
+    # `Aiur.GitHub.BoundedBlockedBy`.
+    hydrate_blocked_by(issue, revalidate: :bounded)
   end
 
   @spec hydrate_blocked_by(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, term()}
@@ -993,9 +1059,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   def hydrate_blocked_by(%Issue{id: id} = issue, opts) when is_binary(id) and id != "" do
-    case CycleFetchCache.fetch({:blocked_by, id}, fn ->
-           DependenciesApi.fetch_blocked_by(id, opts)
-         end) do
+    case CycleFetchCache.fetch({:blocked_by, id}, fn -> fetch_blocked_by(id, opts) end) do
       {:ok, blockers} when is_list(blockers) ->
         {:ok, %{issue | blocked_by: normalize_blockers(blockers, GitHub.Config.label_prefix())}}
 
@@ -1008,6 +1072,13 @@ defmodule Aiur.GitHub.Issues do
   end
 
   def hydrate_blocked_by(%Issue{} = issue, _opts), do: {:ok, issue}
+
+  defp fetch_blocked_by(id, opts) do
+    case Keyword.get(opts, :revalidate) do
+      :bounded -> BoundedBlockedBy.fetch(id, Keyword.delete(opts, :revalidate))
+      _other -> DependenciesApi.fetch_blocked_by(id, opts)
+    end
+  end
 
   # Reduces GitHub's native dependency issue objects to the same `blocked_by`
   # shape Linear's normalize_issue produces (`%{id, identifier, state, url}`)
@@ -1159,7 +1230,9 @@ defmodule Aiur.GitHub.Issues do
   defp header_value(_value), do: nil
 
   defp authorize_dispatches(issues, request_fun, token, owner, repo, prefix) do
-    Enum.map(issues, fn issue ->
+    issues
+    |> TestTicketScope.filter_issues()
+    |> Enum.map(fn issue ->
       authorize_issue(issue, request_fun, token, owner, repo, prefix)
     end)
   end

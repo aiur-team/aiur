@@ -3,7 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters, Overview}
+  alias Aiur.AgentContextPresentation
+  alias AiurWeb.OperatorControlCenter.{DecisionPath, FleetFilters, Overview, UnitsPresentation}
 
   attr(:fleet, :map, required: true)
   attr(:decisions, :list, default: [])
@@ -34,6 +35,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
               <th data-sort-key="waiting">Waiting</th>
               <th data-sort-key="latest">Latest</th>
               <th data-sort-key="elapsed" data-sort-type="number">Elapsed</th>
+              <th data-sort-key="context">Context</th>
               <th data-sort-key="commands" data-sort-type="number">Commands</th>
               <th><span class="sr-only">Actions</span></th>
             </tr>
@@ -52,6 +54,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                   <span>
                     <strong>{row.title || row.issue_identifier}</strong>
                     <span class="ticket-id">{row.issue_identifier}</span>
+                    <span :if={model = model_version(row)} class="u-pill u-model" title={model.id}>{model.label}</span>
                   </span>
                 </div>
               </td>
@@ -65,6 +68,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
                 <span :if={row[:last_event_at]} class="fleet-latest-meta mono">{row.last_event_at}</span>
               </td>
               <td class="mono num" data-label="Elapsed" data-sort-value={row[:runtime_seconds] || ""}>{runtime(row, @now)}</td>
+              <td class="mono" data-label="Context">{AgentContextPresentation.label(row[:context_usage])}</td>
               <td class="num" data-label="Commands" data-sort-value={row.open_decision_count}>
                 <span :if={row.open_decision_count > 0} class="chip attention">! {row.open_decision_count}</span>
                 <span :if={row.open_decision_count == 0} class="muted">—</span>
@@ -108,6 +112,10 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
     </section>
     """
   end
+
+  # Fleet rows carry the same execution facts as Units rows, so the model chip
+  # is the one presentation rule rather than a second, drifting copy.
+  defp model_version(row), do: UnitsPresentation.model_version(row)
 
   defp decision_links(decisions) do
     Enum.reduce(decisions, %{}, fn decision, links ->

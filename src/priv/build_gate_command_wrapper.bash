@@ -1,21 +1,41 @@
 #!/bin/sh
 # PATH entrypoint for Elixir/Mix admission. Cheap commands pass straight through
 # this POSIX dispatcher; only compile/test work starts Bash and loads the hook.
+#
+# aiur-build-gate-command-wrapper-marker: this literal identifies a copy of this
+# script to another copy of it. Resolution below refuses to hand a command to a
+# file carrying the marker, so a wrapper installed under a *second* name — a
+# `mise reshim` that overwrites `~/.local/share/mise/shims/mix` with a symlink to
+# this file, for instance — cannot be mistaken for the real toolchain (#2542).
 
 command_name=${0##*/}
 : "${AIUR_BUILD_GATE_BIN:=${0%/*}}"
 export AIUR_BUILD_GATE_BIN
 
-aiur_build_gate_wrapper_real_command() {
+aiur_build_gate_wrapper_marker='aiur-build-gate-command-wrapper-marker'
+
+# A candidate is another copy of this wrapper when the marker appears in its
+# header. Bounded to the first 4 KiB so a large real binary — `mise` itself is
+# tens of megabytes — is never read whole.
+aiur_build_gate_wrapper_is_wrapper() {
+  [ -r "$1" ] || return 1
+  head -c 4096 "$1" 2>/dev/null | grep -q "$aiur_build_gate_wrapper_marker" 2>/dev/null
+}
+
+# The real binary for `lookup_name` on PATH, skipping this process's own file
+# and every other wrapper copy.
+aiur_build_gate_wrapper_path_lookup() {
+  lookup_name=$1
   saved_ifs=$IFS
   IFS=:
 
   for path_entry in $PATH; do
     [ -n "$path_entry" ] || path_entry=.
-    candidate="$path_entry/$command_name"
+    candidate="$path_entry/$lookup_name"
 
     if [ -f "$candidate" ] && [ -x "$candidate" ] &&
-      ! [ "$candidate" -ef "$0" ] 2>/dev/null; then
+      ! [ "$candidate" -ef "$0" ] 2>/dev/null &&
+      ! aiur_build_gate_wrapper_is_wrapper "$candidate"; then
       IFS=$saved_ifs
       printf '%s\n' "$candidate"
       return 0
@@ -24,6 +44,55 @@ aiur_build_gate_wrapper_real_command() {
 
   IFS=$saved_ifs
   return 1
+}
+
+# `mise which` answers for the current directory's tool configuration, which is
+# exactly the toolchain the caller meant. Consulted only when PATH holds no real
+# binary at all — the #2542 shape — so the ordinary case never runs it.
+aiur_build_gate_wrapper_mise_lookup() {
+  mise_binary=$(aiur_build_gate_wrapper_path_lookup mise) || return 1
+  mise_resolved=$("$mise_binary" which "$1" 2>/dev/null) || return 1
+
+  [ -n "$mise_resolved" ] || return 1
+  [ -f "$mise_resolved" ] && [ -x "$mise_resolved" ] || return 1
+  ! aiur_build_gate_wrapper_is_wrapper "$mise_resolved" || return 1
+
+  printf '%s\n' "$mise_resolved"
+}
+
+# Prints "<source> <path>". The source is reported by the self-check so a
+# resolution that goes wrong later is a named path, not a bare 127.
+aiur_build_gate_wrapper_resolve() {
+  if resolved=$(aiur_build_gate_wrapper_path_lookup "$command_name"); then
+    printf 'path %s\n' "$resolved"
+    return 0
+  fi
+
+  if resolved=$(aiur_build_gate_wrapper_mise_lookup "$command_name"); then
+    printf 'mise %s\n' "$resolved"
+    return 0
+  fi
+
+  return 1
+}
+
+aiur_build_gate_wrapper_real_command() {
+  resolution=$(aiur_build_gate_wrapper_resolve) || return 1
+  printf '%s\n' "${resolution#* }"
+}
+
+# Reports which binary this wrapper resolves for its own name, so a breakage is
+# diagnosable without reproducing the failing build (#2542).
+aiur_build_gate_wrapper_self_check() {
+  if resolution=$(aiur_build_gate_wrapper_resolve); then
+    printf 'aiur_build_gate self_check command=%s wrapper=%s source=%s real=%s status=0\n' \
+      "$command_name" "$0" "${resolution%% *}" "${resolution#* }"
+    return 0
+  fi
+
+  printf 'aiur_build_gate self_check command=%s wrapper=%s source=none real= status=127\n' \
+    "$command_name" "$0" >&2
+  return 127
 }
 
 aiur_build_gate_wrapper_elixir_mix_task() {
@@ -63,7 +132,8 @@ aiur_build_gate_wrapper_path_without_self() {
 
     candidate="$path_entry/$command_name"
 
-    if ! [ "$candidate" -ef "$0" ] 2>/dev/null; then
+    if ! [ "$candidate" -ef "$0" ] 2>/dev/null &&
+      ! aiur_build_gate_wrapper_is_wrapper "$candidate"; then
       filtered_path="$filtered_path$separator$path_entry"
       separator=:
     fi
@@ -172,6 +242,11 @@ aiur_build_gate_needs_wrapper() {
   esac
 }
 
+if [ "${1:-}" = __aiur_build_gate_self_check__ ]; then
+  aiur_build_gate_wrapper_self_check
+  exit $?
+fi
+
 if [ "${1:-}" = __aiur_build_gate_bash__ ]; then
   shift
 
@@ -199,8 +274,11 @@ fi
 real_command=$(aiur_build_gate_wrapper_real_command) || real_command=
 
 if [ -z "$real_command" ]; then
-  printf 'aiur_build_gate gate_error reason=command_unavailable command=%s status=127\n' \
-    "$command_name" >&2
+  # Name the wrapper and the self-check, so the next reader of this line knows
+  # which file shadowed the toolchain instead of only that something did (#2542).
+  printf 'aiur_build_gate gate_error reason=command_unavailable command=%s wrapper=%s status=127\n' \
+    "$command_name" "$0" >&2
+  printf 'aiur_build_gate hint run="%s __aiur_build_gate_self_check__"\n' "$0" >&2
   exit 127
 fi
 

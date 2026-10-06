@@ -1131,6 +1131,46 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       stop_codeowners(codeowners)
     end
 
+    # #2601: the aggregate `reviewDecision` is already `CHANGES_REQUESTED` when
+    # the second review lands, and both reviews are body-only from the same
+    # reviewer with the same state — so nothing about the *aggregate* changed.
+    # The publish has to be edge-triggered on the review's own identity and
+    # `submitted_at` instead, and re-polling the same pair afterwards has to
+    # stay silent.
+    test "publishes a second body-only CHANGES_REQUESTED review on a later head" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      first_head_review = pr_review(9_040, "its-everdred", "CHANGES_REQUESTED", "first pass", "2026-09-10T00:10:30Z")
+      second_head_review = pr_review(9_041, "its-everdred", "CHANGES_REQUESTED", "still not right", "2026-09-10T00:46:36Z")
+
+      poll = fn reviews, seen_at ->
+        GithubCommentsPoller.poll(["42"],
+          since: "2026-09-10T00:00:00Z",
+          repo: "owner/repo",
+          pr_review_seen_at: seen_at,
+          request_fun: request_fun_with_reviews(reviews)
+        )
+      end
+
+      assert {:ok, %{count: 1, errors: [], pr_review_seen_at: after_first}} = poll.([first_head_review], %{})
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_040}}}, 500
+      assert after_first == %{"42" => "2026-09-10T00:10:30Z"}
+
+      # The rework turn finished on a new head and the reviewer submitted again.
+      assert {:ok, %{count: 1, errors: [], pr_review_seen_at: after_second}} =
+               poll.([first_head_review, second_head_review], after_first)
+
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_041}}}, 500
+      assert after_second == %{"42" => "2026-09-10T00:46:36Z"}
+
+      # Redelivery of the identical pair is a no-op.
+      assert {:ok, %{count: 0, errors: []}} = poll.([first_head_review, second_head_review], after_second)
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+
+      stop_codeowners(codeowners)
+    end
+
     test "reports an error and zero count when PR reviews fetch fails" do
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
@@ -1216,6 +1256,68 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
       assert since > "2026-06-24T11:00:00Z", "since must advance past the new comment even when /reviews fails"
       assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+      stop_codeowners(codeowners)
+    end
+
+    test "a review remains discoverable after issue comments advance while review reads are disabled" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+      review = pr_review(9_081, "its-everdred", "CHANGES_REQUESTED", "please rework", "2026-06-24T12:00:00Z")
+
+      first_request = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/42/comments?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "id" => 99_081,
+                   "body" => "CI update",
+                   "updated_at" => "2026-06-24T12:30:00Z",
+                   "user" => %{"login" => "its-everdred"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
+
+          String.contains?(url, "/issues/77/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
+
+          String.contains?(url, "/pulls/77/reviews") ->
+            flunk("review endpoint must stay disabled during ci-wait")
+        end
+      end
+
+      assert {:ok, %{since: %{"42" => issue_since}, pr_review_seen_at: review_seen_at}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 review_submission_targets: MapSet.new(),
+                 request_fun: first_request
+               )
+
+      assert issue_since > "2026-06-24T12:00:00Z"
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: %{"42" => issue_since},
+                 pr_review_seen_at: review_seen_at,
+                 repo: "owner/repo",
+                 review_submission_targets: MapSet.new(["42"]),
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_081}}}, 500
       stop_codeowners(codeowners)
     end
 

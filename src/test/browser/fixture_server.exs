@@ -803,7 +803,7 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
     %{
       issue: %{available?: true, destination: issue_url(identity), identity: identity},
       pull_request: %{available?: false, identity: identity, reason: :not_opened},
-      chat: %{available?: true, destination: "/chat/#{identity.identifier}", identity: identity, active?: true, readable?: true},
+      chat: %{available?: true, destination: "/chat/#{identity.owner}/#{identity.repository}/#{identity.identifier}", identity: identity, active?: true, readable?: true},
       commands: %{available?: true, destination: "/commands/#{identity.identifier}", identity: identity, readable?: true}
     }
   end
@@ -936,6 +936,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   def mount(params, _session, socket) do
     {:ok,
      socket
+     |> assign(:writable, AiurWeb.Endpoint.config(:dashboard_writable) == true)
      |> assign(:catalog, mount_catalog(params))
      |> assign(:selection, UnitsURL.default_selection())
      |> assign(:now, @now)
@@ -1012,9 +1013,13 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   def handle_event("clear-ticket-search", _params, socket), do: {:noreply, search_tickets(socket, "")}
 
   def handle_event("open-add-agent", %{"ticket" => token}, socket) do
-    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
-      {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
-      {:error, :not_found} -> {:noreply, socket}
+    if socket.assigns.writable and AiurWeb.Endpoint.config(:dashboard_writable) == true do
+      case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+        {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
+        {:error, :not_found} -> {:noreply, socket}
+      end
+    else
+      {:noreply, socket}
     end
   end
 
@@ -1140,10 +1145,10 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         <UnitsTable.units_table view={@view} now={@now} />
       </section>
 
-      <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} />
+      <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} writable={@writable} />
 
       <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
-      <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={true} />
+      <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={@writable} />
 
       <div class="controls" aria-label="Units fixture updates">
         <button id="same-identity-update" type="button" phx-click="same-identity-update">Update same Unit</button>
@@ -1235,6 +1240,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       options: AgentRoutingPreview.options(selection.backend),
       labels: row.labels,
       plan: AgentRoutingPreview.plan(selection, row.labels),
+      pending?: false,
       result: nil
     }
   end
@@ -1675,6 +1681,9 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
 
   @impl true
   def refresh(_identity), do: :ok
+
+  @impl true
+  def refresh_catalog, do: :ok
 
   @impl true
   def release(_identity), do: :ok

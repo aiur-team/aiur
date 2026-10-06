@@ -2,6 +2,18 @@
 
 Aiur reads GitHub to find work, follow each ticket, and return completed changes for review.
 
+## Repository setup from global defaults
+
+A new run using `~/.aiur/config` bootstraps the current GitHub repository before starting supervision or dispatch. It resolves the repository from `origin` and rejects conflicting explicit `tracker.github.repo`.
+
+Setup uses normal App/PAT/keyring credential resolution after launcher dotenv loading: repository `.env`, then `~/.aiur/.env`, filling only unset variables. Repository GitHub credential groups exclude global credentials.
+
+Setup reads repository labels through the governed transport in pages of 100, bounded to ten pages. It creates only missing workflow lifecycle, marker, and complexity labels through the existing idempotent label API.
+
+No model/effort/alias labels are seeded and existing labels are neither deleted nor changed. Requests are attributed normally; no quota saving is claimed.
+
+Label read/create failures stop startup before agents start and explain the required Issues permissions. Repository-local configurations keep the explicit init flow.
+
 ## What Aiur polls
 
 | Poll | What it tracks | Why it exists |
@@ -14,9 +26,41 @@ Aiur reads GitHub to find work, follow each ticket, and return completed changes
 
 Polling remains the complete fallback because it reads current GitHub state even when no webhook is installed or a delivery is missed.
 
+The development `scripts/aiurdev --test` and `--test3` harnesses still read GitHub's issue lists, but pass only their pinned sandbox tickets to dispatch authorization, startup workspace cleanup, and tracker reconciliation. Ordinary runs retain full issue discovery.
+
+The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails. A review submitted during `agent:ci-wait` is still considered when the ticket returns to review.
+
+This does not recover reviews that an older daemon already skipped before this cursor existed.
+
+The repository events feed does not show a pull request going from draft to ready. Without a webhook, the polls infer it from each ticket PR's draft flag, which the comment poll and the CI poll already read.
+
+A durable per-PR ledger records what they saw:
+
+- `ticket.<id>.pr.ready_for_review` is published once per draft period, whoever ran `gh pr ready`.
+- A restart neither loses nor repeats it.
+- A ticket PR first seen already ready costs one issue-events read, once, to tell a former draft from a PR opened ready. A failed read is retried after a backoff, not on every poll.
+- Like the webhook, a PR opened ready gets no `ready_for_review`.
+- The poll uses the webhook's dedup key, so a repository with a webhook is not woken twice for the same head.
+
 Where a webhook is proven, the comment sweep becomes a reconciliation pass rather than a second source. It still reads everything, but a comment a delivery already handled is not published twice, so an agent wakes once per comment rather than once per path. See [Comments arriving twice](#comments-arriving-twice).
 
 The CI poll drops from its batch a target a `check_run` delivery already answered since the last read — the read is not bought again. Displacement is per target: a ticket with no delivery keeps its cadence, and only the read is skipped; no verdict is served from the held body. An unmatched check-run id keeps the target polled; polling stays the fallback.
+
+## Build Order membership recovery
+
+Build Order catalogs normally rebuild from stored issue and membership events. A daemon-owned membership reconciliation also reads GitHub in every webhook mode, including healthy and unproven delivery, because activity in other event families does not prove that sub-issue events arrived.
+
+The safety check waits 15 minutes after a completed attempt, coalesces with in-flight reconciliation, and retains the held catalog on failure. Boot, explicit catalog refresh and delivery degradation can request earlier reconciliation.
+
+Reconciliation replaces membership as one complete set. If GitHub returns only the first page of a root's sub-issues, Aiur reports incomplete membership and retains the held set instead of deleting unseen members.
+
+If a membership edge changes while the GitHub read is in flight, the fetched set is discarded and a later scheduled attempt retries. This preserves newer webhook additions and removals without exposing an empty or partially rebuilt membership set.
+
+If the membership store call times out or its owner exits, processing reports a membership-unavailable error instead of confirming the deposit. A timed-out call can still execute later; the error is not cancellation. HTTP admission remains separate and does not promise processing success.
+
+These reads use the existing planning bounds and governed GitHub transport. This recovery adds bounded reads and claims no quota saving.
+
+A stale single-root CLI read can separately refresh that root's graph. It respects provider retry delays and does not imply that catalog membership was refreshed at the same instant.
 
 ## Who Aiur trusts
 
@@ -58,7 +102,13 @@ The daemon reads App credentials from the same `.env` the launcher sources; they
 
 `GITHUB_APP_PRIVATE_KEY_PATH` wins over the inline value so the key never appears in the process environment or shell history. When App credentials are configured, the daemon authenticates with a fresh installation token and ignores `GITHUB_TOKEN`.
 
+A repository whose own `.env` sets a `GITHUB_TOKEN` (or any `GITHUB_APP_*` name) does not inherit the App from `~/.aiur/.env`; see [environment layering](/reference/configuration#environment-variables). Put App credentials in `~/.aiur/.env` for every repository the App is installed on, and in the repository `.env` when only that repository should use it.
+
 The env token remains the fallback when no App credentials are present, followed by the `gh` keyring (`gh auth login`).
+
+The keyring lookup (`gh auth token`) is bounded at boot, so a `gh` that stalls — a locked keyring prompting for a passphrase, a slow host, or a missing GUI credential agent — cannot hang the daemon with no log line.
+
+The lookup logs before the shell-out and treats an unanswered lookup as "no keyring credential" (never a fatal error), naming `gh auth login` on timeout. The default bound is 5 seconds; set `AIUR_GH_KEYRING_TIMEOUT_MS` to a larger positive integer when a slow-but-succeeding unlock legitimately needs more time, or a smaller one to fail faster.
 
 ### Organization repository access during init
 
@@ -142,6 +192,15 @@ does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
 tickets is free rather than merely cheap. Validators are kept on disk, so a
 restart does not force a full-price re-read.
 
+When a worker starts or restarts, its bootstrap digest also re-reads the open
+PR's formal review submissions. This strict read revalidates the held review
+list with `If-None-Match`; a missing body or changed list is fetched from GitHub.
+
+The digest includes body-only `CHANGES_REQUESTED` reviews and substantive
+`COMMENTED` reviews submitted after the latest Agent Workpad, subject to the
+same author trust filter as other GitHub feedback. A later approval or
+dismissal by that reviewer suppresses their earlier request.
+
 ### What a validator may answer
 
 The savings above depend on the validator being the right one for the question
@@ -164,6 +223,22 @@ page 1 *is* the list), or when the validator kept is the last page's rather
 than the first's. If neither is practical, do not make the read conditional:
 an unconditional read that is correct beats a conditional one that is quietly
 wrong.
+
+**Incomplete label provenance is retried.** A new issue can carry `agent:todo`
+before GitHub has indexed its `labeled` timeline event. Aiur does not cache a
+missing or malformed event as a final authorization decision. For a `todo`
+ticket it defers dispatch and retries on the next candidate poll.
+
+For active and rework tickets, Aiur still denies incomplete evidence. This
+preserves revocation after an unverified relabel.
+
+Either incomplete result retires the daemon's cached reads for that issue
+number, including the timeline body. A webhook backed repository's hour-long
+read TTL cannot replay the early snapshot.
+
+The invalidation covers one issue number and may add a timeline request on each
+retry until the event appears, with further requests if the timeline spans
+pages. No quota saving is claimed.
 
 **A validator belongs to the thing it describes.**
 
@@ -215,8 +290,9 @@ system runs only when a page opens or a degradation needs a re-list.
 
 | View state | Behaviour |
 | --- | --- |
-| Opening, focusing, or holding a page open | Zero API calls. |
-| Ticket backlog, Ad Hoc overlay, Build Order catalog | Event-sourced: every input is already deposited in the resource store by the webhook delivery before it is published, so a change made outside Aiur is reflected immediately, with no fetch. One listing per daemon boot establishes the baseline; a `webhooks` degradation re-lists while deliveries are known to be dropped, and recovery re-lists once more on the gap's trailing edge. A Build Order root's membership moves on the `sub_issues` delivery and a blocked-by edge re-reads the selected root on the `issue_dependencies` delivery. |
+| Opening, focusing, or holding a page open | Zero API calls. One exception: a Build Order root with no graph yet gets one first read, when `/build-orders/<root>` opens or `aiur build-orders <root>` runs. |
+| Explicit single-root CLI read | `aiur build-orders <root>` also requests an asynchronous read when the retained graph is stale. Healthy graphs are reused; provider backoff and in-flight coalescing apply. This does not add a periodic page refresh. |
+| Ticket backlog, Ad Hoc overlay, Build Order catalog | Event-sourced: every input is already deposited in the resource store by the webhook delivery before it is published, so a change made outside Aiur is reflected immediately. One listing per daemon boot establishes the baseline; a `webhooks` degradation re-lists while deliveries are known to be dropped, and recovery re-lists once more on the gap's trailing edge. Build Order membership also gets a 15-minute safety reconciliation in every webhook mode, as described above. A Build Order root's membership moves on the `sub_issues` delivery and a blocked-by edge re-reads the selected root on the `issue_dependencies` delivery. |
 | Divergence watermark | On the same sweep cadence, one bounded `updated_at`-ordered head page of the open-issue listing. It does two jobs the deleted polls used to do: it records poller corroboration for the silence sweep (so an `issues` delivery loss can degrade the repo instead of looking like an idle one), and it re-lists the event-sourced sources when GitHub's newest open issue is newer than the store's — the proof that a delivery was dropped. One page, never a paged listing. |
 | Pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). The pack-status writer puts `status.json` on disk, so moving it to the event stream is a separate change. |
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
@@ -230,7 +306,7 @@ cadence, and pack status still reflects an outside change within one sweep.
 | --- | --- |
 | First startup sweep | Always immediate, and the first scheduling decision after a restart stays at the base interval (no idleness has been observed yet). |
 | Verified label webhook, dashboard refresh | Wakes reconciliation at once. |
-| `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed — and dispatched — before the backed-off timer can hold it up. |
+| `aiur --todo`, `aiur set max-agents`, global resume | Admission-changing actions request a fresh sweep, so a ticket is refreshed — and dispatched — before the backed-off timer can hold it up. `aiur --todo` also records the queued identifiers as known demand: the woken poll and one follow-up stay at the base interval even if GitHub has not yet indexed the label, and the command warns on stderr when the daemon did not accept the refresh. |
 
 Aiur's poll is state-based, so a longer interval delays a wake without losing one; the exception is a comment posted and answered between two polls.
 
@@ -503,17 +579,9 @@ wrapper reconciles the lease as free rather than billing it full-price.
 The free share a TTL body cache cannot recover is GraphQL's — which no cache on
 either side can recover.
 
-The GitHub cache page reports whether this sharing is effective. Its **Agent gh
-exact-shape hit rate** is `hits / (hits + misses)` over the previous 24 hours,
-alongside the raw hit and miss counts.
-
-It reads the durable `agent-cache.tsv` counters from agent workspaces on the
-daemon host; workspaces on remote SSH workers are not included.
-
-If no readable counter exists, or the readable files contain no hit or miss in
-that window, the page says **Not measured** instead of presenting zero as a
-measurement. Malformed or unreadable sources are retained as partial coverage
-rather than hiding the valid samples.
+The wrapper records hit and miss events in durable `agent-cache.tsv` files in
+each agent workspace. These counters describe the agent `gh` cache on that
+workspace's host; they do not include remote SSH workers in a local census.
 
 The cache key intentionally includes the exact requested output shape. Two
 reads of one pull request that request different JSON fields, templates, or

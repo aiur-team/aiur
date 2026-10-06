@@ -888,7 +888,7 @@ approve_flag_in_arguments() {
 graphql_body_is_hidden() {
   for deny_argument in "$@"; do
     case "$deny_argument" in
-      --input|--input=*|*=@*|-)
+      --input|--input=*|-|query=@*|-Fquery=@*|-F=query=@*|-fquery=@*|-f=query=@*|--field=query=@*|--raw-field=query=@*)
         unset deny_argument
         return 0
         ;;

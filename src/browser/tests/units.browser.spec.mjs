@@ -5,6 +5,7 @@ import { nextPaint } from './support/measurements.mjs'
 
 async function openUnits(page, path = '/units') {
   await page.goto('/auth/read_only')
+  await page.goto('/streamdeck-control/read_only')
   await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
@@ -52,7 +53,8 @@ test('Units keeps complete semantic rows, named actions, and 44px targets across
       await expect(first).toHaveAttribute('data-github-url', 'https://github.com/its-everdred/aiur/issues/1110')
       await expect(first.locator('.ut-id-num')).toHaveText('1110')
       await expect(first).toContainText('Responsive Units interface')
-      await expect(first).toContainText('gpt-5.6-terra')
+      await expect(first).toContainText('GPT-5.6 TERRA')
+      await expect(first.locator('.u-model')).toHaveAttribute('title', 'gpt-5.6-terra')
       await expect(first).toContainText('L2')
       // Latest evidence is the branch push, rendered as its bare name with a branch glyph.
       await expect(first.locator('.ut-latest-text')).toHaveText('feature pushed')
@@ -186,7 +188,9 @@ test('Units tables sort stably, persist in the URL, and keep unknown progress fl
 
   // The existing pills are fed through the complete runtime projection again.
   await expect(unitRows.first().locator('.u-agent')).toHaveText('Codex')
-  await expect(unitRows.first().locator('.u-model')).toHaveText('gpt-5.6-terra')
+  // The pill names the model an operator recognises; the raw id stays exact in its title.
+  await expect(unitRows.first().locator('.u-model')).toHaveText('GPT-5.6 TERRA')
+  await expect(unitRows.first().locator('.u-model')).toHaveAttribute('title', 'gpt-5.6-terra')
 
   const unknownTrack = unitRows.nth(1).locator('.ut-pbar.is-unknown')
   const unknownStyle = await unknownTrack.evaluate((track) => {
@@ -731,7 +735,7 @@ test('Units preserves focused controls on stable updates and restores dialog foc
   await expect(page.getByRole('heading', { name: 'Units' })).toBeFocused()
 })
 
-test('Tickets panel lists open tickets and both dialogs focus and dismiss on Escape', async ({ page }) => {
+test('Tickets panel keeps details readable and gates Add an agent by dashboard mode', async ({ page }) => {
   await openUnits(page)
 
   const panel = page.locator('.tickets-card')
@@ -770,7 +774,17 @@ test('Tickets panel lists open tickets and both dialogs focus and dismiss on Esc
   await page.keyboard.press('Escape')
   await expect(detail).toHaveCount(0)
 
+  const readOnlyAddAgent = panel.getByRole('button', { name: 'Add an agent to ticket 2101 unavailable on this read-only dashboard' })
+  await expect(panel.locator('#tickets-agent-readonly')).toContainText('aiur --todo <ticket-id>')
+  await expect(readOnlyAddAgent).toBeDisabled()
+  await expect(readOnlyAddAgent).toHaveAttribute('aria-describedby', 'tickets-agent-readonly')
+  expect(await readOnlyAddAgent.getAttribute('phx-click')).toBeNull()
+  await expect(page.locator('#add-agent-modal')).toHaveCount(0)
+
+  await openWritableUnits(page)
+  await expect(page.locator('#tickets-agent-readonly')).toHaveCount(0)
   const addAgent = page.getByRole('button', { name: 'Add an agent to ticket 2101' })
+  await expect(addAgent).toBeEnabled()
   await addAgent.click()
 
   const modal = page.locator('#add-agent-modal')

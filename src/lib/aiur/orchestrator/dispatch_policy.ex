@@ -34,6 +34,15 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # so dispatch is re-evaluated against the new state.
   @no_agent_work_states ["merging", "ci-wait"]
 
+  # A tracker-closed ticket is terminal no matter what `tracker.terminal_states`
+  # lists. The GitHub tracker resolves a `state: "closed"` payload to the state
+  # "Closed" (`Aiur.GitHub.Issues.extract_state/2`), which is not an `agent:*`
+  # label and therefore never appears in the configured terminal set. Without
+  # this, a `blocked_by` blocker that is CLOSED on GitHub reads as non-terminal
+  # and holds its blockee undispatchable forever (#2545) — a closed issue cannot
+  # be blocking anything.
+  @closed_issue_state "closed"
+
   @doc false
   # Reads the host 1-min load only when the hard gate or adaptive target is
   # enabled, so explicit-disable configs never touch /proc. Exposed for
@@ -650,6 +659,39 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :worker_capacity
           | :fleet_capacity
 
+  # The single list of every reason `dispatch_decision/5` and
+  # `manual_resume_decision/2` can decline with. Callers that translate a
+  # decline reason (the operator resume path) enumerate this list in tests, so
+  # a reason added to the policy without a translation fails a test instead of
+  # crashing `aiur resume` with a FunctionClauseError (#2699). Keep it in the
+  # same order as `t:dispatch_decline_reason/0`.
+  @dispatch_decline_reasons [
+    :invalid_issue,
+    :contradictory_state_labels,
+    :not_routable,
+    :unauthorized,
+    :paused,
+    :parked,
+    :inactive_state,
+    :no_agent_work_state,
+    :terminal_state,
+    :dependency,
+    :blocked_on_decision,
+    :already_running,
+    :auto_resume_pending,
+    :retry_backoff,
+    :model_fallback_waiting,
+    :workspace_ownership_waiting,
+    :claimed_without_runtime,
+    :state_capacity,
+    :worker_capacity,
+    :fleet_capacity
+  ]
+
+  @doc "Every reason the dispatch policy can decline an issue with."
+  @spec dispatch_decline_reasons() :: [dispatch_decline_reason(), ...]
+  def dispatch_decline_reasons, do: @dispatch_decline_reasons
+
   @spec dispatch_decision(term(), State.t()) :: :dispatch | {:skip, dispatch_decline_reason()}
   def dispatch_decision(issue, %State{} = state) do
     dispatch_decision(
@@ -992,9 +1034,19 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def blocked_on_decision?(_issue, :unavailable), do: true
   def blocked_on_decision?(_issue, _blocked), do: false
 
+  @doc """
+  True when the state is terminal: either configured in `tracker.terminal_states`
+  or the tracker's own closed state (see `@closed_issue_state`).
+
+  A non-binary state (an unlabeled ticket, or a blocker whose payload carried no
+  derivable state) is NOT terminal — dependency and lifecycle callers stay
+  fail-closed on incomplete data.
+  """
   @spec terminal_issue_state?(term(), MapSet.t()) :: boolean()
   def terminal_issue_state?(state_name, terminal_states) when is_binary(state_name) do
-    MapSet.member?(terminal_states, normalize_issue_state(state_name))
+    normalized = normalize_issue_state(state_name)
+
+    normalized == @closed_issue_state or MapSet.member?(terminal_states, normalized)
   end
 
   def terminal_issue_state?(_state_name, _terminal_states), do: false
@@ -1123,17 +1175,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  # Normalizes a state label to its bare, unprefixed lowercase form so both the
-  # GitHub ingestion shape (`"todo"`, prefix already stripped) and any
-  # caller-provided `"agent:todo"` resolve identically.
-  defp normalize_state_label(label) when is_binary(label) do
+  @doc """
+  Normalizes a state label to its bare, unprefixed lowercase form so both the
+  GitHub ingestion shape (`"todo"`, prefix already stripped) and any
+  caller-provided `"agent:todo"` resolve identically.
+
+  Public so callers that reason about the same label set as
+  `resolve_state_labels/1` — the provenance-aware heal in
+  `IssueSync.reconcile_contradictory_state_labels/3` (#2805) — compare labels
+  through the identical normalization instead of a near-copy of it.
+  """
+  @spec normalize_state_label(term()) :: String.t()
+  def normalize_state_label(label) when is_binary(label) do
     label
     |> String.trim()
     |> String.replace_prefix("agent:", "")
     |> String.downcase()
   end
 
-  defp normalize_state_label(_label), do: ""
+  def normalize_state_label(_label), do: ""
 
   @spec terminal_state_set() :: MapSet.t()
   def terminal_state_set do

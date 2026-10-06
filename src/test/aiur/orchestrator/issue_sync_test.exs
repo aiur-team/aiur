@@ -920,6 +920,94 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert event["reason"] =~ "binding constraint=no binding constraint identified"
   end
 
+  describe "dependency-declined backlog is not capacity-ready work (#2592)" do
+    setup do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+      :ok = Exchange.subscribe("system.dispatch.capacity_starved.resolved")
+      :ok = Exchange.subscribe("system.fleet.capacity.starved")
+      :ok = Exchange.subscribe("system.fleet.capacity.starved.resolved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      # The live failure shape: a polled todo issue carrying no hydrated
+      # `blocked_by`, whose hydrated dependency check already declined dispatch.
+      queued = issue("dag-blocked", "todo")
+      assert queued.blocked_by == []
+
+      state = %State{
+        poll_interval_ms: 5_000,
+        max_concurrent_agents: 5,
+        effective_concurrent_agents: 2,
+        running: running_agents(2),
+        dispatch_capacity_sample: %{load: 2.0, target: 1.0, schedulers: 16},
+        dispatch_capacity_constraints: [%{kind: :load, detail: "load=24.0 threshold=1.0 schedulers=8"}]
+      }
+
+      %{queued: queued, state: state}
+    end
+
+    test "stays quiet when every queued ticket is dependency-declined", %{queued: queued, state: state} do
+      quiet =
+        %{state | dispatch_declines: %{queued.id => :dependency}}
+        |> IssueSync.sync_capacity_starvation_alert([queued], 1_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert([queued], 1_000)
+        |> IssueSync.sync_capacity_starvation_alert([queued], 61_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert([queued], 61_000)
+        |> IssueSync.sync_capacity_starvation_alert([queued], 121_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert([queued], 121_000)
+
+      refute quiet.capacity_starvation.alert_active
+      refute quiet.fleet_capacity_starvation.alert_active
+
+      mailbox_barrier()
+      refute_received {:event, %{topic: "system.dispatch.capacity_starved"}}
+      refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
+    end
+
+    test "resolves an active attention once the backlog becomes dependency-declined", %{queued: queued, state: state} do
+      alerted =
+        state
+        |> IssueSync.sync_capacity_starvation_alert([queued], 1_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert([queued], 1_000)
+        |> IssueSync.sync_capacity_starvation_alert([queued], 61_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert([queued], 61_000)
+
+      assert alerted.capacity_starvation.alert_active
+      assert alerted.fleet_capacity_starvation.alert_active
+      assert_received {:event, %{topic: "system.dispatch.capacity_starved"}}
+      assert_received {:event, %{topic: "system.fleet.capacity.starved"}}
+
+      resolved =
+        %{alerted | dispatch_declines: %{queued.id => :dependency}}
+        |> IssueSync.sync_capacity_starvation_alert([queued], 122_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert([queued], 122_000)
+
+      refute resolved.capacity_starvation.alert_active
+      refute resolved.fleet_capacity_starvation.alert_active
+      assert_received {:event, %{topic: "system.dispatch.capacity_starved.resolved"}}
+      assert_received {:event, %{topic: "system.fleet.capacity.starved.resolved"}}
+    end
+
+    test "a hydration-failed decline is still ready work and still alerts", %{queued: queued, state: state} do
+      alerted =
+        %{state | dispatch_declines: %{queued.id => :dependency_hydration_failed}}
+        |> IssueSync.sync_capacity_starvation_alert([queued], 1_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert([queued], 1_000)
+        |> IssueSync.sync_capacity_starvation_alert([queued], 61_000)
+        |> IssueSync.sync_fleet_capacity_starved_alert([queued], 61_000)
+
+      assert alerted.capacity_starvation.alert_active
+      assert alerted.fleet_capacity_starvation.alert_active
+      assert_received {:event, %{topic: "system.dispatch.capacity_starved"} = event}
+      assert event["reason"] =~ "Ready tickets=1"
+      assert_received {:event, %{topic: "system.fleet.capacity.starved"}}
+    end
+  end
+
   test "alerts when parked agents wait on an undispatched queued keystone" do
     Publisher.set_tracked_fn(fn _ -> true end)
     keystone = issue("keystone", "todo")
@@ -2576,6 +2664,137 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
                AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true),
                &(&1["topic"] == "system.fleet.contradictory_state_labels")
              )
+    end
+
+    test "keeps the agent's fresh handoff over the daemon's own stale in-progress claim (#2805)" do
+      # aiur-team/khala #198: the daemon's CI-pass handoff swapped `ci-wait` ->
+      # `in-progress` (recorded in its own `running` entry), and seconds later
+      # the agent added `agent:human-review` for the finished PR. The static
+      # precedence list is provenance-blind and ranks `in-progress` above
+      # `human-review`, so the heal deleted the agent's fresh, deliberate
+      # handoff and kept the daemon's stale claim — a ticket waiting for a human
+      # read as actively in progress, and the turn loop kept re-waking it.
+      #
+      # The daemon knows which label is its own prior claim, so the *other*
+      # label is the one that arrived since and is the real disposition.
+      dual = %{issue("khala-198", nil) | state_labels: ["human-review", "in-progress"]}
+      parent = self()
+
+      state = %State{running: %{dual.id => %{issue: issue("khala-198", "in-progress")}}}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#khala-198", "human-review"}
+
+      assert [healed] = healed_issues
+      assert healed.state == "human-review"
+      assert healed.state_labels == ["human-review"]
+      assert healed_state.last_polled_issues[dual.id].state == "human-review"
+    end
+
+    test "treats the previous poll's single label as the stale claim (#2805)" do
+      # The same fresh-vs-stale shape with no running entry: the previous poll
+      # observed exactly one state label, so that label is the older one and the
+      # label that appeared since is the fresh handoff.
+      dual = %{issue("polled-198", nil) | state_labels: ["human-review", "in-progress"]}
+      parent = self()
+
+      state = %State{
+        last_polled_issues: %{
+          dual.id => %{issue("polled-198", "in-progress") | state_labels: ["in-progress"]}
+        }
+      }
+
+      {_healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#polled-198", "human-review"}
+      assert [%{state: "human-review", state_labels: ["human-review"]}] = healed_issues
+    end
+
+    test "falls back to static precedence when no label has known provenance (#2805)" do
+      # Provenance is evidence, not a shape rule: with no running entry and no
+      # prior single-label observation the daemon cannot tell which label is
+      # older, so the deterministic precedence order still decides. This keeps
+      # every pre-#2805 resolution unchanged.
+      dual = %{issue("no-provenance", nil) | state_labels: ["human-review", "in-progress"]}
+      parent = self()
+
+      {_healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#no-provenance", "in-progress"}
+      assert [%{state: "in-progress"}] = healed_issues
+    end
+
+    test "never lets provenance heal a ticket into the terminal done state (#2805)" do
+      # #2437 stands: the terminal `done` must never win a contradiction, even
+      # when it is the label that arrived since the daemon's own claim — the
+      # tracker write would route into the close path and discard outstanding
+      # work. Provenance only promotes a non-terminal disposition.
+      dual = %{issue("fresh-done", nil) | state_labels: ["done", "in-progress"]}
+      parent = self()
+
+      state = %State{running: %{dual.id => %{issue: issue("fresh-done", "in-progress")}}}
+
+      {_healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#fresh-done", "in-progress"}
+      assert [%{state: "in-progress"}] = healed_issues
+    end
+
+    test "keeps todo winning over a stale daemon claim (#2805)" do
+      # `todo` means "no work exists yet", so it stays the honest fallback
+      # regardless of provenance: a ticket that is also `todo` has not been
+      # worked, and promoting the daemon-era disposition would assert work that
+      # never happened.
+      dual = %{issue("fresh-todo", nil) | state_labels: ["in-progress", "todo"]}
+      parent = self()
+
+      state = %State{running: %{dual.id => %{issue: issue("fresh-todo", "in-progress")}}}
+
+      {_healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#fresh-todo", "todo"}
+      assert [%{state: "todo"}] = healed_issues
     end
   end
 

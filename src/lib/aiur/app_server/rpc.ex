@@ -5,7 +5,7 @@ defmodule Aiur.AppServer.Rpc do
 
   require Logger
 
-  alias Aiur.AppServer.Rpc.{Await, SensitiveResponses, Stream}
+  alias Aiur.AppServer.Rpc.{Await, SensitiveResponses, Stream, StreamDiagnostics}
 
   @spec send_line(port(), map()) :: true
   def send_line(port, message) do
@@ -107,6 +107,7 @@ defmodule Aiur.AppServer.Rpc do
         with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
 
       {:error, _} ->
+        unless sensitive_response?, do: StreamDiagnostics.record(port, payload)
         log_non_json_stream_line(payload, "response stream", backend_label, sensitive_response?: sensitive_response?)
         with_timeout_response(port, request_id, timeout_ms, "", backend_label, on_notification, sensitive_response?)
     end

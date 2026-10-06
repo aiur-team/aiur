@@ -10,8 +10,7 @@ defmodule Aiur.GitHub.ReadCache.Metrics do
 
   ## Nothing observed is not zero
 
-  `Aiur.GitHub.CacheInspector` refuses to render "0 entries" as though zero were
-  a measurement, and the same rule holds here. `snapshot/0` answers
+  `snapshot/0` answers
   `available?: false` when the counter table does not exist, which is what a
   CLI run outside the daemon sees. A hit rate over no observations is `nil`, not
   `0.0`: a cache that has been asked nothing and a cache that answers nothing

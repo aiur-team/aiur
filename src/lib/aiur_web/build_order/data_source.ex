@@ -5,6 +5,11 @@ defmodule AiurWeb.BuildOrder.DataSource do
 
   Refresh cadence and provider I/O remain owned by the underlying services.
   This adapter deliberately exposes no provider or mutation callback.
+
+  The two refresh callbacks are the exception that proves the rule: they buy a
+  read, they do not write anything. Without a catalog one (#2544) a repository
+  with no webhooks configured can only pick up new sub-issue and dependency
+  edges by restarting the daemon.
   """
 
   alias Aiur.AgentPubSub
@@ -21,6 +26,7 @@ defmodule AiurWeb.BuildOrder.DataSource do
   @callback selected(TrackerIdentity.t()) :: term()
   @callback demand(TrackerIdentity.t()) :: term()
   @callback refresh(TrackerIdentity.t()) :: term()
+  @callback refresh_catalog() :: term()
   @callback release(TrackerIdentity.t()) :: term()
   @callback subscribe_sources() :: :ok | {:error, term()}
   @callback load_runtime_sources() :: %{activity: term(), execution: term()}
@@ -63,6 +69,10 @@ defmodule AiurWeb.BuildOrder.DataSource do
   @spec refresh(TrackerIdentity.t(), keyword()) :: term()
   def refresh(identity, opts \\ []),
     do: call(dependency(opts, :graph_projection, GraphProjection), :refresh, [identity])
+
+  @spec refresh_catalog(keyword()) :: term()
+  def refresh_catalog(opts \\ []),
+    do: call(dependency(opts, :graph_projection, GraphProjection), :refresh_catalog, [])
 
   @spec release(TrackerIdentity.t(), keyword()) :: term()
   def release(identity, opts \\ []),

@@ -3,12 +3,14 @@ defmodule Aiur.OrchestratorStatusTest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TicketActivity, TicketObservation, TrackerIdentity}
+  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TicketActivity, TicketObservation, Tracker, TrackerIdentity}
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Opencode.ActiveTurns
+  alias Aiur.SnapshotFenceSupport
   alias Aiur.TicketActivity.Projection
+  alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
     CiLifecycle,
@@ -82,7 +84,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   defmodule StartupCleanupGitHubClient do
     def preflight_auth, do: :ok
-    def fetch_candidate_issues, do: {:ok, []}
+    def fetch_candidate_issues, do: {:ok, Application.get_env(:aiur, :startup_cleanup_issues, [])}
 
     def fetch_issues_by_states(states), do: fetch_issues_by_states(states, [])
 
@@ -771,10 +773,51 @@ defmodule Aiur.OrchestratorStatusTest do
            } = snapshot.capacity_hold
   end
 
+  # How long the hold has lasted and how old its measurement is are independent:
+  # a hold extended by a fresh probe keeps ageing while its figure does not. Only
+  # the sample age says whether `measured` still describes the host (#2527).
+  test "a capacity hold projects its sample age separately from how long it has held" do
+    state = %State{
+      capacity_hold: %{
+        signal: :load,
+        measured: 24.14,
+        threshold: 24.0,
+        held_since_ms: System.monotonic_time(:millisecond) - 600_000,
+        measured_at: DateTime.add(DateTime.utc_now(), -30, :second),
+        alerted?: true
+      }
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert snapshot.capacity_hold.held_for_seconds == 600
+    assert snapshot.capacity_hold.sample_age_seconds == 30
+  end
+
+  # A hold recorded before #2527 carries no stamp. Projecting `0` would claim it
+  # was measured this instant, which is the false reassurance the field exists to
+  # remove, so it projects as absent instead.
+  test "a capacity hold with no stamp projects a nil sample age rather than zero" do
+    state = %State{
+      capacity_hold: %{
+        signal: :load,
+        measured: 24.14,
+        threshold: 24.0,
+        held_since_ms: System.monotonic_time(:millisecond) - 5_000,
+        alerted?: true
+      }
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert snapshot.capacity_hold.held?
+    assert snapshot.capacity_hold.sample_age_seconds == nil
+  end
+
   test "an absent capacity hold projects a not-held block" do
     snapshot = %State{} |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
 
-    assert %{held?: false, signal: nil, threshold: nil} = snapshot.capacity_hold
+    assert %{held?: false, signal: nil, threshold: nil, sample_age_seconds: nil} = snapshot.capacity_hold
   end
 
   test "an old projector cannot replace a same-name orchestrator snapshot" do
@@ -1028,8 +1071,12 @@ defmodule Aiur.OrchestratorStatusTest do
 
       todo_workspace = Path.join([workspace_root, "owner", "repo", "586"])
       in_progress_workspace = Path.join([workspace_root, "owner", "repo", "587"])
+      leased_todo_identifier = "leased-todo-#{System.unique_integer([:positive])}"
+      leased_todo_workspace = Path.join([workspace_root, "owner", "repo", leased_todo_identifier])
       File.mkdir_p!(todo_workspace)
       File.mkdir_p!(in_progress_workspace)
+      File.mkdir_p!(leased_todo_workspace)
+      File.write!(Path.join(leased_todo_workspace, "dirty.txt"), "leased")
       File.write!(Path.join(todo_workspace, "dirty.txt"), "leftover")
       File.write!(Path.join(in_progress_workspace, "dirty.txt"), "keep")
 
@@ -1048,8 +1095,21 @@ defmodule Aiur.OrchestratorStatusTest do
 
       Application.put_env(:aiur, :startup_cleanup_issues, [
         %Issue{id: "issue-586", identifier: "586", title: "Todo", state: "todo"},
-        %Issue{id: "issue-587", identifier: "587", title: "Live", state: "in-progress"}
+        %Issue{id: "issue-587", identifier: "587", title: "Live", state: "in-progress"},
+        %Issue{id: "issue-leased", identifier: leased_todo_identifier, title: "Leased", state: "todo"}
       ])
+
+      # A lease still held on a todo ticket (a stopped runner mid-reap) owns
+      # its checkout, so startup cleanup must leave that workspace alone.
+      parent = self()
+
+      lease_owner =
+        spawn(fn ->
+          send(parent, {:leased, Ownership.claim(leased_todo_identifier)})
+          Process.sleep(:infinity)
+        end)
+
+      assert_receive {:leased, {:ok, _lease}}, 5_000
 
       # `todo` is NOT a terminal state, so this startup cleanup must remove the
       # stale workspace WITHOUT clearing the resume handle — a re-dispatched todo
@@ -1066,6 +1126,8 @@ defmodule Aiur.OrchestratorStatusTest do
       refute File.exists?(todo_workspace)
       assert File.exists?(in_progress_workspace)
       assert File.read!(Path.join(in_progress_workspace, "dirty.txt")) == "keep"
+      assert File.read!(Path.join(leased_todo_workspace, "dirty.txt")) == "leased"
+      Process.exit(lease_owner, :kill)
       # Non-terminal cleanup leaves the resume handle intact.
       assert {:ok, %{thread_id: "thread-keep"}} = SessionHandle.load("586", "claude-repl")
     after
@@ -1074,6 +1136,66 @@ defmodule Aiur.OrchestratorStatusTest do
       restore_application_env(:startup_cleanup_issues, previous_issues)
       restore_application_env(:log_file, previous_log_file)
       restore_env("GITHUB_TOKEN", previous_github_token)
+      File.rm_rf(workspace_root)
+    end
+  end
+
+  test "test ticket scope protects unrelated dirty todo workspace before startup cleanup and candidate polling" do
+    previous_github_client = Application.get_env(:aiur, :github_client_module)
+    previous_test_pid = Application.get_env(:aiur, :startup_cleanup_test_pid)
+    previous_issues = Application.get_env(:aiur, :startup_cleanup_issues)
+    previous_github_token = System.get_env("GITHUB_TOKEN")
+    previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+    previous_log_file = Application.get_env(:aiur, :log_file)
+    workspace_root = Aiur.TestSupport.tmp_root!("aiur-scoped-startup-cleanup")
+
+    try do
+      System.put_env("GITHUB_TOKEN", "gh-test-token")
+      System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+      Application.put_env(:aiur, :log_file, Path.join([workspace_root, "log", "agent.md"]))
+
+      pinned_workspace = Path.join([workspace_root, "owner", "repo", "99"])
+      unrelated_workspace = Path.join([workspace_root, "owner", "repo", "2413"])
+      File.mkdir_p!(pinned_workspace)
+      File.mkdir_p!(unrelated_workspace)
+      File.write!(Path.join(pinned_workspace, "old.txt"), "sandbox reset candidate")
+      File.write!(Path.join(unrelated_workspace, "dirty.txt"), "uncommitted bytes must survive\n")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "agent",
+        tracker_active_states: ["todo", "in-progress"],
+        tracker_terminal_states: ["done"],
+        workspace_root: workspace_root,
+        poll_interval_seconds: 60
+      )
+
+      Application.put_env(:aiur, :github_client_module, StartupCleanupGitHubClient)
+      Application.put_env(:aiur, :startup_cleanup_test_pid, self())
+
+      Application.put_env(:aiur, :startup_cleanup_issues, [
+        %Issue{id: "issue-99", identifier: "99", title: "Pinned", state: "todo"},
+        %Issue{id: "issue-2413", identifier: "2413", title: "Unrelated", state: "todo"}
+      ])
+
+      assert %Orchestrator.State{} =
+               WorkspaceCleanup.run_startup_todo_workspace_cleanup(%Orchestrator.State{})
+
+      refute File.exists?(pinned_workspace)
+      assert File.read!(Path.join(unrelated_workspace, "dirty.txt")) == "uncommitted bytes must survive\n"
+      assert :ok = WorkspaceCleanup.cleanup_issue_workspace("2413")
+      assert File.read!(Path.join(unrelated_workspace, "dirty.txt")) == "uncommitted bytes must survive\n"
+      assert {:ok, [%Issue{identifier: "99"}]} = Tracker.fetch_candidate_issues()
+      assert {:ok, [%Issue{identifier: "99"}], %{}} = Aiur.GitHub.Tracker.fetch_candidate_issues_conditional(%{})
+      assert {:ok, [%Issue{identifier: "99"}]} = Tracker.fetch_issues_by_states(["todo"])
+    after
+      restore_application_env(:github_client_module, previous_github_client)
+      restore_application_env(:startup_cleanup_test_pid, previous_test_pid)
+      restore_application_env(:startup_cleanup_issues, previous_issues)
+      restore_application_env(:log_file, previous_log_file)
+      restore_env("GITHUB_TOKEN", previous_github_token)
+      restore_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope)
       File.rm_rf(workspace_root)
     end
   end
@@ -1601,6 +1723,17 @@ defmodule Aiur.OrchestratorStatusTest do
     assert rerouted.backend == "claude"
     assert rerouted.requested_model == "sonnet"
     assert rerouted.effort == nil
+
+    # The route asked for a family; only the running agent can say which
+    # concrete version answered, and it arrives after the execution facts —
+    # so it has to merge in rather than replace what was already reported.
+    send(pid, {:session_resolved_model, running_issue.id, "gpt-5.6-terra-2026"})
+
+    assert %{running: [observed]} = Orchestrator.snapshot(orchestrator_name, 5_000)
+
+    assert observed.resolved_model == "gpt-5.6-terra-2026"
+    assert observed.backend == "codex"
+    assert observed.requested_model == "gpt-5.6-terra"
   end
 
   test "orchestrator snapshot reflects last codex update and session id" do
@@ -4072,7 +4205,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
   end
 
-  test "tracker poll unpause replaces a dead runner and reports running through the CLI" do
+  test "tracker poll unpause replaces a dead runner and reports startup through the CLI" do
     active_issue = completed_rework_issue("paused-provenance")
     paused_issue = %{active_issue | paused: true}
     configure_completed_revalidation!([active_issue], max_concurrent_agents: 3)
@@ -4096,7 +4229,10 @@ defmodule Aiur.OrchestratorStatusTest do
     original_state = :sys.get_state(orchestrator_pid)
 
     on_exit(fn ->
-      if Process.alive?(orchestrator_pid), do: :sys.replace_state(orchestrator_pid, fn _state -> original_state end)
+      if Process.alive?(orchestrator_pid) do
+        generation = SnapshotFenceSupport.fence_snapshot_read_model()
+        :sys.replace_state(orchestrator_pid, fn _state -> %{original_state | snapshot_generation: generation} end)
+      end
     end)
 
     next = Reconciler.refresh_running_issue_states(paused)
@@ -4105,12 +4241,16 @@ defmodule Aiur.OrchestratorStatusTest do
     assert replacement.control.status == :working
     assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
     assert is_reference(replacement.ref)
+    assert replacement.session_id == nil
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
 
-    :sys.replace_state(orchestrator_pid, fn _state -> next end)
+    # The CLI reads the shared SnapshotStore read model first; fence out any
+    # projection an earlier case published so it reads the state injected here.
+    generation = SnapshotFenceSupport.fence_snapshot_read_model()
+    :sys.replace_state(orchestrator_pid, fn _state -> %{next | snapshot_generation: generation} end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~
-             "#{active_issue.identifier} running #{active_issue.title}"
+             "#{active_issue.identifier} starting #{active_issue.title}"
   end
 
   test "Executor messages rearm multiple completed runners without returned workers holding slots" do
@@ -4327,7 +4467,9 @@ defmodule Aiur.OrchestratorStatusTest do
 
     # Both signals come from the orchestrator process. Mailbox ordering proves
     # the durable input is visible before any worker wake can start a turn.
-    assert_receive {:agent_queue_updated, "MT-DECISION", item_id, true}, 500
+    # The queue notice does not ask a paused worker to deliver now: the
+    # correlated resume is its only wake (#2730).
+    assert_receive {:agent_queue_updated, "MT-DECISION", item_id, false}, 500
     assert item_id == item.id
     assert_receive {:resume_agent, _request_id, _generation}, 500
 

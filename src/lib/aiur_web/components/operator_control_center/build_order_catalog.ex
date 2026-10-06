@@ -15,6 +15,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   def build_order_catalog(assigns) do
     ~H"""
     <section class="bo-surface bo-surface-flush" aria-label="Build Orders">
+      <%!-- On a repository with no webhooks the catalog is only as new as the
+            last re-converge, so an operator needs a way to buy one without
+            restarting the daemon (#2544). Server-side rate limited. --%>
+      <div class="bo-catalog-actions">
+        <button type="button" id="build-orders-refresh-catalog" class="btn ghost" phx-click="refresh-catalog">
+          Refresh catalog
+        </button>
+      </div>
       <.catalog_entries snapshot={RouteState.catalog_snapshot(@route_state)} />
     </section>
     """
@@ -58,7 +66,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
         <thead>
           <tr>
             <th scope="col" data-sort-key="title">Title</th>
-            <th scope="col" data-sort-key="progress" data-sort-type="number" class="bo-catalog-progress-head">Progress</th>
+            <th scope="col" data-sort-key="progress" data-sort-type="number" class="bo-catalog-progress-head">Tickets completed</th>
             <th scope="col" data-sort-key="tickets" data-sort-type="number" class="bo-catalog-num">Tickets</th>
             <th scope="col" data-sort-key="epics" data-sort-type="number" class="bo-catalog-num">Epics</th>
             <th scope="col" data-sort-key="waves" data-sort-type="number" class="bo-catalog-num">Waves</th>

@@ -64,6 +64,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Styles do
     .an-chip:hover{border-color:var(--accent-line)}
     .an-empty{border:1px solid var(--line-strong);border-radius:var(--radius);background:var(--surface);padding:2.4rem;text-align:center;color:var(--muted)}
     .an-empty b{color:var(--fg)}
+    .an-rtk{display:flex;flex-direction:column;gap:1.2rem;justify-content:center;padding:1.2rem 0}
+    .an-rtk-figure{display:flex;flex-direction:column;gap:.2rem}
+    .an-rtk-val{font-family:var(--an-mono);font-size:2.2rem;font-weight:700;letter-spacing:-.02em;color:var(--fg);line-height:1.05}
+    .an-rtk-label{font-size:.78rem;color:var(--muted)}
+    .an-rtk-facts{display:flex;flex-wrap:wrap;gap:1.6rem;margin:0}
+    .an-rtk-facts dt{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+    .an-rtk-facts dd{margin:.2rem 0 0;font-family:var(--an-mono);font-size:.95rem;color:var(--fg)}
     @media(max-width:1080px){.an-kpis{grid-template-columns:repeat(3,1fr)}.an-grid{grid-template-columns:1fr}.an-card.wide{grid-column:auto}}
     @media(max-width:560px){.an-kpis{grid-template-columns:repeat(2,1fr)}.an-card-head{flex-direction:column}}
     """

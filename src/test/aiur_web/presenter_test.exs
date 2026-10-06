@@ -287,6 +287,9 @@ defmodule AiurWeb.PresenterTest do
             measured: 19.5,
             threshold: 18.0,
             held_since_ms: held_at,
+            # Held for 12s but measured 4s ago: the hold was extended by a
+            # newer probe. The two numbers must not be conflated (#2527).
+            measured_at: DateTime.add(DateTime.utc_now(), -4, :second),
             alerted?: true
           }
       }
@@ -301,7 +304,8 @@ defmodule AiurWeb.PresenterTest do
              signal: :load,
              measured: 19.5,
              threshold: 18.0,
-             held_for_seconds: 12
+             held_for_seconds: 12,
+             sample_age_seconds: 4
            } = payload.capacity_hold
   end
 

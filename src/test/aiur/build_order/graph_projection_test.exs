@@ -5,6 +5,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
   alias Aiur.BuildOrder.GitHubGraph.Normalizer
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.{Failure, Policy, Snapshot}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.TrackerIdentity
 
   @repository {"owner", "repo"}
@@ -883,6 +884,307 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
     refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
   end
 
+  # #2608, cost half. A member close is observed as an `:issue` store change;
+  # that change rebuilds the catalog from the store, the rebuild moves the
+  # root's lifecycle digest, and the moved marker buys the re-read. The member's
+  # own change must not buy a second read on top: dispatched against the old
+  # marker, it could not coalesce with the catalog's, so a close cost two
+  # GraphQL reads.
+  test "a member close costs exactly one selected read" do
+    first = identity(1, "I1")
+    seed_sub_issues([{1, 17}])
+    {:ok, projection} = start_projection()
+    read_root_at(projection, first, normalized_root(1, ["OPEN", "OPEN", "OPEN"]))
+
+    send(projection, {:github_resource_changed, issue_change(:issue, "17")})
+
+    closed = catalog([normalized_root(1, ["CLOSED", "OPEN", "OPEN"])])
+    assert count_selected_reads(first, closed) == 1
+  end
+
+  # A comment, a title or body edit, or an ETag rotation deposits the issue
+  # again without moving its lifecycle. The rebuild finds the digest unchanged,
+  # and nothing buys a read.
+  test "a member change that moves no lifecycle costs no selected read" do
+    first = identity(1, "I1")
+    seed_sub_issues([{1, 17}])
+    {:ok, projection} = start_projection()
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    read_root_at(projection, first, open)
+
+    send(projection, {:github_resource_changed, issue_change(:issue, "17")})
+
+    assert count_selected_reads(first, catalog([open])) == 0
+  end
+
+  # Labels are rendered by the graph but not digested by the marker, so a
+  # member's label change reads the root itself — once per debounce window,
+  # however many labels move in it. A fleet relabelling forty tickets in a
+  # minute used to cost a read per label event.
+  test "a burst of label changes inside the debounce window costs one selected read" do
+    first = identity(1, "I1")
+    seed_sub_issues([{1, 17}, {1, 18}])
+    {:ok, projection} = start_projection(member_debounce_ms: 2_000)
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    read_root_at(projection, first, open)
+
+    reads =
+      Enum.reduce(1..10, 0, fn n, reads ->
+        send(projection, {:github_resource_changed, issue_change(:issue_labels, Integer.to_string(17 + rem(n, 2)))})
+        reads + count_selected_reads(first, catalog([open]), 20)
+      end)
+
+    assert reads + count_selected_reads(first, catalog([open]), 2_500) == 1
+  end
+
+  # The debounced read respects failure backoff: a root whose last read failed
+  # is left to its own retry timer instead of being read again on every label.
+  test "a label change does not read a root that is backing off a failed read" do
+    first = identity(1, "I1")
+    seed_sub_issues([{1, 17}])
+    {:ok, projection} = start_projection()
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:error, :rate_limited})
+    assert_receive {:projection_event, {:graph_projection_health, %Snapshot{scope: {:selected, ^first}, health: %{next_retry_at: %DateTime{}}}}}, 2_000
+
+    send(projection, {:github_resource_changed, issue_change(:issue_labels, "17")})
+
+    assert count_selected_reads(first, catalog([open])) == 0
+  end
+
+  # The same for a label transition, the other member-state change the ticket
+  # names, which arrives under its own resource type.
+  test "a member's label transition re-reads the selected root it belongs to" do
+    first = identity(1, "I1")
+
+    {:ok, projection} = start_projection()
+    _reader = await_reader(:catalog)
+
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+
+    send(projection, {:github_resource_changed, issue_change(:issue_labels, "1")})
+
+    assert {:selected, ^first} = await_selected_scope(first)
+  end
+
+  # The shape the Khala daemon reported: the issue that changes is not the
+  # root but one of its sub-issues (#17 and #52 under root #1). The only link
+  # between them is the `:sub_issue` edge the reconciliation deposited, so the
+  # member's store change must resolve its root through that edge — and must
+  # not wake a root it is no member of.
+  test "a sub-issue's label change re-reads the root it belongs to through the stored edge, and no other" do
+    first = identity(1, "I1")
+    second = identity(2, "I2")
+    seed_sub_issues([{1, 17}, {2, 30}])
+
+    {:ok, projection} = start_projection()
+    _reader = await_reader(:catalog)
+
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    assert {:ok, _} = GraphProjection.demand(projection, second)
+
+    send(projection, {:github_resource_changed, issue_change(:issue_labels, "17")})
+
+    assert {:selected, ^first} = await_selected_scope(first)
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
+  end
+
+  # #2608, the one-shot caller. `aiur build-orders <root> --json` registers
+  # demand from an RPC process that is gone before the read it bought lands.
+  # The read must still run to completion and be kept, so the next caller is
+  # served the reconciled graph rather than buying the same read again.
+  test "a read bought by a demander that has already exited is kept for the next caller" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([normalized_root(1, ["OPEN", "OPEN", "OPEN"])]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}, generation: held}}}, 2_000
+    :ok = GraphProjection.release(projection, first)
+
+    # A member closes while nobody watches; the catalog tracks it.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([normalized_root(1, ["CLOSED", "OPEN", "OPEN"])]))})
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+
+    # A short-lived caller demands the root and exits before the read lands.
+    caller = Task.async(fn -> GraphProjection.demand(projection, first) end)
+    assert {:ok, %Snapshot{generation: ^held}} = Task.await(caller)
+    reader = await_reader({:selected, first})
+    finish(reader, {:ok, ProviderResult.complete(selected(first))})
+
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}, generation: fresh}}}, 2_000
+    assert fresh > held
+    assert {:ok, %Snapshot{generation: ^fresh}} = GraphProjection.selected(projection, first)
+
+    # The graph now matches the catalog, so the next caller buys nothing.
+    caller = Task.async(fn -> GraphProjection.demand(projection, first) end)
+    assert {:ok, %Snapshot{generation: ^fresh}} = Task.await(caller)
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+  end
+
+  # #2608, freeze half — the failure that made the six hours *permanent* rather
+  # than merely slow.
+  #
+  # A poll-only daemon boots with an empty catalog store, so the first catalog
+  # generation knows no roots at all. A selected read dispatched in that window
+  # corresponds to no catalog observation and records a `nil` marker. When the
+  # reconciliation's deposits finally land and the root appears, the comparison
+  # `{current, nil}` used to answer "not moved" — and since nothing else ever
+  # moves a recorded marker, the root could never become due again. Only an
+  # explicit `refresh/2` would ever re-read it.
+  test "a root read before the catalog knew it becomes due once the catalog learns it" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    # Boot: the store is empty, so the catalog carries no roots.
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+
+    # A read lands in that window, so it corresponds to no catalog observation.
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+    refute :sys.get_state(projection).selected_fingerprints[Policy.root_key(first)]
+
+    # The reconciliation's deposits land and the catalog learns the root.
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([normalized_root(1, ["OPEN", "OPEN", "OPEN"])]))})
+
+    # The root is due: one read, after which a real marker is stamped.
+    assert {:selected, ^first} = await_selected_scope(first)
+  end
+
+  # #2608, the returning-watcher case. A catalog move only re-reads roots that
+  # are watched *at that moment* — `request_scope/2` declines a root nobody has
+  # open, and nothing re-raises the request when a watcher comes back. So a page
+  # opened on a root the catalog had already superseded rendered the held graph
+  # and never asked for a better one. Arriving demand buys exactly one read, and
+  # only when the catalog itself says the root has moved.
+  test "demand on a root the catalog has superseded buys one read, and an unmoved root buys none" do
+    first = identity(1, "I1")
+    {:ok, projection} = start_projection()
+
+    open = normalized_root(1, ["OPEN", "OPEN", "OPEN"])
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([open]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # Re-opening the page on an unmoved root buys nothing: demand is still
+    # bookkeeping, not a cadence.
+    :ok = GraphProjection.release(projection, first)
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+
+    # The page closes, and a member closes while nobody is watching. The catalog
+    # tracks it; the held graph cannot, because no watcher is registered.
+    :ok = GraphProjection.release(projection, first)
+    closed = normalized_root(1, ["CLOSED", "OPEN", "OPEN"])
+    GraphProjection.refresh_catalog(projection)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([closed]))})
+    refute_receive {:reader_started, {:selected, ^first}, _reader}, 300
+
+    # The operator opens the page again. The catalog says this graph is
+    # superseded, so demand buys the one read that reconciles it.
+    assert {:ok, _} = GraphProjection.demand(projection, first)
+    assert {:selected, ^first} = await_selected_scope(first)
+  end
+
+  # The catalog is event-sourced from `Aiur.BuildOrder.CatalogStore`, which is
+  # fed by `sub_issues` / `issue_dependencies` deliveries. A repo with no
+  # webhooks configured feeds it nothing at all after boot, so a store-only
+  # rebuild republishes the boot-time world for ever: a root whose sub-issues
+  # exist on GitHub reported `member_count: 0` until the daemon restarted
+  # (#2538). So the explicit refresh buys the re-converge from GitHub too.
+  test "an explicit catalog refresh re-converges from GitHub, not only from the store" do
+    parent = self()
+    first = identity(1, "I1")
+
+    {:ok, projection} = start_projection(reconciliation_fun: blocking_reconciliation(parent))
+
+    # Boot's re-converge is inflight and stays that way until released.
+    assert_receive {:reconciled, _boot_opts, boot_task}, 2_000
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{generation: 1}}}, 2_000
+
+    # A refresh while one is running coalesces onto it — the budget rule the
+    # boot and degraded paths already keep — while still rebuilding from the
+    # store.
+    :ok = GraphProjection.refresh_catalog(projection)
+    refute_receive {:reconciled, _coalesced_opts, _coalesced_task}, 200
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+
+    finish(boot_task, :ok)
+    await_reconciliation_idle(projection)
+
+    # With nothing inflight, the operator's refresh buys the GraphQL read that
+    # a store-only rebuild can never make.
+    :ok = GraphProjection.refresh_catalog(projection)
+    assert_receive {:reconciled, refresh_opts, refresh_task}, 2_000
+    assert Keyword.get(refresh_opts, :repository) == @repository
+
+    finish(refresh_task, :ok)
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+  end
+
+  # An explicit refresh is an operator saying "read this now", so the answer has
+  # to be a read. It was not: a root whose snapshot was healthy, complete and
+  # stamped with the catalog marker still in force was "not due", and a root
+  # whose page had gone was "not watched" — so a detail page kept reporting 0
+  # members and 0 dependencies for membership written after the last read
+  # (#2538).
+  test "an explicit selected refresh re-reads a held root that is current and unwatched" do
+    first = identity(1, "I1")
+    second = identity(2, "I2")
+    {:ok, projection} = start_projection()
+
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root(first)]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # The state in which nothing is due: complete data, healthy, no read
+    # running and no successor armed.
+    entry = :sys.get_state(projection).selected[Policy.root_key(first)]
+    assert entry.health.state == :healthy
+    assert entry.data == selected(first)
+    assert entry.inflight == nil
+    assert entry.timer == nil
+
+    :ok = GraphProjection.refresh(projection, first)
+    finish(await_reader({:selected, first}), {:ok, ProviderResult.complete(selected(first))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^first}}}}, 2_000
+
+    # Losing the watcher does not make the request unanswerable: the entry is
+    # still held, so it is still read.
+    assert :ok = GraphProjection.release(projection, first)
+    :ok = GraphProjection.refresh(projection, first)
+    _unwatched_reader = await_reader({:selected, first})
+
+    # What a refresh still cannot do is create a root the projection is not
+    # holding, which is what stops a caller buying a read for anything at all.
+    :ok = GraphProjection.refresh(projection, second)
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 200
+  end
+
   defp start_projection(opts \\ []) do
     parent = self()
 
@@ -917,6 +1219,7 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
       refresh_timeout_ms: 30_000,
       max_selected_roots: max_selected_roots,
       max_inflight: 4,
+      member_debounce_ms: Keyword.get(opts, :member_debounce_ms, 0),
       after_broadcast: fn event -> send(parent, {:projection_event, event}) end
     )
   end
@@ -938,6 +1241,32 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
 
   defp finish(reader, result), do: send(reader, {:finish, result})
 
+  # A reconciliation that holds until the test releases it, so "one at a time"
+  # can be asserted rather than raced against a stub that returns instantly.
+  defp blocking_reconciliation(parent) do
+    fn reader_opts ->
+      send(parent, {:reconciled, reader_opts, self()})
+
+      receive do
+        {:finish, result} -> result
+      end
+    end
+  end
+
+  defp await_reconciliation_idle(projection, attempts \\ 200) do
+    cond do
+      is_nil(:sys.get_state(projection).reconciliation) ->
+        :ok
+
+      attempts > 0 ->
+        Process.sleep(10)
+        await_reconciliation_idle(projection, attempts - 1)
+
+      true ->
+        flunk("reconciliation stayed inflight")
+    end
+  end
+
   defp await_selected_scope(identity) do
     assert_receive {:reader_started, {:selected, ^identity} = scope, _reader}, 2_000
     scope
@@ -956,6 +1285,71 @@ defmodule Aiur.BuildOrder.GraphProjectionTest do
         max_selected_roots: max_selected_roots,
         max_inflight: 4
       ]
+    }
+  end
+
+  # Brings a watched root to a steady state: the catalog holds `root_summary`
+  # and the selected graph has been read against that marker.
+  defp read_root_at(projection, identity, root_summary) do
+    finish(await_reader(:catalog), {:ok, ProviderResult.complete(catalog([root_summary]))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: :catalog}}}, 2_000
+
+    assert {:ok, _} = GraphProjection.demand(projection, identity)
+    :ok = GraphProjection.refresh(projection, identity)
+    finish(await_reader({:selected, identity}), {:ok, ProviderResult.complete(selected(identity))})
+    assert_receive {:projection_event, {:graph_projection_generation, %Snapshot{scope: {:selected, ^identity}}}}, 2_000
+  end
+
+  # Answers every read the projection starts until it has been quiet for
+  # `quiet_ms` — catalog rebuilds with `catalog`, selected reads successfully —
+  # and returns how many selected reads of `identity` it bought.
+  defp count_selected_reads(identity, catalog, quiet_ms \\ 500, count \\ 0) do
+    receive do
+      {:reader_started, :catalog, reader} ->
+        finish(reader, {:ok, ProviderResult.complete(catalog)})
+        count_selected_reads(identity, catalog, quiet_ms, count)
+
+      {:reader_started, {:selected, ^identity}, reader} ->
+        finish(reader, {:ok, ProviderResult.complete(selected(identity))})
+        count_selected_reads(identity, catalog, quiet_ms, count + 1)
+    after
+      quiet_ms -> count
+    end
+  end
+
+  # The parent/sub-issue edge the reconciliation deposits, which is the only
+  # thing `CatalogStore.member_numbers/1` resolves a member's root from.
+  defp seed_sub_issues(edges) do
+    ResourceStore.reset()
+    on_exit(fn -> if Process.whereis(ResourceStore), do: ResourceStore.reset() end)
+
+    Enum.each(edges, fn {parent, sub} ->
+      ResourceStore.put_resource(
+        ResourceStore.key_for_repo(:sub_issue, "owner/repo", "#{parent}:#{sub}"),
+        %{"present" => true, "parent_issue_number" => parent, "sub_issue_number" => sub},
+        source: :poll,
+        version: "2026-07-15T12:00:00Z"
+      )
+    end)
+  end
+
+  # A store deposit as the tracker poll records one: the same shape the webhook
+  # path deposits, which is the point — a poll-only repository produces these
+  # and nothing else.
+  defp issue_change(resource_type, id) do
+    %{
+      key: nil,
+      resource_type: resource_type,
+      owner: "owner",
+      repo: "repo",
+      id: id,
+      source: :poll,
+      version: nil,
+      etag: nil,
+      data?: true,
+      data_version: nil,
+      recorded_at_ms: 1,
+      cleared: false
     }
   end
 

@@ -22,6 +22,7 @@ defmodule AiurWeb.FinancialData.ChangeBridge do
   use GenServer
 
   alias Aiur.ProviderMeters.Events
+  alias Aiur.ProviderMeters.HostObservations
   alias Aiur.UsageAggregate
   alias AiurWeb.FinancialData
 
@@ -34,9 +35,11 @@ defmodule AiurWeb.FinancialData.ChangeBridge do
   def init(opts) do
     subscribe_fun = Keyword.get(opts, :subscribe_fun, &UsageAggregate.subscribe/0)
     provider_meter_subscribe_fun = Keyword.get(opts, :provider_meter_subscribe_fun, &Events.subscribe_observed/0)
+    host_meter_subscribe_fun = Keyword.get(opts, :host_meter_subscribe_fun, &HostObservations.subscribe/0)
     broadcast_fun = Keyword.get(opts, :broadcast_fun, &FinancialData.broadcast_update/0)
     _ = safe_subscribe(subscribe_fun)
     _ = safe_subscribe(provider_meter_subscribe_fun)
+    _ = safe_subscribe(host_meter_subscribe_fun)
     {:ok, %{broadcast_fun: broadcast_fun}}
   end
 
@@ -50,6 +53,11 @@ defmodule AiurWeb.FinancialData.ChangeBridge do
   # fact the dashboard displays; relay it so an authorized open card re-reads
   # the projection rather than holding its previous value.
   def handle_info({:provider_meter_changed, _snapshot}, state) do
+    _ = safe_broadcast(state.broadcast_fun)
+    {:noreply, state}
+  end
+
+  def handle_info({:host_meter_changed, _provider}, state) do
     _ = safe_broadcast(state.broadcast_fun)
     {:noreply, state}
   end

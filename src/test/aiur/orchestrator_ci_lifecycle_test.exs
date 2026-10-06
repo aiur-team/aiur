@@ -448,6 +448,63 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert event.message == "CI passed for the current PR head"
     end
 
+    test "a draft PR becoming ready publishes ready_for_review once for its current head" do
+      identifier = unique_identifier("ready-for-review")
+      topic = "ticket.#{identifier}.pr.ready_for_review"
+      recorder = start_recorder(topic)
+      issue = issue(identifier, "human-review")
+
+      first = poll_ci(running_state(issue, recorder, :working, []), issue, %{decision: :passed, head_sha: "draft-head", pr_number: 941, draft?: true})
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+
+      next = poll_ci(first, issue, %{decision: :passed, head_sha: "ready-head", pr_number: 941, draft?: false})
+      sync_recorder(recorder)
+
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review", pr: %{"number" => 941, "draft" => false, "head" => %{"sha" => "ready-head"}}}}}
+
+      _unchanged = poll_ci(next, issue, %{decision: :passed, head_sha: "ready-head", pr_number: 941, draft?: false})
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+    end
+
+    # #2707: the CI poll saw the draft while the ticket sat in ci-wait. CI
+    # passed and the ticket went back to in-progress, so the CI poll pruned its
+    # cache entry. The agent then ran `gh pr ready` itself and moved the ticket
+    # to human-review. The first CI poll after that must still see a
+    # transition, whoever made it.
+    test "a PR marked ready after its ticket left ci-wait publishes ready_for_review once" do
+      identifier = unique_identifier("ready-after-ci-wait")
+      topic = "ticket.#{identifier}.pr.ready_for_review"
+      recorder = start_recorder(topic)
+      ci_wait_issue = issue(identifier, "ci-wait")
+      review_issue = issue(identifier, "human-review")
+
+      state = poll_ci(running_state(ci_wait_issue, recorder, :working, []), ci_wait_issue, %{decision: :pending, head_sha: "draft-head", pr_number: 942, draft?: true})
+
+      state =
+        CiLifecycle.poll_github_ci(state,
+          parked_ready_alert_loader: fn -> MapSet.new() end,
+          draft_stall_alert_loader: fn -> MapSet.new() end,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, []} end,
+          ci_poller: fn _targets, _opts -> flunk("no ticket is in a CI poll state") end
+        )
+
+      refute Map.has_key?(state.ci_lifecycle.poll_cache, identifier)
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+
+      state = poll_ci(state, review_issue, %{decision: :passed, head_sha: "draft-head", pr_number: 942, draft?: false})
+      sync_recorder(recorder)
+
+      assert_received {:recorded, _position, {:event, %{topic: ^topic, action: "ready_for_review", pr: %{"number" => 942, "head" => %{"sha" => "draft-head"}}}}}
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+
+      _state = poll_ci(state, review_issue, %{decision: :passed, head_sha: "draft-head", pr_number: 942, draft?: false})
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^topic}}}
+    end
+
     test "alerts once when an approved, green PR is still a draft (#1974)" do
       identifier = unique_identifier("ci-draft-stall")
       alert_topic = "ticket.#{identifier}.pr.draft_approved_green"
@@ -918,6 +975,55 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.running[identifier].control.status == :paused
     end
 
+    test "a ci-wait pause that lost its label is resumed instead of stranded" do
+      identifier = unique_identifier("ci-rewake-departed")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      token = armed.ci_lifecycle.rewakes[identifier].token
+      reworked = %{issue | state: "rework", state_labels: ["rework"]}
+      issue_fetcher = fn [^identifier] -> {:ok, [reworked]} end
+
+      next =
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, _position, {:resume_agent, request_id, 101}}
+      assert is_integer(request_id)
+      assert next.running[identifier].issue.state == "rework"
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "a ci-wait pause whose ticket moved to human review is left to the CI poll" do
+      identifier = unique_identifier("ci-rewake-departed-review")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      armed =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> CiLifecycle.pause_issue_for_ci_wait(issue)
+
+      token = armed.ci_lifecycle.rewakes[identifier].token
+      in_review = %{issue | state: "human-review", state_labels: ["human-review"]}
+      issue_fetcher = fn [^identifier] -> {:ok, [in_review]} end
+
+      next =
+        CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, {:resume_agent, _request_id, _generation}}
+      assert next.running[identifier].control.status == :paused
+      assert next.running[identifier].issue.state == "human-review"
+    end
+
     test "fallback timeout does not wake a freshly operator-paused ticket" do
       identifier = unique_identifier("ci-rewake-paused")
       recorder = start_recorder()
@@ -979,6 +1085,72 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert %{token: token, timer_ref: timer_ref} = next.ci_lifecycle.rewakes[identifier]
       assert is_reference(token)
       assert is_reference(timer_ref)
+    end
+
+    # #2800: a trusted comment that lands after the agent has already exited
+    # opens a lifecycle fence on an entry with no process to deliver it to.
+    # `acknowledge_provider_delivery/2` can then never fire, so the fence used
+    # to block both exits from `ci-wait` forever — and `ci-wait` is a
+    # no-agent-work state, so dispatch and `aiurdev resume` both refuse it.
+    test "the fallback rewake recovers a ci-wait entry fenced after its agent exited" do
+      identifier = unique_identifier("ci-wait-fenced-exited")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        running_state(issue, recorder, :deactivated,
+          pid: nil,
+          ref: nil,
+          lifecycle_fence: %{
+            generation: 1,
+            authoritative_state: "rework",
+            pending_item_ids: MapSet.new([75]),
+            opened_at: DateTime.utc_now()
+          }
+        )
+
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "a live fenced agent still holds the ci-wait handoff back" do
+      identifier = unique_identifier("ci-wait-fenced-live")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        running_state(issue, recorder, :paused,
+          paused_reason: :ci_wait,
+          lifecycle_fence: %{
+            generation: 1,
+            authoritative_state: "rework",
+            pending_item_ids: MapSet.new([75]),
+            opened_at: DateTime.utc_now()
+          }
+        )
+
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
+      # The live agent can still be handed the item, so the fence re-arms
+      # rather than stranding the ticket.
+      assert Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
 
     test "a deactivated ci-wait entry is recovered by the fallback rewake" do

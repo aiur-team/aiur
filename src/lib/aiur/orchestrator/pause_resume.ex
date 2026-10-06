@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, DecisionStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
@@ -31,6 +31,47 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec global_pause_reason() :: :global_pause
   def global_pause_reason, do: @global_pause_reason
+
+  # Pause reasons that mean the worker itself is waiting for input (#2730).
+  @input_pause_reasons [:agent_pause_request, :input_required]
+
+  @doc false
+  @spec input_pause_reason?(term()) :: boolean()
+  def input_pause_reason?(reason), do: reason in @input_pause_reasons
+
+  @doc """
+  Returns the entry's recorded pause reason only while its pause request is
+  still the issue's current pending control. A reason left by an expired,
+  rejected, or superseded request returns nil (#2730).
+  """
+  @spec current_pending_pause_reason(State.t(), map() | nil) :: atom() | nil
+  def current_pending_pause_reason(%State{} = state, running_entry) when is_map(running_entry) do
+    with %{reason: reason} <- Map.get(running_entry, :pending_pause_reason),
+         %{action: :pause} <- matching_pending_pause(state, running_entry, reason) do
+      reason
+    else
+      _ -> nil
+    end
+  end
+
+  def current_pending_pause_reason(%State{}, _running_entry), do: nil
+
+  # Deletes `pending_pause_reason` once its pause request is no longer the
+  # issue's current pending control (it expired, was rejected, or a newer
+  # request superseded it and then resolved).
+  @doc false
+  @spec drop_stale_pending_pause_reason(State.t(), term()) :: State.t()
+  def drop_stale_pending_pause_reason(%State{} = state, issue_id) do
+    case Map.get(state.running, issue_id) do
+      %{pending_pause_reason: %{}} = entry ->
+        if current_pending_pause_reason(state, entry),
+          do: state,
+          else: %{state | running: Map.put(state.running, issue_id, Map.delete(entry, :pending_pause_reason))}
+
+      _ ->
+        state
+    end
+  end
 
   @spec pause_agent(String.t() | TrackerIdentity.t()) :: {:ok, integer()} | {:error, term()}
   def pause_agent(issue_identifier), do: pause_agent(Aiur.Orchestrator, issue_identifier)
@@ -258,9 +299,11 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   def resume_issue_call(%State{} = state, issue_identifier) do
-    {reply, state} = resume_issue(state, issue_identifier)
-    StatusReport.notify_dashboard(state)
-    {:reply, reply, state}
+    guard_control_call(state, :resume, issue_identifier, fn ->
+      {reply, state} = resume_issue(state, issue_identifier)
+      StatusReport.notify_dashboard(state)
+      {:reply, reply, state}
+    end)
   end
 
   @spec resume_issue_with_receipt_call(State.t(), String.t()) :: {:reply, term(), State.t()}
@@ -285,9 +328,76 @@ defmodule Aiur.Orchestrator.PauseResume do
     do: {:reply, {:error, :globally_paused}, state}
 
   def pause_agent_call(%State{} = state, issue_identifier) do
-    {reply, state} = pause_agent_reply(state, issue_identifier)
-    {:reply, reply, state}
+    guard_control_call(state, :pause, issue_identifier, fn ->
+      {reply, state} = pause_agent_reply(state, issue_identifier)
+      {:reply, reply, state}
+    end)
   end
+
+  @doc false
+  # Operator control calls run inside the Orchestrator GenServer, and that
+  # process holds the agent registry (`state.running`). An exception raised
+  # while handling one used to crash the Orchestrator: the supervisor restarted
+  # it with an empty registry, so a live worker it did not re-adopt ran on
+  # untracked (#2699). A control call is an operator request, never a reason
+  # to lose the registry. Reply with a named error instead and keep the state
+  # from before the call, because a handler that raised part way through
+  # leaves no state that is safe to keep.
+  #
+  # The rollback covers in-memory Orchestrator state only. Side effects the
+  # handler completed before it raised are not undone: a tracker label it
+  # already changed stays changed, and a dispatch task it already spawned keeps
+  # running without a registry entry (orphan adoption is #2705). That is why a
+  # crash also raises an operator alert, not only a log line.
+  @spec guard_control_call(State.t(), atom(), term(), (-> {:reply, term(), State.t()})) ::
+          {:reply, term(), State.t()}
+  def guard_control_call(%State{} = state, action, target, fun) when is_atom(action) and is_function(fun, 0) do
+    fun.()
+  catch
+    kind, reason ->
+      stacktrace = __STACKTRACE__
+      summary = control_crash_summary(kind, reason, stacktrace)
+
+      Logger.error(
+        "Operator #{action} control call failed for #{control_target_label(target)}; the orchestrator kept its agent registry: " <>
+          Exception.format(kind, reason, stacktrace)
+      )
+
+      emit_control_crash_alert(action, target, summary)
+      {:reply, {:error, {:control_call_crashed, action, summary}}, state}
+  end
+
+  defp emit_control_crash_alert(action, target, summary) do
+    label = control_target_label(target)
+
+    Alerts.emit_custom(
+      "ticket.#{label}.agent.attention.control-call-crashed",
+      "Operator #{action} of #{label} crashed inside the orchestrator (#{summary}). The agent registry was kept, " <>
+        "but side effects the call made before it crashed (tracker labels, a started worker) were not undone; check the ticket.",
+      issue: label,
+      reason: summary,
+      needs_attention: true,
+      severity: "warning",
+      event_source: :system
+    )
+  rescue
+    exception ->
+      Logger.warning("Control-call crash alert could not be emitted: #{Exception.message(exception)}")
+      :ok
+  end
+
+  defp control_target_label(%TrackerIdentity{identifier: identifier}) when is_binary(identifier), do: identifier
+  defp control_target_label(target) when is_binary(target), do: target
+  defp control_target_label(target), do: inspect(target)
+
+  defp control_crash_summary(:error, reason, stacktrace) do
+    :error
+    |> Exception.normalize(reason, stacktrace)
+    |> Exception.message()
+    |> String.slice(0, 300)
+  end
+
+  defp control_crash_summary(kind, reason, _stacktrace), do: "#{kind}: #{inspect(reason, limit: 20, printable_limit: 200)}"
 
   @spec request_control_call(State.t(), String.t(), :pause | :resume, pos_integer()) ::
           {:reply, {:ok, pos_integer()} | {:error, term()}, State.t()}
@@ -300,6 +410,12 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   def request_control_call(%State{} = state, issue_identifier, action, request_id)
       when is_binary(issue_identifier) and action in [:pause, :resume] and is_integer(request_id) and request_id > 0 do
+    guard_control_call(state, action, issue_identifier, fn ->
+      request_running_control(state, issue_identifier, action, request_id)
+    end)
+  end
+
+  defp request_running_control(state, issue_identifier, action, request_id) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
         {reply, state} =
@@ -432,7 +548,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
       Enum.each(expired, &publish_expired_control(state, &1))
 
-      state
+      Enum.reduce(expired, state, &drop_stale_pending_pause_reason(&2, &1.issue_id))
     end
   end
 
@@ -444,7 +560,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   @spec resume_issue(State.t(), String.t()) ::
-          {{:ok, :resumed | :started | :reactivated} | {:error, term()}, State.t()}
+          {{:ok, :resumed | :started | :reactivated | :already_running | :sleeping} | {:error, term()}, State.t()}
   def resume_issue(%State{} = state, issue_identifier) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
@@ -481,9 +597,60 @@ defmodule Aiur.Orchestrator.PauseResume do
         resume_paused_issue(state, running_entry)
 
       true ->
-        {{:ok, :resumed}, state}
+        resume_unpaused_running_issue(state, running_entry)
     end
   end
+
+  # Nothing is paused and no pause is pending, so there is nothing to resume.
+  # Say what the entry actually is instead of a blanket `:resumed` (#2699):
+  #
+  # * `:working` with a live worker is genuinely running (`:already_running`);
+  #   with a dead worker it is not (`:worker_not_running`); with no pid yet it
+  #   is a staged replacement that has not started (`:worker_not_started`).
+  # * `:sleeping` is a live worker whose stream closed while idle. It wakes on
+  #   its next event, so resume has nothing to do and says so (`:sleeping`).
+  # * `:error` is a worker that failed to start. Resume refuses by name rather
+  #   than starting a second worker behind the retry engine, which owns the
+  #   restart of a failed start (and the dispatch budget that bounds it).
+  # * Any other status is refused by name rather than reported as resumed.
+  defp resume_unpaused_running_issue(state, running_entry) do
+    case worker_liveness(running_entry) do
+      :alive -> {{:ok, :already_running}, state}
+      :dead -> {{:error, :worker_not_running}, state}
+      :starting -> {{:error, :worker_not_started}, state}
+      :sleeping -> {{:ok, :sleeping}, state}
+      {:error, failure} -> {{:error, {:worker_startup_failed, failure}}, state}
+      {:other, status} -> {{:error, {:not_resumable_control_status, status}}, state}
+    end
+  end
+
+  # A `pid: nil` entry is staged: a replacement worker is being admitted
+  # (for example a rate-limit fallback redispatch), so it has not started yet
+  # rather than stopped.
+  defp worker_liveness(running_entry) do
+    case get_in(running_entry, [:control, :status]) || :working do
+      :working -> working_worker_liveness(Map.get(running_entry, :pid))
+      :sleeping -> :sleeping
+      :error -> {:error, startup_failure_reason(running_entry)}
+      status -> {:other, status}
+    end
+  end
+
+  defp working_worker_liveness(nil), do: :starting
+  defp working_worker_liveness(pid), do: if(worker_pid_alive?(pid), do: :alive, else: :dead)
+
+  defp startup_failure_reason(running_entry) do
+    case Map.get(running_entry, :runtime_terminal_failure) do
+      %{reason: reason} when not is_nil(reason) -> reason
+      _unknown -> :unknown
+    end
+  end
+
+  # `Process.alive?/1` only answers for local pids; a remote pid cannot be
+  # probed from here, so it is taken as alive rather than declared stopped.
+  defp worker_pid_alive?(pid) when is_pid(pid) and node(pid) == node(), do: Process.alive?(pid)
+  defp worker_pid_alive?(pid) when is_pid(pid), do: true
+  defp worker_pid_alive?(_pid), do: false
 
   defp clear_tracker_pause_override(%State{} = state, %{issue: %Issue{} = issue} = running_entry) do
     if Issue.paused?(issue) do
@@ -740,7 +907,7 @@ defmodule Aiur.Orchestrator.PauseResume do
                now: DateTime.utc_now()
              ) do
           {:ok, rejected, lifecycle} ->
-            state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+            state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle() |> drop_stale_pending_pause_reason(issue_id)
             publish_control_lifecycle(Map.get(running_entry, :identifier), rejected)
             state
 
@@ -826,7 +993,7 @@ defmodule Aiur.Orchestrator.PauseResume do
                pause_reason: Map.get(running_entry, :paused_reason)
              }
            ) do
-      state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+      state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle() |> drop_stale_pending_pause_reason(issue_id)
       publish_control_lifecycle(Map.get(running_entry, :identifier), rejected)
       StatusReport.notify_dashboard(state)
       {:noreply, state}
@@ -846,6 +1013,7 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> put_control_status(status)
       |> State.apply_pause_runtime_clock(previous_status, status, DateTime.utc_now())
       |> maybe_put_worker_pause_reason(status, pause_reason)
+      |> put_usage_limit_reset(status, pause_reason, pause_payload)
       |> maybe_clear_control_owned_pause(request, status)
       |> maybe_clear_pending_pause_reason(request, status)
       |> maybe_clear_interrupted_turn(status)
@@ -870,6 +1038,11 @@ defmodule Aiur.Orchestrator.PauseResume do
     StatusReport.notify_dashboard(state)
     {:noreply, state}
   end
+
+  defp put_usage_limit_reset(entry, :paused, :usage_limit_exhausted, %{reset_at: reset}) when is_binary(reset),
+    do: Map.put(entry, :usage_limit_reset_at, reset)
+
+  defp put_usage_limit_reset(entry, _status, _reason, _payload), do: Map.delete(entry, :usage_limit_reset_at)
 
   defp maybe_clear_interrupted_turn(running_entry, :paused),
     do: Map.delete(running_entry, :interrupted_turn_observed_at)
@@ -951,7 +1124,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp reject_stale_control_evidence(state, running_entry, request, class) do
     case ControlLifecycle.reject(state.control_lifecycle, request.request_id, class, now: DateTime.utc_now()) do
       {:ok, rejected, lifecycle} ->
-        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle() |> drop_stale_pending_pause_reason(request.issue_id)
         publish_control_lifecycle(Map.get(running_entry, :identifier), rejected)
         {:ignored, state}
 
@@ -987,6 +1160,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp action_matches_status?(_action, _status), do: false
 
   defp put_control_status(running_entry, status) do
+    running_entry = clear_agent_pause_on_work(running_entry, status)
     control = Map.get(running_entry, :control, %{})
     current_status = Map.get(control, :status, :working)
 
@@ -997,6 +1171,11 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     Map.put(running_entry, :control, control)
   end
+
+  defp clear_agent_pause_on_work(%{paused_reason: :agent_pause_request} = entry, :working),
+    do: Map.delete(entry, :paused_reason)
+
+  defp clear_agent_pause_on_work(entry, _status), do: entry
 
   defp maybe_increment_control_version(control, status, status), do: control
 
@@ -1058,7 +1237,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
   def transition_control_status(%State{} = state, running_entry, new_status, reason) do
     previous_pause_reason = Map.get(running_entry, :paused_reason)
-    running_entry = normalize_pause_context(running_entry, new_status)
+    running_entry = running_entry |> normalize_pause_context(new_status) |> clear_agent_pause_on_work(new_status)
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
     existing = Map.get(running_entry, :control, %{})
@@ -1387,6 +1566,12 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec resume_paused_issue_preflight(State.t(), map()) :: :ok | {:error, :max_concurrent_agents_reached}
   def resume_paused_issue_preflight(%State{} = state, running_entry) do
     cond do
+      # A worker still working under its own pending input pause holds its
+      # slot; resuming it supersedes that pause and needs no new capacity.
+      # An expired or rejected pause request does not qualify (#2730).
+      pending_input_pause?(state, running_entry) ->
+        :ok
+
       # A CI-wait pause releases its reservation; other pauses retain one.
       # In both cases, resume must wait if the active count is already at the
       # cap (for example, after CI-wait capacity was filled by other work).
@@ -1402,6 +1587,13 @@ defmodule Aiur.Orchestrator.PauseResume do
       true ->
         :ok
     end
+  end
+
+  @doc false
+  @spec pending_input_pause?(State.t(), map()) :: boolean()
+  def pending_input_pause?(%State{} = state, running_entry) when is_map(running_entry) do
+    get_in(running_entry, [:control, :status]) == :working and
+      input_pause_reason?(current_pending_pause_reason(state, running_entry))
   end
 
   defp send_resume_control_message(%State{} = state, running_entry, operator?) do
@@ -1587,7 +1779,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp reject_admitted_control_request(state, issue_identifier, request, class) do
     case ControlLifecycle.reject(state.control_lifecycle, request.request_id, class, now: DateTime.utc_now()) do
       {:ok, rejected, lifecycle} ->
-        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+        state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle() |> drop_stale_pending_pause_reason(request.issue_id)
         publish_control_lifecycle(issue_identifier, rejected)
         {{:error, {:control_rejected, rejected.rejection}}, state}
 
@@ -1604,7 +1796,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         accept_admitted_control_request(state, issue_identifier, request, request_id)
 
       {:error, reason} ->
-        state = reject_routing_failure(state, request.request_id, reason)
+        state = state |> reject_routing_failure(request.request_id, reason) |> drop_stale_pending_pause_reason(request.issue_id)
 
         case ControlLifecycle.get(state.control_lifecycle, request.request_id) do
           nil -> :ok
@@ -1954,7 +2146,7 @@ defmodule Aiur.Orchestrator.PauseResume do
             Dispatcher.dispatch_prevalidated_issue(state, tracker_issue)
 
           {:skip, reason} ->
-            reason = resume_decline_reason(reason, tracker_issue)
+            reason = resume_decline_reason(reason, tracker_issue, state)
             {{:error, maybe_stale_tracker_reason(reason, cleared_issue, tracker_issue)}, state}
         end
 
@@ -1967,29 +2159,73 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp resume_decline_reason(:invalid_issue, _issue), do: :invalid_tracker_issue
-  defp resume_decline_reason(:contradictory_state_labels, _issue), do: :contradictory_tracker_state_labels
-  defp resume_decline_reason(:not_routable, _issue), do: :not_routable_to_worker
-  defp resume_decline_reason(:unauthorized, _issue), do: :dispatch_not_authorized
-  defp resume_decline_reason(:paused, _issue), do: :pause_override_still_present
+  @doc false
+  # Translates a dispatch-policy decline into the operator-facing resume
+  # refusal. It must be total over `DispatchPolicy.dispatch_decline_reasons/0`:
+  # a missing clause here crashed `aiur resume` with a FunctionClauseError for
+  # a ticket held by an open blocking Decision (#2699). The test suite
+  # enumerates that list and fails on any reason that reaches the fallback
+  # clause, and the fallback keeps an unforeseen reason a named refusal rather
+  # than a crash.
+  @spec resume_decline_reason(atom(), Issue.t(), State.t(), keyword()) :: term()
+  def resume_decline_reason(reason, issue, state, opts \\ [])
 
-  defp resume_decline_reason(reason, issue)
-       when reason in [:inactive_state, :no_agent_work_state, :terminal_state],
-       do: {:tracker_state_not_resumable, DispatchPolicy.normalize_issue_state(issue.state)}
+  def resume_decline_reason(:invalid_issue, _issue, _state, _opts), do: :invalid_tracker_issue
+  def resume_decline_reason(:contradictory_state_labels, _issue, _state, _opts), do: :contradictory_tracker_state_labels
+  def resume_decline_reason(:not_routable, _issue, _state, _opts), do: :not_routable_to_worker
+  def resume_decline_reason(:unauthorized, _issue, _state, _opts), do: :dispatch_not_authorized
+  def resume_decline_reason(:paused, _issue, _state, _opts), do: :pause_override_still_present
+  def resume_decline_reason(:parked, _issue, _state, _opts), do: :ticket_parked
 
-  defp resume_decline_reason(:dependency, _issue), do: :waiting_for_dependencies
-  defp resume_decline_reason(:already_running, _issue), do: :already_claimed
-  defp resume_decline_reason(:auto_resume_pending, _issue), do: :auto_resume_pending
-  defp resume_decline_reason(:retry_backoff, _issue), do: :dispatch_retry_scheduled
-  defp resume_decline_reason(:model_fallback_waiting, _issue), do: :all_model_backends_limited
-  defp resume_decline_reason(:workspace_ownership_waiting, _issue), do: :workspace_ownership_waiting
-  defp resume_decline_reason(:claimed_without_runtime, _issue), do: :already_claimed
+  def resume_decline_reason(reason, issue, _state, _opts)
+      when reason in [:inactive_state, :no_agent_work_state, :terminal_state],
+      do: {:tracker_state_not_resumable, DispatchPolicy.normalize_issue_state(issue.state)}
 
-  defp resume_decline_reason(:state_capacity, issue),
+  def resume_decline_reason(:dependency, _issue, _state, _opts), do: :waiting_for_dependencies
+
+  # An open blocking Decision holds dispatch until it is answered; an operator
+  # resume does not override it, exactly as it does not override a dependency.
+  # Name the Decision so the operator knows what to answer.
+  def resume_decline_reason(:blocked_on_decision, issue, state, opts),
+    do: {:blocked_on_decision, blocking_decision_detail(issue, state, opts)}
+
+  def resume_decline_reason(:already_running, _issue, _state, _opts), do: :already_claimed
+  def resume_decline_reason(:auto_resume_pending, _issue, _state, _opts), do: :auto_resume_pending
+  def resume_decline_reason(:retry_backoff, _issue, _state, _opts), do: :dispatch_retry_scheduled
+  def resume_decline_reason(:model_fallback_waiting, _issue, _state, _opts), do: :all_model_backends_limited
+  def resume_decline_reason(:workspace_ownership_waiting, _issue, _state, _opts), do: :workspace_ownership_waiting
+  def resume_decline_reason(:claimed_without_runtime, _issue, _state, _opts), do: :already_claimed
+
+  def resume_decline_reason(:state_capacity, issue, _state, _opts),
     do: {:state_concurrency_limit_reached, DispatchPolicy.normalize_issue_state(issue.state)}
 
-  defp resume_decline_reason(:worker_capacity, _issue), do: :no_worker_capacity
-  defp resume_decline_reason(:fleet_capacity, _issue), do: :max_concurrent_agents_reached
+  def resume_decline_reason(:worker_capacity, _issue, _state, _opts), do: :no_worker_capacity
+  def resume_decline_reason(:fleet_capacity, _issue, _state, _opts), do: :max_concurrent_agents_reached
+
+  def resume_decline_reason(reason, issue, _state, _opts) do
+    Logger.warning("Resume declined with an untranslated dispatch reason: issue_id=#{inspect(Map.get(issue || %{}, :id))} reason=#{inspect(reason)}")
+
+    {:unmapped_dispatch_decline, reason}
+  end
+
+  # The dispatch gate fails closed when the Decision store could not be read
+  # (`blocked_ticket_ids: :unavailable`), so there may be no Decision to name.
+  defp blocking_decision_detail(_issue, %State{blocked_ticket_ids: :unavailable}, _opts),
+    do: %{decision_ids: [], store: :unavailable}
+
+  defp blocking_decision_detail(issue, _state, opts) do
+    lookup = Keyword.get(opts, :decision_lookup, &DecisionStore.open_blocking_decision_ids/1)
+
+    ticket_ids =
+      [Map.get(issue, :id), Map.get(issue, :identifier)]
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.uniq()
+
+    case lookup.(ticket_ids) do
+      {:ok, ids} when is_list(ids) -> %{decision_ids: ids, store: :available}
+      _unavailable -> %{decision_ids: [], store: :unavailable}
+    end
+  end
 
   defp queued_issue_resumability(state, issue) do
     active_states = DispatchPolicy.active_state_set()

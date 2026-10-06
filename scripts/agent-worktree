@@ -260,7 +260,8 @@ create_worktree() {
 
   # Fetch the PR head onto a unique local branch so a second agent reviewing
   # the same PR does not collide on the branch name either.
-  if ! git -C "$repo_root" fetch --quiet "$remote" "pull/$pr_number/head:$branch"; then
+  # Auto-maintenance can prune a concurrent add between mkdir and its lock.
+  if ! git -C "$repo_root" fetch --no-auto-maintenance --quiet "$remote" "pull/$pr_number/head:$branch"; then
     printf 'agent-worktree: could not fetch pull/%s/head from %s\n' "$pr_number" "$remote" >&2
     exit 1
   fi

@@ -296,6 +296,23 @@ defmodule Aiur.GitHub.ResourceStoreTest do
   end
 
   describe "surviving restart" do
+    # #2714: without it, every blocker record looks stale after a restart and
+    # each held dependent pays one `blocked_by` read.
+    test "full_body_at_ms survives the checkpoint", %{path: path} do
+      key = ResourceStore.key(:issue, "owner", "repo", 5170)
+
+      restart_store!(path)
+
+      ResourceStore.put_resource(key, %{"number" => 5170, "state" => "open"}, source: :poll)
+      {:ok, %{full_body_at_ms: stamped}} = ResourceStore.fetch(key)
+      assert is_integer(stamped)
+      assert :ok = ResourceStore.flush()
+
+      restart_store!(path)
+
+      assert {:ok, %{full_body_at_ms: ^stamped}} = ResourceStore.fetch(key)
+    end
+
     # #2069 acceptance criterion 5. An in-memory-only cache re-pays full price
     # on every boot, and boots are routine here: without this, the first sweep
     # after each restart reads every watched ticket's comment list unconditioned.
@@ -1078,6 +1095,35 @@ defmodule Aiur.GitHub.ResourceStoreTest do
   # against the body its caller held, and nothing more — since #2106 the webhook
   # pipe deposits bodies on these same keys, so "nothing more" is load-bearing.
   describe "revalidate/3" do
+    # #2714: the dispatch gate judges a blocker's `"state"` by this clock, so a
+    # `304` that proves the whole body current must move it.
+    test "a confirmation moves full_body_at_ms" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8301)
+      body = %{"number" => 8301, "state" => "open"}
+      ResourceStore.put_resource(key, body, source: :poll)
+      {:ok, before} = ResourceStore.fetch(key)
+      Process.sleep(2)
+
+      assert :confirmed = ResourceStore.revalidate(key, body, ~s("e8301"))
+
+      {:ok, entry} = ResourceStore.fetch(key)
+      assert entry.full_body_at_ms > before.full_body_at_ms
+    end
+
+    test "a partial write moves fetched_at_ms but not full_body_at_ms" do
+      key = ResourceStore.key(:issue, "owner", "repo", 8302)
+      ResourceStore.put_resource(key, %{"number" => 8302, "state" => "open", "labels" => []}, source: :poll)
+      {:ok, before} = ResourceStore.fetch(key)
+      Process.sleep(2)
+
+      ResourceStore.update_resource(key, &Map.put(&1, "labels", [%{"name" => "x"}]), partial: true)
+
+      {:ok, entry} = ResourceStore.fetch(key)
+      assert entry.data["labels"] == [%{"name" => "x"}]
+      assert entry.fetched_at_ms > before.fetched_at_ms
+      assert entry.full_body_at_ms == before.full_body_at_ms
+    end
+
     test "confirms the held body, refreshes its window and installs the validator" do
       key = ResourceStore.key(:pull_request, "owner", "repo", 8300)
       body = %{"gen" => 1}

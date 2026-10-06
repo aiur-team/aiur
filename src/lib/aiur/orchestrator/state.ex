@@ -21,6 +21,8 @@ defmodule Aiur.Orchestrator.State do
           snapshot_ready?: boolean(),
           candidate_snapshot_fresh?: boolean(),
           poll_cycles_completed: non_neg_integer(),
+          last_dispatch_poll_at_ms: integer() | nil,
+          queued_demand_hints: %{String.t() => non_neg_integer()},
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
@@ -36,6 +38,10 @@ defmodule Aiur.Orchestrator.State do
               signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider | :envelope,
               measured: term(),
               threshold: term(),
+              # When `measured`/`threshold` were last re-sampled. A hold that is
+              # extended without a fresh probe keeps its original stamp, so every
+              # reader can tell a current measurement from a latched one (#2527).
+              measured_at: DateTime.t(),
               held_since_ms: integer(),
               alerted?: boolean()
             }
@@ -148,6 +154,10 @@ defmodule Aiur.Orchestrator.State do
           # `:ci` class cadence (#2309). `nil` until the first run.
           last_ci_poll_started_at_ms: integer() | nil,
           pr_review_seen_at: map(),
+          # What the polls know about each ticket PR's draft state, loaded from
+          # `PrReadyLedgerStore` on first use (`nil` until then). See
+          # `ReadyForReviewTransitions` (#2707).
+          pr_ready_ledger: Aiur.PrReadyLedgerStore.ledger() | nil,
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
           github_poll_delays: map(),
@@ -300,6 +310,7 @@ defmodule Aiur.Orchestrator.State do
     last_comment_poll_started_at_ms: nil,
     last_ci_poll_started_at_ms: nil,
     pr_review_seen_at: %{},
+    pr_ready_ledger: nil,
     github_command_scan_since: nil,
     github_connectivity: %{},
     github_poll_delays: %{},
@@ -324,6 +335,12 @@ defmodule Aiur.Orchestrator.State do
     # restarted daemon — which has observed no idleness yet — polls at the base
     # interval first instead of starting already backed off (#2138).
     poll_cycles_completed: 0,
+    last_dispatch_poll_at_ms: nil,
+    # Tickets queued locally (`aiur --todo`) that the tracker poll has not yet
+    # shown, keyed by identifier to the poll-cycle count until which each one
+    # still counts as dispatchable demand. The idle backoff must not widen on
+    # a snapshot that predates a ticket the operator just told us about (#2640).
+    queued_demand_hints: %{},
     orphaned_agent_reap_count: 0,
     control_lifecycle: %ControlLifecycle{},
     prewarm_hold_ticks: 0,
@@ -436,15 +453,43 @@ defmodule Aiur.Orchestrator.State do
         session_execution = %{
           backend: backend,
           requested_model: optional_runtime_string(info[:requested_model]),
+          resolved_model: nil,
           effort: optional_runtime_string(info[:effort])
         }
 
-        updated_state =
-          %{state | running: Map.put(running, issue_id, Map.put(running_entry, :session_execution, session_execution))}
-
-        StatusReport.notify_dashboard(updated_state)
-        {:noreply, updated_state}
+        {:noreply, put_session_execution(state, issue_id, running_entry, session_execution)}
     end
+  end
+
+  @doc """
+  Records the model a running session reported actually serving its turns.
+
+  The route names a backend and at most a model tag; which concrete version
+  answered is only knowable once the agent is running, and it arrives after
+  the session's execution facts. Merge it so a late observation names the
+  model on the dashboard without erasing the backend and route that were
+  already reported.
+  """
+  @spec handle_session_resolved_model(t(), String.t(), String.t()) :: {:noreply, t()}
+  def handle_session_resolved_model(%__MODULE__{running: running} = state, issue_id, model)
+      when is_binary(issue_id) and is_binary(model) and model != "" do
+    with running_entry when is_map(running_entry) <- Map.get(running, issue_id),
+         %{} = execution <- Map.get(running_entry, :session_execution),
+         false <- Map.get(execution, :resolved_model) == model do
+      {:noreply, put_session_execution(state, issue_id, running_entry, Map.put(execution, :resolved_model, model))}
+    else
+      _unchanged -> {:noreply, state}
+    end
+  end
+
+  def handle_session_resolved_model(%__MODULE__{} = state, _issue_id, _model), do: {:noreply, state}
+
+  defp put_session_execution(%__MODULE__{running: running} = state, issue_id, running_entry, session_execution) do
+    updated_state =
+      %{state | running: Map.put(running, issue_id, Map.put(running_entry, :session_execution, session_execution))}
+
+    StatusReport.notify_dashboard(updated_state)
+    updated_state
   end
 
   @spec note_agent_activity(t(), String.t()) :: t()
@@ -680,7 +725,13 @@ defmodule Aiur.Orchestrator.State do
   # dispatch capacity — holding the slot would convert the time cap into a
   # capacity leak where parked agents accumulate against the fleet limit
   # (#2329).
-  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration]
+  # A provider usage limit belongs here for the same reason: the account, not
+  # this agent, is what the fleet waits on, there is no turn in flight, and
+  # holding the slot turns one account limit into a fleet-wide dispatch stall.
+  # Nineteen such pauses once left four runners and twelve ready tickets waiting
+  # on capacity. `CodingAgent.select_for_dispatch/2` is what keeps a freed slot
+  # from being handed straight back to the exhausted backend.
+  @non_reserving_pause_reasons [:ci_wait, :blocker_dependency, :max_agent_duration, :usage_limit_exhausted]
 
   @spec reserved_paused_running_count(term()) :: non_neg_integer()
   def reserved_paused_running_count(running) when is_map(running) do

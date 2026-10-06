@@ -5,12 +5,27 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <script>
   (() => {
-    const savedTheme = localStorage.getItem("aiur-theme");
+    let savedTheme = null;
+    // reading storage throws outright when site data is blocked; fall back to
+    // the default theme rather than leaving the document unthemed
+    try { savedTheme = localStorage.getItem("aiur-theme"); } catch {}
     const theme = savedTheme === "dark" || savedTheme === "light" ? savedTheme : "dark";
     document.documentElement.setAttribute("data-theme", theme);
   })();
 </script>
-<title>aiur</title>
+<script>
+  // Mark a previously dismissed announcement before first paint so the strip
+  // never flashes in and then vanishes. Storage access can throw outright when
+  // site data is blocked, in which case the strip simply renders.
+  (() => {
+    try {
+      if (localStorage.getItem("aiur-archon-banner") === "dismissed") {
+        document.documentElement.setAttribute("data-archon-banner", "dismissed");
+      }
+    } catch {}
+  })();
+</script>
+<title>Aiur</title>
 <link rel="icon" href="/favicon.ico" sizes="any" />
 <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
 <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
@@ -23,10 +38,24 @@
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
+  <!-- The first screen: the announcement strip in normal flow, then the top bar
+       and the hero sharing one grid row so the bar floats over the hero exactly
+       as it always has, without either one claiming space from the other. -->
+  <div class="fold">
+  <aside class="announce" id="archonBanner" aria-label="Project announcement">
+    <p class="announce-copy">Introducing <strong>Archon</strong>: Always-on Architecture Docs.</p>
+    <a class="announce-link" href="https://archon.aiur.team">Learn More</a>
+    <button class="announce-dismiss" id="archonDismiss" type="button" aria-label="Dismiss the Archon announcement">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18"></path>
+      </svg>
+    </button>
+  </aside>
+
   <header class="topbar">
     <a class="brand-mini" href="/" aria-label="Aiur home">
       <img class="brand-mini-logo" src="/assets/aiur-logo.png" alt="" />
-      <span>aiur · cli</span>
+      <span>aiur</span>
     </a>
     <nav class="topbar-actions" aria-label="Primary navigation">
       <a class="topbar-link" href="/docs/guide/quick-start">Docs</a>
@@ -55,16 +84,17 @@
         <p class="tagline keepout">AI Unit Runtime for Executors</p>
         <div class="install-wrap keepout" id="installWrap">
           <div class="install-box">
-            <div class="pm-tabs" role="tablist" aria-label="Package manager">
-              <button class="pm-tab is-active" role="tab" aria-selected="true" data-pm="npm">npm</button>
+            <div class="pm-tabs" role="tablist" aria-label="Get started">
+              <button class="pm-tab is-active" role="tab" aria-selected="true" data-pm="prompt">Prompt</button>
+              <button class="pm-tab" role="tab" aria-selected="false" data-pm="npm">npm</button>
               <button class="pm-tab" role="tab" aria-selected="false" data-pm="bun">bun</button>
               <button class="pm-tab" role="tab" aria-selected="false" data-pm="pnpm">pnpm</button>
               <button class="pm-tab" role="tab" aria-selected="false" data-pm="yarn">yarn</button>
             </div>
-            <div class="install">
-              <span class="prompt">$</span>
-              <span class="cmd" id="installCmd">npm i -g aiur-cli</span>
-              <button class="copy" id="copyBtn" aria-label="Copy install command">
+            <div class="install is-prompt" id="installRow">
+              <span class="prompt" aria-hidden="true">$</span>
+              <span class="cmd" id="installCmd">Let's run parallel agents with: https://aiur.team/</span>
+              <button class="copy" id="copyBtn" aria-label="Copy prompt">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
                   <rect x="9" y="9" width="11" height="11" rx="2.2"></rect>
                   <path d="M5 15V5a2 2 0 0 1 2-2h10"></path>
@@ -90,6 +120,7 @@
       <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg>
     </div>
   </section>
+  </div>
 
   <section class="term-section" id="termSection">
     <div class="terminal" id="terminal">

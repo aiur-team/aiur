@@ -550,6 +550,7 @@ export const main = async (): Promise<void> => {
       chatHasNext: current.chatHasNext,
       selectedEvent: current.selectedEvent,
       hasTranscript: current.hasTranscript,
+      implementQueued: current.implementQueued,
       microphones,
       selectedMicId: current.selectedMicId,
       micOffset: current.micOffset,
@@ -617,9 +618,9 @@ export const main = async (): Promise<void> => {
           // Live payloads always land in the live copy; they only reach the
           // screen when the demo is off, so a toggle back shows current state
           // rather than whatever was last on the wire before the demo started.
-          snapshot: (snapshot) => { reconnectAttempt = 0; if (snapshot.grid !== undefined) liveGrid = snapshot.grid; liveUsage = snapshot.usage; debug("channel.snapshot", { agents: liveGrid.agents.length, total: liveGrid.total, usage: Object.keys(liveUsage), demo: demoActive }); if (!demoActive) applySource(); },
+          snapshot: (snapshot) => { reconnectAttempt = 0; if (snapshot.grid !== undefined) liveGrid = snapshot.grid; liveUsage = snapshot.usage; controller.gridChanged(); debug("channel.snapshot", { agents: liveGrid.agents.length, total: liveGrid.total, usage: Object.keys(liveUsage), demo: demoActive }); if (!demoActive) applySource(); },
           fleet: () => undefined,
-          grid: (grid) => { liveGrid = grid; debug("channel.grid", { agents: grid.agents.length, total: grid.total, buckets: bucketCounts(grid), demo: demoActive }); if (!demoActive) applySource(); },
+          grid: (grid) => { liveGrid = grid; controller.gridChanged(); debug("channel.grid", { agents: grid.agents.length, total: grid.total, buckets: bucketCounts(grid), demo: demoActive }); if (!demoActive) applySource(); },
           usage: (usage) => { liveUsage = usage; debug("channel.usage", { providers: Object.keys(usage) }); if (!demoActive) applySource(); },
           // Deliberately not fed to the strip. The daemon pushes `transcript`
           // and `logs` together for the same event, and the `logs` frame

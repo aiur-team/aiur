@@ -36,6 +36,12 @@ defmodule Aiur.RunTelemetry.Writer do
     "ticket.*.pr.review_comment"
   ]
 
+  # Point events that define a ticket's completion for the run-scoped
+  # analytics. A segment roll prunes every earlier segment of the live boot, so
+  # these are re-emitted after each boundary (marked `segment_continuation:
+  # "carried"`) or the boot would forget a merge it already observed (#2603).
+  @carried_point_events ~w(dispatch pr_opened pr_merged)
+
   @max_pending_casts 256
   @admission_key {__MODULE__, :pending_casts}
 
@@ -112,7 +118,8 @@ defmodule Aiur.RunTelemetry.Writer do
       retention: retention,
       bytes_since_prune: 0,
       prune_interval_bytes: prune_interval(retention),
-      open_lifecycles: %{}
+      open_lifecycles: %{},
+      carried_points: %{}
     }
 
     Process.put(@admission_key, :atomics.new(3, signed: false))
@@ -188,6 +195,7 @@ defmodule Aiur.RunTelemetry.Writer do
         state
         | bytes_since_prune: state.bytes_since_prune + byte_size(contents),
           open_lifecycles: track_lifecycles(state.open_lifecycles, encoded_records),
+          carried_points: track_carried_points(state.carried_points, encoded_records),
           write_warning_emitted: false
       }
 
@@ -357,7 +365,7 @@ defmodule Aiur.RunTelemetry.Writer do
              daemon_started_at: RunTelemetry.boot_started_at(),
              existing_records: true
            }, timestamp}
-        ] ++ reopening
+        ] ++ reopening ++ carried_point_records(state.carried_points)
 
     {rolled, contents, _encoded_records} = encode_records(state, records)
 
@@ -506,6 +514,39 @@ defmodule Aiur.RunTelemetry.Writer do
         {:end, key} -> Map.delete(open_lifecycles, key)
         :skip -> open_lifecycles
       end
+    end)
+  end
+
+  # Remembers each terminal ticket point once per identity (`event_key`), with
+  # its original timestamp, so a carried replica lands on the burn-up axis where
+  # the merge actually happened. A replica re-tracks to the same key, so the set
+  # stays bounded by the tickets this boot touched.
+  defp track_carried_points(carried_points, records) do
+    Enum.reduce(records, carried_points, fn {kind, attributes, timestamp}, carried_points ->
+      case carried_point_key(kind, attributes) do
+        {:ok, key} -> Map.put_new(carried_points, key, {attributes, timestamp})
+        :skip -> carried_points
+      end
+    end)
+  end
+
+  defp carried_point_key(kind, attributes) when kind in [:lifecycle, "lifecycle"] and is_map(attributes) do
+    event = attributes |> attribute_value(:event) |> to_string()
+    boundary = attributes |> attribute_value(:boundary) |> to_string()
+    event_key = attribute_value(attributes, :event_key)
+
+    if event in @carried_point_events and boundary == "point" and is_binary(event_key),
+      do: {:ok, event_key},
+      else: :skip
+  end
+
+  defp carried_point_key(_kind, _attributes), do: :skip
+
+  defp carried_point_records(carried_points) do
+    carried_points
+    |> Enum.sort_by(fn {_key, {_attributes, timestamp}} -> to_string(timestamp) end)
+    |> Enum.map(fn {_key, {attributes, timestamp}} ->
+      {:lifecycle, put_attribute(attributes, :segment_continuation, "carried"), timestamp}
     end)
   end
 

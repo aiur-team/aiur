@@ -63,7 +63,8 @@ defmodule Aiur.Application do
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
-    with :ok <- validate_dashboard_compatibility(no_dashboard?) do
+    with :ok <- Aiur.GlobalConfigStartup.prepare(),
+         :ok <- validate_dashboard_compatibility(no_dashboard?) do
       headless? = Application.get_env(:aiur, :headless, false)
       # Headless is authoritative: if both flags somehow end up set (e.g. a
       # hand-run `aiur --headless` that also injected `--interactive`), the lean
@@ -80,8 +81,10 @@ defmodule Aiur.Application do
 
       # `:rest_for_one`, not `:one_for_one`: the children above are written in
       # dependency order, and several of them genuinely depend on the ones
-      # before them. `Aiur.PubSub` is first because 17 lib modules subscribe to
-      # it; six application children hold a live link to it at boot.
+      # before them. `Aiur.PubSub` leads the dependent block because 17 lib
+      # modules subscribe to it; six application children hold a live link to it
+      # at boot. Only `Aiur.Webhooks.ModeTable` precedes it — a dependency-free
+      # ETS owner that must not be restarted by anyone else's crash (#2531).
       #
       # Elixir's `Registry` links every registered process to its partition, and
       # `Phoenix.PubSub.subscribe/2` registers — so each subscribing sibling is
@@ -98,13 +101,18 @@ defmodule Aiur.Application do
       #
       # `:rest_for_one` makes the ordering real: PubSub restarts first, then
       # everything after it, so dependents never start into a missing registry.
-      Supervisor.start_link(
+      start_supervisor(
         children ++ [supervision_health_child(children)],
-        strategy: :rest_for_one,
         name: Aiur.Supervisor
       )
       |> tap(fn _ -> start_upgrade_check() end)
     end
+  end
+
+  @doc false
+  @spec start_supervisor([Supervisor.child_spec() | {module(), term()} | module()], keyword()) :: Supervisor.on_start()
+  def start_supervisor(children, opts \\ []) do
+    Supervisor.start_link(children, Keyword.put(opts, :strategy, :rest_for_one))
   end
 
   # The `aiur run` version notice is deliberately out-of-band: it runs in a
@@ -261,7 +269,34 @@ defmodule Aiur.Application do
       end
 
     [
-      {Phoenix.PubSub, name: Aiur.PubSub},
+      # First, ahead of `Aiur.PubSub` itself. `ModeTable` reads no config,
+      # subscribes to nothing and calls no sibling — its `init/1` creates one
+      # named ETS table and stops — so under `:rest_for_one` every child placed
+      # ahead of it declares a dependency it does not have, and pays for it: an
+      # ETS table dies with the process that created it, so a crash anywhere in
+      # front of `ModeTable` restarted it and silently emptied the entire
+      # delivery-mode view (#2531).
+      #
+      # That is not a bounded cost. Nothing republishes a proven mode on
+      # `ModeTable`'s boot — `ModeRegistry` restarts in the same cascade and
+      # rebuilds `state.repos` from config as configured-*unproven* — so every
+      # webhook-backed repo silently fell back to the 30-second polling TTL and
+      # stayed there until a fresh delivery re-proved it. Ordered first, no
+      # sibling's crash can reach it.
+      #
+      # Going first also means a `ModeTable` crash would now restart the whole
+      # tree behind it, which is only acceptable because it has no way to crash:
+      # `put/2`, `transport/1` and `delete/1` all run in the *caller's* process
+      # against a `:public` table, so the server itself exposes no `handle_call`
+      # or `handle_cast` at all — just `init/1` and a catch-all `handle_info/2`.
+      # Give it a failing callback and this ordering stops being free.
+      Aiur.Webhooks.ModeTable,
+      # `Aiur.PubSub.Boot` is `{Phoenix.PubSub, name: Aiur.PubSub}` with one
+      # thing added: it waits for a previous incarnation's registry names to be
+      # released before starting. Without that wait a PubSub crash restarts
+      # into its own still-registered partitions, fails three times inside a
+      # millisecond, and takes this whole supervisor down with it (#2557).
+      {Aiur.PubSub.Boot, name: Aiur.PubSub},
       {Registry, keys: :unique, name: Aiur.IssueLog.Registry},
       {Registry, keys: :unique, name: Aiur.Opencode.PaneRegistry},
       {Registry, keys: :duplicate, name: Aiur.Opencode.SessionWriterRegistry.Registry},
@@ -324,18 +359,10 @@ defmodule Aiur.Application do
       # the Publisher and before anything that polls or receives, so the first
       # delivery of the boot already has somewhere to record that it handled a
       # comment — and so the first poll sweep already has last run's ETags.
+      # Owns the open-issue listing the dispatch gate reads as its close signal
+      # (#2714). A table owned by a poll writer would die with it.
+      Aiur.GitHub.OpenIssueSnapshot,
       Aiur.GitHub.ResourceStore,
-      # The bounded time-series the `/github-cache` history charts draw. Starts
-      # after the store it samples, so its first sample never races the store's
-      # boot fill; it reads ETS only, so it changes nothing about the page's
-      # zero-fetch property. Gated on the dashboard like the HTTP server that
-      # serves the page — there is no point sampling a cache nobody can view.
-      #
-      # `QuotaHistory` is the sibling ring behind the same page's "what is
-      # spending the budget" charts. It reads `Aiur.GitHub.Quota`'s already-held
-      # observations — a GenServer call, no client and no transport — so it too
-      # changes nothing about the page's zero-fetch property.
-      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory, Aiur.GitHub.AgentCacheMetrics]),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
@@ -346,21 +373,21 @@ defmodule Aiur.Application do
       # so a repo always has a mode to read; with no configured repos every
       # lookup answers "polling", which is exactly the pre-webhook behavior.
       #
-      # `ModeTable` owns the ETS view the read-cache TTL consults on every
-      # cacheable request, and starts first so the registry has somewhere to
-      # publish the moment it records its first mode. The reverse is not
-      # guaranteed: if the registry crashes, its `state.repos` rebuilds as
-      # configured-unproven while the table briefly keeps its old `:webhook`
+      # The ETS view it publishes into (`Aiur.Webhooks.ModeTable`) is the first
+      # child of the whole tree, so the registry always has somewhere to publish
+      # and the table outlives every restart the registry can take part in. The
+      # reverse is not guaranteed: if the registry crashes, its `state.repos`
+      # rebuilds as configured-unproven while the table keeps its old `:webhook`
       # records, so a repo can hold the long TTL until the next sweep
       # republishes. Bounded (the TTL is a backstop, never a freshness claim)
       # and corrected automatically, so it is a note, not a fix.
-      Aiur.Webhooks.ModeTable,
       Aiur.Webhooks.ModeRegistry,
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
       # Reads the store's observations and serves them to consumer surfaces
       # without a binding. Starts after the store so no accepted observation
       # is broadcast before there is anything retaining it.
+      Aiur.ProviderMeters.HostObservations,
       Aiur.ProviderMeterProjection,
       # Decides when usage is observed: one baseline after boot, then only
       # while agents are running. Starts after the projection so a baseline
@@ -441,7 +468,12 @@ defmodule Aiur.Application do
       # Chat-pane machinery — UI-only, never read by a headless run.
       unless(headless?, do: Aiur.Opencode.PaneSupervisor),
       Aiur.Opencode.SessionSupervisor,
-      Aiur.Opencode.BridgeSupervisor
+      Aiur.Opencode.BridgeSupervisor,
+      # Allowed-contributor intake (#2957) feeds the Executor wake path armed
+      # above, so it runs whenever recording does. It is last in this
+      # `:rest_for_one` list so a restart of it can never cascade into the
+      # dashboard, the Principal, or the opencode supervisors.
+      if(recording?, do: Aiur.AllowedContributors)
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)

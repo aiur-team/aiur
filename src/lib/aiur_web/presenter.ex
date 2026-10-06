@@ -341,6 +341,7 @@ defmodule AiurWeb.Presenter do
       attempt: entry.attempt,
       due_at: due_at_iso8601(entry.due_in_ms),
       error: entry.error,
+      last_failure_at: iso8601(Map.get(entry, :last_failure_at)),
       worker_host: Map.get(entry, :worker_host),
       workspace_path: Map.get(entry, :workspace_path),
       state: Map.get(entry, :state),
@@ -493,12 +494,17 @@ defmodule AiurWeb.Presenter do
       signal: Map.get(hold, :signal),
       measured: Map.get(hold, :measured),
       threshold: Map.get(hold, :threshold),
-      held_for_seconds: non_negative_integer(Map.get(hold, :held_for_seconds))
+      held_for_seconds: non_negative_integer(Map.get(hold, :held_for_seconds)),
+      # Forwarded rather than recomputed: the orchestrator stamped the sample,
+      # and how long the hold has lasted is not how old its measurement is. A
+      # consumer that shows `measured` without this cannot tell a current
+      # reading from one latched minutes earlier (#2527).
+      sample_age_seconds: non_negative_integer(Map.get(hold, :sample_age_seconds))
     }
   end
 
   defp capacity_hold_payload(_hold),
-    do: %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0}
+    do: %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0, sample_age_seconds: nil}
 
   defp dispatch_hold_payload(%{held?: true} = hold) do
     %{

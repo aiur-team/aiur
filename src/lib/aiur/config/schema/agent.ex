@@ -20,6 +20,13 @@ defmodule Aiur.Config.Schema.Codex do
     # Codex-specific thrash guard (moved out of the shared agent section).
     field(:thrash_max_per_window, :integer, default: 6)
     field(:thrash_window_seconds, :integer, default: 60)
+    # IANA zone that Codex's "try again at 6:26 PM" usage-limit text is read in
+    # (#2737). nil reads it in the daemon host's local zone. Set it to the
+    # worker's zone when the app-server runs on a remote worker_host.
+    field(:reset_time_zone, :string)
+    # A usage-limit text reset that already passed resumes no sooner than this
+    # many seconds after the refusal (#2737).
+    field(:reset_min_delay_seconds, :integer, default: 300)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -34,7 +41,9 @@ defmodule Aiur.Config.Schema.Codex do
         :turn_sandbox_policy,
         :read_timeout_ms,
         :thrash_max_per_window,
-        :thrash_window_seconds
+        :thrash_window_seconds,
+        :reset_time_zone,
+        :reset_min_delay_seconds
       ],
       empty_values: []
     )
@@ -43,6 +52,15 @@ defmodule Aiur.Config.Schema.Codex do
     |> validate_number(:read_timeout_ms, greater_than: 0)
     |> validate_number(:thrash_max_per_window, greater_than: 0)
     |> validate_number(:thrash_window_seconds, greater_than: 0)
+    |> validate_number(:reset_min_delay_seconds, greater_than: 0)
+    |> validate_change(:reset_time_zone, &validate_time_zone/2)
+  end
+
+  defp validate_time_zone(field, zone) do
+    case DateTime.now(zone, Tz.TimeZoneDatabase) do
+      {:ok, _now} -> []
+      {:error, _reason} -> [{field, "must be an IANA time zone, for example America/Los_Angeles"}]
+    end
   end
 end
 
@@ -66,13 +84,35 @@ defmodule Aiur.Config.Schema.Claude do
   end
 end
 
+defmodule Aiur.Config.Schema.Rtk do
+  @moduledoc false
+  use Ecto.Schema
+  import Ecto.Changeset
+
+  @primary_key false
+  embedded_schema do
+    # Opt-in. rtk compresses shell output before an agent reads it, which is an
+    # optimization rather than a correctness fix, and its saving is strongly
+    # command-dependent (measured on this repo: `ls -la src/lib/aiur` 12724 ->
+    # 1044 bytes, but `git log --oneline -30` 2033 -> 2033 bytes, i.e. nothing).
+    # A tool that rewrites every command an agent runs is a real behaviour
+    # change, so it stays off until an operator asks for it.
+    field(:enabled, :boolean, default: false)
+  end
+
+  @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+  def changeset(schema, attrs) do
+    cast(schema, attrs, [:enabled], empty_values: [])
+  end
+end
+
 defmodule Aiur.Config.Schema.Agent do
   @moduledoc false
   use Ecto.Schema
   import Ecto.Changeset
 
   alias Aiur.Config.RoutingValue
-  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, PricingPolicy}
+  alias Aiur.Config.Schema.{AgentValidation, Claude, Codex, PricingPolicy, Rtk}
 
   @primary_key false
   embedded_schema do
@@ -130,7 +170,25 @@ defmodule Aiur.Config.Schema.Agent do
     # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
     # `unlimited` (or an absent key) resolves to nil; any present number must
     # be > 0.
+    #
+    # #2806 asked whether this should default to a finite value, and the answer
+    # is no. This cap counts *effort*, not outcome: it cannot tell eleven wasted
+    # turns from eleven turns of real work, so any default low enough to stop a
+    # spin is also low enough to cut a legitimate long run short. Reaching it
+    # does not abort the ticket — the loop hands control back and the
+    # orchestrator recycles the ticket with `prior_work: true` — but that costs
+    # a fresh provider session and the context rebuild #378 exists to avoid.
+    # `max_consecutive_noop_turns` below is the outcome-based bound instead:
+    # productive turns are unbounded, unproductive ones are not. Operators who
+    # do want an effort cap set this key, or `max_turns_by_complexity`.
     field(:max_turns, :integer)
+    # #2806: how many CONSECUTIVE continuation turns that changed nothing
+    # observable (no commit, no push, no working-tree change, no label change,
+    # and no new input in the prompt) a run may take before the loop stops and
+    # raises a needs-attention alert. A productive turn resets the count, so
+    # this never caps a long run of real work — unlike `max_turns`, which does.
+    # 0 / `nil` disables the bound.
+    field(:max_consecutive_noop_turns, :integer, default: 3)
     field(:max_retry_attempts, :integer, default: 3)
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     field(:max_concurrent_agents_by_state, :map, default: %{})
@@ -213,6 +271,7 @@ defmodule Aiur.Config.Schema.Agent do
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pricing_policy, PricingPolicy, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:rtk, Rtk, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -287,6 +346,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:budget_broker_rate_window_seconds, greater_than: 0)
     |> validate_number(:budget_broker_degraded_retry_threshold, greater_than: 0)
     |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
+    |> validate_backend_configs()
     |> update_change(:max_concurrent_agents_by_state, &AgentValidation.normalize_state_limits/1)
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
@@ -317,7 +377,27 @@ defmodule Aiur.Config.Schema.Agent do
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
     |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
+    |> cast_embed(:rtk, with: &Rtk.changeset/2)
   end
+
+  defp validate_backend_configs(changeset) do
+    configs = Ecto.Changeset.get_field(changeset, :backend_configs) || %{}
+
+    Enum.reduce(configs, changeset, fn {backend, config}, acc ->
+      case get_in(Aiur.CodingAgent.backends(), [backend, :config_validator]) do
+        validator when is_function(validator, 1) ->
+          apply_backend_validation(acc, backend, validator.(config))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp apply_backend_validation(changeset, _backend, :ok), do: changeset
+
+  defp apply_backend_validation(changeset, backend, {:error, reason}),
+    do: add_error(changeset, :backend_configs, "#{backend}: #{reason}")
 
   defp validate_dispatch_selections(changeset) do
     dispatchable = dispatchable_with_priority(changeset)

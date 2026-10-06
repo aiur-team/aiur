@@ -6,9 +6,9 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
   every delivery and Aiur-originated mutation keeps current at zero GraphQL
   cost (#2313). Deliveries can be dropped — the webhook admission gate fails
   open on a 5 s timeout — so an event-sourced projection needs a way to
-  re-converge. This module is that way, and it runs deliberately rarely: on
-  daemon boot and when `Aiur.Webhooks.DeliveryMode` reports `degraded`, never
-  on a clock.
+  re-converge. This module runs at boot, on explicit refresh and degradation,
+  and on a bounded daemon-owned safety interval in every delivery mode. A
+  healthy stream does not prove that membership deliveries were received.
 
   It re-reads the `build_order_catalog` query (the labelled variant, so member
   labels resolve the epic/wave counts) and writes the result back into the
@@ -18,9 +18,9 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
       what a delivery deposits) plus an `:issue_labels` set;
     * each root→member pair becomes a `:sub_issue` edge.
 
-  The repo's `:sub_issue` edges are cleared first and re-deposited from the
-  query, which is what removes a membership edge whose `*_removed` delivery was
-  dropped: the query is the set truth, the store is a projection of it. Shared
+  The repo's membership is replaced as one fenced set. A webhook edge write
+  after the query starts rejects the stale replacement; the next bounded
+  reconciliation retries. Readers never see a clear-then-redeposit gap. Shared
   `:issue`/`:issue_labels` entries are left in place and only refreshed, because
   other consumers read them and their own events keep them current.
 
@@ -40,7 +40,9 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
   @spec run(keyword()) :: {:ok, :reconciled, map()} | {:error, term()}
   def run(opts \\ []) do
     with {:ok, repository, limits} <- Settings.authority(opts),
-         {:ok, token} <- Transport.require_token(opts) do
+         {:ok, token} <- Transport.require_token(opts),
+         {:ok, fence} <-
+           ResourceStore.membership_snapshot(elem(repository, 0), elem(repository, 1)) do
       state = Settings.initial_state(opts, limits)
 
       paging =
@@ -50,8 +52,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
 
       case Pager.catalog(paging, state) do
         {:ok, nodes, _state} ->
-          deposit_catalog(repository, nodes)
-          {:ok, :reconciled, %{roots: length(nodes)}}
+          reconcile_nodes(repository, nodes, fence)
 
         {:error, reason, _state} ->
           {:error, reason}
@@ -61,28 +62,47 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
     end
   end
 
-  # -- deposit --------------------------------------------------------------
-
-  defp deposit_catalog(repository, nodes) do
-    {owner, repo} = repository
-    # Set reconciliation for the catalog's exclusive input: the membership
-    # edges. Cleared first so a dropped `*_removed` delivery cannot leave a
-    # stale `present: true` edge behind — the query is the set truth.
-    ResourceStore.clear(:sub_issue, owner, repo)
-    Enum.each(nodes, &deposit_root(&1, repository))
-    :ok
+  defp reconcile_nodes(repository, nodes, fence) do
+    with :ok <- require_complete_membership(nodes),
+         :ok <- deposit_catalog(repository, nodes, fence),
+         do: {:ok, :reconciled, %{roots: length(nodes)}}
   end
 
-  defp deposit_root(node, repository) do
-    deposit_issue(node, repository)
+  # The catalog query fetches at most 100 members per root. A partial nested
+  # connection cannot replace the complete membership set held from webhooks.
+  defp require_complete_membership(nodes) do
+    if Enum.all?(nodes, &complete_membership?/1),
+      do: :ok,
+      else: {:error, :incomplete_membership}
+  end
 
+  defp complete_membership?(node) do
     case Connection.parse(Map.get(node, "subIssues")) do
-      {:ok, members, _total, _page_info} -> Enum.each(members, &deposit_member(&1, node, repository))
-      _invalid -> :ok
+      {:ok, members, total, %{has_next?: false}} -> length(members) == total
+      _partial_or_invalid -> false
     end
   end
 
-  defp deposit_member(member, root, repository) do
+  # -- deposit --------------------------------------------------------------
+
+  defp deposit_catalog({owner, repo} = repository, nodes, fence) do
+    edges = Enum.flat_map(nodes, &root_edges(&1, repository))
+    ResourceStore.replace_membership(owner, repo, fence, edges)
+  end
+
+  defp root_edges(node, repository) do
+    deposit_issue(node, repository)
+
+    case Connection.parse(Map.get(node, "subIssues")) do
+      {:ok, members, _total, _page_info} ->
+        Enum.flat_map(members, &member_edge(&1, node, repository))
+
+      _invalid ->
+        []
+    end
+  end
+
+  defp member_edge(member, root, repository) do
     deposit_issue(member, repository)
 
     with parent when is_integer(parent) <- positive_number(Map.get(root, "number")),
@@ -97,16 +117,10 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
         "sub_issue_repo" => full_name
       }
 
-      ResourceStore.put_resource(
-        ResourceStore.key_for_repo(:sub_issue, full_name, "#{parent}:#{sub}"),
-        edge,
-        source: :reconciliation,
-        version: arrival_version(),
-        etag: :derive
-      )
+      [{"#{parent}:#{sub}", edge}]
+    else
+      _invalid -> []
     end
-
-    :ok
   end
 
   defp deposit_issue(node, repository) do
@@ -193,9 +207,4 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
   end
 
   defp positive_number(_value), do: nil
-
-  # Edges are versioned by the reconciliation's own arrival time, the same
-  # scheme the webhook deposit uses, so the two writers agree on what "older"
-  # means for the stale-delivery guard (#2313).
-  defp arrival_version, do: DateTime.to_iso8601(DateTime.utc_now())
 end

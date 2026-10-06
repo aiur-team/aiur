@@ -304,6 +304,41 @@ defmodule AiurWeb.AnalyticsLive do
             </div>
             <div class="an-chart">{Phoenix.HTML.raw(Charts.complexity_breakdown(@model))}</div>
           </section>
+
+          <section class="an-card" aria-labelledby="analytics-rtk-title">
+            <div class="an-card-head">
+              <div>
+                <h3 class="an-card-title" id="analytics-rtk-title">Agent output compression</h3>
+                <p class="an-card-sub">
+                  Tokens rtk stripped from shell output before an agent read it. Counts commands rtk actually filtered, not every command agents ran.
+                </p>
+              </div>
+            </div>
+            <div :if={@rtk.state == :ok} class="an-chart an-rtk">
+              <div class="an-rtk-figure">
+                <span class="an-rtk-val">{@rtk.savings_pct}%</span>
+                <span class="an-rtk-label">of filtered output removed</span>
+              </div>
+              <dl class="an-rtk-facts">
+                <div>
+                  <dt>Tokens saved</dt>
+                  <dd>{@rtk.saved_tokens}</dd>
+                </div>
+                <div>
+                  <dt>Before / after</dt>
+                  <dd>{@rtk.input_tokens} → {@rtk.output_tokens}</dd>
+                </div>
+                <div>
+                  <dt>Commands filtered</dt>
+                  <dd>{@rtk.commands}</dd>
+                </div>
+              </dl>
+            </div>
+            <div :if={@rtk.state != :ok} class="an-empty" role="status">
+              <p><b>{@rtk.title}</b></p>
+              <p>{@rtk.message}</p>
+            </div>
+          </section>
         </div>
       </section>
     </DashboardShell.dashboard_shell>
@@ -326,6 +361,8 @@ defmodule AiurWeb.AnalyticsLive do
         orchestrator: AiurWeb.Endpoint.config(:orchestrator) || Aiur.Orchestrator,
         snapshot_timeout_ms: PollCadence.snapshot_tolerance_ms(AiurWeb.Endpoint.config(:snapshot_timeout_ms) || 15_000)
       ] ++ ScopeResolver.telemetry_opts(socket.assigns.analytics_scope)
+
+    socket = assign(socket, :rtk, rtk_panel())
 
     case Presenter.load(opts) do
       {:ok, model} ->
@@ -355,6 +392,66 @@ defmodule AiurWeb.AnalyticsLive do
         )
     end
   end
+
+  # The rtk panel reports a measurement rtk itself took, so every way that
+  # measurement can be missing is spelled out in words. A percentage is
+  # rendered only for `:ok`, and `:ok` is only reachable when rtk reported at
+  # least one filtered command: with an empty history rtk answers
+  # `total_commands: 0` next to `avg_savings_pct: 0.0`, and printing that "0%"
+  # would state rtk saved nothing on output it never actually filtered.
+  # `Aiur.Rtk.savings/1` collapses that case to `{:error, :no_data}` so the
+  # distinction cannot be lost on the way to the renderer.
+  #
+  # Reading rtk means shelling out, so a failure here must degrade to prose
+  # rather than 500 the page — the same defensive posture `kind/2` takes for
+  # config reads.
+  defp rtk_panel do
+    case Aiur.Rtk.savings(Application.get_env(:aiur, :analytics_rtk_opts, [])) do
+      {:ok, savings} -> Map.put(savings, :state, :ok)
+      {:error, reason} -> rtk_absent(reason)
+    end
+  rescue
+    error -> rtk_absent({:raised, Exception.message(error)})
+  catch
+    :exit, reason -> rtk_absent({:exit, reason})
+  end
+
+  defp rtk_absent(:disabled) do
+    rtk_state(
+      "Output compression is off",
+      "rtk is not enabled. Set `agent.rtk.enabled: true` to let agents filter shell output."
+    )
+  end
+
+  defp rtk_absent(:not_installed) do
+    rtk_state(
+      "rtk is not installed",
+      "rtk is enabled but no `rtk` executable is on the daemon's PATH, so nothing is being filtered."
+    )
+  end
+
+  defp rtk_absent(:gh_rewrite_not_excluded) do
+    rtk_state(
+      "rtk is enabled but held back",
+      ~s(rtk's hook would rewrite `gh`, which would reshape the calls the GitHub quota guard governs. Add `exclude_commands = ["gh"]` under `[hooks]` in rtk's config to admit it.)
+    )
+  end
+
+  defp rtk_absent(:no_data) do
+    rtk_state(
+      "No commands filtered yet",
+      "rtk is admitted but has recorded no commands, so there is no saving to report."
+    )
+  end
+
+  defp rtk_absent(_reason) do
+    rtk_state(
+      "Savings could not be read",
+      "rtk did not return a usable savings summary. The figure is unknown rather than zero."
+    )
+  end
+
+  defp rtk_state(title, message), do: %{state: :absent, title: title, message: message}
 
   defp assign_time_domain(%{assigns: %{model: model}} = socket, domain) when not is_nil(model) do
     assign(socket, time_domain: domain, chart_model: Charts.with_time_domain(model, domain))

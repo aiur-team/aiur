@@ -27,8 +27,39 @@ lint:
 coverage:
 	$(MIX) test --cover
 
+# Content-stable coverage sharding (#2568).
+#
+# `mix test --partitions N` shards round-robin over the sorted file list, so a
+# file's shard depends on how many files sort before it and adding one test file
+# renumbers the rest of the suite: measured on an 819-file tree, inserting one
+# file moved 320 of them, churning each shard by ~160 files. A green `main`
+# then stops predicting a green PR, because the PR runs a grouping that has
+# never run anywhere.
+#
+# So the file list is computed here instead, keyed on each file's own path
+# (`Aiur.TestShard`), and passed to `mix test` explicitly. `--export-coverage`
+# reproduces exactly the `cover/<n>.coverdata` name that `--partitions` used to
+# derive from MIX_TEST_PARTITION, so the aggregate `coverage` job is unchanged.
+#
+# The file list is word-split rather than piped through `xargs`, so that a test
+# failure stays exit 1: `xargs` remaps its child's status (1..125 becomes 123,
+# 255 becomes 124), and 124 is precisely the code the CI step reads as "this
+# shard timed out". `mix aiur.test_shard` refuses to emit a path containing
+# whitespace, which is what makes the unquoted expansion safe.
+#
+# Both counts are printed on every run: shard balance is no longer guaranteed by
+# construction, so it has to be observable in the log rather than discovered as
+# a timeout.
 coverage-partition:
-	$(MIX) test --cover --partitions $(TEST_PARTITIONS)
+	@set -eu; \
+	shard="$${MIX_TEST_PARTITION:?MIX_TEST_PARTITION must be set to the 1-based shard number}"; \
+	list="$$(mktemp)"; \
+	trap 'rm -f "$$list"' EXIT INT TERM; \
+	MIX_ENV=test $(MIX) aiur.test_shard --shard "$$shard" --shards $(TEST_PARTITIONS) --output "$$list"; \
+	echo "coverage-partition: shard $$shard/$(TEST_PARTITIONS) -> $$(wc -l < "$$list") test files"; \
+	MIX_ENV=test $(MIX) aiur.test_shard --shards $(TEST_PARTITIONS) --counts \
+	  | while IFS="$$(printf '\t')" read -r s n; do echo "coverage-partition: shard $$s holds $$n files"; done; \
+	$(MIX) test --cover --export-coverage "$$shard" $$(cat "$$list")
 
 test:
 	$(MIX) test

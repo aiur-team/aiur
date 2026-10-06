@@ -290,6 +290,12 @@ jobs:
       - name: Version pre-check
         run: aiur --version
 
+      - name: Installed tmux pane controls
+        run: |
+          launcher="$(npm root -g)/aiur-cli"
+          test -x "$launcher/libexec/aiur-pane-ctrlc"
+          AIUR_TMUX_CONF_TEST="$launcher/share/aiur.tmux.conf" bash scripts/verify-ctrlc-binding.sh
+
       # Regression guard for the offline-inheritance bug: a plain install must
       # leave the interactive peer deps ready so `aiur init` works with nothing
       # else to install. tmux is installed above; opencode is provisioned by the
@@ -553,8 +559,8 @@ jobs:
                 return 1
               fi
               sleep "$delay"
-              # `[ ... ] && x=y` would be a failing AND-list once the cap is
-              # reached, which `bash -e` treats as fatal. Keep it an if.
+              # Keep the backoff update explicit: the under-30 threshold
+              # doubles 20 to 40, making 40 seconds the terminal delay.
               if [ "$delay" -lt 30 ]; then
                 delay=$((delay * 2))
               fi

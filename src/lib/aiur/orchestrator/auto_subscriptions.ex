@@ -232,9 +232,44 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   # identifiers for the running ticket (small — typically 0-3).
   # Kept as a list rather than a MapSet so the consumer doesn't have
   # to navigate dialyzer's opaque-type complaints on MapSet.member?.
+  #
+  # Two sources, unioned, because neither alone is complete.
+  #
+  # The polled issue is authoritative on Linear, whose poll decodes blockers
+  # inline. It is empty on GitHub for every ticket: the list poll never
+  # populates `blocked_by` (`Aiur.GitHub.Issues.hydrate_blocked_by/2` exists
+  # precisely because of that), and the two places that do hydrate — the
+  # dispatch gate and the cleared-dependency resume — keep the hydrated copy
+  # locally and never write it back into `last_polled_issues`. So on GitHub
+  # this returned `[]` for every ticket, which made `blocker_critical_digest?`
+  # unconditionally false and left the whole mid-turn blocker drain inert —
+  # every blocker readiness signal waited for a turn boundary a parked agent
+  # never reaches (#2556).
+  #
+  # The subscription bindings close that gap without a dependency read. They
+  # are written at declare time by `subscribe_for_declared_blocker/2` and by
+  # the poll's `auto_subscribe_for_dependency/2`, carry the `blocker:auto`
+  # reason on exactly the blockee's side of the edge, and are removed with the
+  # edge — so they name the same blockers on either tracker and stay bounded by
+  # the declared dependencies rather than by binding count. Reason-scoping is
+  # load-bearing: it excludes `blockee:auto` (the reverse edge, stored on the
+  # blocker) and `manual:agent` (a sibling an agent chose to watch), neither of
+  # which may interrupt a live turn.
+  #
+  # Fail-safe: the snapshot is a call into a per-ticket GenServer, and a
+  # missing, restarting, or timing-out store yields no blockers rather than an
+  # exception. The polled set still stands, so the worst case is exactly the
+  # behaviour before this union.
   @spec direct_blockers_for(State.t(), String.t()) :: [String.t()]
-  def direct_blockers_for(%State{last_polled_issues: polled}, identifier)
-      when is_map(polled) do
+  def direct_blockers_for(%State{} = state, identifier) when is_binary(identifier) do
+    (polled_direct_blockers(state, identifier) ++ subscribed_direct_blockers(identifier))
+    |> Enum.uniq()
+  end
+
+  def direct_blockers_for(_state, _identifier), do: []
+
+  defp polled_direct_blockers(%State{last_polled_issues: polled}, identifier)
+       when is_map(polled) do
     case Enum.find(polled, fn {_id, %Issue{identifier: i}} -> i == identifier end) do
       {_id, %Issue{} = issue} ->
         issue
@@ -248,7 +283,46 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
     end
   end
 
-  def direct_blockers_for(_state, _identifier), do: []
+  defp polled_direct_blockers(_state, _identifier), do: []
+
+  defp subscribed_direct_blockers(identifier) do
+    case SubscriptionStore.snapshot(identifier) do
+      %{subscribed_to: subscriptions} when is_list(subscriptions) ->
+        subscriptions
+        |> Enum.filter(&(subscription_reason(&1) == "blocker:auto"))
+        |> Enum.map(&(&1 |> subscription_topic() |> blocker_identifier_from_topic()))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      _no_store ->
+        []
+    end
+  catch
+    :exit, reason ->
+      Logger.warning("direct_blockers_for subscription snapshot failed: identifier=#{identifier} reason=#{inspect(reason)}")
+
+      []
+  end
+
+  # Bindings are string-keyed on disk and read back that way, but the same
+  # shape is built with atom keys in places, so both are accepted — as
+  # `Aiur.Orchestrator.PushRouting.subscribed_to_topic?/2` already does.
+  defp subscription_reason(%{"reason" => reason}), do: reason
+  defp subscription_reason(%{reason: reason}), do: reason
+  defp subscription_reason(_subscription), do: nil
+
+  defp subscription_topic(%{"topic" => topic}), do: topic
+  defp subscription_topic(%{topic: topic}), do: topic
+  defp subscription_topic(_subscription), do: nil
+
+  defp blocker_identifier_from_topic(topic) when is_binary(topic) do
+    case String.split(topic, ".") do
+      ["ticket", blocker_identifier | _rest] -> blocker_identifier
+      _ -> nil
+    end
+  end
+
+  defp blocker_identifier_from_topic(_topic), do: nil
 
   @spec blocker_critical_digest?(term(), [String.t()]) :: boolean()
   def blocker_critical_digest?(
@@ -273,10 +347,24 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
 
   defp blocker_critical_event?(_event, _direct_blockers), do: false
 
+  # `pr.merged` is a readiness signal exactly like `agent.unblocked`, and it is
+  # the ONLY one on the path where the Executor merges the blocker's pull
+  # request rather than the blocker's own agent announcing its release. Merging
+  # advances the base branch, so it raises `system.<base>.branch.push` and never
+  # `ticket.<blocker>.branch.push` — leaving that Executor-driven path with no
+  # drain-eligible topic at all. A blockee waiting inside a live turn then held
+  # its subscription, received the digest, and was never interrupted with it:
+  # the wake sat pending until a turn boundary the agent never reached, and only
+  # an operator relaying the news in prose released it (#2556).
+  #
+  # Fan-out stays bounded by `direct_blockers`, not by binding count: a ticket
+  # with many bindings across three blockers can be woken at most once per
+  # blocker merge, and the merge itself is deduped at the publisher.
   defp blocker_critical_topic?(topic, direct_blockers) do
     case String.split(topic, ".") do
       ["ticket", id, "branch", "push"] -> id in direct_blockers
       ["ticket", id, "branch", "force-push"] -> id in direct_blockers
+      ["ticket", id, "pr", "merged"] -> id in direct_blockers
       ["ticket", id, "agent", "unblocked"] -> id in direct_blockers
       ["ticket", id, "agent", "decision", _slug] -> id in direct_blockers
       _ -> false

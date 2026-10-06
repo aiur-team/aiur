@@ -11,8 +11,10 @@ defmodule Aiur.ExecutorCommandCLI do
   def answer(params, deps) when is_list(params) and is_list(deps) do
     with {:ok, normalized} <- normalize_answer(params),
          {:ok, result} <- call_answer(normalized, deps) do
+      verb = if normalized.supersede, do: "superseded the answer of", else: "answered"
+
       IO.puts(
-        "aiur: Executor #{normalized.executor_id} answered Command #{normalized.decision_id} " <>
+        "aiur: Executor #{normalized.executor_id} #{verb} Command #{normalized.decision_id} " <>
           "(#{Map.get(result, :status, :accepted)})"
       )
 
@@ -86,7 +88,8 @@ defmodule Aiur.ExecutorCommandCLI do
          rationale: rationale,
          idempotency_key: idempotency_key,
          executor_id: executor_id,
-         answer: answer
+         answer: answer,
+         supersede: Keyword.get(params, :supersede) == true
        }}
     end
   end
@@ -142,9 +145,15 @@ defmodule Aiur.ExecutorCommandCLI do
       |> Map.put("idempotency_key", normalized.idempotency_key)
 
     answer_fun =
-      Keyword.get(deps, :answer_fun, fn decision_id, answer_payload, opts, store ->
-        DecisionStore.answer(decision_id, answer_payload, opts, store)
-      end)
+      if normalized.supersede do
+        Keyword.get(deps, :supersede_fun, fn decision_id, answer_payload, opts, store ->
+          DecisionStore.supersede(decision_id, answer_payload, opts, store)
+        end)
+      else
+        Keyword.get(deps, :answer_fun, fn decision_id, answer_payload, opts, store ->
+          DecisionStore.answer(decision_id, answer_payload, opts, store)
+        end)
+      end
 
     store = Keyword.get(deps, :decision_store, DecisionStore)
     answer_fun.(normalized.decision_id, payload, [actor: %{kind: :executor, id: normalized.executor_id}], store)
@@ -240,6 +249,51 @@ defmodule Aiur.ExecutorCommandCLI do
 
   defp command_error(action, {:conflict, {:stale_version, expected, current}}, deps),
     do: command_error(action, {:stale_version, expected, current}, deps)
+
+  defp command_error("answer", {:conflict, {:already_decided, _action_id}}, deps) do
+    write_error(
+      deps,
+      "aiur: cannot answer Command: it already has an answer. If that answer has not reached the agent, " <>
+        "rerun with --supersede to replace it, or run aiur executor-moot to withdraw it"
+    )
+
+    1
+  end
+
+  defp command_error(action, {:conflict, :answer_delivered}, deps) do
+    write_error(
+      deps,
+      "aiur: cannot #{action} Command: its answer was already delivered to the agent, " <>
+        "so the Executor cannot withdraw or replace it"
+    )
+
+    1
+  end
+
+  defp command_error(action, {:conflict, :answer_in_flight}, deps) do
+    write_error(
+      deps,
+      "aiur: cannot #{action} Command: its answer was already handed to the agent's worker for sending, " <>
+        "so the Executor cannot withdraw or replace it"
+    )
+
+    1
+  end
+
+  defp command_error("moot", {:answer_invalid, {:executor_scope, {field, value}}}, deps) do
+    write_error(
+      deps,
+      "aiur: this Command's answer is outside what the Executor may withdraw (#{field}: #{inspect(value)}) " <>
+        "and was not recorded by an Executor; run aiur executor-escalate for this decision instead"
+    )
+
+    1
+  end
+
+  defp command_error("answer", {:not_decided, status}, deps) do
+    write_error(deps, "aiur: cannot supersede Command: it has no answer yet (#{inspect(status)}); run executor-answer without --supersede")
+    1
+  end
 
   defp command_error(_action, :already_answered, deps) do
     write_error(deps, "aiur: Command already has an answer; revise it in the dashboard")

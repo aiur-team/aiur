@@ -5,20 +5,29 @@ defmodule Aiur.AgentRunner do
 
   require Logger
 
-  alias Aiur.{AgentEventLog, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
+  alias Aiur.{AgentEventLog, Alerts, CodingAgent, Config, Issue, IssueLog, Tracker, Workspace}
   alias Aiur.AgentRunner.{BootstrapDigest, CommentContext, EventsDigest, MessageHandler, QueueDrain}
-  alias Aiur.AgentRunner.{SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
-  alias Aiur.Codex.SessionRecovery
+  alias Aiur.AgentRunner.{ModelLabelRefresh, SessionLifecycle, SessionResume, TurnLoop, TurnPrompt, TurnStreams}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
   alias Aiur.Opencode.ApiClient
+  alias Aiur.Orchestrator.StatusReason
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.Ownership.HoldStatus
+  alias Aiur.Workspace.Ownership.Store
 
   @type worker_host :: String.t() | nil
 
   @spec run(Issue.t(), pid() | nil, keyword()) :: :ok | no_return()
   def run(issue, codex_update_recipient \\ nil, opts \\ []) do
+    # A bare `model:<name>` the catalogue cache could not place gets one bounded
+    # refresh before anything reads the backend, so a model released since the
+    # last refresh still decides this run.
+    {issue, deferred} = ModelLabelRefresh.prepare(issue, Keyword.get(opts, :model_label, []))
+    opts = Keyword.put(opts, :model_label_deferred, deferred)
+
     # The orchestrator owns host retries so one worker lifetime never hops machines.
     worker_host =
       if CodingAgent.remote_worker?(CodingAgent.backend_for(issue)) do
@@ -71,7 +80,7 @@ defmodule Aiur.AgentRunner do
   # a slow render) must not tear down an otherwise-healthy agent and crash the
   # run. Re-dispatch with a fresh pane instead of hard-failing.
   #
-  # A recoverable Codex session failure means the current generation cannot
+  # A provider-classified recoverable session failure means the current generation cannot
   # safely finish its response. Its delivered queue work is restored before
   # this reaches the runner, so a clean exit lets the orchestrator replace the
   # generation and drain that work exactly once.
@@ -85,13 +94,14 @@ defmodule Aiur.AgentRunner do
 
   @doc false
   @spec transient_run_error?(term(), String.t()) :: boolean()
-  def transient_run_error?(reason, "codex") do
-    SessionRecovery.recoverable?(reason) or transient_run_error?(reason) or github_transport_transient?(reason)
+  def transient_run_error?(reason, backend) do
+    CodingAgent.recoverable_session_error?(backend, reason) or
+      shared_transient_run_error?(reason) or github_transport_transient?(reason)
   end
 
-  def transient_run_error?(:port_closed, _backend), do: false
-  def transient_run_error?({:port_exit, status}, _backend) when is_integer(status), do: false
-  def transient_run_error?(reason, _backend), do: transient_run_error?(reason) or github_transport_transient?(reason)
+  defp shared_transient_run_error?(:repl_gone), do: true
+  defp shared_transient_run_error?(:prompt_not_delivered), do: true
+  defp shared_transient_run_error?(_reason), do: false
 
   # A GitHub transport failure during the run — DNS, timeout, TLS, connection
   # closed, rate limit, 5xx, or a local budget hold — is a transient
@@ -131,10 +141,22 @@ defmodule Aiur.AgentRunner do
       record_workspace_ownership(issue, opts, boundary, outcome, ownership)
     end
 
-    case Ownership.claim(issue.identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun) do
+    # The holder metadata lets the Orchestrator find this runner if it holds
+    # the lease without a running entry: its update target died in an
+    # Orchestrator crash, or a rolled-back state dropped its entry (#2705).
+    holder = %{
+      issue_id: issue.id,
+      update_recipient: codex_update_recipient,
+      update_recipient_name: registered_name(codex_update_recipient),
+      worker_host: worker_host
+    }
+
+    case claim_after_reaping(issue.identifier, telemetry_fun, holder) do
       {:ok, ownership} ->
         try do
-          run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle)
+          with_workspace_host_lock(issue, opts, ownership, worker_host, fn ->
+            run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle)
+          end)
         after
           # The release request is intentionally distinct from the terminal
           # ownership boundary. A guardian may still be reaping a provider;
@@ -152,6 +174,7 @@ defmodule Aiur.AgentRunner do
       {:error, {:workspace_owned, owner}} ->
         record_workspace_ownership_conflict(issue, opts, owner)
         record_workspace_setup_end(issue, opts, :contended, :workspace_owned)
+        emit_ownership_conflict_alert(issue, owner)
 
         wait =
           if is_pid(codex_update_recipient) do
@@ -168,6 +191,149 @@ defmodule Aiur.AgentRunner do
         {:error, {:workspace_ownership_unavailable, reason}}
     end
   end
+
+  # A backend swap stops its old runner before starting the replacement, but
+  # the guardian may still be reaping that runner's provider. Waiting for that
+  # exact generation to release avoids a routine refused dispatch and alert.
+  # An active or provisioning owner remains a real competing session.
+  defp claim_after_reaping(identifier, telemetry_fun, holder, retries \\ 1) do
+    case Ownership.claim(identifier, Aiur.Workspace.Ownership.Registry, telemetry_fun: telemetry_fun, holder: holder) do
+      {:error, {:workspace_owned, {:ok, %{phase: :reaping} = lease}}} = owned
+      when retries > 0 and is_nil(holder.worker_host) ->
+        maybe_release_and_reclaim(identifier, telemetry_fun, holder, lease, owned, retries)
+
+      result ->
+        result
+    end
+  end
+
+  defp maybe_release_and_reclaim(identifier, telemetry_fun, holder, lease, owned, retries) do
+    if local_reaping_provider?(identifier, lease) do
+      case Ownership.release_and_wait(lease) do
+        {:ok, _released} -> claim_after_reaping(identifier, telemetry_fun, holder, retries - 1)
+        {:error, _reason} -> owned
+      end
+    else
+      owned
+    end
+  end
+
+  # A remote provider deliberately retains its reaping lease after owner death.
+  # Releasing it from a new local attempt would discard that containment before
+  # the remote workspace has been cleaned up. The durable receipt identifies
+  # the old generation and its provider even after its owner process has died.
+  defp local_reaping_provider?(identifier, %{generation: generation}) do
+    case Store.get(identifier) do
+      {:ok, %{generation: ^generation, provider: %{remote: true}}} ->
+        false
+
+      {:ok, %{generation: ^generation, provider: provider}} when is_map(provider) ->
+        Map.has_key?(provider, :process_group_id) or Map.has_key?(provider, :root_pid) or
+          Map.get(provider, :in_process) == true
+
+      _ ->
+        false
+    end
+  end
+
+  defp registered_name(pid) when is_pid(pid) and node(pid) == node() do
+    case Process.info(pid, :registered_name) do
+      {:registered_name, name} when is_atom(name) -> name
+      _unnamed_or_dead -> nil
+    end
+  end
+
+  defp registered_name(_recipient), do: nil
+
+  # `Ownership.claim/3` excludes a second session inside *this* daemon, but the
+  # workspace path is derived purely from repo and ticket, so a second daemon on
+  # the same host that resolves the same repo would walk straight into the same
+  # working tree (#2551). The filesystem is the only thing both daemons share,
+  # so the host lock is the exclusion primitive; refusing here is the difference
+  # between a loud, named refusal and two agents silently overwriting each
+  # other's files while both report green gates.
+  defp with_workspace_host_lock(issue, opts, ownership, worker_host, fun) do
+    case HostLock.acquire_for_issue(issue.identifier, worker_host) do
+      {:ok, lock} ->
+        case HostLock.handoff_to_ownership(lock, ownership) do
+          :ok ->
+            fun.()
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      # A remote worker's workspace is on another machine's filesystem, so a
+      # lock taken on this host would exclude nothing.
+      :not_applicable ->
+        fun.()
+
+      {:error, {:workspace_locked, holder}} ->
+        refuse_host_locked_workspace(issue, opts, holder)
+
+      {:error, reason} ->
+        record_workspace_setup_end(issue, opts, :failed, reason)
+        {:error, reason}
+    end
+  end
+
+  defp refuse_host_locked_workspace(issue, opts, holder) do
+    description = HostLock.describe(holder)
+    record_workspace_setup_end(issue, opts, :contended, :workspace_host_locked)
+
+    Logger.error("Refusing to start a session for #{issue_context(issue)}: its workspace is already held by #{description}")
+
+    emit_live_session_alert(issue, description)
+    {:error, {:workspace_host_locked, holder}}
+  end
+
+  # A dispatch onto a ticket that already has a live session is exactly the
+  # condition #2551 was filed for. It must reach an operator rather than be
+  # left in the daemon log, and the message has to name the holder or the
+  # operator cannot tell which daemon to look at.
+  defp emit_live_session_alert(issue, description) do
+    identifier = issue.identifier
+
+    Alerts.emit_custom(
+      "ticket.#{identifier}.workspace.live_session",
+      "Refused to dispatch #{identifier}: its workspace already has a live session held by #{description}.",
+      issue: identifier,
+      holder: description,
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    :ok
+  end
+
+  defp emit_ownership_conflict_alert(issue, {:ok, %{phase: :reaping}} = owner) do
+    case HoldStatus.for_ticket(issue.identifier) do
+      %{generation: generation, proof: proof} when proof != :tracked_provider ->
+        detail = StatusReason.render({:workspace_ownership_waiting, generation, proof})
+
+        Alerts.emit_custom(
+          "ticket.#{issue.identifier}.workspace.ownership_hold",
+          "Refused to dispatch #{issue.identifier}: #{detail}.",
+          issue: issue.identifier,
+          workspace_generation: generation,
+          recovery_proof: proof,
+          needs_attention: true,
+          severity: "warning"
+        )
+
+        :ok
+
+      _ ->
+        emit_live_session_alert(issue, describe_owner(owner))
+    end
+  end
+
+  defp emit_ownership_conflict_alert(issue, owner), do: emit_live_session_alert(issue, describe_owner(owner))
+
+  defp describe_owner({:ok, %{owner_id: owner_id, generation: generation}}),
+    do: "this daemon's session owner=#{owner_id} generation=#{generation}"
+
+  defp describe_owner(_owner), do: "another session in this daemon"
 
   defp run_owned_worker_attempt(ownership, issue, codex_update_recipient, opts, worker_host, lifecycle) do
     case Workspace.create_for_issue(issue, worker_host, lifecycle: lifecycle) do

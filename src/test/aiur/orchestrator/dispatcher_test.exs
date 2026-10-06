@@ -14,6 +14,52 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     def fetch_candidate_issues, do: {:error, :candidate_fetch_failed}
   end
 
+  # A stand-in Orchestrator whose poll outlasts a delivery call into it. It
+  # handles the spawn's redelivery message as `Aiur.Orchestrator` does.
+  defmodule SlowPollOrchestrator do
+    use GenServer
+
+    alias Aiur.Orchestrator.Dispatcher
+
+    def start_link(test_pid), do: GenServer.start_link(__MODULE__, test_pid)
+
+    @impl true
+    def init(test_pid), do: {:ok, test_pid}
+
+    @impl true
+    def handle_call({:poll, poll_fun, poll_ms}, _from, test_pid) do
+      result = poll_fun.()
+      Process.sleep(poll_ms)
+      {:reply, result, test_pid}
+    end
+
+    def handle_call({:enqueue_answer, decision_id}, _from, test_pid) do
+      send(test_pid, {:worker_received, decision_id})
+      {:reply, {:ok, %{status: :accepted, item: %{id: System.unique_integer([:positive])}}}, test_pid}
+    end
+
+    @impl true
+    def handle_info({:deliver_pending_answers, _identifier, _store} = message, test_pid) do
+      :ok = Dispatcher.handle_pending_answer_delivery(message)
+      {:noreply, test_pid}
+    end
+
+    # The spawned runner's `:DOWN` and other Orchestrator traffic.
+    def handle_info(_message, test_pid), do: {:noreply, test_pid}
+  end
+
+  defp wait_until(fun, attempts \\ 200)
+  defp wait_until(_fun, 0), do: flunk("condition was not reached")
+
+  defp wait_until(fun, attempts) do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(10)
+      wait_until(fun, attempts - 1)
+    end
+  end
+
   setup do
     CiReadiness.clear_cached_result()
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
@@ -129,6 +175,20 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     _second = Dispatcher.choose_issues(first, [candidate])
     refute_receive {:alert, %{name: "dispatch.candidate_declined"}}, 100
+  end
+
+  # A candidate whose dispatch authorization could not be read (`:deferred` —
+  # a local GitHub budget hold, a rate limit, a timeline transport fault) used
+  # to be skipped in complete silence: no alert, no decline record, and the
+  # catch-all `maybe_emit_dispatch_decline/3` clause cleared any earlier one.
+  # With free slots, the operator saw the ticket vanish rather than wait.
+  test "records a decline when authorization is deferred and slots are free" do
+    candidate = %{issue("auth-deferred") | dispatch_authorized?: false, dispatch_authorization: :deferred}
+
+    state = Dispatcher.choose_issues(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4}, [candidate])
+
+    assert state.dispatch_declines[candidate.id] == :unauthorized
+    refute Map.has_key?(state.running, candidate.id)
   end
 
   test "clearing an attention decline emits its matching resolution" do
@@ -292,6 +352,83 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert log =~ "blocked by a non-terminal dependency"
     end
 
+    test "records a non-attention dependency decline instead of skipping silently" do
+      candidate = issue("dependency-held")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      hydrated = %{candidate | blocked_by: [%{id: "5", identifier: "5", state: "in-progress"}]}
+
+      declined =
+        Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn _issue -> {:ok, hydrated} end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :dependency
+      refute Map.has_key?(declined.running, candidate.id)
+
+      assert_receive {:alert,
+                      %{
+                        name: "dispatch.candidate_declined",
+                        reason: reason,
+                        needs_attention: false,
+                        severity: "info"
+                      }},
+                     2_000
+
+      assert reason =~ "dependency"
+    end
+
+    test "a GitHub-closed blocker no longer holds dispatch" do
+      # The shipped default terminal set carries no "closed" entry — that is the
+      # whole defect. Pin it here so the test cannot pass on a fixture that
+      # happens to list "Closed".
+      restore_workflow_file_after_test()
+
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        max_concurrent_agents: 4,
+        tracker_terminal_states: ["Done", "Cancelled", "Canceled"]
+      )
+
+      test_pid = self()
+
+      candidate = %Issue{
+        id: "closed-blocker-ticket",
+        identifier: "repo#closed-blocker-ticket",
+        title: "ticket whose blockers are closed",
+        state: "todo",
+        selected_backend: "codex"
+      }
+
+      # Exactly the live shape `Aiur.GitHub.Client.hydrate_blocked_by/1` returns
+      # for blockers closed on GitHub.
+      hydrated = %{
+        candidate
+        | blocked_by: [%{id: "3", identifier: "3", state: "Closed"}, %{id: "7", identifier: "7", state: "Closed"}]
+      }
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.dispatch_issue(
+          %State{max_concurrent_agents: 4, effective_concurrent_agents: 4},
+          candidate,
+          nil,
+          nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn _issue -> {:ok, hydrated} end,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert dispatched.id == candidate.id
+      assert Map.has_key?(next_state.running, candidate.id)
+      refute Map.has_key?(next_state.dispatch_declines, candidate.id)
+    end
+
     test "holds dispatch (fail-closed) with an attention decline when hydration fails" do
       candidate = issue("hydration-failed")
       :ok = AgentPubSub.subscribe_agent(candidate.identifier)
@@ -424,6 +561,186 @@ defmodule Aiur.Orchestrator.DispatcherTest do
                DispatchPolicy.terminal_state_set(),
                next_state.blocked_ticket_ids
              ) == :dispatch
+    end
+
+    test "an answer recorded after a blocking run stops resumes its in-progress claim within one poll (#2713, #2818)" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4, tracker_active_states: ["todo", "in-progress"])
+      restore_workflow_file_after_test()
+      test_pid = self()
+      ticket_id = "answer-resume-#{System.unique_integer([:positive])}"
+      candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "in-progress", selected_backend: "codex"}
+
+      # `worker` is true while a worker runs the ticket. The fake dispatcher
+      # stands in for `OperatorMessages`: it refuses `:no_running_agent` until
+      # then, and reports each answer the worker receives.
+      worker = start_supervised!({Agent, fn -> false end})
+
+      dispatcher = fn decision, _opts ->
+        if Agent.get(worker, & &1) do
+          send(test_pid, {:worker_received, decision.decision_id})
+          {:ok, %{status: :accepted, item: %{id: System.unique_integer([:positive])}}}
+        else
+          send(test_pid, {:no_worker, decision.decision_id})
+          {:error, :no_running_agent}
+        end
+      end
+
+      dir = Aiur.TestSupport.tmp_root!("dispatcher-answer-resume")
+
+      store =
+        start_supervised!(
+          {Aiur.DecisionStore,
+           [
+             name: nil,
+             state_dir: dir,
+             filesystem_sync_fun: fn -> :ok end,
+             dispatcher: dispatcher,
+             dispatch_delay_ms: 0,
+             retry_delays_ms: [0, 0, 0]
+           ]},
+          id: :dispatcher_answer_resume_store
+        )
+
+      poll = fn state ->
+        {:ok, ids} = Aiur.DecisionStore.blocked_ticket_ids(store)
+
+        Dispatcher.choose_issues(%{state | blocked_ticket_ids: ids}, [candidate],
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+          runner: fn dispatched, _recipient, _opts -> send(test_pid, {:agent_runner_run, dispatched.id}) end,
+          decision_store: store
+        )
+      end
+
+      assert {:ok, %{decision: decision}} =
+               Aiur.DecisionStore.request(
+                 %{
+                   "question" => "Which path should this ticket take?",
+                   "blocking" => true,
+                   "options" => [%{"id" => "a", "label" => "Path A"}, %{"id" => "b", "label" => "Path B"}]
+                 },
+                 [ticket: %{identifier: ticket_id, title: ticket_id, url: nil}, source: %{agent_id: "dispatcher-test", session_id: "s-1", event_id: nil}],
+                 store
+               )
+
+      id = decision.decision_id
+
+      # The run that filed the Command has ended, and the ticket is held.
+      held = poll.(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4})
+      assert held.dispatch_declines[ticket_id] == :blocked_on_decision
+      refute Map.has_key?(held.running, ticket_id)
+
+      # The answer arrives a minute later, when no worker runs the ticket: the
+      # first delivery and the whole retry ladder fail.
+      assert {:ok, %{status: :accepted}} =
+               Aiur.DecisionStore.answer(
+                 id,
+                 %{"idempotency_key" => "resume-#{id}", "expected_version" => decision.version, "option_id" => "b"},
+                 [actor: %{kind: :operator, id: "dispatcher-test"}, now: DateTime.add(DateTime.utc_now(), 60, :second)],
+                 store
+               )
+
+      for _attempt <- 1..4, do: assert_receive({:no_worker, ^id}, 1_000)
+      refute_receive {:no_worker, ^id}, 100
+
+      # One poll dispatches the ticket, and its new worker receives the answer once.
+      resumed = poll.(held)
+      assert_receive {:agent_runner_run, ^ticket_id}, 1_000
+      assert Map.has_key?(resumed.running, ticket_id)
+      refute Map.has_key?(resumed.dispatch_declines, ticket_id)
+
+      # The spawn posts the redelivery to the Orchestrator (this process) and
+      # does not reach the store during the poll. The Orchestrator handles it
+      # next, with the new running entry in its state.
+      assert_received {:deliver_pending_answers, ^ticket_id, ^store} = message
+      refute_received {:no_worker, ^id}
+      Agent.update(worker, fn _running -> true end)
+      assert :ok = Dispatcher.handle_pending_answer_delivery(message)
+      assert_receive {:worker_received, ^id}, 1_000
+      refute_receive {:worker_received, ^id}, 300
+    end
+
+    test "a slow poll does not time out the redelivery to the worker it spawned (#2713)" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+      restore_workflow_file_after_test()
+      test_pid = self()
+      ticket_id = "answer-slow-poll-#{System.unique_integer([:positive])}"
+      candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "todo", selected_backend: "codex"}
+      worker = start_supervised!({Agent, fn -> false end})
+      orchestrator = start_supervised!({SlowPollOrchestrator, test_pid})
+
+      # Like `OperatorMessages`, delivery to a running worker is a bounded call
+      # into the Orchestrator. The poll below is slower than that bound.
+      dispatcher = fn decision, _opts ->
+        if Agent.get(worker, & &1) do
+          GenServer.call(orchestrator, {:enqueue_answer, decision.decision_id}, 300)
+        else
+          {:error, :no_running_agent}
+        end
+      end
+
+      store =
+        start_supervised!(
+          {Aiur.DecisionStore,
+           [
+             name: nil,
+             state_dir: Aiur.TestSupport.tmp_root!("dispatcher-answer-slow-poll"),
+             filesystem_sync_fun: fn -> :ok end,
+             dispatcher: dispatcher,
+             dispatch_delay_ms: 0,
+             retry_delays_ms: []
+           ]},
+          id: :dispatcher_answer_slow_poll_store
+        )
+
+      assert {:ok, %{decision: decision}} =
+               Aiur.DecisionStore.request(
+                 %{
+                   "question" => "Which path should this ticket take?",
+                   "blocking" => true,
+                   "options" => [%{"id" => "a", "label" => "Path A"}, %{"id" => "b", "label" => "Path B"}]
+                 },
+                 [ticket: %{identifier: ticket_id, title: ticket_id, url: nil}, source: %{agent_id: "dispatcher-test", session_id: "s-1", event_id: nil}],
+                 store
+               )
+
+      id = decision.decision_id
+
+      assert {:ok, %{status: :accepted}} =
+               Aiur.DecisionStore.answer(
+                 id,
+                 %{"idempotency_key" => "slow-#{id}", "expected_version" => decision.version, "option_id" => "a"},
+                 [actor: %{kind: :operator, id: "dispatcher-test"}],
+                 store
+               )
+
+      wait_until(fn -> match?({:ok, %{delivery_status: :failed}}, Aiur.DecisionStore.get(id, store)) end)
+
+      poll = fn ->
+        state = %State{max_concurrent_agents: 4, effective_concurrent_agents: 4, blocked_ticket_ids: MapSet.new()}
+
+        next =
+          Dispatcher.choose_issues(state, [candidate],
+            issue_fetcher: fn [ticket] -> {:ok, [%{candidate | id: ticket}]} end,
+            blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+            runner: fn _dispatched, _recipient, _opts -> :ok end,
+            decision_store: store
+          )
+
+        # The running entry exists from here; the rest of the poll is slow.
+        Agent.update(worker, fn _running -> true end)
+        Map.has_key?(next.running, ticket_id)
+      end
+
+      assert GenServer.call(orchestrator, {:poll, poll, 800}, 5_000)
+      assert_receive {:worker_received, ^id}, 2_000
+
+      wait_until(fn -> match?({:ok, %{delivery_status: :queued}}, Aiur.DecisionStore.get(id, store)) end)
+      {:ok, queued} = Aiur.DecisionStore.get(id, store)
+      # One failure from before the worker existed, then one queued delivery:
+      # the redelivery did not time out behind the poll.
+      assert Enum.map(queued.dispatch_attempts, & &1.status) == [:failed, :queued]
+      refute_receive {:worker_received, ^id}, 300
     end
 
     test "a ticket with an open blocking Command is declined and the reason is visible in status" do
@@ -2061,6 +2378,137 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert map_size(ready_state.running) == 0
     end
 
+    # The reported binding is read from the daemon's persisted `capacity_hold`,
+    # and before #2527 the prewarm branch sampled host pressure without ever
+    # reconciling it. A base build that runs for minutes therefore froze the
+    # last pre-build measurement: `status` reported `load=24.14` against a
+    # `threshold=24.0` for the build's whole duration while the live `LOAD` line
+    # beside it read 6-7. The recovery direction is the whole defect, so the
+    # sequence here is high-then-low; a one-directional test passes against the
+    # bug.
+    test "a prewarm hold re-samples host pressure so a high load figure cannot latch" do
+      with_prewarm_enabled_config()
+
+      ready = [issue("prewarm-stale-load")]
+
+      # 45% reclaimable in both windows: only the load average moves, so the
+      # recovery is attributable to the re-sample and not to CPU corroboration
+      # incidentally clearing the gate.
+      first_cpu = %{total: 1_100, idle: 545, nice: 0, runnable: 2}
+      second_cpu = %{total: 1_200, idle: 590, nice: 0, runnable: 2}
+
+      quiet = [emit_fun: fn _name, _reason -> :ok end, telemetry_fun: fn _event, _payload -> :ok end]
+
+      # The high sample is taken on a normal dispatch tick, before the base build
+      # starts — the hold this leaves behind is the one that used to latch.
+      held =
+        Dispatcher.maybe_choose_under_load(
+          contended_state(%{total: 1_000, idle: 500, nice: 0, runnable: 2}),
+          ready,
+          fn admitted, _issues -> admitted end,
+          [admission_probes_fun: contended_probes(24.14, first_cpu), now_ms: 0] ++ quiet
+        )
+
+      assert %{signal: :load, measured: 24.14, threshold: 24.0, reclaimable_cpu_percent: 45.0} = held.capacity_hold
+      assert %DateTime{} = held.capacity_hold.measured_at
+
+      # Same prewarm hold, next tick, host now idle. The build is still running,
+      # so nothing external clears the gate — only the re-sample can.
+      recovered =
+        Dispatcher.dispatch_or_hold(
+          contended_state(first_cpu, held),
+          ready,
+          fn -> :building end,
+          [admission_probes_fun: contended_probes(6.34, second_cpu), now_ms: 1_000] ++ quiet
+        )
+
+      assert recovered.capacity_hold == nil
+    end
+
+    # The measurement and the hold's own age are different quantities. An
+    # extended hold must carry this tick's probe, or the age reported beside it
+    # describes how long the fleet has been held rather than how fresh the
+    # number is.
+    test "an extended admission hold carries the newest measurement and stamp" do
+      first_at = ~U[2026-09-02 22:00:00Z]
+      later_at = ~U[2026-09-02 22:00:30Z]
+
+      quiet = [emit_fun: fn _name, _reason -> :ok end, telemetry_fun: fn _event, _payload -> :ok end]
+
+      state =
+        contended_state(%{total: 1_000, idle: 500, nice: 0, runnable: 2})
+
+      held =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [issue("hold-restamp")],
+          fn admitted, _issues -> admitted end,
+          [
+            admission_probes_fun: contended_probes(30.0, %{total: 1_100, idle: 545, nice: 0, runnable: 2}),
+            now_ms: 0,
+            utc_now_fun: fn -> first_at end
+          ] ++ quiet
+        )
+
+      assert %{measured: 30.0, measured_at: ^first_at} = held.capacity_hold
+
+      extended =
+        Dispatcher.maybe_choose_under_load(
+          contended_state(%{total: 1_100, idle: 545, nice: 0, runnable: 2}, held),
+          [issue("hold-restamp")],
+          fn admitted, _issues -> admitted end,
+          [
+            admission_probes_fun: contended_probes(27.0, %{total: 1_200, idle: 590, nice: 0, runnable: 2}),
+            now_ms: 1_000,
+            utc_now_fun: fn -> later_at end
+          ] ++ quiet
+        )
+
+      assert %{measured: 27.0, measured_at: ^later_at} = extended.capacity_hold
+      assert extended.capacity_hold.held_since_ms == 0
+    end
+
+    # The admission direction of the same recovery: a high sample must not keep
+    # new work out once the host has quietened.
+    test "a low sample after a high one admits new work" do
+      quiet = [emit_fun: fn _name, _reason -> :ok end, telemetry_fun: fn _event, _payload -> :ok end]
+
+      test_pid = self()
+
+      choose = fn admitted, _issues ->
+        send(test_pid, :admitted)
+        admitted
+      end
+
+      held =
+        Dispatcher.maybe_choose_under_load(
+          contended_state(%{total: 1_000, idle: 500, nice: 0, runnable: 2}),
+          [issue("admission-recovery")],
+          choose,
+          [
+            admission_probes_fun: contended_probes(24.14, %{total: 1_100, idle: 545, nice: 0, runnable: 2}),
+            now_ms: 0
+          ] ++ quiet
+        )
+
+      assert %{signal: :load, measured: 24.14} = held.capacity_hold
+      refute_received :admitted
+
+      admitted =
+        Dispatcher.maybe_choose_under_load(
+          contended_state(%{total: 1_100, idle: 545, nice: 0, runnable: 2}, held),
+          [issue("admission-recovery")],
+          choose,
+          [
+            admission_probes_fun: contended_probes(6.34, %{total: 1_200, idle: 590, nice: 0, runnable: 2}),
+            now_ms: 1_000
+          ] ++ quiet
+        )
+
+      assert admitted.capacity_hold == nil
+      assert_received :admitted
+    end
+
     test "fails open to a cold clone on a base-build error and resets the hold counter" do
       with_prewarm_enabled_config()
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
@@ -2532,6 +2980,38 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   defp issue(id), do: %Issue{id: id, identifier: "repo##{id}", title: id, state: "todo"}
+
+  # A load hold is only recorded when CPU corroborates it, and the corroboration
+  # is a delta between two `/proc/stat` snapshots. Seeding the previous snapshot
+  # explicitly — rather than relying on the one the prior tick happened to
+  # remember — keeps each window's reclaimable percentage a property of the
+  # test rather than of internal bookkeeping. `total: 1_000, idle: 500` against
+  # `total: 1_100, idle: 545` is 45% reclaimable, under the 60% clear bar.
+  defp contended_state(previous_cpu, state \\ %State{max_concurrent_agents: 8, effective_concurrent_agents: 8}) do
+    put_in(state.load_envelope_state, %{last_decrease_ms: nil, cpu_snapshot: previous_cpu, bootstrap_complete?: true})
+  end
+
+  # `load_threshold` is per scheduler, so 1.5 x 16 is the 24.0 an operator reads
+  # on the status line.
+  defp contended_probes(load, cpu_snapshot) do
+    fn ->
+      %{
+        memory_mb: :unavailable,
+        memory_threshold_mb: nil,
+        fd_sample: :unavailable,
+        runnable: :unavailable,
+        run_queue_threshold: nil,
+        schedulers: 16,
+        load: load,
+        load_threshold: 1.5,
+        build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+        provider_backends: [],
+        github_quota: :available,
+        cpu_snapshot: cpu_snapshot,
+        target: nil
+      }
+    end
+  end
 
   defp dispatch_decision!(issue) do
     test_pid = self()

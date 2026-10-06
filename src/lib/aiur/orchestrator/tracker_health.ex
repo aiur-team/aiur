@@ -253,15 +253,65 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   # config — or any unexpected `ArgumentError` inside the scan — must never
   # silently become "no dispatchable demand" and widen the poll to the 10-minute
   # ceiling under a condition nobody will notice (#2138 review P1).
+  #
+  # The scan reads `last_polled_issues`, the snapshot the most recent poll
+  # produced. A ticket the operator queued locally *after* that poll is not in
+  # it, so the snapshot alone would report "no demand" for known work and widen
+  # the poll that is the only thing able to refresh it. `queued_demand_hints`
+  # closes that loop: a locally queued ticket counts as demand until a poll
+  # shows it as dispatchable or its cycle budget lapses (#2640).
   defp queued_dispatch_demand?(%State{} = state) do
-    DispatchPolicy.queued_dispatch_demand?(
-      Map.values(state.last_polled_issues),
-      state
-    )
+    pending_queued_demand_hint?(state) or
+      DispatchPolicy.queued_dispatch_demand?(
+        Map.values(state.last_polled_issues),
+        state
+      )
   rescue
     ArgumentError ->
       Logger.warning("Idle-backoff demand scan failed; assuming dispatchable demand (poll stays at base)")
       true
+  end
+
+  @doc """
+  Whether locally queued demand is still unconfirmed by the tracker poll.
+
+  A hint is pending while its cycle budget has not lapsed and no polled issue
+  confirms dispatchable demand for its identifier. An older indexed copy
+  with denied labels cannot satisfy new local demand.
+  """
+  @spec pending_queued_demand_hint?(State.t()) :: boolean()
+  def pending_queued_demand_hint?(%State{queued_demand_hints: hints} = state) when map_size(hints) > 0 do
+    Enum.any?(hints, &pending_hint?(state, &1))
+  end
+
+  def pending_queued_demand_hint?(_state), do: false
+
+  @doc """
+  Drops hints whose demand the poll has confirmed or whose budget lapsed.
+
+  Runs once per completed poll cycle so the map never grows past the tickets
+  queued in the last couple of cycles.
+  """
+  @spec prune_queued_demand_hints(State.t()) :: State.t()
+  def prune_queued_demand_hints(%State{queued_demand_hints: hints} = state) when map_size(hints) > 0 do
+    %{state | queued_demand_hints: Map.filter(hints, &pending_hint?(state, &1))}
+  end
+
+  def prune_queued_demand_hints(%State{} = state), do: state
+
+  defp pending_hint?(%State{} = state, {identifier, until_cycle}) do
+    state.poll_cycles_completed < until_cycle and not polled_queued_demand_present?(state, identifier)
+  end
+
+  defp polled_queued_demand_present?(%State{last_polled_issues: polled} = state, identifier) do
+    issues =
+      polled
+      |> Enum.filter(fn {issue_id, issue} -> issue_id == identifier or Map.get(issue, :identifier) == identifier end)
+      |> Enum.map(fn {_issue_id, issue} -> issue end)
+
+    DispatchPolicy.queued_dispatch_demand?(issues, state)
+  rescue
+    ArgumentError -> false
   end
 
   defp idle_widen_factor(opts) do

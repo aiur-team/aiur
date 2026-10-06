@@ -11,6 +11,18 @@ defmodule Aiur.Workspace.ProvisionerTest do
                 else: [skip: "requires Linux flock leases"]
               )
 
+  test "recreate keeps untracked work instead of deleting the checkout" do
+    workspace = Aiur.TestSupport.tmp_root!("recreate-dirty")
+    on_exit(fn -> File.rm_rf(workspace) end)
+    {_, 0} = System.cmd("git", ["init", "-q", workspace])
+    File.write!(Path.join(workspace, "work.txt"), "unfinished")
+
+    assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} =
+             Provisioner.recreate(workspace, nil)
+
+    assert File.read!(Path.join(workspace, "work.txt")) == "unfinished"
+  end
+
   test "remote workers receive the bundled agent skill install script" do
     parent = self()
 
@@ -62,7 +74,11 @@ defmodule Aiur.Workspace.ProvisionerTest do
     bin_dir = Path.join(test_root, "bin")
     active_path = Path.join(test_root, "active")
     max_path = Path.join(test_root, "max")
-    on_exit(fn -> File.rm_rf!(test_root) end)
+    # `File.rm_rf/1`, not the bang: this test deliberately leaves external child
+    # builds running under `test_root`, and one still writing when teardown
+    # walks the tree makes `rm_rf!` raise `:eexist` and fail the test on its
+    # cleanup rather than on its subject — likelier the busier the box (#2548).
+    on_exit(fn -> File.rm_rf(test_root) end)
 
     File.mkdir_p!(bin_dir)
     File.write!(active_path, "0\n")

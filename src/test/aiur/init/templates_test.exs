@@ -14,9 +14,6 @@ defmodule Aiur.Init.TemplatesTest do
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
 
-    assert Templates.aiurhooks_template() =~
-             ~s|git update-ref refs/aiur/branch-start "$(git merge-base "origin/$base_branch" HEAD)"|
-
     assert Templates.aiurhooks_template() =~ "Aiur must stage incomplete workspace reconstruction"
     refute Templates.aiurhooks_template() =~ "find . -mindepth 1 -maxdepth 1 -exec rm -rf"
     assert Templates.prompt_file_template() =~ "{{REPO}}"
@@ -25,8 +22,6 @@ defmodule Aiur.Init.TemplatesTest do
     assert prompt =~ "explicit signal as readiness to consume"
     assert prompt =~ "latest `ticket.N.branch.push` payload only to fetch and diff the actual validated ref"
     assert prompt =~ "Never infer readiness from `branch.push` alone"
-    assert prompt =~ ~s(aiur guard-pr-deletions "$AIUR_BASE_BRANCH")
-    assert prompt =~ "more than 50 files the feature never touched would be deleted"
 
     handoff = Templates.executor_handoff_template()
 

@@ -1,112 +1,126 @@
 # Aiur
 
-Aiur (AI Unit Runtime) runs autonomous coding agents against work in a
-project tracker. It gives each selected issue an isolated workspace, launches
-Codex or Claude to implement the work, and keeps the run moving through review
-and terminal states. A CLI and TUI show the active agents and provide live
-chat; Aiur also has a web dashboard for observing a run.
+> Aiur (AI Unit Runtime) runs a fleet of autonomous coding agents against
+> issues in GitHub or Linear. Each selected issue gets an isolated workspace
+> and a Codex or Claude agent that implements it and moves it through review.
+> Every run has an Executor: the human driving the `aiur` CLI, or the human's
+> own coding agent operating Aiur for them.
 
-Aiur is prototype software for trusted environments. It bypasses agent
-permission prompts. Each worker gets a dedicated workspace and checkout, but
-that separation is not by itself a security boundary; the configured backend
-sandbox policy determines whether an agent can access host resources outside
-its workspace. Aiur's intended workflow routes changes through the Executor's
-review gates and merge policy rather than having agents self-merge.
+## If a user sent you here
 
-## Operating model
+The user probably pasted "Let's run parallel agents with: https://aiur.team/".
+Walk them through these steps in order. Confirm each one before you move on,
+and ask before you run anything that installs software or changes their repo.
 
-Every Aiur run has an **Executor**: the operator of the run. That is either the
-human, driving the CLI directly, or the human's coding agent, operating Aiur on
-their behalf while they stay in conversation with it. Both modes are
-first-class and supported by design.
+### 1. Check prerequisites
 
-- **Human-driven.** A person runs `aiur`, uses the CLI/TUI to answer agents and
-  apply merge policy, and observes the run in the dashboard. The dashboard is
-  read-only by default; configured writable mode adds its supported controls.
-- **Agent-driven.** A coding agent (Claude Code, Codex) operates Aiur as the
-  Executor: launching, monitoring, recovering stuck agents, coordinating PR
-  review. The human converses with that agent in parallel. The repository
-  source repository bundles skills for this: `.claude/skills/aiur-intro` (what Aiur is, install,
-  choosing a mode), `.claude/skills/aiur-run` (operate a run end to end as its
-  Executor), and `.claude/skills/aiur-monitor` (status board and alert feed).
-  The npm CLI package does not install those repo-local coding-agent skills.
+- macOS or Linux (x64 or arm64).
+- Node.js 18 or newer.
+- `gh` (GitHub CLI), signed in once with `gh auth login`. Aiur falls back to
+  the `gh` keyring, so exporting `GITHUB_TOKEN` is optional.
+- `tmux`: the launcher runs each Aiur daemon in its own tmux session.
+- Codex and/or Claude Code installed, as the agent backend.
+- A repository whose issues Aiur will work. The credential needs Issues
+  read/write, and Contents and Pull requests write so workers can push and
+  open PRs.
+- Optional: `python3` (local GitHub budget broker) and
+  [opencode](https://opencode.ai) (live Executor chat panes).
 
-Mixing is common: the agent runs the code-to-PR stretch while operations needing
-production credentials stay in the human's own session.
-
-## What Aiur is not
-
-- Not a passive observer of agent sessions started elsewhere. Aiur owns the runs
-  it dispatches; it does not attach to an external Claude Code or Codex session.
-- Not agent-only. Humans can drive the CLI/TUI; the dashboard is read-only by
-  default and exposes supported controls when writable mode is configured.
-- Not a replacement for the user's assistant. It is typically its counterpart.
-- Not a hosted service. Aiur runs on the user's machine, tracker, and tokens.
-
-## What Aiur does
-
-- Polls GitHub Issues, Linear, or an in-memory tracker for work marked for Aiur.
-- Creates an isolated workspace for each selected issue.
-- Runs a coding agent with a repository-specific YAML config and prompt.
-- Coordinates multiple agents through dependency and lifecycle events.
-- Shows agent status, logs, progress, and Executor chat in the CLI and dashboard.
-
-## Install
-
-Install the published CLI globally with npm:
+### 2. Install
 
 ```bash
 npm install --global aiur-cli
 ```
 
-The CLI requires Node.js 18 or newer.
+`bun add -g aiur-cli`, `pnpm add -g aiur-cli` and `yarn global add aiur-cli`
+also work. The installed command is `aiur`.
 
-The installed command is `aiur`. Aiur also supports a local developer command
-(`aiurdev`) when running from a clone of the repository.
-
-## First-run setup
-
-Run the interactive setup wizard from the repository where Aiur should operate:
+### 3. Verify
 
 ```bash
-cd your-project
+aiur --version
+aiur help
+```
+
+`aiur --version` prints the release and dispatcher versions without starting
+anything. If they differ, update `aiur-cli`.
+
+### 4. Initialise the repository
+
+From the root of the user's repository:
+
+```bash
 aiur init
 ```
 
-The wizard creates `.aiur/config`, `.aiur/hooks`, and `.aiur/prompt.md` (or can
-use a global `~/.aiur/` configuration). It asks for the essentials:
+The wizard asks for:
 
-1. The config location (repo-local or global).
-2. A tracker and repository (GitHub or Linear).
-3. The agent backend (Codex and/or Claude) and permission mode.
-4. Agent limits, turn/time limits, polling, and optional prewarming.
-5. A `GITHUB_TOKEN` when using GitHub, so Aiur can read issues and manage its
-   lifecycle labels.
+1. Config location: repo-local `.aiur/config`, or global `~/.aiur/config`,
+   which any repository without local config then reuses.
+2. Tracker and repository (GitHub or Linear).
+3. Agent backend (Codex and/or Claude) and permission mode.
+4. Agent limits, turn and time limits, polling and optional prewarming.
+5. GitHub credentials (`GITHUB_TOKEN` by default; a `gh auth login` keyring
+   credential also works).
 
-Review the generated `.aiur/config` and edit the tracker, repository,
-credentials, workspace, and agent settings as needed. Configuration is YAML;
-Aiur discovers it in this order:
+It writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md` and `.aiur/alerts`,
+and creates the `agent:*` lifecycle labels. Re-running resumes from saved
+answers; `aiur init --force` recreates the generated config.
 
-```text
-./.aiur/config → ~/.aiur/config
-```
+Then:
 
-When setup is complete, add `agent:todo` to the issues that should be worked
-and start Aiur:
+- **Labels.** Add the `agent:todo` label to each issue that should be worked.
+  Issues without it are never dispatched.
+- **Dispatch trust.** The person who applies `agent:todo` must be an authorized
+  operator: listed in `.github/CODEOWNERS` (for example `* @<their-login>`) or
+  in `tracker.github.allowed_users` in the config. Without either, dispatch is
+  denied. Ask the user who the owner is; never guess one.
+- **Base branch.** Accepted prerequisites must already be on the configured
+  base branch.
 
-```bash
-aiur
-```
+Keep shared credentials in `~/.aiur/.env`, outside Git.
 
-For a headless run, use `aiur --bg`. Useful controls include `aiur status`,
-`aiur pause`, `aiur resume`, and `aiur stop`.
+### 5. Start a run with `/aiur-run`
 
-## Next steps
+`/aiur-run` is the Executor skill: the user's coding agent launches Aiur and
+operates it, monitoring agents, recovering stuck ones, coordinating PR review
+and applying merge policy, while the user keeps talking to it.
 
-- Read the full [Aiur README](https://github.com/aiur-team/aiur/blob/main/src/README.md)
-  for configuration, commands, tracker adapters, and troubleshooting.
-- Browse starter configs in the [workflow examples](https://github.com/aiur-team/aiur/tree/main/src/examples/workflows).
-- Install [opencode](https://opencode.ai) separately if you want Aiur's live
-  Executor chat panes.
-- Review the [project repository](https://github.com/aiur-team/aiur) and its
-  safety warning before using Aiur with production code or credentials.
+The npm package installs the CLI, not the skills. Get `aiur-intro`, `aiur-run`
+and `aiur-monitor` from `.claude/skills/` in
+https://github.com/aiur-team/aiur and install them through the agent's
+supported skill mechanism. Copy whole skill directories: `aiur-run` has
+`references/` and `scripts/`, and links to its sibling `aiur-intro` and
+`aiur-agent` skills. Then the user runs `/aiur-run` in the agent chat, or asks
+it to "run aiur".
+
+If the user wants to drive it themselves, they run `aiur` instead: it starts a
+foreground run with a terminal board and chat panes. `aiur --bg` starts a
+headless run. Use `aiur status`, `aiur pause`, `aiur resume` and `aiur stop` to
+control it.
+
+### 6. Get help
+
+- Quick start: https://aiur.team/docs/guide/quick-start
+- CLI reference: https://aiur.team/docs/reference/cli
+- Configuration reference: https://aiur.team/docs/reference/configuration
+- GitHub permissions: https://aiur.team/docs/apis/github
+- Skills: https://aiur.team/docs/skills
+- The Executor role: https://aiur.team/docs/concepts/executor
+- Issues and source: https://github.com/aiur-team/aiur
+
+## Safety
+
+Aiur is prototype software for trusted environments. It bypasses agent
+permission prompts. Each worker gets its own workspace and checkout, but that
+separation is not a security boundary: the configured backend sandbox policy
+decides whether an agent can reach host resources outside it. Changes are
+meant to go through the Executor's review gates and merge policy, not agent
+self-merge. Tell the user this before their first run.
+
+## What Aiur is not
+
+- Not a passive observer: Aiur owns the runs it dispatches and does not attach
+  to Claude Code or Codex sessions started elsewhere.
+- Not a replacement for the user's assistant: it is usually its counterpart.
+- Not a hosted service: Aiur runs on the user's machine, tracker and tokens.

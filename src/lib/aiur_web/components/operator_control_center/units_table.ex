@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   use Phoenix.Component
 
+  alias Aiur.AgentContextPresentation
   alias Aiur.BuildOrder.Bounded
   alias Aiur.CodingAgent
   alias Aiur.TrackerIdentity
@@ -80,7 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
                 </div>
                 <div class="ut-pill-row">
-                  <span :if={present?(model_label(row))} class="u-pill u-model">{model_label(row)}</span>
+                  <span :if={model = model_version(row)} class="u-pill u-model" title={model.id}>{model.label}</span>
                   <span class={["u-pill", "u-prio", priority_class(row)]}>{priority_label(row)}</span>
                 </div>
               </td>
@@ -111,6 +112,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <div class="ut-latest-meta mono num">
                   <span><span class="sr-only">Progress </span>{progress_pct(row.progress)}</span>
                   <span><span class="sr-only">Runtime </span>{runtime(row, @now)}</span>
+                </div>
+                <div class="ut-latest-meta ut-agent-context mono num">
+                  <span title="Aiur orchestration turns in this running attempt">Turns {turn_count(row)}</span>
+                  <span title="Current context occupancy, separate from cumulative token usage">Context {AgentContextPresentation.compact(row[:context_usage])}</span>
                 </div>
               </td>
 
@@ -153,6 +158,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     </div>
     """
   end
+
+  defp turn_count(%{turn_count: count}) when is_integer(count) and count >= 0, do: count
+  defp turn_count(_row), do: "—"
 
   attr(:token, :string, required: true)
   attr(:row, :map, required: true)
@@ -359,6 +367,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   end
 
   defp model_label(row), do: UnitsPresentation.model_label(row)
+  defp model_version(row), do: UnitsPresentation.model_version(row)
   defp priority_label(row), do: row |> UnitsPresentation.priority() |> elem(0)
   defp priority_class(row), do: row |> UnitsPresentation.priority() |> elem(1)
 
