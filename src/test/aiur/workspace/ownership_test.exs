@@ -1274,7 +1274,7 @@ defmodule Aiur.Workspace.OwnershipTest do
   end
 
   test "owner exit after expect_provider creates recoverable hold - regression for Khala#533" do
-    ticket = "ownership-regression-khala-533-#{System.unique_integer([:positive])}"
+    ticket = Integer.to_string(System.unique_integer([:positive]))
     {:ok, boot} = Agent.start_link(fn -> "boot-before" end)
     {:ok, telemetry} = Agent.start_link(fn -> [] end)
     {:ok, audit_mode} = Agent.start_link(fn -> :fail_once end)
@@ -1377,8 +1377,9 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
     assert {:ok, %{generation: ^generation}} = Store.get(ticket)
 
-    output = capture_io(fn -> AgentControlCLI.recover_workspace(ticket, generation) end)
-    assert output =~ "released workspace hold for #{ticket} generation #{generation}"
+    recovery_identifier = "org/repo##{ticket}"
+    output = capture_io(fn -> AgentControlCLI.recover_workspace(recovery_identifier, generation) end)
+    assert output =~ "released workspace hold for #{recovery_identifier} generation #{generation}"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
 
@@ -1452,6 +1453,20 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:ok, %{generation: generation, phase: :provisioning}} = Ownership.current(ticket)
     assert generation == lease.generation
     assert :ok = Ownership.release(lease)
+  end
+
+  test "workspace recovery reports an unmatched ticket as not found, not success" do
+    ticket = Integer.to_string(System.unique_integer([:positive]))
+    assert :not_found = Ownership.release_if_held_with_exit_proof(ticket, 7)
+
+    output = capture_io(fn -> AgentControlCLI.recover_workspace("org/repo##{ticket}", 7) end)
+    assert output =~ "not_found"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
+    refute output =~ "already released"
+
+    hash_identifier_output = capture_io(fn -> AgentControlCLI.recover_workspace("##{ticket}", 7) end)
+    assert hash_identifier_output =~ "not_found"
+    assert hash_identifier_output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 
   defp telemetry_events(telemetry), do: Agent.get(telemetry, &Enum.reverse/1)

@@ -1337,15 +1337,13 @@ defmodule Aiur.AgentControlCLI do
   @spec recover_workspace(String.t(), pos_integer()) :: :ok
   def recover_workspace(ticket, generation) when is_binary(ticket) and is_integer(generation) and generation > 0 do
     guarded("workspace-recover", fn ->
-      result = Ownership.release_if_held_with_exit_proof(ticket, generation)
+      ticket_key = workspace_recovery_ticket_key(ticket)
+      result = if ticket_key, do: Ownership.release_if_held_with_exit_proof(ticket_key, generation), else: {:error, :invalid_ticket_identifier}
       status = %{identifier: ticket, issue_id: ticket}
 
       case result do
         :ok ->
           IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
-
-        :already_released ->
-          IO.puts("aiur: workspace hold for #{ticket} is already released")
 
         :not_held_for_reaping ->
           print_failure(:workspace_recover, status, :not_held_for_reaping)
@@ -1357,8 +1355,15 @@ defmodule Aiur.AgentControlCLI do
           print_failure(:workspace_recover, status, reason)
       end
 
-      exit_marker(if result in [:ok, :already_released], do: 0, else: 1)
+      exit_marker(if result == :ok, do: 0, else: 1)
     end)
+  end
+
+  defp workspace_recovery_ticket_key(ticket) do
+    case Regex.run(~r/^(?:[^#]+\/[^#]+)?#?(\d+)$/, ticket) do
+      [_, issue_number] -> issue_number
+      _ -> nil
+    end
   end
 
   # The global pause switch — `aiur pause` / `aiur resume` with no targets. A

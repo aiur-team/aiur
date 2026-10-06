@@ -229,7 +229,7 @@ defmodule Aiur.Workspace.Ownership do
 
   Only releases the requested generation when the workspace is held with proof
   that the provider is definitely gone (e.g., host reboot after provider was
-  expected). Returns `:already_released` if no lease exists,
+  expected). Returns `:not_found` if no lease exists,
   `:not_held_for_reaping` if a lease is live, `:cannot_release_without_proof`
   if the hold lacks independent exit proof, or `:ok` on successful release.
 
@@ -238,7 +238,7 @@ defmodule Aiur.Workspace.Ownership do
   provider is gone.
   """
   @spec release_if_held_with_exit_proof(String.t(), pos_integer(), registry()) ::
-          :ok | :already_released | :not_held_for_reaping | {:error, term()}
+          :ok | :not_found | :not_held_for_reaping | {:error, term()}
   def release_if_held_with_exit_proof(ticket, generation, registry \\ @registry)
       when is_binary(ticket) and is_integer(generation) and generation > 0 do
     with {:ok, lease} <- current(ticket, registry),
@@ -251,7 +251,7 @@ defmodule Aiur.Workspace.Ownership do
         error -> error
       end
     else
-      :none -> :already_released
+      :none -> :not_found
       false -> {:error, :generation_mismatch}
       nil -> :not_held_for_reaping
       _ -> {:error, :cannot_release_without_proof}
