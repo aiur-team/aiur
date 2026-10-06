@@ -130,9 +130,20 @@ defmodule Aiur.Events.SubscriptionStore do
   end
 
   defp registry_lookup(identifier) do
-    Registry.lookup(@registry, identifier)
+    registry_lookup_fn = :persistent_term.get({__MODULE__, :registry_lookup_fn}, nil)
+
+    case registry_lookup_fn do
+      fun when is_function(fun, 2) -> fun.(@registry, identifier)
+      nil -> Registry.lookup(@registry, identifier)
+    end
   rescue
     ArgumentError -> []
+  end
+
+  @doc false
+  @spec set_registry_lookup_fn((atom(), String.t() -> [{pid(), term()}]) | nil) :: :ok
+  def set_registry_lookup_fn(fun) when is_function(fun, 2) or is_nil(fun) do
+    :persistent_term.put({__MODULE__, :registry_lookup_fn}, fun)
   end
 
   @doc """
@@ -200,9 +211,17 @@ defmodule Aiur.Events.SubscriptionStore do
 
   @spec snapshot(String.t()) :: snapshot() | :not_found
   def snapshot(identifier) when is_binary(identifier) do
-    case Registry.lookup(@registry, identifier) do
-      [{pid, _}] -> GenServer.call(pid, :snapshot)
-      [] -> :not_found
+    case registry_lookup(identifier) do
+      [{pid, _}] ->
+        try do
+          GenServer.call(pid, :snapshot)
+        catch
+          :exit, reason when reason in [:noproc, :normal, :shutdown] -> :not_found
+          :exit, {reason, {GenServer, :call, _args}} when reason in [:noproc, :normal, :shutdown] -> :not_found
+        end
+
+      [] ->
+        :not_found
     end
   end
 

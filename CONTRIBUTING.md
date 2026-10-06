@@ -13,7 +13,8 @@ narrow config-key check behind it; it says so in place.
 ## Executor issue intake
 
 The GitHub accounts and orgs listed by numeric id in
-[`.github/ALLOWED-CONTRIBUTORS`](.github/ALLOWED-CONTRIBUTORS) may submit issues
+`tracker.github.allowed_contributors`, or the fallback
+[`.github/ALLOWED-CONTRIBUTORS`](.github/ALLOWED-CONTRIBUTORS), may submit issues
 for the Aiur Executor to triage and queue when they fit the active run's
 scope. Each new issue they open wakes the Executor with an
 `issue.opened.allowed_contributor` event. The format, precedence, caching, and

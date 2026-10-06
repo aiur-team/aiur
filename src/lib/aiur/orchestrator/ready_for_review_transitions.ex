@@ -163,7 +163,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
   defp classify_from_history(ledger, key, observation, opts) do
     case Map.get(observation, :was_draft?) do
       true ->
-        announce(ledger, key, observation, opts)
+        announce(ledger, key, observation, Keyword.put(opts, :observation, "initial_sync"))
 
       false ->
         Map.put(ledger, key, :never_draft)
@@ -184,7 +184,7 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
       repo when is_binary(repo) and repo != "" ->
         Publisher.publish(
           "ticket.#{ticket}.pr.ready_for_review",
-          %{action: "ready_for_review", pr: %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}},
+          ready_payload(pr_number, head_sha, opts),
           issue_number: ticket,
           dedup_key: GithubKeys.pr_dedup_key(repo, pr_number, "ready_for_review", head_sha)
         )
@@ -193,6 +193,15 @@ defmodule Aiur.Orchestrator.ReadyForReviewTransitions do
 
       _no_repo ->
         ledger
+    end
+  end
+
+  defp ready_payload(pr_number, head_sha, opts) do
+    payload = %{action: "ready_for_review", pr: %{"number" => pr_number, "head" => %{"sha" => head_sha}, "draft" => false}}
+
+    case Keyword.get(opts, :observation) do
+      "initial_sync" -> Map.put(payload, :observation, "initial_sync")
+      _ -> payload
     end
   end
 
