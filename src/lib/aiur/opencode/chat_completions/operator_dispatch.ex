@@ -17,7 +17,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
   def dispatch_user_text(body, conn, identifier, raw_text) do
     with {:ok, sanitized} <- TurnRequest.validate_body(raw_text),
          {:ok, conn} <- Caller.authorize(conn) do
-      route_turn(conn, identifier, sanitized, Map.get(body, "stream", true))
+      route_turn(conn, identifier, sanitized, Map.get(body, "stream", true), TurnRequest.last_user_message_id(body))
     else
       {:error, :unauthorized} -> Sse.json(conn, 401, Caller.auth_failed_body())
       {:error, :body_too_large} -> Sse.json(conn, 400, %{error: "body too large"})
@@ -30,7 +30,8 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
   # next safe checkpoint (native CLI UX). Wait time is captured by
   # `Aiur.OperatorWaitLog`.
   @spec send_operator(String.t(), String.t(), String.t()) :: {:ok, term()} | {:error, term()}
-  def send_operator(identifier, text, turn_id) do
+  @spec send_operator(String.t(), String.t(), String.t(), String.t() | nil) :: {:ok, term()} | {:error, term()}
+  def send_operator(identifier, text, turn_id, message_id \\ nil) do
     normalized = OperatorText.normalize(text)
     log_operator_text(identifier, text, normalized)
 
@@ -44,16 +45,17 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
       operator_text ->
         AgentChat.send(identifier, operator_text,
           delivery_policy: :auto,
-          turn_id: turn_id
+          turn_id: turn_id,
+          message_id: message_id
         )
     end
   end
 
-  defp route_turn(conn, identifier, sanitized, true),
-    do: stream_turn(conn, identifier, sanitized)
+  defp route_turn(conn, identifier, sanitized, true, message_id),
+    do: stream_turn(conn, identifier, sanitized, message_id)
 
-  defp route_turn(conn, identifier, sanitized, _),
-    do: non_stream_turn(conn, identifier, sanitized)
+  defp route_turn(conn, identifier, sanitized, _, message_id),
+    do: non_stream_turn(conn, identifier, sanitized, message_id)
 
   # The Executor-message SSE no longer waits for the agent to reply. As
   # soon as `AgentChat.send` accepts the message (either delivers via
@@ -63,7 +65,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
   # per-turn marker bridge (`stream_codex_turn`) when the next codex
   # turn fires — no need to hold this SSE open on a bridge-local turn_id
   # pin that codex transcript events would never match.
-  defp stream_turn(conn, identifier, text) do
+  defp stream_turn(conn, identifier, text, message_id) do
     turn_id = Sse.random_id()
     completion_id = "chatcmpl-" <> Sse.random_id()
 
@@ -72,7 +74,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
       |> Plug.Conn.put_resp_header("content-type", "text/event-stream")
       |> Plug.Conn.send_chunked(200)
 
-    case send_operator(identifier, text, turn_id) do
+    case send_operator(identifier, text, turn_id, message_id) do
       {:ok, _request_id} ->
         Sse.chunk(conn, completion_id, nil, "stop")
 
@@ -81,10 +83,10 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorDispatch do
     end
   end
 
-  defp non_stream_turn(conn, identifier, text) do
+  defp non_stream_turn(conn, identifier, text, message_id) do
     turn_id = Sse.random_id()
 
-    case send_operator(identifier, text, turn_id) do
+    case send_operator(identifier, text, turn_id, message_id) do
       {:ok, _request_id} ->
         Sse.json(conn, 200, %{
           id: "chatcmpl-" <> Sse.random_id(),

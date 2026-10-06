@@ -1,0 +1,6 @@
+# Allowed contributors: accounts whose new issues wake the Aiur Executor for
+# priority triage. Numeric GitHub ids only; logins after '#' are comments.
+# Format, precedence and revocation: docs/allowed-contributors.md
+# This grants intake only — never dispatch, review, or merge authority.
+
+user 10091895  # ben-chain

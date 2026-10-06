@@ -6,6 +6,13 @@ defmodule Aiur.Opencode.ActiveTurnsTest do
   setup do
     # Application starts the GenServer; ensure a fresh-looking table by
     # using unique identifiers per test rather than truncating shared state.
+    #
+    # ActiveTurns is near the end of the `:rest_for_one` tree, so any earlier
+    # child's restart also restarts it. The supervisor call inside
+    # `ensure_runtime_children_running/0` returns only after a restart that is
+    # already in progress is complete.
+    assert Aiur.TestSupport.ensure_runtime_children_running() == :ok
+    assert is_pid(Process.whereis(ActiveTurns)), "Aiur.Opencode.ActiveTurns is not running"
     :ok
   end
 

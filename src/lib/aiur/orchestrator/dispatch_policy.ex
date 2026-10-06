@@ -1175,17 +1175,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  # Normalizes a state label to its bare, unprefixed lowercase form so both the
-  # GitHub ingestion shape (`"todo"`, prefix already stripped) and any
-  # caller-provided `"agent:todo"` resolve identically.
-  defp normalize_state_label(label) when is_binary(label) do
+  @doc """
+  Normalizes a state label to its bare, unprefixed lowercase form so both the
+  GitHub ingestion shape (`"todo"`, prefix already stripped) and any
+  caller-provided `"agent:todo"` resolve identically.
+
+  Public so callers that reason about the same label set as
+  `resolve_state_labels/1` — the provenance-aware heal in
+  `IssueSync.reconcile_contradictory_state_labels/3` (#2805) — compare labels
+  through the identical normalization instead of a near-copy of it.
+  """
+  @spec normalize_state_label(term()) :: String.t()
+  def normalize_state_label(label) when is_binary(label) do
     label
     |> String.trim()
     |> String.replace_prefix("agent:", "")
     |> String.downcase()
   end
 
-  defp normalize_state_label(_label), do: ""
+  def normalize_state_label(_label), do: ""
 
   @spec terminal_state_set() :: MapSet.t()
   def terminal_state_set do

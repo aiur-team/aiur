@@ -1041,8 +1041,24 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
+  # `:unauthorized` is in this list because it is the one decline an operator
+  # cannot otherwise see. A dispatch-authorization read that is *deferred* (a
+  # local GitHub budget hold, a rate limit, a transport fault on the timeline
+  # fetch) leaves `dispatch_authorized?: false` with a `Logger.warning` and
+  # nothing else, and the catch-all clause below then actively cleared any
+  # prior decline. A ticket relabelled `agent:rework` while the core budget is
+  # held therefore sat out poll after poll with free slots, no alert, and no
+  # row on the status board — the operator saw only silence. Recording the
+  # decline makes the hold legible; it does not change whether the ticket
+  # dispatches.
   defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
-       when reason in [:state_capacity, :worker_capacity, :claimed_without_runtime, :blocked_on_decision] do
+       when reason in [
+              :state_capacity,
+              :worker_capacity,
+              :claimed_without_runtime,
+              :blocked_on_decision,
+              :unauthorized
+            ] do
     if Slots.available_slots(state) > 0 do
       record_dispatch_decline(
         state,

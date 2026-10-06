@@ -15,6 +15,8 @@ defmodule Aiur.ProviderMeters.Input do
   @window_names %{
     primary: "Primary",
     secondary: "Secondary",
+    current: "Current",
+    weekly: "Weekly",
     concurrency: "Local concurrency",
     credits: "Credits",
     spend_control: "Spend control",
@@ -213,7 +215,7 @@ defmodule Aiur.ProviderMeters.Input do
 
         {:ok, number}
         when is_number(number) and number >= 0 and number <= @max_numeric and
-               (key not in [:used_percent, :remaining_percent] or number <= 100) ->
+               (key != :remaining_percent or number <= 100) ->
           {:cont, {:ok, Map.put(facts, key, number)}}
 
         _ ->

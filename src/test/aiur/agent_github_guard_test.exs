@@ -5,7 +5,7 @@ defmodule Aiur.AgentGitHubGuardTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentGitHubGuard
-  alias Aiur.GitHub.{AgentCache, AgentCacheMetrics, ResourceStore}
+  alias Aiur.GitHub.{AgentCache, ResourceStore}
   alias Aiur.GitHub.Budget
 
   setup %{tmp_dir: root} do
@@ -4433,11 +4433,6 @@ defmodule Aiur.AgentGitHubGuardTest do
       assert Enum.count(rows, &match?([_at, _consumer, "miss", "pr", "1670", "absent"], &1)) == 1
       assert Enum.count(rows, &match?([_at, _consumer, "store", "pr", "1670"], &1)) == 1
       assert Enum.count(rows, &match?([_at, _consumer, "hit", "pr", "1670"], &1)) == 9
-
-      metrics = AgentCacheMetrics.snapshot(paths: [events])
-      assert metrics.hits == 9
-      assert metrics.misses == 1
-      assert metrics.hit_ratio == 0.9
     end
 
     test "multiple rotations retain one complete measurement window", context do
@@ -4456,9 +4451,12 @@ defmodule Aiur.AgentGitHubGuardTest do
       archives = Path.wildcard(events <> ".*")
       assert length(archives) == 2
 
-      metrics = AgentCacheMetrics.snapshot(paths: [events | archives])
-      assert metrics.sources_read == 3
-      assert metrics.hits > 50_000
+      assert Enum.sum(
+               Enum.map([events | archives], fn path ->
+                 path |> File.read!() |> :binary.matches("\thit\t") |> length()
+               end)
+             ) > 50_000
+
       assert upstream_calls(context) == 1
     end
 

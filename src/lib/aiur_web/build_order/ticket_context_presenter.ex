@@ -623,7 +623,9 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp document_href(_value), do: :error
 
   defp unavailable_reason("Pull request", :not_opened), do: "Pull request has not been opened."
+  defp unavailable_reason("Chat", :not_opened), do: "Chat has not started for this ticket."
   defp unavailable_reason("Pull request", "Pull request has not been opened."), do: "Pull request has not been opened."
+  defp unavailable_reason("Chat", "Chat has not started for this ticket."), do: "Chat has not started for this ticket."
   defp unavailable_reason(label, :missing), do: destination_reason(label, "missing")
   defp unavailable_reason(label, :stale), do: destination_reason(label, "stale")
   defp unavailable_reason(label, :unauthorized), do: destination_reason(label, "unauthorized")

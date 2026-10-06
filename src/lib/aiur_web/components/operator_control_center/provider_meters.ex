@@ -71,7 +71,11 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
           <dt>Account generation</dt>
           <dd class="mono">{@card.identity.generation_label}</dd>
         </div>
+        <div :if={@card.identity.state == :unverified}>
+          <dt>Observation scope</dt><dd>Current host · account unverified</dd>
+        </div>
         <div><dt>Health</dt><dd>{@card.health.label}</dd></div>
+        <div :if={@card.health.age_label}><dt>Observation age</dt><dd>{@card.health.age_label}</dd></div>
         <div :if={@card.observed_at}>
           <dt>Last observation</dt>
           <dd><.timestamp value={@card.observed_at} time_zone={@time_zone} /></dd>

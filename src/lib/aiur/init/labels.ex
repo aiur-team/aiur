@@ -23,7 +23,6 @@ defmodule Aiur.Init.Labels do
          existing = Enum.uniq(existing ++ required),
          :ok <- maybe_create_complexity_labels(io, deps, tracker, existing),
          :ok <- maybe_create_model_labels(io, deps, tracker, existing, kinds),
-         :ok <- maybe_offer_discovered_model_labels(io, deps, tracker, existing, kinds),
          :ok <- maybe_create_effort_labels(io, deps, tracker, existing) do
       maybe_create_remote_label(io, deps, tracker, existing, kinds)
     end
@@ -82,10 +81,16 @@ defmodule Aiur.Init.Labels do
     end
   end
 
-  # Stage 3 — optional model-override labels for the chosen backends (the remote
-  # flag is its own stage). These override complexity-routed model choices.
+  # Stage 3 — optional model labels for the chosen backends (the remote flag is
+  # its own stage): `model:<backend>` plus a bare `model:<family>` for each
+  # family the installed CLIs report, so a family released after this aiur was
+  # built is offered with no code change. Version-specific labels are never
+  # offered, and existing ones are left alone — they keep working as pins.
+  # When a CLI can't answer (absent, offline, unreadable reply) its registry
+  # list stands in, and `init` carries on.
   defp maybe_create_model_labels(io, deps, tracker, existing, kinds) do
-    labels = Labels.model_labels(kinds)
+    discovered = discovered_models(deps, kinds)
+    labels = Labels.model_labels(kinds, &Map.get(discovered, &1, CodingAgent.models(&1)))
 
     case labels -- existing do
       [] ->
@@ -95,44 +100,24 @@ defmodule Aiur.Init.Labels do
       missing ->
         io.puts.("\nNext you can create model labels to route specific issues to different models:")
         print_label_list(io, labels)
-        Format.print_hint(io, "Optional: These will override complexity label model choices.")
+        Format.print_hint(io, "Optional: These override complexity label model choices. Any model your installed agent CLIs list also works as `model:<name>` without a label being created first.")
         create_or_skip(io, deps, tracker, labels, missing, "Create the model labels?", true)
     end
   end
 
-  # Stage 3a — model tags for models the installed CLIs advertise but this build
-  # of aiur has no tag for yet. Asking each backend's own CLI is what stops the
-  # model list from being hand-maintained: a model released after this aiur was
-  # built shows up here with no code change. Always an offer, never a silent
-  # creation, and silent in the other direction too — when discovery can't
-  # answer (CLI absent, offline, unreadable reply) `init` continues without it.
-  defp maybe_offer_discovered_model_labels(io, deps, tracker, existing, kinds) do
-    case discovered_model_labels(deps, kinds) -- existing do
-      [] ->
-        :ok
-
-      missing ->
-        io.puts.("\nYour installed agent CLIs report models aiur has no tags for yet:")
-        print_label_list(io, missing)
-        Format.print_hint(io, "Optional: discovered from the installed CLIs, so these are current even if this aiur build predates them.")
-        create_or_skip(io, deps, tracker, missing, missing, "Create the newly discovered model labels?", true)
-    end
-  end
-
-  # One probe per backend family — `claude` and `claude-repl` share a CLI, so
-  # the answer is reused rather than paying a second app-server start. Which
-  # of those models is "new" is still decided per backend, against that
-  # backend's own registry entry.
-  defp discovered_model_labels(deps, kinds) do
-    {labels, _cache} =
+  # One probe per CLI — `claude` and `claude-repl` share one — with the answer
+  # reused for every backend that reads it. A backend whose CLI could not
+  # answer is absent from the map.
+  defp discovered_models(deps, kinds) do
+    {found, _cache} =
       Enum.flat_map_reduce(kinds, %{}, fn backend, cache ->
-        {discovered, cache} = discover_models(deps, backend, cache)
-        unknown = Enum.reject(discovered, &CodingAgent.known_model?(backend, &1))
-
-        {Enum.map(unknown, &"model:#{backend}-#{&1}"), cache}
+        case discover_models(deps, backend, cache) do
+          {{:ok, models}, cache} -> {[{backend, models}], cache}
+          {:error, cache} -> {[], cache}
+        end
       end)
 
-    Enum.uniq(labels)
+    Map.new(found)
   end
 
   defp discover_models(deps, backend, cache) do
@@ -143,13 +128,13 @@ defmodule Aiur.Init.Labels do
         {cached, cache}
 
       :error ->
-        discovered =
+        answer =
           case deps.discover_models.(backend) do
-            {:ok, models} -> models
-            {:error, _reason} -> []
+            {:ok, models} -> {:ok, models}
+            {:error, _reason} -> :error
           end
 
-        {discovered, Map.put(cache, family, discovered)}
+        {answer, Map.put(cache, family, answer)}
     end
   end
 

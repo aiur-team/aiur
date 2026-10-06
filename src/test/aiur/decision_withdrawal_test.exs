@@ -488,6 +488,7 @@ defmodule Aiur.DecisionWithdrawalTest do
     previous_log_file = Application.get_env(:aiur, :log_file)
     log_root = Path.join(dir, "withdrawal-alerts")
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
       if previous_log_file,

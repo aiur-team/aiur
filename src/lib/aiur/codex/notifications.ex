@@ -62,7 +62,7 @@ defmodule Aiur.Codex.Notifications do
       NotificationPolicy.codex_quota_exhausted?(method, payload) ->
         Logger.warning("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; codex account usage quota exhausted — pausing agent instead of burning retries")
         _ = TurnState.retire_provider_work(state)
-        {:paused, NotificationPolicy.usage_limit_pause(payload, method)}
+        {:paused, NotificationPolicy.usage_limit_pause(payload, method, NotificationPolicy.reset_opts(session))}
 
       NotificationPolicy.codex_error_method?(method) and NotificationPolicy.unretryable_codex_error?(payload) ->
         Logger.info("Codex notification: #{inspect(method)} payload=#{inspect(payload)}; willRetry=false, ending turn as unretryable")

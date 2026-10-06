@@ -214,7 +214,7 @@ defmodule Aiur.ProviderMeterProjectionTest do
   end
 
   test "exposes its provider set and backend" do
-    assert ProviderMeterProjection.providers() == [:codex, :claude, :kimi, :deepseek, :openrouter, :fake]
+    assert ProviderMeterProjection.providers() == [:codex, :claude, :kimi, :deepseek, :openrouter, :muse, :fake]
     assert ProviderMeterProjection.backend() == :app_server
   end
 

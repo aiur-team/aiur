@@ -1,15 +1,12 @@
 defmodule Aiur.GitHub.BudgetLedger do
   @moduledoc """
   A read-only projection of the broker's admission ledger
-  (`~/.aiur/github-budget/budget.sqlite3`), for the GitHub cache page.
+  (`~/.aiur/github-budget/budget.sqlite3`).
 
   `Aiur.GitHub.Budget` talks to the broker through its Python subprocess; this
   module reads the same SQLite database directly and never writes. Every figure
   here is a byproduct of requests the daemon and the agents were already
   making, so reading it costs nothing and — critically — *creates* no admission.
-  That last property is what the page's zero-fetch proof extends to: opening
-  and refreshing the cache page must leave the admission count untouched, and
-  this module is how the page counts admissions without spending one.
 
   ## What an admission is
 
@@ -20,9 +17,8 @@ defmodule Aiur.GitHub.BudgetLedger do
   budget. `billable = 1` is spend that counts.
 
   An admission is a **request**, never a GraphQL *point*. The quota ranking
-  (`Aiur.GitHub.QuotaUsage`) counts points; the ledger counts requests. The two
-  disagree by construction, and the page says so rather than presenting either
-  as the whole story.
+  meter counts points; the ledger counts requests. The two disagree by
+  construction.
 
   ## Families are the broker's, and carry its caveat
 
@@ -30,8 +26,7 @@ defmodule Aiur.GitHub.BudgetLedger do
   that is not literally `/graphql` as core and — for the agent `gh` wrapper —
   names families like `pulls`, `issues`, `search` and `actions`. Those commands
   are GraphQL on the wire, so until #2297 the family column mis-buckets a large
-  share of the agent's spend. The page labels that caveat next to the family
-  table rather than pretending the families are budgets.
+  share of the agent's spend. Families should not be treated as budgets.
 
   ## Failing open
 

@@ -32,6 +32,44 @@ defmodule Aiur.Opencode.BridgeTest do
     assert Jason.decode!(conn.resp_body)["error"] == "auth_failed"
   end
 
+  test "turn markers require a bearer token before opening an agent stream" do
+    conn =
+      :post
+      |> conn(
+        "/v1/chat/completions",
+        Jason.encode!(%{
+          model: "issue-MT-1",
+          messages: [%{role: "user", content: "__aiur_turn__:private-turn"}],
+          stream: true
+        })
+      )
+      |> put_req_header("content-type", "application/json")
+      |> Bridge.call(@opts)
+
+    assert conn.status == 401
+    assert Jason.decode!(conn.resp_body)["error"] == "auth_failed"
+  end
+
+  test "replay and nudge markers require a bearer token" do
+    for marker <- ["__aiur_stream__:msg_PRIVATE", "__aiur_stream__:nudge:1"] do
+      conn =
+        :post
+        |> conn(
+          "/v1/chat/completions",
+          Jason.encode!(%{
+            model: "issue-MT-1",
+            messages: [%{role: "user", content: marker}],
+            stream: true
+          })
+        )
+        |> put_req_header("content-type", "application/json")
+        |> Bridge.call(@opts)
+
+      assert conn.status == 401
+      assert Jason.decode!(conn.resp_body)["error"] == "auth_failed"
+    end
+  end
+
   test "chat completions rejects invalid model names before auth" do
     conn =
       :post
