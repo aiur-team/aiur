@@ -52,17 +52,13 @@ defmodule Aiur.Orchestrator.ReviewFreshnessTest do
     test "skips an APPROVED pull request even when the comment is newer than the head" do
       # The #1747 variant: reviewDecision was APPROVED and the ticket still
       # burned two no-op rework turns.
-      event =
-        event("2026-08-10T06:00:00Z", %{"review_decision" => "APPROVED", "head_committed_at" => @head_committed_at})
-        |> Map.update!(:comment, &Map.put(&1, "state", "COMMENTED"))
+      event = event("2026-08-10T06:00:00Z", %{"review_decision" => "APPROVED", "head_committed_at" => @head_committed_at})
 
       assert ReviewFreshness.rework_skip_reason(event) == :approved_pull_request
     end
 
     test "skips an APPROVED pull request with no head timestamp at all" do
-      event =
-        event("2026-08-10T06:00:00Z", %{"review_decision" => "APPROVED"})
-        |> Map.update!(:comment, &Map.put(&1, "state", "COMMENTED"))
+      event = event("2026-08-10T06:00:00Z", %{"review_decision" => "APPROVED"})
 
       assert ReviewFreshness.rework_skip_reason(event) == :approved_pull_request
     end
@@ -107,9 +103,7 @@ defmodule Aiur.Orchestrator.ReviewFreshnessTest do
     end
 
     test "reads a lowercase review decision" do
-      event =
-        event("2026-08-10T06:00:00Z", %{"review_decision" => "approved"})
-        |> Map.update!(:comment, &Map.put(&1, "state", "COMMENTED"))
+      event = event("2026-08-10T06:00:00Z", %{"review_decision" => "approved"})
 
       assert ReviewFreshness.rework_skip_reason(event) == :approved_pull_request
     end

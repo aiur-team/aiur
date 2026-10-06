@@ -20,7 +20,7 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentQueueStore, Issue}
-  alias Aiur.Orchestrator.{CommentWake, State}
+  alias Aiur.Orchestrator.{CommentWake, EventTopics, State}
 
   @issue_number "2337"
 
@@ -97,11 +97,14 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
 
     state = base_state()
     issue = human_review_issue()
-    event = changes_requested_review_event(issue)
+
+    event =
+      changes_requested_review_event(issue)
+      |> Map.put(:topic, "ticket.#{@issue_number}.pr.review_comment")
 
     log =
       capture_log(fn ->
-        CommentWake.maybe_transition_idle_issue_to_rework(state, @issue_number, :pr_review, event, 1)
+        EventTopics.route(state, event)
       end)
 
     # The rework write is a real tracker mutation, not just a routed event.
@@ -109,33 +112,8 @@ defmodule Aiur.Orchestrator.ReworkReviewTransitionTest do
     refute log =~ "ignored for idle issue"
     refute log =~ ":no_open_pr"
     refute log =~ ":stale_review"
-  end
-
-  test "a fresh CHANGES_REQUESTED review routes despite aggregate APPROVED reviewDecision" do
-    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory")
-
-    Application.put_env(:aiur, :memory_tracker_issues, [human_review_issue()])
-    Application.put_env(:aiur, :memory_tracker_recipient, self())
-
-    state = base_state()
-    issue = human_review_issue()
-
-    event =
-      changes_requested_review_event(issue)
-      |> Map.put(:comment, %{
-        "id" => 5_424_650_936,
-        "state" => "CHANGES_REQUESTED",
-        "body" => "please fix",
-        "submitted_at" => "2026-08-22T21:30:00Z"
-      })
-      |> Map.put(:pull_request, %{
-        "review_decision" => "APPROVED",
-        "head_committed_at" => "2026-08-22T20:00:00Z"
-      })
-
-    CommentWake.maybe_transition_idle_issue_to_rework(state, @issue_number, :pr_review, event, 1)
-
-    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 1_000
+    assert log =~ "trusted changes-requested comment wake entered: ticket=#{@issue_number}"
+    assert log =~ "comment_id=nil route=idle_candidate"
   end
 
   test "an APPROVED review does not move a human-review ticket to rework" do

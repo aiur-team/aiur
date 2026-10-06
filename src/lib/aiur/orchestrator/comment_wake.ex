@@ -39,7 +39,10 @@ defmodule Aiur.Orchestrator.CommentWake do
           pos_integer()
         ) :: State.t()
   def maybe_reactivate_on_comment(%State{} = state, issue_number, source, event, attempt \\ 1) do
-    case State.find_running_by_identifier(state.running, issue_number) do
+    running_entry = State.find_running_by_identifier(state.running, to_string(issue_number))
+    log_review_wake_entry(issue_number, event, running_entry)
+
+    case running_entry do
       # An already-running entry (PR-anchored or legacy) resumes its SAME
       # session — a follow-up comment on a PR-anchored agent's PR resolves here
       # (identifier == to_string(pr#)) and never re-dispatches.
@@ -48,6 +51,26 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       _ ->
         PrAnchored.maybe_route_pr_anchored_or_legacy(state, issue_number, source, event, attempt)
+    end
+  end
+
+  # `comment_received` is recorded when a GitHub event is published, before
+  # Exchange delivery. Keep a correlated, body-free breadcrumb at the
+  # orchestrator entry point so a published review can be distinguished from
+  # one that actually reached the running-entry lookup (#2817).
+  defp log_review_wake_entry(issue_number, event, running_entry) do
+    if trusted_comment_event?(event) and changes_requested_review?(event) do
+      comment = Map.get(event, :comment) || Map.get(event, "comment") || %{}
+      comment_id = if is_map(comment), do: Map.get(comment, :id) || Map.get(comment, "id")
+      route = if is_map(running_entry), do: "running_entry", else: "idle_candidate"
+      control_status = get_in(running_entry || %{}, [:control, :status])
+      attempt_id = Map.get(running_entry || %{}, :telemetry_attempt_id)
+
+      Logger.info(
+        "trusted changes-requested comment wake entered: ticket=#{issue_number} " <>
+          "comment_id=#{inspect(comment_id)} route=#{route} " <>
+          "running_status=#{inspect(control_status)} attempt_id=#{inspect(attempt_id)}"
+      )
     end
   end
 

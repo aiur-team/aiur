@@ -163,6 +163,29 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
   end
 
+  test "records trusted formal review arrival with the running-entry shape" do
+    issue = human_review_issue()
+
+    event =
+      changes_requested_review_event(issue, %{})
+      |> Map.update!(:comment, &Map.put(&1, "body", "private reviewer text"))
+
+    log =
+      capture_log(fn ->
+        CommentWake.maybe_reactivate_on_comment(
+          base_state(completed_running_entry()),
+          @issue_number,
+          :pr_review,
+          event
+        )
+      end)
+
+    assert log =~
+             "trusted changes-requested comment wake entered: ticket=#{@issue_number} comment_id=5424650936 route=running_entry running_status=:completed attempt_id=\"ticket-2814:test\""
+
+    refute log =~ "private reviewer text"
+  end
+
   # Future guard: this trust-gate behavior already passes on main; retain it to
   # protect formal review routing across the CI-wait transition.
   test "future guard: a trusted changes-requested review moves a ci-wait ticket to rework" do

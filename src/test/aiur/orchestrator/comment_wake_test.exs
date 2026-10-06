@@ -258,6 +258,36 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert log =~ ":parked"
     end
 
+    test "records a body-free lifecycle point when an idle comment is skipped as parked" do
+      test_pid = self()
+
+      issue = %Issue{
+        id: "1944",
+        identifier: "1944",
+        title: "t",
+        labels: ["agent:todo", "agent:parked"],
+        state: "todo",
+        parked: true
+      }
+
+      event =
+        parked_event(issue)
+        |> Map.put(:comment, %{"id" => 1944, "body" => "private review text"})
+        |> Map.put(:lifecycle_recorder, fn kind, attributes, _opts ->
+          send(test_pid, {:lifecycle, kind, attributes})
+        end)
+
+      CommentWake.maybe_transition_idle_issue_to_rework(base_state(), "1944", :pr_review, event, 1)
+
+      assert_receive {:lifecycle, :lifecycle, attributes}, 1_000
+      assert attributes.event == "comment_wake_skipped"
+      assert attributes.outcome == "skipped"
+      assert attributes.reason_class == "parked"
+      assert attributes.source_id == "comment:1944"
+      refute Map.has_key?(attributes, :body)
+      refute Map.has_key?(attributes, :comment_body)
+    end
+
     test "uses the polled issue view when present instead of fetching" do
       state = %{base_state() | last_polled_issues: %{"1923" => labelled_issue("1923", "ci-wait")}}
 

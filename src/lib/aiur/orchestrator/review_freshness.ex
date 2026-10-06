@@ -13,9 +13,8 @@ defmodule Aiur.Orchestrator.ReviewFreshness do
   Two facts break the loop, and both are carried on the published comment event
   by `Aiur.Events.GithubCommentsPoller` so this stays a pure function:
 
-    * `review_decision` — an `APPROVED` pull request suppresses sticky or
-      non-review signals, but cannot erase an explicit CHANGES_REQUESTED
-      submission currently being routed.
+    * `review_decision` — an `APPROVED` pull request is never rework, whatever
+      an older review said.
     * `head_committed_at` — a review submitted before the current head commit
       was authored is, by construction, not a judgement about that head.
 
@@ -38,7 +37,7 @@ defmodule Aiur.Orchestrator.ReviewFreshness do
     context = pull_request_context(event)
 
     cond do
-      approved?(context) and not changes_requested_review?(event) -> :approved_pull_request
+      approved?(context) -> :approved_pull_request
       stale?(event, context) -> :stale_review
       true -> nil
     end
@@ -49,19 +48,6 @@ defmodule Aiur.Orchestrator.ReviewFreshness do
   defp approved?(context) do
     case fetch(context, "review_decision") do
       decision when is_binary(decision) -> String.upcase(decision) == @approved_decision
-      _other -> false
-    end
-  end
-
-  # A live formal request-changes submission is a direct judgement, while
-  # `reviewDecision` is only the PR's aggregate state and may reflect a
-  # different review. Do not let an aggregate approval erase the review event
-  # currently being routed. Head freshness still applies below.
-  defp changes_requested_review?(event) do
-    comment = fetch(event, "comment") || %{}
-
-    case fetch(comment, "state") do
-      state when is_binary(state) -> String.upcase(state) == "CHANGES_REQUESTED"
       _other -> false
     end
   end
