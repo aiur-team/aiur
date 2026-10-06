@@ -21,6 +21,28 @@ defmodule Aiur.Orchestrator.CapacityBindingTest do
     queued_demand?: true
   }
 
+  test "stale dispatch polls explain free slots even with ready work" do
+    capacity = Map.merge(@full, %{occupied: 0, available: 2})
+    polling = %{last_dispatch_poll_age_ms: 481_000, effective_interval_ms: 240_000}
+    assert {:stale_poll, %{age_seconds: 481, freshness: :stale}} = CapacityBinding.binding(capacity, polling)
+    assert CapacityBinding.short_label(CapacityBinding.binding(capacity, polling)) == "dispatch poll stale (481s ago)"
+    assert {:stale_poll, _} = CapacityBinding.binding(%{capacity | queued_demand?: false}, polling)
+    hold = %{held?: true, reason: :tracker_preflight, detail: "shared_budget (core)"}
+    assert {:tracker_preflight, ^hold} = CapacityBinding.binding(Map.put(capacity, :dispatch_hold, hold), polling)
+
+    assert {:awaiting_dispatch, _} = CapacityBinding.binding(capacity, %{polling | last_dispatch_poll_age_ms: 480_000})
+    assert {:awaiting_dispatch, _} = CapacityBinding.binding(capacity, %{polling | effective_interval_ms: 600_000})
+  end
+
+  test "dispatch poll freshness distinguishes never polled and unavailable" do
+    empty = Map.merge(@full, %{occupied: 0, available: 2, queued_demand?: false})
+    assert {:has_not_polled, _} = CapacityBinding.binding(empty, %{last_dispatch_poll_age_ms: nil})
+    assert %{age_seconds: nil, freshness: :never_polled} = CapacityBinding.dispatch_poll_status(%{last_dispatch_poll_age_ms: nil})
+    assert %{age_seconds: nil, freshness: :unavailable} = CapacityBinding.dispatch_poll_status(%{})
+    assert %{age_seconds: 20, freshness: :unavailable} = CapacityBinding.dispatch_poll_status(%{last_dispatch_poll_age_ms: 20_000})
+    assert %{age_seconds: 20, freshness: :fresh} = CapacityBinding.dispatch_poll_status(%{last_dispatch_poll_age_ms: 20_000, poll_interval_ms: 30_000})
+  end
+
   test "a persisted admission hold is the only thing allowed to name an admission signal" do
     hold = %{signal: :load, measured: 9.5, threshold: 4.0}
 
@@ -141,10 +163,10 @@ defmodule Aiur.Orchestrator.CapacityBindingTest do
   test "an unconstrained fleet names where its effective ceiling came from" do
     free = %{@full | occupied: 0, available: 2}
 
-    assert CapacityBinding.binding(free) == {:none, %{ceiling: "config max_concurrent_agents"}}
+    assert CapacityBinding.binding(free) == {:awaiting_dispatch, %{ceiling: "config max_concurrent_agents"}}
 
     assert CapacityBinding.binding(%{free | session_override?: true}) ==
-             {:none, %{ceiling: "session max_concurrent_agents"}}
+             {:awaiting_dispatch, %{ceiling: "session max_concurrent_agents"}}
   end
 
   test "an unreadable capacity map binds nothing" do
