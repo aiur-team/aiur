@@ -656,6 +656,40 @@ The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` refer
 
 Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota and next-invoice amount due from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/concepts/units#api-meters) for what each figure does and does not measure.
 
+## compaction
+
+Optional synchronous Codex-native thread compaction immediately before the runner hands a `human-review` ticket back to the orchestrator. Codex uses its live app-server `thread/compact/start` method. The original rollout and thread resume handle are retained. Other providers are unsupported. Threshold mode uses Aiur's measured cumulative agent token usage at handoff; Codex does not receive a threshold parameter.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `compaction.enabled` | boolean | false | Master switch for compaction; must be true to enable any compaction features. |
+| `compaction.backends` | array | [] | Must contain only `codex`; every other provider is rejected by config validation. |
+| `compaction.manual_approval` | boolean | false | Explicit opt-in to compact on terminal handoff. |
+| `compaction.auto_trigger.enabled` | boolean | false | Opt in to compaction when cumulative agent token usage reaches the configured threshold at human-review handoff. |
+| `compaction.auto_trigger.token_threshold` | integer | 50000 | Minimum cumulative agent tokens required for threshold mode (must be at least 1000). |
+| `compaction.timeout_ms` | integer | 30000 | Timeout in milliseconds for compaction API calls. |
+
+Codex reports completion with its `thread/compacted` notification. Failure does not block normal handoff. Aiur records the result in daemon-owned state and will not retry a completed or failed attempt on that thread. A daemon restart resumes the same Codex thread from its original rollout.
+
+**Example: manual-only compaction**
+```yaml
+compaction:
+  enabled: true
+  backends: [codex]
+  manual_approval: true
+  timeout_ms: 30000
+```
+
+**Example: threshold opt-in**
+```yaml
+compaction:
+  enabled: true
+  backends: [codex]
+  auto_trigger:
+    enabled: true
+    token_threshold: 50000
+```
+
 ## observability
 
 | Key | Type | Default | Controls |

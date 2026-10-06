@@ -340,10 +340,134 @@ defmodule Aiur.AgentRunner.TurnLoop do
       {:done, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive")
 
-        return_completed(turn_context, refreshed_issue)
+        compact_for_review_handoff(turn_context, app_session, refreshed_issue)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp compact_for_review_handoff(turn_context, %{backend: "codex"} = app_session, issue) do
+    compaction_config = Aiur.AgentCompaction.Config.settings()
+    agent_total_tokens = token_count_for_compaction(turn_context, issue, compaction_config)
+
+    if issue.state == "human-review" and Aiur.AgentCompaction.Config.should_compact_at_handoff?(compaction_config, agent_total_tokens) and
+         Aiur.AgentCompaction.Orchestrator.supported_backend?("codex") do
+      prior =
+        case Aiur.AgentCompaction.Store.load(issue.identifier) do
+          {:ok, state} ->
+            state
+
+          {:error, reason} ->
+            Logger.warning("Could not read prior Codex compaction state for #{issue.identifier}; skipping compaction: #{inspect(reason)}")
+            %{"thread_id" => app_session.thread_id, "status" => "unreadable"}
+        end
+
+      if prior["status"] == "unreadable" or Aiur.AgentCompaction.Orchestrator.already_attempted_for_thread?(prior, app_session.thread_id) do
+        Logger.info("Codex compaction skipped for unchanged waiting session identifier=#{issue.identifier}")
+        return_completed(turn_context, issue)
+      else
+        case Aiur.AgentCompaction.Store.save(issue.identifier, %{"thread_id" => app_session.thread_id, "status" => "pending"}) do
+          :ok ->
+            case Aiur.AgentCompaction.Orchestrator.trigger_compaction(
+                   app_session,
+                   "codex",
+                   turn_context.turn_number,
+                   on_status: compaction_status_callback(turn_context, app_session, issue)
+                 ) do
+              {:ok, :completed, state} ->
+                _ = Aiur.AgentCompaction.Store.save(issue.identifier, %{"thread_id" => app_session.thread_id, "compacted_thread_id" => state.compacted_transcript_ref, "status" => "completed"})
+                Logger.info("Codex compaction completed before review handoff identifier=#{issue.identifier}")
+
+              {:error, reason} ->
+                _ = Aiur.AgentCompaction.Store.save(issue.identifier, %{"thread_id" => app_session.thread_id, "status" => "failed", "reason" => inspect(reason)})
+                Logger.warning("Codex compaction failed; preserving normal review handoff identifier=#{issue.identifier} reason=#{inspect(reason)}")
+            end
+
+          {:error, reason} ->
+            Logger.warning("Could not persist Codex compaction pending state for #{issue.identifier}; skipping compaction: #{inspect(reason)}")
+        end
+
+        return_completed(turn_context, issue)
+      end
+    else
+      return_completed(turn_context, issue)
+    end
+  rescue
+    error ->
+      Logger.warning("Codex compaction failed; preserving normal review handoff identifier=#{issue.identifier} reason=#{Exception.message(error)}")
+      return_completed(turn_context, issue)
+  end
+
+  defp compact_for_review_handoff(turn_context, app_session, issue) do
+    thread_id = Map.get(app_session, :thread_id)
+    compaction_config = Aiur.AgentCompaction.Config.settings()
+    agent_total_tokens = token_count_for_compaction(turn_context, issue, compaction_config)
+
+    if issue.state == "human-review" and Aiur.AgentCompaction.Config.trigger_requested_at_handoff?(compaction_config, agent_total_tokens) and
+         not Aiur.AgentCompaction.Orchestrator.supported_backend?(Map.get(app_session, :backend)) do
+      if not Aiur.AgentCompaction.Orchestrator.already_attempted_for_thread?(
+           Aiur.AgentCompaction.Store.load(issue.identifier) |> elem(1),
+           thread_id
+         ) do
+        compaction_status_callback(turn_context, app_session, issue).(:unsupported, thread_id, nil)
+
+        if is_binary(thread_id) do
+          _ = Aiur.AgentCompaction.Store.save(issue.identifier, %{"thread_id" => thread_id, "status" => "unsupported"})
+        end
+      end
+    end
+
+    return_completed(turn_context, issue)
+  rescue
+    _error -> return_completed(turn_context, issue)
+  end
+
+  defp current_agent_total_tokens(%{orchestrator: orchestrator}, issue) do
+    case Aiur.Orchestrator.status(orchestrator, 5_000) do
+      entries when is_list(entries) ->
+        case Enum.find(entries, &(Map.get(&1, :identifier) == issue.identifier)) do
+          %{agent_total_tokens: tokens} when is_integer(tokens) and tokens >= 0 -> tokens
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  rescue
+    _error -> nil
+  end
+
+  defp token_count_for_compaction(turn_context, issue, %{auto_trigger: %{enabled: true}}),
+    do: current_agent_total_tokens(turn_context, issue)
+
+  defp token_count_for_compaction(_turn_context, _issue, _config), do: nil
+
+  defp compaction_status_callback(%{workspace: workspace, worker_host: worker_host}, app_session, issue) do
+    fn status, thread_id, detail ->
+      message =
+        case status do
+          :pending -> "Native Codex compaction pending"
+          :completed -> "Native Codex compaction completed"
+          :failed -> "Native Codex compaction failed: #{inspect(detail)}"
+          :unsupported -> "Native compaction unsupported for this provider"
+        end
+
+      Aiur.Alerts.emit_custom("compaction.#{status}", message,
+        issue: issue,
+        workspace: workspace,
+        worker_host: worker_host,
+        reason: "Codex thread compaction #{status}",
+        needs_attention: false,
+        severity: if(status == :failed, do: "warning", else: "info"),
+        observation_identity: Issue.tracker_identity(issue),
+        observation_source: %{kind: :agent_alert, name: "compaction.#{status}"},
+        observation_provenance: %{
+          run_id: Aiur.Boot.run_id(),
+          session_id: thread_id || Map.get(app_session, :thread_id)
+        },
+        occurred_at: DateTime.utc_now()
+      )
     end
   end
 

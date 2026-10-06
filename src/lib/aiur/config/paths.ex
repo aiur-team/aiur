@@ -169,6 +169,20 @@ defmodule Aiur.Config.Paths do
     end
   end
 
+  @doc "Resolves the daemon-private per-issue native thread-compaction outcome directory."
+  @spec agent_compaction_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def agent_compaction_state_dir do
+    case Application.get_env(:aiur, :agent_compaction_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- runtime_state_dir() do
+          {:ok, Path.join(root, "agent-compaction")}
+        end
+    end
+  end
+
   @doc """
   Resolves the daemon-private Executor takeover-alert state directory.
 

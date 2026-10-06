@@ -140,3 +140,13 @@ agent:
     approval_policy: never
     thread_sandbox: workspace-write
 prompt_file: github-codex.prompt.md
+compaction:
+  # Opt in only when you want synchronous native compaction at handoff.
+  # Codex's app-server API has no threshold trigger; other providers are unsupported.
+  enabled: false
+  backends: [codex]
+  manual_approval: false
+  auto_trigger:
+    enabled: false
+    token_threshold: 50000
+  timeout_ms: 30000
