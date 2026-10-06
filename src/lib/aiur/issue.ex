@@ -21,6 +21,15 @@ defmodule Aiur.Issue do
     :selected_backend,
     :selected_model,
     :creator_login,
+    # Numeric GitHub id and account type of the issue creator, from the
+    # authenticated API response. Identity for allowed-contributor intake is
+    # the id, never the login (#2957).
+    :creator_id,
+    :creator_type,
+    # Whether GitHub reports the issue as created through a GitHub App
+    # (`performed_via_github_app`). `nil` means unknown, which intake treats
+    # as "yes" (fail closed).
+    :created_via_app?,
     :dispatch_revision,
     paused: false,
     # GitHub ingestion resolves this before an issue can reach dispatch. Other
@@ -69,6 +78,9 @@ defmodule Aiur.Issue do
           # and re-resolved some other model at session start.
           selected_model: String.t() | nil,
           creator_login: String.t() | nil,
+          creator_id: pos_integer() | nil,
+          creator_type: String.t() | nil,
+          created_via_app?: boolean() | nil,
           dispatch_revision: String.t() | nil,
           paused: boolean(),
           dispatch_authorized?: boolean(),
