@@ -169,7 +169,7 @@ defmodule Aiur.OperatorRelayAnswerTest do
     store = store(dir, relay_notifier: fn decision, answer -> send(parent, {:relay_notice, decision.decision_id, answer.operator_quote, answer.relayed_by}) end)
     decision = request(store)
     relay(decision, store)
-    assert_receive {:relay_notice, id, "  keep them\n", "attended-executor"}
+    assert_receive {:relay_notice, id, "  keep them\n", "attended-executor"}, 1_000
     assert id == decision.decision_id
     assert relay(decision, store) =~ "duplicate"
     refute_received {:relay_notice, _, _, _}
