@@ -21,29 +21,30 @@ defmodule Aiur.TailscaleFunnelTest do
   defp fake_command(initial_status, test_pid) do
     state = start_supervised!({Agent, fn -> %{status: initial_status, writes: []} end})
 
-    runner = fn args ->
-      case args do
-        ["funnel", "status", "--json"] ->
-          {Agent.get(state, fn current -> Jason.encode!(current.status) end), 0}
-
-        ["funnel", "--bg", "--https=443", "--yes", target] ->
-          send(test_pid, {:funnel_update, target})
-          Agent.update(state, fn current -> %{current | status: status(target), writes: [target | current.writes]} end)
-          {"updated", 0}
-
-        _other ->
-          flunk("unexpected tailscale command: #{inspect(args)}")
-      end
-    end
+    runner = &run_fake_command(&1, state, test_pid)
 
     {state, runner}
+  end
+
+  defp run_fake_command(["funnel", "status", "--json"], state, _test_pid) do
+    {Agent.get(state, fn current -> Jason.encode!(current.status) end), 0}
+  end
+
+  defp run_fake_command(["funnel", "--bg", "--https=443", "--yes", target], state, test_pid) do
+    send(test_pid, {:funnel_update, target})
+    Agent.update(state, fn current -> %{current | status: status(target), writes: [target | current.writes]} end)
+    {"updated", 0}
+  end
+
+  defp run_fake_command(args, _state, _test_pid) do
+    raise "unexpected tailscale command: #{inspect(args)}"
   end
 
   test "reconciles a stale Funnel target to the dynamically bound dashboard port" do
     {state, command_fun} = fake_command(status(@old_target), self())
 
     assert :ok = TailscaleFunnel.reconcile("100.89.62.105", 43_969, command_fun: command_fun)
-    assert_receive {:funnel_update, @new_target}
+    assert_receive {:funnel_update, @new_target}, 1_000
     assert Agent.get(state, & &1.writes) == [@new_target]
   end
 
@@ -51,7 +52,7 @@ defmodule Aiur.TailscaleFunnelTest do
     {state, command_fun} = fake_command(status(@new_target), self())
 
     assert :ok = TailscaleFunnel.reconcile("100.89.62.105", 43_969, command_fun: command_fun)
-    refute_receive {:funnel_update, _target}
+    refute_receive {:funnel_update, _target}, 0
     assert Agent.get(state, & &1.writes) == []
   end
 
@@ -61,7 +62,7 @@ defmodule Aiur.TailscaleFunnelTest do
     assert {:error, :funnel_443_not_enabled} =
              TailscaleFunnel.reconcile("100.89.62.105", 43_969, command_fun: command_fun)
 
-    refute_receive {:funnel_update, _target}
+    refute_receive {:funnel_update, _target}, 0
     assert Agent.get(state, & &1.writes) == []
   end
 

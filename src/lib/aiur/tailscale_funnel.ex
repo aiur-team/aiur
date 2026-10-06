@@ -16,6 +16,7 @@ defmodule Aiur.TailscaleFunnel do
   @command_timeout_ms 5_000
   @https_port 443
 
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
     %{
       id: __MODULE__,
