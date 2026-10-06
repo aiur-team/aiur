@@ -377,8 +377,17 @@ defmodule Aiur.Regression.WorkspaceLifecycleTest do
           labels: ["agent:in-progress"]
         }
 
-        assert {:error, {:agent_gh_config_dir_unavailable, ^gh_config, {:unsafe_agent_support_path, ^gh_config, :symlink}}} =
+        Publisher.set_tracked_fn(fn _ -> true end)
+        :ok = Exchange.subscribe("ticket.REG-2697-3.workspace.agent_support_incomplete")
+
+        assert {:error, {:agent_support_repair_failed, ^workspace, missing, {:agent_gh_config_dir_unavailable, _, _}}} =
                  Workspace.run_before_run_hook(workspace, issue)
+
+        assert ".aiur-runtime/gh" in missing
+        assert_receive {:event, %{topic: "ticket.REG-2697-3.workspace.agent_support_incomplete"} = event}, 500
+        assert event["message"] =~ ".aiur-runtime/gh"
+
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
       after
         File.rm_rf(test_root)
       end

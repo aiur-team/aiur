@@ -275,6 +275,48 @@ defmodule Aiur.Workspace.RefreshTest do
     assert File.read!(observed) == "private-fixture-token:#{expected_config_dir}\n"
   end
 
+  test "run/3 on a remote ready workspace installs only the governed GitHub guard", %{test_root: test_root} do
+    previous_path = System.get_env("PATH")
+    previous_script = System.get_env("AIUR_TEST_REMOTE_SCRIPT")
+    remote_script = Path.join(test_root, "remote-guard-install.sh")
+    fake_ssh = Path.join(test_root, "ssh")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      restore_env("AIUR_TEST_REMOTE_SCRIPT", previous_script)
+    end)
+
+    File.write!(
+      fake_ssh,
+      """
+      #!/bin/sh
+      case "$*" in
+        *"bash -s"*) cat > "$AIUR_TEST_REMOTE_SCRIPT" ;;
+      esac
+      exit 0
+      """
+    )
+
+    File.chmod!(fake_ssh, 0o755)
+    System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+    System.put_env("AIUR_TEST_REMOTE_SCRIPT", remote_script)
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root)
+
+    assert :ok =
+             Refresh.run(
+               "/remote/workspace",
+               %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil},
+               "worker-1"
+             )
+
+    script = File.read!(remote_script)
+    assert script =~ ".aiur-runtime/bin"
+    assert script =~ "for command_name in 'gh'"
+    assert script =~ ".aiur-runtime/gh"
+    refute script =~ ".claude/skills"
+    refute script =~ ".codex/skills"
+  end
+
   test "active ownership refuses stale-todo recreation without touching the workspace", %{workspace: workspace} do
     ticket = "refresh-active-#{System.unique_integer([:positive])}"
     sentinel = Path.join(workspace, "live-wip")

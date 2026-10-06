@@ -117,7 +117,11 @@ defmodule Aiur.Workspace.Refresh do
 
   defp repair_ready_workspace_guard(workspace, nil) do
     case Provisioner.workspace_readiness(workspace) do
-      :ready -> Provisioner.repair_agent_github_guard(workspace, nil)
+      # Keep the ready-workspace repair on the dispatch-supported local path.
+      # Besides repairing a missing guard, it preserves the named incomplete-
+      # support failure that prevents a provider from starting with an unsafe
+      # private gh directory.
+      :ready -> Provisioner.ensure_local_agent_support(workspace)
       _readiness -> :ok
     end
   end
