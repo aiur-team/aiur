@@ -435,9 +435,16 @@ defmodule Aiur.DecisionAttention do
 
   defp stale_condition_attention?(_attention, _state), do: false
 
-  defp condition_attention?(slug) when slug in ["main-red", "main-ci-red"], do: true
-  defp condition_attention?("main-ci-red-" <> suffix) when suffix != "", do: true
-  defp condition_attention?(_slug), do: false
+  defp condition_attention?(slug) do
+    base_branch = Aiur.Config.base_branch()
+    branch_red = "#{base_branch}-red"
+    branch_ci_red = "#{base_branch}-ci-red"
+    detailed_ci_red_prefix = branch_ci_red <> "-"
+
+    slug in [branch_red, branch_ci_red] or
+      (String.starts_with?(slug, detailed_ci_red_prefix) and
+         byte_size(slug) > byte_size(detailed_ci_red_prefix))
+  end
 
   defp condition_attention_ttl_ms(opts) do
     case Keyword.get(opts, :condition_attention_ttl_ms, @condition_attention_ttl_ms) do

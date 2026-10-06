@@ -87,12 +87,12 @@ defmodule Aiur.DecisionAttentionTest do
                "Main CI is red on the interfaces mirror test."
              )
 
-    assert_receive {:event, %{"needs_attention" => true, topic: ^topic}}
+    assert_receive {:event, %{"needs_attention" => true, topic: ^topic}}, 1_000
 
     Agent.update(clock, &DateTime.add(&1, 60, :second))
     send(pid, {:reask, {identifier, "main-red"}})
 
-    assert_receive {:event, %{"needs_attention" => false, topic: ^resolved_topic}}
+    assert_receive {:event, %{"needs_attention" => false, topic: ^resolved_topic}}, 1_000
     assert :sys.get_state(pid).attentions == %{}
 
     send(pid, {:reask, {identifier, "main-red"}})
@@ -135,7 +135,7 @@ defmodule Aiur.DecisionAttentionTest do
         end
       )
 
-    assert_receive {:event, %{"needs_attention" => false, topic: ^resolved_topic}}
+    assert_receive {:event, %{"needs_attention" => false, topic: ^resolved_topic}}, 1_000
     assert :sys.get_state(pid).attentions == %{}
     refute_received {:event, %{topic: ^topic}}
   end
