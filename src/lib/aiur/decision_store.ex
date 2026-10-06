@@ -1187,7 +1187,8 @@ defmodule Aiur.DecisionStore do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          %DecisionAnswer{} <- Decision.active_answer(decision),
          {:ok, actor} <- fetch_actor(opts),
-         :ok <- require_relay_enabled(actor, state) do
+         :ok <- require_relay_enabled(actor, state),
+         :ok <- require_relay_may_replace(decision, actor) do
       case find_revision_replay(decision, payload) do
         %DecisionRevision{} = accepted -> replay_revision(decision, accepted, payload, actor, opts, state)
         nil -> accept_revision_unless_moot(decision, payload, actor, opts, state)
@@ -1196,6 +1197,18 @@ defmodule Aiur.DecisionStore do
       nil -> {:reply, {:error, :answer_missing}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
+  end
+
+  # A relay quote cannot override an answer recorded directly by the operator.
+  # Check the active answer inside the serialized revision path, including
+  # supersede and revisions that follow a previous operator correction.
+  defp require_relay_may_replace(decision, actor) do
+    kind = Map.get(actor, :kind, Map.get(actor, "kind"))
+
+    if kind in [:operator_relayed, "operator_relayed"] and
+         match?(%DecisionAnswer{actor: %{kind: :operator}}, Decision.active_answer(decision)),
+       do: {:error, {:answer_invalid, {:operator_relay, :operator_answer_present}}},
+       else: :ok
   end
 
   # A mooted Command must never deliver again, so a new revision cannot revive

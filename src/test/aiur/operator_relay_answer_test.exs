@@ -100,6 +100,43 @@ defmodule Aiur.OperatorRelayAnswerTest do
     assert {:ok, ^answer} = answer |> DecisionAnswer.to_json_safe() |> DecisionAnswer.from_json_safe()
   end
 
+  test "relay supersede and revision cannot replace a direct operator answer", %{dir: dir, config: config} do
+    enable(config)
+    store = store(dir)
+    decision = request(store)
+    operator = %{kind: :operator, id: "dashboard"}
+    payload = %{expected_version: 1, option_id: "keep", idempotency_key: "direct-operator"}
+    assert {:ok, %{decision: original}} = DecisionStore.answer(decision.decision_id, payload, [actor: operator], store)
+
+    errors =
+      capture_io(:stderr, fn ->
+        assert OperatorRelayCLI.answer(Keyword.merge(params(decision), supersede: true, option_id: "replace", quote: "fabricated", idempotency_key: "relay-overwrite"), decision_store: store) == 1
+      end)
+
+    assert errors =~ "operator_answer_present"
+
+    revision = %{
+      expected_version: 1,
+      expected_action_id: original.active_action_id,
+      expected_revision_sequence: 0,
+      option_id: "replace",
+      operator_quote: "fabricated",
+      relayed_by: "attended-executor",
+      idempotency_key: "relay-revision",
+      rationale: "Relayed correction"
+    }
+
+    actor = %{kind: :operator_relayed, id: "attended-executor"}
+    assert {:error, {:answer_invalid, {:operator_relay, :operator_answer_present}}} = DecisionStore.revise(decision.decision_id, revision, [actor: actor], store)
+    assert {:ok, ^original} = DecisionStore.get(decision.decision_id, store)
+
+    correction = %{expected_version: 1, option_id: "replace", idempotency_key: "operator-revision", rationale: "Operator changed direction"}
+    assert {:ok, %{decision: revised}} = DecisionStore.supersede(decision.decision_id, correction, [actor: operator], store)
+    assert Decision.active_answer(revised).actor == operator
+    assert Decision.active_answer(revised).selected_option_id == "replace"
+    assert revised.answer == original.answer
+  end
+
   test "relay schedules the ordinary worker delivery with the chosen answer and relay correlation", %{dir: dir, config: config} do
     enable(config)
     parent = self()
