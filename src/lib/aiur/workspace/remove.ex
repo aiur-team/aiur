@@ -156,26 +156,33 @@ defmodule Aiur.Workspace.Remove do
   end
 
   def remove_issue_workspaces(identifier, nil, opts) when is_binary(identifier) do
-    if TestTicketScope.allowed_identifier?(identifier) do
-      safe_id = Layout.safe_identifier(identifier)
-
-      case Config.settings!().worker.ssh_hosts do
-        [] ->
-          case Layout.workspace_path_for_issue(safe_id, nil) do
-            {:ok, workspace} -> workspace |> remove(nil, Keyword.put_new(opts, :ticket, identifier)) |> summarize()
-            {:error, _reason} -> :ok
-          end
-
-        worker_hosts ->
-          worker_hosts
-          |> Enum.map(&remove_issue_workspaces(identifier, &1, opts))
-          |> Enum.find(:ok, &match?({:skipped, _reason}, &1))
-      end
-    end
+    if TestTicketScope.allowed_identifier?(identifier), do: remove_issue_workspaces_from_config(identifier, opts)
   end
 
   def remove_issue_workspaces(_identifier, _worker_host, _opts) do
     :ok
+  end
+
+  defp remove_issue_workspaces_from_config(identifier, opts) do
+    safe_id = Layout.safe_identifier(identifier)
+
+    case Config.settings!().worker.ssh_hosts do
+      [] -> remove_local_issue_workspace(safe_id, identifier, opts)
+      worker_hosts -> remove_from_worker_hosts(worker_hosts, identifier, opts)
+    end
+  end
+
+  defp remove_local_issue_workspace(safe_id, identifier, opts) do
+    case Layout.workspace_path_for_issue(safe_id, nil) do
+      {:ok, workspace} -> workspace |> remove(nil, Keyword.put_new(opts, :ticket, identifier)) |> summarize()
+      {:error, _reason} -> :ok
+    end
+  end
+
+  defp remove_from_worker_hosts(worker_hosts, identifier, opts) do
+    worker_hosts
+    |> Enum.map(&remove_issue_workspaces(identifier, &1, opts))
+    |> Enum.find(:ok, &match?({:skipped, _reason}, &1))
   end
 
   defp remove_local(workspace, opts) do
