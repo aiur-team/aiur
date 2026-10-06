@@ -66,20 +66,15 @@ defmodule Aiur.BuildOrderFunnelHealth do
   @spec funnel_target_status(map() | nil, non_neg_integer()) ::
           :ok | :not_configured | {:error, {:funnel_target_mismatch, non_neg_integer() | :unknown}}
   def funnel_target_status(status, bound_port) when is_map(status) do
-    if funnel_enabled?(status) do
-      case funnel_https_proxy(status) do
-        {:ok, proxy} ->
-          case URI.parse(proxy).port do
-            ^bound_port -> :ok
-            target_port when is_integer(target_port) -> {:error, {:funnel_target_mismatch, target_port}}
-            _ -> {:error, {:funnel_target_mismatch, :unknown}}
-          end
+    case configured_funnel_proxy(status) do
+      :not_configured ->
+        :not_configured
 
-        :error ->
-          {:error, {:funnel_target_mismatch, :unknown}}
-      end
-    else
-      :not_configured
+      {:ok, proxy} ->
+        funnel_proxy_status(proxy, bound_port)
+
+      :error ->
+        funnel_target_mismatch(:unknown)
     end
   end
 
@@ -89,18 +84,43 @@ defmodule Aiur.BuildOrderFunnelHealth do
         :not_configured
 
       executable ->
-        case System.cmd(executable, ["funnel", "status", "--json"], stderr_to_stdout: true) do
-          {output, 0} ->
-            case Jason.decode(output) do
-              {:ok, status} when is_map(status) -> funnel_target_status(status, bound_port)
-              _ -> {:error, {:funnel_target_mismatch, :unknown}}
-            end
-
-          _ ->
-            :not_configured
-        end
+        read_funnel_status(executable, bound_port)
     end
   end
+
+  defp read_funnel_status(executable, bound_port) do
+    case System.cmd(executable, ["funnel", "status", "--json"], stderr_to_stdout: true) do
+      {output, 0} -> decode_funnel_status(output, bound_port)
+      _ -> :not_configured
+    end
+  end
+
+  defp decode_funnel_status(output, bound_port) do
+    case Jason.decode(output) do
+      {:ok, status} when is_map(status) -> funnel_target_status(status, bound_port)
+      _ -> funnel_target_mismatch(:unknown)
+    end
+  end
+
+  defp configured_funnel_proxy(status) do
+    with true <- funnel_enabled?(status),
+         {:ok, proxy} <- funnel_https_proxy(status) do
+      {:ok, proxy}
+    else
+      false -> :not_configured
+      :error -> :error
+    end
+  end
+
+  defp funnel_proxy_status(proxy, bound_port) do
+    case URI.parse(proxy).port do
+      ^bound_port -> :ok
+      target_port when is_integer(target_port) -> funnel_target_mismatch(target_port)
+      _ -> funnel_target_mismatch(:unknown)
+    end
+  end
+
+  defp funnel_target_mismatch(target_port), do: {:error, {:funnel_target_mismatch, target_port}}
 
   defp funnel_enabled?(%{"AllowFunnel" => allow_funnel}) when is_map(allow_funnel),
     do: Enum.any?(allow_funnel, fn {_target, enabled?} -> enabled? == true end)
@@ -109,17 +129,18 @@ defmodule Aiur.BuildOrderFunnelHealth do
 
   defp funnel_https_proxy(%{"Web" => web}) when is_map(web) do
     web
-    |> Enum.find_value(:error, fn {target, config} ->
-      if String.ends_with?(target, ":443") do
-        case get_in(config, ["Handlers", "/", "Proxy"]) do
-          proxy when is_binary(proxy) -> {:ok, proxy}
-          _ -> nil
-        end
-      end
-    end)
+    |> Enum.filter(fn {target, _config} -> is_binary(target) and String.ends_with?(target, ":443") end)
+    |> Enum.find_value(:error, fn {_target, config} -> root_proxy(config) end)
   end
 
   defp funnel_https_proxy(_status), do: :error
+
+  defp root_proxy(config) do
+    case get_in(config, ["Handlers", "/", "Proxy"]) do
+      proxy when is_binary(proxy) -> {:ok, proxy}
+      _ -> nil
+    end
+  end
 
   # Check if the Build Order endpoint is reachable at the current bound port.
   # Returns {:ok, port} for successful responses (including 401 auth required).
