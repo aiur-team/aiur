@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.BudgetBatchDeadlinesTest do
   use ExUnit.Case, async: true
 
-  for scenario <- ["lock", "commit"] do
+  for scenario <- ["lock", "commit", "margin"] do
     @scenario scenario
     test "expired request remains isolated during #{@scenario}" do
       root = Aiur.TestSupport.tmp_root!("batch-deadlines")
@@ -20,8 +20,8 @@ defmodule Aiur.GitHub.BudgetBatchDeadlinesTest do
       broker.now_ms = lambda: clock[0]
       def timed_acquire(args):
           broker.acquire(args)
-          if args.consumer_key == "short" and sys.argv[3] == "commit":
-              clock[0] = 1120
+          if args.consumer_key == "short" and sys.argv[3] in ("commit", "margin"):
+              clock[0] = 1070 if sys.argv[3] == "margin" else 1120
       requests = []
       for n, consumer, deadline in [(1, "short", 1100), (2, "long", 2000)]:
           args = broker.parser().parse_args(["acquire", "--db", db, "--token-key", "shared",
