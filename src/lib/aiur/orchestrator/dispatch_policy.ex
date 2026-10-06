@@ -43,6 +43,10 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # be blocking anything.
   @closed_issue_state "closed"
 
+  # Kept as the pre-#2751 phrasing for the shapes that carry no nameable
+  # blocker, so an unreadable hold still reads as a hold.
+  @unknown_dependency_hold "blocked by a non-terminal dependency"
+
   @doc false
   # Reads the host 1-min load only when the hard gate or adaptive target is
   # enabled, so explicit-disable configs never touch /proc. Exposed for
@@ -1000,16 +1004,79 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       )
       when is_binary(issue_state) and is_list(blockers) do
     normalize_issue_state(issue_state) == "todo" and
-      Enum.any?(blockers, fn
-        %{state: blocker_state} when is_binary(blocker_state) ->
-          !terminal_issue_state?(blocker_state, terminal_states)
-
-        _ ->
-          true
-      end)
+      Enum.any?(blockers, &non_terminal_blocker?(&1, terminal_states))
   end
 
   def todo_issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
+
+  @doc """
+  The `blocked_by` entries actually holding the issue: those whose state is not
+  terminal, plus any entry carrying no readable state (fail-closed, exactly as
+  the gate treats them).
+  """
+  @spec non_terminal_blockers(term(), MapSet.t()) :: [term()]
+  def non_terminal_blockers(%Issue{blocked_by: blockers}, terminal_states)
+      when is_list(blockers) do
+    Enum.filter(blockers, &non_terminal_blocker?(&1, terminal_states))
+  end
+
+  def non_terminal_blockers(_issue, _terminal_states), do: []
+
+  @doc """
+  Human-readable reason for a dependency hold, naming only the blockers that
+  cause it.
+
+  The dispatch log line used to `inspect/1` the whole `blocked_by` list, so a
+  hold whose list happened to lead with a terminal blocker read as though a
+  closed issue were blocking dispatch, and the one open blocker that mattered
+  was invisible unless the reader dumped the list (#2751).
+  """
+  @spec describe_dependency_hold(term(), MapSet.t()) :: String.t()
+  def describe_dependency_hold(%Issue{blocked_by: blockers} = issue, terminal_states)
+      when is_list(blockers) do
+    holding = non_terminal_blockers(issue, terminal_states)
+    describe_hold(holding, length(blockers) - length(holding))
+  end
+
+  def describe_dependency_hold(_issue, _terminal_states), do: @unknown_dependency_hold
+
+  defp non_terminal_blocker?(%{state: blocker_state}, terminal_states)
+       when is_binary(blocker_state),
+       do: !terminal_issue_state?(blocker_state, terminal_states)
+
+  defp non_terminal_blocker?(_blocker, _terminal_states), do: true
+
+  # Only ever reachable if a caller describes an issue that is not actually
+  # held; the gate itself never produces an empty holding list here.
+  defp describe_hold([], _ignored), do: @unknown_dependency_hold
+
+  defp describe_hold(holding, ignored) do
+    noun = if length(holding) == 1, do: "dependency", else: "dependencies"
+
+    "blocked by open #{noun} " <>
+      Enum.map_join(holding, ", ", &blocker_label/1) <> ignored_suffix(ignored)
+  end
+
+  defp ignored_suffix(count) when is_integer(count) and count > 0 do
+    noun = if count == 1, do: "terminal dependency", else: "terminal dependencies"
+    "; #{count} #{noun} ignored"
+  end
+
+  defp ignored_suffix(_count), do: ""
+
+  defp blocker_label(%{identifier: identifier} = blocker)
+       when is_binary(identifier) and identifier != "" do
+    "#{issue_number_sigil(identifier)}#{identifier} (#{blocker_state_label(blocker)})"
+  end
+
+  defp blocker_label(blocker), do: inspect(blocker)
+
+  defp blocker_state_label(%{state: state}) when is_binary(state) and state != "", do: state
+  defp blocker_state_label(_blocker), do: "unknown state"
+
+  defp issue_number_sigil(identifier) do
+    if Regex.match?(~r/\A\d+\z/, identifier), do: "#", else: ""
+  end
 
   @doc """
   True when dispatch of the issue must be held for an open blocking Command,

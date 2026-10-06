@@ -54,5 +54,6 @@ defmodule Aiur.Config.Schema.Attrs do
   @spec preserve_nil_path?(list()) :: boolean()
   def preserve_nil_path?(["agent", "max_load_average"]), do: true
   def preserve_nil_path?(["agent", "target_load_average"]), do: true
+  def preserve_nil_path?(["tracker", "github", "allowed_contributors" | _rest]), do: true
   def preserve_nil_path?(_path), do: false
 end

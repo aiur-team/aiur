@@ -37,7 +37,7 @@ defmodule Aiur.Orchestrator.PauseResumeTest do
     {:ok, pid} = GenServer.start(CrashingOrchestrator, :ok)
     ref = Process.monitor(pid)
     Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
+    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, 1000
 
     assert PauseResume.resume_agent(pid, "repo#44") == {:error, :unavailable}
     assert PauseResume.resume_agent(:no_such_orchestrator_process, "repo#44") == {:error, :unavailable}

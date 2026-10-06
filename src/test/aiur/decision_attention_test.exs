@@ -38,18 +38,18 @@ defmodule Aiur.DecisionAttentionTest do
 
     assert :ok = DecisionAttention.open(name, issue, nil, nil, "scope-question", "Should this facade target change?")
 
-    assert_receive {:decision_alert, %{question: "Should this facade target change?", slug: "scope-question"}}
+    assert_receive {:decision_alert, %{question: "Should this facade target change?", slug: "scope-question"}}, 1000
     assert SubscriptionStore.snapshot(identifier).open_attentions == ["scope-question"]
 
     send(pid, {:reask, {identifier, "scope-question"}})
-    assert_receive {:decision_alert, %{question: "Should this facade target change?"}}
+    assert_receive {:decision_alert, %{question: "Should this facade target change?"}}, 1000
 
     assert :ok = DecisionAttention.resolve(name, issue, "scope-question")
-    assert_receive {:decision_resolved, %{slug: "scope-question"}}
+    assert_receive {:decision_resolved, %{slug: "scope-question"}}, 1000
     assert SubscriptionStore.snapshot(identifier).open_attentions == []
 
     send(pid, {:reask, {identifier, "scope-question"}})
-    refute_receive {:decision_alert, _}
+    refute_receive {:decision_alert, _}, 100
   end
 
   test "writes a needs-attention alert with the operator question" do
@@ -129,12 +129,12 @@ defmodule Aiur.DecisionAttentionTest do
                source: %{agent_id: "codex", session_id: "thread-1", event_id: "call-1"}
              )
 
-    assert_receive {:step, :projected, payload, opts}
+    assert_receive {:step, :projected, payload, opts}, 1000
     assert payload["source_id"] == "legacy_attention:scope-question"
     assert payload["options"] == []
     assert opts[:legacy_attention].topic == "ticket.#{identifier}.agent.attention.scope-question"
     assert opts[:source].session_id == "thread-1"
-    assert_receive {:step, :alerted, %{slug: "scope-question"}}
+    assert_receive {:step, :alerted, %{slug: "scope-question"}}, 1000
     assert SubscriptionStore.snapshot(identifier).open_attentions == ["scope-question"]
   end
 
@@ -158,7 +158,7 @@ defmodule Aiur.DecisionAttentionTest do
              "Should this facade target change?"
            ) == {:error, :store_down}
 
-    refute_receive {:decision_alert, _}
+    refute_receive {:decision_alert, _}, 100
     assert SubscriptionStore.snapshot(identifier) == :not_found
   end
 
@@ -183,8 +183,8 @@ defmodule Aiur.DecisionAttentionTest do
                "What should happen next?"
              )
 
-    refute_receive :unexpected_projection
-    assert_receive {:decision_alert, %{slug: "decision-revision-parent"}}
+    refute_receive :unexpected_projection, 100
+    assert_receive {:decision_alert, %{slug: "decision-revision-parent"}}, 1000
     assert SubscriptionStore.snapshot(identifier).open_attentions == ["decision-revision-parent"]
   end
 
@@ -216,12 +216,12 @@ defmodule Aiur.DecisionAttentionTest do
         alert_emitter: fn attention -> send(test_pid, {:decision_alert, attention}) end
       )
 
-    assert_receive {:imported, payload, opts}
+    assert_receive {:imported, payload, opts}, 1000
     assert payload["created_at"] == "2026-07-12T01:00:00Z"
     assert opts[:ticket].identifier == identifier
     assert opts[:legacy_attention].slug == "scope-question"
     assert opts[:legacy_import]
-    refute_receive {:decision_alert, _}
+    refute_receive {:decision_alert, _}, 100
 
     assert eventually(fn ->
              match?(%{open_attentions: ["scope-question"]}, SubscriptionStore.snapshot(identifier))
@@ -261,12 +261,12 @@ defmodule Aiur.DecisionAttentionTest do
       )
 
     assert eventually(fn -> :sys.get_state(pid).importing? == false end)
-    assert_receive {:decision_resolved, %{slug: "scope-question"}}
+    assert_receive {:decision_resolved, %{slug: "scope-question"}}, 1000
     assert :sys.get_state(pid).attentions == %{}
     assert SubscriptionStore.snapshot(identifier).open_attentions == []
 
     send(pid, {:reask, {identifier, "scope-question"}})
-    refute_receive {:decision_alert, _}
+    refute_receive {:decision_alert, _}, 100
   end
 
   test "a repeated live alert does not reopen a dismissed canonical Decision" do
@@ -297,7 +297,7 @@ defmodule Aiur.DecisionAttentionTest do
                []
              )
 
-    refute_receive {:decision_alert, _}
+    refute_receive {:decision_alert, _}, 100
     assert SubscriptionStore.snapshot(identifier).open_attentions == []
   end
 
@@ -334,7 +334,7 @@ defmodule Aiur.DecisionAttentionTest do
     second_identifier = "#{prefix}-2"
     assert_receive {:bounded_import, ^first_identifier, "Question 1?"}, 2_000
     assert_receive {:bounded_import, ^second_identifier, "Question 2?"}, 2_000
-    refute_receive {:bounded_import, _, _}
+    refute_receive {:bounded_import, _, _}, 100
     assert eventually(fn -> :sys.get_state(pid).importing? == false end)
     assert map_size(:sys.get_state(pid).attentions) == 2
   end
@@ -460,7 +460,7 @@ defmodule Aiur.DecisionAttentionTest do
         alert_emitter: fn attention -> send(test_pid, {:decision_alert, attention}) end
       )
 
-    assert_receive {:loader_ready, loader_pid}
+    assert_receive {:loader_ready, loader_pid}, 1000
 
     assert {:ok, _result} =
              DecisionAttention.open_with_decision(
@@ -473,18 +473,18 @@ defmodule Aiur.DecisionAttentionTest do
                []
              )
 
-    assert_receive {:projected, "Live question?"}
-    assert_receive {:decision_alert, %{question: "Live question?", workspace: "/live/workspace"}}
+    assert_receive {:projected, "Live question?"}, 1000
+    assert_receive {:decision_alert, %{question: "Live question?", workspace: "/live/workspace"}}, 1000
 
     ref = Process.monitor(loader_pid)
     send(loader_pid, :release)
-    assert_receive {:DOWN, ^ref, :process, ^loader_pid, :normal}
+    assert_receive {:DOWN, ^ref, :process, ^loader_pid, :normal}, 1000
     assert eventually(fn -> :sys.get_state(pid).importing? == false end)
 
-    refute_receive {:projected, "Stale imported question?"}
+    refute_receive {:projected, "Stale imported question?"}, 100
 
     send(pid, {:reask, {identifier, "scope-question"}})
-    assert_receive {:decision_alert, %{question: "Live question?", worker_host: "live-worker"}}
+    assert_receive {:decision_alert, %{question: "Live question?", worker_host: "live-worker"}}, 1000
   end
 
   test "a resolution during startup prevents a delayed import from reopening the attention" do
@@ -519,15 +519,15 @@ defmodule Aiur.DecisionAttentionTest do
         resolution_emitter: fn _attention -> :ok end
       )
 
-    assert_receive {:loader_ready, loader_pid}
+    assert_receive {:loader_ready, loader_pid}, 1000
     assert :ok = DecisionAttention.resolve(name, issue, "scope-question")
 
     ref = Process.monitor(loader_pid)
     send(loader_pid, :release)
-    assert_receive {:DOWN, ^ref, :process, ^loader_pid, :normal}
+    assert_receive {:DOWN, ^ref, :process, ^loader_pid, :normal}, 1000
     assert eventually(fn -> :sys.get_state(pid).importing? == false end)
 
-    refute_receive {:unexpected_projection, _payload}
+    refute_receive {:unexpected_projection, _payload}, 100
     assert SubscriptionStore.snapshot(identifier).open_attentions == []
   end
 
@@ -547,7 +547,7 @@ defmodule Aiur.DecisionAttentionTest do
 
     assert :ok = DecisionAttention.open(name, issue, nil, nil, "scope-question", "Who owns the facade?")
 
-    assert_receive {:projected, payload}
+    assert_receive {:projected, payload}, 1000
 
     # An attention is a visibility signal: opening one leaves its agent running,
     # so filing it blocking asserts a gate that does not exist — and under

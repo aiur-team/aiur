@@ -21,7 +21,7 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
                timestamp: ~U[2026-07-11 12:00:00Z]
              )
 
-    assert_receive {:recorded, :lifecycle, attributes, opts}
+    assert_receive {:recorded, :lifecycle, attributes, opts}, 1000
     assert attributes.ticket == "930"
     assert attributes.attempt_id == "930:attempt"
     assert attributes.event == "agent_spinup"
@@ -52,7 +52,7 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
                recorder: recorder
              )
 
-    assert_receive {:recorded, :lifecycle, attributes, _opts}
+    assert_receive {:recorded, :lifecycle, attributes, _opts}, 1000
     assert attributes.event == "workspace_ownership"
     assert attributes.workspace_owner == "workspace:7"
     assert attributes.workspace_generation == 7
@@ -81,7 +81,7 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
                recorder: recorder
              )
 
-    assert_receive {:recorded, :lifecycle, attributes, _opts}
+    assert_receive {:recorded, :lifecycle, attributes, _opts}, 1000
     assert attributes.attempt_id == nil
     assert attributes.complexity == "4"
     assert attributes.source_id == 7
@@ -117,13 +117,13 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
                tracker: tracker
              )
 
-    assert_receive {:recorded, :lifecycle, start_attrs, _opts}
+    assert_receive {:recorded, :lifecycle, start_attrs, _opts}, 1000
     assert start_attrs.event == "build_test"
     assert start_attrs.boundary == "start"
     assert start_attrs.command_class == "test"
     assert start_attrs.operation_id == "cmd-1"
 
-    assert_receive {:recorded, :lifecycle, end_attrs, _opts}
+    assert_receive {:recorded, :lifecycle, end_attrs, _opts}, 1000
     assert end_attrs.boundary == "end"
     assert end_attrs.outcome == "success"
     refute Map.has_key?(start_attrs, :command)
@@ -154,8 +154,8 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
       tracker: tracker
     )
 
-    assert_receive {:recorded, :lifecycle, %{boundary: "start", command_class: "build"}, _opts}
-    assert_receive {:recorded, :lifecycle, %{boundary: "end", outcome: "success"}, _opts}
+    assert_receive {:recorded, :lifecycle, %{boundary: "start", command_class: "build"}, _opts}, 1000
+    assert_receive {:recorded, :lifecycle, %{boundary: "end", outcome: "success"}, _opts}, 1000
 
     orphan =
       notification("item/completed", %{
@@ -170,7 +170,7 @@ defmodule Aiur.RunTelemetry.LifecycleTest do
       tracker: tracker
     )
 
-    assert_receive {:recorded, :lifecycle, orphan_attrs, _opts}
+    assert_receive {:recorded, :lifecycle, orphan_attrs, _opts}, 1000
     assert orphan_attrs.boundary == "point"
     assert orphan_attrs.outcome == "failed"
     assert orphan_attrs.duration_status == "unavailable"

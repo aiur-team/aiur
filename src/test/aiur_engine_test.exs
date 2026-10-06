@@ -1138,7 +1138,59 @@ printf 'INNER_SCOPE=%s\n' "${AIUR_DEV_TEST_TICKET_IDS:-missing}"
       )
 
     assert out =~
-             "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, emit_exit_marker: true)"
+             "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, budget_ms: 104000, emit_exit_marker: true)"
+  end
+
+  # #2519: the shared 10s control budget killed `--todo … --only` every time,
+  # because its work is proportional to the request and to the tracker's queue
+  # depth rather than to daemon state. The watchdog must scale with that work,
+  # and the daemon's own budget must stay strictly inside the watchdog so its
+  # summary is never the thing that gets discarded.
+  test "todo sizes its rpc watchdog to the requested work and stays inside it" do
+    for {argv, expected_timeout, expected_budget_ms} <- [
+          {"--todo 11", 18, 8000},
+          {"--todo 11 12 13", 24, 14_000},
+          {"--todo 11 --only", 108, 98_000},
+          {"--todo 1 2 3 5 --only", 117, 107_000}
+        ] do
+      {out, 0} =
+        run_sourced_engine(
+          ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }\nrun_todo #{argv}|,
+          []
+        )
+
+      assert out =~ "TIMEOUT:#{expected_timeout}"
+      assert out =~ "budget_ms: #{expected_budget_ms}"
+    end
+  end
+
+  test "an explicit todo timeout override wins and still bounds the daemon" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }\nrun_todo --todo 11 --only|,
+        [{"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", "300"}]
+      )
+
+    assert out =~ "TIMEOUT:300"
+    assert out =~ "budget_ms: 290000"
+  end
+
+  # An override shorter than the grace window must still produce a positive
+  # budget: a zero or negative one would read as "unlimited" on the daemon side
+  # and put us straight back to a watchdog kill with an unknown outcome. An
+  # unusable override falls back to work-proportional sizing rather than to the
+  # shared 10s default, which is the very budget #2519 is about.
+  test "a todo timeout override below the grace window still bounds the daemon" do
+    for {override, expected_timeout, expected_budget_ms} <- [{"3", 3, 1000}, {"0", 18, 8000}, {"bogus", 18, 8000}, {"", 18, 8000}] do
+      {out, 0} =
+        run_sourced_engine(
+          ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }\nrun_todo --todo 11|,
+          [{"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", override}]
+        )
+
+      assert out =~ "TIMEOUT:#{expected_timeout}"
+      assert out =~ "budget_ms: #{expected_budget_ms}"
+    end
   end
 
   test "commands routes filters and encoded detail arguments through the control rpc" do
@@ -1774,7 +1826,7 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
     AIUR_RELEASE_NODE=aiur-tester-abc123@127.0.0.1
     AIUR_REPO_ROOT=
     aiur_resolve_identity
-    write_aiur_instance_record aiur-tester-abc123-default aiur-tester-abc123
+    write_aiur_instance_record aiur-tester-abc123-default aiur-tester-abc123 replace headless
     cat "$(aiur_instance_record_path)"
     """
 
@@ -1782,6 +1834,8 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
       run_sourced_engine(script, [
         {"STATE", state},
         {"LAUNCH_ROOT", launch_root},
+        # Stop config discovery at the fixture, including under workspace TMPDIR.
+        {"HOME", launch_root},
         {"AIUR_RELEASE_NODE", nil},
         {"AIUR_INSTANCE_KEY", nil},
         {"AIUR_REPO_ROOT", nil}
@@ -1793,6 +1847,7 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
     assert out =~ "AIUR_RECORD_INSTANCE_KEY=abc123"
     assert out =~ "AIUR_RECORD_SESSION=aiur-tester-abc123-default"
     assert out =~ "AIUR_RECORD_SOCKET=aiur-tester-abc123"
+    assert out =~ "AIUR_RECORD_SURFACE_MODE=headless"
     assert out =~ "AIUR_RECORD_PROJECT_ROOT=#{launch_root_real}"
     assert out =~ "AIUR_RECORD_PROJECT_ROOT_SOURCE=cwd"
   end

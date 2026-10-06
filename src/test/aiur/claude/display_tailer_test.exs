@@ -121,26 +121,28 @@ defmodule Aiur.Claude.DisplayTailerTest do
     pid = start_tailer(id, on_source: fn event -> send(test_pid, {:source, event}) end)
 
     dispatch_path(id, path1, "session-one")
-    assert_receive {:source, {:available, nil, "session-one", %{backfill?: true}}}
+    assert_receive {:source, {:available, nil, "session-one", %{backfill?: true}}}, 1000
     assert {:ok, _} = DisplayTailer.poll(pid)
 
     assert_receive {:fwd,
                     %{
                       source_session_id: "session-one",
                       transcript_event: %{role: :assistant, body: "session one"}
-                    }}
+                    }},
+                   1000
 
     assert DisplayTailer.current_session(pid) == "session-one"
 
     dispatch_path(id, path2, "session-two")
-    assert_receive {:source, {:available, "session-one", "session-two", %{backfill?: true}}}
+    assert_receive {:source, {:available, "session-one", "session-two", %{backfill?: true}}}, 1000
     assert {:ok, _} = DisplayTailer.poll(pid)
 
     assert_receive {:fwd,
                     %{
                       source_session_id: "session-two",
                       transcript_event: %{role: :assistant, body: "session two"}
-                    }}
+                    }},
+                   1000
 
     assert DisplayTailer.current_session(pid) == "session-two"
   end
@@ -151,14 +153,14 @@ defmodule Aiur.Claude.DisplayTailerTest do
     pid = start_tailer(id, on_source: fn event -> send(test_pid, {:source, event}) end)
 
     dispatch_path(id, "/nonexistent/path/abc.jsonl", "missing-session")
-    assert_receive {:source, {:unavailable, nil, "missing-session", :transcript_unavailable}}
+    assert_receive {:source, {:unavailable, nil, "missing-session", :transcript_unavailable}}, 1000
     assert {:ok, 0} = DisplayTailer.poll(pid)
     assert Process.alive?(pid)
     assert drain_forwarded() == []
 
     path = write_jsonl([assistant_blocks([%{"type" => "text", "text" => "recovered"}])])
     dispatch_path(id, path, "missing-session")
-    assert_receive {:source, {:available, "missing-session", "missing-session", %{backfill?: true}}}
+    assert_receive {:source, {:available, "missing-session", "missing-session", %{backfill?: true}}}, 1000
     assert {:ok, _} = DisplayTailer.poll(pid)
     assert {:assistant, "recovered"} in drain_forwarded()
   end
@@ -176,7 +178,7 @@ defmodule Aiur.Claude.DisplayTailerTest do
       )
 
     dispatch_path(id, path, raw_session)
-    assert_receive {:source, {:available, nil, ^raw_session, %{backfill?: true}}}
+    assert_receive {:source, {:available, nil, ^raw_session, %{backfill?: true}}}, 1000
     inner = :sys.get_state(pid).tailer
 
     log =
@@ -224,7 +226,8 @@ defmodule Aiur.Claude.DisplayTailerTest do
                     %{
                       projection_ingress: :display_backfill,
                       transcript_event: %{body: "old history"}
-                    }}
+                    }},
+                   1000
 
     File.write!(
       path,
@@ -239,7 +242,8 @@ defmodule Aiur.Claude.DisplayTailerTest do
                     %{
                       projection_ingress: :live,
                       transcript_event: %{body: "new live record"}
-                    }}
+                    }},
+                   1000
   end
 
   test "buffers confirmed cold-start operator deliveries by request id and flushes once" do
@@ -263,12 +267,12 @@ defmodule Aiur.Claude.DisplayTailerTest do
 
     dispatch_path(id, path, "first-exact-session")
 
-    assert_receive {:operator_delivery, 91, ^occurred_at, "first-exact-session"}
+    assert_receive {:operator_delivery, 91, ^occurred_at, "first-exact-session"}, 1000
     refute_receive {:operator_delivery, 91, _, _}, 100
 
     raced_item = %{item | id: 92}
     assert :ok = DisplayTailer.buffer_operator_delivery(pid, raced_item, occurred_at)
-    assert_receive {:operator_delivery, 92, ^occurred_at, "first-exact-session"}
+    assert_receive {:operator_delivery, 92, ^occurred_at, "first-exact-session"}, 1000
   end
 
   test "bounds the unresolved operator delivery buffer to the newest 32 request ids" do

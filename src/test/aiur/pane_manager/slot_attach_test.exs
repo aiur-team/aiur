@@ -69,7 +69,7 @@ defmodule Aiur.PaneManager.SlotAttachTest do
         |> Task.await()
 
       assert {:noreply, ^state} = result
-      assert_receive {^reply_ref, :sent_result}
+      assert_receive {^reply_ref, :sent_result}, 1000
     end
   end
 

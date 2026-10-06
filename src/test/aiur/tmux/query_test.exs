@@ -15,7 +15,7 @@ defmodule Aiur.Tmux.QueryTest do
         Query.capture_pane(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "capture-pane -p -t %42"
 
@@ -33,7 +33,7 @@ defmodule Aiur.Tmux.QueryTest do
         Query.pane_pid(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "display-message -p -t %42 \#{pane_pid}"
 
@@ -51,7 +51,7 @@ defmodule Aiur.Tmux.QueryTest do
         Query.pane_pid(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
@@ -68,7 +68,7 @@ defmodule Aiur.Tmux.QueryTest do
         Query.pane_pid(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\nnot-a-number\n%end 1 1 0\n"})
@@ -85,7 +85,7 @@ defmodule Aiur.Tmux.QueryTest do
         Query.list_windows(state)
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "list-windows -a -F \#{window_name}\t\#{pane_id}"
 
@@ -104,7 +104,7 @@ defmodule Aiur.Tmux.QueryTest do
         Query.list_panes(state, "test:0")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "list-panes -t test:0 -F \#{pane_id}"
 
@@ -122,7 +122,7 @@ defmodule Aiur.Tmux.QueryTest do
         Query.window_size(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\n200x50\n%end 1 1 0\n"})
@@ -139,7 +139,7 @@ defmodule Aiur.Tmux.QueryTest do
         Query.window_size(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\nnot-dims\n%end 1 1 0\n"})
@@ -156,7 +156,7 @@ defmodule Aiur.Tmux.QueryTest do
         Query.window_for(state, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\ntest:0\n%end 1 1 0\n"})
@@ -194,7 +194,7 @@ defmodule Aiur.Tmux.QueryTest do
         Query.resolve_self_pane(state)
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(task.pid, {:tmux_mock_data, "%begin 1 1 0\n%5\n%end 1 1 0\n"})

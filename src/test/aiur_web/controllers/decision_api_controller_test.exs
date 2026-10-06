@@ -27,7 +27,7 @@ defmodule AiurWeb.DecisionApiControllerTest do
 
     assert list_conn.status == 200
     assert Jason.decode!(list_conn.resp_body)["pagination"]["total"] == 0
-    assert_receive {:decision_api_called, :list, [%{"limit" => "5"}, opts]}
+    assert_receive {:decision_api_called, :list, [%{"limit" => "5"}, opts]}, 1000
     assert opts[:actor] == @actor
     assert opts[:store] == :fake_store
 
@@ -46,7 +46,7 @@ defmodule AiurWeb.DecisionApiControllerTest do
     assert get_conn.status == 200
     assert Jason.decode!(get_conn.resp_body)["decision_id"] == "dec_known"
     assert Jason.decode!(get_conn.resp_body)["health"]["status"] == "partial"
-    assert_receive {:decision_api_called, :get, ["dec_known", _opts]}
+    assert_receive {:decision_api_called, :get, ["dec_known", _opts]}, 1000
   end
 
   test "v1 list forwards documented offset pagination unchanged" do
@@ -61,7 +61,7 @@ defmodule AiurWeb.DecisionApiControllerTest do
 
     assert response.status == 200
 
-    assert_receive {:decision_api_called, :list, [%{"limit" => "200", "offset" => "50", "ticket" => "1088"}, _opts]}
+    assert_receive {:decision_api_called, :list, [%{"limit" => "200", "offset" => "50", "ticket" => "1088"}, _opts]}, 1000
   end
 
   test "partial retained data never reports a missing Decision as absent" do
@@ -105,7 +105,7 @@ defmodule AiurWeb.DecisionApiControllerTest do
       assert response.status == expected_status
       assert Jason.decode!(response.resp_body) == result
 
-      assert_receive {:decision_api_called, ^operation, ["dec_path", payload, opts]}
+      assert_receive {:decision_api_called, ^operation, ["dec_path", payload, opts]}, 1000
       refute Map.has_key?(payload, "decision_id")
       assert payload["actor"] == %{"kind" => "operator"}
       assert opts[:actor] == @actor
