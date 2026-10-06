@@ -164,7 +164,7 @@ defmodule Aiur.ModelAvailability do
             true -> "fresh"
           end
 
-        next_probe = Map.get(entry, "retry_scheduled_at", "now")
+        next_probe = Map.get(entry, "retry_scheduled_at", "unknown")
         "#{backend}=#{freshness} observed_at=#{observed_at} next_probe=#{next_probe}"
       end)
 

@@ -2140,7 +2140,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       probes.build_status
     )
     |> maybe_record_provider_constraint(
-      DispatchPolicy.provider_gate(probes.provider_backends),
+      DispatchPolicy.provider_gate(probes.provider_backends, Map.get(probes, :provider_gate_opts, [])),
       probes.provider_backends
     )
     |> maybe_record_github_quota_constraint(Map.get(probes, :github_quota, :available))

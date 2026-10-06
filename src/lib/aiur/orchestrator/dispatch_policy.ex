@@ -354,8 +354,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
            threshold: Map.get(build_status, :capacity)
          }}
 
-      queued_demand? and provider_gate(provider_backends) == :hold ->
-        {:hold, %{signal: :provider, measured: provider_backends, threshold: :all_usage_limited}}
+      queued_demand? and provider_gate(provider_backends, Map.get(probes, :provider_gate_opts, [])) == :hold ->
+        provider_opts = Map.get(probes, :provider_gate_opts, [])
+
+        {:hold,
+         %{
+           signal: :provider,
+           measured: provider_backends,
+           detail: ModelAvailability.provider_freshness_detail(provider_backends, provider_opts),
+           threshold: :all_usage_limited
+         }}
 
       true ->
         :dispatch

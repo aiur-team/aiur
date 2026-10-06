@@ -284,6 +284,16 @@ defmodule Aiur.ModelAvailabilityTest do
       assert detail =~ retry_at
     end
 
+    test "does not claim an unscheduled probe is happening now", %{path: path} do
+      now = DateTime.utc_now()
+      observed_at = DateTime.add(now, -301, :second)
+
+      assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 10, limit: 10}}, path: path, now: observed_at)
+
+      assert ModelAvailability.provider_freshness_detail(["codex"], path: path, now: now) =~
+               "next_probe=unknown"
+    end
+
     test "detects stale limits (> 5 minutes old)", %{path: path} do
       now = DateTime.utc_now()
       fresh_time = DateTime.add(now, -60, :second)

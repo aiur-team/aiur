@@ -461,14 +461,20 @@ defmodule Aiur.Orchestrator.PauseResume do
   left untouched, preserving the operator's per-agent pause.
   """
   @spec resume_running_from_global(State.t()) :: State.t()
-  def resume_running_from_global(%State{} = state) do
+  @spec resume_running_from_global(State.t(), keyword()) :: State.t()
+  def resume_running_from_global(%State{} = state, opts \\ []) do
+    backends = Keyword.get(opts, :backends, DispatchPolicy.read_provider_backends())
+    ModelAvailability.probe_stale_limits(backends, opts)
+
     state.running
     |> Enum.filter(fn {_id, entry} -> globally_held?(state, entry) end)
     |> Enum.reduce(state, fn {_id, entry}, state ->
       if tracker_pause_override?(entry) do
         preserve_tracker_pause_after_global_hold(state, entry)
       else
-        {_reply, state} = resume_issue(state, Map.get(entry, :identifier))
+        {_reply, state} =
+          resume_issue_with_opts(state, Map.get(entry, :identifier), Keyword.put(opts, :probe_provider_limits?, false))
+
         state
       end
     end)
@@ -561,8 +567,13 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec resume_issue(State.t(), String.t()) ::
           {{:ok, :resumed | :started | :reactivated | :already_running | :sleeping} | {:error, term()}, State.t()}
-  def resume_issue(%State{} = state, issue_identifier) do
-    ModelAvailability.probe_stale_limits(DispatchPolicy.read_provider_backends())
+  def resume_issue(%State{} = state, issue_identifier), do: resume_issue_with_opts(state, issue_identifier, [])
+
+  defp resume_issue_with_opts(%State{} = state, issue_identifier, opts) do
+    if Keyword.get(opts, :probe_provider_limits?, true) do
+      backends = Keyword.get(opts, :backends, DispatchPolicy.read_provider_backends())
+      ModelAvailability.probe_stale_limits(backends, opts)
+    end
 
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->

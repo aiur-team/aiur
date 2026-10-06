@@ -57,18 +57,23 @@ defmodule Aiur.CodexProberTest do
     parent = self()
     now = DateTime.utc_now()
 
-    assert :ok =
-             CodexProber.probe_async("codex",
-               path: path,
-               now: now,
-               fetch_limits_fun: fn ->
-                 send(parent, :provider_probe_ran)
-                 {:ok, %{"rateLimits" => %{"primary" => %{"usedPercent" => 4, "windowDurationMins" => 60}}}}
-               end,
-               on_complete_fun: &send(parent, {:probe_result, &1})
-             )
+    async_call =
+      Task.async(fn ->
+        CodexProber.probe_async("codex",
+          path: path,
+          now: now,
+          fetch_limits_fun: fn ->
+            send(parent, {:provider_probe_started, self()})
+            receive do: (:continue_probe -> {:ok, %{"rateLimits" => %{"primary" => %{"usedPercent" => 4, "windowDurationMins" => 60}}}})
+          end,
+          on_complete_fun: &send(parent, {:probe_result, &1})
+        )
+      end)
 
-    assert_receive :provider_probe_ran, 1_000
+    assert_receive {:provider_probe_started, probe_pid}, 1_000
+    async_call_result = Task.yield(async_call, 100)
+    send(probe_pid, :continue_probe)
+    assert {:ok, :ok} = async_call_result
     assert_receive {:probe_result, result}, 1_000
     assert result == :ok
     assert ModelAvailability.load(path)["backends"]["codex"]["hourly"]["used"] == 4
