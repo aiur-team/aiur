@@ -1014,6 +1014,19 @@ defmodule Aiur.AgentControlCLITest do
     refute output =~ "WAKES CURSOR 0 PENDING 0"
   end
 
+  test "status renders dispatch poll age and honest missing observations" do
+    for {polling, expected} <- [
+          {%{last_dispatch_poll_age_ms: 481_000, effective_interval_ms: 240_000}, "481s ago (stale)"},
+          {%{last_dispatch_poll_age_ms: 20_000, effective_interval_ms: 240_000}, "20s ago (fresh)"},
+          {%{last_dispatch_poll_age_ms: nil}, "never polled"},
+          {%{}, "unavailable"}
+        ] do
+      snapshot = %{statuses: [], polling: polling}
+      output = capture_io(fn -> AgentControlCLI.status(fleet_view: {:ok, snapshot, %{status: :current, reason: nil, age_seconds: 0}}) end)
+      assert output =~ "POLL last dispatch: #{expected}"
+    end
+  end
+
   test "status surfaces an active idle polling backoff" do
     snapshot = %{
       statuses: [],

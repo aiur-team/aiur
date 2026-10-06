@@ -218,6 +218,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :global_pause,
       :globally_paused,
       :last_polled_issues,
+      :last_dispatch_poll_at_ms,
       :load_envelope_state,
       :max_concurrent_agents,
       :next_poll_due_at_ms,
@@ -411,6 +412,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       },
       rate_limits: Map.get(state, :agent_rate_limits),
       polling: %{
+        last_dispatch_poll_age_ms: dispatch_poll_age_ms(state.last_dispatch_poll_at_ms, now_ms),
         checking?: state.poll_check_in_progress == true,
         next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
         poll_interval_ms: state.poll_interval_ms,
@@ -421,6 +423,9 @@ defmodule Aiur.Orchestrator.StatusReport do
       }
     }
   end
+
+  defp dispatch_poll_age_ms(last_ms, now_ms) when is_integer(last_ms), do: max(now_ms - last_ms, 0)
+  defp dispatch_poll_age_ms(_last_ms, _now_ms), do: nil
 
   defp capacity_hold_active?(%State{} = state) do
     match?(%{signal: _signal}, state.capacity_hold)

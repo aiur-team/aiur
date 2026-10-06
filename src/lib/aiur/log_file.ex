@@ -118,7 +118,8 @@ defmodule Aiur.LogFile do
       setup_file_handler(log_file)
     else
       # Direct foreground without a run root or --debug stays quiet.
-      # Background boot exports AIUR_LOGS_ROOT before CLI headless setup.
+      # Launcher runs export AIUR_LOGS_ROOT before CLI mode setup, so both
+      # foreground and background runs retain daemon logs.
       # Per-agent stdout files via Aiur.IssueLog are always written.
       :ok = remove_existing_handler()
       :ok = remove_default_console_handler()

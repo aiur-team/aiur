@@ -18,6 +18,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   @type kind ::
           :tracker_preflight
           | :dispatch_selection
+          | :stale_poll
           | :awaiting_dispatch
           | :admission
           | :ticket_supply
@@ -58,11 +59,20 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   def binding(%{capacity_hold: %{} = hold}, polling, now),
     do: {:admission, mark_stale_sample(hold, polling, now)}
 
-  def binding(%{available: available, dispatch_selection_hold: %{} = hold}, polling, now) when available > 0,
+  def binding(%{available: available} = capacity, polling, now) when available > 0 do
+    case dispatch_poll_status(polling) do
+      %{freshness: :stale} = detail -> {:stale_poll, detail}
+      _other -> binding_without_poll_age(capacity, polling, now)
+    end
+  end
+
+  def binding(capacity, polling, now), do: binding_without_poll_age(capacity, polling, now)
+
+  defp binding_without_poll_age(%{available: available, dispatch_selection_hold: %{} = hold}, polling, now) when available > 0,
     do: {:dispatch_selection, mark_stale_sample(hold, polling, now)}
 
-  def binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity, polling, _now)
-      when is_integer(max) and is_integer(effective) and is_integer(configured) and is_integer(occupied) do
+  defp binding_without_poll_age(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity, polling, _now)
+       when is_integer(max) and is_integer(effective) and is_integer(configured) and is_integer(occupied) do
     case ticket_supply(capacity, polling) do
       {:ticket_supply, detail} -> {:ticket_supply, detail}
       {:idle_backoff, detail} -> {:idle_backoff, detail}
@@ -71,7 +81,23 @@ defmodule Aiur.Orchestrator.CapacityBinding do
     end
   end
 
-  def binding(_capacity, _polling, _now), do: {:none, nil}
+  defp binding_without_poll_age(_capacity, _polling, _now), do: {:none, nil}
+
+  @doc "The last dispatch poll's age and freshness, without inventing an unavailable observation."
+  @spec dispatch_poll_status(map() | nil) :: map()
+  def dispatch_poll_status(%{last_dispatch_poll_age_ms: age} = polling) when is_integer(age) and age >= 0 do
+    interval = poll_interval_ms(polling)
+    threshold = if is_integer(interval) and interval > 0, do: max(interval * 2, 60_000), else: nil
+    freshness = dispatch_poll_freshness(age, threshold)
+    %{age_seconds: div(age, 1_000), freshness: freshness}
+  end
+
+  def dispatch_poll_status(%{last_dispatch_poll_age_ms: nil}), do: %{age_seconds: nil, freshness: :never_polled}
+  def dispatch_poll_status(_polling), do: %{age_seconds: nil, freshness: :unavailable}
+
+  defp dispatch_poll_freshness(_age, nil), do: :unavailable
+  defp dispatch_poll_freshness(age, threshold) when age > threshold, do: :stale
+  defp dispatch_poll_freshness(_age, _threshold), do: :fresh
 
   @doc """
   Whether an admission hold's measurement is old enough to be reported as stale.
@@ -191,6 +217,8 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   def short_label({:session_cap, _detail}), do: "session max_concurrent_agents"
   def short_label({:ticket_supply, _detail}), do: "ticket supply"
   def short_label({:idle_backoff, _detail}), do: "idle backoff"
+  def short_label({:stale_poll, %{age_seconds: age}}), do: "dispatch poll stale (#{age}s ago)"
+
   def short_label({:has_not_polled, _detail}), do: "has not polled yet"
   def short_label({:admission, %{signal: signal, stale_sample?: true}}), do: "admission: #{signal} (stale sample)"
   def short_label({:admission, %{signal: signal}}), do: "admission: #{signal}"
@@ -275,6 +303,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   defp poll_observation(%{idle_backoff: %{active?: true} = backoff} = polling),
     do: {:backed_off, Map.get(polling, :next_poll_in_ms), Map.get(backoff, :factor)}
 
+  defp poll_observation(%{last_dispatch_poll_age_ms: nil}), do: :fetch_failed
   defp poll_observation(%{tracker_snapshot_fresh?: false}), do: :fetch_failed
   defp poll_observation(_polling), do: :fresh
 

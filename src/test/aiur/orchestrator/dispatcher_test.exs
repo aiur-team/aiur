@@ -2595,6 +2595,33 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end
   end
 
+  # Future regression guard: prewarm already records the known gate before
+  # DispatchOutcome runs, including the repo-base freshness probe (:checking).
+  test "prewarm and repo-base hold phases preserve their known cause in empty dispatch outcomes" do
+    with_prewarm_enabled_config()
+    ready = issue("known-prewarm-hold")
+    state = %State{max_concurrent_agents: 12, effective_concurrent_agents: 12, blocked_ticket_ids: MapSet.new()}
+    owner = self()
+
+    for phase <- [:cloning, :fetching, :building, :checking] do
+      held =
+        Dispatcher.dispatch_or_hold(state, [ready], fn -> phase end,
+          admission_probes_fun: contended_probes(0.0, :unavailable),
+          log_fun: &send(owner, {:hold_log, &1})
+        )
+
+      assert held.running == %{}
+      assert Slots.available_slots(held) == 12
+      assert held.dispatch_selection_hold.reasons == [:build]
+      assert %{kind: :build, detail: "prewarm=#{phase}"} in held.dispatch_capacity_constraints
+      assert_receive {:hold_log, prewarm_log}, 1_000
+      assert prewarm_log =~ "phase=#{inspect(phase)}"
+      assert_receive {:hold_log, outcome_log}, 1_000
+      assert outcome_log =~ "reasons: [:build]"
+      refute outcome_log =~ "unknown"
+    end
+  end
+
   test "tracker preflight skips dispatch with free slots and names its reason in status" do
     ready = issue("preflight-empty")
     state = %State{max_concurrent_agents: 12, effective_concurrent_agents: 12, last_polled_issues: %{ready.id => ready}, blocked_ticket_ids: MapSet.new()}
