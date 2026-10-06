@@ -31,6 +31,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.RepoBase
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
+  alias Aiur.Workspace.Ownership.HoldStatus
 
   # `TicketActivity.snapshots/1` is a call into an in-memory projection on this
   # node, so the work itself is microseconds; the only thing this budget has to
@@ -468,7 +469,7 @@ defmodule Aiur.Orchestrator.StatusReport do
          activity_by_identity
        ) do
     capabilities = OM.issue_control_capabilities(state, metadata.identifier, metadata)
-    work_state = get_in(metadata, [:control, :status]) || :working
+    work_state = startup_work_state(metadata)
     pause_reason = Map.get(metadata, :paused_reason)
     started_at = Map.get(metadata, :started_at)
     stale_for_seconds = stale_for_seconds(metadata, now)
@@ -502,6 +503,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       agent_total_tokens: Map.get(metadata, :agent_total_tokens, 0),
       context_usage: Map.get(metadata, :context_usage),
       turn_count: Map.get(metadata, :turn_count, 0),
+      turn_count_observed?: Map.has_key?(metadata, :turn_count),
       started_at: started_at,
       last_codex_timestamp: Map.get(metadata, :last_codex_timestamp),
       last_codex_message: Map.get(metadata, :last_codex_message),
@@ -548,6 +550,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       title: issue && issue.title,
       url: issue && issue.url,
       error: Map.get(retry, :error),
+      last_failure_at: Map.get(retry, :last_failure_at),
+      work_state: :retrying,
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path),
       waiting_reason: WaitingReason.for_retry(),
@@ -1018,7 +1022,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp running_status(%State{} = state, issue_id, entry, now) do
     identifier = Map.get(entry, :identifier) || issue_id
     issue = Map.get(entry, :issue) || %{}
-    work_state = get_in(entry, [:control, :status]) || :working
+    work_state = startup_work_state(entry)
     capabilities = OM.issue_control_capabilities(state, identifier, entry)
     pause_reason = Map.get(entry, :paused_reason)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
@@ -1080,7 +1084,7 @@ defmodule Aiur.Orchestrator.StatusReport do
         identifier: identifier,
         tracker_identity: retry_snapshot_tracker_identity(retry, issue),
         state: :paused,
-        work_state: :paused,
+        work_state: :retrying,
         tracker_state: Map.get(issue || %{}, :state),
         tracker_paused: tracker_paused,
         tag: State.issue_tag(issue),
@@ -1097,6 +1101,7 @@ defmodule Aiur.Orchestrator.StatusReport do
         last_codex_message: nil,
         last_codex_event: nil,
         retry_attempt: Map.get(retry, :attempt),
+        last_failure_at: Map.get(retry, :last_failure_at),
         retry_reason: retry_reason,
         waiting_reason: WaitingReason.for_retry(),
         pause_reason: if(tracker_paused, do: tracker_pause_cause(state)),
@@ -1118,6 +1123,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp tracker_paused?(%Issue{} = issue), do: Issue.paused?(issue)
   defp tracker_paused?(issue) when is_map(issue), do: Map.get(issue, :paused) == true
   defp tracker_paused?(_issue), do: false
+
+  defp startup_work_state(entry) do
+    case get_in(entry, [:control, :status]) || :working do
+      :working -> if(is_nil(Map.get(entry, :session_id)), do: :starting, else: :working)
+      other -> other
+    end
+  end
 
   # `Config.agent_max_dispatches_per_ticket/0` is a `WorkflowStore` GenServer
   # call that re-stats and re-reads the config file, so resolving it per idle
@@ -1186,7 +1198,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       claim_released?: not is_nil(release),
       claim_release_cause: release && release.cause,
       reason:
-        idle_reason(waiting_reason, fn ->
+        idle_reason(waiting_reason, identifier, fn ->
           idle_status_reason(
             work_state,
             pause_reason,
@@ -1217,10 +1229,17 @@ defmodule Aiur.Orchestrator.StatusReport do
   # thunk so it is only computed when it is needed.
   @claim_shaped_waiting_reasons [:orphaned_claim, :stale_claim, :workspace_ownership_waiting]
 
-  defp idle_reason(waiting_reason, _fallback) when waiting_reason in @claim_shaped_waiting_reasons,
+  defp idle_reason(:workspace_ownership_waiting, identifier, _fallback) do
+    case HoldStatus.for_ticket(identifier) do
+      %{generation: generation, proof: proof} -> {:workspace_ownership_waiting, generation, proof}
+      nil -> :workspace_ownership_waiting
+    end
+  end
+
+  defp idle_reason(waiting_reason, _identifier, _fallback) when waiting_reason in @claim_shaped_waiting_reasons,
     do: waiting_reason
 
-  defp idle_reason(_waiting_reason, fallback), do: fallback.()
+  defp idle_reason(_waiting_reason, _identifier, fallback), do: fallback.()
 
   defp idle_evidence(%State{} = state, issue, latch_status, open_decision_count, now_ms) do
     auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, Map.get(issue, :id), now_ms)

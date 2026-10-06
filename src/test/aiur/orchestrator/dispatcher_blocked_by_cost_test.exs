@@ -106,7 +106,7 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
 
     released = run_pass(candidate("14"), held)
 
-    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}, 1000
     assert dispatched.id == "14"
     assert Map.has_key?(released.running, "14")
     assert blocked_by_reads() == []
@@ -217,7 +217,7 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
 
     released = run_pass(candidate("14"))
 
-    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}, 1000
     assert dispatched.id == "14"
     assert Map.has_key?(released.running, "14")
     assert blocked_by_reads() == ["14"]
@@ -367,6 +367,42 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     assert {:ok, _candidates} = Issues.fetch_candidate_issues()
     assert {:ok, open, _taken_at_ms} = OpenIssueSnapshot.fetch("owner", "repo", 60_000)
     assert MapSet.to_list(open) == ["99"]
+  end
+
+  # #2957: the open-issue listing is intake's second producer. It offers only
+  # issues created in the last 24 hours, carrying the API's numeric author id,
+  # type and App provenance — never the title or body.
+  test "the open-issue listing offers fresh issues to allowed-contributor intake" do
+    fresh = DateTime.utc_now() |> DateTime.add(-3600) |> DateTime.to_iso8601()
+    stale = DateTime.utc_now() |> DateTime.add(-3 * 86_400) |> DateTime.to_iso8601()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      Req.Test.json(conn, [
+        %{"number" => 98, "state" => "open", "labels" => [], "created_at" => fresh, "performed_via_github_app" => nil, "user" => %{"id" => 42, "login" => "alice", "type" => "User"}},
+        # No provenance key at all: unknown, so intake must see it as App-created.
+        %{"number" => 95, "state" => "open", "labels" => [], "created_at" => fresh, "user" => %{"id" => 42, "login" => "alice", "type" => "User"}},
+        %{"number" => 97, "state" => "open", "labels" => [], "created_at" => stale, "user" => %{"id" => 42, "login" => "alice", "type" => "User"}},
+        %{
+          "number" => 96,
+          "state" => "open",
+          "labels" => [],
+          "created_at" => fresh,
+          "user" => %{"id" => 43, "login" => "bob", "type" => "User"},
+          "performed_via_github_app" => %{"id" => 1}
+        }
+      ])
+    end)
+
+    true = Process.register(self(), Aiur.AllowedContributors)
+    on_exit(fn -> if Process.whereis(Aiur.AllowedContributors), do: Process.unregister(Aiur.AllowedContributors) end)
+
+    assert {:ok, _candidates} = Issues.fetch_candidate_issues()
+    Process.unregister(Aiur.AllowedContributors)
+
+    assert_received {:"$gen_cast", {:observe, %{number: 98, author_id: 42, author_type: "User", via_app?: false, source: :poll}}}
+    assert_received {:"$gen_cast", {:observe, %{number: 96, via_app?: true}}}
+    assert_received {:"$gen_cast", {:observe, %{number: 95, via_app?: true}}}
+    refute_received {:"$gen_cast", {:observe, %{number: 97}}}
   end
 
   test "a snapshot written by a short-lived process outlives it" do

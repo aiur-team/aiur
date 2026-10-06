@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, Tracker}
-  alias Aiur.AgentRunner.{MessageHandler, ModelLabelRefresh, SessionResume, TurnLoop}
+  alias Aiur.AgentRunner.{CodexUpdateRelay, MessageHandler, ModelLabelRefresh, SessionResume, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
   alias Aiur.LiveConversation.Source
   alias Aiur.RunTelemetry.Lifecycle
@@ -193,7 +193,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       session_opts: session_opts,
       rc?: rc?,
       issue_state_fetcher: issue_state_fetcher,
-      orchestrator: orchestrator
+      orchestrator: orchestrator,
+      update_recipient: codex_update_recipient
     }
 
     # Claim a provisional provider before opening a port or tmux pane. If this
@@ -202,6 +203,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # workspace underneath it.
     with_expected_provider(
       Keyword.get(opts, :workspace_ownership),
+      if(is_nil(worker_host), do: :local, else: :remote),
       fn ownership ->
         start_expected_session(
           workspace,
@@ -219,10 +221,10 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     )
   end
 
-  defp with_expected_provider(nil, start, _issue, _session_context), do: start.(nil)
+  defp with_expected_provider(nil, _scope, start, _issue, _session_context), do: start.(nil)
 
-  defp with_expected_provider(ownership, start, issue, session_context) do
-    case Ownership.expect_provider(ownership) do
+  defp with_expected_provider(ownership, scope, start, issue, session_context) do
+    case Ownership.expect_provider(ownership, scope) do
       :ok ->
         start.(ownership)
 
@@ -549,13 +551,34 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp record_session_start_failure(issue, session_context, reason) do
-    Lifecycle.record(issue.identifier, session_context.lifecycle_attempt_id, :agent_spinup, :end, %{
-      operation_id: "session",
-      backend: session_context.session_backend,
-      outcome: :failed,
-      reason_class: Lifecycle.reason_class(reason)
-    })
+    observed_at = DateTime.utc_now()
+
+    Lifecycle.record(
+      issue.identifier,
+      session_context.lifecycle_attempt_id,
+      :agent_spinup,
+      :end,
+      %{
+        operation_id: "session",
+        backend: session_context.session_backend,
+        outcome: :failed,
+        reason_class: Lifecycle.reason_class(reason),
+        exit_status: startup_exit_status(reason)
+      },
+      timestamp: observed_at
+    )
+
+    if is_pid(session_context.update_recipient) and match?({:port_exit, status} when is_integer(status), reason) do
+      CodexUpdateRelay.relay(session_context.update_recipient, issue.id, %{
+        event: :startup_failed,
+        reason: reason,
+        timestamp: observed_at
+      })
+    end
   end
+
+  defp startup_exit_status({:port_exit, status}) when is_integer(status), do: status
+  defp startup_exit_status(_reason), do: nil
 
   # A missing local process group is expected for remote workers, headless
   # adapters, and an occasional `ps` lookup miss. The provider itself is still

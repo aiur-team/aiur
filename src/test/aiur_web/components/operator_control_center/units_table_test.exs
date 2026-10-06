@@ -30,6 +30,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert html =~ ~s(class="ut-pbar")
     assert html =~ "width:40%"
     assert html =~ "feature pushed"
+    assert html =~ "Turns 3"
+    assert html =~ "Context 50% 50k/100k"
     refute html =~ "Conversation unavailable"
     refute html =~ ~s(phx-click="read-conversation")
     # Verbose per-row Commands / GitHub / Agent-log actions moved into the inspect modal.
@@ -57,6 +59,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
         build_lane: nil,
         progress: %{status: :unknown},
         latest_evidence: %{status: :unknown},
+        turn_count: nil,
+        context_usage: nil,
         open_command_count: nil,
         provider_health: %{membership: :available, status: :unavailable, activity: :unknown}
       })
@@ -70,6 +74,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
       })
 
     assert html =~ "No recent activity"
+    assert html =~ "Turns —"
+    assert html =~ "Context —"
     # Unknown progress facts are omitted rather than labelled "Unavailable"/"Unknown".
     refute html =~ "Progress source"
     refute html =~ "Latest evidence"
@@ -83,6 +89,19 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ "Agent log"
     assert html =~ ~s(class="ut-pbar is-unknown")
     refute html =~ ~s(class="ut-progress-fill")
+  end
+
+  test "keeps a known zero turn count and unknown context capacity distinct" do
+    row = %{row() | turn_count: 0, context_usage: %{used_tokens: 50_000}}
+
+    html =
+      render_component(&UnitsTable.units_table/1, %{
+        view: view([row]),
+        now: ~U[2026-07-17 12:00:00Z]
+      })
+
+    assert html =~ "Turns 0"
+    assert html =~ "Context 50k/? ctx"
   end
 
   test "marks measured zero and completion without semantic recoloring" do
@@ -437,6 +456,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
         last_activity_at: "2026-07-17T11:59:00Z"
       },
       open_command_count: 2,
+      turn_count: 3,
+      context_usage: %{used_tokens: 50_000, window_tokens: 100_000},
       progress: %{status: :known, percent: 40, source: :checkin, freshness: :stale},
       latest_evidence: %{status: :known, source: %{kind: :branch, name: "feature pushed"}},
       provider_health: %{

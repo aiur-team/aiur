@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.Client do
   GitHub REST API client for issue tracking via labels.
   """
 
-  alias Aiur.{BuildOrder.GitHubGraph, BuildOrder.ProviderResult, Issue, TrackerIdentity}
+  alias Aiur.{BuildOrder.GitHubGraph, BuildOrder.ProviderResult, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
     AuthPreflight,
@@ -60,30 +60,32 @@ defmodule Aiur.GitHub.Client do
   def classify_error(error), do: Errors.classify_error(error)
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_candidate_issues(opts \\ []), do: Issues.fetch_candidate_issues(opts)
+  def fetch_candidate_issues(opts \\ []), do: Issues.fetch_candidate_issues(opts) |> TestTicketScope.filter_result()
 
   @spec fetch_candidate_issues_conditional(map(), keyword()) ::
           {:ok, [Issue.t()], map()} | {:error, term()}
   def fetch_candidate_issues_conditional(cache, opts \\ []),
-    do: Issues.fetch_candidate_issues_conditional(cache, opts)
+    do: Issues.fetch_candidate_issues_conditional(cache, opts) |> TestTicketScope.filter_result()
 
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issues_by_states(state_names, opts \\ []), do: Issues.fetch_issues_by_states(state_names, opts)
+  def fetch_issues_by_states(state_names, opts \\ []),
+    do: Issues.fetch_issues_by_states(state_names, opts) |> TestTicketScope.filter_result()
 
   @spec fetch_issues_by_states_conditional([String.t()], map(), keyword()) ::
           {:ok, [Issue.t()], map()} | {:error, term()}
   def fetch_issues_by_states_conditional(state_names, cache, opts \\ []) do
-    Issues.fetch_issues_by_states_conditional(state_names, cache, opts)
+    Issues.fetch_issues_by_states_conditional(state_names, cache, opts) |> TestTicketScope.filter_result()
   end
 
   @spec fetch_issue_states_by_ids([String.t()], keyword()) ::
           {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issue_states_by_ids(issue_ids, opts \\ []), do: Issues.fetch_issue_states_by_ids(issue_ids, opts)
+  def fetch_issue_states_by_ids(issue_ids, opts \\ []),
+    do: Issues.fetch_issue_states_by_ids(issue_ids, opts) |> TestTicketScope.filter_result()
 
   @spec fetch_issue_states_by_ids_conditional([String.t()], map(), keyword()) ::
           {:ok, [Issue.t()], map()} | {:error, term()} | {:error, term(), map()}
   def fetch_issue_states_by_ids_conditional(issue_ids, cache, opts \\ []) do
-    Issues.fetch_issue_states_by_ids_conditional(issue_ids, cache, opts)
+    Issues.fetch_issue_states_by_ids_conditional(issue_ids, cache, opts) |> TestTicketScope.filter_result()
   end
 
   @doc "Fetches a complete, bounded Build Order root catalog without tracker-polling semantics."

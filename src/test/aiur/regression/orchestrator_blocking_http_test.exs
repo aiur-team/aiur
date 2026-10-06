@@ -21,6 +21,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   use Aiur.TestSupport
 
   import ExUnit.CaptureIO
+  import ExUnit.CaptureLog
 
   alias Aiur.AgentControlCLI
   alias Aiur.GitHub.{Budget, Transport}
@@ -457,7 +458,9 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
       opts = comment_poll_opts(hanging_fetcher)
 
-      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, opts)
+      # Ownership is registry-scoped; isolate this poll from unrelated tests
+      # that also use the default nil snapshot key under coverage load.
+      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}, snapshot_key: self()}, opts)
       state = await_async_started(state)
       assert_receive {:comment_poll_started, first_pid}, 5_000
       first_poll = state.github_comment_poll.pid
@@ -473,6 +476,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       assert second_pid != first_pid
       assert next_state.github_comment_poll.pid != first_poll
       assert Process.alive?(second_pid)
+      CommentPolling.terminate_poll(next_state.github_comment_poll)
     end
 
     test "terminates target descendants before replacing an expired poll" do
@@ -518,7 +522,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
       terminator = Task.async(fn -> CommentPolling.terminate_poll(poll) end)
       assert Task.await(terminator, 1_000) == :ok
-      assert_receive {:github_comments_polled, _ref, _payload}
+      assert_receive {:github_comments_polled, _ref, _payload}, 1000
     end
 
     test "termination reaps the poll tree if its owner dies before acknowledging" do
@@ -540,7 +544,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
         send(test_pid, {:before_ack_result, result})
       end)
 
-      assert_receive {:before_ack_poll, poll}
+      assert_receive {:before_ack_poll, poll}, 1000
       assert_receive {:before_ack_result, :ok}, 1_000
       refute Process.alive?(poll)
     end
@@ -598,9 +602,9 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       refute Process.alive?(poll)
       refute Process.alive?(target)
       refute Process.alive?(request)
-      assert_receive {:DOWN, ^poll_ref, :process, ^poll, :killed}
-      assert_receive {:DOWN, ^target_ref, :process, ^target, _reason}
-      assert_receive {:DOWN, ^request_ref, :process, ^request, _reason}
+      assert_receive {:DOWN, ^poll_ref, :process, ^poll, :killed}, 1000
+      assert_receive {:DOWN, ^target_ref, :process, ^target, _reason}, 1000
+      assert_receive {:DOWN, ^request_ref, :process, ^request, _reason}, 1000
       refute Process.whereis(name)
     end
 
@@ -716,8 +720,16 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   end
 
   test "a locked lease release is abandoned at its deadline instead of parking on the broker lock", %{
-    orchestrator: pid
+    orchestrator: shared_orchestrator
   } do
+    # This request needs an Orchestrator process to reproduce the caller shape,
+    # but it must not inherit timers or mailbox work retained by the shared
+    # application singleton. Keeping the producer private makes the final
+    # response probe causal to this fixture.
+    pid = start_supervised!({Orchestrator, initial_poll?: false})
+
+    refute pid == shared_orchestrator
+
     budget_dir = Aiur.TestSupport.tmp_root!("aiur-orchestrator-release")
     previous_enabled = Application.get_env(:aiur, :github_budget_enabled?)
     previous_dir = Application.get_env(:aiur, :github_budget_dir)
@@ -732,16 +744,18 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       File.rm_rf(budget_dir)
     end)
 
-    # The first broker command against a new state directory also creates the
-    # SQLite schema. That is setup, not the behaviour under test, so it is paid
-    # for here rather than inside the deadline being measured.
-    assert %{inflight: %{}} = Budget.snapshot("locked-release-token")
-
     # Subscribe before the request exists, so the release signal cannot be
     # emitted into a subscription that is not yet registered.
     :ok = Phoenix.PubSub.subscribe(Aiur.PubSub, Budget.release_topic())
     on_exit(fn -> Phoenix.PubSub.unsubscribe(Aiur.PubSub, Budget.release_topic()) end)
     release_token_key = Budget.token_key("locked-release-token")
+
+    # `snapshot/1` degrades an unavailable broker to an empty map, so it cannot
+    # establish that this fixture can admit the request it is about to test.
+    # Acquire and release a separate governed lease first; if startup fails,
+    # preserve the broker's status/output log rather than mislabeling it as a
+    # release or responsiveness failure.
+    assert_budget_admission_ready()
 
     test_pid = self()
     {url, server} = controlled_json_endpoint(test_pid)
@@ -797,12 +811,18 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     assert release.budget_ms <= @locked_release_deadline_ms
     assert release.outcome == :deadline_exceeded
 
+    # The release outcome is only evidence about an attempt. The lock owner
+    # confirms it still owns the exclusive transaction *after* the release
+    # completed, so the result below cannot be attributed to the fixture's
+    # 30-second fallback expiry or a released lock.
+    assert_lock_held(lock)
+
     # Ordering, not timing: the release above is charged inside the request, so
     # the caller's response arriving after it is the non-blocking property —
     # the abandoned release did not swallow the result — and the Orchestrator
     # is still answering once both have landed.
     assert_receive {:locked_release_result, {:ok, %{status: 200}}}, 15_000
-    assert answers?(pid)
+    assert_orchestrator_answers(pid)
     close_port(lock)
   end
 
@@ -1036,7 +1056,9 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   defp lock_budget_database(path) do
     python = System.find_executable("python3") || flunk("python3 is required")
 
-    script = "import sqlite3,sys,time; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN EXCLUSIVE'); print('locked', flush=True); time.sleep(30)"
+    script =
+      "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN EXCLUSIVE'); print('locked', flush=True); " <>
+        "\nfor command in sys.stdin:\n if command == 'assert-held\\n': print('held', flush=True)\n elif command == 'release\\n': c.rollback(); print('released', flush=True); break"
 
     port =
       Port.open(
@@ -1047,6 +1069,25 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     on_exit(fn -> close_port(port) end)
     assert_receive {^port, {:data, "locked\n"}}, 2_000
     port
+  end
+
+  defp assert_lock_held(port) do
+    assert Port.command(port, "assert-held\n")
+    assert_receive {^port, {:data, "held\n"}}, 2_000
+  end
+
+  defp assert_budget_admission_ready do
+    request = %{method: :get, url: "https://api.github.com/rate_limit", token: "locked-release-prewarm-token"}
+
+    log = capture_log(fn -> send(self(), {:budget_admission_ready, Budget.acquire(request, timeout_ms: @locked_release_deadline_ms)}) end)
+    assert_receive {:budget_admission_ready, result}, 1000
+
+    assert match?({:ok, _lease}, result), "budget broker did not admit the fixture request: #{inspect(result)}; #{log}"
+    {:ok, lease} = result
+
+    # Releasing this setup lease is best effort; admission above, not a
+    # release acknowledgement, establishes that the broker is ready.
+    Budget.release(lease, timeout_ms: @locked_release_deadline_ms)
   end
 
   defp close_port(port) do
@@ -1149,6 +1190,29 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     true
   catch
     :exit, _reason -> false
+  end
+
+  defp assert_orchestrator_answers(pid) do
+    result =
+      try do
+        {:ok, GenServer.call(pid, :poll_status, 100)}
+      catch
+        :exit, reason -> {:exit, reason}
+      end
+
+    case result do
+      {:ok, _status} -> :ok
+      {:exit, reason} -> flunk("orchestrator poll_status exited: #{inspect(reason)}; #{inspect(orchestrator_probe_context(pid))}")
+    end
+  end
+
+  defp orchestrator_probe_context(pid) do
+    %{
+      alive?: Process.alive?(pid),
+      mailbox: Process.info(pid, :message_queue_len),
+      stacktrace: Process.info(pid, :current_stacktrace),
+      status: Process.info(pid, :status)
+    }
   end
 
   defp wait_until_waiting(pid) do

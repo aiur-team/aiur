@@ -49,10 +49,10 @@ defmodule Aiur.RunTelemetry.SamplerTest do
         end
       )
 
-    assert_receive :fleet_read
-    refute_receive :fleet_read
-    assert_receive :build_read
-    refute_receive :build_read
+    assert_receive :fleet_read, 1000
+    refute_receive :fleet_read, 100
+    assert_receive :build_read, 1000
+    refute_receive :build_read, 100
 
     daemon = by_actor(result.records)["_daemon"]
     assert daemon.fleet_capacity_status == "current"
@@ -186,7 +186,7 @@ defmodule Aiur.RunTelemetry.SamplerTest do
         end
       )
 
-    assert_receive :build_probed
+    assert_receive :build_probed, 1000
     first_daemon = by_actor(first.records)["_daemon"]
     assert first_daemon.build_gate_active == 1
     assert first_daemon.build_gate_observed_at_ms == observed_at
@@ -390,6 +390,58 @@ defmodule Aiur.RunTelemetry.SamplerTest do
              Enum.filter(result.warnings, &(&1.reason == :vanished_during_scan))
 
     refute Enum.any?(result.warnings, &(&1.field == :stat and &1.reason == :enoent))
+  end
+
+  test "repeated EACCES and unavailable fields produce one counted warning per sample" do
+    test_pid = self()
+    table = process_table()
+    warnings = for pid <- Map.keys(table), field <- [:io, :fd], do: %{pid: pid, field: field, reason: :eacces}
+    warnings = warnings ++ [%{pid: 1, field: :rss, reason: :unavailable}]
+
+    {:ok, sampler} =
+      Sampler.start_link(
+        name: nil,
+        interval_ms: 60_000,
+        start_immediately?: false,
+        recorder: fn batch -> send(test_pid, {:recorded, batch}) end,
+        sample_opts: [
+          process_table_fun: fn -> {:ok, table, [%{pid: 99, field: :stat, reason: :eacces}]} end,
+          measure_fun: fn _table, _pids ->
+            measured = Map.new(metrics(0), fn {pid, process} -> {pid, %{process | rss_bytes: nil, fd_count: nil, read_bytes: nil, write_bytes: nil}} end)
+            {:ok, measured, warnings}
+          end,
+          entries_fun: &reaper_entries/0,
+          daemon_pid: 1,
+          operator_pid: 30,
+          clock_ticks_per_second: 100,
+          fd_headroom_fun: fn -> :unavailable end,
+          fleet_snapshot_fun: fn -> :unavailable end,
+          build_status_fun: fn -> :unavailable end
+        ]
+      )
+
+    on_exit(fn -> if Process.alive?(sampler), do: GenServer.stop(sampler) end)
+
+    for _sample <- 1..3 do
+      send(sampler, :tick)
+      assert_receive {:recorded, batch}, 1_000
+      assert [{:warning, summary}] = Enum.filter(batch, &(elem(&1, 0) == :warning))
+      assert summary.event == :resource_sample_warning
+      assert summary.reason == :unreadable_fields
+      assert summary.count == 2 * map_size(table) + 2
+
+      assert summary.counts == [
+               %{field: :fd, reason: :eacces, count: map_size(table)},
+               %{field: :io, reason: :eacces, count: map_size(table)},
+               %{field: :rss, reason: :unavailable, count: 1},
+               %{field: :stat, reason: :eacces, count: 1}
+             ]
+
+      assert {:resource, daemon} = Enum.find(batch, fn {kind, record} -> kind == :resource and record.actor == "_daemon" end)
+      assert daemon.rss_bytes == nil
+      assert daemon.read_bytes == nil
+      assert :rss_bytes in daemon.partial_fields
+    end
   end
 
   test "invalid scan results are recorded as fail-open warnings" do

@@ -125,7 +125,7 @@ jobs:
             echo "no changed files reported: running the full suite" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if printf '%s\n' "$files" | grep -qv '^website/'; then
+          if printf '%s\n' "$files" | grep -qv '^website/\|^packages/aiur-style/'; then
             docs_only=false
           else
             docs_only=true
@@ -155,6 +155,8 @@ jobs:
         run: bash scripts/report-ci-run-attempt.sh "${{ github.run_attempt }}" "$GITHUB_STEP_SUMMARY"
       - name: Guard workflow triggers and action pins
         run: bash scripts/test-workflow-security.sh
+      - name: Test legacy Stream Deck nightly cleanup
+        run: node scripts/test-cleanup-legacy-streamdeck-nightlies.mjs
       - name: Test human-only merge ruleset verifier
         run: bash scripts/test-human-only-merge-ruleset.sh
       - name: Test human-only merge ruleset drift check
@@ -177,6 +179,8 @@ jobs:
         run: bash scripts/test-check-env-example.sh
       - name: Test coverage-shard parity guard
         run: bash scripts/test-check-test-shard-parity.sh
+      - name: Test bare assert_receive guard
+        run: bash scripts/test-check-bare-assert-receive.sh
       - name: Test hourly retrospective visual check
         run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
       - name: Test hourly dashboard analyzer
@@ -314,6 +318,9 @@ jobs:
       - name: Set up Elixir
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: ./.github/actions/setup-elixir
+      - name: Install zsh for agent scratch regression
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        run: sudo apt-get update && sudo apt-get install -y zsh
       # MIX_TEST_PARTITION still names the shard, but it is no longer read by
       # `mix test --partitions`: that rule shards round-robin over the sorted
       # file list, so inserting one test file renumbered the rest of the suite
@@ -326,6 +333,11 @@ jobs:
         env:
           MIX_TEST_PARTITION: ${{ matrix.partition }}
           TEST_PARTITIONS: 4
+          # `Aiur.TestSupport.tmp_root!/1` follows `System.tmp_dir!/0`, which
+          # otherwise selects quota-mounted `/tmp` on hosted runners. Keep
+          # per-test SQLite broker state under this job's private runner temp
+          # root instead; `df` free space does not reflect an EDQUOT limit.
+          TMPDIR: ${{ runner.temp }}
         # Capture the full log for the known-flaky reporter below, but write it
         # to a file instead of piping through `tee`: tests that leave orphaned
         # background processes (opencode/sleep CLI harnesses) hold the pipe's
@@ -590,6 +602,8 @@ jobs:
 
   browser:
     name: browser harness
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
     needs: changes
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
@@ -608,6 +622,9 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: src/browser/package-lock.json
+      - name: Install fixture build tools
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        run: apt-get update && apt-get install -y --no-install-recommends build-essential
       - name: Set up Elixir
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         uses: ./.github/actions/setup-elixir
@@ -629,6 +646,12 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser
         run: npm test
+      - name: Run visual regression baselines
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        working-directory: src/browser
+        run: |
+          npm run test:visual
+          npm run test:visual
       - name: Verify browser failure evidence, redaction, and teardown
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: src/browser

@@ -271,9 +271,9 @@ defmodule Aiur.AgentControlCLI do
       timeout_ms = control_query_timeout(opts, :snapshot_timeout_ms, @agents_timeout_ms)
 
       case fleet_view(opts, timeout_ms) do
-        {:ok, %{running: running}, freshness} when is_list(running) ->
+        {:ok, %{running: running} = snapshot, freshness} when is_list(running) ->
           print_snapshot_freshness(freshness)
-          print_agents_table(running)
+          print_agents_table(running ++ retry_rows(snapshot))
           exit_marker(0)
 
         {:ok, _snapshot, _freshness} ->
@@ -284,6 +284,9 @@ defmodule Aiur.AgentControlCLI do
       end
     end)
   end
+
+  defp retry_rows(%{retrying: retrying}) when is_list(retrying), do: retrying
+  defp retry_rows(_snapshot), do: []
 
   # `aiur watch` — the server-side status board. Compiles one row per active
   # agent (state · complexity · activity-age · what it's doing) plus an
@@ -768,7 +771,8 @@ defmodule Aiur.AgentControlCLI do
   defp print_executor_wakes(records, false, role) do
     Enum.each(records, fn record ->
       ticket = if record["ticket"], do: " ticket=#{record["ticket"]}", else: ""
-      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]} role=#{role}")
+      observation = if record["observation"] == "initial_sync", do: " observation=initial_sync", else: ""
+      IO.puts("WAKE #{record["topic"]}#{ticket} count=#{record["count"]} role=#{role}#{observation}")
     end)
   end
 
@@ -836,11 +840,23 @@ defmodule Aiur.AgentControlCLI do
     Application.get_env(:aiur, :agent_control_cli_busy_mailbox_threshold, @orchestrator_busy_mailbox_threshold)
   end
 
+  # `--todo` is the one control command whose runtime scales with its arguments
+  # and the tracker's size rather than with daemon state: every requested ID is
+  # a GitHub issue fetch, and `--only` adds an active-ticket enumeration plus up
+  # to @max_cleanup_batch serial label DELETEs. Against a repo with a deep
+  # `agent:todo` queue that is far more than the launcher's shared 10s control
+  # budget, so the watchdog killed the RPC mid-flight and printed "outcome is
+  # unknown" while labels were half-applied — `--only` scoping was unusable
+  # (#2519). The launcher now sizes its watchdog to the requested work and hands
+  # us a slightly shorter `budget_ms`. Stop ourselves at that budget so the
+  # summary and the exit marker always reach the operator, and a partial run
+  # reports exactly what it did instead of nothing at all.
   @spec todo([String.t()], keyword()) :: 0 | 1
   def todo(issue_ids, opts \\ []) when is_list(issue_ids) do
     deps = Keyword.get(opts, :deps, todo_runtime_deps())
     only? = Keyword.get(opts, :only, false)
     emit_exit_marker? = Keyword.get(opts, :emit_exit_marker, false)
+    budget = todo_budget(Keyword.get(opts, :budget_ms), deps)
 
     exit_code =
       case deps.ensure_started.() do
@@ -850,8 +866,8 @@ defmodule Aiur.AgentControlCLI do
               {:ok, config} ->
                 issue_ids
                 |> normalize_todo_ids()
-                |> queue_todo_issues(config, deps)
-                |> maybe_clear_other_todos(only?, config, deps)
+                |> queue_todo_issues(config, deps, budget)
+                |> maybe_clear_other_todos(only?, config, deps, budget)
                 |> maybe_request_todo_refresh(deps)
 
               {:error, reason} ->
@@ -883,9 +899,82 @@ defmodule Aiur.AgentControlCLI do
     |> Enum.uniq()
   end
 
-  defp queue_todo_issues(issue_ids, config, deps) do
-    Enum.reduce(issue_ids, todo_result(), &queue_todo_issue(&1, &2, config, deps))
+  defp queue_todo_issues(issue_ids, config, deps, budget) do
+    issue_ids
+    |> Enum.with_index()
+    |> Enum.reduce_while(todo_result(), fn {issue_id, index}, result ->
+      if todo_budget_exhausted?(budget) do
+        {:halt, todo_budget_queue_halt(result, Enum.drop(issue_ids, index), budget)}
+      else
+        {:cont, queue_todo_issue(issue_id, result, config, deps)}
+      end
+    end)
   end
+
+  # A budget stop must read as a definite partial outcome, never as the silent
+  # truncation the 10s watchdog produced: name the tickets that were never
+  # touched and count them as failures so the exit code, the printed summary and
+  # the tracker all agree. Counting them also fails `--only` cleanup closed via
+  # the existing failure guard, so a half-queued request can never go on to
+  # dequeue everything else.
+  defp todo_budget_queue_halt(result, [], _budget), do: result
+
+  defp todo_budget_queue_halt(result, not_reached, budget) do
+    IO.puts(
+      :stderr,
+      "aiur: --todo stopped after its #{todo_budget_seconds(budget)}s daemon budget; #{length(not_reached)} requested ticket(s) not reached (#{todo_id_summary(not_reached)})"
+    )
+
+    IO.puts(:stderr, todo_budget_retry_hint())
+    Map.update!(result, :failures, &(&1 + length(not_reached)))
+  end
+
+  # Unlike @max_cleanup_batch — a documented, deterministic bound an operator can
+  # predict — a budget stop breaks `--only`'s contract that no other ticket is
+  # left queued. Exit non-zero so a script can tell the difference.
+  defp todo_budget_cleanup_halt(result, [], _budget), do: result
+
+  defp todo_budget_cleanup_halt(result, not_reached, budget) do
+    IO.puts(
+      :stderr,
+      "aiur: --only cleanup stopped after its #{todo_budget_seconds(budget)}s daemon budget; #{length(not_reached)} other ticket(s) left untouched"
+    )
+
+    IO.puts(:stderr, todo_budget_retry_hint())
+    Map.update!(result, :failures, &(&1 + length(not_reached)))
+  end
+
+  defp todo_budget_retry_hint do
+    "aiur: rerun to continue, or raise AIUR_CONTROL_RPC_TIMEOUT_SECONDS to allow a longer run"
+  end
+
+  # Keep the diagnostic one readable line even when a large batch is cut short.
+  @todo_id_summary_limit 10
+
+  defp todo_id_summary(ids) do
+    case Enum.split(ids, @todo_id_summary_limit) do
+      {shown, []} -> Enum.map_join(shown, ", ", &"##{&1}")
+      {shown, rest} -> Enum.map_join(shown, ", ", &"##{&1}") <> ", … and #{length(rest)} more"
+    end
+  end
+
+  defp todo_budget(budget_ms, deps) when is_integer(budget_ms) and budget_ms > 0 do
+    now_ms = todo_now_ms_fun(deps)
+    %{budget_ms: budget_ms, deadline_ms: now_ms.() + budget_ms, now_ms: now_ms}
+  end
+
+  defp todo_budget(_budget_ms, deps) do
+    %{budget_ms: nil, deadline_ms: nil, now_ms: todo_now_ms_fun(deps)}
+  end
+
+  defp todo_now_ms_fun(deps), do: Map.get(deps, :now_ms, &monotonic_now_ms/0)
+
+  defp monotonic_now_ms, do: System.monotonic_time(:millisecond)
+
+  defp todo_budget_seconds(%{budget_ms: budget_ms}), do: div(budget_ms + 999, 1000)
+
+  defp todo_budget_exhausted?(%{deadline_ms: nil}), do: false
+  defp todo_budget_exhausted?(%{deadline_ms: deadline_ms, now_ms: now_ms}), do: now_ms.() >= deadline_ms
 
   defp queue_todo_issue(issue_id, result, config, deps) do
     case deps.fetch_issue.(issue_id) do
@@ -943,9 +1032,9 @@ defmodule Aiur.AgentControlCLI do
     Map.update!(result, :failures, &(&1 + 1))
   end
 
-  defp maybe_clear_other_todos(result, false, _config, _deps), do: result
+  defp maybe_clear_other_todos(result, false, _config, _deps, _budget), do: result
 
-  defp maybe_clear_other_todos(%{failures: failures} = result, true, _config, _deps)
+  defp maybe_clear_other_todos(%{failures: failures} = result, true, _config, _deps, _budget)
        when failures > 0 do
     IO.puts(
       :stderr,
@@ -955,12 +1044,34 @@ defmodule Aiur.AgentControlCLI do
     result
   end
 
-  defp maybe_clear_other_todos(result, true, config, deps) do
+  defp maybe_clear_other_todos(result, true, config, deps, budget) do
+    if todo_budget_exhausted?(budget) do
+      todo_budget_enumeration_halt(result, budget)
+    else
+      fetch_and_clear_other_todos(result, config, deps, budget)
+    end
+  end
+
+  # The active-ticket enumeration is the most expensive call on this path — a
+  # paginated search across every active state. Once the budget is gone, paying
+  # for it only to halt at the first DELETE would burn the grace window the
+  # launcher left us for reporting the outcome.
+  defp todo_budget_enumeration_halt(result, budget) do
+    IO.puts(
+      :stderr,
+      "aiur: --only cleanup skipped; the #{todo_budget_seconds(budget)}s daemon budget elapsed while queueing the requested tickets"
+    )
+
+    IO.puts(:stderr, todo_budget_retry_hint())
+    Map.update!(result, :failures, &(&1 + 1))
+  end
+
+  defp fetch_and_clear_other_todos(result, config, deps, budget) do
     case deps.fetch_active.(config.active_states) do
       {:ok, issues} ->
         issues
         |> Enum.filter(&clearable_todo?(&1, result, config))
-        |> clear_other_todos(result, config, deps)
+        |> clear_other_todos(result, config, deps, budget)
 
       {:error, reason} ->
         IO.puts(:stderr, "aiur: failed to enumerate active tickets (#{format_reason(reason)})")
@@ -984,7 +1095,7 @@ defmodule Aiur.AgentControlCLI do
   @max_cleanup_batch 50
   @max_consecutive_rate_limit_failures 3
 
-  defp clear_other_todos(candidates, result, config, deps) do
+  defp clear_other_todos(candidates, result, config, deps, budget) do
     {batch, skipped} = Enum.split(candidates, @max_cleanup_batch)
 
     if skipped != [] do
@@ -995,7 +1106,15 @@ defmodule Aiur.AgentControlCLI do
     end
 
     {result, _consecutive_rate_limited} =
-      Enum.reduce_while(batch, {result, 0}, &clear_other_todo_step(&1, &2, config, deps))
+      batch
+      |> Enum.with_index()
+      |> Enum.reduce_while({result, 0}, fn {issue, index}, {result, consecutive_rate_limited} ->
+        if todo_budget_exhausted?(budget) do
+          {:halt, {todo_budget_cleanup_halt(result, Enum.drop(batch, index), budget), consecutive_rate_limited}}
+        else
+          clear_other_todo_step(issue, {result, consecutive_rate_limited}, config, deps)
+        end
+      end)
 
     result
   end
@@ -1104,7 +1223,8 @@ defmodule Aiur.AgentControlCLI do
       fetch_active: &GitHubTracker.fetch_issues_by_states/1,
       add_label: &GitHubTracker.add_label/2,
       remove_label: &GitHubTracker.remove_label/2,
-      request_refresh: &Orchestrator.note_queued_demand/1
+      request_refresh: &Orchestrator.note_queued_demand/1,
+      now_ms: &monotonic_now_ms/0
     }
   end
 
@@ -1887,7 +2007,7 @@ defmodule Aiur.AgentControlCLI do
       IO.puts([
         String.pad_trailing(display_identifier(status), 6),
         " ",
-        String.pad_trailing(to_string(status.state), 7),
+        String.pad_trailing(status_state_label(status), 7),
         " ",
         to_string(status.title || ""),
         status_reason_suffix(status)
@@ -1903,7 +2023,8 @@ defmodule Aiur.AgentControlCLI do
         waiting_reason_detail(status),
         dispatch_decline_detail(status),
         pause_reason_detail(status),
-        blocked_by_detail(status)
+        blocked_by_detail(status),
+        last_failure_detail(status)
       ]
       |> Enum.reject(&is_nil/1)
 
@@ -1914,6 +2035,12 @@ defmodule Aiur.AgentControlCLI do
 
   defp status_reason_detail(%{reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
   defp status_reason_detail(_status), do: nil
+
+  defp status_state_label(%{work_state: work_state}) when work_state in [:starting, :retrying], do: to_string(work_state)
+  defp status_state_label(status), do: to_string(status.state)
+
+  defp last_failure_detail(%{last_failure_at: %DateTime{} = at}), do: "last_failure_at=#{DateTime.to_iso8601(at)}"
+  defp last_failure_detail(_status), do: nil
 
   defp waiting_reason_detail(%{waiting_reason: reason}) when not is_nil(reason),
     do: "waiting=#{WaitingReason.render(reason)}"
@@ -2579,6 +2706,9 @@ defmodule Aiur.AgentControlCLI do
   # `waiting=waiting_for_human` — never from the raw work state alone. A live
   # agent blocked on an open decision used to read `working` here while
   # `status` read `waiting_for_human` for the same ticket (#2698).
+  defp agents_state_label(%{work_state: state}) when state in [:paused, "paused", :deactivated, "deactivated"],
+    do: to_string(state)
+
   defp agents_state_label(agent) do
     if WaitingReason.waiting_for_human?(agent),
       do: "waiting",
@@ -2598,16 +2728,16 @@ defmodule Aiur.AgentControlCLI do
 
   defp agent_activity(agent) do
     case Map.get(agent, :work_state, :working) do
-      :paused ->
+      :retrying ->
+        retry_activity(agent)
+
+      :starting ->
+        "(starting provider; no live turn yet)"
+
+      paused when paused in [:paused, "paused"] ->
         paused_activity(agent)
 
-      "paused" ->
-        paused_activity(agent)
-
-      :deactivated ->
-        "(deactivated)"
-
-      "deactivated" ->
+      deactivated when deactivated in [:deactivated, "deactivated"] ->
         "(deactivated)"
 
       _ ->
@@ -2619,6 +2749,25 @@ defmodule Aiur.AgentControlCLI do
           text -> truncate(text, 80)
         end
     end
+  end
+
+  defp retry_activity(agent) do
+    reason =
+      case Map.get(agent, :error) do
+        "startup failed: {:port_exit, " <> _ = error ->
+          if String.match?(error, ~r/^startup failed: \{:port_exit, \d+\}$/), do: error, else: "previous worker failure"
+
+        _ ->
+          "previous worker failure"
+      end
+
+    time =
+      case Map.get(agent, :last_failure_at) do
+        %DateTime{} = at -> "; last failure #{DateTime.to_iso8601(at)}"
+        _ -> ""
+      end
+
+    "(retrying: #{reason}#{time})"
   end
 
   defp activity_values(agent) do
@@ -2716,6 +2865,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp watch_state(%{tracker_paused: true}), do: "paused"
   defp watch_state(%{tracker_paused: "true"}), do: "paused"
+  defp watch_state(%{work_state: work_state}) when work_state in [:starting, :retrying], do: to_string(work_state)
   defp watch_state(status), do: to_string(status[:tracker_state] || status[:state] || "")
 
   defp watch_activity(%{tracker_paused: paused, reason: reason})
@@ -2731,6 +2881,9 @@ defmodule Aiur.AgentControlCLI do
     do: "(idle: #{StatusReason.render(reason)})"
 
   defp watch_activity(%{state: :idle}), do: "(idle)"
+
+  defp watch_activity(%{work_state: :retrying, reason: reason}) when not is_nil(reason),
+    do: "(retrying: #{StatusReason.render(reason)})"
 
   defp watch_activity(%{state: :paused, reason: reason}) when not is_nil(reason),
     do: "(paused: #{StatusReason.render(reason)})"

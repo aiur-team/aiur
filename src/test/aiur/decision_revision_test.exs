@@ -34,7 +34,7 @@ defmodule Aiur.DecisionRevisionTest do
              ) ==
                {:error, {:revision_invalid, {:stale_action, %{expected: "act_stale", current: @prior_action_id}}}}
 
-      refute_receive :normalized_answer
+      refute_receive :normalized_answer, 100
     end
 
     test "rejects stale revision sequence before normalizing the answer" do
@@ -47,7 +47,7 @@ defmodule Aiur.DecisionRevisionTest do
              ) ==
                {:error, {:revision_invalid, {:stale_sequence, %{expected: 2, current: 0}}}}
 
-      refute_receive :normalized_answer
+      refute_receive :normalized_answer, 100
     end
 
     test "requires the OCC-3 normalized answer to carry a revision reason" do

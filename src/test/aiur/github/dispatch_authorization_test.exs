@@ -24,6 +24,36 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert denied.dispatch_authorization == :denied
   end
 
+  # Allowed-contributor intake (#2957) grants a wake, never dispatch authority.
+  # These are guards: dispatch already ignores the creator, and they pin that
+  # an allow-listed author can neither self-dispatch nor be dispatched by an
+  # outsider's relabel — while a trusted applier dispatches their issue
+  # exactly like an operator-filed one.
+  describe "allowed-contributor issues (#2957)" do
+    test "an allowed contributor labelling their own issue does not dispatch it" do
+      events = [labeled_event(10, "agent:todo", "contributor", "2026-01-01T00:00:00Z")]
+      denied = authorize_with_events(issue(creator_login: "contributor"), events, ["operator"])
+
+      refute denied.dispatch_authorized?
+      assert denied.dispatch_authorization == :denied
+    end
+
+    test "a non-allowed user labelling an allowed contributor's issue does not dispatch it" do
+      events = [labeled_event(10, "agent:todo", "mallory", "2026-01-01T00:00:00Z")]
+      denied = authorize_with_events(issue(creator_login: "contributor"), events, ["operator"])
+
+      refute denied.dispatch_authorized?
+    end
+
+    test "a trusted applier dispatches an allowed contributor's issue like an operator-filed one" do
+      events = [labeled_event(10, "agent:todo", "operator", "2026-01-01T00:00:00Z")]
+      authorized = authorize_with_events(issue(creator_login: "contributor"), events, ["operator"])
+
+      assert authorized.dispatch_authorized?
+      assert authorized.dispatch_authorization == :authorized
+    end
+  end
+
   # The bot login has to be in `allowed_users` for the fleet to work at all, so
   # this is exactly what the creator short-circuit left unchecked: a ticket
   # filed with the bot credential dispatched on creator alone, whoever applied —
@@ -283,7 +313,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     refute first.dispatch_authorized?
     assert first.dispatch_authorization == :deferred
-    assert_receive {:timeline_poll, 0}
+    assert_receive {:timeline_poll, 0}, 1000
 
     second =
       DispatchAuthorization.authorize(created_with_label, "owner", "repo", "agent",
@@ -294,7 +324,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     assert second.dispatch_authorized?
     assert second.dispatch_authorization == :authorized
-    assert_receive {:timeline_poll, 1}
+    assert_receive {:timeline_poll, 1}, 1000
   end
 
   test "does not reuse a cached decision after an issue update" do
@@ -358,7 +388,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
              request_fun: request_fun
            ).dispatch_authorized?
 
-    assert_receive :unconditional
+    assert_receive :unconditional, 1000
 
     assert DispatchAuthorization.authorize(issue(updated_at: ~U[2026-01-02 00:00:00Z]), "owner", "repo", "agent",
              allowed_users: ["trusted"],
@@ -366,7 +396,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
              request_fun: request_fun
            ).dispatch_authorized?
 
-    assert_receive :conditional
+    assert_receive :conditional, 1000
   end
 
   # #2298 rework B1: a page-1 `304` only vouches for the page it names. Issue
@@ -441,7 +471,7 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
              request_fun: request_fun
            ).dispatch_authorized?
 
-    assert_receive :unconditional
+    assert_receive :unconditional, 1000
 
     # The fingerprint moved; page 1 304s but reports a new page, so the held
     # single page cannot be trusted and the whole timeline is refetched.
@@ -451,8 +481,8 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
              request_fun: request_fun
            ).dispatch_authorized?
 
-    assert_receive :conditional
-    assert_receive :unconditional
+    assert_receive :conditional, 1000
+    assert_receive :unconditional, 1000
   end
 
   # #2409: a rate-limited provenance fetch is a *resource* failure, not a

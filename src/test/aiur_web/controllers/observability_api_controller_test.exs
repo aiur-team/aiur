@@ -218,7 +218,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
                "result" => 17
              }
 
-      assert_receive {:control_call, :pause, "MT-CONTROL"}
+      assert_receive {:control_call, :pause, "MT-CONTROL"}, 1000
 
       assert json_response(call(control_conn("MT-CONTROL", "resume")), 202) == %{
                "action" => "resume",
@@ -226,7 +226,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
                "result" => "started"
              }
 
-      assert_receive {:control_call, :resume, "MT-CONTROL"}
+      assert_receive {:control_call, :resume, "MT-CONTROL"}, 1000
     end
 
     test "returns 409 when pause or resume has no running agent" do

@@ -58,6 +58,8 @@ defmodule Aiur.Events.GithubWebhook do
 
   require Logger
 
+  alias Aiur.AllowedContributors
+  alias Aiur.AllowedContributors.Candidate
   alias Aiur.Config
   alias Aiur.Events.GithubWebhook.{Deposit, Normalizer, ThreadResolver}
   alias Aiur.Events.{Publisher, Sanitizer}
@@ -107,6 +109,7 @@ defmodule Aiur.Events.GithubWebhook do
   def handle_delivery(event_type, payload, opts \\ []) do
     payload = maybe_resolve_review_thread(event_type, payload, opts)
     record_tracked_delivery(event_type, payload, opts)
+    maybe_allowed_contributor_intake(event_type, payload, opts)
 
     case Normalizer.normalize(event_type, payload, opts) do
       {:publish, triples} ->
@@ -167,6 +170,28 @@ defmodule Aiur.Events.GithubWebhook do
         :ok
     end
   end
+
+  # Allowed-contributor intake (#2957). Only an `issues` delivery whose action is
+  # `opened` can produce an Executor wake: edits, labels, comments, reactions,
+  # reopenings and PRs never reach intake, whoever sent them. This runs only
+  # after `AiurWeb.GithubWebhook.Auth` verified the HMAC (this module is never
+  # reached otherwise), and only for the tracked repository, so a delivery for
+  # some other repo cannot be replayed into this fleet. A transferred-in issue
+  # arrives here as `opened` with `issue.user` naming the ORIGINAL author;
+  # `Candidate.from_webhook_issue/1` reads that, never `sender`.
+  defp maybe_allowed_contributor_intake("issues", %{"action" => "opened", "issue" => issue} = payload, opts)
+       when is_map(issue) do
+    case Normalizer.tracked_repo(payload, opts) do
+      {:ok, _repo} ->
+        intake = Keyword.get(opts, :allowed_contributor_fun, &AllowedContributors.observe_async/1)
+        intake.(Candidate.from_webhook_issue(issue))
+
+      _untracked_or_malformed ->
+        :ok
+    end
+  end
+
+  defp maybe_allowed_contributor_intake(_event_type, _payload, _opts), do: :ok
 
   # A `pull_request_review_comment` delivery carries the comment's own GraphQL
   # node id but not its thread's. The poller keys thread comments on the thread

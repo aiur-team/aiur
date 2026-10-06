@@ -51,7 +51,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       # The agent names no label to remove; the write targets its own ticket and
       # the tracker's swap makes the target the sole `agent:*` state label.
-      assert_receive {:state_write, "gid-te-state", "human-review"}
+      assert_receive {:state_write, "gid-te-state", "human-review"}, 1000
       assert response["success"] == true
       assert Jason.decode!(response["output"])["state"] == "human-review"
     end
@@ -391,7 +391,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert_receive {:captured_operation, operation}, 2_000
       assert {:error, {:blocker_subscription_failed, :disk_busy}} = operation.()
       assert_receive {:unsubscribed, "1031", 999}, 2_000
-      refute_receive :unexpected_declare
+      refute_receive :unexpected_declare, 100
     end
 
     test "subscription failure retries without removing coverage for an existing dependency" do
@@ -417,8 +417,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert_receive {:captured_operation, operation}, 2_000
       assert :ok = operation.()
       assert Agent.get(calls, & &1) == 2
-      refute_receive :unexpected_unsubscribe
-      refute_receive :unexpected_declare
+      refute_receive :unexpected_unsubscribe, 100
+      refute_receive :unexpected_declare, 100
     end
 
     test "failed declaration removes stale subscription when GitHub confirms absence" do
@@ -464,7 +464,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert :ok = operation.()
       assert_receive {:subscribed, "1031", 999}, 2_000
       assert_receive {:subscribed, "1031", 999}, 2_000
-      refute_receive :unexpected_unsubscribe
+      refute_receive :unexpected_unsubscribe, 100
     end
 
     test "failed declaration reports an inconclusive authoritative-state read" do
@@ -1291,7 +1291,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert executor.("emit_event", %{"name" => "blocked", "message" => "Waiting for a dependency"})["success"] == true
-      refute_receive :unexpected_attention_projection
+      refute_receive :unexpected_attention_projection, 100
     end
 
     test "a resolution timeout cannot suppress the published resolved event or exit the caller" do
@@ -1545,7 +1545,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert retry_result["decision_id"] == first_result["decision_id"]
     end
 
-    test "a structured request enriches its legacy attention instead of duplicating it" do
+    test "a factual Command can enrich an attention and receive an Executor answer (future regression guard)" do
       identifier = "TE-decision-attention-#{System.unique_integer([:positive])}"
       issue = %Issue{identifier: identifier, title: "Adapter ticket"}
       coordination = Module.concat(__MODULE__, "DecisionCorrelation#{System.unique_integer([:positive])}")
@@ -1573,7 +1573,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           "emit_event",
           %{
             "name" => "attention.scope-question",
-            "message" => "Which scope owns this?"
+            "message" => "Did discovery consent open on the retry?"
           },
           "call-legacy"
         )
@@ -1584,7 +1584,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       structured_arguments = %{
         "name" => "decision.requested",
-        "message" => "Which scope owns this?",
+        "message" => "Did discovery consent open on the retry?",
         "payload" => %{
           "attention_slug" => "scope-question",
           "decision_id" => "dec_attacker",
@@ -1594,9 +1594,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
             "topic" => "ticket.attacker.agent.attention.other"
           },
           "blocking" => true,
-          "kind" => "architecture",
-          "context" => %{"short_summary" => "Two owners are viable."},
-          "options" => [%{"id" => "runtime", "label" => "Runtime"}]
+          "kind" => "factual_observation",
+          "authority" => "supervisor_allowed",
+          "reversibility" => "reversible",
+          "context" => %{"short_summary" => "Report the redacted outcome of the owner's retry."}
         }
       }
 
@@ -1628,7 +1629,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       {:ok, history} = DecisionStore.history(legacy_decision.decision_id)
       assert Enum.map(history, & &1.version) == [1, 2]
-      assert List.last(history).options != []
+      assert hd(history).authority == :human_required
+      assert hd(history).reversibility == :irreversible
+      assert List.last(history).authority == :supervisor_allowed
+      assert List.last(history).reversibility == :reversible
 
       assert [current] =
                DecisionStore.list()
@@ -1637,6 +1641,19 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert current.decision_id == legacy_decision.decision_id
       assert current.source_id == "legacy_attention:scope-question"
       assert current.legacy_attention.topic == "ticket.#{identifier}.agent.attention.scope-question"
+
+      assert {:ok, %{status: :accepted, action: answer}} =
+               DecisionStore.answer(
+                 current.decision_id,
+                 %{
+                   "idempotency_key" => "executor-factual-observation",
+                   "expected_version" => 2,
+                   "custom_response" => "No; consent did not open on the retry."
+                 },
+                 actor: %{kind: :executor, id: "executor-1"}
+               )
+
+      assert answer.actor == %{kind: :executor, id: "executor-1"}
     end
 
     test "an unknown attention slug cannot create a correlated structured Decision" do
@@ -1847,7 +1864,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       generic = executor.("emit_event", %{"name" => "decision.use-something", "message" => "ordinary"})
       assert generic["success"] == true
-      refute_receive {:resolved_through_store, _}
+      refute_receive {:resolved_through_store, _}, 100
     end
 
     test "lifecycle rejection is returned as a normal tool failure" do

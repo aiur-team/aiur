@@ -662,7 +662,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
       html = view |> element("#global-pause-toggle") |> render_click()
 
-      assert_receive {:global_pause_attempt, true, "dashboard"}
+      assert_receive {:global_pause_attempt, true, "dashboard"}, 1000
       assert html =~ "state could not be persisted"
       assert html =~ "The daemon remains in its previous state"
     end
@@ -1982,7 +1982,7 @@ defmodule AiurWeb.DashboardLiveTest do
         })
 
       decision_id = overview.decision_id
-      refute_receive {:stale_detail_answer, ^decision_id, _payload, _opts}
+      refute_receive {:stale_detail_answer, ^decision_id, _payload, _opts}, 100
     end
   end
 
@@ -2041,7 +2041,7 @@ defmodule AiurWeb.DashboardLiveTest do
         })
 
       decision_id = overview.decision_id
-      refute_receive {:stale_detail_revision, ^decision_id, _payload, _opts}
+      refute_receive {:stale_detail_revision, ^decision_id, _payload, _opts}, 100
     end
   end
 
@@ -2318,7 +2318,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert html =~ "Answer recorded"
 
-    assert_receive {:versioned_detail_answer, decision_id, payload, _opts}
+    assert_receive {:versioned_detail_answer, decision_id, payload, _opts}, 1000
     assert decision_id == detail.decision_id
     assert payload["expected_version"] == detail.version
   end
@@ -2384,7 +2384,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert html =~ "Revision recorded"
 
-    assert_receive {:versioned_detail_revision, decision_id, payload, _opts}
+    assert_receive {:versioned_detail_revision, decision_id, payload, _opts}, 1000
     assert decision_id == detail.decision_id
     assert payload["expected_version"] == detail.version
     assert payload["expected_action_id"] == detail.active_action_id
@@ -2685,12 +2685,12 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Answer recorded"
 
     # The answer append published one broadcast; consume it so the
-    # assert_receive below can only match the delivery-failure broadcast.
+    # assert_receive below can only match the delivery-failure broadcast., 1000
     assert_receive {:decision_changed, ^decision_id, 1}, 2_000
 
     # The delivery-failure broadcast is published synchronously in
     # notify_lifecycle after the store appends the failed event, so receiving
-    # it proves the failure is durable — the assert_receive waits out the
+    # it proves the failure is durable — the assert_receive waits out the, 1000
     # background dispatch task, with no wall-clock budget on the store state.
     #
     # This supersedes main's #2340 widening of this poll to 300 attempts (~3s):
@@ -2855,7 +2855,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Use the safer path"
     assert html =~ ~s(phx-submit="answer-decision")
 
-    assert_receive {:dashboard_answer_attempt, decision_id, payload, opts}
+    assert_receive {:dashboard_answer_attempt, decision_id, payload, opts}, 1000
     assert decision_id == decision.decision_id
     assert payload["expected_version"] == 1
     assert payload["custom_response"] == "Use the safer path"
@@ -3070,7 +3070,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "The canonical action moved"
     assert html =~ ~s(phx-submit="revise-decision")
 
-    assert_receive {:dashboard_revision_attempt, decision_id, payload, opts}
+    assert_receive {:dashboard_revision_attempt, decision_id, payload, opts}, 1000
     assert decision_id == decision.decision_id
     assert payload["expected_version"] == answered.version
     assert payload["expected_action_id"] == answered.active_action_id
@@ -3674,7 +3674,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert initial_html =~ "Hold the cached rollout"
     assert initial_html =~ "Revision 1"
     refute initial_html =~ "Command latency"
-    refute_receive {:dashboard_payload_loaded, ^orchestrator, _count}
+    refute_receive {:dashboard_payload_loaded, ^orchestrator, _count}, 100
     drain_dashboard_payload_notifications(orchestrator)
     assert :ok = DecisionPubSub.subscribe()
 
@@ -3683,7 +3683,7 @@ defmodule AiurWeb.DashboardLiveTest do
       assert_receive :decision_metrics_changed, 2_000
     end
 
-    refute_receive {:dashboard_payload_loaded, ^orchestrator, _count}
+    refute_receive {:dashboard_payload_loaded, ^orchestrator, _count}, 100
     converged_html = render(view)
     refute converged_html =~ "Command latency"
   end
@@ -4383,19 +4383,19 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, html} = live(build_conn(), "/")
-    assert_receive :ticket_context_resets_subscribed
-    refute_receive :ticket_context_resets_subscribed
+    assert_receive :ticket_context_resets_subscribed, 1000
+    refute_receive :ticket_context_resets_subscribed, 100
     assert html =~ "Responsive Units interface"
     refute html =~ "units-ticket-context"
-    refute_receive {:detail_requested, _identity}
-    refute_receive {:history_requested, _identity}
+    refute_receive {:detail_requested, _identity}, 100
+    refute_receive {:history_requested, _identity}, 100
 
     html = view |> element(~s(td.ut-id-cell[phx-click="inspect-unit"])) |> render_click()
 
-    assert_receive {:detail_subscribed, ^identity, 1}
-    assert_receive {:history_subscribed, ^identity}
-    assert_receive {:detail_requested, ^identity}
-    assert_receive {:history_requested, ^identity}
+    assert_receive {:detail_subscribed, ^identity, 1}, 1000
+    assert_receive {:history_subscribed, ^identity}, 1000
+    assert_receive {:detail_requested, ^identity}, 1000
+    assert_receive {:history_requested, ^identity}, 1000
     assert html =~ ~s(id="units-ticket-context")
     assert html =~ "Ticket context"
     assert html =~ "Responsive Units interface"
@@ -4412,16 +4412,16 @@ defmodule AiurWeb.DashboardLiveTest do
     assert render(view) =~ "Updated ticket context"
 
     view |> element("#units-ticket-context .ticket-context-close") |> render_click()
-    refute_receive {:detail_unsubscribed, ^identity}
-    assert_receive {:history_unsubscribed, ^identity}
+    refute_receive {:detail_unsubscribed, ^identity}, 100
+    assert_receive {:history_unsubscribed, ^identity}, 1000
     refute has_element?(view, "#units-ticket-context")
 
     html = view |> element(~s(td.ut-id-cell[phx-click="inspect-unit"])) |> render_click()
-    assert_receive {:detail_subscribed, ^identity, 2}
-    assert_receive {:history_subscribed, ^identity}
-    refute_receive :ticket_context_resets_subscribed
-    assert_receive {:detail_requested, ^identity}
-    assert_receive {:history_requested, ^identity}
+    assert_receive {:detail_subscribed, ^identity, 2}, 1000
+    assert_receive {:history_subscribed, ^identity}, 1000
+    refute_receive :ticket_context_resets_subscribed, 100
+    assert_receive {:detail_requested, ^identity}, 1000
+    assert_receive {:history_requested, ^identity}, 1000
     assert html =~ ~s(id="units-ticket-context")
   end
 
@@ -4464,8 +4464,8 @@ defmodule AiurWeb.DashboardLiveTest do
       |> element(~s(button[phx-click="read-conversation"]))
       |> render_click()
 
-    assert_receive {:conversation_resolved, ^handle}
-    assert_receive {:conversation_subscribed, ^handle}
+    assert_receive {:conversation_resolved, ^handle}, 1000
+    assert_receive {:conversation_subscribed, ^handle}, 1000
     assert html =~ ~s(id="units-conversation-drawer")
     assert html =~ "not participating"
     assert html =~ "its-everdred/aiur #1110"
@@ -4474,8 +4474,33 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "units-ticket-context"
 
     view |> element(~s(#units-conversation-drawer button), "Close") |> render_click()
-    assert_receive {:conversation_unsubscribed, ^handle}
+    assert_receive {:conversation_unsubscribed, ^handle}, 1000
     refute has_element?(view, "#units-conversation-drawer")
+
+    path = "/chat/#{identity.owner}/#{identity.repository}/#{identity.identifier}"
+    {:ok, linked_view, linked_html} = live(build_conn(), path)
+    assert_receive {:conversation_resolved, ^handle}, 1000
+    assert linked_html =~ ~s(id="units-conversation-drawer")
+    assert render(linked_view) =~ "Reviewing the drawer"
+
+    linked_view |> element(~s(#units-conversation-drawer button), "Close") |> render_click()
+    refute has_element?(linked_view, "#units-conversation-drawer")
+    assert_patch(linked_view, "/?v=1")
+
+    {:ok, wrong_repo_view, wrong_repo_html} = live(build_conn(), "/chat/other/#{identity.repository}/#{identity.identifier}")
+    refute wrong_repo_html =~ ~s(id="units-conversation-drawer")
+    assert render(wrong_repo_view) =~ "Chat is unavailable for this ticket."
+
+    unknown_config =
+      Application.get_env(:aiur, AiurWeb.Endpoint, [])
+      |> Keyword.put(:live_conversation_resolve_fun, fn _resolved ->
+        {:ok, %{conversation_snapshot(handle) | state: :restart_unknown, messages: []}}
+      end)
+
+    :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, unknown_config}], [])
+    {:ok, unknown_view, unknown_html} = live(build_conn(), path)
+    refute unknown_html =~ ~s(id="units-conversation-drawer")
+    assert render(unknown_view) =~ "Chat is unavailable for this ticket."
   end
 
   test "ordinary row inspection opens ticket context, not the conversation drawer" do
@@ -4510,7 +4535,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert html =~ ~s(id="units-ticket-context")
     refute html =~ ~s(id="units-conversation-drawer")
-    refute_receive :unexpected_resolve
+    refute_receive :unexpected_resolve, 100
   end
 
   test "the conversation drawer replaces only the pinned generation and ignores other handles" do
@@ -4615,10 +4640,10 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ ~s(phx-submit="send-operator-message")
 
     render_submit(view, "send-operator-message", %{"message" => "typed hello"})
-    assert_receive {:typed_agent_message, ^identity, "typed hello"}
+    assert_receive {:typed_agent_message, ^identity, "typed hello"}, 1000
 
     render_hook(view, "pause-agent", %{})
-    assert_receive {:typed_agent_pause, ^identity}
+    assert_receive {:typed_agent_pause, ^identity}, 1000
   end
 
   # #2717. A Send press is one message. When the outcome is unknown, pressing
@@ -4655,21 +4680,21 @@ defmodule AiurWeb.DashboardLiveTest do
     render_hook(view, "show-agent-log", %{"unit" => UnitsPresenter.row_token(%{identity: identity})})
 
     html = render_submit(view, "send-operator-message", %{"message" => "continue"})
-    assert_receive {:retry_agent_message, "continue", first_id}
+    assert_receive {:retry_agent_message, "continue", first_id}, 1000
     assert html =~ "may still be queued"
 
     # An edited draft is a new message, so it gets a fresh id.
     render_submit(view, "send-operator-message", %{"message" => "continue, please"})
-    assert_receive {:retry_agent_message, "continue, please", edited_id}
+    assert_receive {:retry_agent_message, "continue, please", edited_id}, 1000
     refute edited_id == first_id
 
     # Send again with the same draft retries it under the kept id.
     render_submit(view, "send-operator-message", %{"message" => "continue, please"})
-    assert_receive {:retry_agent_message, "continue, please", ^edited_id}
+    assert_receive {:retry_agent_message, "continue, please", ^edited_id}, 1000
 
     # After a success, the same text is a new message.
     render_submit(view, "send-operator-message", %{"message" => "continue, please"})
-    assert_receive {:retry_agent_message, "continue, please", fourth_id}
+    assert_receive {:retry_agent_message, "continue, please", fourth_id}, 1000
     refute fourth_id in [first_id, edited_id]
   end
 
@@ -4720,10 +4745,10 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Agent log"
 
     render_submit(view, "send-operator-message", %{"message" => "drawer hello"})
-    assert_receive {:drawer_agent_message, ^identity, "drawer hello"}
+    assert_receive {:drawer_agent_message, ^identity, "drawer hello"}, 1000
 
     render_hook(view, "pause-agent", %{})
-    assert_receive {:drawer_agent_pause, ^identity}
+    assert_receive {:drawer_agent_pause, ^identity}, 1000
   end
 
   describe "unit controls (DASH-005)" do
@@ -4735,8 +4760,8 @@ defmodule AiurWeb.DashboardLiveTest do
         )
 
       html = render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      assert_receive {:unit_caps, "1110"}
-      assert_receive {:unit_pause, "1110"}
+      assert_receive {:unit_caps, "1110"}, 1000
+      assert_receive {:unit_pause, "1110"}, 1000
       assert html =~ "Pause requested"
       refute html =~ "tone-applied"
 
@@ -4758,7 +4783,7 @@ defmodule AiurWeb.DashboardLiveTest do
         )
 
       html = render_hook(view, "request-unit-control", %{"unit" => token, "action" => "resume"})
-      assert_receive {:unit_resume, "1110"}
+      assert_receive {:unit_resume, "1110"}, 1000
       assert html =~ "Resume requested"
 
       send(view.pid, {:control_lifecycle, lifecycle(:resume, :applied, 21)})
@@ -4775,8 +4800,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
       assert html =~ ~s(aria-disabled="true")
       render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      refute_receive {:unit_caps, _}
-      refute_receive {:unit_pause, _}
+      refute_receive {:unit_caps, _}, 100
+      refute_receive {:unit_pause, _}, 100
     end
 
     test "debounces duplicate activation while a request is pending" do
@@ -4787,12 +4812,12 @@ defmodule AiurWeb.DashboardLiveTest do
         )
 
       render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      assert_receive {:unit_caps, "1110"}
-      assert_receive {:unit_pause, "1110"}
+      assert_receive {:unit_caps, "1110"}, 1000
+      assert_receive {:unit_pause, "1110"}, 1000
 
       render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      refute_receive {:unit_pause, "1110"}
-      refute_receive {:unit_caps, "1110"}
+      refute_receive {:unit_pause, "1110"}, 100
+      refute_receive {:unit_caps, "1110"}, 100
     end
 
     test "renders request-only distinctly and does not invoke the owner" do
@@ -4803,8 +4828,8 @@ defmodule AiurWeb.DashboardLiveTest do
         )
 
       html = render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      assert_receive {:unit_caps, "1110"}
-      refute_receive {:unit_pause, _}
+      assert_receive {:unit_caps, "1110"}, 1000
+      refute_receive {:unit_pause, _}, 100
       assert html =~ "request-only"
       refute html =~ "tone-applied"
     end
@@ -4817,7 +4842,7 @@ defmodule AiurWeb.DashboardLiveTest do
         )
 
       html = render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      refute_receive {:unit_pause, _}
+      refute_receive {:unit_pause, _}, 100
       assert html =~ "unsupported"
     end
 
@@ -4829,7 +4854,7 @@ defmodule AiurWeb.DashboardLiveTest do
         )
 
       html = render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      refute_receive {:unit_pause, _}
+      refute_receive {:unit_pause, _}, 100
       assert html =~ "state changed"
     end
 
@@ -4841,7 +4866,7 @@ defmodule AiurWeb.DashboardLiveTest do
         )
 
       render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      assert_receive {:unit_pause, "1110"}
+      assert_receive {:unit_pause, "1110"}, 1000
 
       send(view.pid, {:control_lifecycle, lifecycle(:pause, :rejected, 8, %{class: :stale_generation})})
       html = render(view)
@@ -4878,7 +4903,7 @@ defmodule AiurWeb.DashboardLiveTest do
       token = UnitsPresenter.row_token(%{identity: identity})
 
       render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      assert_receive {:unit_pause, "1110"}
+      assert_receive {:unit_pause, "1110"}, 1000
       assert render(view) =~ "Pause requested"
       assert control_status(view, token) == :requested
 
@@ -4900,7 +4925,7 @@ defmodule AiurWeb.DashboardLiveTest do
         )
 
       render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      assert_receive {:unit_pause, "1110"}
+      assert_receive {:unit_pause, "1110"}, 1000
 
       send(view.pid, {:control_lifecycle, lifecycle(:pause, :expired, 8)})
       html = render(view)
@@ -4916,7 +4941,7 @@ defmodule AiurWeb.DashboardLiveTest do
         )
 
       html = render_hook(view, "request-unit-control", %{"unit" => token, "action" => "pause"})
-      refute_receive {:unit_pause, _}
+      refute_receive {:unit_pause, _}, 100
       assert html =~ "retry"
       assert html =~ "tone-error"
     end
@@ -4954,29 +4979,29 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, _html} = live(build_conn(), "/")
-    assert_receive :context_resets_once
+    assert_receive :context_resets_once, 1000
 
     alpha_token = UnitsPresenter.row_token(%{identity: alpha})
     beta_token = UnitsPresenter.row_token(%{identity: beta})
 
     render_hook(view, "inspect-unit", %{"unit" => alpha_token})
-    assert_receive {:detail_subscribed, ^alpha}
-    assert_receive {:history_subscribed, ^alpha}
+    assert_receive {:detail_subscribed, ^alpha}, 1000
+    assert_receive {:history_subscribed, ^alpha}, 1000
 
     render_hook(view, "inspect-unit", %{"unit" => beta_token})
-    assert_receive {:detail_unsubscribed, ^alpha}
-    assert_receive {:history_unsubscribed, ^alpha}
-    assert_receive {:detail_subscribed, ^beta}
-    assert_receive {:history_subscribed, ^beta}
+    assert_receive {:detail_unsubscribed, ^alpha}, 1000
+    assert_receive {:history_unsubscribed, ^alpha}, 1000
+    assert_receive {:detail_subscribed, ^beta}, 1000
+    assert_receive {:history_subscribed, ^beta}, 1000
 
     render_hook(view, "close-ticket-context", %{})
-    assert_receive {:detail_unsubscribed, ^beta}
-    assert_receive {:history_unsubscribed, ^beta}
+    assert_receive {:detail_unsubscribed, ^beta}, 1000
+    assert_receive {:history_unsubscribed, ^beta}, 1000
 
     render_hook(view, "inspect-unit", %{"unit" => alpha_token})
-    assert_receive {:detail_subscribed, ^alpha}
-    assert_receive {:history_subscribed, ^alpha}
-    refute_receive :context_resets_once
+    assert_receive {:detail_subscribed, ^alpha}, 1000
+    assert_receive {:history_subscribed, ^alpha}, 1000
+    refute_receive :context_resets_once, 100
   end
 
   test "Agent log disables and rejects writes for colliding display identifiers" do
@@ -5023,8 +5048,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     render_submit(view, "send-operator-message", %{"message" => "must not route"})
     render_hook(view, "pause-agent", %{})
-    refute_receive {:unexpected_agent_message, _identity, _text}
-    refute_receive {:unexpected_agent_pause, _identity}
+    refute_receive {:unexpected_agent_message, _identity, _text}, 100
+    refute_receive {:unexpected_agent_pause, _identity}, 100
   end
 
   test "membership provider failure renders unavailable counts instead of healthy zeros" do
@@ -5164,6 +5189,23 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_received {:dashboard_refresh_requested, ^orchestrator}
     refute has_element?(view, "#add-agent-modal")
     assert render(view) =~ "Waiting for an agent to start"
+  end
+
+  test "read-only Tickets prevents opening the setup dialog even for a forged event" do
+    start_test_endpoint(
+      control_center_cache: false,
+      dashboard_writable: false,
+      open_tickets_fun: fn -> open_ticket_snapshot([open_ticket("2101", [])]) end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+    assert html =~ "Read-only dashboard: adding an agent is unavailable here"
+    assert has_element?(view, ~s(button[id^="ticket-add-agent-"][disabled]))
+    refute has_element?(view, ~s(button[phx-click="open-add-agent"]))
+
+    [_, token] = Regex.run(~r/id="ticket-add-agent-([^"]+)"/, html)
+    render_hook(view, "open-add-agent", %{"ticket" => token})
+    refute has_element?(view, "#add-agent-modal")
   end
 
   test "Add Agent stays responsive while the tracker blocks and reports completion after closing" do

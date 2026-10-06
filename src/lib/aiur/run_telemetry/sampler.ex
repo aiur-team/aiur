@@ -195,9 +195,35 @@ defmodule Aiur.RunTelemetry.Sampler do
 
     %{
       records: records,
-      warnings: table_warnings ++ attribution_warnings ++ measurement_warnings,
+      warnings: summarize_unreadable(table_warnings ++ measurement_warnings) ++ attribution_warnings,
       previous: previous_measurements(measurements, now_ms)
     }
+  end
+
+  # Retry reads for recovery, but bound unreadable diagnostics to one record per scan.
+  defp summarize_unreadable(warnings) do
+    {unreadable, other} = Enum.split_with(warnings, &unreadable_warning?/1)
+
+    case unreadable do
+      [] -> other
+      warnings -> other ++ [unreadable_summary(warnings)]
+    end
+  end
+
+  defp unreadable_warning?(%{pid: pid, field: _field, reason: reason})
+       when is_integer(pid) and reason in [:eacces, :unavailable],
+       do: true
+
+  defp unreadable_warning?(_warning), do: false
+
+  defp unreadable_summary(warnings) do
+    counts =
+      warnings
+      |> Enum.frequencies_by(&{&1.field, &1.reason})
+      |> Enum.sort()
+      |> Enum.map(fn {{field, reason}, count} -> %{field: field, reason: reason, count: count} end)
+
+    %{field: :procfs, pid: nil, reason: :unreadable_fields, count: length(warnings), counts: counts}
   end
 
   defp unavailable_sample(context, reason) do

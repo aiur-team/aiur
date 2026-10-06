@@ -123,7 +123,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     identifier = "ORPH-REMOTE-#{System.unique_integer([:positive])}"
     dead_recipient = spawn(fn -> :ok end)
     ref = Process.monitor(dead_recipient)
-    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}
+    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}, 1000
 
     name = unique_name("Remote")
 
@@ -149,7 +149,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   test "a guardian that does not answer cannot stall the Orchestrator" do
     dead_recipient = spawn(fn -> :ok end)
     ref = Process.monitor(dead_recipient)
-    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}
+    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}, 1000
 
     orphan_id = "ORPH-STALL-#{System.unique_integer([:positive])}"
     tracked_id = "ORPH-BUSY-#{System.unique_integer([:positive])}"
@@ -200,7 +200,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
   test "a dead predecessor's runner belongs only to an Orchestrator with the same name" do
     dead_recipient = spawn(fn -> :ok end)
     ref = Process.monitor(dead_recipient)
-    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}
+    assert_receive {:DOWN, ^ref, :process, ^dead_recipient, _reason}, 1000
 
     identifier = "ORPH-OTHER-#{System.unique_integer([:positive])}"
 
@@ -221,6 +221,27 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
 
     assert Process.alive?(owner)
     assert {:ok, ^lease} = Ownership.current(identifier)
+  end
+
+  test "test ticket scope reaps pinned orphans without stopping unrelated runners" do
+    previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+
+    on_exit(fn ->
+      if previous_scope, do: System.put_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope), else: System.delete_env("AIUR_DEV_TEST_TICKET_IDS")
+    end)
+
+    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+
+    pinned = claim_in_process("99", %{issue_id: "issue-99", update_recipient: self(), worker_host: nil})
+    unrelated = claim_in_process("2413", %{issue_id: "issue-2413", update_recipient: self(), worker_host: nil})
+    pinned_ref = Process.monitor(pinned)
+    {:ok, unrelated_lease} = Ownership.current("2413")
+
+    _state = OrphanedWorkers.stop_untracked_runners(%State{})
+
+    assert_receive {:DOWN, ^pinned_ref, :process, ^pinned, _reason}, 5_000
+    assert Process.alive?(unrelated)
+    assert {:ok, ^unrelated_lease} = Ownership.current("2413")
   end
 
   # The scan runs inside the Orchestrator; here the test process plays that
@@ -291,7 +312,7 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
       ref = Process.monitor(runner)
       dead = spawn(fn -> :ok end)
       dead_ref = Process.monitor(dead)
-      assert_receive {:DOWN, ^dead_ref, :process, ^dead, _reason}
+      assert_receive {:DOWN, ^dead_ref, :process, ^dead, _reason}, 1000
 
       entry = %{pid: dead, identifier: identifier, control: %{status: :working}}
       _state = OrphanedWorkers.stop_untracked_runners(%State{running: %{issue_id => entry}})

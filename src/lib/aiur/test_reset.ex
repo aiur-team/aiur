@@ -40,6 +40,7 @@ defmodule Aiur.TestReset do
   alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
   alias Aiur.{JsonStore, TicketBranch}
+  alias Aiur.Workspace.Layout
 
   @tickets_file ".aiur-test-tickets.json"
 
@@ -479,7 +480,7 @@ defmodule Aiur.TestReset do
 
     say("\nPer-ticket actions:")
     say("  - Delete subscriptions file for <id>")
-    say("  - Remove workspace at <workspace_root>/<id> (fans across worker.ssh_hosts)")
+    say("  - Remove repo-namespaced workspace for <id> (fans across worker.ssh_hosts)")
     say("  - Delete remote branch aiur/<id>")
     say("  - Close any open PR from aiur/<id>")
     say("  - Delete agent-workpad comments (`## Agent Workpad` bodies) on the issue")
@@ -579,7 +580,7 @@ defmodule Aiur.TestReset do
     end
   end
 
-  # Per-issue workspace clone (typically <workspace_root>/<id>) carries
+  # Per-issue workspace clone (typically <workspace_root>/<repo>/<id>) carries
   # the agent's uncommitted edits, untracked files, and git state from
   # the prior session. Without this, the agent on the next run starts
   # in a dirty tree and reports "I see uncommitted changes" — exactly
@@ -596,8 +597,14 @@ defmodule Aiur.TestReset do
   # (`<tmp_dir>/aiur_workspaces`).
   defp delete_workspace(id) do
     root = workspace_root_with_fallback()
+    remove_workspace(id, root)
+  end
+
+  @doc false
+  @spec remove_workspace(integer() | String.t(), Path.t()) :: :ok
+  def remove_workspace(id, root) do
     safe_id = Paths.sanitize(to_string(id))
-    path = Path.join(root, safe_id)
+    path = workspace_path_with_fallback(root, safe_id)
 
     case File.rm_rf(path) do
       {:ok, []} ->
@@ -609,6 +616,14 @@ defmodule Aiur.TestReset do
       {:error, reason, file} ->
         warn("##{id} workspace cleanup failed at #{file}: #{inspect(reason)}")
     end
+  end
+
+  defp workspace_path_with_fallback(root, safe_id) do
+    Layout.issue_workspace_path(root, safe_id)
+  rescue
+    _ -> Path.join(root, safe_id)
+  catch
+    _, _ -> Path.join(root, safe_id)
   end
 
   defp workspace_root_with_fallback do

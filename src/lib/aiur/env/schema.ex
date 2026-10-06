@@ -190,6 +190,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_ALERT_LEDGER_PATH_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File the launcher reads the alert ledger path from."},
     {"AIUR_ARGV_FILE", type: :path, validate: false, example: false, group: :runtime, purpose: "File carrying the CLI argv; set by the launcher shim."},
     {"AIUR_CLI_VERSION", type: :string, validate: false, example: false, group: :runtime, purpose: "Installed CLI package version; set by the launcher."},
+    {"AIUR_DEV_TEST_TICKET_IDS", type: :string, validate: false, example: false, group: :runtime, purpose: "Pinned ticket IDs passed from the dev test launcher to the daemon."},
     {"AIUR_AGENT_WORKSPACE", type: :path, validate: false, example: false, group: :runtime, purpose: "Agent workspace root; guards `test.reset` from inside an agent."},
     {"AIUR_OPERATOR_PID", type: :integer, validate: false, example: false, group: :runtime, purpose: "Shell that launched aiur; exported by the launcher."},
     {"AIUR_LAUNCHER_PID", type: :integer, validate: false, example: false, group: :runtime, purpose: "Launcher process id; exported by the launcher."},

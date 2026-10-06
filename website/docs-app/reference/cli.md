@@ -41,6 +41,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur init --force` | Recreates generated configuration for the location you choose at the first prompt; picking repo-local leaves an existing `~/.aiur/config` untouched. Re-running without it preserves existing scaffold files. | `aiur init --force` |
 | `aiur --todo 142 143` | Requires a running daemon and one or more numeric IDs, with commas also accepted. A stopped daemon exits nonzero. | `aiur --todo 142,143` |
 | `aiur --todo 142 --only` | Queues the named IDs and asks GitHub to remove `agent:todo` from other pending tickets. It is GitHub-only, is bounded to 50 cleanup targets, and stops after three consecutive rate-limit failures. Cleanup is skipped if a requested ID fails, so the operation does not silently dequeue work after a bad request. | `aiur --todo 142 --only` |
+| `AIUR_CONTROL_RPC_TIMEOUT_SECONDS=<n> aiur --todo …` | `--todo` is the one control command whose runtime scales with its request rather than with daemon state, so it does not use the shared 10-second control-RPC deadline. Its default window is 15s, plus 3s per requested ID, plus 90s when `--only` is given. The daemon self-limits 10 seconds inside that window: a run it cannot finish stops itself, names the tickets it never reached, and exits nonzero, so the outcome is always definite rather than "unknown". This variable overrides the whole window when set to a positive integer; a zero or malformed value is ignored in favor of the sizing above. | `AIUR_CONTROL_RPC_TIMEOUT_SECONDS=300 aiur --todo 142 --only` |
 | `aiur --bg` | Starts detached headless execution. Against an existing live session it exits successfully and names bare `aiur` as the attach command. A default headless session has no agent-list or chat panes; use the dashboard or control commands. | `aiur --bg` |
 | `aiur --debug` | Enables debug logs and durable chat-pane recording for this run. | `aiur --debug` |
 | `aiur --pause` | Cold-starts with the global provisioning switch paused. | `aiur --pause` |
@@ -54,6 +55,8 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --logs-root /var/log/aiur` | Overrides the daemon log root for this launch. | `aiur --logs-root /var/log/aiur` |
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
+
+On Linux, `aiur init` probes the Codex command sandbox when Codex is selected. A failure shows the command output and offers a retry; see the [Linux setup steps](/guide/quick-start#codex-on-linux).
 
 Event counters, subscriptions, session handles and the alert ledger survive
 restarts in instance- and repository-scoped runtime state. Central alert and
@@ -79,6 +82,8 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 
 ## Inspect and operate a running daemon
 
+A `workspace_ownership_waiting` row reports the held generation and unproven provider exit; local Linux sessions started after this change use a recorded kernel boot ID to release unknown-provider holds after reboot, while older receipts, remote sessions, and unreadable boot IDs remain held until exit is proved.
+
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
 | `aiur help` | Prints the current launcher usage. | `aiur help` |
@@ -90,7 +95,7 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 | `aiur github-cost --json` | Emits the ranking as one versioned envelope. | `aiur github-cost --json` |
 | `aiur github-usage` | Prints per-actor (daemon vs each agent workspace) GitHub usage: Core, GraphQL and `search` `used`/`limit` with reset times, read from the shared admission broker's `admissions`. Limits are request-count ceilings (the broker sees requests, not GraphQL points); `0` in the config means no ceiling. Issues no GitHub request of its own. | `aiur github-usage` |
 | `aiur github-usage --json` | Emits the per-actor usage as one versioned envelope. | `aiur github-usage --json` |
-| `aiur agents` | Prints each active agent's state and current activity. An agent with an open decision, or one that asked for input, reads `waiting` with `(waiting_for_human: <cause>)`, the same wait `aiur status` prints as `waiting=waiting_for_human`. A `rework` label alone is agent-owned work and never reads as waiting for a human. | `aiur agents` |
+| `aiur agents` | Prints each active agent's state and current activity, including startup and scheduled retries. `starting` means a worker was dispatched but no provider turn has started. `retrying` means no worker is live; the row includes the last failure reason and time when known. `aiur status` and `aiur watch` use the same startup and retry distinction. A Codex process that exits before handshake also leaves its numeric exit status and a bounded, redacted diagnostic in the daemon's `<logs-root>/log/<repo>.<ticket>.startup-failures.ndjson`, correlated with the `agent_spinup` telemetry attempt. An agent with an open decision, or one that asked for input, reads `waiting` with `(waiting_for_human: <cause>)`, the same wait `aiur status` prints as `waiting=waiting_for_human`. A `rework` label alone is agent-owned work and never reads as waiting for a human. | `aiur agents` |
 | `aiur units` | Reads the Dashboard Units projection. Choose `--scope live\|unfinished\|all\|none`, repeat `--condition active\|alert\|paused\|queued\|finished`, choose `--format auto\|table\|records`, or add `--json`. | `aiur units --scope unfinished --condition active` |
 | `aiur units --condition alert` | Repeats to require any of the selected Unit conditions. | `aiur units --condition alert --condition paused` |
 | `aiur units --format records` | Chooses `auto`, `table`, or line-oriented `records` output. | `aiur units --format records` |
@@ -170,7 +175,9 @@ Human output prints the same state as `80% (last known 12m ago)`, measured from 
 
 A member closed without completing (not planned, duplicate, cancelled) is resolved 0% regardless of any earlier reading. Catalog root completion is lifecycle-derived and does not carry these fields.
 
-`aiur build-orders <root>` starts the first GitHub read of a root that has no graph yet, the same as opening `/build-orders/<root>` does. You do not need the Dashboard open. While that read runs, `data.graph.status` and `sources.planning_graph.state` are `loading`. Run the command again to get the graph. `provider_unavailable` means that a read failed.
+`aiur build-orders <root>` requests a read when its graph is missing or stale, without requiring the Dashboard open. Concurrent reads coalesce and provider retry delays still apply. The command returns the held graph while refresh runs, preserving its observation time and stale status.
+
+For a missing graph, `data.graph.status` and `sources.planning_graph.state` are `loading`. Run the command again to get the completed read. `provider_unavailable` means that a read failed.
 
 Each source reports `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`, while human output prints the same labelled state and age because a number without observation age is not actionable.
 
@@ -370,7 +377,7 @@ Dismissing a Command closes it and moves it to history. If the Command's agent i
 | --- | --- |
 | **Dispatch needs `agent:todo`.** | `AGENTS 0/32 (binding: ticket supply)` means a recent poll found no queued ticket. If it instead reads `idle backoff active (... polling.idle_widen_factor=5.0, next poll in ...)`, the daemon has not looked since its last idle poll — run `aiur --todo <id>` (which wakes a prompt poll and keeps the base cadence until the ticket is seen), add the label, or trigger a refresh so the work is seen. `has not polled yet` means the last tracker fetch failed. |
 | **Global pause is durable.** | Use `aiur status` and `aiur resume` before treating a silent restarted fleet as broken. |
-| **CI readiness uses an operator-only token.** | Put `AIUR_CI_READINESS_TOKEN` with GitHub `workflow` scope in the daemon environment, restart, and never expose it to agent workspaces. |
+| **CI readiness uses an operator-only token.** | Run `aiur init` with `AIUR_CI_READINESS_TOKEN` that can read repository contents, Actions, and administration settings. Init saves a non-secret assessment beside `.aiur/config`; the normal launcher removes the token before starting the daemon and agents. Repeat init when the assessment expires or the repository's CI rules change. |
 | **A base refresh affects approval ownership.** | With `require_last_push_approval`, route a base refresh through the ticket agent so the Executor does not become the ineligible last pusher. |
 
 ## `aiurdev`, for developing Aiur itself
@@ -383,8 +390,8 @@ Apart from the commands below, `aiurdev` executes the same launcher engine as `a
 | --- | --- | --- |
 | `scripts/aiurdev build` | Rebuilds the local release before the next run. The installed `aiur` does not have this command. | `scripts/aiurdev build` |
 | `scripts/aiurdev build --deps` | Rebuilds dependencies as part of the development build. | `scripts/aiurdev build --deps` |
-| `scripts/aiurdev --test` | Resets the single sandbox ticket, first stopping the keyed live daemon, then starts the foreground smoke harness. It is blocked from agent workspaces. | `scripts/aiurdev --test --force` |
-| `scripts/aiurdev --test3` | Resets the three-ticket blocker-chain harness, stops the keyed live daemon first, and permits the remote scenario. It is blocked from agent workspaces. | `scripts/aiurdev --test3` |
+| `scripts/aiurdev --test` | Resets the first pinned sandbox ticket, then runs the foreground harness scoped to that ticket for startup cleanup and polling. It first stops the keyed live daemon and is blocked from agent workspaces. | `scripts/aiurdev --test --force` |
+| `scripts/aiurdev --test3` | Resets the pinned blocker-chain tickets, then runs scoped to those tickets for startup cleanup and polling. It first stops the keyed live daemon, permits the remote scenario, and is blocked from agent workspaces. | `scripts/aiurdev --test3` |
 | `scripts/aiurdev --clear` | Requires debug mode and deletes every entry under `~/.aiur/logs/` before the smoke run, not merely debug logs. | `scripts/aiurdev --debug --clear` |
 | `scripts/aiurdev --allow-remote` | Permits the remote test scenario. | `scripts/aiurdev --test3 --allow-remote` |
 

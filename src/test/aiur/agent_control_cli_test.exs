@@ -38,6 +38,23 @@ defmodule Aiur.AgentControlCLITest do
     assert ExecutorWakeInbox.pending() == []
   end
 
+  test "executor-wait renders initial sync only on backfilled wakes" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+
+    backfill =
+      wake_record(1, "42", "ticket.42.pr.ready_for_review", "ticket.pr.ready_for_review")
+      |> Map.put("observation", "initial_sync")
+
+    :ok = ExecutorWakeInbox.enqueue(backfill)
+    :ok = ExecutorWakeInbox.enqueue(wake_record(2, "43", "ticket.43.pr.ready_for_review", "ticket.pr.ready_for_review"))
+
+    output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 500) end)
+
+    assert output =~ ~r/^WAKE ticket.42.pr.ready_for_review .* observation=initial_sync$/m
+    assert output =~ ~r/^WAKE ticket.43.pr.ready_for_review .* role=owner$/m
+    assert ExecutorWakeInbox.pending() == []
+  end
+
   test "executor-wait reports a quiet timeout as a successful empty result (#2600)" do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
 
@@ -230,8 +247,8 @@ defmodule Aiur.AgentControlCLITest do
         send(parent, {ref, :stdout, stdout})
       end)
 
-    assert_receive {^ref, :stdout, stdout}
-    assert_receive {^ref, :exit_code, exit_code}
+    assert_receive {^ref, :stdout, stdout}, 1000
+    assert_receive {^ref, :exit_code, exit_code}, 1000
     {stdout, stderr, exit_code}
   end
 
@@ -279,8 +296,23 @@ defmodule Aiur.AgentControlCLITest do
       request_refresh: fn identifiers ->
         send(parent, {:todo_request_refresh, identifiers})
         Keyword.get(opts, :request_refresh_result, %{queued: true})
-      end
+      end,
+      now_ms: Keyword.get(opts, :now_ms, fn -> 0 end)
     }
+  end
+
+  # A monotonic clock the budget tests drive by hand: it returns each element of
+  # `readings` once, then pins to the last one. Every real `--todo` clock read is
+  # a budget check, so a scripted list places the deadline at an exact call.
+  defp scripted_clock(readings) do
+    {:ok, agent} = Agent.start_link(fn -> readings end)
+
+    fn ->
+      Agent.get_and_update(agent, fn
+        [last] -> {last, [last]}
+        [head | rest] -> {head, rest}
+      end)
+    end
   end
 
   # Tests that overwrite the shared workflow config must put it back: `Config`
@@ -514,7 +546,7 @@ defmodule Aiur.AgentControlCLITest do
 
       # The queued identifiers ride along so the daemon keeps polling at the
       # base interval until it has actually seen them (#2640).
-      assert_receive {:todo_request_refresh, ["11"]}
+      assert_receive {:todo_request_refresh, ["11"]}, 1000
       assert stderr == ""
     end
 
@@ -527,7 +559,7 @@ defmodule Aiur.AgentControlCLITest do
 
       {stdout, stderr, 0} = capture_todo(["11"], deps: todo_deps(issues, request_refresh_result: :unavailable))
 
-      assert_receive {:todo_request_refresh, ["11"]}
+      assert_receive {:todo_request_refresh, ["11"]}, 1000
       assert stdout =~ "queued 1 ticket(s)"
       assert stderr =~ "the daemon did not accept a poll refresh; queued tickets wait for its next scheduled poll"
     end
@@ -547,7 +579,7 @@ defmodule Aiur.AgentControlCLITest do
 
       {stdout, stderr, 0} = capture_todo(~w(138 139), deps: todo_deps(issues))
 
-      assert_receive {:todo_request_refresh, ["138", "139"]}
+      assert_receive {:todo_request_refresh, ["138", "139"]}, 1000
       assert stdout =~ "• #138 kept sym:rework"
       assert stdout =~ "kept 2 in flight"
       assert stderr == ""
@@ -799,6 +831,135 @@ defmodule Aiur.AgentControlCLITest do
       assert_received {:todo_remove_label, "21", "sym:todo"}
       assert_received {:todo_remove_label, "22", "sym:todo"}
       refute_received {:todo_remove_label, "23", "sym:todo"}
+    end
+
+    test "stops queueing at the daemon budget and reports the tickets it never reached" do
+      issues =
+        Map.new(~w(11 12 13), fn id ->
+          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
+        end)
+
+      {stdout, stderr, exit_code} =
+        capture_todo(~w(11 12 13),
+          deps: todo_deps(issues, now_ms: scripted_clock([0, 0, 0, 100])),
+          budget_ms: 100,
+          emit_exit_marker: true
+        )
+
+      assert exit_code == 1
+      assert stdout =~ "✓ #11 → sym:todo"
+      assert stdout =~ "✓ #12 → sym:todo"
+      assert stdout =~ "queued 2 ticket(s); cleared 0 other(s)"
+      assert stdout =~ "__AIUR_CONTROL_EXIT__:1"
+      assert stderr =~ "aiur: --todo stopped after its 1s daemon budget; 1 requested ticket(s) not reached (#13)"
+      assert stderr =~ "raise AIUR_CONTROL_RPC_TIMEOUT_SECONDS"
+      assert_received {:todo_add_label, "11", "sym:todo"}
+      assert_received {:todo_add_label, "12", "sym:todo"}
+      refute_received {:todo_add_label, "13", _}
+    end
+
+    test "fails --only cleanup closed when the budget stops the queueing phase" do
+      issues =
+        Map.new(~w(11 12), fn id ->
+          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
+        end)
+
+      {_stdout, stderr, exit_code} =
+        capture_todo(~w(11 12),
+          deps: todo_deps(issues, now_ms: scripted_clock([0, 0, 100])),
+          budget_ms: 100,
+          only: true
+        )
+
+      assert exit_code == 1
+      assert stderr =~ "--only cleanup skipped because 1 requested ticket(s) failed"
+      refute_received {:todo_fetch_active, _}
+    end
+
+    test "stops --only cleanup at the daemon budget and counts what it left queued" do
+      issues = %{
+        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]}
+      }
+
+      active =
+        [issues["11"]] ++
+          Enum.map(~w(20 21 22), fn id ->
+            %Issue{id: id, identifier: id, state: "todo", labels: ["sym:todo"]}
+          end)
+
+      {stdout, stderr, exit_code} =
+        capture_todo(["11"],
+          deps: todo_deps(issues, active: active, now_ms: scripted_clock([0, 0, 0, 0, 0, 100])),
+          budget_ms: 100,
+          only: true,
+          emit_exit_marker: true
+        )
+
+      assert exit_code == 1
+      assert stdout =~ "– #20 cleared sym:todo"
+      assert stdout =~ "– #21 cleared sym:todo"
+      assert stdout =~ "queued 1 ticket(s); cleared 2 other(s)"
+      assert stdout =~ "__AIUR_CONTROL_EXIT__:1"
+      assert stderr =~ "aiur: --only cleanup stopped after its 1s daemon budget; 1 other ticket(s) left untouched"
+      assert_received {:todo_remove_label, "20", "sym:todo"}
+      assert_received {:todo_remove_label, "21", "sym:todo"}
+      refute_received {:todo_remove_label, "22", _}
+    end
+
+    test "skips the active-ticket enumeration when queueing consumed the whole budget" do
+      issues =
+        Map.new(~w(11 12), fn id ->
+          {id, %Issue{id: id, identifier: id, state: nil, labels: []}}
+        end)
+
+      {stdout, stderr, exit_code} =
+        capture_todo(~w(11 12),
+          deps: todo_deps(issues, now_ms: scripted_clock([0, 0, 0, 100])),
+          budget_ms: 100,
+          only: true
+        )
+
+      assert exit_code == 1
+      assert stdout =~ "queued 2 ticket(s); cleared 0 other(s)"
+      assert stderr =~ "aiur: --only cleanup skipped; the 1s daemon budget elapsed while queueing the requested tickets"
+      refute_received {:todo_fetch_active, _}
+      refute_received {:todo_remove_label, _, _}
+    end
+
+    test "a budget that outlasts the work changes nothing about the outcome" do
+      issues = %{
+        "11" => %Issue{id: "11", identifier: "11", state: "todo", labels: ["sym:todo"]},
+        "12" => %Issue{id: "12", identifier: "12", state: nil, labels: []}
+      }
+
+      active = [issues["11"], issues["12"], %Issue{id: "20", identifier: "20", state: "todo", labels: ["sym:todo"]}]
+
+      {stdout, stderr, exit_code} =
+        capture_todo(~w(11 12),
+          deps: todo_deps(issues, active: active, now_ms: scripted_clock([0])),
+          budget_ms: 120_000,
+          only: true
+        )
+
+      assert exit_code == 0
+      assert stderr == ""
+      assert stdout =~ "queued 2 ticket(s); cleared 1 other(s)"
+      assert_received {:todo_remove_label, "20", "sym:todo"}
+    end
+
+    test "truncates a long not-reached list into one readable line" do
+      ids = Enum.map(1..14, &to_string/1)
+      issues = Map.new(ids, fn id -> {id, %Issue{id: id, identifier: id, state: nil, labels: []}} end)
+
+      {_stdout, stderr, exit_code} =
+        capture_todo(ids,
+          deps: todo_deps(issues, now_ms: scripted_clock([0, 100])),
+          budget_ms: 100
+        )
+
+      assert exit_code == 1
+      assert stderr =~ "14 requested ticket(s) not reached (#1, #2, #3, #4, #5, #6, #7, #8, #9, #10, … and 4 more)"
+      refute_received {:todo_add_label, _, _}
     end
   end
 
@@ -1168,7 +1329,7 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert output =~ "#17    idle    Awaiting dispatch (awaiting-dispatch)"
-    assert output =~ "#18    paused  Retrying (operator; transient: tracker 403, retry ~4m)"
+    assert output =~ "#18    retrying Retrying (operator; transient: tracker 403, retry ~4m)"
   end
 
   test "status names an in-progress claim with no live agent as orphaned", %{orchestrator: pid} do
@@ -1316,7 +1477,7 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     assert capture_io(fn -> AgentControlCLI.status() end) =~ "CI readiness: not ready for main"
-    refute_receive :ci_readiness_checked
+    refute_receive :ci_readiness_checked, 100
   end
 
   test "status reports unavailable before the dispatcher has a readiness result" do
@@ -2389,7 +2550,7 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
 
-    assert_receive :resume_called
+    assert_receive :resume_called, 1000
     assert output =~ "aiur: resumed #44 (was: running)"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
@@ -3005,7 +3166,7 @@ defmodule Aiur.AgentControlCLITest do
     stderr =
       capture_io(:stderr, fn ->
         output = capture_io(fn -> AgentControlCLI.message("44", "don't stop") end)
-        assert_receive {:message_id, "cli-" <> _ = message_id}
+        assert_receive {:message_id, "cli-" <> _ = message_id}, 1000
 
         assert output =~ "aiur: outcome unknown for message to #44"
         assert output =~ "(message id #{message_id})"
@@ -3040,9 +3201,9 @@ defmodule Aiur.AgentControlCLITest do
       AgentControlCLI.message("44", "continue")
     end)
 
-    assert_receive {:sent, "continue", "retry-1"}
-    assert_receive {:sent, "continue", "cli-" <> _ = second}
-    assert_receive {:sent, "continue", "cli-" <> _ = third}
+    assert_receive {:sent, "continue", "retry-1"}, 1000
+    assert_receive {:sent, "continue", "cli-" <> _ = second}, 1000
+    assert_receive {:sent, "continue", "cli-" <> _ = third}, 1000
     refute second == third
   end
 
@@ -3303,6 +3464,39 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "shows startup and retry as distinct from a live turn", %{orchestrator: pid} do
+      at = DateTime.utc_now()
+      starting = running_entry("issue-2895", "repo#2895", :working) |> Map.put(:session_id, nil)
+
+      retry = %{
+        identifier: "repo#2896",
+        attempt: 1,
+        due_at_ms: System.monotonic_time(:millisecond) + 10_000,
+        error: "startup failed: {:port_exit, 23}",
+        last_failure_at: at
+      }
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | running: %{"issue-2895" => starting},
+            retry_attempts: %{
+              "issue-2896" => retry,
+              "issue-2897" => %{retry | identifier: "repo#2897", error: "startup failed: private-key-value"}
+            }
+        }
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+      assert output =~ ~r/#2895\s+starting\s/
+      assert output =~ "(starting provider; no live turn yet)"
+      assert output =~ ~r/#2896\s+retrying\s/
+      assert output =~ "startup failed: {:port_exit, 23}"
+      assert output =~ DateTime.to_iso8601(at)
+      assert output =~ "#2897"
+      refute output =~ "private-key-value"
+    end
+
     test "status and agents agree on the human wait for a decision and a rework ticket (#2698)",
          %{orchestrator: pid} do
       # Khala #17 and #52 were both live, working and labelled `rework`. #52 had
@@ -3350,6 +3544,32 @@ defmodule Aiur.AgentControlCLITest do
       refute status =~ ~r/^#17 .*waiting_for_human/m
       assert agents_line.(17) =~ ~r/^#17\s+working\s/
       refute agents_line.(17) =~ "waiting"
+    end
+
+    test "preserves paused and deactivated states alongside open attentions", %{orchestrator: pid} do
+      for identifier <- ["repo#46", "repo#47"] do
+        :ok = SubscriptionStore.attach(identifier)
+        :ok = SubscriptionStore.add_attention(identifier, "github-credential-missing")
+        on_exit(fn -> SubscriptionStore.stop(identifier) end)
+      end
+
+      paused =
+        "issue-46"
+        |> running_entry("repo#46", :paused)
+        |> update_in([:issue], &%{&1 | paused: true})
+        |> Map.put(:paused_reason, :label_override)
+
+      deactivated = running_entry("issue-47", "repo#47", :deactivated)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-46" => paused, "issue-47" => deactivated}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ ~r/^#46\s+paused\s+.*\(waiting_for_human: 1 open decision\)/m
+      assert output =~ ~r/^#47\s+deactivated\s+.*\(waiting_for_human: 1 open decision\)/m
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
     test "shows label override as the pause reason", %{orchestrator: pid} do
@@ -3763,6 +3983,27 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ ~r/#44\s+in-progress\s+3\s/
       assert output =~ "running mix test"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "watch distinguishes provider startup and retry from a live turn", %{orchestrator: pid, watch_root: root} do
+      starting = watch_entry("issue-2895", "repo#2895", state: "in-progress") |> Map.put(:session_id, nil)
+
+      retry = %{
+        identifier: "repo#2896",
+        attempt: 1,
+        due_at_ms: System.monotonic_time(:millisecond) + 10_000,
+        error: "startup failed: {:port_exit, 23}"
+      }
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-2895" => starting}, retry_attempts: %{"issue-2896" => retry}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      assert output =~ ~r/#2895\s+starting\s/
+      assert output =~ "(starting provider; no live turn yet)"
+      assert output =~ ~r/#2896\s+retrying\s/
+      assert output =~ "startup failed: {:port_exit, 23}"
     end
 
     test "status and watch surface persisted open blocking operator asks", %{watch_root: root} do

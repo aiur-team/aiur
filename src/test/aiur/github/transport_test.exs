@@ -336,7 +336,7 @@ defmodule Aiur.GitHub.TransportTest do
                  etag: "W/\"abc123\""
                })
 
-      assert_receive {:if_none_match, ["W/\"abc123\""]}
+      assert_receive {:if_none_match, ["W/\"abc123\""]}, 1000
     end
 
     test "default_request_fun omits If-None-Match when no etag is cached" do
@@ -354,7 +354,7 @@ defmodule Aiur.GitHub.TransportTest do
                  token: "token"
                })
 
-      assert_receive {:if_none_match, []}
+      assert_receive {:if_none_match, []}, 1000
     end
   end
 

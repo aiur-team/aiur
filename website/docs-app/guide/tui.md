@@ -18,7 +18,7 @@ Send a message, watch the agent act on it, and interrupt it without leaving the 
 
 The header shows provider usage with its observation age. Retained stale readings carry a `[stale]` label; Muse readings carry an `[account unverified]` qualifier.
 
-The board shows one prefixed row per ticket with runtime, turn count, backend, pinned model, work state, and pause reason:
+The board shows one prefixed row per ticket with runtime, backend, pinned model, work state, pause reason, and provider-reported context occupancy; the dashboard Units view shows Aiur orchestration turns beside context.
 
 | Glyph | Meaning |
 | --- | --- |

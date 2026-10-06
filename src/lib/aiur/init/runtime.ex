@@ -6,7 +6,6 @@ defmodule Aiur.Init.Runtime do
   # credo:disable-for-this-file Credo.Check.Design.AliasUsage
   alias Aiur.Codeowners
   alias Aiur.Executor.Handoff
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Init.Alerts
   alias Aiur.Init.Format
   alias Aiur.Init.Prompt
@@ -45,6 +44,7 @@ defmodule Aiur.Init.Runtime do
           add_gitignore_entry: (String.t() -> {:added | :exists, Path.t()}),
           ensure_env: (String.t() -> {:created | :exists, Path.t()}),
           check_agent_auth: (String.t() -> :ok | {:error, String.t()}),
+          check_codex_sandbox: (-> :ok | {:error, String.t()}),
           install_claude_app_server: (-> :ok | {:error, String.t()}),
           claude_version: (-> {:ok, String.t()} | {:error, String.t()}),
           discover_models: (String.t() -> {:ok, [String.t()]} | {:error, term()}),
@@ -101,13 +101,14 @@ defmodule Aiur.Init.Runtime do
       add_gitignore_entry: &Scaffold.add_gitignore_entry/1,
       ensure_env: &Scaffold.ensure_env/1,
       check_agent_auth: &Aiur.Init.AgentCli.check_agent_auth/1,
+      check_codex_sandbox: &Aiur.Init.AgentCli.check_codex_sandbox/0,
       install_claude_app_server: &Aiur.Init.AgentCli.install_claude_app_server/0,
       claude_version: &Aiur.Init.AgentCli.claude_version/0,
       discover_models: &Aiur.ModelCatalog.discover/1,
       repo_root: fn -> Codeowners.repo_root(File.cwd!()) end,
       github_login: &Aiur.Init.GitHub.detect_github_login/0,
       github_bot_account_default: &Aiur.Init.GitHub.detect_bot_account/0,
-      github_token: &GitHubConfig.token/0,
+      github_token: &Aiur.Init.GitHub.github_token/0,
       check_ci_readiness: &Aiur.Init.GitHub.check_ci_readiness/1,
       list_labels: &Aiur.Init.GitHub.list_repo_labels/1,
       create_labels: &Aiur.Init.GitHub.create_labels/2

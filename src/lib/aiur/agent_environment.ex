@@ -360,8 +360,8 @@ defmodule Aiur.AgentEnvironment do
   # the same obvious path (`/tmp/wp_new.md`) silently clobber each other, and the
   # loser publishes the other ticket's workpad under its own comment id (#1763).
   # A workspace-private TMPDIR fixes that for every tool the agent launches, not
-  # just the paths someone remembered to make unique; TMP/TEMP follow it so tools
-  # reading those land in the same place.
+  # just the paths someone remembered to make unique; TMP/TEMP follow it for
+  # ordinary tools, and TMPPREFIX keeps zsh heredocs in that same directory.
   #
   # Created here as well as at provisioning time so workspaces provisioned before
   # this existed get a usable scratch dir on their next launch. If it cannot be
@@ -373,7 +373,8 @@ defmodule Aiur.AgentEnvironment do
     with :ok <- AgentScratch.install(workspace),
          true <- File.dir?(scratch_dir) do
       value = String.to_charlist(scratch_dir)
-      [{~c"TMPDIR", value}, {~c"TMP", value}, {~c"TEMP", value}]
+      zsh_prefix = scratch_dir |> Path.join("zsh-") |> String.to_charlist()
+      [{~c"TMPDIR", value}, {~c"TMP", value}, {~c"TEMP", value}, {~c"TMPPREFIX", zsh_prefix}]
     else
       _unavailable -> []
     end
@@ -460,8 +461,8 @@ defmodule Aiur.AgentEnvironment do
       "export AIUR_GITHUB_SEARCH_LIMIT_PER_HOUR=#{github_budget.agent_search_limit_per_hour}\n" <>
       "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
-      ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"\n) <>
-      "  export TMPDIR TMP TEMP\nfi\nunset aiur_scratch_dir\n" <>
+      ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"; TMPPREFIX="$aiur_scratch_dir/zsh-"\n) <>
+      "  export TMPDIR TMP TEMP TMPPREFIX\nfi\nunset aiur_scratch_dir\n" <>
       "{ #{scrub_shell_prefix()}; } && " <>
       "export MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
       "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}\n}"

@@ -57,6 +57,49 @@ defmodule AiurWeb.GithubWebhookTest do
     :ok
   end
 
+  # Allowed-contributor intake (#2957): a forged or unsigned `issues.opened`
+  # naming an allowed author must never reach the delivery tail — the only
+  # path into intake — so it can neither wake the Executor nor be audited as
+  # an accept.
+  describe "allowed-contributor intake behind the signature boundary" do
+    setup do
+      test = self()
+      original = Application.get_env(:aiur, :github_webhook_deliver_fun)
+      Application.put_env(:aiur, :github_webhook_deliver_fun, fn event, payload -> send(test, {:delivered, event, payload}) && :ok end)
+
+      on_exit(fn ->
+        if is_nil(original),
+          do: Application.delete_env(:aiur, :github_webhook_deliver_fun),
+          else: Application.put_env(:aiur, :github_webhook_deliver_fun, original)
+      end)
+    end
+
+    @opened ~s({"action":"opened","repository":{"full_name":"acme/app"},"issue":{"number":5,"user":{"id":42,"login":"alice","type":"User"}}})
+
+    defp issues_delivery(body, signature) do
+      body
+      |> build_conn(signature: signature)
+      |> put_req_header("x-github-event", "issues")
+      |> put_req_header("x-github-delivery", "ac-#{System.unique_integer([:positive])}")
+      |> call()
+    end
+
+    test "an unsigned issues.opened is rejected and never delivered" do
+      assert issues_delivery(@opened, nil).status == 401
+      refute_received {:delivered, _, _}
+    end
+
+    test "a forged signature on issues.opened is rejected and never delivered" do
+      assert issues_delivery(@opened, github_signature("attacker-guess", @opened)).status == 401
+      refute_received {:delivered, _, _}
+    end
+
+    test "a correctly signed issues.opened is delivered (positive control)" do
+      assert issues_delivery(@opened, github_signature(@secret, @opened)).status == 202
+      assert_received {:delivered, "issues", %{"action" => "opened"}}
+    end
+  end
+
   describe "POST #{GithubWebhook.path()}" do
     test "accepts a delivery carrying a valid signature" do
       conn = deliver(@payload, signature: github_signature(@secret, @payload))
@@ -158,14 +201,14 @@ defmodule AiurWeb.GithubWebhookTest do
       conn = deliver(@payload, signature: github_signature(@secret, @payload))
 
       assert conn.status == 401
-      assert_receive {:alert, "system.github_webhook.secret_missing", opts}
+      assert_receive {:alert, "system.github_webhook.secret_missing", opts}, 1000
       assert Keyword.fetch!(opts, :needs_attention) == true
     end
 
     test "rejects an unsigned delivery and raises a needs-attention alert" do
       assert deliver(@payload, signature: nil).status == 401
 
-      assert_receive {:alert, "system.github_webhook.secret_missing", opts}
+      assert_receive {:alert, "system.github_webhook.secret_missing", opts}, 1000
       assert Keyword.fetch!(opts, :needs_attention) == true
       assert Keyword.fetch!(opts, :reason) =~ @secret_env
     end
@@ -174,13 +217,13 @@ defmodule AiurWeb.GithubWebhookTest do
       System.put_env(@secret_env, "   ")
 
       assert deliver(@payload, signature: github_signature(@secret, @payload)).status == 401
-      assert_receive {:alert, "system.github_webhook.secret_missing", _opts}
+      assert_receive {:alert, "system.github_webhook.secret_missing", _opts}, 1000
     end
 
     test "throttles the alert so a redelivery storm cannot become an alert storm" do
       for _attempt <- 1..3, do: assert(deliver(@payload, signature: nil).status == 401)
 
-      assert_receive {:alert, "system.github_webhook.secret_missing", _opts}
+      assert_receive {:alert, "system.github_webhook.secret_missing", _opts}, 1000
       refute_receive {:alert, _name, _opts}, 50
     end
   end

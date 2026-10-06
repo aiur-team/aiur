@@ -85,7 +85,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
       refute Enum.any?(AlertLedger.read(alert_path), &(&1["topic"] == "ticket.#{ticket}.workspace.live_session"))
     end
 
-    refute_receive {:workspace_setup_contended, _, _, _, _}
+    refute_receive {:workspace_setup_contended, _, _, _, _}, 100
   end
 
   test "a local retry does not release a remote provider's reaping lease" do
@@ -129,6 +129,49 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
     assert Enum.any?(AlertLedger.read(alert_path), fn alert ->
              alert["topic"] == "ticket.#{ticket}.workspace.live_session" and alert["needs_attention"] == true
            end)
+  end
+
+  test "an unknown-provider hold alerts with generation and unproven exit instead of claiming a live session" do
+    root = Aiur.TestSupport.tmp_root!("workspace-unknown-hold-alert")
+    ticket = "UNKNOWN-#{System.unique_integer([:positive])}"
+    issue_id = "issue-#{ticket}"
+    issue = %Issue{id: issue_id, identifier: ticket, state: "todo", labels: ["agent:todo"]}
+    parent = self()
+
+    File.mkdir_p!(root)
+    on_exit(fn -> File.rm_rf(root) end)
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory", workspace_root: Path.join(root, "workspaces"))
+    alert_path = AlertLedger.path(log_roots: [Application.fetch_env!(:aiur, :runtime_state_dir)])
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} = Ownership.claim(ticket)
+        :ok = Ownership.expect_provider(lease)
+        send(parent, {:unknown_lease_ready, lease})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:unknown_lease_ready, lease}, 2_000
+
+    on_exit(fn ->
+      Process.exit(lease.guardian, :kill)
+      Store.delete(ticket)
+    end)
+
+    Process.exit(owner, :kill)
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+
+    runner = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> AgentRunner.run(issue, parent) end)
+    assert_receive {:workspace_setup_contended, ^issue_id, ^ticket, {:ok, %{phase: :reaping}}, _wait}, 5_000
+    assert {:ok, :ok} = Task.yield(runner, 2_000)
+
+    assert Enum.any?(AlertLedger.read(alert_path), fn alert ->
+             alert["topic"] == "ticket.#{ticket}.workspace.ownership_hold" and
+               alert["message"] =~ "generation #{lease.generation}" and
+               alert["message"] =~ "exit proof not recorded"
+           end)
+
+    refute Enum.any?(AlertLedger.read(alert_path), &(&1["topic"] == "ticket.#{ticket}.workspace.live_session"))
   end
 
   test "a competing runner cannot replace the checkout owned by a paused provisioning generation" do

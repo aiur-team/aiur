@@ -105,6 +105,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   describe "pop_retry_attempt_state/3" do
     test "returns attempt, metadata, and cleared state when token matches" do
       token = make_ref()
+      last_failure_at = DateTime.utc_now()
 
       state = %State{
         retry_attempts: %{
@@ -113,6 +114,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
             retry_token: token,
             identifier: "repo#1",
             error: "boom",
+            last_failure_at: last_failure_at,
             retry_poll_failures: 0,
             worker_host: nil,
             workspace_path: nil,
@@ -126,8 +128,13 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       assert metadata.identifier == "repo#1"
       assert metadata.error == "boom"
+      assert metadata.last_failure_at == last_failure_at
       assert metadata.tracker_identity == tracker_identity("repo#1")
       refute Map.has_key?(next_state.retry_attempts, "issue-1")
+
+      requeued = RetryEngine.schedule_issue_retry(next_state, "issue-1", 3, metadata)
+      assert requeued.retry_attempts["issue-1"].last_failure_at == last_failure_at
+      Process.cancel_timer(requeued.retry_attempts["issue-1"].timer_ref)
     end
 
     test "returns :missing when token does not match" do
@@ -1160,7 +1167,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       # deliberately consumed before the orchestrator installs the row.
       assert {:waiting, _guardian, _generation} = Ownership.wait_for_release(identifier, self())
       assert :ok = Ownership.release(first_owner)
-      assert_receive {:workspace_ownership_available, ^identifier, _guardian, _generation}
+      assert_receive {:workspace_ownership_available, ^identifier, _guardian, _generation}, 1000
 
       assert {:ok, second_owner} = Ownership.claim(identifier)
       on_exit(fn -> Ownership.release(second_owner) end)
@@ -1184,7 +1191,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       assert MapSet.member?(next.claimed, issue_id)
       assert :ok = Ownership.release(second_owner)
-      assert_receive {:workspace_ownership_available, ^identifier, _guardian, _generation}
+      assert_receive {:workspace_ownership_available, ^identifier, _guardian, _generation}, 1000
     end
 
     test "parks a contender without consuming retry or thrash budget when its runner exits first" do
@@ -1259,7 +1266,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       Process.exit(runner, :kill)
       assert_receive {:DOWN, ^exit_ref, :process, ^runner, :killed}, 2_000
-      refute_receive :unexpected_retry
+      refute_receive :unexpected_retry, 100
     end
 
     test "rejects a stale guardian release and preserves a DOWN-first retry envelope" do
@@ -1518,7 +1525,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                  end
                )
 
-      assert_receive {:redispatched_backend, "codex"}
+      assert_receive {:redispatched_backend, "codex"}, 1000
       refute Map.has_key?(redispatched_state.running[issue_id], :rate_limit_fallback_replacement)
     end
 
@@ -1584,7 +1591,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                  end
                )
 
-      assert_receive {:retry_dispatch_opts, dispatch_opts}
+      assert_receive {:retry_dispatch_opts, dispatch_opts}, 1000
       assert dispatch_opts[:prior_work] == true
       assert get_in(next_state.running, [issue.id, :pid]) == parent
     end
@@ -1660,7 +1667,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                  end,
                  set_terminal_verification_pending_fun: fn _identity, _pending? -> :ok end,
                  cleanup_terminal_issue_artifacts_fun: fn _identifier, _worker_host ->
-                   assert_receive {:membership_recorded, ^identity, :completed}
+                   assert_receive {:membership_recorded, ^identity, :completed}, 1000
                    :ok
                  end
                )
@@ -1700,7 +1707,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                    :ok
                  end,
                  cleanup_terminal_issue_artifacts_fun: fn _identifier, _worker_host ->
-                   assert_receive {:membership_recorded, ^identity, :completed}
+                   assert_receive {:membership_recorded, ^identity, :completed}, 1000
                    :ok
                  end
                )
@@ -1737,8 +1744,8 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                  end
                )
 
-      assert_receive {:freshness, :unavailable}
-      assert_receive {:terminal_verification_pending, true}
+      assert_receive {:freshness, :unavailable}, 1000
+      assert_receive {:terminal_verification_pending, true}, 1000
       assert MapSet.member?(next_state.claimed, issue.id)
       assert Map.has_key?(next_state.retry_attempts, issue.id)
     end

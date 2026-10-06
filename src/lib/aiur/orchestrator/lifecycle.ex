@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper}
+  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
   alias Aiur.Events.{Exchange, Publisher}
 
   alias Aiur.Orchestrator.{
@@ -37,6 +37,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     "ticket.*.ci.passed",
     "ticket.*.agent.pause.request",
     "ticket.*.agent.unblocked",
+    "ticket.*.agent.decision.answered",
     "ticket.*.branch.push",
     "system.*.branch.push"
   ]
@@ -78,6 +79,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
+    :ok = TestTicketScope.validate!()
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
     Process.flag(:trap_exit, true)
@@ -297,21 +299,26 @@ defmodule Aiur.Orchestrator.Lifecycle do
     already_due? = is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= now_ms
     coalesced = state.poll_check_in_progress == true or already_due?
 
-    state =
-      if coalesced do
-        state
-      else
-        # A wake interrupts an idle backoff, but never ahead of the GitHub
-        # rate-limit floor: the cycle it schedules fetches from GitHub, so
-        # scheduling it sooner than the floor would let an externally-triggered
-        # wake (a webhook delivery) force a full fetch ahead of the floor the
-        # orchestrator computed for itself (#2365). No floor means an immediate
-        # tick, which is what collapses a long idle backoff to now.
-        floor_ms = TrackerHealth.github_next_poll_delay_ms(state) || 0
-        schedule_tick(state, floor_ms)
-      end
+    if coalesced do
+      {state, true}
+    else
+      # A wake interrupts an idle backoff, but never ahead of the GitHub
+      # rate-limit floor: the cycle it schedules fetches from GitHub, so
+      # scheduling it sooner than the floor would let an externally-triggered
+      # wake (a webhook delivery) force a full fetch ahead of the floor the
+      # orchestrator computed for itself (#2365). The floor is measured from
+      # the last dispatch poll, not from now, and a wake only ever pulls the
+      # tick earlier: rescheduling at now + floor on every wake let a steady
+      # stream of webhook deliveries push the tick back forever, so no
+      # dispatch poll ran while ready tickets waited (#2980).
+      target_ms = max(now_ms, earliest_poll_at_ms(state, now_ms))
 
-    {state, coalesced}
+      if is_integer(state.next_poll_due_at_ms) and state.next_poll_due_at_ms <= target_ms do
+        {state, true}
+      else
+        {schedule_tick(state, target_ms - now_ms), false}
+      end
+    end
   end
 
   @spec schedule_tick(State.t(), non_neg_integer()) :: State.t()

@@ -108,7 +108,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert written == context.pack_path
 
     # Drafts have no tracker fact and must not be invented.
-    assert_receive {:query, query}
+    assert_receive {:query, query}, 1000
     assert query =~ "i4101: issue(number: 4101)"
     refute query =~ "4104"
 
@@ -219,6 +219,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert %ProviderHealth{state: :healthy, complete?: true, last_success_at: ~U[2026-08-02 12:00:00Z]} = PackStatus.health(poller)
     healthy_snapshot = PlanningSource.catalog()
     assert healthy_snapshot.health.state == :healthy
+    assert healthy_snapshot.status_health.state == :healthy
     assert healthy_snapshot.generation > initial_generation
 
     Agent.update(response, fn _ -> :failure end)
@@ -238,8 +239,9 @@ defmodule Aiur.BuildOrder.PackStatusTest do
            } = PackStatus.health(poller)
 
     snapshot = PlanningSource.catalog()
-    assert snapshot.health.state == :stale
-    assert snapshot.health.failure == :pack_status_refresh_failed
+    assert snapshot.health.state == :healthy
+    assert snapshot.status_health.state == :stale
+    assert snapshot.status_health.failure == :pack_status_refresh_failed
     assert snapshot.generation == healthy_snapshot.generation
 
     [root] = snapshot.data.entries
@@ -287,7 +289,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
       )
 
     assert {:ok, [_written]} = PackStatus.refresh_sync(poller)
-    assert_receive {:build_order_pack_status_changed, %ProviderHealth{generation: generation}}
+    assert_receive {:build_order_pack_status_changed, %ProviderHealth{generation: generation}}, 1000
     body = File.read!(context.status_path)
 
     Agent.update(clock, fn _ -> ~U[2026-08-02 12:05:00Z] end)
@@ -297,7 +299,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert File.read!(context.status_path) == body
     refute File.read!(context.status_path) =~ "2026-08-02T12:05:00Z"
     assert PackStatus.health(poller).generation == generation
-    refute_receive {:build_order_pack_status_changed, _health}
+    refute_receive {:build_order_pack_status_changed, _health}, 100
   end
 
   test "chunks 51 promoted members into GraphQL requests of 50 and 1", context do
@@ -321,8 +323,8 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     poller = start_poller(context.pack_path, request_fun)
 
     assert {:ok, [_reconciled]} = PackStatus.refresh_sync(poller)
-    assert_receive {:query_numbers, first_chunk}
-    assert_receive {:query_numbers, second_chunk}
+    assert_receive {:query_numbers, first_chunk}, 1000
+    assert_receive {:query_numbers, second_chunk}, 1000
     assert first_chunk == Enum.to_list(1..50)
     assert second_chunk == [51]
 
@@ -366,7 +368,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     queries = for _ <- 1..4, do: receive(do: ({:budget_query, numbers} -> numbers))
     assert Enum.map(queries, &length/1) == [50, 50, 50, 50]
-    refute_receive {:budget_query, _numbers}
+    refute_receive {:budget_query, _numbers}, 100
 
     assert File.exists?(PackPaths.status_path(Enum.at(paths, 0)))
     assert File.exists?(PackPaths.status_path(Enum.at(paths, 1)))
@@ -397,8 +399,8 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     poller = start_pack_poller([first, second], request_fun, planning_call_budget: 4)
 
     assert {:ok, [^first, ^second]} = PackStatus.refresh_sync(poller)
-    assert_receive {:dedupe_query, [1, 2, 3]}
-    refute_receive {:dedupe_query, _numbers}
+    assert_receive {:dedupe_query, [1, 2, 3]}, 1000
+    refute_receive {:dedupe_query, _numbers}, 100
     assert context_members(first) |> Map.keys() |> Enum.sort() == ["1", "2"]
     assert context_members(second) |> Map.keys() |> Enum.sort() == ["2", "3"]
   end
@@ -422,13 +424,13 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     poller = start_pack_poller([first, second], request_fun, planning_call_budget: 1)
 
     assert {:error, _reason} = PackStatus.refresh_sync(poller)
-    assert_receive {:repository_query, %{"owner" => "acme", "name" => "widgets"}, 1}
+    assert_receive {:repository_query, %{"owner" => "acme", "name" => "widgets"}, 1}, 1000
     assert File.read!(retained_path) == retained
 
     assert {:error, _reason} = PackStatus.refresh_sync(poller)
-    assert_receive {:repository_query, %{"owner" => "other", "name" => "project"}, 2}
+    assert_receive {:repository_query, %{"owner" => "other", "name" => "project"}, 2}, 1000
     refute File.read!(retained_path) == retained
-    refute_receive {:repository_query, _variables, _number}
+    refute_receive {:repository_query, _variables, _number}, 100
   end
 
   test "an invalid lifecycle in the second chunk preserves the projection", context do
@@ -469,8 +471,8 @@ defmodule Aiur.BuildOrder.PackStatusTest do
       end)
 
     assert {:error, _reason} = PackStatus.refresh_sync(poller)
-    assert_receive :failed_chunk_request
-    refute_receive :failed_chunk_request
+    assert_receive :failed_chunk_request, 1000
+    refute_receive :failed_chunk_request, 100
     assert File.read!(context.status_path) == previous
     assert PackStatus.health(poller).state == :unavailable
   end
@@ -512,7 +514,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     poller = start_poller(context.pack_path, request_fun)
 
     assert {:ok, [_written]} = PackStatus.refresh_sync(poller)
-    assert_receive {:variables, %{"owner" => "other", "name" => "project"}}
+    assert_receive {:variables, %{"owner" => "other", "name" => "project"}}, 1000
   end
 
   test "default polling ignores foreign override packs", _context do
@@ -563,9 +565,9 @@ defmodule Aiur.BuildOrder.PackStatusTest do
       )
 
     assert {:ok, [^state_path]} = PackStatus.refresh_sync(poller)
-    assert_receive {:repository_query, %{"owner" => owner, "name" => name}}
+    assert_receive {:repository_query, %{"owner" => owner, "name" => name}}, 1000
     assert String.downcase("#{owner}/#{name}") == String.downcase(repository)
-    refute_receive {:repository_query, _variables}
+    refute_receive {:repository_query, _variables}, 100
     refute File.exists?(PackPaths.status_path(foreign_path))
   end
 
@@ -631,7 +633,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
       )
 
     assert {:ok, [^workspace_path]} = PackStatus.refresh_sync(poller)
-    assert_receive {:workspace_repository_query, %{"owner" => owner, "name" => name}}
+    assert_receive {:workspace_repository_query, %{"owner" => owner, "name" => name}}, 1000
     assert String.downcase("#{owner}/#{name}") == String.downcase(repository)
     assert %{"operator_annotation" => "keep"} = status_path |> File.read!() |> Jason.decode!()
 

@@ -408,7 +408,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "before_run recreates dirty leftover workspaces for todo dispatches" do
+  test "before_run holds dirty leftover workspaces for todo dispatches" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover")
 
     try do
@@ -422,17 +422,17 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:todo"]
       }
 
-      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+      assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
 
-      assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-      assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
       File.rm_rf(test_root)
     end
   end
 
-  test "before_run recreates dirty leftover workspaces when retry still carries todo label" do
+  test "before_run holds dirty leftover workspaces when retry still carries todo label" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-before-run-stale-leftover-retry")
 
     try do
@@ -446,11 +446,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:todo"]
       }
 
-      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+      assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
 
-      assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-      assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
       File.rm_rf(test_root)
     end
@@ -471,11 +471,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
         labels: ["agent:todo"]
       }
 
-      assert :ok = Workspace.run_before_run_hook(workspace, issue)
+      assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}} = Workspace.run_before_run_hook(workspace, issue)
 
-      assert File.read!(Path.join(workspace, "README.md")) == "initial\n"
-      assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
-      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 2
+      assert File.read!(Path.join(workspace, "README.md")) == "dirty\n"
+      assert String.trim(git!(["-C", workspace, "status", "--short"])) != ""
+      assert trace_file |> File.read!() |> String.split("\n", trim: true) |> length() == 1
     after
       File.rm_rf(test_root)
     end
@@ -914,7 +914,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert {:error, {:workspace_github_connectivity_failed, workspace, {:github, :dns, %{reason: :nxdomain}}}} =
                Workspace.create_for_issue("MT-GH-PREFLIGHT")
 
-      assert_receive {:workspace_preflight, ^workspace}
+      assert_receive {:workspace_preflight, ^workspace}, 1000
 
       assert_receive {:event, %{topic: "system.github.connectivity_lost"} = event}, 500
       assert event["message"] =~ "GitHub workspace preflight failed"
@@ -970,7 +970,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert {:error, {:workspace_github_connectivity_failed, workspace, {:github_auth_preflight_failed, %{classification: :local_hold}}}} =
                Workspace.create_for_issue("MT-GH-LOCAL-HOLD")
 
-      assert_receive {:workspace_preflight, ^workspace}
+      assert_receive {:workspace_preflight, ^workspace}, 1000
       refute_receive {:event, %{topic: "system.github.connectivity_lost"}}, 200
     after
       restore_app_env(:workspace_github_preflight_enabled, previous_enabled)
@@ -1039,7 +1039,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       end)
 
       assert {:ok, ^workspace_path} = Workspace.create_for_issue("MT-GH-REMOTE", "worker-01:2200")
-      assert_receive {:workspace_preflight, ^workspace_path, "worker-01:2200"}
+      assert_receive {:workspace_preflight, ^workspace_path, "worker-01:2200"}, 1000
 
       trace = File.read!(trace_file)
 
@@ -1399,11 +1399,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert Enum.map(issues, & &1.id) == issue_ids
 
-    assert_receive {:fetch_issue_states_page, query, %{ids: ^first_batch_ids, first: 50, relationFirst: 50}}
+    assert_receive {:fetch_issue_states_page, query, %{ids: ^first_batch_ids, first: 50, relationFirst: 50}}, 1000
 
     assert query =~ "AiurLinearIssuesById"
 
-    assert_receive {:fetch_issue_states_page, ^query, %{ids: ^second_batch_ids, first: 5, relationFirst: 50}}
+    assert_receive {:fetch_issue_states_page, ^query, %{ids: ^second_batch_ids, first: 5, relationFirst: 50}}, 1000
   end
 
   test "linear client logs response bodies for non-200 graphql responses" do
@@ -2895,7 +2895,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
     assert remote_policy == %{
              "type" => "workspaceWrite",
-             "writableRoots" => ["~/.aiur-workspaces", "~/.aiur-workspaces/.git"],
+             "writableRoots" => ["~/.aiur-workspaces", "~/.aiur-workspaces/.git", "~/.aiur-workspaces/.agents"],
              "readOnlyAccess" => %{"type" => "fullAccess"},
              "networkAccess" => true,
              "excludeTmpdirEnvVar" => false,
@@ -2954,7 +2954,8 @@ defmodule Aiur.WorkspaceAndConfigTest do
                "type" => "workspaceWrite",
                "writableRoots" => [
                  issue_workspace,
-                 Path.join(issue_workspace, ".git")
+                 Path.join(issue_workspace, ".git"),
+                 Path.join(issue_workspace, ".agents")
                ],
                "networkAccess" => true
              }
@@ -3354,7 +3355,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
 
       assert remote_workspace_write_policy == %{
                "type" => "workspaceWrite",
-               "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git")]
+               "writableRoots" => [remote_workspace, Path.join(remote_workspace, ".git"), Path.join(remote_workspace, ".agents")]
              }
 
       read_only_settings = %{

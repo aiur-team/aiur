@@ -40,7 +40,7 @@ defmodule Aiur.AgentRunner.TurnCallbacksTest do
 
       callbacks.on_message.(%{event: :turn_completed, payload: payload, raw: Jason.encode!(payload)})
 
-      assert_receive {:published, %UsageEnvelope{} = envelope}
+      assert_receive {:published, %UsageEnvelope{} = envelope}, 1000
       assert envelope.provider == :claude
       assert envelope.resolved_model == "sonnet-4-6"
     end
