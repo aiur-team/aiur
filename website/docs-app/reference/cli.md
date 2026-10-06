@@ -56,6 +56,16 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` | Prints both the release version and shell dispatcher version without contacting or claiming a running daemon. If they differ, update `aiur-cli` before trusting that newer subcommands are available. | `aiur --version` |
 
+Background runs persist daemon Logger messages at `<logs-root>/log/aiur.log` without `--debug`.
+`--debug` additionally enables debug-level messages. The default background root is
+`~/.aiur/logs/<launch-id>/`; `log/boot.out.log` captures release stdout and stderr.
+
+When ready work has free slots, status names a tracker preflight hold and its duration,
+reports a stale dispatch poll, `awaiting dispatch`, or the last empty selection cycle's reasons and sample age. Known prewarm holds keep their cause; unexplained empty selections report `unknown`.
+
+The `POLL` line reports the age and freshness of the last dispatch poll attempt. A daemon that has not started a dispatch poll says so; unavailable age is never rendered as zero.
+
+
 On Linux, `aiur init` probes the Codex command sandbox when Codex is selected. A failure shows the command output and offers a retry; see the [Linux setup steps](/guide/quick-start#codex-on-linux).
 
 Event counters, subscriptions, session handles and the alert ledger survive

@@ -65,6 +65,60 @@ defmodule Aiur.LogFileTest do
       %{log_file: log_file}
     end
 
+    test "headless boot persists daemon messages without debug", %{log_file: log_file} do
+      original_debug = System.get_env("AIUR_DEBUG")
+      original_root = System.get_env("AIUR_LOGS_ROOT")
+      original_headless = Application.get_env(:aiur, :headless)
+      original_level = Logger.level()
+      System.delete_env("AIUR_DEBUG")
+      System.delete_env("AIUR_LOGS_ROOT")
+      Application.put_env(:aiur, :headless, true)
+      Logger.configure(level: :info)
+
+      on_exit(fn ->
+        if original_debug, do: System.put_env("AIUR_DEBUG", original_debug), else: System.delete_env("AIUR_DEBUG")
+        if original_root, do: System.put_env("AIUR_LOGS_ROOT", original_root), else: System.delete_env("AIUR_LOGS_ROOT")
+        if is_nil(original_headless), do: Application.delete_env(:aiur, :headless), else: Application.put_env(:aiur, :headless, original_headless)
+        Logger.configure(level: original_level)
+      end)
+
+      assert :ok = LogFile.configure()
+      require Logger
+      Logger.info("dispatch cycle diagnostic 2980")
+      Logger.flush()
+      :ok = :logger_std_h.filesync(:aiur_file_log)
+      assert File.read!(log_file) =~ "dispatch cycle diagnostic 2980"
+      assert Logger.level() == :info
+    end
+
+    test "background boot writes into the exported run root before headless is configured", %{log_file: log_file} do
+      original_debug = System.get_env("AIUR_DEBUG")
+      original_root = System.get_env("AIUR_LOGS_ROOT")
+      original_headless = Application.get_env(:aiur, :headless)
+      original_level = Logger.level()
+      System.delete_env("AIUR_DEBUG")
+      System.put_env("AIUR_LOGS_ROOT", Path.dirname(Path.dirname(log_file)))
+      Application.delete_env(:aiur, :log_file)
+      Application.put_env(:aiur, :headless, false)
+      Logger.configure(level: :info)
+
+      on_exit(fn ->
+        if original_debug, do: System.put_env("AIUR_DEBUG", original_debug), else: System.delete_env("AIUR_DEBUG")
+        if original_root, do: System.put_env("AIUR_LOGS_ROOT", original_root), else: System.delete_env("AIUR_LOGS_ROOT")
+        if is_nil(original_headless), do: Application.delete_env(:aiur, :headless), else: Application.put_env(:aiur, :headless, original_headless)
+        Logger.configure(level: original_level)
+      end)
+
+      assert :ok = LogFile.ensure_session_log_file()
+      assert :ok = LogFile.configure()
+      require Logger
+      Logger.info("background boot diagnostic 2980")
+      Logger.flush()
+      :ok = :logger_std_h.filesync(:aiur_file_log)
+      assert File.read!(log_file) =~ "background boot diagnostic 2980"
+      assert Logger.level() == :info
+    end
+
     test "removes the default console handler so logs do not flash on stdout", %{log_file: log_file} do
       # Regression: pane BEAMs only called configure_level/0, so their
       # default console handler stayed wired up and every Logger.debug
