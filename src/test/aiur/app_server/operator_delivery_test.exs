@@ -183,7 +183,6 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
       })
 
     interrupt_result = ClaudeAgent.handle_interrupt_error(completed_turn_state, error)
-    assert interrupt_result == {:ok, :turn_interrupted_for_operator_message}
 
     issue = %Aiur.Issue{identifier: "OD-#{System.unique_integer([:positive])}", id: "gid-od"}
 
@@ -261,6 +260,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
 
     assert Process.get(call_key) == 2
     Process.delete(call_key)
+    assert interrupt_result == {:ok, :turn_interrupted_for_operator_message}
 
     delivered_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), retired_state, %{kind: :notification})
     after_second_checkpoint = OperatorDelivery.maybe_process_safe_checkpoint(session(), delivered_state, %{kind: :notification})
