@@ -34,12 +34,27 @@ defmodule Aiur.AgentRunner.CheckpointDelivery do
     end
   end
 
+  @spec operator_response_handler(Issue.t(), GenServer.server(), keyword()) :: function()
+  def operator_response_handler(issue, orchestrator, live_opts) do
+    fn command ->
+      case Aiur.Orchestrator.claim_operator_response(orchestrator, issue.identifier, command) do
+        {:ok, item} -> immediate_operator_delivery(issue, orchestrator, item, Aiur.DecisionStore, live_opts)
+        _ -> :noop
+      end
+    end
+  end
+
   defp immediate_operator_delivery(issue, orchestrator, item, decision_store, live_opts) do
     case QueueDrain.prepare_operator_delivery(item, issue, decision_store) do
       :ok ->
         text = QueueDrain.queue_item_text(item)
         on_success = operator_delivery_success(orchestrator, item, issue, decision_store, live_opts)
-        on_failure = fn _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id) end
+
+        on_failure = fn
+          {:invalid_native_response, reason} -> Aiur.Orchestrator.mark_queue_item_failed(orchestrator, item.id, reason)
+          _reason -> Aiur.Orchestrator.restore_queue_item_pending(orchestrator, item.id)
+        end
+
         {:deliver_text, text, on_success, on_failure}
 
       {:error, outcome} ->

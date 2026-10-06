@@ -42,6 +42,7 @@ defmodule Aiur.Orchestrator.TokenAccounting do
 
   @spec integrate_codex_update(map(), %{event: term(), timestamp: DateTime.t()}) :: {map(), map()}
   def integrate_codex_update(running_entry, %{event: event, timestamp: timestamp} = update) do
+    running_entry = reset_usage_epoch(running_entry, update)
     token_delta = extract_token_delta(running_entry, update)
     agent_input_tokens = Map.get(running_entry, :agent_input_tokens, 0)
     agent_output_tokens = Map.get(running_entry, :agent_output_tokens, 0)
@@ -59,6 +60,8 @@ defmodule Aiur.Orchestrator.TokenAccounting do
         last_codex_timestamp: timestamp,
         last_codex_message: summarize_codex_update(update),
         session_id: session_id_for_update(running_entry.session_id, update),
+        native_session_id: native_session_id_for_update(running_entry, update),
+        context_usage: context_usage_for_update(running_entry, update),
         last_codex_event: event,
         codex_app_server_pid: codex_app_server_pid_for_update(codex_app_server_pid, update),
         agent_input_tokens: agent_input_tokens + token_delta.input_tokens,
@@ -74,6 +77,37 @@ defmodule Aiur.Orchestrator.TokenAccounting do
 
     {updated_running_entry, token_delta}
   end
+
+  defp reset_usage_epoch(entry, %{usage_epoch: epoch}) when is_tuple(epoch) do
+    if Map.get(entry, :agent_usage_epoch) == epoch do
+      entry
+    else
+      entry
+      |> Map.put(:agent_usage_epoch, epoch)
+      |> Map.put(:agent_last_reported_input_tokens, 0)
+      |> Map.put(:agent_last_reported_output_tokens, 0)
+      |> Map.put(:agent_last_reported_total_tokens, 0)
+    end
+  end
+
+  defp reset_usage_epoch(entry, _update), do: entry
+
+  defp native_session_id_for_update(_entry, %{event: :session_started, thread_id: id})
+       when is_binary(id), do: id
+
+  defp native_session_id_for_update(entry, _update), do: Map.get(entry, :native_session_id)
+
+  defp context_usage_for_update(entry, %{context_usage: %{session_id: id} = context}) do
+    if id == Map.get(entry, :native_session_id),
+      do: context,
+      else: Map.get(entry, :context_usage)
+  end
+
+  defp context_usage_for_update(entry, %{event: :session_started, thread_id: id}) when is_binary(id) do
+    if id == Map.get(entry, :native_session_id), do: Map.get(entry, :context_usage), else: nil
+  end
+
+  defp context_usage_for_update(entry, _update), do: Map.get(entry, :context_usage)
 
   defp record_runtime_terminal_evidence(running_entry, %{event: :startup_failed} = update) do
     existing_control = Map.get(running_entry, :control, %{})

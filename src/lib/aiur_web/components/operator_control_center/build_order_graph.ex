@@ -58,6 +58,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         class={["bo-waves-head", @saved_plan? && "is-stale"]}
         aria-label={waves_label(@saved_plan?)}
       >
+        <p class="bo-waves-caption">Estimated work progress · complexity weighted</p>
         <p :if={@saved_plan? and @saved_as_of} class="bo-waves-asof">
           As of <time datetime={DateTime.to_iso8601(@saved_as_of)}>{asof_label(@saved_as_of, @now)}</time> — not current
         </p>

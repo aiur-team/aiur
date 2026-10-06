@@ -24,6 +24,7 @@ defmodule Aiur.ProviderMeterProjection do
   use GenServer
 
   alias Aiur.ProviderMeters.Events
+  alias Aiur.ProviderMeters.HostObservations
   alias Aiur.ProviderMeterSnapshot
 
   # Registry-derived at compile time (a literal list, so the `in @providers`
@@ -138,6 +139,7 @@ defmodule Aiur.ProviderMeterProjection do
     {:ok,
      %{
        observations: %{},
+       host_observations: Keyword.get(opts, :host_observations, Aiur.ProviderMeters.HostObservations),
        probe_statuses: %{},
        clock: Keyword.get(opts, :clock, &DateTime.utc_now/0),
        probe_interval_seconds: Keyword.get(opts, :probe_interval_seconds, configured_probe_interval_seconds())
@@ -150,19 +152,24 @@ defmodule Aiur.ProviderMeterProjection do
 
     views =
       Map.new(@providers, fn provider ->
-        {provider, view(Map.get(state.observations, provider), provider, now, Map.get(state.probe_statuses, provider), state)}
+        {provider, consumer_view(provider, now, state)}
       end)
 
     {:reply, views, state}
   end
 
   def handle_call({:provider_view, provider}, _from, state) when provider in @providers do
-    {:reply, view(Map.get(state.observations, provider), provider, state.clock.(), Map.get(state.probe_statuses, provider), state), state}
+    {:reply, consumer_view(provider, state.clock.(), state), state}
   end
 
   def handle_call({:redacted_snapshot, provider}, _from, state) do
-    snapshot = Map.get(state.observations, provider) || ProviderMeterSnapshot.unknown(provider, backend(provider))
-    reply = snapshot |> Map.put(:provider_account_generation, nil) |> project_snapshot(provider, state.clock.(), Map.get(state.probe_statuses, provider), state)
+    reply =
+      if host_scoped?(provider) do
+        HostObservations.redacted_snapshot(state.host_observations, provider)
+      else
+        snapshot = Map.get(state.observations, provider) || ProviderMeterSnapshot.unknown(provider, backend(provider))
+        snapshot |> Map.put(:provider_account_generation, nil) |> project_snapshot(provider, state.clock.(), Map.get(state.probe_statuses, provider), state)
+      end
 
     {:reply, reply, state}
   end
@@ -384,6 +391,18 @@ defmodule Aiur.ProviderMeterProjection do
 
   defp age_seconds(nil, _now), do: nil
   defp age_seconds(observed_at, now), do: now |> DateTime.diff(observed_at) |> max(0)
+
+  defp consumer_view(provider, now, state) do
+    if host_scoped?(provider) do
+      HostObservations.provider_view(state.host_observations, provider)
+    else
+      view(Map.get(state.observations, provider), provider, now, Map.get(state.probe_statuses, provider), state)
+    end
+  end
+
+  defp host_scoped?(provider) do
+    match?(%{meter_identity_policy: :host_unverified}, Aiur.CodingAgent.provider_descriptor(provider))
+  end
 
   defp unknown_views, do: Map.new(@providers, &{&1, unknown_view(&1)})
 

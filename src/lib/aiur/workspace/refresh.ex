@@ -1,5 +1,5 @@
 defmodule Aiur.Workspace.Refresh do
-  @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles the dirty-leftover recreation path (#577) and the in-flight WIP skip (#653)."
+  @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Holds unpreserved dirty leftovers and skips in-flight WIP refreshes."
 
   require Logger
   alias Aiur.{AgentBuildGuard, Config}
@@ -68,9 +68,8 @@ defmodule Aiur.Workspace.Refresh do
 
         {:error, {:workspace_owned, Ownership.current(issue_context.issue_identifier)}}
 
-      # A fresh todo dispatch that lands on a dirty *leftover* workspace
-      # (#577): the dirty content is not this agent's WIP, so recreate the
-      # workspace clean off the configured base and re-run before_run.
+      # A todo dispatch may land on a dirty leftover. Provisioner.recreate/4
+      # checks it before removal and refuses until the work is preserved.
       Context.todo_dispatch?(issue_context) ->
         Logger.warning(
           "Recreating stale leftover workspace after before_run dirty-refresh refusal #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{Context.worker_host_for_log(worker_host)}"

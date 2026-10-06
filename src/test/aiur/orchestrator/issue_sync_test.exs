@@ -2474,6 +2474,58 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert healed_state.last_polled_issues == %{}
     end
 
+    test "leaves an agent:paused zero-label ticket alone and raises no attention alert" do
+      # `agent:paused` is a marker suffix, not a state suffix, so an
+      # operator-gated ticket carrying only `agent:paused` normalizes to zero
+      # state labels. It is deliberate parking, so the heal must neither rewrite
+      # it nor raise `state-label-missing-no-evidence` (#2610).
+      topic = "ticket.its-everdred/aiur#held.agent.attention.state-label-missing-no-evidence"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      held = %{issue("held", nil) | state_labels: [], paused: true, labels: ["agent:paused", "complexity:2"]}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [held],
+          fn _id, _target -> flunk("must not rewrite a paused ticket") end
+        )
+
+      assert [left_alone] = healed_issues
+      assert left_alone.id == "held"
+      assert left_alone.state_labels == []
+      assert is_nil(left_alone.state)
+      assert healed_state.last_polled_issues == %{}
+
+      refute_receive {:event, %{topic: ^topic}}, 50
+    end
+
+    test "leaves an agent:paused zero-label ticket alone even with prior workflow evidence" do
+      # A ticket the operator paused after it had been running still carries the
+      # parking marker, so the last-known-state heal must not fire and re-arm
+      # dispatch behind the operator's back (#2610).
+      held = %{issue("held", nil) | state_labels: [], paused: true, labels: ["agent:paused"]}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{last_polled_issues: %{held.id => issue("held", "in-progress")}},
+          [held],
+          fn _id, _target -> flunk("must not rewrite a paused ticket") end
+        )
+
+      assert [left_alone] = healed_issues
+      assert left_alone.state_labels == []
+      assert is_nil(left_alone.state)
+      assert healed_state.last_polled_issues[held.id].state == "in-progress"
+      assert healed_state.last_polled_issues[held.id].state_labels == nil
+    end
+
     test "restores a zero-label ticket to its last known running state and alerts" do
       topic = "ticket.its-everdred/aiur#sweep.agent.attention.state-label-missing"
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -2664,6 +2716,137 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
                AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true),
                &(&1["topic"] == "system.fleet.contradictory_state_labels")
              )
+    end
+
+    test "keeps the agent's fresh handoff over the daemon's own stale in-progress claim (#2805)" do
+      # aiur-team/khala #198: the daemon's CI-pass handoff swapped `ci-wait` ->
+      # `in-progress` (recorded in its own `running` entry), and seconds later
+      # the agent added `agent:human-review` for the finished PR. The static
+      # precedence list is provenance-blind and ranks `in-progress` above
+      # `human-review`, so the heal deleted the agent's fresh, deliberate
+      # handoff and kept the daemon's stale claim — a ticket waiting for a human
+      # read as actively in progress, and the turn loop kept re-waking it.
+      #
+      # The daemon knows which label is its own prior claim, so the *other*
+      # label is the one that arrived since and is the real disposition.
+      dual = %{issue("khala-198", nil) | state_labels: ["human-review", "in-progress"]}
+      parent = self()
+
+      state = %State{running: %{dual.id => %{issue: issue("khala-198", "in-progress")}}}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#khala-198", "human-review"}
+
+      assert [healed] = healed_issues
+      assert healed.state == "human-review"
+      assert healed.state_labels == ["human-review"]
+      assert healed_state.last_polled_issues[dual.id].state == "human-review"
+    end
+
+    test "treats the previous poll's single label as the stale claim (#2805)" do
+      # The same fresh-vs-stale shape with no running entry: the previous poll
+      # observed exactly one state label, so that label is the older one and the
+      # label that appeared since is the fresh handoff.
+      dual = %{issue("polled-198", nil) | state_labels: ["human-review", "in-progress"]}
+      parent = self()
+
+      state = %State{
+        last_polled_issues: %{
+          dual.id => %{issue("polled-198", "in-progress") | state_labels: ["in-progress"]}
+        }
+      }
+
+      {_healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#polled-198", "human-review"}
+      assert [%{state: "human-review", state_labels: ["human-review"]}] = healed_issues
+    end
+
+    test "falls back to static precedence when no label has known provenance (#2805)" do
+      # Provenance is evidence, not a shape rule: with no running entry and no
+      # prior single-label observation the daemon cannot tell which label is
+      # older, so the deterministic precedence order still decides. This keeps
+      # every pre-#2805 resolution unchanged.
+      dual = %{issue("no-provenance", nil) | state_labels: ["human-review", "in-progress"]}
+      parent = self()
+
+      {_healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#no-provenance", "in-progress"}
+      assert [%{state: "in-progress"}] = healed_issues
+    end
+
+    test "never lets provenance heal a ticket into the terminal done state (#2805)" do
+      # #2437 stands: the terminal `done` must never win a contradiction, even
+      # when it is the label that arrived since the daemon's own claim — the
+      # tracker write would route into the close path and discard outstanding
+      # work. Provenance only promotes a non-terminal disposition.
+      dual = %{issue("fresh-done", nil) | state_labels: ["done", "in-progress"]}
+      parent = self()
+
+      state = %State{running: %{dual.id => %{issue: issue("fresh-done", "in-progress")}}}
+
+      {_healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#fresh-done", "in-progress"}
+      assert [%{state: "in-progress"}] = healed_issues
+    end
+
+    test "keeps todo winning over a stale daemon claim (#2805)" do
+      # `todo` means "no work exists yet", so it stays the honest fallback
+      # regardless of provenance: a ticket that is also `todo` has not been
+      # worked, and promoting the daemon-era disposition would assert work that
+      # never happened.
+      dual = %{issue("fresh-todo", nil) | state_labels: ["in-progress", "todo"]}
+      parent = self()
+
+      state = %State{running: %{dual.id => %{issue: issue("fresh-todo", "in-progress")}}}
+
+      {_healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          state,
+          [dual],
+          fn identifier, target ->
+            send(parent, {:heal, identifier, target})
+            :ok
+          end
+        )
+
+      assert_receive {:heal, "its-everdred/aiur#fresh-todo", "todo"}
+      assert [%{state: "todo"}] = healed_issues
     end
   end
 

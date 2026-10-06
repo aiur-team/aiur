@@ -14,6 +14,11 @@ defmodule Aiur.ModelAvailability do
   (`backoff_until`). A provider that still refuses after its printed reset
   cannot make the fallback resume, fail and resume again every tick (#2737).
   A later reset from the provider still wins.
+
+  A repeat means a refusal that *disproves* the last printed reset, so it has to
+  arrive at or after it. Refusals that arrive before it are the same limit seen
+  by other agents, and they never extend the hold. That is what keeps one
+  fleet-wide limit from holding a backend for an hour past its own reset.
   """
 
   alias Aiur.{CodingAgent, Workflow}
@@ -168,13 +173,31 @@ defmodule Aiur.ModelAvailability do
   defp record_limit_streak(entry, _existing, _normalized, _now, _opts), do: entry
 
   defp repeat_limit?(%{"limit_streak" => streak} = existing, now) when is_integer(streak) and streak > 0 do
-    case parse_time(Map.get(existing, "limited_observed_at")) do
-      %DateTime{} = previous -> DateTime.diff(now, previous, :second) < @repeat_window_seconds
-      nil -> false
-    end
+    reset_disproved?(existing, now) and
+      case parse_time(Map.get(existing, "limited_observed_at")) do
+        %DateTime{} = previous -> DateTime.diff(now, previous, :second) < @repeat_window_seconds
+        nil -> false
+      end
   end
 
   defp repeat_limit?(_existing, _now), do: false
+
+  # Only a refusal that arrives **at or after** the reset the previous refusal
+  # printed disproves that reset, and only a disproved reset earns a backoff.
+  #
+  # A refusal that lands before the known reset carries no new information: it
+  # is another worker meeting the same still-active limit. A fleet-wide limit
+  # produces one such refusal per agent within seconds, and counting those as
+  # repeats drove the streak straight to the one-hour cap and re-armed a full
+  # hour from the last straggler, holding the backend past a reset the provider
+  # had already told us. A provider that prints no reset is unchanged: there is
+  # nothing to disprove, so every repeat still escalates.
+  defp reset_disproved?(existing, now) do
+    case parse_time(Map.get(existing, "reset_at")) do
+      %DateTime{} = reset_at -> DateTime.compare(now, reset_at) != :lt
+      nil -> true
+    end
+  end
 
   defp observed_recent?(entry, now) do
     case parse_time(Map.get(entry, "observed_at")) do

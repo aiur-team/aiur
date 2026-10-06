@@ -191,6 +191,15 @@ defmodule Aiur.Events.GithubCommentsPoller do
     watermark_errors = Enum.reject(errors, &match?({:pr_reviews, _}, &1))
     newest_seen_at = max_datetime(issue_newest, pr_newest)
 
+    # The issue-comment cursor may advance while /reviews is disabled for a
+    # ci-wait ticket, or while that endpoint fails. Seed a separate review
+    # cursor from the target's first cutoff and carry it through those cycles.
+    # Otherwise a later issue comment can hide a CHANGES_REQUESTED review when
+    # the ticket returns to human-review (#2817).
+    prior_review_seen_at = Map.get(Keyword.get(opts, :pr_review_seen_at, %{}), target)
+    review_baseline = prior_review_seen_at || since
+    review_seen_at = max(review_baseline, review_seen_at || review_baseline)
+
     %{
       target: target,
       count: issue_count + pr_count,

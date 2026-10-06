@@ -38,7 +38,9 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   # verdict on the timeline: halving the page halves the embedded payload, so a
   # timeline no single 4 MiB page can carry is still readable in smaller slices.
   # Only when the smallest slice is still too large does the fetch defer.
-  @timeline_per_page_attempts [100, 50, 25]
+  # Khala #42 measured a 660 KB page at per_page=20 due to one large source
+  # issue. Continue splitting to individual events while preserving reach.
+  @timeline_per_page_attempts [100, 50, 25, 20, 10, 5, 1]
 
   # The provenance budget is a number of *events*, not a number of pages, so
   # shrinking `per_page` buys more requests rather than a shorter timeline.
@@ -717,7 +719,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     identifier = issue.identifier || issue.id
 
     Alerts.emit_custom(
-      "github.dispatch_authorization.deferred",
+      deferral_topic(issue),
       "Issue #{identifier} has not been dispatched: authorization has deferred #{count} cycles in a row (#{inspect(reason)}).",
       issue: identifier,
       reason: "GitHub dispatch authorization could not be verified for #{count} consecutive cycles (#{inspect(reason)}); the ticket stays undispatched until the timeline fetch succeeds",
@@ -730,13 +732,17 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     identifier = issue.identifier || issue.id
 
     Alerts.emit_custom(
-      "github.dispatch_authorization.deferred.resolved",
-      "Issue #{identifier} authorized again after #{count} deferred cycles.",
-      issue: identifier,
-      reason: "GitHub dispatch authorization recovered; the deferral streak cleared",
+      deferral_topic(issue) <> ".resolved",
+      "Issue #{identifier} deferral ended after #{count} cycles; authorization was re-evaluated.",
+      issue: issue.id,
+      reason: "GitHub dispatch authorization deferral streak ended after a definitive decision",
       needs_attention: false,
       severity: "info"
     )
+  end
+
+  defp deferral_topic(issue) do
+    "ticket.#{issue.id}.agent.attention.dispatch_authorization.deferred"
   end
 
   defp alert_ambiguity(issue, reason) do

@@ -32,15 +32,36 @@ defmodule Aiur.Opencode.ChatCompletions.TurnRequest do
   # prior turns. Used by both coalescing defenses.
   @spec trailing_user_texts(map()) :: [String.t()]
   def trailing_user_texts(%{"messages" => messages}) when is_list(messages) do
-    messages
-    |> Enum.reverse()
-    |> Enum.take_while(fn m -> is_map(m) and Map.get(m, "role") == "user" end)
-    |> Enum.map(&message_user_text/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.reverse()
+    %{"messages" => messages}
+    |> trailing_user_inputs()
+    |> Enum.map(&elem(&1, 0))
   end
 
   def trailing_user_texts(_), do: []
+
+  @doc false
+  @spec last_user_message_id(map()) :: String.t() | nil
+  def last_user_message_id(%{"messages" => messages}) when is_list(messages) do
+    case Enum.find(Enum.reverse(messages), &(is_map(&1) and Map.get(&1, "role") == "user")) do
+      nil -> nil
+      message -> Map.get(message, :aiur_message_id)
+    end
+  end
+
+  def last_user_message_id(_), do: nil
+
+  @doc false
+  @spec trailing_user_inputs(map()) :: [{String.t(), String.t() | nil}]
+  def trailing_user_inputs(%{"messages" => messages}) when is_list(messages) do
+    messages
+    |> Enum.reverse()
+    |> Enum.take_while(fn m -> is_map(m) and Map.get(m, "role") == "user" end)
+    |> Enum.map(&{message_user_text(&1), Map.get(&1, :aiur_message_id)})
+    |> Enum.reject(fn {text, _id} -> is_nil(text) end)
+    |> Enum.reverse()
+  end
+
+  def trailing_user_inputs(_), do: []
 
   @doc false
   @spec synthetic_marker_text?(String.t()) :: boolean()

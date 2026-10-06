@@ -532,6 +532,27 @@ defmodule Aiur.AgentControlCLITest do
       assert stderr =~ "the daemon did not accept a poll refresh; queued tickets wait for its next scheduled poll"
     end
 
+    # An explicit `aiur --todo` on a ticket that is already mid-flight (the
+    # `agent:rework` re-queue the operator reaches for after a reviewer asks
+    # for changes) keeps its label instead of adding the queue label. Before
+    # this fix the refresh hint was gated on `queued > 0 or cleared > 0`, so a
+    # request made up entirely of mid-flight tickets sent the daemon nothing at
+    # all: no label write, no poll wake, no dispatch. The operator's explicit
+    # queue was a silent no-op.
+    test "requests a poll refresh for mid-flight tickets it kept" do
+      issues = %{
+        "138" => %Issue{id: "138", identifier: "138", state: "rework", labels: ["sym:rework"]},
+        "139" => %Issue{id: "139", identifier: "139", state: "rework", labels: ["sym:rework"]}
+      }
+
+      {stdout, stderr, 0} = capture_todo(~w(138 139), deps: todo_deps(issues))
+
+      assert_receive {:todo_request_refresh, ["138", "139"]}
+      assert stdout =~ "• #138 kept sym:rework"
+      assert stdout =~ "kept 2 in flight"
+      assert stderr == ""
+    end
+
     test "mutates the tracker and emits the control exit marker" do
       issue = %Issue{id: "issue-11", identifier: "11", state: "todo", title: "Queued"}
 
@@ -1075,6 +1096,25 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "dispatch_decline=blocked_on_decision"
   end
 
+  test "status renders a stale revalidation dispatch decline without failing", %{orchestrator: pid} do
+    issue = %Issue{id: "issue-2832", identifier: "repo#2832", state: "todo", title: "Stale dispatch"}
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{issue.id => issue},
+          dispatch_declines: %{issue.id => {:stale_after_revalidation, :unauthorized}}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#2832  idle"
+    assert output =~ "dispatch_decline={:stale_after_revalidation, :unauthorized}"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    refute output =~ "status query failed"
+  end
+
   test "status makes degraded supervision explicit" do
     Application.put_env(:aiur, :supervision_health_status_fun, fn ->
       {:ok, %{expected: 2, healthy: 1, missing: [%{id: Aiur.Events.IdGenerator, reason: :killed}]}}
@@ -1128,7 +1168,7 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert output =~ "#17    idle    Awaiting dispatch (awaiting-dispatch)"
-    assert output =~ "#18    paused  Retrying (operator; transient: tracker 403, retry ~4m)"
+    assert output =~ "#18    retrying Retrying (operator; transient: tracker 403, retry ~4m)"
   end
 
   test "status names an in-progress claim with no live agent as orphaned", %{orchestrator: pid} do
@@ -3263,6 +3303,39 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "shows startup and retry as distinct from a live turn", %{orchestrator: pid} do
+      at = DateTime.utc_now()
+      starting = running_entry("issue-2895", "repo#2895", :working) |> Map.put(:session_id, nil)
+
+      retry = %{
+        identifier: "repo#2896",
+        attempt: 1,
+        due_at_ms: System.monotonic_time(:millisecond) + 10_000,
+        error: "startup failed: {:port_exit, 23}",
+        last_failure_at: at
+      }
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | running: %{"issue-2895" => starting},
+            retry_attempts: %{
+              "issue-2896" => retry,
+              "issue-2897" => %{retry | identifier: "repo#2897", error: "startup failed: private-key-value"}
+            }
+        }
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+      assert output =~ ~r/#2895\s+starting\s/
+      assert output =~ "(starting provider; no live turn yet)"
+      assert output =~ ~r/#2896\s+retrying\s/
+      assert output =~ "startup failed: {:port_exit, 23}"
+      assert output =~ DateTime.to_iso8601(at)
+      assert output =~ "#2897"
+      refute output =~ "private-key-value"
+    end
+
     test "status and agents agree on the human wait for a decision and a rework ticket (#2698)",
          %{orchestrator: pid} do
       # Khala #17 and #52 were both live, working and labelled `rework`. #52 had
@@ -3310,6 +3383,32 @@ defmodule Aiur.AgentControlCLITest do
       refute status =~ ~r/^#17 .*waiting_for_human/m
       assert agents_line.(17) =~ ~r/^#17\s+working\s/
       refute agents_line.(17) =~ "waiting"
+    end
+
+    test "preserves paused and deactivated states alongside open attentions", %{orchestrator: pid} do
+      for identifier <- ["repo#46", "repo#47"] do
+        :ok = SubscriptionStore.attach(identifier)
+        :ok = SubscriptionStore.add_attention(identifier, "github-credential-missing")
+        on_exit(fn -> SubscriptionStore.stop(identifier) end)
+      end
+
+      paused =
+        "issue-46"
+        |> running_entry("repo#46", :paused)
+        |> update_in([:issue], &%{&1 | paused: true})
+        |> Map.put(:paused_reason, :label_override)
+
+      deactivated = running_entry("issue-47", "repo#47", :deactivated)
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-46" => paused, "issue-47" => deactivated}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.agents() end)
+
+      assert output =~ ~r/^#46\s+paused\s+.*\(waiting_for_human: 1 open decision\)/m
+      assert output =~ ~r/^#47\s+deactivated\s+.*\(waiting_for_human: 1 open decision\)/m
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
     test "shows label override as the pause reason", %{orchestrator: pid} do
@@ -3723,6 +3822,27 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ ~r/#44\s+in-progress\s+3\s/
       assert output =~ "running mix test"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "watch distinguishes provider startup and retry from a live turn", %{orchestrator: pid, watch_root: root} do
+      starting = watch_entry("issue-2895", "repo#2895", state: "in-progress") |> Map.put(:session_id, nil)
+
+      retry = %{
+        identifier: "repo#2896",
+        attempt: 1,
+        due_at_ms: System.monotonic_time(:millisecond) + 10_000,
+        error: "startup failed: {:port_exit, 23}"
+      }
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{"issue-2895" => starting}, retry_attempts: %{"issue-2896" => retry}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      assert output =~ ~r/#2895\s+starting\s/
+      assert output =~ "(starting provider; no live turn yet)"
+      assert output =~ ~r/#2896\s+retrying\s/
+      assert output =~ "startup failed: {:port_exit, 23}"
     end
 
     test "status and watch surface persisted open blocking operator asks", %{watch_root: root} do

@@ -78,9 +78,7 @@ defmodule Aiur.PromptBuilder do
     This workflow's configured `tracker.base_branch` is `#{base_branch}`. The agent process exposes the same value as
     `AIUR_BASE_BRANCH`; it is authoritative even when the repository default differs. Create pull requests with
     `--base "$AIUR_BASE_BRANCH"`, never from `origin/HEAD`, and verify an existing pull request's base before CI
-    handoff. After committing and immediately before pushing or opening a PR, run
-    `aiur guard-pr-deletions "$AIUR_BASE_BRANCH"`. It fetches the exact remote base and refuses PRs that would delete
-    more than 50 files the feature did not touch; never bypass a refusal.
+    handoff.
 
     """
   end
@@ -125,10 +123,13 @@ defmodule Aiur.PromptBuilder do
 
     ## Rename and signature-change test audit (restated)
 
-    Before pushing a function rename, option-key rename, or signature change, search the complete test tree with
-    `mise exec -- rg -n --fixed-strings -- '<old-name>' src/test/` and account for every hit. Directory-scoped runs do
+    Run focused tests using the target repository's documented commands, package manager and runner configuration.
+    The destructive `aiurdev --test` / `--test3` reset prohibition does not prohibit focused repository tests.
+    Before pushing a function rename, option-key rename, or signature change, search all of that repository's
+    test roots, including colocated tests, and account for every old-identifier hit.
+    Only for Aiur's Elixir core, use `mise exec -- rg -n --fixed-strings -- '<old-name>' src/test/`. Directory-scoped runs do
     not cover sibling root-level files: `test/aiur/github/` does not collect `test/aiur/github_client_test.exs`.
-    `mix aiur.affected_tests` also adds every test file matching a reference deleted from a source diff hunk.
+    In that Elixir core, `mix aiur.affected_tests` also adds every test file matching a reference deleted from a source diff hunk.
 
     """
   end
