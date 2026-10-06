@@ -4,6 +4,8 @@ defmodule Aiur.InitTest do
   alias Aiur.GitHub.Labels
   alias Aiur.Init
   alias Aiur.Workflow
+  alias Aiur.CodingAgent
+  alias Aiur.CodingAgent.Providers.Fake
 
   defmodule SyntheticInit do
     @spec prompt(Aiur.Init.io()) :: map()
@@ -258,7 +260,7 @@ defmodule Aiur.InitTest do
 
   test "fresh init calls a synthetic provider descriptor without provider branches", %{dir: dir, target: target} do
     descriptors =
-      Map.put(Aiur.CodingAgent.backends(), "synthetic", Map.put(Aiur.CodingAgent.Providers.Fake.entry(), :init, SyntheticInit))
+      Map.put(CodingAgent.backends(), "synthetic", Map.put(Fake.entry(), :init, SyntheticInit))
 
     answers = %{
       multiselect: %{"Which agents to support" => ["synthetic"]},
@@ -1519,7 +1521,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex", "kimi", "openrouter", "muse"]
+      assert opts == CodingAgent.configurable_backends()
       refute "claude-repl" in opts
       # DeepSeek is registered but not dispatch-enabled by default, so it must
       # not be offerable from init.
