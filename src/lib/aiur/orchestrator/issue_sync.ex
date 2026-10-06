@@ -415,13 +415,9 @@ defmodule Aiur.Orchestrator.IssueSync do
 
     case update_state_fun.(issue.identifier, restored) do
       :ok ->
-        case alert_missing_state_label_repaired(issue, restored) do
-          :ok ->
-            Logger.warning("Healing missing state label for #{State.issue_context(issue)} -> #{restored}")
+        alert_missing_state_label_repaired(issue, restored)
 
-          {:error, reason} ->
-            Logger.warning("Alert emission failed after healing missing state label for #{State.issue_context(issue)}: #{inspect(reason)}")
-        end
+        Logger.warning("Healing missing state label for #{State.issue_context(issue)} -> #{restored}")
 
         {healed_issue, %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, healed_issue)}}
 
@@ -525,30 +521,25 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp alert_missing_state_label_repaired(%Issue{} = issue, restored) do
     topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing"
 
-    with :ok <-
-           Alerts.emit_system(topic,
-             issue: issue.identifier,
-             message: "Ticket #{issue.identifier} had no agent state label and was invisible to dispatch; repaired to #{restored}.",
-             reason:
-               "Ticket #{issue.identifier} carried zero agent:* state labels (a broken remove-then-add swap left it stranded); " <>
-                 "restored #{restored} so dispatch can see it again.",
-             needs_attention: true,
-             severity: "warning",
-             central: true
-           ),
-         :ok <-
-           Alerts.emit_system("#{topic}.resolved",
-             issue: issue.identifier,
-             message: "Ticket state label repaired; dispatch visibility restored.",
-             reason: "State label has been restored to #{restored}.",
-             needs_attention: false,
-             severity: "info",
-             central: true
-           ) do
-      :ok
-    else
-      {:error, reason} -> {:error, reason}
-    end
+    Alerts.emit_system(topic,
+      issue: issue.identifier,
+      message: "Ticket #{issue.identifier} had no agent state label and was invisible to dispatch; repaired to #{restored}.",
+      reason:
+        "Ticket #{issue.identifier} carried zero agent:* state labels (a broken remove-then-add swap left it stranded); " <>
+          "restored #{restored} so dispatch can see it again.",
+      needs_attention: true,
+      severity: "warning",
+      central: true
+    )
+
+    Alerts.emit_system("#{topic}.resolved",
+      issue: issue.identifier,
+      message: "Ticket state label repaired; dispatch visibility restored.",
+      reason: "State label has been restored to #{restored}.",
+      needs_attention: false,
+      severity: "info",
+      central: true
+    )
   end
 
   # Collects the polled tickets that carry more than one `agent:*` state label —
