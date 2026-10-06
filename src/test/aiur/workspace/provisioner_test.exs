@@ -115,6 +115,68 @@ defmodule Aiur.Workspace.ProvisionerTest do
              Provisioner.maybe_install_agent_support("/remote/workspace", "worker-1", runner)
   end
 
+  test "remote refresh repair installs only the portable GitHub guard" do
+    root = Aiur.TestSupport.tmp_root!("remote-guard-repair")
+    workspace = Path.join(root, "workspace")
+    home = Path.join(root, "home")
+    File.mkdir_p!(workspace)
+    File.mkdir_p!(home)
+    on_exit(fn -> File.rm_rf(root) end)
+
+    runner = fn "worker-1", script, timeout ->
+      assert is_integer(timeout) and timeout > 0
+
+      {output, status} =
+        System.cmd("sh", ["-c", script],
+          env: [{"HOME", home}, {"XDG_CONFIG_HOME", Path.join(home, ".config")}, {"GH_CONFIG_DIR", Path.join(home, ".config/gh")}],
+          stderr_to_stdout: true
+        )
+
+      {:ok, {output, status}}
+    end
+
+    assert :ok = Provisioner.repair_agent_github_guard(workspace, "worker-1", runner)
+
+    for command <- ~w(gh git aiur-github-budget) do
+      path = Path.join([workspace, ".aiur-runtime", "bin", command])
+      assert File.regular?(path)
+      assert Bitwise.band(File.stat!(path).mode, 0o111) == 0o111
+    end
+
+    assert File.dir?(Path.join(workspace, ".aiur-runtime/gh"))
+    refute File.exists?(Path.join(workspace, ".claude/skills"))
+    refute File.exists?(Path.join(workspace, ".codex/skills"))
+  end
+
+  test "remote refresh repair propagates installer failure" do
+    root = Aiur.TestSupport.tmp_root!("remote-guard-unsafe")
+    workspace = Path.join(root, "workspace")
+    home = Path.join(root, "home")
+    outside = Path.join(root, "outside-config")
+    File.mkdir_p!(Path.join(workspace, ".aiur-runtime"))
+    File.mkdir_p!(home)
+    File.mkdir_p!(outside)
+    File.write!(Path.join(outside, "sentinel"), "unchanged")
+    File.ln_s!(outside, Path.join(workspace, ".aiur-runtime/gh"))
+    on_exit(fn -> File.rm_rf(root) end)
+
+    runner = fn _host, script, _timeout ->
+      {output, status} =
+        System.cmd("sh", ["-c", script],
+          env: [{"HOME", home}, {"XDG_CONFIG_HOME", Path.join(home, ".config")}, {"GH_CONFIG_DIR", Path.join(home, ".config/gh")}],
+          stderr_to_stdout: true
+        )
+
+      {:ok, {output, status}}
+    end
+
+    assert {:error, {:remote_agent_github_guard_repair_failed, {:ok, {"unsafe agent gh config dir\n", 73}}}} =
+             Provisioner.repair_agent_github_guard(workspace, "worker-1", runner)
+
+    assert File.read!(Path.join(outside, "sentinel")) == "unchanged"
+    assert File.ls!(outside) == ["sentinel"]
+  end
+
   defp write_concurrency_probe!(path, active_path, max_path) do
     active_path = Aiur.Shell.escape(active_path)
     max_path = Aiur.Shell.escape(max_path)

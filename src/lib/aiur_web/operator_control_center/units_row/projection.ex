@@ -73,6 +73,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
       runtime: Fields.runtime(status_row, member),
       turn_count: running_turn_count(status_row),
       context_usage: running_context_usage(status_row),
+      telemetry_attempt_id: running_attempt_id(status_row),
       timestamps: timestamps(member, status_row),
       open_command_count: open_command_count,
       progress: Fields.activity_value(activity_row, :progress),
@@ -113,6 +114,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
        do: context
 
   defp running_context_usage(_status_row), do: nil
+
+  defp running_attempt_id(%{bucket: :running, telemetry_attempt_id: attempt_id}) when is_binary(attempt_id),
+    do: attempt_id
+
+  defp running_attempt_id(_status_row), do: nil
 
   defp live_conversation(%{} = status_row) do
     case Map.get(status_row, :live_conversation) do

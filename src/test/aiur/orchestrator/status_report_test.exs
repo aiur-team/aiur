@@ -437,6 +437,25 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert row.progress_freshness == :unknown
   end
 
+  test "running snapshot carries the telemetry attempt ID" do
+    issue = %Issue{id: "attempt-snapshot", identifier: "repo#attempt-snapshot", state: "in-progress", title: "Attempt"}
+
+    state = %State{
+      running: %{
+        issue.id => %{
+          identifier: issue.identifier,
+          issue: issue,
+          started_at: DateTime.utc_now(),
+          telemetry_attempt_id: "attempt-snapshot-current",
+          control: %{status: :working}
+        }
+      }
+    }
+
+    assert [%{telemetry_attempt_id: "attempt-snapshot-current"}] =
+             StatusReport.snapshot_payload(StatusReport.snapshot_input(state)).running
+  end
+
   test "Units keeps a missing running turn count unknown but preserves an observed zero" do
     ticket = identity("turn-count-source")
 
