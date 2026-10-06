@@ -206,6 +206,9 @@ alerts:
 # executor: { relay_operator_answers: false } # opt-in recording of human answers by an attended Executor
 # decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
 # server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); set host explicitly for remote access
+# Tailscale Funnel is not detected automatically; opt in only if this Aiur
+# dashboard owns Funnel HTTPS 443 and should alert on a stale target.
+# observability: { build_order_funnel_health_check: true }
 # worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
 # events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
 # upgrade: { check_enabled: true }     # `aiur run` version notice: TTL-cached npm check (fails open/silent; channel-aware); false = suppress the check entirely (zero outbound). Env: AIUR_UPGRADE_CHECK_DISABLED

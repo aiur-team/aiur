@@ -1,6 +1,7 @@
 defmodule Aiur.Config.SchemaTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Config
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.{Polling, StringOrMap}
 
@@ -850,6 +851,7 @@ defmodule Aiur.Config.SchemaTest do
     test "Observability section parses with defaults" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.observability.dashboard_enabled == true
+      assert settings.observability.build_order_funnel_health_check == false
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 1_000
       assert settings.observability.telemetry_enabled == true
@@ -858,11 +860,22 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.telemetry_retention_prune_interval_bytes == nil
     end
 
+    test "Funnel health checking is disabled by default and enabled explicitly" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      refute Config.build_order_funnel_health_check_enabled?({:ok, defaults})
+
+      assert {:ok, enabled} =
+               Schema.parse(%{"observability" => %{"build_order_funnel_health_check" => true}})
+
+      assert Config.build_order_funnel_health_check_enabled?({:ok, enabled})
+    end
+
     test "Observability section accepts explicit values" do
       {:ok, settings} =
         Schema.parse(%{
           "observability" => %{
             "dashboard_enabled" => false,
+            "build_order_funnel_health_check" => true,
             "dashboard_writable" => true,
             "refresh_ms" => 500,
             "telemetry_enabled" => false,
@@ -873,6 +886,7 @@ defmodule Aiur.Config.SchemaTest do
         })
 
       assert settings.observability.dashboard_enabled == false
+      assert settings.observability.build_order_funnel_health_check == true
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 500
       assert settings.observability.telemetry_enabled == false

@@ -222,8 +222,17 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp print_polling_status(polling) do
+    print_last_dispatch_poll(polling)
     print_polling_backoff(polling)
     print_class_intervals(polling)
+  end
+
+  defp print_last_dispatch_poll(polling) do
+    case CapacityBinding.dispatch_poll_status(polling) do
+      %{freshness: :never_polled} -> IO.puts("POLL last dispatch: never polled")
+      %{age_seconds: nil} -> IO.puts("POLL last dispatch: unavailable")
+      %{age_seconds: age, freshness: freshness} -> IO.puts("POLL last dispatch: #{age}s ago (#{freshness})")
+    end
   end
 
   defp print_polling_backoff(%{
@@ -2116,6 +2125,15 @@ defmodule Aiur.AgentControlCLI do
   rescue
     _error -> %{load: :unavailable, load_threshold: nil, schedulers: nil}
   end
+
+  defp capacity_binding_label({:tracker_preflight, hold}), do: "tracker preflight, reason=#{hold.detail} held=#{hold.held_for_seconds}s"
+
+  defp capacity_binding_label({:dispatch_selection, hold}),
+    do: "dispatch selection, reasons=#{inspect(hold.reasons)} candidates=#{hold.candidates}" <> admission_sample_age(hold)
+
+  defp capacity_binding_label({:stale_poll, %{age_seconds: age}}), do: "dispatch poll stale (#{age}s ago)"
+
+  defp capacity_binding_label({:awaiting_dispatch, %{ceiling: ceiling}}), do: "awaiting dispatch; ceiling: #{ceiling}"
 
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
