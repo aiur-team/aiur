@@ -10,8 +10,7 @@ defmodule Aiur.TailscaleFunnel do
   use GenServer
   require Logger
 
-  alias Aiur.{Config, HttpServer}
-  alias Aiur.Alerts
+  alias Aiur.{Alerts, Config, HttpServer}
 
   @interval_ms 30_000
   @command_timeout_ms 5_000

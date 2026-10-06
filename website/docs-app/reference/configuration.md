@@ -683,7 +683,9 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 
 A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set. A dashboard bound beyond loopback refuses to start without both credentials.
 
-When `observability.build_order_funnel_health_check` is enabled, Aiur checks the configured dashboard bind address at `/build-orders/1` and reads `tailscale funnel status --json` once after dashboard startup. Both the HTTP receive and Tailscale command timeouts are five seconds; a timed-out process is terminated. This one-time check is suppressed when `server.tailscale_funnel: true`, because the reconciler owns Funnel health reporting and has not yet run during the startup check.
+When `observability.build_order_funnel_health_check` is enabled, Aiur checks the configured dashboard bind address at `/build-orders/1` and reads `tailscale funnel status --json` once after dashboard startup. Both command timeouts are five seconds, and timed-out Tailscale processes are terminated.
+
+The one-time check is suppressed when `server.tailscale_funnel: true`. The reconciler reports Funnel health after its initial and periodic attempts, so the startup check cannot alert before reconciliation runs.
 
 HTTP 200, redirects 301/302/304/307/308, and 401 (authentication required) count as reachable. Other statuses, including 201, 204, and 303, do not.
 
