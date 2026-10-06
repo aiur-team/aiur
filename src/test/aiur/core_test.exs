@@ -3572,7 +3572,7 @@ defmodule Aiur.CoreTest do
       File.write!(codex_binary, """
       #!/bin/sh
       trace_file="${SYMP_TEST_CODEx_TRACE:-/tmp/codex.trace}"
-      printf 'RUN\\n' >> "$trace_file"
+      printf 'RUN %s\\n' "$PWD" >> "$trace_file"
       count=0
 
       while IFS= read -r line; do
@@ -3652,7 +3652,15 @@ defmodule Aiur.CoreTest do
       assert :ok = Task.await(task, 2_000)
 
       trace = File.read!(trace_file)
-      assert length(String.split(trace, "RUN", trim: true)) == 1
+
+      run_workspaces =
+        trace
+        |> String.split("\n", trim: true)
+        |> Enum.filter(&String.starts_with?(&1, "RUN "))
+        |> Enum.map(&String.replace_prefix(&1, "RUN ", ""))
+
+      agent_workspace = Path.join([workspace_root, "project", "MT-248"])
+      assert Enum.count(run_workspaces, &(&1 == agent_workspace)) == 1
       assert length(Regex.scan(~r/"method":"turn\/start"/, trace)) == 2
     after
       System.delete_env("SYMP_TEST_CODEx_TRACE")
