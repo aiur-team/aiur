@@ -1331,10 +1331,20 @@ defmodule Aiur.AgentControlCLI do
       result = Ownership.release_if_held_with_exit_proof(ticket, generation)
 
       case result do
-        :ok -> IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
-        :already_released -> IO.puts("aiur: workspace hold for #{ticket} is already released")
-        :not_held_for_reaping -> print_failure(:workspace_recover, %{identifier: ticket, generation: generation}, :not_held_for_reaping)
-        {:error, reason} -> print_failure(:workspace_recover, %{identifier: ticket, generation: generation}, reason)
+        :ok ->
+          IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
+
+        :already_released ->
+          IO.puts("aiur: workspace hold for #{ticket} is already released")
+
+        :not_held_for_reaping ->
+          print_failure(:workspace_recover, %{identifier: ticket, generation: generation}, :not_held_for_reaping)
+
+        {:error, {:audit_write_failed, reason}} ->
+          IO.puts("__AIUR_CONTROL_ERROR__:aiur: workspace recovery was not performed because its durable audit write failed (#{inspect(reason)})")
+
+        {:error, reason} ->
+          print_failure(:workspace_recover, %{identifier: ticket, generation: generation}, reason)
       end
 
       exit_marker(if result in [:ok, :already_released], do: 0, else: 1)

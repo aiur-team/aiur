@@ -82,7 +82,9 @@ When an unknown subcommand is routed through a release built from a checkout, Ai
 
 ## Inspect and operate a running daemon
 
-A `workspace_ownership_waiting` row reports the held generation and provider-exit proof state. For a local provider with a recorded boot ID, a reboot changes the state to `boot_changed_release_pending`; the daemon keeps the workspace and receipt held until an operator runs `aiur workspace-recover <ticket-identifier> <generation>`. The daemon checks the exact generation and boot proof again, and records the release in its log and telemetry. Older receipts, remote providers, same-boot holds, and unreadable boot IDs cannot be recovered by this command.
+A `workspace_ownership_waiting` row reports the held generation and provider-exit proof state. A reboot changes a local hold with recorded boot ID to `boot_changed_release_pending`; the daemon retains it until an operator runs `aiur workspace-recover <ticket-identifier> <generation>`. The daemon checks the exact generation and boot proof again before release.
+
+Before release, the daemon appends and fsyncs an audit record with the actor account, ticket, generation, proof, and timestamp to `workspace-ownership/workspace-recovery-audit.ndjson` in its state directory. If the audit write fails, recovery fails closed. Older receipts, remote providers, same-boot holds, and unreadable boot IDs cannot be recovered by this command.
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |

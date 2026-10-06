@@ -6,7 +6,7 @@ defmodule Aiur.Workspace.OwnershipTest do
   alias Aiur.AgentControlCLI
   alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.Workspace.{HostLock, Ownership}
-  alias Aiur.Workspace.Ownership.{Guardian, HoldStatus, Store}
+  alias Aiur.Workspace.Ownership.{AuditLog, Guardian, HoldStatus, Store}
 
   test "restored guardian releases its persisted host lock only after provider drainage" do
     ticket = "ownership-restored-host-lock-#{System.unique_integer([:positive])}"
@@ -1254,6 +1254,8 @@ defmodule Aiur.Workspace.OwnershipTest do
     ticket = "ownership-regression-khala-533-#{System.unique_integer([:positive])}"
     {:ok, boot} = Agent.start_link(fn -> "boot-before" end)
     {:ok, telemetry} = Agent.start_link(fn -> [] end)
+    {:ok, audit_mode} = Agent.start_link(fn -> :fail_once end)
+    audit_path = Path.join(Aiur.TestSupport.tmp_root!("workspace-recovery-audit"), "#{ticket}.ndjson")
 
     telemetry_fun = fn ownership, boundary, outcome ->
       Agent.update(telemetry, &[{ownership, boundary, outcome} | &1])
@@ -1269,8 +1271,20 @@ defmodule Aiur.Workspace.OwnershipTest do
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(boot)
       Aiur.TestSupport.safe_stop(telemetry)
+      Aiur.TestSupport.safe_stop(audit_mode)
+      File.rm(audit_path)
       _ = Store.delete(ticket)
     end)
+
+    audit_fun = fn record ->
+      case Agent.get_and_update(audit_mode, fn
+             :fail_once -> {:fail, :write}
+             :write -> {:write, :write}
+           end) do
+        :fail -> {:error, :disk_full}
+        :write -> AuditLog.write(record, path: audit_path)
+      end
+    end
 
     # Regression test: Owner exits between expect_provider and track_provider
     # This is the scenario from Khala#533 that left workspaces stuck in reaping
@@ -1278,7 +1292,8 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:ok, lease} =
              Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
                host_boot_id_fun: boot_id_fun,
-               telemetry_fun: telemetry_fun
+               telemetry_fun: telemetry_fun,
+               audit_fun: audit_fun
              )
 
     assert :ok = Ownership.expect_provider(lease, :local)
@@ -1292,7 +1307,8 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:ok, held} =
              Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry,
                host_boot_id_fun: boot_id_fun,
-               telemetry_fun: telemetry_fun
+               telemetry_fun: telemetry_fun,
+               audit_fun: audit_fun
              )
 
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
@@ -1316,7 +1332,8 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:ok, _recovered} =
              Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry,
                host_boot_id_fun: boot_id_fun,
-               telemetry_fun: telemetry_fun
+               telemetry_fun: telemetry_fun,
+               audit_fun: audit_fun
              )
 
     assert %{generation: ^generation, proof: :boot_changed_release_pending} =
@@ -1325,6 +1342,12 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
     assert {:error, :generation_mismatch} = Ownership.release_if_held_with_exit_proof(ticket, generation + 1)
     assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+
+    failed_output = capture_io(fn -> AgentControlCLI.recover_workspace(ticket, generation) end)
+    assert failed_output =~ "durable audit write failed"
+    assert failed_output =~ "__AIUR_CONTROL_EXIT__:1"
+    assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+    assert {:ok, %{generation: ^generation}} = Store.get(ticket)
 
     output = capture_io(fn -> AgentControlCLI.recover_workspace(ticket, generation) end)
     assert output =~ "released workspace hold for #{ticket} generation #{generation}"
@@ -1335,6 +1358,14 @@ defmodule Aiur.Workspace.OwnershipTest do
              {%{generation: ^generation}, :point, :operator_release_after_provider_exit_proof} -> true
              _ -> false
            end)
+
+    assert [audit_line] = File.read!(audit_path) |> String.split("\n", trim: true)
+    assert {:ok, audit_record} = Jason.decode(audit_line)
+    assert audit_record["action"] == "workspace_hold_release"
+    assert audit_record["ticket"] == ticket
+    assert audit_record["generation"] == generation
+    assert audit_record["proof"] == "local_host_boot_id_changed"
+    assert is_binary(audit_record["actor"])
 
     # Redispatch can now claim the workspace with a new generation
     assert {:ok, replacement} = Ownership.claim(ticket)

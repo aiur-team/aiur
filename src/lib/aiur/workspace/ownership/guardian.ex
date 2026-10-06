@@ -7,6 +7,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   alias Aiur.Workspace.HostBoot
   alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
+  alias Aiur.Workspace.Ownership.AuditLog
   alias Aiur.Workspace.Ownership.Store
 
   @reap_retry_ms 1_000
@@ -122,6 +123,7 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       process_alive_fun: Keyword.get(opts, :process_alive_fun, &RemoteControl.process_alive?/1),
       process_identity_fun: Keyword.get(opts, :process_identity_fun, &RemoteControl.process_identity/1),
       telemetry_fun: Keyword.get(opts, :telemetry_fun, fn _lease, _boundary, _outcome -> :ok end),
+      audit_fun: Keyword.get(opts, :audit_fun, &AuditLog.write/1),
       host_lock: Map.get(receipt, :host_lock),
       reaping?: false,
       release_requested?: false
@@ -673,10 +675,25 @@ defmodule Aiur.Workspace.Ownership.Guardian do
 
   defp release_with_provider_exit_proof(%{lease: %{generation: generation, phase: :reaping}, provider: nil, provider_expected?: true} = state, generation) do
     if local_provider_exited_after_reboot?(state) do
-      Logger.warning("Operator released workspace ownership with verified provider-exit proof ticket=#{state.lease.ticket} generation=#{state.lease.generation}")
+      record = %{
+        action: "workspace_hold_release",
+        actor: System.get_env("USER") || "unknown",
+        generation: generation,
+        proof: "local_host_boot_id_changed",
+        ticket: state.lease.ticket,
+        timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+      }
 
-      emit_telemetry(state, :point, :operator_release_after_provider_exit_proof)
-      {:ok, state}
+      case safe_audit(state.audit_fun, record) do
+        :ok ->
+          Logger.warning("Operator released workspace ownership with verified provider-exit proof ticket=#{state.lease.ticket} generation=#{state.lease.generation} actor=#{record.actor}")
+          emit_telemetry(state, :point, :operator_release_after_provider_exit_proof)
+          {:ok, state}
+
+        {:error, reason} ->
+          Logger.error("Workspace recovery audit write failed ticket=#{state.lease.ticket} generation=#{generation} reason=#{inspect(reason)}")
+          {{:error, {:audit_write_failed, reason}}, state}
+      end
     else
       {{:error, :cannot_release_without_exit_proof}, state}
     end
@@ -707,6 +724,14 @@ defmodule Aiur.Workspace.Ownership.Guardian do
     state.telemetry_fun.(state.lease, boundary, outcome)
   rescue
     _ -> :ok
+  end
+
+  defp safe_audit(audit_fun, record) do
+    audit_fun.(record)
+  rescue
+    error -> {:error, {:audit_callback_failed, error}}
+  catch
+    kind, reason -> {:error, {:audit_callback_failed, {kind, reason}}}
   end
 
   defp safe_reap(reap_fun, identifier) do
