@@ -1,11 +1,11 @@
 defmodule Aiur.InitTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.CodingAgent
+  alias Aiur.CodingAgent.Providers.Fake
   alias Aiur.GitHub.Labels
   alias Aiur.Init
   alias Aiur.Workflow
-  alias Aiur.CodingAgent
-  alias Aiur.CodingAgent.Providers.Fake
 
   defmodule SyntheticInit do
     @spec prompt(Aiur.Init.io()) :: map()
