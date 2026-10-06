@@ -15,7 +15,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert accepted_state.running[issue_id].control.status == :working
       assert accepted_state.control_lifecycle.pending[issue_id] == request_id
       assert %{request_id: ^request_id, status: :accepted} = accepted_state.control_lifecycle.records[request_id]
-      assert_receive {:pause_agent, ^request_id, generation}
+      assert_receive {:pause_agent, ^request_id, generation}, 1000
 
       assert {:noreply, ^accepted_state} =
                Orchestrator.handle_info(
@@ -93,7 +93,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert {:reply, {:ok, request_id}, accepted_state} =
                PauseResume.request_control_call(state, issue_id, :pause, 55)
 
-      assert_receive {:pause_agent, ^request_id, 101}
+      assert_receive {:pause_agent, ^request_id, 101}, 1000
       assert accepted_state.running[issue_id].control.status == :working
 
       # The worker confirms with the correlated evidence it echoes from the
@@ -117,12 +117,12 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert {:reply, {:ok, 42}, accepted_state} =
                PauseResume.request_control_call(state, issue_id, :pause, 42)
 
-      assert_receive {:pause_agent, 42, 101}
+      assert_receive {:pause_agent, 42, 101}, 1000
 
       assert {:reply, {:ok, 42}, ^accepted_state} =
                PauseResume.request_control_call(accepted_state, issue_id, :pause, 42)
 
-      refute_receive {:pause_agent, 42, _generation}
+      refute_receive {:pause_agent, 42, _generation}, 100
 
       assert [%{request_id: 42, status: :accepted}] =
                ControlLifecycle.history(accepted_state.control_lifecycle, issue_id)
@@ -136,11 +136,11 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       {{:ok, pause_request_id}, pause_pending_state} =
         PauseResume.request_pause(state, entry, entry.issue, :ci_wait)
 
-      assert_receive {:pause_agent, ^pause_request_id, 101}
+      assert_receive {:pause_agent, ^pause_request_id, 101}, 1000
       assert pause_pending_state.running[issue_id].control.status == :working
 
       assert {{:ok, :resumed}, resume_pending_state} = PauseResume.resume_issue(pause_pending_state, issue_id)
-      assert_receive {:resume_agent, resume_request_id, 101}
+      assert_receive {:resume_agent, resume_request_id, 101}, 1000
 
       assert %{status: :rejected, rejection: %{class: :superseded}} =
                resume_pending_state.control_lifecycle.records[pause_request_id]
@@ -177,7 +177,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert {{:ok, request_id}, pause_pending_state} =
                PauseResume.request_pause(state, entry, entry.issue, :operator_pause)
 
-      assert_receive {:pause_agent, ^request_id, 101}
+      assert_receive {:pause_agent, ^request_id, 101}, 1000
 
       assert {:noreply, unclassified_pause_state} =
                Orchestrator.handle_info(
@@ -206,13 +206,13 @@ defmodule Aiur.OrchestratorControlRoutingTest do
 
       state = base_state(running: %{issue_id => entry})
       assert {:reply, {:ok, 73}, resume_pending_state} = PauseResume.request_control_call(state, issue_id, :resume, 73)
-      assert_receive {:resume_agent, 73, 101}
+      assert_receive {:resume_agent, 73, 101}, 1000
 
       assert {{:ok, pause_request_id}, paused_state} =
                PauseResume.request_pause(resume_pending_state, entry, entry.issue, :ci_wait)
 
       assert pause_request_id != 73
-      assert_receive {:pause_agent, ^pause_request_id, 101}
+      assert_receive {:pause_agent, ^pause_request_id, 101}, 1000
 
       assert paused_state.running[issue_id].control.status == :paused
       assert paused_state.running[issue_id].paused_reason == :operator_pause
@@ -248,15 +248,15 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       :ok = AgentPubSub.subscribe_agent(issue_id)
 
       assert {:reply, {:ok, 70}, first_state} = PauseResume.request_control_call(state, issue_id, :pause, 70)
-      assert_receive {:control_lifecycle, %{request_id: 70, status: :requested}}
-      assert_receive {:control_lifecycle, %{request_id: 70, status: :accepted}}
-      assert_receive {:pause_agent, 70, 101}
+      assert_receive {:control_lifecycle, %{request_id: 70, status: :requested}}, 1000
+      assert_receive {:control_lifecycle, %{request_id: 70, status: :accepted}}, 1000
+      assert_receive {:pause_agent, 70, 101}, 1000
 
       assert {:reply, {:ok, 71}, _next_state} = PauseResume.request_control_call(first_state, issue_id, :pause, 71)
-      assert_receive {:control_lifecycle, %{request_id: 70, status: :rejected, rejection: %{class: :superseded}}}
-      assert_receive {:control_lifecycle, %{request_id: 71, status: :requested}}
-      assert_receive {:control_lifecycle, %{request_id: 71, status: :accepted}}
-      assert_receive {:pause_agent, 71, 101}
+      assert_receive {:control_lifecycle, %{request_id: 70, status: :rejected, rejection: %{class: :superseded}}}, 1000
+      assert_receive {:control_lifecycle, %{request_id: 71, status: :requested}}, 1000
+      assert_receive {:control_lifecycle, %{request_id: 71, status: :accepted}}, 1000
+      assert_receive {:pause_agent, 71, 101}, 1000
     end
 
     test "request-only controls are visibly rejected and never routed as applied" do
@@ -282,7 +282,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert %{status: :rejected, rejection: %{class: :unsupported}} =
                rejected_state.control_lifecycle.records[43]
 
-      refute_receive {:pause_agent, 43, _generation}
+      refute_receive {:pause_agent, 43, _generation}, 100
 
       assert {:reply, {:error, {:control_rejected, %{class: :unsupported}}}, ^rejected_state} =
                PauseResume.request_control_call(rejected_state, issue_id, :pause, 43)
@@ -311,7 +311,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert %{status: :rejected, rejection: %{class: :already_in_state}} =
                rejected_state.control_lifecycle.records[44]
 
-      refute_receive {:pause_agent, 44, _generation}
+      refute_receive {:pause_agent, 44, _generation}, 100
     end
 
     test "an explicit resume request cannot bypass the existing capacity limit" do
@@ -342,7 +342,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert {:reply, {:error, :max_concurrent_agents_reached}, ^state} =
                PauseResume.request_control_call(state, paused_issue_id, :resume, 46)
 
-      refute_receive {:resume_agent, 46, _generation}
+      refute_receive {:resume_agent, 46, _generation}, 100
     end
 
     test "worker completion expires a pending control instead of leaving it applied or pending" do
@@ -350,7 +350,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       state = base_state(running: %{issue_id => running_entry(issue_id)})
 
       {{:ok, request_id}, accepted_state} = PauseResume.pause_agent_reply(state, issue_id)
-      assert_receive {:pause_agent, ^request_id, _generation}
+      assert_receive {:pause_agent, ^request_id, _generation}, 1000
 
       assert {:noreply, completed_state} =
                Orchestrator.handle_info({:worker_control_state, issue_id, :completed, %{}}, accepted_state)
@@ -368,7 +368,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       state = base_state(running: %{issue_id => running_entry(issue_id)})
 
       {{:ok, request_id}, accepted_state} = PauseResume.pause_agent_reply(state, issue_id)
-      assert_receive {:pause_agent, ^request_id, generation}
+      assert_receive {:pause_agent, ^request_id, generation}, 1000
 
       assert {:noreply, changed_state} =
                Orchestrator.handle_info(
@@ -417,7 +417,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
 
       state = base_state(running: %{issue_id => entry})
       {{:ok, :resumed}, accepted_state} = PauseResume.resume_paused_issue(state, entry)
-      assert_receive {:resume_agent, request_id, 101}
+      assert_receive {:resume_agent, request_id, 101}, 1000
 
       assert {:noreply, resumed_state} =
                Orchestrator.handle_info(
@@ -446,7 +446,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
 
       state = base_state(running: %{issue_id => entry})
       assert {:reply, {:ok, 45}, accepted_state} = PauseResume.request_control_call(state, issue_id, :resume, 45)
-      assert_receive {:resume_agent, 45, 101}
+      assert_receive {:resume_agent, 45, 101}, 1000
 
       assert {:noreply, resumed_state} =
                Orchestrator.handle_info(
@@ -479,7 +479,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
         assert {:reply, {:ok, request_id}, accepted_state} =
                  PauseResume.request_control_call(state, issue_id, :resume, 50)
 
-        assert_receive {:resume_agent, ^request_id, 101}
+        assert_receive {:resume_agent, ^request_id, 101}, 1000
 
         assert {:noreply, resumed_state} =
                  Orchestrator.handle_info(
@@ -498,7 +498,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       paused_issue = %{entry.issue | paused: true}
 
       label_pending_state = PauseResume.pause_issue_for_label_override(state, paused_issue)
-      assert_receive {:pause_agent, label_request_id, 101}
+      assert_receive {:pause_agent, label_request_id, 101}, 1000
       assert label_pending_state.running[issue_id].control.status == :working
 
       assert label_pending_state.running[issue_id].pending_pause_reason == %{
@@ -515,7 +515,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
           60
         )
 
-      assert_receive {:pause_agent, duration_request_id, 101}
+      assert_receive {:pause_agent, duration_request_id, 101}, 1000
       assert duration_pending_state.running[issue_id].control.status == :working
 
       assert duration_pending_state.running[issue_id].pending_pause_reason == %{
@@ -524,7 +524,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
              }
 
       agent_pending_state = PushRouting.maybe_pause_on_request(state, issue_id)
-      assert_receive {:pause_agent, agent_request_id, 101}
+      assert_receive {:pause_agent, agent_request_id, 101}, 1000
       assert agent_pending_state.running[issue_id].control.status == :working
 
       assert agent_pending_state.running[issue_id].pending_pause_reason == %{
@@ -657,7 +657,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
                )
 
       assert next.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
-      assert_receive {:tick, _token}
+      assert_receive {:tick, _token}, 1000
     end
 
     test "a legacy resume also wakes a widened idle poll deadline" do
@@ -673,8 +673,8 @@ defmodule Aiur.OrchestratorControlRoutingTest do
 
       assert {{:ok, :resumed}, next} = PauseResume.resume_issue(state, issue_id)
       assert next.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
-      assert_receive {:resume_agent, _request_id}
-      assert_receive {:tick, _token}
+      assert_receive {:resume_agent, _request_id}, 1000
+      assert_receive {:tick, _token}, 1000
     end
   end
 

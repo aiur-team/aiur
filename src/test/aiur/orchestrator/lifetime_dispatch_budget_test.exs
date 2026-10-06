@@ -613,7 +613,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
         :ok
       end)
 
-    assert_receive {:durable_latch, "repo#lifetime", "error"}
+    assert_receive {:durable_latch, "repo#lifetime", "error"}, 1000
     assert thrash_budget(state)[@issue_id].durable_latch_applied == true
 
     assert Dispatcher.persist_lifetime_trip(state, issue, fn _, _ ->

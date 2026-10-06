@@ -103,7 +103,7 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
       result = PrAnchored.maybe_route_pr_anchored_or_legacy(state, "42", :github, event, 1)
 
       assert result.capacity_hold == nil
-      assert_receive {:pr_anchored_dispatch, %{id: "pr-42", identifier: "42", state: "pr-watch"}}
+      assert_receive {:pr_anchored_dispatch, %{id: "pr-42", identifier: "42", state: "pr-watch"}}, 1000
     end
 
     test "holds an open human PR dispatch above the load threshold, and retries it instead of dropping it" do

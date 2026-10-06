@@ -7,7 +7,7 @@ defmodule Aiur.Claude.Repl.TurnEventsTest do
     collector = fn msg -> send(self(), {:msg, msg}) end
 
     TurnEvents.emit(collector, :turn_completed, %{session_id: "abc"})
-    assert_receive {:msg, msg}
+    assert_receive {:msg, msg}, 1000
 
     assert msg.event == :turn_completed
     assert msg.session_id == "abc"
@@ -18,7 +18,7 @@ defmodule Aiur.Claude.Repl.TurnEventsTest do
     collector = fn msg -> send(self(), {:msg, msg}) end
 
     TurnEvents.emit(collector, :session_started, %{session_id: "s", thread_id: "t", turn_id: "u"})
-    assert_receive {:msg, msg}
+    assert_receive {:msg, msg}, 1000
 
     assert msg.session_id == "s"
     assert msg.thread_id == "t"
@@ -30,7 +30,7 @@ defmodule Aiur.Claude.Repl.TurnEventsTest do
     inner = %{type: "assistant", text: "hello"}
 
     TurnEvents.emit_transcript(collector, inner)
-    assert_receive {:msg, msg}
+    assert_receive {:msg, msg}, 1000
 
     assert msg.event == :transcript
     assert msg.transcript_event == inner

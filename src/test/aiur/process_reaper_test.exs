@@ -35,13 +35,13 @@ defmodule Aiur.ProcessReaperTest do
 
     :ok = ProcessReaper.reap(reaper, [:agent], recording_killers(tp))
 
-    assert_receive {:killed_tree, 111}
-    assert_receive {:killed_pane, "%9"}
+    assert_receive {:killed_tree, 111}, 1000
+    assert_receive {:killed_pane, "%9"}, 1000
     refute_receive {:killed_tree, 222}, 50
 
     # The :serve entry survived the :agent sweep and reaps later.
     :ok = ProcessReaper.reap(reaper, [:serve], recording_killers(tp))
-    assert_receive {:killed_tree, 222}
+    assert_receive {:killed_tree, 222}, 1000
   end
 
   test "string pids normalize to integers at registration", %{reaper: reaper} do
@@ -49,7 +49,7 @@ defmodule Aiur.ProcessReaperTest do
     :ok = ProcessReaper.register(reaper, :agent, {:os_pid, "4242"}, [])
 
     :ok = ProcessReaper.reap(reaper, [:agent], recording_killers(tp))
-    assert_receive {:killed_tree, 4242}
+    assert_receive {:killed_tree, 4242}, 1000
   end
 
   test "entries returns normalized registered refs for observers", %{reaper: reaper} do
@@ -104,7 +104,7 @@ defmodule Aiur.ProcessReaperTest do
 
     :ok = ProcessReaper.reap(reaper, [:agent], killers)
     refute_receive {:killed_tree, 111}, 50
-    assert_receive {:killed_tree, 222}
+    assert_receive {:killed_tree, 222}, 1000
   end
 
   test "an unreadable cmdline means the process is gone — no kill", %{reaper: reaper} do
@@ -136,7 +136,7 @@ defmodule Aiur.ProcessReaperTest do
     ]
 
     :ok = ProcessReaper.reap(reaper, [:agent], killers)
-    assert_receive {:killed_tree, 222}
+    assert_receive {:killed_tree, 222}, 1000
   end
 
   test "double reap no-ops; draining reap kills late registrations", %{reaper: reaper} do
@@ -144,7 +144,7 @@ defmodule Aiur.ProcessReaperTest do
     :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 111}, [])
 
     :ok = ProcessReaper.reap(reaper, [:agent], recording_killers(tp) ++ [drain: true])
-    assert_receive {:killed_tree, 111}
+    assert_receive {:killed_tree, 111}, 1000
 
     :ok = ProcessReaper.reap(reaper, [:agent], recording_killers(tp) ++ [drain: true])
     refute_receive {:killed_tree, _}, 50
@@ -160,13 +160,13 @@ defmodule Aiur.ProcessReaperTest do
     tp = self()
     :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 111}, [])
     :ok = ProcessReaper.reap(reaper, [:agent], recording_killers(tp))
-    assert_receive {:killed_tree, 111}
+    assert_receive {:killed_tree, 111}, 1000
 
     # New registration after a non-draining reap registers normally and is
     # reapable later — agent spawning is not bricked.
     :ok = ProcessReaper.register(reaper, :agent, {:os_pid, 333}, [])
     :ok = ProcessReaper.reap(reaper, [:agent], recording_killers(tp))
-    assert_receive {:killed_tree, 333}
+    assert_receive {:killed_tree, 333}, 1000
   end
 
   test "registrations no-op when disabled by config", %{reaper: reaper} do

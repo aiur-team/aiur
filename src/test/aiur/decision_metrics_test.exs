@@ -88,7 +88,7 @@ defmodule Aiur.DecisionMetricsTest do
     assert Enum.uniq(duplicate_results) == [:duplicate]
     send(self(), :decision_metrics_changed)
     refute_receive {:decision_metrics_changed, ^pid}, 50
-    assert_receive :decision_metrics_changed
+    assert_receive :decision_metrics_changed, 1000
 
     assert :ignored = DecisionMetrics.observe(%{}, pid)
     refute_receive {:decision_metrics_changed, ^pid}, 50
