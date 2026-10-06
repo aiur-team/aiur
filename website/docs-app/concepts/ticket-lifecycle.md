@@ -245,13 +245,13 @@ current state and denies `:missing_trigger_label` when there is none
   agent after an unverified relabel. Other ambiguous provenance failures emit
   the needs-attention alert `github.dispatch_authorization.ambiguous`.
 - A timeline Aiur cannot *read* is a different thing from a timeline that denies.
-  The provenance fetch is requested in `per_page=50` pages and retried with
-  smaller pages when a page exceeds the response cap. If evidence remains
-  unavailable, the ticket is deferred rather than treated as revoked. After five
-  consecutive deferrals, Aiur raises a ticket-scoped attention at
-  `ticket.<id>.agent.attention.dispatch_authorization.deferred`; when a definitive
-  authorization decision ends the streak, the matching `.resolved` topic clears
-  it. One-off fetch failures do not raise an attention.
+  The provenance fetch is requested in `per_page=50` pages and refetched in
+  smaller ones when a page exceeds the response cap, so an unusually noisy
+  timeline no longer strands a ticket. If even the smallest page is too large the
+  ticket is **deferred** (never revoked), the log line carries
+  `cause=transport_limit`, and the alert is
+  `github.dispatch_authorization.timeline_unreadable` — an Aiur limit to raise,
+  not a ticket to re-triage.
 
 ## Step 2 — Aiur creates an agent, given the `aiur-agent` skill and a four-part prompt
 
