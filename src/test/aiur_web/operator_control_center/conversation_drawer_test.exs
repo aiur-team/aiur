@@ -64,6 +64,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
       view: view,
       composer: Keyword.get(opts, :composer),
       writable: Keyword.get(opts, :writable, false),
+      usage_snapshot: Keyword.get(opts, :usage_snapshot),
+      usage_error: Keyword.get(opts, :usage_error, :no_usage_data),
       close_event: Keyword.get(opts, :close_event, "close-conversation"),
       fallback_focus_id: "units-title",
       origin_id: Keyword.get(opts, :origin_id, "units-conversation-token")
@@ -112,6 +114,13 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     assert html =~ "Working on the drawer."
     assert html =~ ~s(data-message-complete="true")
     assert html =~ ~s(datetime="2026-07-17T12:00:00Z")
+  end
+
+  test "mounts the per-agent cumulative usage surface in the conversation drawer" do
+    html = render(Presenter.present(row(), snapshot()))
+
+    assert html =~ "Cumulative Token Usage"
+    assert html =~ "Usage data unavailable"
   end
 
   test "renders an aria-live log only while live" do
