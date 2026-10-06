@@ -4,7 +4,8 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
   alias Aiur.AgentQueue
   alias Aiur.AgentQueueStore
   alias Aiur.AgentRunner.{CheckpointDelivery, TurnLoop}
-  alias Aiur.AppServer.{Interrupts, OperatorDelivery}
+  alias Aiur.AppServer.OperatorDelivery
+  alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Orchestrator.{OperatorMessages, State}
 
   defmodule StubBackend do
@@ -181,7 +182,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
         current_turn_id: "turn-1"
       })
 
-    interrupt_result = Interrupts.handle_no_active_turn_error(completed_turn_state, error)
+    interrupt_result = ClaudeAgent.handle_interrupt_error(completed_turn_state, error)
     assert interrupt_result == {:ok, :turn_interrupted_for_operator_message}
 
     issue = %Aiur.Issue{identifier: "OD-#{System.unique_integer([:positive])}", id: "gid-od"}
@@ -226,7 +227,12 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
       case Process.get(call_key, 0) do
         0 ->
           Process.put(call_key, 1)
-          {:ok, %{result: interrupt_result, session_id: "completed-parent-turn"}}
+
+          case interrupt_result do
+            {:ok, result} -> {:ok, %{result: result, session_id: "completed-parent-turn"}}
+            {:paused, payload} -> {:paused, payload}
+            {:error, reason} -> {:error, reason}
+          end
 
         1 ->
           Process.put(call_key, 2)
