@@ -351,12 +351,12 @@ defmodule Aiur.Config.SchemaTest do
       assert message =~ "eligible registered fallback backend"
     end
 
-    test "accepts a non-default eligible primary/fallback pair" do
+    test "accepts a non-default primary with the registered fallback" do
       assert {:ok, settings} =
-               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "fake"}})
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "codex", "rate_limit_fallback" => "claude"}})
 
-      assert settings.agent.rate_limit_primary == "claude"
-      assert settings.agent.rate_limit_fallback == "fake"
+      assert settings.agent.rate_limit_primary == "codex"
+      assert settings.agent.rate_limit_fallback == "claude"
     end
 
     test "accepts an empty string to disable" do
@@ -657,6 +657,7 @@ defmodule Aiur.Config.SchemaTest do
       assert {:ok, settings} = Schema.parse(%{})
 
       assert settings.elevenlabs.api_key == nil
+      assert settings.elevenlabs.enabled == true
       assert settings.elevenlabs.language_code == "eng"
       assert settings.elevenlabs.voice_id == nil
     end
@@ -666,6 +667,7 @@ defmodule Aiur.Config.SchemaTest do
                Schema.parse(%{"elevenlabs" => %{"api_key" => "from-config", "language_code" => "spa", "voice_id" => "voice-123"}})
 
       assert settings.elevenlabs.api_key == "from-config"
+      assert settings.elevenlabs.enabled == true
       assert settings.elevenlabs.language_code == "spa"
       assert settings.elevenlabs.voice_id == "voice-123"
     end
@@ -692,6 +694,19 @@ defmodule Aiur.Config.SchemaTest do
       assert {:ok, settings} = Schema.parse(%{"elevenlabs" => %{"language_code" => "eng"}})
 
       assert settings.elevenlabs.api_key == "env-token"
+    end
+
+    test "explicit disablement suppresses configured and fallback credentials" do
+      System.put_env("ELEVENLABS_API_KEY", "env-token")
+
+      assert {:ok, settings} =
+               Schema.parse(%{"elevenlabs" => %{"enabled" => false, "api_key" => "from-config"}})
+
+      assert settings.elevenlabs.enabled == false
+      assert settings.elevenlabs.api_key == nil
+
+      assert {:ok, fallback_settings} = Schema.parse(%{"elevenlabs" => %{"enabled" => false}})
+      assert fallback_settings.elevenlabs.api_key == nil
     end
   end
 
