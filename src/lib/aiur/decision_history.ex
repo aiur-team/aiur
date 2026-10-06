@@ -237,7 +237,7 @@ defmodule Aiur.DecisionHistory do
   end
 
   defp event_record(%DecisionEvent{type: type, data: data}, base, actions)
-       when type in [:dispatch_queued, :delivered, :restored, :consumed, :failed] do
+       when type in [:dispatch_queued, :dispatch_outcome_unknown, :delivered, :restored, :consumed, :failed] do
     base
     |> Map.merge(action_context(Map.get(actions, data.action_id)))
     |> Map.merge(%{action_id: data.action_id, dispatch_result: type})

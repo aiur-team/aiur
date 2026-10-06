@@ -422,6 +422,41 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert batch.open_pull_request["head_committed_at"] == nil
   end
 
+  # #2707: the comment poll is the only poll that reads an in-progress ticket's
+  # PR, so its draft flag feeds poll-side ready_for_review detection. The flag
+  # is a scalar on the node the query already selects: no extra call.
+  test "carries the pull request draft flag into the payload" do
+    request_fun = fn %{method: :post, body: body} ->
+      assert body["query"] =~ "isDraft"
+
+      pull_request =
+        77
+        |> pull_request("aiur/42-comment-batch")
+        |> Map.put("isDraft", true)
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => issue(),
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request]}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
+             )
+
+    assert batch.open_pull_request["draft"] == true
+  end
+
   # The normalized payload is handed to the poller as the PR object, so the
   # batch's own bookkeeping keys must not leak into it.
   test "strips batch-internal keys from the pull request payload" do
@@ -448,7 +483,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     # was uncaught. An exact set fails on any key that starts or stops being
     # stripped.
     assert batch.open_pull_request |> Map.keys() |> Enum.sort() ==
-             ["base", "head", "head_committed_at", "number", "review_decision", "state"]
+             ["base", "draft", "head", "head_committed_at", "number", "review_decision", "state"]
   end
 
   # #2265 — the poll pipe reads the store the webhook pipe writes.

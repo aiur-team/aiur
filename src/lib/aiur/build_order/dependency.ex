@@ -27,6 +27,18 @@ defmodule Aiur.BuildOrder.Dependency do
   def new(configured_identity, endpoint_identity, url),
     do: new(configured_identity, endpoint_identity, url, :blocked_by)
 
+  @doc "An internal planning edge whose endpoint has no tracker URL yet."
+  @spec local(TrackerIdentity.t(), TrackerIdentity.t()) :: t()
+  def local(configured_identity, endpoint_identity) do
+    %__MODULE__{
+      kind: :native,
+      identity: endpoint_identity,
+      source_connection: :blocked_by,
+      blocker_identity: endpoint_identity,
+      blocked_identity: configured_identity
+    }
+  end
+
   @spec new(term(), term(), term(), term()) :: t()
   def new(configured_identity, endpoint_identity, url, source_connection) do
     source_connection = source_connection(source_connection)

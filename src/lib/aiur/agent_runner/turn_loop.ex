@@ -4,12 +4,13 @@ defmodule Aiur.AgentRunner.TurnLoop do
   require Logger
 
   alias Aiur.AgentRunner.{MessageHandler, QueueDrain, SessionLifecycle, TurnCallbacks}
-  alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnPrompt, TurnStreams}
-  alias Aiur.Codex.{DynamicTool, SessionRecovery}
+  alias Aiur.AgentRunner.{SessionResume, ToolExecutor, TurnAlerts, TurnProgress, TurnPrompt, TurnStreams}
+  alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Workspace
 
   @type worker_host :: String.t() | nil
 
@@ -20,6 +21,12 @@ defmodule Aiur.AgentRunner.TurnLoop do
   # cannot spin the runner Task forever.
   @restore_confirm_attempts 5
   @restore_confirm_backoff_ms 250
+
+  # #2806: a run of consecutive turns that changed nothing observable is
+  # widened before it is stopped, so a mislabelled ticket costs tens of seconds
+  # rather than a turn every seven seconds while it is still recoverable.
+  @noop_backoff_step_ms 15_000
+  @noop_backoff_ceiling_ms 60_000
 
   @doc false
   @spec run_turns(
@@ -59,7 +66,37 @@ defmodule Aiur.AgentRunner.TurnLoop do
       max_turns: max_turns
     }
 
+    # #2697: never start a turn (first, continuation or post-resume) while the
+    # workspace lacks the gh shim, gh config or quota dir the agent env names.
+    # Repair happens here; a refused turn never reaches the provider.
+    case Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host) do
+      :ok -> run_supported_turn(turn_context, app_session)
+      {:error, _reason} = error -> refuse_unsupported_turn(turn_context, error)
+    end
+  end
+
+  # The turn never started, so any delivered queue item goes back to pending
+  # through the confirmed restore boundary instead of being failed.
+  defp refuse_unsupported_turn(%{orchestrator: orchestrator, issue: issue, opts: opts}, error),
+    do: confirm_restore_for_replacement(orchestrator, issue, opts, error)
+
+  defp run_supported_turn(turn_context, app_session) do
+    %{
+      workspace: workspace,
+      issue: issue,
+      codex_update_recipient: codex_update_recipient,
+      opts: opts,
+      orchestrator: orchestrator,
+      worker_host: worker_host,
+      turn_number: turn_number,
+      max_turns: max_turns
+    } = turn_context
+
     prompt = TurnPrompt.build_turn_prompt(issue, opts, turn_number, max_turns)
+    # The prompt is one of the three no-op witnesses (#2806): two consecutive
+    # continuation prompts differ only in `#N`, so an unchanged prompt means the
+    # agent was handed no new input for this turn.
+    turn_context = Map.put(turn_context, :prompt, prompt)
 
     callbacks =
       TurnCallbacks.build(
@@ -89,13 +126,14 @@ defmodule Aiur.AgentRunner.TurnLoop do
     })
 
     result =
-      CodingAgent.run_turn(
+      coding_agent_run_turn(opts).(
         app_session,
         prompt,
         issue,
         on_message: message_handler,
         on_safe_checkpoint: callbacks.on_safe_checkpoint,
         on_operator_message: callbacks.on_operator_message,
+        on_operator_response: callbacks.on_operator_response,
         tool_executor: ToolExecutor.build(issue, workspace, worker_host, app_session, attempt_id: lifecycle_attempt_id)
       )
 
@@ -143,11 +181,19 @@ defmodule Aiur.AgentRunner.TurnLoop do
           Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session))
         )
 
-        best_effort_queue_bookkeeping(
-          Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
-          :restore,
-          issue
-        )
+        if pause_payload[:native_terminal] == :completed do
+          best_effort_queue_bookkeeping(
+            Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier),
+            :consume,
+            issue
+          )
+        else
+          best_effort_queue_bookkeeping(
+            Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier),
+            :restore,
+            issue
+          )
+        end
 
         Aiur.AgentRunner.write_pause_log(workspace, worker_host)
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused, pause_payload)
@@ -158,20 +204,19 @@ defmodule Aiur.AgentRunner.TurnLoop do
     end
   end
 
-  # Codex recoverable session failures (closed port, port exit, or exact
-  # active-turn desync) must not fail the durable queue item: restore it and
+  # Provider-classified recoverable session failures must not fail the durable queue item: restore it and
   # let the top-level runner clean-exit so the orchestrator replaces the stale
   # session and a fresh transport redelivers the item once. The restore is the
   # gate — issue #1238 showed that best-effort swallowing of an
   # `{:error, :unavailable}` restore stranded the claimed item `:delivered`,
   # unclaimable by the replacement. Confirm the restore before reporting clean
-  # recovery; Claude and genuine provider failures keep the best-effort fail
+  # recovery; non-recoverable provider failures keep the best-effort fail
   # settlement and its retry-exhaustion path.
   defp settle_turn_error(turn_context, backend, reason, error) do
     %{issue: issue, workspace: workspace, worker_host: worker_host, orchestrator: orchestrator, opts: opts} =
       turn_context
 
-    if backend == "codex" and SessionRecovery.recoverable?(reason) do
+    if CodingAgent.recoverable_session_error?(backend, reason) do
       confirm_restore_for_replacement(orchestrator, issue, opts, error)
     else
       TurnAlerts.maybe_emit_more_tokens_alert(issue, workspace, worker_host, reason)
@@ -188,8 +233,12 @@ defmodule Aiur.AgentRunner.TurnLoop do
   end
 
   @doc false
-  @spec turn_done_reason(term()) :: :done | :input_required | {:failed, term()}
+  @spec turn_done_reason(term()) :: :done | :paused | :input_required | {:failed, term()}
   def turn_done_reason({:ok, _session}), do: :done
+
+  def turn_done_reason({:paused, %{control: %{request_id: id, generation: generation}}})
+      when is_integer(id) and is_integer(generation), do: :paused
+
   def turn_done_reason({:paused, _payload}), do: :input_required
   def turn_done_reason({:error, reason}), do: {:failed, reason}
   def turn_done_reason(_), do: :done
@@ -279,16 +328,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
     case continue_with_issue?(issue, issue_state_fetcher) do
       {:continue, refreshed_issue} when is_nil(max_turns) or turn_number < max_turns ->
-        Logger.info(
-          "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns_display(max_turns)} reason=turn_completed"
-        )
-
-        Logger.info("Continuing agent run for #{Aiur.AgentRunner.issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns_display(max_turns)}")
-
-        continue_issue_turn(
-          %{turn_context | issue: refreshed_issue, turn_number: turn_number + 1},
-          app_session
-        )
+        continue_unless_noop_bound(turn_context, app_session, refreshed_issue)
 
       {:continue, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=max_turns_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns}")
@@ -304,6 +344,113 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # #2806: the state label alone is not a licence to re-prompt. Fold this
+  # turn's observable-progress witness into the run's consecutive-no-op counter
+  # and stop the loop — loudly, and without mutating the ticket — once a run of
+  # turns that changed nothing reaches the cap. A productive turn zeroes the
+  # counter, so a long run of real work is never bounded by this path.
+  defp continue_unless_noop_bound(turn_context, app_session, refreshed_issue) do
+    %{
+      workspace: workspace,
+      worker_host: worker_host,
+      opts: opts,
+      turn_number: turn_number,
+      max_turns: max_turns,
+      prompt: prompt
+    } = turn_context
+
+    witness = TurnProgress.witness(prompt, workspace, worker_host, refreshed_issue, opts)
+    {verdict, progress} = TurnProgress.observe(TurnProgress.from_opts(opts), witness)
+    cap = noop_turn_cap(opts)
+
+    if verdict == :noop and is_integer(cap) and progress.consecutive_noops >= cap do
+      stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap)
+    else
+      Logger.info(
+        "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number + 1}/#{max_turns_display(max_turns)} reason=turn_completed noop_turns=#{progress.consecutive_noops}"
+      )
+
+      Logger.info("Continuing agent run for #{Aiur.AgentRunner.issue_context(refreshed_issue)} after normal turn completion turn=#{turn_number}/#{max_turns_display(max_turns)}")
+
+      if verdict == :noop, do: apply_noop_backoff(refreshed_issue, progress, cap, opts)
+
+      continue_issue_turn(
+        %{
+          turn_context
+          | issue: refreshed_issue,
+            turn_number: turn_number + 1,
+            opts: Keyword.put(opts, :turn_progress, progress)
+        },
+        app_session
+      )
+    end
+  end
+
+  # The bound must leave a durable record, not a bare `Logger.info` (#2797):
+  # the ticket-scoped needs-attention alert lands in the alert ledger and the
+  # central `alerts.ndjson`, naming the ticket, the count, and the state label
+  # that kept the loop alive. The loop then takes the SAME exit as
+  # `agent.max_turns` — control returns to the orchestrator with the ticket
+  # untouched, so nothing is stranded: the labels an operator (or the tracker)
+  # can act on are exactly as the agent left them.
+  defp stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap) do
+    %{workspace: workspace, worker_host: worker_host, turn_number: turn_number, max_turns: max_turns} =
+      turn_context
+
+    Logger.warning(
+      "aiur_autonomous_loop phase=noop_bound_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns_display(max_turns)} noop_turns=#{progress.consecutive_noops} cap=#{cap}"
+    )
+
+    TurnAlerts.emit_noop_turn_bound_alert(refreshed_issue, workspace, worker_host, %{
+      consecutive_noops: progress.consecutive_noops,
+      cap: cap,
+      turn_number: turn_number,
+      unchanged: TurnProgress.unchanged_witnesses(witness)
+    })
+
+    return_completed(turn_context, refreshed_issue)
+  end
+
+  # Widen the interval before each further no-op turn so an unbounded-looking
+  # spin costs tens of seconds instead of a turn every seven seconds.
+  defp apply_noop_backoff(issue, progress, cap, opts) do
+    backoff_ms = noop_backoff_ms(progress.consecutive_noops, opts)
+
+    if backoff_ms > 0 do
+      Logger.warning(
+        "Turn changed nothing observable for #{Aiur.AgentRunner.issue_context(issue)}: consecutive no-op turns=#{progress.consecutive_noops}/#{inspect(cap)}; backing off #{backoff_ms}ms before the next continuation turn"
+      )
+
+      Process.sleep(backoff_ms)
+    end
+
+    :ok
+  end
+
+  @doc false
+  @spec noop_backoff_ms(non_neg_integer(), keyword()) :: non_neg_integer()
+  def noop_backoff_ms(consecutive_noops, opts \\ []) do
+    case Keyword.fetch(opts, :noop_backoff_ms) do
+      {:ok, override} when is_integer(override) and override >= 0 ->
+        override
+
+      _absent ->
+        min(consecutive_noops * @noop_backoff_step_ms, @noop_backoff_ceiling_ms)
+    end
+  end
+
+  # nil / 0 disables the bound, matching how `agent.max_turns` reads "uncapped".
+  @doc false
+  @spec noop_turn_cap(keyword()) :: pos_integer() | nil
+  def noop_turn_cap(opts) do
+    opts
+    |> Keyword.get(:max_consecutive_noop_turns, Config.agent_max_consecutive_noop_turns())
+    |> case do
+      cap when is_integer(cap) and cap > 0 -> cap
+      _disabled -> nil
     end
   end
 
@@ -345,8 +492,16 @@ defmodule Aiur.AgentRunner.TurnLoop do
           "aiur_autonomous_loop phase=recurse elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_context.turn_number + 1}/#{max_turns_display(turn_context.max_turns)} reason=resume"
         )
 
+        # A resume is new input by definition (#2806): the operator message or
+        # answered decision that released the pause is exactly the fresh input a
+        # no-op run lacked, so the consecutive-no-op run starts over here.
         continue_issue_turn(
-          %{turn_context | issue: refreshed_issue, turn_number: turn_context.turn_number + 1},
+          %{
+            turn_context
+            | issue: refreshed_issue,
+              turn_number: turn_context.turn_number + 1,
+              opts: Keyword.put(turn_context.opts, :turn_progress, TurnProgress.empty())
+          },
           app_session
         )
 
@@ -431,4 +586,6 @@ defmodule Aiur.AgentRunner.TurnLoop do
     |> String.trim()
     |> String.downcase()
   end
+
+  defp coding_agent_run_turn(opts), do: Keyword.get(opts, :run_turn, &CodingAgent.run_turn/4)
 end

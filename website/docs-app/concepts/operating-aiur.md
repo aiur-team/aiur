@@ -55,6 +55,7 @@ Aiur keeps unknown and partial pricing explicit instead of turning missing evide
 | Provider family | Meter meaning |
 | --- | --- |
 | Codex and Claude | Percentage used in renewing allotment windows. |
+| Muse | Current and weekly allowance percentages from the active native host, with reset times and observation age; account identity is unverified. |
 | DeepSeek and OpenRouter | Prepaid dollar or credit balance. |
 | DeepSeek percentage | Spend against a durable prepaid-balance baseline, not a provider quota. |
 | DeepSeek concurrency | Process-local; shown in live CLI and TUI status, omitted from retained provider cards. |

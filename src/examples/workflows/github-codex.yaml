@@ -100,7 +100,6 @@ hooks:
     git clone "$THIS_REPOSITORY_URL" .
     issue_id="$(basename "$PWD")"
     git checkout -b "aiur/${issue_id}" "origin/$THIS_BASE_BRANCH"
-    git update-ref refs/aiur/branch-start HEAD
   before_remove: |
     git status --short
 agent:
@@ -128,6 +127,10 @@ agent:
   #   3: codex:gpt-5.6-terra:high
   #   4: codex:gpt-5.6-terra:xhigh
   #   5: codex:gpt-5.6-sol:max
-codex:
-  command: codex app-server
+  codex:
+    command: codex app-server
+    # This is an explicit headless-workflow choice. Unconfigured workflows
+    # retain the secure `untrusted` default.
+    approval_policy: never
+    thread_sandbox: workspace-write
 prompt_file: github-codex.prompt.md

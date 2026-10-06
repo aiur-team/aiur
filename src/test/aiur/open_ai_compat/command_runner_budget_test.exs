@@ -49,6 +49,38 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
     refute ["--bind", System.user_home!(), System.user_home!()] in triples
   end
 
+  test "does not pass daemon GitHub credentials into the command sandbox", %{workspace: workspace} do
+    previous = for name <- ~w(GITHUB_TOKEN GH_TOKEN), into: %{}, do: {name, System.get_env(name)}
+    System.put_env("GITHUB_TOKEN", "host-github-token-sentinel")
+    System.put_env("GH_TOKEN", "host-gh-token-sentinel")
+
+    on_exit(fn ->
+      for {name, value} <- previous, do: restore_env(name, value)
+    end)
+
+    parent = self()
+
+    runner = fn executable, args, opts ->
+      send(parent, {:command, executable, args, opts})
+      {"ok", 0}
+    end
+
+    assert %{"success" => true} =
+             CommandRunner.run(workspace, "echo safe", sandbox_executable: "/usr/bin/bwrap", system_cmd: runner)
+
+    assert_receive {:command, "/usr/bin/bwrap", args, [stderr_to_stdout: true]}
+    assert "--clearenv" in args
+
+    for name <- ~w(GITHUB_TOKEN GH_TOKEN) do
+      refute ["--setenv", name] in Enum.chunk_every(args, 2, 1, :discard)
+    end
+
+    refute "host-github-token-sentinel" in args
+    refute "host-gh-token-sentinel" in args
+
+    assert ["--setenv", "AIUR_GITHUB_CREDENTIAL_FILE", AgentGitHubGuard.agent_token_path()] in Enum.chunk_every(args, 3, 1, :discard)
+  end
+
   test "a real sandbox writes to the host-shared budget database", %{workspace: workspace, budget: budget} do
     case System.find_executable("bwrap") do
       nil ->
@@ -81,16 +113,14 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
         File.write!(fake_gh, "#!/bin/sh\nprintf '%s\\n' \"$*\" > #{calls}\nprintf 'guarded\\n'\n")
         File.chmod!(fake_gh, 0o755)
         old_path = System.get_env("PATH")
-        previous_token = System.get_env("GH_TOKEN")
         System.put_env("PATH", fake_bin <> ":" <> old_path)
-        System.put_env("GH_TOKEN", "sandbox-absolute-token")
 
         on_exit(fn ->
           System.put_env("PATH", old_path)
-          restore_env("GH_TOKEN", previous_token)
         end)
 
         :ok = AgentGitHubGuard.install(workspace)
+        :ok = AgentGitHubGuard.ensure_agent_token_file(token: "sandbox-absolute-token")
 
         assert %{"success" => true, "output" => "guarded\n"} =
                  CommandRunner.run(workspace, "#{fake_gh} api repos/owner/repo/issues/1477", sandbox_executable: bwrap)

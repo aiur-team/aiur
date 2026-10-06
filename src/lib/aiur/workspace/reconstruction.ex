@@ -4,6 +4,7 @@ defmodule Aiur.Workspace.Reconstruction do
   require Logger
 
   alias Aiur.PathSafety
+  alias Aiur.Workspace.DirtyGuard
 
   @log_copy_chunk_size 64 * 1024
 
@@ -26,23 +27,26 @@ defmodule Aiur.Workspace.Reconstruction do
     stage = Path.join(stage_root, Path.basename(workspace))
     write_fun = Keyword.get(opts, :write_fun, &IO.binwrite/2)
 
-    with_log_lock(workspace, fn ->
-      try do
-        File.mkdir_p!(Path.dirname(workspace))
-        File.rm_rf!(stage_root)
-        File.mkdir_p!(stage)
+    result =
+      with_log_lock(workspace, fn ->
+        try do
+          File.mkdir_p!(Path.dirname(workspace))
+          File.rm_rf!(stage_root)
+          File.mkdir_p!(stage)
 
-        case prepare.(stage) do
-          :ok -> promote(stage, stage_root, workspace, write_fun)
-          {:error, _reason} = error -> cleanup_stage(stage_root, error)
-          other -> cleanup_stage(stage_root, {:error, {:invalid_reconstruction_result, other}})
+          case prepare.(stage) do
+            :ok -> promote(stage, stage_root, workspace, write_fun)
+            {:error, _reason} = error -> cleanup_stage(stage_root, stage, error)
+            other -> cleanup_stage(stage_root, stage, {:error, {:invalid_reconstruction_result, other}})
+          end
+        rescue
+          error ->
+            cleanup_stage(stage_root, stage, {:error, error})
         end
-      rescue
-        error ->
-          File.rm_rf(stage_root)
-          {:error, error}
-      end
-    end)
+      end)
+
+    alert_kept_workspace(result)
+    result
   end
 
   @doc false
@@ -90,13 +94,15 @@ defmodule Aiur.Workspace.Reconstruction do
   # that finished cloning did not land at the destination, which otherwise
   # only shows up as an empty/logs-only workspace with no error anywhere.
   defp promote(stage, stage_root, workspace, write_fun) do
-    backup = sibling_path(workspace, "previous")
-    File.rm_rf!(backup)
+    result =
+      with :ok <- DirtyGuard.check(workspace, nil, alert?: false) do
+        backup = sibling_path(workspace, "previous")
+        File.rm_rf!(backup)
+        promote_stage(stage, workspace, backup, write_fun)
+      end
 
-    result = promote_stage(stage, workspace, backup, write_fun)
     log_promotion_failure(workspace, stage, result)
-    File.rm_rf!(stage_root)
-    result
+    cleanup_stage(stage_root, stage, result)
   end
 
   defp log_promotion_failure(_workspace, _stage, :ok), do: :ok
@@ -327,10 +333,24 @@ defmodule Aiur.Workspace.Reconstruction do
     end
   end
 
-  defp cleanup_stage(stage, error) do
-    File.rm_rf!(stage)
-    error
+  defp cleanup_stage(stage_root, stage, result) do
+    case DirtyGuard.check(stage, nil, alert?: false) do
+      :ok ->
+        File.rm_rf!(stage_root)
+        result
+
+      {:error, reason} ->
+        {:error, {:staged_workspace_kept, stage, reason, result}}
+    end
   end
+
+  defp alert_kept_workspace({:error, {:workspace_not_safe_to_delete, workspace, reason}}),
+    do: DirtyGuard.refuse(workspace, reason)
+
+  defp alert_kept_workspace({:error, {:staged_workspace_kept, stage, {:workspace_not_safe_to_delete, _workspace, reason}, _result}}),
+    do: DirtyGuard.refuse(stage, reason)
+
+  defp alert_kept_workspace(_result), do: :ok
 
   defp sibling_path(workspace, kind) do
     parent = Path.dirname(workspace)

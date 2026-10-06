@@ -47,6 +47,7 @@ defmodule Aiur.DecisionEvent do
     :revision_no_longer_applicable,
     :follow_up_required,
     :follow_up_handled,
+    :handed_off,
     :delivered,
     :restored,
     :consumed,
@@ -54,9 +55,16 @@ defmodule Aiur.DecisionEvent do
     :acknowledged,
     :resolved
   ]
-  @transport_types [:dispatch_queued, :revision_dispatched, :delivered, :restored, :consumed, :failed]
+  @transport_types [:dispatch_queued, :revision_dispatched, :handed_off, :delivered, :restored, :consumed, :failed]
   @actor_types [:acknowledged, :resolved]
   @snapshot_types [:requested, :enriched]
+
+  # A dispatch whose caller timed out may still have queued its item, so it is
+  # recorded as an unknown outcome, not a failure. The store adopts the item
+  # when it learns it exists (#2717).
+  @outcome_unknown_types [:dispatch_outcome_unknown]
+  @types @types ++ @outcome_unknown_types
+  @transport_types @transport_types ++ @outcome_unknown_types
 
   @type type ::
           :requested
@@ -69,10 +77,12 @@ defmodule Aiur.DecisionEvent do
           | :answer_recorded
           | :revision_recorded
           | :dispatch_queued
+          | :dispatch_outcome_unknown
           | :revision_dispatched
           | :revision_no_longer_applicable
           | :follow_up_required
           | :follow_up_handled
+          | :handed_off
           | :delivered
           | :restored
           | :consumed
@@ -449,6 +459,10 @@ defmodule Aiur.DecisionEvent do
   end
 
   defp normalize_reason(:failed, reason), do: bounded_required(reason, @reason_max, :reason_class)
+
+  defp normalize_reason(:dispatch_outcome_unknown, reason),
+    do: bounded_required(reason, @reason_max, :reason_class)
+
   defp normalize_reason(_type, nil), do: {:ok, nil}
   defp normalize_reason(_type, _reason), do: {:error, {:reason_class, :unexpected}}
 

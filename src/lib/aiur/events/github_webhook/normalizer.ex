@@ -255,7 +255,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   end
 
   # ---------------------------------------------------------------------------
-  # pull_request -> ticket.<id>.pr.opened / .pr.merged, or a CI reconcile
+  # pull_request -> ticket.<id>.pr.opened / .pr.ready_for_review / .pr.merged, or a CI reconcile
   #
   # Mirrors GithubFirehose.translate/2 for the PullRequestEvent case. A
   # `synchronize` push invalidates review state, which CILifecycle owns, so it
@@ -643,6 +643,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   end
 
   defp pr_topic(target, "opened", _merged), do: "ticket.#{target}.pr.opened"
+  defp pr_topic(target, "ready_for_review", _merged), do: "ticket.#{target}.pr.ready_for_review"
   defp pr_topic(target, _action, true), do: "ticket.#{target}.pr.merged"
   defp pr_topic(_target, _action, _merged), do: nil
 

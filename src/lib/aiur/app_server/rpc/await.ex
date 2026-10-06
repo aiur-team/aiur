@@ -2,6 +2,7 @@ defmodule Aiur.AppServer.Rpc.Await do
   @moduledoc false
 
   alias Aiur.AppServer.Rpc
+  alias Aiur.AppServer.Rpc.StreamDiagnostics
 
   @spec response(port(), integer(), non_neg_integer(), String.t(), String.t(), Rpc.notification_handler(), boolean()) ::
           {:ok, map()} | {:error, term()}
@@ -30,6 +31,7 @@ defmodule Aiur.AppServer.Rpc.Await do
         )
 
       {^port, {:exit_status, status}} ->
+        unless sensitive_response? or pending_line == "", do: StreamDiagnostics.record(port, pending_line)
         {:error, {:port_exit, status}}
     after
       timeout_ms ->

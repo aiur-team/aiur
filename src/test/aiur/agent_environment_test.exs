@@ -836,10 +836,12 @@ defmodule Aiur.AgentEnvironmentTest do
     test "workspace_env/1 points TMPDIR at the workspace's own scratch dir", %{workspace: workspace} do
       env = AgentEnvironment.workspace_env(workspace)
       expected = String.to_charlist(Path.join(workspace, ".aiur-runtime/tmp"))
+      expected_prefix = String.to_charlist(Path.join(workspace, ".aiur-runtime/tmp/zsh-"))
 
       assert {~c"TMPDIR", ^expected} = List.keyfind(env, ~c"TMPDIR", 0)
       assert {~c"TMP", ^expected} = List.keyfind(env, ~c"TMP", 0)
       assert {~c"TEMP", ^expected} = List.keyfind(env, ~c"TEMP", 0)
+      assert {~c"TMPPREFIX", ^expected_prefix} = List.keyfind(env, ~c"TMPPREFIX", 0)
       refute expected == ~c"/tmp"
       assert File.dir?(Path.join(workspace, ".aiur-runtime/tmp"))
     end
@@ -851,17 +853,58 @@ defmodule Aiur.AgentEnvironmentTest do
       env = AgentEnvironment.workspace_env(workspace)
 
       assert List.keyfind(env, ~c"TMPDIR", 0) == nil
+      assert List.keyfind(env, ~c"TMPPREFIX", 0) == nil
+    end
+
+    test "local agent zsh heredocs use private scratch when the inherited temp path is unusable", %{
+      workspace: workspace
+    } do
+      blocked = Path.join(workspace, "blocked")
+      File.write!(blocked, "regular file")
+      scratch = AgentEnvironment.workspace_env(workspace)
+
+      temp_env =
+        scratch
+        |> Enum.filter(fn {name, _} -> name in [~c"TMPDIR", ~c"TMP", ~c"TEMP", ~c"TMPPREFIX"] end)
+        |> Map.new(fn {name, value} -> {to_string(name), to_string(value)} end)
+
+      {output, 0} =
+        System.cmd("zsh", ["-c", "wc -c <<EOF\nworkpad\nEOF"],
+          env: [
+            {"TMPDIR", temp_env["TMPDIR"]},
+            {"TMPPREFIX", Map.get(temp_env, "TMPPREFIX", Path.join(blocked, "zsh-"))}
+          ],
+          stderr_to_stdout: true
+        )
+
+      assert output == "8\n"
     end
 
     test "the export prefix redirects TMPDIR for the SSH-launch path", %{workspace: workspace} do
       prefix = AgentEnvironment.workspace_env_export_prefix(workspace, base_branch: "develop")
 
       {resolved, 0} =
-        System.cmd("bash", ["-c", "#{prefix} && printf '%s|%s|%s' \"$TMPDIR\" \"$TMP\" \"$TEMP\""], env: [{"TMPDIR", "/tmp"}])
+        System.cmd("bash", ["-c", "#{prefix} && printf '%s|%s|%s|%s' \"$TMPDIR\" \"$TMP\" \"$TEMP\" \"$TMPPREFIX\""], env: [{"TMPDIR", "/tmp"}])
 
       scratch = Path.join(workspace, ".aiur-runtime/tmp")
-      assert resolved == "#{scratch}|#{scratch}|#{scratch}"
+      assert resolved == "#{scratch}|#{scratch}|#{scratch}|#{scratch}/zsh-"
       assert File.dir?(scratch)
+    end
+
+    test "SSH agent zsh heredocs use private scratch when the inherited temp path is unusable", %{
+      workspace: workspace
+    } do
+      blocked = Path.join(workspace, "blocked")
+      File.write!(blocked, "regular file")
+      prefix = AgentEnvironment.workspace_env_export_prefix(workspace, base_branch: "develop")
+
+      {output, 0} =
+        System.cmd("bash", ["-c", "#{prefix} && zsh -c 'wc -c <<EOF\nworkpad\nEOF'"],
+          env: [{"TMPPREFIX", Path.join(blocked, "zsh-")}],
+          stderr_to_stdout: true
+        )
+
+      assert output == "8\n"
     end
 
     # A path whose parent component is a regular file always fails with ENOTDIR,

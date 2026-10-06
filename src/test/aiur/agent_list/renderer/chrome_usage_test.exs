@@ -5,6 +5,16 @@ defmodule Aiur.AgentList.Renderer.ChromeUsageTest do
 
   @width 120
 
+  test "recent retained Muse allowance still identifies a failed refresh as stale" do
+    view = Map.merge(observed(33, 17), %{identity_scope: :host_unverified, freshness: :stale})
+    row = text(Chrome.usage_row(%{muse: view}, @width))
+
+    assert row =~ "33%"
+    assert row =~ "(17s)"
+    assert row =~ "account unverified"
+    assert row =~ "stale"
+  end
+
   defp text(iodata), do: iodata |> IO.iodata_to_binary() |> strip_ansi()
   defp strip_ansi(binary), do: Regex.replace(~r/\e\[[0-9;?]*[a-zA-Z]/, binary, "")
 

@@ -10,6 +10,8 @@ defmodule Aiur.AgentRunner.SessionResumeTest do
     test "returns the id only for a local resumable backend with a valid handle" do
       assert SessionResume.resume_thread_id("codex", nil, {:ok, %{thread_id: "thr_1"}}) == "thr_1"
       assert SessionResume.resume_thread_id("claude-repl", nil, {:ok, %{thread_id: "sess_1"}}) == "sess_1"
+      assert SessionResume.resume_thread_id("muse", nil, {:ok, %{thread_id: "native-session"}}) == "native-session"
+      assert SessionResume.resume_thread_id("muse", "other-host", {:ok, %{thread_id: "native-session"}}) == nil
 
       assert SessionResume.resume_thread_id("codex", "box-2", {:ok, %{thread_id: "thr_1"}}) == nil
       assert SessionResume.resume_thread_id("codex", nil, :none) == nil
@@ -45,6 +47,9 @@ defmodule Aiur.AgentRunner.SessionResumeTest do
 
       assert {:ok, %{backend: "claude-repl", thread_id: "sess_9"}} =
                SessionResume.session_handle_to_save(%{backend: "claude-repl", thread_id: "sess_9"}, nil)
+
+      assert {:ok, %{backend: "muse", thread_id: "native-session"}} =
+               SessionResume.session_handle_to_save(%{backend: "muse", thread_id: "native-session"}, nil)
 
       assert :skip = SessionResume.session_handle_to_save(%{backend: "codex", thread_id: "thr_9"}, "box-2")
       assert :skip = SessionResume.session_handle_to_save(%{backend: "claude", thread_id: "thr_9"}, nil)

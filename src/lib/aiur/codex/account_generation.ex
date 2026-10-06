@@ -1,7 +1,7 @@
 defmodule Aiur.Codex.AccountGeneration do
   @moduledoc false
 
-  alias Aiur.Codex.{AccountGeneration.Context, RateLimitAdapter, RateLimits}
+  alias Aiur.Codex.{AccountGeneration.Context, ExhaustedReset, RateLimitAdapter, RateLimits}
   alias Aiur.{ProviderAccountGeneration, ProviderMeters}
 
   @account_updated "account/updated"
@@ -35,6 +35,10 @@ defmodule Aiur.Codex.AccountGeneration do
   end
 
   def handle_notification(session, @rate_limits_updated, payload) when is_map(session) and is_map(payload) do
+    # The exhausted window's numeric reset is kept even when the meter rejects
+    # the patch: a usage-limit pause needs it, not the account generation.
+    ExhaustedReset.observe(session, raw_rate_limits(payload))
+
     case submit_rate_limit_patch(session, raw_rate_limits(payload)) do
       result when result in [:ok, :ignore] ->
         rate_limits = RateLimits.from_notification(payload)
@@ -71,6 +75,8 @@ defmodule Aiur.Codex.AccountGeneration do
   def observe_rate_limit_snapshot(session, response, opts \\ [])
 
   def observe_rate_limit_snapshot(session, response, opts) when is_map(session) and is_map(response) do
+    ExhaustedReset.observe_snapshot(session, response)
+
     case submit_rate_limit_snapshot(session, response, opts) do
       result when result in [:ok, :ignore] ->
         rate_limits = RateLimits.from_read_response(response)
@@ -96,6 +102,7 @@ defmodule Aiur.Codex.AccountGeneration do
 
   @spec process_stopped(map()) :: :ok
   def process_stopped(session) when is_map(session) do
+    ExhaustedReset.clear(session)
     retire_binding(session, :continuity_lost)
     Context.clear(session)
     :ok

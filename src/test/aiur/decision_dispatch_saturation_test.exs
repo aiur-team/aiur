@@ -10,6 +10,7 @@ defmodule Aiur.DecisionDispatchSaturationTest do
     log_root = Aiur.TestSupport.tmp_root!("aiur-decision-dispatch-saturation")
     original_log_file = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    Aiur.TestSupport.put_runtime_state_dir!(log_root)
 
     on_exit(fn ->
       if original_log_file,

@@ -9,6 +9,22 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
   @repository {"owner", "repo"}
   @now ~U[2026-07-15 12:00:00Z]
 
+  test "retry_due? honours a recorded retry time and backs off a failure that recorded none" do
+    assert Policy.retry_due?(ProviderHealth.new(:unknown, :unavailable, false), @now)
+
+    retry_at = DateTime.add(@now, 30, :second)
+    scheduled = ProviderHealth.new(:unknown, :unavailable, false, failure: :rate_limited, retry_count: 1, next_retry_at: retry_at)
+    refute Policy.retry_due?(scheduled, DateTime.add(retry_at, -1, :millisecond))
+    assert Policy.retry_due?(scheduled, retry_at)
+
+    # A failure with no recorded retry time still waits the minimum backoff from
+    # its last attempt, so it is never repeated back to back.
+    unscheduled = ProviderHealth.new(:unknown, :unavailable, false, failure: :transport, retry_count: 1, last_attempt_at: @now)
+    refute Policy.retry_due?(unscheduled, @now)
+    refute Policy.retry_due?(unscheduled, DateTime.add(@now, 999, :millisecond))
+    assert Policy.retry_due?(unscheduled, DateTime.add(@now, 1_000, :millisecond))
+  end
+
   test "catalog freshness becomes due at exact boundaries" do
     baseline_ms = 1_000
     policy = Options.new(clock_ms: fn -> baseline_ms end).policy

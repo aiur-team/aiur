@@ -235,6 +235,11 @@ defmodule Aiur.Opencode.ChatCompletions.TurnStream do
     Sse.chunk(conn, completion_id, nil, Sse.finish_reason_for(r))
   end
 
+  defp finalize_stream(conn, completion_id, :paused) do
+    conn = Sse.chunk(conn, completion_id, "\n**system:** Agent is paused. Resume the agent to continue.", nil)
+    Sse.chunk(conn, completion_id, nil, Sse.finish_reason_for(:paused))
+  end
+
   defp finalize_stream(conn, completion_id, :input_required = r) do
     conn =
       Sse.chunk(

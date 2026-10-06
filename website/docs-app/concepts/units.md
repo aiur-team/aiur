@@ -62,6 +62,18 @@ Configure `elevenlabs.voice_id` and grant the key **Text to Speech** permission 
 
 ## Usage and cost
 
+Muse allowance meters show the current and weekly windows reported by its native
+CLI. These are observations from a live local host, labeled **account unverified**;
+they are not account bindings or admission evidence.
+
+The dashboard renders the observation age and marks retained readings **Stale**
+after a failed refresh or when they age out; readings disappear when their host
+is retired. Missing readings remain unknown, while percentages above 100% retain
+their reported value (the visual bar stops at 100%).
+
+Token usage and context capacity are separate from these allowance windows;
+missing capacity or pricing is not treated as zero.
+
 The authenticated Usage and cost summary follows **Tokens by model** with **Cost by provider route**.
 
 | Route case | How it reads |
@@ -87,8 +99,11 @@ The Tickets panel covers every open repository ticket, including work that has n
 | Tickets panel | Shows identifier, title, and labels for the entire open backlog. |
 | Ticket row | Opens ticket detail. |
 | Robot action | Opens an editable routing preview for agent, model, effort, and complexity. |
-| Confirm add-agent | Applies the first active-state label and selected routing overrides. |
+| Confirm add-agent | Saves selected routing overrides asynchronously, adding the first active-state label only when no lifecycle state exists. The dialog closes after successful writes and reports dispatch authorization separately from scheduler admission. |
+| Check admission | Rechecks an already labelled ticket without rewriting its labels. Authorization can still decline; an allowed GitHub operator must remove and reapply the trigger label using their own account. |
 | Non-GitHub tracker | Reports the panel as unsupported. |
+
+While the request runs, duplicate submission is disabled and Close stays responsive. Partial failures retain applied changes and retry only the remaining label changes. Successful label writes do not prove an agent is running: pause, prewarm, capacity, and dependency gates can still hold dispatch. See [GitHub trust](/apis/github#who-aiur-trusts).
 
 ### Reveal and search
 
