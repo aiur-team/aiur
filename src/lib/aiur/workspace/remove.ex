@@ -122,6 +122,11 @@ defmodule Aiur.Workspace.Remove do
       "    echo 'workspace has uncommitted changes; not removed' >&2",
       "    exit #{@remote_dirty_status}",
       "  fi",
+      "  unpushed=$(git -C \"$workspace\" rev-list HEAD --not --remotes 2>/dev/null) || exit #{@remote_status_failed}",
+      "  if [ -n \"$unpushed\" ]; then",
+      "    echo 'workspace has commits not present on any remote; not removed' >&2",
+      "    exit #{@remote_dirty_status}",
+      "  fi",
       "fi"
     ]
     |> Enum.join("\n")
