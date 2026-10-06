@@ -355,6 +355,13 @@ defmodule Aiur.DogfoodHooksTest do
     refute output =~ "Could not abort the conflicting merge"
     refute File.exists?(Path.join(workspace, "logs/before-run-merge-conflict.md"))
     assert File.read!(Path.join(workspace, "collide.txt")) == "untracked workspace file\n"
+
+    assert {example_output, example_status} = run_hook_from(@example_hooks_path, "before_run", workspace, context.origin)
+    assert example_status != 0
+    assert example_output =~ "without file conflicts"
+    refute example_output =~ "Could not abort the conflicting merge"
+    refute File.exists?(Path.join(workspace, "logs/before-run-merge-conflict.md"))
+    assert File.read!(Path.join(workspace, "collide.txt")) == "untracked workspace file\n"
   end
 
   test "before_run refuses to overwrite tracked WIP", context do

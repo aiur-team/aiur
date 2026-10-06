@@ -90,11 +90,14 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       prior_work_prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, workspace: workspace], 1, nil)
       next_turn_prompt = TurnPrompt.build_turn_prompt(issue, [workspace: workspace], 2, nil)
 
-      for prompt <- [resumed_prompt, cold_prompt, prior_work_prompt, next_turn_prompt] do
+      for prompt <- [resumed_prompt, cold_prompt, prior_work_prompt] do
         assert prompt =~ "Merge `origin/$AIUR_BASE_BRANCH` and resolve these files"
         assert prompt =~ "- `src/example.ex`"
         assert prompt =~ "- `test/example_test.exs`"
       end
+
+      refute next_turn_prompt =~ "Merge `origin/$AIUR_BASE_BRANCH` and resolve these files"
+      refute next_turn_prompt =~ "src/example.ex"
 
       refute resumed_prompt =~ workspace
     end

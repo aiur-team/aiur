@@ -23,8 +23,6 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   end
 
   def build_turn_prompt(_issue, opts, turn_number, max_turns) do
-    workspace = Keyword.get(opts, :workspace)
-
     prompt = """
     Continuation guidance:
 
@@ -40,7 +38,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
     #{PromptBuilder.rename_test_audit_restatement()}
     """
 
-    prompt <> conflict_guidance(workspace)
+    prompt
   end
 
   defp conflict_guidance(workspace) when is_binary(workspace) do
