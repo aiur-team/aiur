@@ -131,7 +131,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       assert log =~ "ignored for idle issue"
       assert log =~ ":stale_review"
-      assert_receive {:lifecycle, :lifecycle, %{event: "comment_wake_skipped", reason_class: "stale_review"}}
+      assert_receive {:lifecycle, :lifecycle, %{event: "comment_wake_skipped", reason_class: "stale_review"}}, 1_000
     end
 
     test "does not route a ticket whose pull request is APPROVED" do
@@ -203,7 +203,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       CommentWake.maybe_transition_idle_issue_to_rework(base_state(), "1747", :pr_review, event, 1)
 
-      assert_receive {:lifecycle, :lifecycle, attributes}
+      assert_receive {:lifecycle, :lifecycle, attributes}, 1_000
       assert attributes.event == "comment_wake_skipped"
       assert attributes.reason_class == "approved_pull_request"
       assert attributes.source_id == "comment:5424650936"
@@ -454,7 +454,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       refute log =~ "rework transition skipped"
       assert result == state
       assert state.comment_rework_retries == %{}
-      assert_receive {:lifecycle, :lifecycle, attributes}
+      assert_receive {:lifecycle, :lifecycle, attributes}, 1_000
       assert attributes.event == "comment_wake_skipped"
       assert attributes.reason_class == "no_unresolved_review_threads"
       assert attributes.source_id == "comment:5424650936"
@@ -745,7 +745,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
     CommentWake.maybe_transition_idle_issue_to_rework(base_state(), "2817", :pr_review, event, 1)
 
-    assert_receive {:lifecycle, :lifecycle, attributes}
+    assert_receive {:lifecycle, :lifecycle, attributes}, 1_000
     assert attributes.event == "comment_wake_skipped"
     assert attributes.reason_class == "permanent_failure"
     assert attributes.source_id == "comment:5424650936"
@@ -764,7 +764,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
     CommentWake.maybe_transition_idle_issue_to_rework(base_state(), "2817", :pr_review, event, 5)
 
-    assert_receive {:lifecycle, :lifecycle, attributes}
+    assert_receive {:lifecycle, :lifecycle, attributes}, 1_000
     assert attributes.event == "comment_wake_skipped"
     assert attributes.reason_class == "retry_exhausted"
     assert attributes.source_id == "comment:5424650936"
