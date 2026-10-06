@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.Budget do
   """
 
   alias Aiur.{Alerts, Config}
-  alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy, GraphQLErrors, Transport}
+  alias Aiur.GitHub.{BudgetBroker, CredentialHeadroom, EndpointPolicy, GraphQLErrors, Transport}
 
   require Logger
 
@@ -543,10 +543,10 @@ defmodule Aiur.GitHub.Budget do
     # Explicit executable/script injection retains the one-shot interface for
     # diagnostic fixtures and older broker variants. The supervised production
     # daemon always uses its single resident broker.
-    server = Keyword.get(opts, :broker_server, Aiur.GitHub.BudgetBroker)
+    server = Keyword.get(opts, :broker_server, BudgetBroker)
 
-    if (Keyword.has_key?(opts, :broker_server) || Process.whereis(Aiur.GitHub.BudgetBroker)) && not Keyword.has_key?(opts, :broker_path) && python == System.find_executable("python3") do
-      Aiur.GitHub.BudgetBroker.command(server, broker, args, deadline_at)
+    if (Keyword.has_key?(opts, :broker_server) || Process.whereis(BudgetBroker)) && not Keyword.has_key?(opts, :broker_path) && python == System.find_executable("python3") do
+      BudgetBroker.command(server, broker, args, deadline_at)
     else
       port_command(python, command_args, deadline_at)
     end
