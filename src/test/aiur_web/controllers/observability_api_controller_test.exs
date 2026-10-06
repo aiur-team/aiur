@@ -4,7 +4,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   import Plug.Conn
   import Plug.Test
 
-  alias Aiur.{Claude.HookEvents, DecisionStore, IssueLog}
+  alias Aiur.{Claude.HookEvents, Config, DecisionStore, IssueLog}
   alias Aiur.Orchestrator.SnapshotStore
 
   defmodule ControlOrchestrator do
@@ -202,6 +202,24 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   end
 
   describe "POST /api/v1/:id/pause and /resume" do
+    test "dashboard writes are allowed when dashboard_writable is omitted" do
+      orchestrator = start_control_orchestrator(pause_agent: {:ok, 17}, recipient: self())
+      Phoenix.Config.put(AiurWeb.Endpoint, :orchestrator, orchestrator)
+
+      # HttpServer obtains its endpoint value from the config schema. Resolve
+      # that value as startup does so this request exercises the default.
+      assert Config.dashboard_writable?() == true
+      Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, Config.dashboard_writable?())
+
+      assert json_response(call(control_conn("MT-DEFAULT", "pause")), 202) == %{
+               "action" => "pause",
+               "issue_identifier" => "MT-DEFAULT",
+               "result" => 17
+             }
+
+      assert_receive {:control_call, :pause, "MT-DEFAULT"}, 1_000
+    end
+
     test "delegates pause and resume and returns their successful results" do
       orchestrator =
         start_control_orchestrator(
