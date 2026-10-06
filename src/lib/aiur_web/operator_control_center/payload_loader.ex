@@ -3,8 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
 
   import Phoenix.Component, only: [assign: 3]
 
-  alias Aiur.PollCadence
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.PollCadence
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, Endpoint}
   alias AiurWeb.OperatorControlCenter.{DecisionProvider, TicketsPresenter, UnitsPresenter}
 
