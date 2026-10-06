@@ -642,7 +642,7 @@ environment-variable equivalents; the check also stays silent in CI runs.
 
 Both capture clients stream audio to Aiur, and Aiur calls ElevenLabs with the credential below; interactive conversation also streams speech audio back to the browser. This is the only place the credential is configured, and neither the sidecar nor the browser holds it.
 
-This optional section backs Stream Deck voice input, Dashboard dictation, and interactive spoken replies. `aiur init` records a declined voice-input prompt as `enabled: false`, so resumed setup does not ask again.
+This optional section configures voice features; `aiur init` records declines as `enabled: false` and skips them on resume.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
