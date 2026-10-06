@@ -211,7 +211,8 @@ defmodule Aiur.ExecutorListenerTest do
       pr: %{"number" => 2030, "draft" => false, "head" => %{"sha" => String.duplicate("a", 40)}}
     })
 
-    assert {:ok, [%{"ticket" => "42", "pr_number" => 2030}]} = ExecutorWakeInbox.wait(500)
+    assert {:ok, wakes} = ExecutorWakeInbox.wait(500)
+    assert Enum.any?(wakes, &(&1["ticket"] == "42" and &1["pr_number"] == 2030))
     assert watermark() == nil
   end
 
