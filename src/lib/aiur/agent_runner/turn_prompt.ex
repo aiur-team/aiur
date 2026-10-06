@@ -76,7 +76,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
           """
         end
 
-      _missing_or_legacy_heading ->
+      [_missing_or_legacy_heading] ->
         ""
     end
   end
@@ -91,7 +91,7 @@ defmodule Aiur.AgentRunner.TurnPrompt do
   # `Aiur.AgentRunner.TurnProgress.prompt_digest/1` strips it (it matches on the
   # "- Aiur observed that the last N turn" opening). Keep that opening intact if
   # this wording changes, or the no-op counter can never reach its cap.
-  defp noop_run_bullet(opts) when is_list(opts) do
+  defp noop_run_bullet(opts) do
     case Keyword.get(opts, :turn_progress) do
       %{consecutive_noops: noops} when is_integer(noops) and noops > 0 ->
         "\n    - Aiur observed that the last #{noops} turn(s) changed nothing it can see: no commit, no push, " <>
@@ -104,8 +104,6 @@ defmodule Aiur.AgentRunner.TurnPrompt do
         ""
     end
   end
-
-  defp noop_run_bullet(_opts), do: ""
 
   @doc """
   Which first-turn prompt a dispatch gets.
