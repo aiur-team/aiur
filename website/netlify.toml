@@ -2,6 +2,13 @@
   base = "website"
   command = "bun install && bun run build && cd docs-app && bun install && bun run build"
   publish = "dist"
+  # Production deploys are manual. Each one costs 15 Netlify credits from a
+  # pool shared with khala.aiur.team and archon.aiur.team, so a merge to main
+  # must not publish aiur.team. Exit 0 cancels the build: every production
+  # build Netlify starts from a push is skipped. A deploy preview still builds
+  # when something under website/ changed. To publish, build locally, then run
+  # `netlify deploy --prod --dir website/dist`.
+  ignore = 'if [ "$CONTEXT" = production ]; then exit 0; fi; git diff --quiet "$CACHED_COMMIT_REF" "$COMMIT_REF" -- .'
 
 [build.environment]
   NODE_VERSION = "20"
