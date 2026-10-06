@@ -14,7 +14,7 @@ defmodule Aiur.RunTelemetry.Lifecycle do
 
   @events ~w(
     dispatch prewarm workspace_setup workspace_ownership agent_spinup implement build_test
-    pr_opened pr_merged review_pause comment_received rework_start
+    pr_opened pr_merged review_pause comment_received comment_wake_skipped rework_start
     agent_pause agent_resume
   )
   @boundaries ~w(start end point)

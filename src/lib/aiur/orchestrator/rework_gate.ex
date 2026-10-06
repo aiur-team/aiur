@@ -227,7 +227,10 @@ defmodule Aiur.Orchestrator.ReworkGate do
   indefinitely: if rework completes and the gating signal has not moved, that
   is a *stuck* condition, not a review finding. The bound turns an unbounded
   slot leak into a single attention (#2422). A new head SHA starts a fresh
-  count, so a genuine rework push is never affected.
+  count, so a genuine rework push is never affected. A new, uniquely identified
+  formal CHANGES_REQUESTED review is also fresh reviewer input even when the
+  head is unchanged; pass its `:review_submission_id` so the per-head bound
+  does not swallow that one-time event. All other callers keep the bound.
 
   Returns:
     * `{:ok, state}` — the bound is not exhausted for `{issue_id, head_sha}`;
@@ -240,10 +243,24 @@ defmodule Aiur.Orchestrator.ReworkGate do
           {:ok, State.t()} | {:skip, :rework_attempt_limit_reached, State.t()}
   def verify_rework_attempt(%State{} = state, issue_id, head_sha, opts \\ [])
       when is_binary(issue_id) do
-    if State.rework_attempt_limit_reached?(state, issue_id, head_sha) do
+    if State.rework_attempt_limit_reached?(state, issue_id, head_sha) and
+         not fresh_review_submission?(opts) do
       {:skip, :rework_attempt_limit_reached, raise_rework_attempt_attention(state, issue_id, head_sha, opts)}
     else
       {:ok, state}
+    end
+  end
+
+  # A newly delivered, uniquely identified CHANGES_REQUESTED review is new
+  # reviewer input even when the PR head is unchanged. The publisher and
+  # poller's durable review identity prevent this same submission from being
+  # re-derived, so the per-head loop bound must not suppress it. Other callers
+  # (including sticky review state and reconciliation) keep the bound.
+  defp fresh_review_submission?(opts) do
+    case Keyword.get(opts, :review_submission_id) do
+      id when is_integer(id) -> true
+      id when is_binary(id) -> String.trim(id) != ""
+      _other -> false
     end
   end
 

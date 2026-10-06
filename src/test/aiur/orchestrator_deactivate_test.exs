@@ -4057,7 +4057,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
              }
     end
 
-    test "direct comment poll keeps unchanged human-review issues eligible" do
+    test "direct comment poll skips unchanged human-review issues" do
       parent = self()
       updated_at = "2026-06-24T12:00:00Z"
 
@@ -4100,9 +4100,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert next.github_comments_since == %{"57" => "2026-06-24T11:59:59Z"}
       assert next.github_comment_issue_updated_at == %{"57" => updated_at}
-      # Unchanged issue and PR timestamps must not suppress this target before
-      # the formal-review collection can be polled.
-      assert_received {:unexpected_comment_request, "https://api.github.com/graphql"}
+      # The synchronous poll return proves all eligible requests were issued.
+      refute_received {:unexpected_comment_request, _url}
     end
 
     test "direct comment poll checks unchanged human-review issue when open PR changed" do

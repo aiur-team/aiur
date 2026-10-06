@@ -193,11 +193,6 @@ does not count against GitHub's primary REST limit, so repeatedly sweeping quiet
 tickets is free rather than merely cheap. Validators are kept on disk, so a
 restart does not force a full-price re-read.
 
-Tickets in `human-review`, `merging`, and `rework` remain eligible for review
-submission polling even when the issue and pull request `updated_at` values have
-not changed. Those timestamps do not reliably signal a new formal review; the
-reviews collection's own ETag determines whether it changed.
-
 When a worker starts or restarts, its bootstrap digest also re-reads the open
 PR's formal review submissions. This strict read revalidates the held review
 list with `If-None-Match`; a missing body or changed list is fetched from GitHub.

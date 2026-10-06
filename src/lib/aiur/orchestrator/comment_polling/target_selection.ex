@@ -240,6 +240,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
           issues
           |> capped_review_targets(state, opts)
           |> Enum.map(&with_human_review_pr_updated_at(&1, opts))
+          |> Enum.reject(&unchanged_human_review_comment_target?(state, &1))
 
         {:ok, targets}
 
@@ -280,14 +281,10 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   defp issue_list_cache(%State{github_comment_issue_list_cache: cache}), do: cache
 
   defp human_review_targets_from_issues(state, issues, opts) do
-    # Keep every capped review-state ticket eligible for `/reviews` polling.
-    # A formal review does not necessarily change either the issue or PR
-    # updated_at, so using those timestamps to suppress the whole target can
-    # consume a review before CommentWake ever sees it. Conditional ETags keep
-    # unchanged comment and review collections cheap.
     issues
     |> capped_review_targets(state, opts)
     |> Enum.map(&with_human_review_pr_updated_at(&1, opts))
+    |> Enum.reject(&unchanged_human_review_comment_target?(state, &1))
   end
 
   # Orders the review-state population and applies the per-poll cap.
@@ -413,6 +410,16 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
     end)
     |> Map.values()
   end
+
+  defp unchanged_human_review_comment_target?(
+         %State{github_comment_issue_updated_at: updated_at_by_target},
+         %{target: target, updated_at: updated_at}
+       )
+       when is_binary(updated_at) do
+    Map.get(updated_at_by_target, target) == updated_at
+  end
+
+  defp unchanged_human_review_comment_target?(_state, _target), do: false
 
   defp human_review_comment_target_sort_key(
          %State{

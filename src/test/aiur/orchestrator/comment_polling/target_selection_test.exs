@@ -102,34 +102,6 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
              poll_targets.("rework", second_head_review_at)
   end
 
-  test "keeps polling reviews when the issue and PR timestamps have not changed" do
-    issue_updated_at = "2026-10-06T06:00:00Z"
-    pr_updated_at = "2026-10-06T05:00:00Z"
-    freshness_key = "issue=#{issue_updated_at};pr=#{pr_updated_at}"
-
-    state = %State{
-      running: %{},
-      github_comments_since: %{},
-      github_comment_issue_updated_at: %{"2817" => freshness_key}
-    }
-
-    opts = [
-      review_issue_fetcher: fn ["human-review", "merging", "rework"] ->
-        {:ok, [%Issue{id: "2817", identifier: "2817", state: "human-review", updated_at: issue_updated_at}]}
-      end,
-      review_pull_request_fetcher: fn "2817" ->
-        {:ok, %{"number" => 2936, "updated_at" => pr_updated_at}}
-      end,
-      watch_pull_request_fetcher: fn "agent:watch" -> {:ok, []} end
-    ]
-
-    # A formal review can arrive without changing either timestamp. The review
-    # endpoint must still be eligible for polling; its own ETag answers whether
-    # the underlying review collection changed.
-    assert {:ok, ["2817"], [%{target: "2817", updated_at: ^freshness_key}], []} =
-             TargetSelection.github_comment_poll_targets(state, opts)
-  end
-
   test "stops target assembly when review issue refresh fails" do
     parent = self()
 
