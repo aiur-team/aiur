@@ -68,6 +68,7 @@ defmodule Aiur.AgentEvents do
           optional(:tracker_identity) => Aiur.TrackerIdentity.t(),
           optional(:backend) => String.t(),
           optional(:model) => String.t(),
+          optional(:telemetry_attempt_id) => String.t(),
           optional(:context_usage) => map()
         }
 
@@ -228,7 +229,7 @@ defmodule Aiur.AgentEvents do
   Build an `agent_summary` map and merge in the optional `extras`
   fields (`:tag`, `:title`, `:runtime_seconds`, `:turn_count`,
   `:work_state`, `:pause_reason`, `:tracker_paused`, `:tracker_identity`,
-  `:backend`, `:model`, `:context_usage`).
+  `:backend`, `:model`, `:context_usage`, `:telemetry_attempt_id`).
   Extras with `nil` values are
   filtered so callers can unconditionally pass `Map.get(entry, :title)`
   (or an unpinned `CodingAgent.model_for/1`) without polluting the
