@@ -1,10 +1,10 @@
 defmodule Aiur.AppServer.OperatorDeliveryTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AgentRunner.CheckpointDelivery
   alias Aiur.AgentQueueStore
-  alias Aiur.Orchestrator.{OperatorMessages, State}
+  alias Aiur.AgentRunner.CheckpointDelivery
   alias Aiur.AppServer.{Interrupts, OperatorDelivery}
+  alias Aiur.Orchestrator.{OperatorMessages, State}
 
   defmodule StubBackend do
     def send_operator_message(session, message) do

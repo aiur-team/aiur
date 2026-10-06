@@ -82,7 +82,8 @@ defmodule Aiur.AppServer.InterruptsTest do
     assert Interrupts.handle_no_active_turn_error(state, error) ==
              {:ok, :turn_interrupted_for_operator_message}
 
-    assert_receive {:operator_request_failed, {:turn_interrupted, %{"error" => ^error, "status" => "interrupted"}}}
+    assert_receive {:operator_request_failed, {:turn_interrupted, %{"error" => ^error, "status" => "interrupted"}}},
+                   1000
   end
 
   defp session do

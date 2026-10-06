@@ -69,18 +69,16 @@ defmodule Aiur.AppServer.Interrupts do
 
       handle_retired_turn_interrupt(state, error)
     else
-      cond do
-        state.interrupt_action in [:pause, :operator_message] ->
-          TurnState.continue_after_turn_interrupted(
-            %{state | pending_interrupt_request_id: nil},
-            %{"error" => error, "status" => "interrupted"},
-            :preserve
-          )
-
-        true ->
-          state
-          |> Map.put(:pending_interrupt_request_id, nil)
-          |> TurnState.complete_all_provider_turns()
+      if state.interrupt_action in [:pause, :operator_message] do
+        TurnState.continue_after_turn_interrupted(
+          %{state | pending_interrupt_request_id: nil},
+          %{"error" => error, "status" => "interrupted"},
+          :preserve
+        )
+      else
+        state
+        |> Map.put(:pending_interrupt_request_id, nil)
+        |> TurnState.complete_all_provider_turns()
       end
     end
   end
