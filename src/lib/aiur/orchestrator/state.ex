@@ -85,6 +85,7 @@ defmodule Aiur.Orchestrator.State do
           waiting_for_human_episodes: %{optional(String.t()) => %{since: DateTime.t(), alerted?: boolean()}},
           observed_error_alert_causes: %{optional(String.t()) => atom()},
           dispatch_capacity_constraints: [map()],
+          dispatch_selection_hold: map() | nil,
           dispatch_declines: %{optional(String.t()) => term()},
           dispatch_capacity_sample: %{
             load: number() | :unavailable,
@@ -263,6 +264,7 @@ defmodule Aiur.Orchestrator.State do
     waiting_for_human_episodes: %{},
     observed_error_alert_causes: %{},
     dispatch_capacity_constraints: [],
+    dispatch_selection_hold: nil,
     dispatch_declines: %{},
     dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil},
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},

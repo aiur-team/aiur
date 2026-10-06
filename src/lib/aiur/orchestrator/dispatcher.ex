@@ -30,6 +30,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     CiLifecycle,
     CommandScan,
     CommentPolling,
+    DispatchOutcome,
     DispatchPolicy,
     IssueSync,
     Lifecycle,
@@ -766,28 +767,31 @@ defmodule Aiur.Orchestrator.Dispatcher do
       when is_list(issues) and is_function(trigger_fun, 0) and is_list(opts) do
     # Constraints are re-sampled every tick, so a stale gate never lingers in
     # `status` after the condition clears.
-    state = %{state | dispatch_capacity_constraints: []}
+    state = %{state | dispatch_capacity_constraints: [], dispatch_selection_hold: nil}
 
     enabled? = Config.prewarm_enabled?()
     phase = if enabled?, do: trigger_fun.(), else: :ready
     log_fun = Keyword.get(opts, :log_fun, &Logger.info/1)
     admission_probes_fun = Keyword.get(opts, :admission_probes_fun, &admission_probes/0)
 
-    case DispatchPolicy.prewarm_gate(enabled?, phase) do
-      :dispatch ->
-        maybe_log_base_error(phase)
+    next =
+      case DispatchPolicy.prewarm_gate(enabled?, phase) do
+        :dispatch ->
+          maybe_log_base_error(phase)
 
-        state
-        |> clear_prewarm_blocked_alert(phase)
-        |> Map.put(:prewarm_hold_ticks, 0)
-        |> maybe_choose_under_load(issues, &maybe_choose/2, admission_probes_fun: admission_probes_fun)
+          state
+          |> clear_prewarm_blocked_alert(phase)
+          |> Map.put(:prewarm_hold_ticks, 0)
+          |> maybe_choose_under_load(issues, fn sampled, candidates -> maybe_choose(sampled, candidates, opts) end, admission_probes_fun: admission_probes_fun)
 
-      :hold ->
-        state
-        |> maybe_sample_host_pressure_under_prewarm_hold(issues, admission_probes_fun, opts)
-        |> log_prewarm_hold(phase, log_fun)
-        |> maybe_emit_prewarm_blocked_alert(phase)
-    end
+        :hold ->
+          state
+          |> maybe_sample_host_pressure_under_prewarm_hold(issues, admission_probes_fun, opts)
+          |> log_prewarm_hold(phase, log_fun)
+          |> maybe_emit_prewarm_blocked_alert(phase)
+      end
+
+    DispatchOutcome.record(state, next, issues, log_fun)
   end
 
   # Raises `system.dispatch.prewarm_blocked` only once a prewarm hold has
@@ -1022,6 +1026,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
         }
     }
   end
+
+  defp tracker_preflight_detail({:github_auth_preflight_failed, %{reason: :local_hold, detail: %{hold: %{reason: reason, resource: resource}}}}),
+    do: "#{reason} (#{resource})"
 
   defp tracker_preflight_detail({:github_auth_preflight_failed, diagnostic}) when is_map(diagnostic) do
     Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
@@ -2429,8 +2436,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
     RepoBase.refresh_for_dispatch()
   end
 
-  defp maybe_choose(state, issues) do
-    if Slots.available_slots(state) > 0, do: choose_issues(state, issues), else: state
+  defp maybe_choose(state, issues), do: maybe_choose(state, issues, [])
+
+  defp maybe_choose(state, issues, opts) do
+    if Slots.available_slots(state) > 0, do: choose_issues(state, issues, opts), else: state
   end
 
   # Records the load envelope as a capacity constraint only when it is a genuine
