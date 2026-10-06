@@ -154,6 +154,9 @@ defmodule Aiur.Workspace.RefreshTest do
     test_root: test_root
   } do
     init_repo!(workspace)
+    File.write!(Path.join(workspace, ".gitignore"), "leftover-sentinel\n.aiur-runtime/\n")
+    git!(["-C", workspace, "add", ".gitignore"])
+    git!(["-C", workspace, "commit", "--quiet", "-m", "ignore reconstruction sentinel"])
     File.write!(Path.join(workspace, "leftover-sentinel"), "leftover")
 
     fake_gh = Path.join(test_root, "system-bin/gh")
