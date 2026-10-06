@@ -12,8 +12,8 @@ defmodule Aiur.CurrentRunProjectionsTest do
   alias Aiur.CurrentRunOutcomeSnapshot.MembershipIndex
   alias Aiur.CurrentRunProjections.{Checkpoint, Projector, SourceAdapter, State}
   alias Aiur.Orchestrator.SnapshotStore
-  alias AiurWeb.OperatorControlCenter.RunSummaryPresenter
   alias AiurWeb.ObservabilityPubSub
+  alias AiurWeb.OperatorControlCenter.RunSummaryPresenter
 
   test "refreshes both projections, publishes changes, and serves read APIs" do
     {source, owner, pubsub} = start_owner()
