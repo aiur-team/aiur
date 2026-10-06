@@ -1,6 +1,7 @@
 defmodule Aiur.DogfoodHooksTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentRunner.TurnLoop
   alias Aiur.Workspace.Reconstruction
 
   @hooks_path Path.expand("../../../.aiur/hooks", __DIR__)
@@ -316,9 +317,10 @@ defmodule Aiur.DogfoodHooksTest do
     assert File.read!(Path.join(workspace, "logs/before-run-merge-conflict.md")) =~ "## Conflicting files\n- README.md"
 
     rendered_prompt =
-      Aiur.AgentRunner.TurnPrompt.build_turn_prompt(
+      TurnLoop.build_turn_prompt(
         %Aiur.Issue{id: "3011", identifier: "3011", title: "Resolve base conflict"},
-        [resumed: true, workspace: workspace],
+        workspace,
+        [resumed: true],
         1,
         nil
       )
