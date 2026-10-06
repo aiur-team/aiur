@@ -39,6 +39,32 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   def sync_polled_issue_state(%State{} = state, _issues), do: state
 
+  @doc false
+  @spec observe_human_review_handoffs(State.t(), list()) :: State.t()
+  def observe_human_review_handoffs(%State{} = state, issues) when is_list(issues) do
+    Enum.reduce(issues, state, fn
+      %Issue{state: current_state} = issue, state_acc ->
+        if DispatchPolicy.state_slug(current_state) == "human-review" do
+          previous_issue = Map.get(state_acc.last_polled_issues, issue.id)
+          previous_state = previous_issue && DispatchPolicy.state_slug(previous_issue.state)
+          previously_observed_error? = MapSet.member?(state_acc.observed_error_alerts, issue.id)
+
+          if (previous_state && previous_state != "human-review") || previously_observed_error? do
+            publish_human_review_handoff(issue)
+          end
+
+          state_acc
+          |> resolve_observed_error_transition_alert(issue)
+          |> put_in([Access.key!(:last_polled_issues), issue.id], issue)
+        else
+          state_acc
+        end
+
+      _other, state_acc ->
+        state_acc
+    end)
+  end
+
   @doc """
   Heals polled issues that observe more than one `agent:*` state label.
 
@@ -1090,7 +1116,7 @@ defmodule Aiur.Orchestrator.IssueSync do
         )
 
         publish_human_review_handoff(issue)
-        clear_observed_error_alert(state, issue.id)
+        resolve_observed_error_transition_alert(state, issue)
 
       previous_state == "error" ->
         resolve_observed_error_transition_alert(state, issue)
@@ -1129,26 +1155,21 @@ defmodule Aiur.Orchestrator.IssueSync do
     )
   end
 
-  defp human_review_pr_details(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository}, id: id, branch_name: branch_name})
-       when is_binary(id) and is_binary(branch_name) do
+  defp human_review_pr_details(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository}, id: id})
+       when is_binary(id) do
     key = ResourceStore.key_for_repo(:branch_pull_request_listing, "#{owner}/#{repository}", id)
-    key |> ResourceStore.data() |> human_review_pr_listing_identity(branch_name)
+    key |> ResourceStore.data() |> human_review_pr_listing_identity()
   rescue
     _ -> {nil, nil}
   end
 
   defp human_review_pr_details(_issue), do: {nil, nil}
 
-  defp human_review_pr_listing_identity(%{"head" => %{"ref" => ref}} = pull_request, branch_name) when ref == branch_name,
-    do: human_review_pr_identity(pull_request)
+  defp human_review_pr_listing_identity(%{} = pull_request), do: human_review_pr_identity(pull_request)
 
-  defp human_review_pr_listing_identity(pull_requests, branch_name) when is_list(pull_requests),
-    do: pull_requests |> Enum.find(&human_review_pr_branch?(&1, branch_name)) |> human_review_pr_identity()
+  defp human_review_pr_listing_identity([pull_request | _rest]), do: human_review_pr_identity(pull_request)
 
-  defp human_review_pr_listing_identity(_listing, _branch_name), do: {nil, nil}
-
-  defp human_review_pr_branch?(%{"head" => %{"ref" => ref}}, branch_name), do: ref == branch_name
-  defp human_review_pr_branch?(_pull_request, _branch_name), do: false
+  defp human_review_pr_listing_identity(_listing), do: {nil, nil}
 
   defp human_review_pr_identity(%{"number" => number, "head" => %{"sha" => sha}}) when is_integer(number) and is_binary(sha),
     do: {number, sha}

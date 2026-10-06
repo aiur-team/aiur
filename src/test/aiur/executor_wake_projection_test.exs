@@ -109,6 +109,17 @@ defmodule Aiur.ExecutorWakeProjectionTest do
     assert record["action"] == "human_review"
   end
 
+  test "projects the handoff action and legacy pull-request number fallbacks" do
+    assert {:ok, record} =
+             ExecutorWakeProjection.project(%{
+               topic: "ticket.42.agent.handoff.human_review",
+               pull_request_number: 3019
+             })
+
+    assert record["action"] == "human_review"
+    assert record["pr_number"] == 3019
+  end
+
   test "only a trusted GitHub-stamped event retains author trust" do
     codeowners = trust_author!("trusted-reviewer")
     on_exit(fn -> restore_codeowners(codeowners) end)

@@ -310,8 +310,8 @@ recorded authority. Do not combine the separate `--todo` command with launch
 options.
 
 Verify `status` immediately after launch. A healthy launch reports
-`LISTENER present (27 bindings: executor.#, ...)`; a partial binding set reports
-`LISTENER degraded (N/27 bindings; MISSING: ...)`; and no live bindings reports
+`LISTENER present (28 bindings: executor.#, ...)`; a partial binding set reports
+`LISTENER degraded (N/28 bindings; MISSING: ...)`; and no live bindings reports
 `LISTENER absent (FAULT: ...)`. Treat degraded or absent as a launch failure and
 fix it before dispatching work; a run that dispatches agents but cannot hear their handoffs
 is worse than one that refuses to start.
@@ -325,7 +325,7 @@ revoke a live peer's claim yourself. `aiur executor-revoke <id>` is the
 operator's decision.
 
 **Arm the wake monitor before you dispatch anything.** This is a launch step,
-not later advice. The daemon holds the real event-bus subscription (27
+not later advice. The daemon holds the real event-bus subscription (28
 bindings); **the Executor does not.** Events are projected to a file —
 `~/.aiur/repo/<owner>/<repo>/executor/<repo>.executor.wakes.ndjson`, with the read
 position in `<repo>.executor.wakes.cursor.json`. `<repo>` is the sanitized final
@@ -380,7 +380,7 @@ monitor is not armed or its filter does not match.
 
 **Say so to the human.** At the first status report after launch, state one
 line confirming the subscription, for example: "Listening for Executor events
-on all 24 reviewed bindings." This is a deliberate spoken confirmation, not a silent
+on all 28 reviewed bindings." This is a deliberate spoken confirmation, not a silent
 internal step: a run that subscribes says so, so a run that says nothing is
 legible as broken immediately. If the listener is later confirmed dead or
 restarted, pair the same statement with that loss, so the operator learns about
@@ -431,6 +431,10 @@ applies. It reconciles a compile-time set of reviewed bindings on every start:
   `ticket.*.pr.merged`, and `ticket.*.pr.ready_for_review`
 - Agent handoff: `ticket.*.agent.handoff.human_review` when a ticket enters
   `agent:human-review`, carrying the pull request number and head SHA when known
+  The daemon observes this through the CI lifecycle poll, which includes
+  `human-review` even when it is absent from `tracker.active_states`; a transition
+  made while the daemon is down cannot produce a wake. Executor-made label moves
+  also wake when the daemon observes the change.
 - attention and CI: `ticket.*.agent.attention.*`,
   `ticket.*.agent.paused`, `ticket.*.agent.error.tokens_exhausted`,
   `ticket.*.agent.retry_exhausted`, `ticket.*.pr.parked_ready`, and

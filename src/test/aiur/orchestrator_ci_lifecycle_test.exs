@@ -1,9 +1,10 @@
 defmodule Aiur.OrchestratorCILifecycleTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentQueueStore, CIApprovalStore, Orchestrator, PollCadence, TrackerIdentity}
+  alias Aiur.{AgentQueueStore, CIApprovalStore, ExecutorListener, ExecutorWakeInbox, Orchestrator, PollCadence, TrackerIdentity}
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{CiLifecycle, State}
 
   defmodule RecordingGitHubClient do
@@ -82,6 +83,43 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   end
 
   describe "CI lifecycle coordination" do
+    test "observes human-review handoffs outside active states and records one Executor wake" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 10})
+      start_supervised!({ExecutorListener, name: Aiur.ExecutorListener.CIHandoffTest})
+      on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
+
+      previous = issue(unique_identifier("human-review-handoff"), "rework")
+      current = %{previous | state: "human-review"}
+      sha = String.duplicate("e", 40)
+      key = ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)
+      :ok = ResourceStore.put_resource(key, %{"number" => 3022, "head" => %{"sha" => sha}})
+      parent = self()
+
+      opts = [
+        ci_issue_fetcher: fn ["ci-wait", "human-review"] ->
+          send(parent, :ci_issue_fetch)
+          {:ok, [current]}
+        end,
+        ci_poller: fn _targets, _opts -> {:ok, %{results: [], errors: []}} end,
+        parked_ready_alert_loader: fn -> MapSet.new() end,
+        draft_stall_alert_loader: fn -> MapSet.new() end
+      ]
+
+      state = %State{last_polled_issues: %{previous.id => previous}}
+      first = CiLifecycle.poll_github_ci(state, opts)
+      assert_received :ci_issue_fetch
+
+      assert {:ok, [wake]} = ExecutorWakeInbox.wait(500)
+      assert wake["topic"] == "ticket.#{current.identifier}.agent.handoff.human_review"
+      assert wake["pr_number"] == 3022
+      assert wake["head_sha"] == sha
+
+      _second = CiLifecycle.poll_github_ci(%{first | last_ci_poll_started_at_ms: nil}, opts)
+      assert_received :ci_issue_fetch
+      assert [^wake] = ExecutorWakeInbox.pending()
+    end
+
     test "a delivered (displaced) result is inert: no transition, no cache projection" do
       identifier = unique_identifier("ci-delivered-inert")
       issue = issue(identifier, "ci-wait")

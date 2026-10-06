@@ -1588,11 +1588,10 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
 
     previous = issue("handoff", "in-progress")
-    previous = %{previous | branch_name: "aiur/handoff"}
     current = %{previous | state: "human-review"}
     sha = String.duplicate("c", 40)
     key = ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)
-    :ok = ResourceStore.put_resource(key, %{"number" => 3019, "head" => %{"ref" => "aiur/handoff", "sha" => sha}})
+    :ok = ResourceStore.put_resource(key, %{"number" => 3019, "head" => %{"sha" => sha}})
 
     state =
       IssueSync.sync_polled_issue_state(
@@ -1611,6 +1610,35 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
              ExecutorWakeInbox.wait(500)
 
     assert [%{"topic" => "ticket.its-everdred/aiur#handoff.agent.handoff.human_review"}] = ExecutorWakeInbox.pending()
+  end
+
+  test "resolves an observed error attention when the issue moves to human-review" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    on_exit(fn -> Publisher.set_tracked_fn(fn _ -> true end) end)
+
+    previous = issue("error-to-review", "error")
+    current = %{previous | state: "human-review"}
+    topic = "ticket.#{previous.identifier}.agent.attention.error-observed_tracker_error.resolved"
+    :ok = Exchange.subscribe(topic)
+    on_exit(fn -> Exchange.unsubscribe(topic) end)
+
+    _state =
+      IssueSync.sync_polled_issue_state(
+        %State{
+          last_polled_issues: %{previous.id => previous},
+          observed_error_alerts: MapSet.new([previous.id]),
+          active_attention_topics: MapSet.new([String.trim_trailing(topic, ".resolved")])
+        },
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_received {:event, %{topic: ^topic} = event}
+    assert event["needs_attention"] == false
   end
 
   test "persists a reason-carrying fallback when polling observes an ordinary error transition" do
