@@ -43,6 +43,19 @@ After each check, inspect its durable follow-up with `aiur findings`.
 | Dashboard and TUI | Show active attention and failure states. |
 | Completed BEAM crash dump | An unexpected daemon exit raises a `system.beam.crash_dump` needs-attention alert carrying the bounded dump slogan. |
 
+### Retrospective daemon heartbeat gaps
+
+At Executor startup, Aiur compares the last heartbeat with its lifecycle
+journal. A stale heartbeat beyond `monitoring.daemon_heartbeat_stale_ms` creates
+an informational `system.daemon.gap` event. It reports `clean_shutdown` when
+the latest journal event is a stop, and `unknown` after an unmatched start.
+
+Missing heartbeat files are ignored; they may mean first boot or a changed
+state directory. The notice describes a past interval and opens no attention.
+
+This is retrospective reporting, not live monitoring. It appears at the next
+Executor startup. Use an external service monitor for immediate outage alerts.
+
 Background runs write the daemon dump beneath the durable run-log root by
 default. Operators may override its location with `ERL_CRASH_DUMP` and bound
 the write with `ERL_CRASH_DUMP_SECONDS`; Aiur removes both variables from agent
