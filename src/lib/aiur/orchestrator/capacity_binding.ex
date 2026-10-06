@@ -222,16 +222,21 @@ defmodule Aiur.Orchestrator.CapacityBinding do
       occupied >= max ->
         {:session_cap, max}
 
-      Map.get(capacity, :queued_demand?, false) ->
-        {:awaiting_dispatch, %{ceiling: ceiling_label(capacity)}}
-
       true ->
-        # Slots are available and nothing is binding: name where the effective
-        # ceiling came from so an operator whose `set max-agents` was silently
-        # dropped by a restart can see it (a session cap does not persist;
-        # `--max-agents N` and `agent.max_concurrent_agents` are the durable
-        # forms, #2138).
-        {:none, %{ceiling: ceiling_label(capacity)}}
+        available_capacity_binding(capacity)
+    end
+  end
+
+  defp available_capacity_binding(capacity) do
+    if Map.get(capacity, :queued_demand?, false) do
+      {:awaiting_dispatch, %{ceiling: ceiling_label(capacity)}}
+    else
+      # Slots are available and nothing is binding: name where the effective
+      # ceiling came from so an operator whose `set max-agents` was silently
+      # dropped by a restart can see it (a session cap does not persist;
+      # `--max-agents N` and `agent.max_concurrent_agents` are the durable
+      # forms, #2138).
+      {:none, %{ceiling: ceiling_label(capacity)}}
     end
   end
 

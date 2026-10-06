@@ -60,6 +60,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 Background runs persist daemon Logger messages at `<logs-root>/log/aiur.log` without `--debug`.
 `--debug` additionally enables debug-level messages. The default background root is
 `~/.aiur/logs/<launch-id>/`; `log/boot.out.log` captures release stdout and stderr.
+
 When ready work has free slots, status names a tracker preflight hold and its duration,
 reports `awaiting dispatch`, or shows the last empty selection cycle's reasons and sample age. An unexplained empty selection reports `unknown`.
 

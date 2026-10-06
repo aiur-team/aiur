@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State, StatusReport, TrackerHealth}
+  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   defmodule CandidateFetchFailureLinearClient do
@@ -2616,7 +2616,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert capacity.queued_demand? == true
 
     assert {:tracker_preflight, %{detail: :missing_github_token}} =
-             Aiur.Orchestrator.CapacityBinding.binding(capacity)
+             CapacityBinding.binding(capacity)
 
     output =
       ExUnit.CaptureIO.capture_io(fn ->
@@ -2624,8 +2624,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       end)
 
     assert output =~ ~r/binding: tracker preflight, reason=missing_github_token held=\d+s/
-    assert Aiur.Orchestrator.CapacityBinding.short_label(Aiur.Orchestrator.CapacityBinding.binding(capacity)) =~ ~r/held=\d+s/
-    assert Aiur.Orchestrator.Slots.dispatch_hold_status(held, held.dispatch_hold.held_since_ms + 90_000).held_for_seconds == 90
+    assert CapacityBinding.short_label(CapacityBinding.binding(capacity)) =~ ~r/held=\d+s/
+    assert Slots.dispatch_hold_status(held, held.dispatch_hold.held_since_ms + 90_000).held_for_seconds == 90
   end
 
   test "an empty dispatch cycle with ready work names revalidation failure in capacity status" do
@@ -2642,13 +2642,13 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       )
 
     assert map_size(declined.running) == 0
-    assert Aiur.Orchestrator.Slots.available_slots(declined) > 0
+    assert Slots.available_slots(declined) > 0
     capacity = declined |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload() |> Map.fetch!(:capacity)
 
     assert {:dispatch_selection, %{reasons: [:tracker_revalidation_failed], candidates: 1}} =
-             Aiur.Orchestrator.CapacityBinding.binding(capacity)
+             CapacityBinding.binding(capacity)
 
-    assert Aiur.Orchestrator.CapacityBinding.short_label(Aiur.Orchestrator.CapacityBinding.binding(capacity)) =~ "tracker_revalidation_failed"
+    assert CapacityBinding.short_label(CapacityBinding.binding(capacity)) =~ "tracker_revalidation_failed"
 
     output =
       ExUnit.CaptureIO.capture_io(fn ->
@@ -2669,7 +2669,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       )
 
     assert Map.has_key?(dispatched.running, ready.id)
-    assert Aiur.Orchestrator.Slots.available_slots(dispatched) > 0
+    assert Slots.available_slots(dispatched) > 0
     assert dispatched.dispatch_selection_hold == nil
   end
 
