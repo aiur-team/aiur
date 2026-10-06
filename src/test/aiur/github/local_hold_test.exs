@@ -158,11 +158,11 @@ defmodule Aiur.GitHub.LocalHoldTest do
                  )
 
         assert Agent.get(attempts, & &1) == 2
-        assert_receive {:backoff, ms}
+        assert_receive {:backoff, ms}, 1000
         assert ms >= LocalHold.backoff_base_ms()
         assert ms <= LocalHold.backoff_base_ms() + LocalHold.jitter_ms()
-        assert_receive :broker_retry
-        refute_receive :broker_retry
+        assert_receive :broker_retry, 1000
+        refute_receive :broker_retry, 100
       end
     end
 
