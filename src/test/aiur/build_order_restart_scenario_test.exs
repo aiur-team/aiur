@@ -21,20 +21,10 @@ defmodule Aiur.BuildOrderRestartScenarioTest do
       # After restart, it's running on port 41514 (new port assigned)
       # Funnel target hasn't been updated yet - still points to 41513
 
-      # Before: port is correct, endpoint is reachable
-      # Simulate this by checking if the current bound port is accessible
-      case BuildOrderFunnelHealth.check(timeout_ms: 500) do
-        {:ok, port} ->
-          # Dashboard is running and accessible on the current port
-          # This is the healthy scenario
-          assert is_integer(port)
+      stale_status = funnel_status(41_513)
 
-        {:error, _reason} ->
-          # Dashboard is not running or not accessible
-          # This is expected in test environment without running dashboard
-          # But in production, this indicates Funnel target is stale
-          :ok
-      end
+      assert {:error, {:funnel_target_mismatch, 41_513}} =
+               BuildOrderFunnelHealth.funnel_target_status(stale_status, 41_514)
     end
 
     test "bound_port reflects current port assignment" do
@@ -74,16 +64,28 @@ defmodule Aiur.BuildOrderRestartScenarioTest do
       # Verify that calling the health check multiple times doesn't
       # cause side effects (aside from alert emission, which is expected)
 
-      result1 = BuildOrderFunnelHealth.check(timeout_ms: 100)
-      result2 = BuildOrderFunnelHealth.check(timeout_ms: 100)
+      result1 = BuildOrderFunnelHealth.check(timeout_ms: 100, funnel_status: %{"AllowFunnel" => %{}})
+      result2 = BuildOrderFunnelHealth.check(timeout_ms: 100, funnel_status: %{"AllowFunnel" => %{}})
 
       # Results should be consistent (same port or both errors)
       case {result1, result2} do
         {{:ok, port1}, {:ok, port2}} -> assert port1 == port2
         {{:error, reason1}, {:error, reason2}} -> assert reason1 == reason2
-        # Either case is acceptable
-        _ -> :ok
+        _ -> flunk("health check results changed between identical checks: #{inspect({result1, result2})}")
       end
     end
+  end
+
+  defp funnel_status(target_port) do
+    endpoint = "dashboard.example.ts.net:443"
+
+    %{
+      "AllowFunnel" => %{endpoint => true},
+      "Web" => %{
+        endpoint => %{
+          "Handlers" => %{"/" => %{"Proxy" => "http://127.0.0.1:#{target_port}"}}
+        }
+      }
+    }
   end
 end

@@ -18,25 +18,32 @@ defmodule Aiur.BuildOrderFunnelHealthTest do
     end
   end
 
-  describe "port change detection" do
-    test "detects when endpoint becomes unreachable after port change" do
-      # This test verifies that the health check can detect when the port
-      # changes and the endpoint becomes unreachable. In practice, this happens
-      # when the Khala dashboard is restarted on a different port and Funnel
-      # target hasn't been updated yet.
+  describe "persisted Funnel target" do
+    test "detects a target left on the old port after a dashboard restart" do
+      stale_status = funnel_status(41_513)
+      repaired_status = funnel_status(4_000)
 
-      # Simulate a port change by using a port that has no server
-      # In actual operation, this is detected when the health check runs
-      # and finds that the endpoint at the old bound port is no longer reachable
-      result = BuildOrderFunnelHealth.check(timeout_ms: 100)
+      assert {:error, {:funnel_target_mismatch, 41_513}} =
+               BuildOrderFunnelHealth.funnel_target_status(stale_status, 4_000)
 
-      # The result will be error if no server is listening at the bound port
-      case result do
-        # Server is running, that's fine for this test
-        {:ok, _port} -> :ok
-        # Server not running, expected in test environment
-        {:error, _reason} -> :ok
-      end
+      assert :ok = BuildOrderFunnelHealth.funnel_target_status(repaired_status, 4_000)
     end
+
+    test "ignores Funnel when it is not enabled" do
+      assert :not_configured = BuildOrderFunnelHealth.funnel_target_status(%{"AllowFunnel" => %{}}, 4_000)
+    end
+  end
+
+  defp funnel_status(target_port) do
+    endpoint = "dashboard.example.ts.net:443"
+
+    %{
+      "AllowFunnel" => %{endpoint => true},
+      "Web" => %{
+        endpoint => %{
+          "Handlers" => %{"/" => %{"Proxy" => "http://127.0.0.1:#{target_port}"}}
+        }
+      }
+    }
   end
 end
