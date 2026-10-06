@@ -26,18 +26,27 @@ defmodule Aiur.ExecutorWakeProjection do
          "action" => enum(value(event, :action) || action_from_topic(topic), @actions),
          "draft" => strict_boolean(first_present(value(pr, :draft), value(event, :draft))),
          "author_trusted?" => trusted_github_author?(event),
+         "author_id" => positive_integer(value(event, :author_id)),
          "ci_conclusion" => ci_conclusion(event, topic),
          "needs_attention" => strict_boolean(value(event, :needs_attention)),
          "count" => 1,
          "first_seen_at" => now,
          "last_seen_at" => now
-       }}
+       }
+       |> observation_marker(event)}
     else
       :ignore
     end
   end
 
   def project(_event), do: :ignore
+
+  defp observation_marker(record, event) do
+    case value(event, :observation) do
+      "initial_sync" -> Map.put(record, "observation", "initial_sync")
+      _ -> record
+    end
+  end
 
   defp topic_class("ticket." <> rest) do
     case String.split(rest, ".", parts: 2) do

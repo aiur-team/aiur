@@ -24,6 +24,36 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert denied.dispatch_authorization == :denied
   end
 
+  # Allowed-contributor intake (#2957) grants a wake, never dispatch authority.
+  # These are guards: dispatch already ignores the creator, and they pin that
+  # an allow-listed author can neither self-dispatch nor be dispatched by an
+  # outsider's relabel — while a trusted applier dispatches their issue
+  # exactly like an operator-filed one.
+  describe "allowed-contributor issues (#2957)" do
+    test "an allowed contributor labelling their own issue does not dispatch it" do
+      events = [labeled_event(10, "agent:todo", "contributor", "2026-01-01T00:00:00Z")]
+      denied = authorize_with_events(issue(creator_login: "contributor"), events, ["operator"])
+
+      refute denied.dispatch_authorized?
+      assert denied.dispatch_authorization == :denied
+    end
+
+    test "a non-allowed user labelling an allowed contributor's issue does not dispatch it" do
+      events = [labeled_event(10, "agent:todo", "mallory", "2026-01-01T00:00:00Z")]
+      denied = authorize_with_events(issue(creator_login: "contributor"), events, ["operator"])
+
+      refute denied.dispatch_authorized?
+    end
+
+    test "a trusted applier dispatches an allowed contributor's issue like an operator-filed one" do
+      events = [labeled_event(10, "agent:todo", "operator", "2026-01-01T00:00:00Z")]
+      authorized = authorize_with_events(issue(creator_login: "contributor"), events, ["operator"])
+
+      assert authorized.dispatch_authorized?
+      assert authorized.dispatch_authorization == :authorized
+    end
+  end
+
   # The bot login has to be in `allowed_users` for the fleet to work at all, so
   # this is exactly what the creator short-circuit left unchecked: a ticket
   # filed with the bot credential dispatched on creator alone, whoever applied —
