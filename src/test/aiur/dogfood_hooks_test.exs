@@ -328,10 +328,13 @@ defmodule Aiur.DogfoodHooksTest do
     assert_hook_ok!("after_create", workspace, context.origin)
 
     File.write!(Path.join(workspace, "README.md"), "agent WIP\n")
+    File.mkdir_p!(Path.join(workspace, "logs"))
+    File.write!(Path.join(workspace, "logs/before-run-merge-conflict.md"), "conflict paths\n")
 
     assert {output, 65} = run_hook("before_run", workspace, context.origin)
     assert output =~ "origin/#{configured_base()}"
     assert File.read!(Path.join(workspace, "README.md")) == "agent WIP\n"
+    assert File.read!(Path.join(workspace, "logs/before-run-merge-conflict.md")) == "conflict paths\n"
     assert current_branch!(workspace) == ticket_branch()
   end
 

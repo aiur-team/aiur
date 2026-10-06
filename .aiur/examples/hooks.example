@@ -56,7 +56,6 @@ before_run: |
     done
   }
   move_sidecars_to_state
-  rm -f logs/before-run-merge-conflict.md
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
      ! git rev-parse --verify HEAD >/dev/null 2>&1 ||
      ! git status --porcelain >/dev/null 2>&1; then
@@ -77,6 +76,7 @@ before_run: |
       echo "Commit or resolve the workspace changes before resuming this agent." >&2
       exit 65
     fi
+    rm -f logs/before-run-merge-conflict.md
     if ! git merge --no-edit "origin/$base_branch"; then
       conflicted_files="$(git diff --name-only --diff-filter=U)"
       if [ -z "$conflicted_files" ]; then
