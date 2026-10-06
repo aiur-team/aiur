@@ -519,9 +519,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp alert_missing_state_label_repaired(%Issue{} = issue, restored) do
-    topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing"
-
-    Alerts.emit_system(topic,
+    Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.state-label-missing",
       issue: issue.identifier,
       message: "Ticket #{issue.identifier} had no agent state label and was invisible to dispatch; repaired to #{restored}.",
       reason:
@@ -529,15 +527,6 @@ defmodule Aiur.Orchestrator.IssueSync do
           "restored #{restored} so dispatch can see it again.",
       needs_attention: true,
       severity: "warning",
-      central: true
-    )
-
-    Alerts.emit_system("#{topic}.resolved",
-      issue: issue.identifier,
-      message: "Ticket state label repaired; dispatch visibility restored.",
-      reason: "State label has been restored to #{restored}.",
-      needs_attention: false,
-      severity: "info",
       central: true
     )
   end
@@ -1147,45 +1136,25 @@ defmodule Aiur.Orchestrator.IssueSync do
       MapSet.member?(state.observed_error_alerts, issue.id) or
         active_attention?(state, topic)
 
-    state =
-      cond do
-        cause == :lifetime_latch and lifetime_latch_status(state, issue.id) != :inactive ->
-          mark_observed_error_alert(state, issue.id, cause)
+    cond do
+      cause == :lifetime_latch and lifetime_latch_status(state, issue.id) != :inactive ->
+        mark_observed_error_alert(state, issue.id, cause)
 
-        active? ->
-          case Alerts.emit_system("#{topic}.resolved",
-                 issue: issue,
-                 worker_host: Orchestrator.running_worker_host(state, issue.id),
-                 reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
-                 needs_attention: false,
-                 severity: "info",
-                 central: true
-               ) do
-            :ok -> clear_observed_error_alert(state, issue.id)
-            {:error, _reason} -> state
-          end
+      active? ->
+        case Alerts.emit_system("#{topic}.resolved",
+               issue: issue,
+               worker_host: Orchestrator.running_worker_host(state, issue.id),
+               reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
+               needs_attention: false,
+               severity: "info",
+               central: true
+             ) do
+          :ok -> clear_observed_error_alert(state, issue.id)
+          {:error, _reason} -> state
+        end
 
-        true ->
-          state
-      end
-
-    # Also resolve error-retry_exhausted if it was active (emitted directly from retry_engine, not tracked in observed_error_alerts)
-    retry_exhausted_topic = "ticket.#{issue.identifier}.agent.attention.error-retry_exhausted"
-
-    if active_attention?(state, retry_exhausted_topic) do
-      case Alerts.emit_system("#{retry_exhausted_topic}.resolved",
-             issue: issue,
-             worker_host: Orchestrator.running_worker_host(state, issue.id),
-             reason: "Ticket moved out of error state; retry exhaustion condition is resolved.",
-             needs_attention: false,
-             severity: "info",
-             central: true
-           ) do
-        :ok -> state
-        {:error, _reason} -> state
-      end
-    else
-      state
+      true ->
+        state
     end
   end
 
