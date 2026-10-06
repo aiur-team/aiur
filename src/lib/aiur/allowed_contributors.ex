@@ -1,7 +1,7 @@
 defmodule Aiur.AllowedContributors do
   @moduledoc """
   Allowed-contributor intake (#2957): a new issue opened by an account or org
-  member named in the default branch's `.github/ALLOWED-CONTRIBUTORS` wakes the
+  member named in the configured list or default-branch file fallback wakes the
   Executor with one `ticket.<n>.issue.opened.allowed_contributor` event.
 
   **Intake, never dispatch authority.** The wake tells the Executor a trusted
@@ -27,7 +27,7 @@ defmodule Aiur.AllowedContributors do
 
   require Logger
 
-  alias Aiur.AllowedContributors.{Audit, Candidate, Intake, Ledger, RateLimit, Refresh, State, Wake}
+  alias Aiur.AllowedContributors.{Audit, Candidate, Intake, Ledger, RateLimit, Refresh, Source, State, Wake}
   alias Aiur.GitHub.Transport
 
   @on_demand_refresh_ms 60_000
@@ -65,8 +65,12 @@ defmodule Aiur.AllowedContributors do
   @impl true
   def init(opts) do
     case repo(opts) do
-      {:ok, {owner, repo}} -> {:ok, State.new(opts, owner, repo), {:continue, :refresh}}
-      :error -> {:ok, %{inert: true}}
+      {:ok, {owner, repo}} ->
+        :ok = Aiur.WorkflowStore.subscribe()
+        {:ok, State.new(opts, owner, repo), {:continue, :refresh}}
+
+      :error ->
+        {:ok, %{inert: true}}
     end
   end
 
@@ -87,6 +91,8 @@ defmodule Aiur.AllowedContributors do
   end
 
   @impl true
+  def handle_info({:workflow_config_updated, _generation}, %{inert: true} = state), do: {:noreply, state}
+  def handle_info({:workflow_config_updated, _generation}, state), do: {:noreply, safe_refresh(state)}
   def handle_info(:refresh, state), do: {:noreply, state |> safe_refresh() |> schedule()}
   def handle_info(_message, state), do: {:noreply, state}
 
@@ -153,7 +159,7 @@ defmodule Aiur.AllowedContributors do
   defp mark_seen(state, _candidate), do: state
 
   defp audit(state, decision, candidate, reason),
-    do: Audit.record(state.audit_path, decision, candidate, reason, Wake.sha(state.snapshot), now_iso())
+    do: Audit.record(state.audit_path, decision, candidate, reason, Wake.sha(state.snapshot), now_iso(), Source.label(state.snapshot))
 
   defp safe_refresh(state) do
     Refresh.run(state)
