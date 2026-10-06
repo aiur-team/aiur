@@ -113,6 +113,22 @@ defmodule Aiur.CodingAgent.ModelLabelTest do
              ) == :not_a_selector
     end
 
+    test "a registered but disabled backend-like spec selects nothing before prefix matching" do
+      assert ModelLabel.resolve("claude-repl", ["claude"],
+               flags: @flags,
+               registered: ["claude", "claude-repl"],
+               catalogue: &Map.fetch!(%{"claude" => @claude}, &1)
+             ) == :not_a_selector
+    end
+
+    test "a variant of a registered but disabled longer backend does not match a shorter prefix" do
+      assert ModelLabel.resolve("claude-repl-opus", ["claude"],
+               flags: @flags,
+               registered: ["claude", "claude-repl"],
+               catalogue: &Map.fetch!(%{"claude" => @claude}, &1)
+             ) == :not_a_selector
+    end
+
     test "a backend that is not dispatchable is never matched" do
       assert resolve("astra", ["claude"], %{"claude" => @claude, "codex" => @codex}) ==
                {:unresolved, :unknown_name, []}

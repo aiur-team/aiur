@@ -1,6 +1,6 @@
 defmodule Aiur.AllowedContributors.AllowList do
   @moduledoc """
-  Parser for the `.github/ALLOWED-CONTRIBUTORS` allow-list.
+  Validation for the config allow-list and parser for its file fallback.
 
   The file names identities by **numeric GitHub id only**:
 
@@ -61,6 +61,36 @@ defmodule Aiur.AllowedContributors.AllowList do
       {:error, :not_utf8}
     end
   end
+
+  @doc "Validates the config form: numeric user ids and org maps with numeric id and API login."
+  @spec from_config(term()) :: {:ok, t()} | {:error, String.t()}
+  def from_config(config) when is_map(config) do
+    users = Map.get(config, "users", [])
+    orgs = Map.get(config, "orgs", [])
+
+    with true <- Enum.all?(Map.keys(config), &(&1 in ["users", "orgs"])),
+         true <- is_list(users) and Enum.all?(users, &valid_id?/1),
+         true <- is_list(orgs) and Enum.all?(orgs, &valid_org?/1) do
+      config_lines(users, orgs) |> Enum.join("\n") |> parse() |> config_result()
+    else
+      false -> {:error, "must contain only users (positive int64 ids) and orgs (maps with positive int64 id and valid login)"}
+    end
+  end
+
+  def from_config(_config), do: {:error, "must be a map with users and orgs; use {} to admit nobody"}
+
+  defp valid_id?(id), do: is_integer(id) and id > 0 and id <= 9_223_372_036_854_775_807
+
+  defp valid_org?(%{"id" => id, "login" => login} = org),
+    do: map_size(org) == 2 and valid_id?(id) and valid_login?(login)
+
+  defp valid_org?(_org), do: false
+
+  defp config_lines(users, orgs),
+    do: Enum.map(users, &"user #{&1}") ++ Enum.map(orgs, &"org #{&1["id"]} #{&1["login"]}")
+
+  defp config_result({:ok, list}), do: {:ok, list}
+  defp config_result({:error, reason}), do: {:error, "invalid allow-list: #{inspect(reason)}"}
 
   @doc """
   Entries added and removed between two allow-lists, as display strings
