@@ -3,6 +3,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
 
   alias Aiur.Events.{Exchange, IdGenerator, SubscriptionStore}
   alias Aiur.JsonStore
+  alias Aiur.Orchestrator.{AutoSubscriptions, State}
 
   setup do
     tmp_dir = Aiur.TestSupport.tmp_root!("aiur_subscr_test")
@@ -67,6 +68,34 @@ defmodule Aiur.Events.SubscriptionStoreTest do
         {:ok, _pid} =
           Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
       end
+    end
+  end
+
+  describe "snapshot/1" do
+    test "is unavailable-safe while the supervised registry is stopped", %{identifier: id} do
+      :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
+
+      try do
+        assert :not_found = SubscriptionStore.snapshot(id)
+        assert [] = AutoSubscriptions.direct_blockers_for(%State{}, id)
+      after
+        {:ok, _pid} =
+          Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
+      end
+    end
+
+    test "is unavailable-safe when the attached store exits after registry lookup", %{identifier: id} do
+      :ok = SubscriptionStore.attach(id)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+      on_exit(fn -> SubscriptionStore.set_registry_lookup_fn(nil) end)
+
+      SubscriptionStore.set_registry_lookup_fn(fn _registry, identifier ->
+        assert identifier == id
+        Process.exit(pid, :shutdown)
+        [{pid, nil}]
+      end)
+
+      assert SubscriptionStore.snapshot(id) == :not_found
     end
   end
 

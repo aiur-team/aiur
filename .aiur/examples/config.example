@@ -17,6 +17,12 @@ tracker:
   # set identity_mode: single_account so Aiur uses in-body authorship markers.
   # Under GitHub App auth, github_app.account names the daemon's distinct App bot login,
   # `<app-slug>[bot]`; keep bot_account set to the agents' publishing login.
+  # Under tracker.github (not tracker):
+    # Whole intake list; omit for .github/ALLOWED-CONTRIBUTORS fallback.
+    # Explicit {} or null admits nobody. Ids are numeric; logins are API addresses only.
+    # allowed_contributors:
+    #   users: [583231]
+    #   orgs: [{id: 9919, login: github}]
   # human_mergers is an explicit human-only list used for post-merge attribution alerts. It never
   # inherits CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
 
