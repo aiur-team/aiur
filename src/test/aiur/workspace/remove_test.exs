@@ -131,6 +131,7 @@ defmodule Aiur.Workspace.RemoveTest do
     File.write!(Path.join(workspace, "local-only.txt"), "committed work")
     {_, 0} = System.cmd("git", ["-C", workspace, "add", "local-only.txt"])
     {_, 0} = System.cmd("git", ["-C", workspace, "commit", "--quiet", "-m", "local-only"])
+    {local_commit, 0} = System.cmd("git", ["-C", workspace, "rev-parse", "HEAD"])
 
     {output, status} =
       System.cmd("bash", ["-c", Remove.remote_dirty_check() <> "\nrm -rf \"$workspace\""],
@@ -142,7 +143,7 @@ defmodule Aiur.Workspace.RemoveTest do
     assert output =~ "commits not present on any remote"
     assert File.read!(Path.join(workspace, "local-only.txt")) == "committed work"
     assert {commit, 0} = System.cmd("git", ["-C", workspace, "rev-parse", "HEAD"])
-    assert String.trim(commit) != ""
+    assert String.trim(commit) == String.trim(local_commit)
   end
 
   defp init_checkout!(workspace) do
