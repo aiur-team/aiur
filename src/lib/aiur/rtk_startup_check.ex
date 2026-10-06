@@ -25,18 +25,23 @@ defmodule Aiur.RtkStartupCheck do
 
     case result do
       {:rewrites_gh, _evidence} ->
-        message = "The host rtk hook rewrites agent `gh` calls, bypassing Aiur's GitHub quota guard. #{@remedy}"
+        message =
+          "The host rtk hook rewrites agent `gh` calls, and the rewritten command still reaches Aiur's GitHub quota guard through PATH. #{@remedy}"
 
-        Logger.warning(message)
+        Logger.info(message)
 
         emit = Keyword.get(opts, :emit, &Alerts.emit_system/2)
 
-        emit.(@alert_topic,
-          message: message,
-          reason: "The host rtk PreToolUse hook rewrites governed GitHub commands.",
-          needs_attention: true,
-          severity: "warning"
-        )
+        case emit.(@alert_topic,
+               message: message,
+               reason: "The host rtk PreToolUse hook rewrites governed GitHub commands; the guarded gh wrapper remains in the execution path.",
+               needs_attention: false,
+               severity: "info"
+             ) do
+          :ok -> :ok
+          {:error, reason} -> Logger.error("failed to record rtk host hook alert reason=#{inspect(reason)}")
+          other -> Logger.error("unexpected rtk host hook alert result=#{inspect(other)}")
+        end
 
       {:probe_failed, reason} ->
         Logger.warning("rtk host hook probe failed: #{inspect(reason)}")

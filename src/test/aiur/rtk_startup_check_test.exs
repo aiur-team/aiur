@@ -5,7 +5,7 @@ defmodule Aiur.RtkStartupCheckTest do
 
   @rtk "/usr/bin/rtk"
 
-  test "emits one actionable attention alert when the host hook rewrites gh" do
+  test "emits one informational alert when the host hook rewrites gh" do
     test_pid = self()
 
     opts = [
@@ -16,8 +16,26 @@ defmodule Aiur.RtkStartupCheckTest do
 
     assert :ok = RtkStartupCheck.run(opts)
     assert_received {:alert, "system.rtk.gh_rewrite", alert_opts}
-    assert alert_opts[:needs_attention]
+    refute alert_opts[:needs_attention]
+    assert alert_opts[:severity] == "info"
     assert alert_opts[:message] =~ ~s(exclude_commands = ["gh"])
+    assert alert_opts[:message] =~ "still reaches Aiur's GitHub quota guard through PATH"
+  end
+
+  test "logs when the alert cannot be recorded" do
+    runner = fn _rtk, ["hook", "check", "gh pr view 1"] -> {"rtk gh pr view 1\n", 0} end
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert :ok =
+                 RtkStartupCheck.run(
+                   rtk_path: @rtk,
+                   runner: runner,
+                   emit: fn _, _ -> {:error, :ledger_unavailable} end
+                 )
+      end)
+
+    assert log =~ "failed to record rtk host hook alert reason=:ledger_unavailable"
   end
 
   test "does not alert when gh is excluded" do
