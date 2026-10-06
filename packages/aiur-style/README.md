@@ -69,6 +69,41 @@ npm test             # Run node tests
 npm run test:visual:docker # Run visual tests in the pinned CI container
 ```
 
+## Releases
+
+Releases use `.github/workflows/aiur-style-release.yml`, independently of the
+`aiur-cli` workflow. PRs touching this package run `check-dist`, the release
+verifier's node:test suite, `npm pack`, and `npm publish --dry-run`. The pack file
+list appears in the Actions summary and the `aiur-style-pack` artifact. PRs never
+publish and do not receive OIDC write permission.
+
+One-time operator setup (before the first automated release):
+
+1. Establish ownership of the unscoped npm package `aiur-style`. If it does not
+   exist, an authorized maintainer must bootstrap it on npm; that initial publish
+   is a separate operator action, not part of this workflow change.
+2. In the package's npm settings, add a GitHub Actions trusted publisher:
+   organization **aiur-team**, repository **aiur**, workflow filename
+   **aiur-style-release.yml**. Leave the environment field empty (the job uses no
+   GitHub environment), and allow direct `npm publish` if that option is shown.
+   See [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/).
+   No npm token secret is required. The job uses Node 24 and npm >= 11.5.1.
+
+For a release, update `package.json` and the lockfile to a stable semver, add a
+`## [<version>]` heading to `CHANGELOG.md`, rebuild and commit `dist/`, and merge
+those changes. Push the tag `aiur-style-v<version>` on the release commit.
+The workflow rejects a tag/version mismatch, a missing changelog heading, or
+stale `dist/`, then publishes with provenance and waits up to about two minutes
+for that exact version to become visible on npm. Do not push a release tag just
+to test the workflow: tags trigger a real publish after validation.
+
+Run the release checks locally from the repository root:
+
+```bash
+node packages/aiur-style/scripts/verify-release.mjs --self-test
+node packages/aiur-style/scripts/verify-release.mjs aiur-style-v<version>
+```
+
 ## License
 
 MIT
