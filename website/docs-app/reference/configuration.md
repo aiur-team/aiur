@@ -192,11 +192,19 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 
 ## workspace
 
+The `wip_*` keys bound the save of uncommitted work described in [Saved uncommitted work](/reference/cli#saved-uncommitted-work).
+
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `workspace.root` | string path | tmp `aiur_workspaces` | Root for agent workspaces. |
 | `workspace.bootstrap_image` | string | nil | Docker image for warm build-cache seeding. |
 | `workspace.bootstrap_image_pull` | boolean | false | Pulls the bootstrap image before seeding. |
+| `workspace.wip_max_bytes` | integer | 52428800 | Cap in bytes of one save of uncommitted work (50 MiB). Untracked files past it are skipped; the tracked patch is always kept. |
+| `workspace.wip_max_file_bytes` | integer | 10485760 | An untracked file larger than this (10 MiB) is skipped in a save. |
+| `workspace.wip_max_dir_files` | integer | 10000 | An untracked directory with more files than this, or a nested repository, is skipped whole. |
+| `workspace.wip_command_timeout_ms` | integer | 60000 | Time limit of each `git` and `tar` command of a save. A timeout keeps the workspace, except for a closed ticket. |
+| `workspace.wip_retention_bytes` | integer | 2147483648 | Cap in bytes of all of `wip-preserved/` (2 GiB). Closed tickets' saves are pruned first. |
+| `workspace.wip_retention_days` | integer | 14 | Saves older than this are pruned. The newest save of an open ticket is never pruned. |
 
 ## worker
 
@@ -642,15 +650,16 @@ environment-variable equivalents; the check also stays silent in CI runs.
 
 Both capture clients stream audio to Aiur, and Aiur calls ElevenLabs with the credential below; interactive conversation also streams speech audio back to the browser. This is the only place the credential is configured, and neither the sidecar nor the browser holds it.
 
-This optional section backs Stream Deck voice input, Dashboard dictation, and interactive spoken replies; omitting it uses the defaults below.
+This optional section configures voice features; `aiur init` records declines as `enabled: false` and skips them on resume.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
+| `elevenlabs.enabled` | boolean | true | Enables ElevenLabs voice features. Set false to keep an explicit declined setup choice and suppress configured or environment-provided credentials. Existing configs without this key remain enabled. |
 | `elevenlabs.api_key` | string or nil | nil | ElevenLabs credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. Speech input needs Speech to Text permission; spoken replies also need Text to Speech permission. |
 | `elevenlabs.language_code` | string | `eng` | ISO-639-3 transcription language. ElevenLabs uses `eng` for English. |
 | `elevenlabs.voice_id` | string or nil | nil | Stock or owned ElevenLabs voice used for Dashboard interactive conversation replies. Find the identifier in **My Voices**; Aiur does not clone or manage voices. |
 
-`ELEVENLABS_API_KEY` is the environment variable for the credential. An explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. An environment variable set to the empty string resolves to no key.
+`ELEVENLABS_API_KEY` is the environment variable for the credential. When `elevenlabs.enabled` is true, an explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. `enabled: false` suppresses both sources. An environment variable set to the empty string resolves to no key.
 
 The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable, `ELEVENLABS_API_KEY` included, from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
 
