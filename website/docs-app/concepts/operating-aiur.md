@@ -45,18 +45,15 @@ After each check, inspect its durable follow-up with `aiur findings`.
 
 ### Retrospective daemon heartbeat gaps
 
-An Executor startup compares the last daemon heartbeat with the durable daemon
-lifecycle journal. When the gap exceeds `monitoring.daemon_heartbeat_stale_ms`,
-Aiur records an informational `system.daemon.gap` event: `clean_shutdown` when
-the journal contains a matching stop, or `unknown` when a prior start has no
-recorded stop. The event describes the past interval and does not leave an
-active critical attention. Missing heartbeat files are ignored because they
-can mean first boot or a changed state directory.
+At Executor startup, Aiur compares the last heartbeat with its lifecycle
+journal. A stale heartbeat beyond `monitoring.daemon_heartbeat_stale_ms` creates
+an informational `system.daemon.gap` event. It reports `clean_shutdown` when
+the latest journal event is a stop, and `unknown` after an unmatched start.
+Missing heartbeat files are ignored; they may mean first boot or a changed
+state directory. The notice describes a past interval and opens no attention.
 
-This is retrospective reporting, not live monitoring. The notice is available
-when the next Executor starts; nothing in the stopped daemon can emit an alert
-during the outage. Use an external service monitor if an immediate outage signal
-is required.
+This is retrospective reporting, not live monitoring. It appears at the next
+Executor startup. Use an external service monitor for immediate outage alerts.
 
 Background runs write the daemon dump beneath the durable run-log root by
 default. Operators may override its location with `ERL_CRASH_DUMP` and bound
