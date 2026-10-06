@@ -8,11 +8,14 @@ defmodule Aiur.Agent.UsageSnapshotService do
 
   @spec current(String.t(), Keyword.t()) :: {:ok, UsageSnapshot.t()} | {:error, atom()}
   def current(agent_id, opts \\ []) do
+    cells_snapshot_fun = Keyword.get(opts, :cells_snapshot_fun, &UsageAggregate.cells_snapshot/0)
+    ledger_scan_fun = Keyword.get(opts, :ledger_scan_fun, &Aiur.UsageLedger.scan/1)
+
     with %TrackerIdentity{} = ticket <- Keyword.get(opts, :ticket),
          true <- TrackerIdentity.joinable?(ticket),
          attempt_id <- Keyword.get(opts, :attempt_id),
          true <- is_nil(attempt_id) or is_binary(attempt_id),
-         %{cells: cells, metadata: metadata} <- UsageAggregate.cells_snapshot() do
+         %{cells: cells, metadata: metadata} <- cells_snapshot_fun.() do
       {:ok, scope} = Scope.explicit_ticket_set([ticket])
 
       selected =
@@ -26,7 +29,7 @@ defmodule Aiur.Agent.UsageSnapshotService do
           {:error, :no_usage_data}
 
         selected ->
-          observation = attempt_observation(ticket, attempt_id, metadata.source_position)
+          observation = attempt_observation(ticket, attempt_id, metadata.source_position, ledger_scan_fun)
           metrics = aggregate_metrics_from_cells(Map.new(selected), observation.reported_dimensions)
           assemble(agent_id, ticket, attempt_id, metrics, observation.observed_at)
       end
@@ -99,10 +102,10 @@ defmodule Aiur.Agent.UsageSnapshotService do
   defp derive_uncached_input(input, cached) when is_integer(input) and is_integer(cached) and input >= cached, do: input - cached
   defp derive_uncached_input(_, _), do: {:unknown, :invalid_inputs}
 
-  defp attempt_observation(ticket, attempt_id, source_position) do
+  defp attempt_observation(ticket, attempt_id, source_position, ledger_scan_fun) do
     after_position = max(source_position - 10_000, 0)
 
-    case Aiur.UsageLedger.scan(after: after_position, limit: 10_000) do
+    case ledger_scan_fun.(after: after_position, limit: 10_000) do
       {:ok, records} ->
         matching = matching_observations(records, ticket, attempt_id, source_position)
         reported_dimensions = reported_dimensions(records, matching, after_position, source_position)

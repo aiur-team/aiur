@@ -4433,7 +4433,17 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator = start_counting_orchestrator(orchestrator_name)
     test_pid = self()
 
-    replace_counting_snapshot(orchestrator, units_conversation_snapshot(identity, handle))
+    usage_snapshot = units_conversation_snapshot(identity, handle)
+
+    running_with_context =
+      usage_snapshot.running
+      |> hd()
+      |> Map.merge(%{
+        telemetry_attempt_id: "attempt-1110",
+        context_usage: %{used_tokens: 1200, window_tokens: 4000, used_percent: 30.0, pressure: :warning}
+      })
+
+    replace_counting_snapshot(orchestrator, %{usage_snapshot | running: [running_with_context]})
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -4470,6 +4480,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "not participating"
     assert html =~ "its-everdred/aiur #1110"
     assert html =~ "Reviewing the drawer"
+    assert html =~ "1200 / 4000 tokens (30%) · warning"
     refute html =~ handle
     refute html =~ "units-ticket-context"
 

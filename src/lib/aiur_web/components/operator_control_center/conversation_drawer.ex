@@ -28,6 +28,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   attr(:errors, :map, default: %{})
   attr(:usage_snapshot, :map, default: nil)
   attr(:usage_error, :atom, default: nil)
+  attr(:context_occupancy, :map, default: nil)
 
   @spec conversation_drawer(map()) :: Phoenix.LiveView.Rendered.t()
   def conversation_drawer(%{view: nil} = assigns), do: ~H""
@@ -100,7 +101,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
 
         <AgentUsageSnapshot.agent_usage_snapshot
           snapshot={@usage_snapshot}
-          context_occupancy={%{}}
+          context_occupancy={@context_occupancy}
           error={@usage_error}
         />
 

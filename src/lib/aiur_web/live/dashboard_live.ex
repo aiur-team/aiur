@@ -1024,6 +1024,7 @@ defmodule AiurWeb.DashboardLive do
         errors={@chat_errors}
         usage_snapshot={@conversation_usage_snapshot}
         usage_error={@conversation_usage_error}
+        context_occupancy={Map.get(@conversation_row || %{}, :context_usage)}
         close_event="close-conversation"
         fallback_focus_id="route-title"
         origin_id={@conversation_origin_id}

@@ -323,6 +323,8 @@ defmodule AiurWeb.Presenter do
       capabilities: Map.get(entry, :control),
       started_at: iso8601(entry.started_at),
       last_event_at: iso8601(entry.last_codex_timestamp),
+      telemetry_attempt_id: Map.get(entry, :telemetry_attempt_id),
+      context_usage: public_context_usage(Map.get(entry, :context_usage)),
       stale_for_seconds: Map.get(entry, :stale_for_seconds),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
@@ -395,6 +397,12 @@ defmodule AiurWeb.Presenter do
       :labels
     ])
   end
+
+  defp public_context_usage(%{used_tokens: used} = context) when is_integer(used) and used >= 0 do
+    Map.take(context, [:used_tokens, :window_tokens, :used_percent, :pressure])
+  end
+
+  defp public_context_usage(_context), do: nil
 
   defp maybe_put_tracker_identity(payload, entry_or_identity) do
     identity =
