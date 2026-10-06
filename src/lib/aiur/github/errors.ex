@@ -85,10 +85,10 @@ defmodule Aiur.GitHub.Errors do
 
   # A GitHub budget broker timeout is the transient sibling of the malformed
   # reply: the broker was asked and never answered, which is a recoverable
-  # infrastructure fault. Classify it as a `:timeout` so the shared retryable
-  # classifier treats it as transient without a special case downstream.
+  # infrastructure fault. Classify it as a local hold: no request reached GitHub and worker
+  # failure attempts must remain untouched even after bounded backoff expires.
   def classify_transport_reason(:github_budget_broker_timeout),
-    do: {:github, :timeout, %{reason: :github_budget_broker_timeout}}
+    do: {:github, :local_hold, %{reason: :github_budget_broker_timeout}}
 
   # A malformed budget broker reply is a bug, not a transient fault: the broker
   # answered with something it should never emit, so retrying it wastes the
