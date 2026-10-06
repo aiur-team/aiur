@@ -2,7 +2,8 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentQueueStore
-  alias Aiur.AgentRunner.CheckpointDelivery
+  alias Aiur.AgentRunner.{CheckpointDelivery, QueueDrain}
+  alias Aiur.AgentQueue
   alias Aiur.AppServer.{Interrupts, OperatorDelivery}
   alias Aiur.Orchestrator.{OperatorMessages, State}
 
@@ -68,6 +69,18 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
 
     def handle_call({:get_item, id}, _from, state) do
       {:reply, AgentQueueStore.get(state.queue_store, id), state}
+    end
+
+    def handle_call({:claim_next_queue_item, identifier}, _from, state) do
+      reply_with_state(OperatorMessages.claim_next_queue_item_call(state, identifier))
+    end
+
+    def handle_call({:consume_delivered_queue_items, identifier}, _from, state) do
+      reply_with_state(OperatorMessages.consume_delivered_queue_items_call(state, identifier))
+    end
+
+    def handle_call({:acknowledge_queue_item_delivery, item_id, metadata}, _from, state) do
+      reply_with_state(OperatorMessages.acknowledge_queue_item_delivery_call(state, item_id, metadata))
     end
 
     defp reply_with_state({:reply, reply, next_state}), do: {:reply, reply, next_state}
@@ -169,13 +182,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
 
     issue = %Aiur.Issue{identifier: "OD-#{System.unique_integer([:positive])}", id: "gid-od"}
 
-    attrs = %{
-      target_issue_identifier: issue.identifier,
-      source: :executor,
-      category: :operator_message,
-      event_type: :operator_message,
-      body: %{text: "deliver after turn boundary"}
-    }
+    attrs = AgentQueue.operator_message(issue.identifier, "deliver after turn boundary", delivery_policy: :interrupt)
 
     {queue_store, item} = AgentQueueStore.enqueue(AgentQueueStore.new(), attrs)
     {:ok, orch} = QueueStateOrchestrator.start_link(%State{queue_store: queue_store})
@@ -186,38 +193,46 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
         on_safe_checkpoint: CheckpointDelivery.safe_checkpoint_handler(issue, orch, "codex")
       })
 
-    # The queue remains pending while the provider turn is still live. Once
-    # the interrupt result marks that turn boundary as terminal, the next safe
-    # checkpoint can claim through the real orchestrator queue transition.
+    # This is the successful turn result produced by the interrupt-error
+    # classifier. The production runner drains the operator queue after that
+    # successful turn result; the drain and subsequent checkpoint share the
+    # same real queue state.
+    assert {:ok, :turn_interrupted_for_operator_message} = interrupt_result
+
     assert OperatorDelivery.maybe_process_safe_checkpoint(
              session(),
              active_turn_state,
-             %{kind: :notification, interrupt_result: interrupt_result}
+             %{kind: :notification}
            ) == active_turn_state
 
     assert GenServer.call(orch, {:get_item, item.id}).status == :pending
 
+    test_session = %{backend: "codex", workspace: "/path/that/does/not/exist"}
+
+    assert :ok =
+             QueueDrain.drain_operator_messages(
+               test_session,
+               issue,
+               fn _ -> :ok end,
+               orch,
+               self(),
+               run_turn: fn _session, text, _issue, opts ->
+                 send(self(), {:queued_turn, text})
+                 opts[:on_provider_delivery].(%{turn_id: "interrupt-boundary-turn"})
+                 {:ok, %{result: interrupt_result}}
+               end
+             )
+
+    assert_receive {:queued_turn, "deliver after turn boundary"}, 1000
+    refute_receive {:queued_turn, "deliver after turn boundary"}, 100
+
     terminal_state = %{active_turn_state | outstanding_turns: 0}
+    delivered_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), terminal_state, %{kind: :notification})
+    after_second_checkpoint = OperatorDelivery.maybe_process_safe_checkpoint(session(), delivered_state, %{kind: :notification})
 
-    delivered_state =
-      OperatorDelivery.maybe_process_safe_checkpoint(
-        session(),
-        terminal_state,
-        %{kind: :turn_boundary, interrupt_result: interrupt_result}
-      )
-
-    after_second_checkpoint =
-      OperatorDelivery.maybe_process_safe_checkpoint(
-        session(),
-        delivered_state,
-        %{kind: :turn_boundary, interrupt_result: interrupt_result}
-      )
-
-    assert_receive {:operator_message, %{kind: :text, body: "deliver after turn boundary"}}, 1000
     refute_receive {:operator_message, %{kind: :text, body: "deliver after turn boundary"}}, 100
-    assert Map.has_key?(delivered_state.pending_operator_requests, 99)
     assert after_second_checkpoint == delivered_state
-    assert GenServer.call(orch, {:get_item, item.id}).status == :delivered
+    assert GenServer.call(orch, {:get_item, item.id}).status == :consumed
   end
 
   test "a real closed-port checkpoint write still fails a Claude item" do
