@@ -80,7 +80,7 @@ defmodule Aiur.TailscaleFunnel do
 
   defp report_result(_other, state), do: state
 
-  defp emit_reconciliation_alert({:live_funnel_target_conflict, _target}, opts) do
+  defp emit_reconciliation_alert({:live_funnel_target_conflict}, opts) do
     alert = Keyword.get(opts, :alert, &Alerts.emit_system/2)
 
     alert.("system.build_order_funnel.target_mismatch",
@@ -109,9 +109,11 @@ defmodule Aiur.TailscaleFunnel do
          {:ok, current_target} <- funnel_target(status),
          :ok <- maybe_update(current_target, target, opts),
          {:ok, verified_status} <- command(["funnel", "status", "--json"], opts),
-         {:ok, ^target} <- funnel_target(verified_status) do
+         {:ok, verified_target} <- funnel_target(verified_status),
+         true <- same_target?(verified_target, target) do
       :ok
     else
+      false -> {:error, {:target_verification_failed, :target_mismatch}}
       {:ok, other} -> {:error, {:target_verification_failed, other}}
       {:error, _reason} = error -> error
     end
@@ -175,12 +177,15 @@ defmodule Aiur.TailscaleFunnel do
     end
   end
 
-  defp maybe_update(target, target, _opts), do: :ok
+  defp maybe_update(current_target, target, opts) when is_binary(current_target) do
+    if same_target?(current_target, target), do: :ok, else: maybe_update_different(current_target, target, opts)
+  end
 
-  defp maybe_update(current_target, target, opts) do
+  defp maybe_update_different(current_target, target, opts) do
     case probe_target(current_target, opts) do
-      :live -> {:error, {:live_funnel_target_conflict, current_target}}
-      :unreachable -> write_target(target, opts)
+      :live -> {:error, {:live_funnel_target_conflict}}
+      :connection_refused -> write_target(target, opts)
+      {:unknown, reason} -> {:error, {:target_probe_unknown, reason}}
     end
   end
 
@@ -198,10 +203,27 @@ defmodule Aiur.TailscaleFunnel do
     timeout = Keyword.get(opts, :target_probe_timeout_ms, @target_probe_timeout_ms)
 
     case safe_target_probe(probe, target, timeout) do
-      {:ok, %Req.Response{}} -> :live
-      _unreachable -> :unreachable
+      {:ok, %Req.Response{}} ->
+        :live
+
+      {:error, reason} when reason in [:econnrefused, :connection_refused] ->
+        :connection_refused
+
+      {:error, %Req.TransportError{reason: reason}} when reason in [:econnrefused, :connection_refused] ->
+        :connection_refused
+
+      {:error, reason} ->
+        {:unknown, probe_error_cause(reason)}
+
+      other ->
+        {:unknown, probe_error_cause(other)}
     end
   end
+
+  defp probe_error_cause(%Req.TransportError{reason: reason}) when reason in [:econnrefused, :connection_refused],
+    do: :connection_refused
+
+  defp probe_error_cause(_reason), do: :unknown
 
   defp probe_http_target(url, timeout) do
     Req.get(url, receive_timeout: timeout, retry: false)
@@ -218,6 +240,43 @@ defmodule Aiur.TailscaleFunnel do
 
   defp normalize_target_host(host) when host in ["0.0.0.0", "::"], do: "127.0.0.1"
   defp normalize_target_host(host), do: host
+
+  defp same_target?(left, right) do
+    with {:ok, left_uri} <- normalized_uri(left),
+         {:ok, right_uri} <- normalized_uri(right) do
+      left_uri == right_uri
+    else
+      _ -> false
+    end
+  end
+
+  defp normalized_uri(target) do
+    case URI.parse(target) do
+      %URI{scheme: scheme, host: host} = uri when scheme in ["http", "https"] and is_binary(host) ->
+        scheme = String.downcase(scheme)
+        host = normalize_uri_host(host)
+        port = uri.port || default_port(scheme)
+        path = if uri.path in [nil, "", "/"], do: "", else: uri.path
+        {:ok, {scheme, host, port, uri.userinfo, path, uri.query}}
+
+      _ ->
+        :error
+    end
+  end
+
+  defp normalize_uri_host(host) do
+    host = host |> String.trim_leading("[") |> String.trim_trailing("]") |> String.downcase()
+
+    case :inet.parse_address(String.to_charlist(host)) do
+      {:ok, {127, _, _, _}} -> :loopback
+      {:ok, {0, 0, 0, 0, 0, 0, 0, 1}} -> :loopback
+      _ when host == "localhost" -> :loopback
+      _ -> host
+    end
+  end
+
+  defp default_port("http"), do: 80
+  defp default_port("https"), do: 443
 
   defp safe_tailscale_run(runner, executable, args, timeout_ms) do
     runner.(executable, args, timeout_ms)
@@ -298,8 +357,11 @@ defmodule Aiur.TailscaleFunnel do
   defp format_reason(:tailscale_executable_not_found), do: "tailscale executable not found; install Tailscale CLI"
   defp format_reason(:funnel_443_not_enabled), do: "no operator-enabled HTTPS 443 Funnel route exists"
 
-  defp format_reason({:live_funnel_target_conflict, _target}),
+  defp format_reason({:live_funnel_target_conflict}),
     do: "existing Funnel target is live; refusing to replace it"
+
+  defp format_reason({:target_probe_unknown, _reason}),
+    do: "existing Funnel target probe failed for an unknown reason; refusing to replace it"
 
   defp format_reason(:dashboard_listener_not_bound), do: "dashboard listener is not bound; will retry"
   defp format_reason(reason), do: inspect(reason)

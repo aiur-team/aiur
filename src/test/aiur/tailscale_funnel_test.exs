@@ -56,6 +56,58 @@ defmodule Aiur.TailscaleFunnelTest do
     assert Agent.get(state, & &1.writes) == []
   end
 
+  test "recognizes equivalent loopback URLs and root path spellings as this daemon" do
+    equivalent_target = "http://localhost:43969/"
+    {state, runner} = fake_command(status(equivalent_target), self())
+
+    assert :ok = TailscaleFunnel.reconcile("127.0.0.1", 43_969, funnel_opts(runner))
+    refute_receive {:funnel_update, _target}, 0
+    assert Agent.get(state, & &1.writes) == []
+  end
+
+  test "recognizes IPv6 loopback as equivalent to the bound loopback target" do
+    equivalent_target = "http://[::1]:43969"
+    {state, runner} = fake_command(status(equivalent_target), self())
+
+    assert :ok = TailscaleFunnel.reconcile("127.0.0.1", 43_969, funnel_opts(runner))
+    refute_receive {:funnel_update, _target}, 0
+    assert Agent.get(state, & &1.writes) == []
+  end
+
+  test "refuses to replace a target when probing fails for a reason other than connection refused" do
+    {state, runner} = fake_command(status(@old_target), self())
+    probe = fn _url, _timeout -> {:error, :timeout} end
+
+    assert {:error, {:target_probe_unknown, :unknown}} =
+             TailscaleFunnel.reconcile("127.0.0.1", 43_969, funnel_opts(runner, target_probe: probe))
+
+    refute_receive {:funnel_update, _target}, 0
+    assert Agent.get(state, & &1.writes) == []
+  end
+
+  test "GenServer alerts on a live target mismatch and does not write a new target" do
+    test_pid = self()
+    {state, runner} = fake_command(status(@old_target), self())
+    name = {:global, {__MODULE__, System.unique_integer([:positive])}}
+
+    start_supervised!(
+      {TailscaleFunnel,
+       name: name,
+       host_fun: fn -> "127.0.0.1" end,
+       port_fun: fn -> 43_969 end,
+       interval_ms: 60_000,
+       tailscale_executable: "/fake/tailscale",
+       tailscale_runner: runner,
+       target_probe: fn _url, _timeout -> {:ok, %Req.Response{status: 401}} end,
+       alert: fn topic, opts -> send(test_pid, {:reconcile_alert, topic, opts}) end}
+    )
+
+    assert_receive {:reconcile_alert, "system.build_order_funnel.target_mismatch", alert_opts}, 1_000
+    assert alert_opts[:needs_attention]
+    refute_receive {:funnel_update, _target}, 0
+    assert Agent.get(state, & &1.writes) == []
+  end
+
   test "does not create a Funnel when the operator has not enabled one" do
     {state, runner} = fake_command(status(@old_target, false), self())
 
@@ -80,7 +132,7 @@ defmodule Aiur.TailscaleFunnelTest do
       end
     end
 
-    assert {:error, {:target_verification_failed, @old_target}} =
+    assert {:error, {:target_verification_failed, :target_mismatch}} =
              TailscaleFunnel.reconcile("127.0.0.1", 43_969, funnel_opts(runner))
   end
 
@@ -92,7 +144,7 @@ defmodule Aiur.TailscaleFunnelTest do
       {:ok, %Req.Response{status: 401}}
     end
 
-    assert {:error, {:live_funnel_target_conflict, @old_target}} =
+    assert {:error, {:live_funnel_target_conflict}} =
              TailscaleFunnel.reconcile("127.0.0.1", 43_969, funnel_opts(runner, target_probe: probe))
 
     refute_receive {:funnel_update, _target}, 0

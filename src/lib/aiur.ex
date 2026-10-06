@@ -79,6 +79,7 @@ defmodule Aiur.Application do
           interactive_cli?: interactive_cli?,
           headless?: headless?,
           dashboard?: not no_dashboard?,
+          tailscale_funnel?: configured_tailscale_funnel?(settings),
           telemetry?: telemetry?
         )
 
@@ -509,6 +510,9 @@ defmodule Aiur.Application do
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(cli_children)
   end
+
+  defp configured_tailscale_funnel?({:ok, %{server: %{tailscale_funnel: enabled}}}), do: enabled
+  defp configured_tailscale_funnel?(_settings), do: false
 
   defp supervision_health_child(children) do
     {Aiur.SupervisionHealth, supervisor: Aiur.Supervisor, expected_children: children}
