@@ -57,6 +57,30 @@ defmodule Aiur.RtkTest do
     end
   end
 
+  describe "check_host_hook/1" do
+    test "detects a host hook that rewrites gh regardless of admission setting" do
+      responses = %{["hook", "check", "gh pr view 1"] => gh_rewritten()}
+
+      assert Rtk.check_host_hook(
+               rtk_path: @rtk,
+               enabled?: false,
+               runner: runner(responses)
+             ) == {:rewrites_gh, @rtk}
+    end
+
+    test "accepts a host hook that excludes gh" do
+      responses = %{["hook", "check", "gh pr view 1"] => gh_excluded()}
+
+      assert Rtk.check_host_hook(rtk_path: @rtk, runner: runner(responses)) == :ok
+    end
+
+    test "does not probe when rtk is absent" do
+      runner = fn _rtk, _args -> flunk("must not invoke a subprocess without rtk") end
+
+      assert Rtk.check_host_hook(rtk_path: nil, runner: runner) == :absent
+    end
+  end
+
   describe "savings/1" do
     defp admitted(gain_response) do
       Map.merge(version_ok(), %{

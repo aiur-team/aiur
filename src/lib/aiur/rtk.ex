@@ -96,6 +96,30 @@ defmodule Aiur.Rtk do
     end
   end
 
+  @doc """
+  Checks whether the host RTK hook would rewrite governed agent `gh` calls.
+
+  This startup diagnostic is independent of `agent.rtk.enabled`: a hook
+  registered in the host's Claude settings applies to agents regardless of
+  Aiur's admission setting. It does no subprocess work when `rtk` is absent.
+  """
+  @spec check_host_hook(keyword()) :: :ok | :absent | {:rewrites_gh, term()} | {:probe_failed, term()}
+  def check_host_hook(opts \\ []) do
+    rtk = Keyword.get_lazy(opts, :rtk_path, fn -> executable(opts) end)
+
+    case rtk do
+      nil ->
+        :absent
+
+      path ->
+        case gh_rewrite_state(path, opts) do
+          :rewritten -> {:rewrites_gh, path}
+          :excluded -> :ok
+          {:error, reason} -> {:probe_failed, reason}
+        end
+    end
+  end
+
   defp admit(opts) do
     case executable(opts) do
       nil ->
