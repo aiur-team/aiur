@@ -75,7 +75,9 @@ Releases use `.github/workflows/aiur-style-release.yml`, independently of the
 `aiur-cli` workflow. PRs touching this package run `check-dist`, the release
 verifier's node:test suite, `npm pack`, and `npm publish --dry-run`. The pack file
 list appears in the Actions summary and the `aiur-style-pack` artifact. PRs never
-publish and do not receive OIDC write permission.
+publish and do not receive OIDC write permission. Both jobs set the packed
+manifest's `repository` to `aiur-team/aiur` and directory to `packages/aiur-style`
+for npm provenance; the checked-in manifest is unchanged.
 
 One-time operator setup (before the first automated release):
 
