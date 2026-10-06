@@ -29,7 +29,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       next = Reconciler.refresh_running_issue_states(state, [fresh_one], fetch_fun)
 
-      assert_receive {:fetched_running_ids, ["two"]}
+      assert_receive {:fetched_running_ids, ["two"]}, 1000
       assert next.running["one"].issue.state == "todo"
       assert next.running["two"].issue.state == "Todo"
     end
@@ -320,7 +320,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         {{:ok, request_id}, requested} =
           PauseResume.pause_agent_reply(%State{running: %{issue.id => entry}}, issue.identifier)
 
-        assert_receive {:pause_agent, ^request_id, 1}
+        assert_receive {:pause_agent, ^request_id, 1}, 1000
 
         requested =
           update_in(requested.running[issue.id], fn pending_entry ->
@@ -890,7 +890,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       # The parked agent is blocked in AgentRunner.wait_for_before_run_resume/3;
       # a transient hook failure must self-heal by delivering the resume signal
       # to its live pid, not sit paused forever.
-      assert_receive {:resume_agent, request_id, 1}
+      assert_receive {:resume_agent, request_id, 1}, 1000
 
       assert {:noreply, resumed_state} =
                Orchestrator.handle_info(

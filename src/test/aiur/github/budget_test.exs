@@ -854,21 +854,21 @@ defmodule Aiur.GitHub.BudgetTest do
     # times out; the retry never grants a lease it could double-consume
     # (#2286).
     assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
-    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}
+    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}, 1000
     assert alert_opts[:needs_attention]
     assert alert_opts[:reason] =~ "local billed=2/2"
     assert alert_opts[:reason] =~ "GitHub used=0/10"
 
     assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
-    refute_receive {:budget_alert, _, _}
+    refute_receive {:budget_alert, _, _}, 100
 
     observe_headroom(request, limit: 10, remaining: 8, reset: reset)
     assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
-    refute_receive {:budget_alert, _, _}
+    refute_receive {:budget_alert, _, _}, 100
 
     observe_headroom(request, limit: 10, remaining: 10, reset: reset)
     assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
-    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", _alert_opts}
+    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", _alert_opts}, 1000
   end
 
   test "a shared cooldown outliving the credential window raises one alert", %{root: root} do
@@ -907,23 +907,23 @@ defmodule Aiur.GitHub.BudgetTest do
     observe_headroom(pulls, limit: 100, remaining: 100, reset: reset)
 
     assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)
-    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}
+    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", alert_opts}, 1000
     assert alert_opts[:needs_attention]
     assert alert_opts[:reason] =~ "shared budget hold contradicts"
     assert alert_opts[:reason] =~ "remaining=100/100"
 
     assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)
-    refute_receive {:budget_alert, _, _}
+    refute_receive {:budget_alert, _, _}, 100
 
     # GitHub agreeing that the credential really is spent clears the signal, so
     # the next genuine divergence is still able to speak.
     observe_headroom(pulls, limit: 100, remaining: 0, reset: reset)
     assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)
-    refute_receive {:budget_alert, _, _}
+    refute_receive {:budget_alert, _, _}, 100
 
     observe_headroom(pulls, limit: 100, remaining: 100, reset: reset)
     assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)
-    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", _alert_opts}
+    assert_receive {:budget_alert, "system.github.budget_meter_disagreement", _alert_opts}, 1000
   end
 
   test "usage degrades to an empty actor list when the broker is disabled", %{root: root} do

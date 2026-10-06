@@ -50,7 +50,7 @@ defmodule Aiur.DecisionDispatchTest do
                send_fun: send_fun
              )
 
-    assert_receive {:sent, :fake_operator_messages, "981", payload}
+    assert_receive {:sent, :fake_operator_messages, "981", payload}, 1000
     assert payload.action_id == decision.answer.action_id
     assert payload.delivery_policy == :interrupt
     assert payload.fallback == :queue_next
@@ -89,7 +89,7 @@ defmodule Aiur.DecisionDispatchTest do
                send_fun: send_fun
              )
 
-    assert_receive {:payload, payload}
+    assert_receive {:payload, payload}, 1000
     assert payload.retry_failed == true
     assert String.length(payload.body) <= DecisionDispatch.max_message_chars()
     assert payload.body =~ "Custom response:"

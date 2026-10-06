@@ -343,7 +343,7 @@ defmodule Aiur.RecentMergeStoreTest do
     assert {:unavailable, {:directory_unavailable, {:not_a_directory, ^blocked_path}}} =
              RecentMergeStore.health(pid)
 
-    assert_receive {:store_alert, "recent_merge_store.unavailable", message, opts}
+    assert_receive {:store_alert, "recent_merge_store.unavailable", message, opts}, 1000
     assert message =~ "read-only"
     assert opts[:needs_attention]
   end

@@ -32,7 +32,7 @@ defmodule Aiur.TmuxTest do
         Tmux.command(name, "list-panes")
       end)
 
-    assert_receive :task_started
+    assert_receive :task_started, 1000
     assert_receive {:tmux_mock_out, "list-panes"}, 1_000
 
     # Mock a tmux response framed like the control-mode wire format.
@@ -50,8 +50,8 @@ defmodule Aiur.TmuxTest do
         Tmux.command(name, "bogus")
       end)
 
-    assert_receive :ready
-    assert_receive {:tmux_mock_out, "bogus"}
+    assert_receive :ready, 1000
+    assert_receive {:tmux_mock_out, "bogus"}, 1000
 
     send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\nfail\n%error 1 1 0\n"})
 
@@ -71,7 +71,7 @@ defmodule Aiur.TmuxTest do
         Tmux.move_pane_hidden(name, "%42", "_aiur_warm")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "move-pane -d -s %42 -t _aiur_warm -h"
 
@@ -93,7 +93,7 @@ defmodule Aiur.TmuxTest do
         Tmux.set_pane_border(name, "%9", " 📱 #{url} ")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
 
     assert_receive {:tmux_mock_out, status_cmd}, 1_000
     send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
@@ -117,7 +117,7 @@ defmodule Aiur.TmuxTest do
         Tmux.set_pane_border(name, "%9", nil)
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
 
     assert_receive {:tmux_mock_out, unset_status}, 1_000
     send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})
@@ -140,7 +140,7 @@ defmodule Aiur.TmuxTest do
         Tmux.move_pane_visible(name, "%42", "agents")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "move-pane -s %42 -t agents -h"
 
@@ -157,7 +157,7 @@ defmodule Aiur.TmuxTest do
         Tmux.set_pane_title(name, "%42", "7 CLI: ENS namespace (resolve, reverse, info)")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "select-pane -t %42 -T 7 CLI: ENS namespace (resolve, reverse, info)"
 
@@ -174,7 +174,7 @@ defmodule Aiur.TmuxTest do
         Tmux.list_panes(name, "test:0")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "list-panes -t test:0 -F \#{pane_id}"
 
@@ -192,7 +192,7 @@ defmodule Aiur.TmuxTest do
         Tmux.new_hidden_window(name, "aiur-repl-1", "exec claude")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "new-window -d -n aiur-repl-1 -P -F \#{pane_id} exec claude"
 
@@ -213,7 +213,7 @@ defmodule Aiur.TmuxTest do
         ])
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "new-window -d -n aiur-repl-telemetry -e CLAUDE_CODE_ENABLE_TELEMETRY=1 -e OTEL_RESOURCE_ATTRIBUTES= -P -F \#{pane_id} exec claude"
 
@@ -230,7 +230,7 @@ defmodule Aiur.TmuxTest do
         Tmux.new_hidden_window(name, "aiur-repl-1", "exec claude")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, "new-window" <> _}, 1_000
 
     # No tmux server on the socket yet — `new-window` fails.
@@ -256,7 +256,7 @@ defmodule Aiur.TmuxTest do
         Tmux.move_pane_hidden(name, "%bogus", "_aiur_warm")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(
@@ -276,7 +276,7 @@ defmodule Aiur.TmuxTest do
         Tmux.capture_pane(name, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "capture-pane -p -t %42"
 
@@ -294,7 +294,7 @@ defmodule Aiur.TmuxTest do
         Tmux.paste_text(name, "%42", "multi\nline\nprompt")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
 
     assert_receive {:tmux_mock_out, "load-buffer -b " <> rest1}, 1_000
     [buffer, tmp] = String.split(rest1, " ", parts: 2)
@@ -322,7 +322,7 @@ defmodule Aiur.TmuxTest do
         Tmux.kill_pane(name, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "kill-pane -t %42"
 
@@ -340,7 +340,7 @@ defmodule Aiur.TmuxTest do
         Tmux.send_interrupt(name, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "send-keys -t %42 C-c"
 
@@ -358,7 +358,7 @@ defmodule Aiur.TmuxTest do
         Tmux.kill_pane(name, "%gone")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(
@@ -378,7 +378,7 @@ defmodule Aiur.TmuxTest do
         Tmux.pane_pid(name, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, cmd}, 1_000
     assert cmd == "display-message -p -t %42 \#{pane_pid}"
 
@@ -396,7 +396,7 @@ defmodule Aiur.TmuxTest do
         Tmux.pane_pid(name, "%42")
       end)
 
-    assert_receive :ready
+    assert_receive :ready, 1000
     assert_receive {:tmux_mock_out, _}, 1_000
 
     send(GenServer.whereis(name), {:tmux_mock_data, "%begin 1 1 0\n%end 1 1 0\n"})

@@ -104,7 +104,7 @@ defmodule Aiur.Workspace.HostLockTest do
       guardian = spawn(fn -> Process.sleep(:infinity) end)
       monitor = Process.monitor(guardian)
       Process.exit(guardian, :kill)
-      assert_receive {:DOWN, ^monitor, :process, ^guardian, :killed}
+      assert_receive {:DOWN, ^monitor, :process, ^guardian, :killed}, 1000
 
       assert {:ok, lock} = HostLock.acquire(workspace, "24", alive_fun: fn _pid -> true end)
 

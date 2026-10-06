@@ -29,7 +29,7 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
              :sys.get_state(projection)
 
     assert inflight == %{}
-    refute_receive {:reader_started, :catalog, _reader}
+    refute_receive {:reader_started, :catalog, _reader}, 100
 
     Agent.update(authority, fn _ -> authority(repository, 1) end)
     send(projection, {:workflow_config_updated, 1})
@@ -46,12 +46,12 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
     send(projection, {old_ref, {:ok, ProviderResult.complete(stale)}})
     :sys.get_state(projection)
 
-    refute_receive {:projection_event, {:graph_projection_generation, %Snapshot{}}}
+    refute_receive {:projection_event, {:graph_projection_generation, %Snapshot{}}}, 100
 
     assert %Snapshot{data: nil, generation: :unknown, health: %{failure: :configuration}} =
              GraphProjection.catalog(projection)
 
-    refute_receive {:reader_started, :catalog, _reader}
+    refute_receive {:reader_started, :catalog, _reader}, 100
   end
 
   test "task completion self-reconciles and fences a newer same-repository generation" do
@@ -66,7 +66,7 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
     finish(old_reader, {:ok, ProviderResult.complete(candidate)})
 
     replacement_reader = await_reader(:catalog)
-    refute_receive {:projection_event, {:graph_projection_generation, %Snapshot{}}}
+    refute_receive {:projection_event, {:graph_projection_generation, %Snapshot{}}}, 100
 
     assert %{active_configuration_generation: 2, inflight_by_ref: inflight} =
              :sys.get_state(projection)
@@ -124,7 +124,7 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
     assert next_retry_at == failed.health.next_retry_at
     rearmed = :sys.get_state(projection).selected[key]
     assert rearmed.timer == nil
-    refute_receive {:reader_started, {:selected, ^identity}, _reader}
+    refute_receive {:reader_started, {:selected, ^identity}, _reader}, 100
 
     Agent.update(clock, fn _ -> %{now: DateTime.add(@now, 12, :second), ms: 12_000} end)
     :ok = GraphProjection.refresh(projection, identity)
@@ -208,7 +208,7 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
     assert failed.inflight_by_ref == %{}
     assert failed.pending == MapSet.new()
     assert is_reference(failed.catalog.timer)
-    refute_receive {:reader_started, :catalog, _reader}
+    refute_receive {:reader_started, :catalog, _reader}, 100
 
     Agent.update(clock, fn _ -> %{now: DateTime.add(@now, 1, :second), ms: 1_000} end)
 
@@ -231,7 +231,7 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
                    2_000
 
     assert map_size(:sys.get_state(projection).inflight_by_ref) == 0
-    refute_receive {:reader_started, :catalog, _reader}
+    refute_receive {:reader_started, :catalog, _reader}, 100
   end
 
   test "max inflight coalesces pending selected work and admits it after capacity" do
@@ -254,7 +254,7 @@ defmodule Aiur.BuildOrder.GraphProjectionRecoveryTest do
       :ok = GraphProjection.refresh(projection, second)
     end
 
-    refute_receive {:reader_started, {:selected, ^second}, _reader}
+    refute_receive {:reader_started, {:selected, ^second}, _reader}, 100
     state = :sys.get_state(projection)
     assert map_size(state.inflight_by_ref) == 1
     assert state.pending == MapSet.new([{:selected, second}])

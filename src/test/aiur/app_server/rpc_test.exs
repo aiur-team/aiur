@@ -194,7 +194,7 @@ defmodule Aiur.AppServer.RpcTest do
                    end)
         end)
 
-      refute_receive {:unexpected_notification, _payload}
+      refute_receive {:unexpected_notification, _payload}, 100
       refute log =~ secret
     end
 

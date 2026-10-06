@@ -525,14 +525,14 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       # told *that* the resource moved and reads it from the store. Broadcasting
       # the body would make fan-out cost scale with the number of viewers, which
       # is the cost this design exists to remove.
-      assert_receive {:github_resource_changed, %{key: ^key, data?: true, data_version: "v1", source: :mutation}}
+      assert_receive {:github_resource_changed, %{key: ^key, data?: true, data_version: "v1", source: :mutation}}, 1000
       assert ResourceStore.data(key)["body"] == "one"
 
       ResourceStore.put_resource(key, %{"id" => 640_100, "body" => "one"}, version: "v1")
       refute_receive {:github_resource_changed, %{key: ^key}}, 200
 
       ResourceStore.put_resource(key, %{"id" => 640_100, "body" => "two"}, version: "v2")
-      assert_receive {:github_resource_changed, %{key: ^key, data_version: "v2"}}
+      assert_receive {:github_resource_changed, %{key: ^key, data_version: "v2"}}, 1000
       assert ResourceStore.data(key)["body"] == "two"
     end
 

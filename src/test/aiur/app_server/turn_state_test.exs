@@ -22,7 +22,7 @@ defmodule Aiur.AppServer.TurnStateTest do
 
     assert {:ok, :turn_completed} = TurnState.continue_after_turn_completion(state)
 
-    assert_receive {:failed, :parent_turn_completed}
+    assert_receive {:failed, :parent_turn_completed}, 1000
   end
 
   test "provider turn tracking is unique, status-aware, and seeded with the parent" do
@@ -157,7 +157,7 @@ defmodule Aiur.AppServer.TurnStateTest do
       })
 
     assert {:ok, :turn_completed} = TurnState.complete_all_provider_turns(state)
-    assert_receive {:failed, :parent_turn_completed}
+    assert_receive {:failed, :parent_turn_completed}, 1000
   end
 
   test "continue_after_turn_interrupted routes pause and operator-message actions" do

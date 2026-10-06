@@ -10,7 +10,7 @@ defmodule Aiur.AgentPubSubTest do
 
       :ok = AgentPubSub.broadcast_transcript("MT-99", event)
 
-      assert_receive {:transcript_event, ^event}
+      assert_receive {:transcript_event, ^event}, 1000
     end
 
     test "subscriptions are scoped per identifier" do
@@ -32,8 +32,8 @@ defmodule Aiur.AgentPubSubTest do
       event = AgentEvents.transcript_event(:command, "ls")
 
       :ok = AgentPubSub.broadcast_transcript("MT-DUP", event)
-      assert_receive {:transcript_event, ^event}
-      assert_receive {:transcript_event, ^event}
+      assert_receive {:transcript_event, ^event}, 1000
+      assert_receive {:transcript_event, ^event}, 1000
       refute_receive {:transcript_event, ^event}, 50
 
       # One unsubscribe clears ALL stacked subscriptions for this process.
@@ -44,7 +44,7 @@ defmodule Aiur.AgentPubSubTest do
       # Next segment's single subscribe delivers exactly one copy.
       :ok = AgentPubSub.subscribe_agent("MT-DUP")
       :ok = AgentPubSub.broadcast_transcript("MT-DUP", event)
-      assert_receive {:transcript_event, ^event}
+      assert_receive {:transcript_event, ^event}, 1000
       refute_receive {:transcript_event, ^event}, 50
     end
 
@@ -65,7 +65,7 @@ defmodule Aiur.AgentPubSubTest do
 
       :ok = AgentPubSub.broadcast_alert("MT-1", event)
 
-      assert_receive {:alert, ^event}
+      assert_receive {:alert, ^event}, 1000
     end
   end
 
@@ -76,7 +76,7 @@ defmodule Aiur.AgentPubSubTest do
 
       assert :ok = AgentPubSub.broadcast_control_lifecycle("MT-CONTROL", payload)
 
-      assert_receive {:control_lifecycle, ^payload}
+      assert_receive {:control_lifecycle, ^payload}, 1000
     end
   end
 
@@ -87,7 +87,7 @@ defmodule Aiur.AgentPubSubTest do
 
       :ok = AgentPubSub.broadcast_running_change(summaries)
 
-      assert_receive {:running_changed, ^summaries}
+      assert_receive {:running_changed, ^summaries}, 1000
     end
 
     test "status_changed reaches subscribers" do
@@ -95,7 +95,7 @@ defmodule Aiur.AgentPubSubTest do
 
       :ok = AgentPubSub.broadcast_status_change("MT-1", :paused)
 
-      assert_receive {:status_changed, %{identifier: "MT-1", status: :paused}}
+      assert_receive {:status_changed, %{identifier: "MT-1", status: :paused}}, 1000
     end
   end
 

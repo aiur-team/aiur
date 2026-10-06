@@ -111,8 +111,8 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       CommandScan.scan_pr_commands(etag_state(), opts)
 
-      assert_receive {:review_etag, "review-etag"}
-      assert_receive {:issue_etag, "issue-etag"}
+      assert_receive {:review_etag, "review-etag"}, 1000
+      assert_receive {:issue_etag, "issue-etag"}, 1000
     end
 
     # The fifth pipe (#2073 U6). These validators used to be keyed by call site
@@ -204,8 +204,8 @@ defmodule Aiur.Orchestrator.CommandScanTest do
       assert base_state().github_comment_etags == %{}
       CommandScan.scan_pr_commands(base_state(), cold)
 
-      assert_receive {:review_etag, "review-etag-1"}
-      assert_receive {:issue_etag, "issue-etag-1"}
+      assert_receive {:review_etag, "review-etag-1"}, 1000
+      assert_receive {:issue_etag, "issue-etag-1"}, 1000
     end
 
     test "an unavailable store leaves the scan reading unconditionally" do
@@ -225,8 +225,8 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       CommandScan.scan_pr_commands(base_state(), opts)
 
-      assert_receive {:review_etag, nil}
-      assert_receive {:issue_etag, nil}
+      assert_receive {:review_etag, nil}, 1000
+      assert_receive {:issue_etag, nil}, 1000
     end
 
     test "a 304 on both streams leaves the cursor and the etags untouched" do
@@ -335,7 +335,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       result = CommandScan.scan_pr_commands(base_state(), opts)
 
-      assert_receive {:event, %{topic: "ticket.77.pr.review_comment"}}
+      assert_receive {:event, %{topic: "ticket.77.pr.review_comment"}}, 1000
       # The replayed list is re-deposited and the validator stays answerable, so
       # the recovery is durable across the next cycle and restart.
       assert ResourceStore.data(review_stream) == [review_comment(5001, "2024-06-15T12:00:00Z")]
@@ -357,7 +357,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       CommandScan.scan_pr_commands(%{base_state() | github_command_scan_since: "2024-06-15T11:00:00Z"}, warm)
 
-      assert_receive {:event, %{topic: "ticket.77.pr.review_comment"}}
+      assert_receive {:event, %{topic: "ticket.77.pr.review_comment"}}, 1000
 
       # The stream is unchanged next cycle; the `304` replays the held list and
       # the command dedup key suppresses the already-published comment.
@@ -368,7 +368,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       CommandScan.scan_pr_commands(etag_state(), steady)
 
-      refute_receive {:event, %{topic: "ticket.77.pr.review_comment"}}
+      refute_receive {:event, %{topic: "ticket.77.pr.review_comment"}}, 100
     end
 
     # The store refuses an oversized stream outright — no body and no validator.
@@ -413,7 +413,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
       # etag/1 refuses to hand out a validator it cannot serve a body for, so
       # the read was unconditional; even a misbehaving 304 must not leave the
       # stale validator in place to repeat an empty answer every cycle.
-      assert_receive {:review_etag, nil}
+      assert_receive {:review_etag, nil}, 1000
       assert ResourceStore.change_validator(review_stream) == nil
       assert result.github_comment_etags[:command_scan_review] == nil
     end
