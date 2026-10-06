@@ -69,6 +69,15 @@ defmodule AiurWeb.PresenterTest do
         agent_input_tokens: 910_011,
         agent_output_tokens: 910_012,
         agent_total_tokens: 910_023,
+        telemetry_attempt_id: "attempt-ci-wait",
+        context_usage: %{
+          session_id: "private-session",
+          used_tokens: 1200,
+          window_tokens: 4000,
+          used_percent: 30.0,
+          pressure: :warning,
+          view_cursor: "private-cursor"
+        },
         live_conversation: %{
           generation_handle: conversation_handle,
           state: :known_empty,
@@ -176,6 +185,8 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.open_decision_count == 0
     assert is_integer(running_row.stale_for_seconds)
     assert running_row.tracker_identity == tracker_identity("MT-700")
+    refute Map.has_key?(running_row, :telemetry_attempt_id)
+    refute Map.has_key?(running_row, :context_usage)
     assert running_row.backend == "codex"
     assert running_row.agent_family == "codex"
     assert running_row.requested_model == "gpt-5.6-terra"
