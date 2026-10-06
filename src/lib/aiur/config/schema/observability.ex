@@ -6,6 +6,9 @@ defmodule Aiur.Config.Schema.Observability do
   @primary_key false
   embedded_schema do
     field(:dashboard_enabled, :boolean, default: true)
+    # Tailscale Funnel status checks are opt-in because Funnel may serve an
+    # unrelated target on some hosts.
+    field(:build_order_funnel_health_check, :boolean, default: false)
     # The dashboard is an authenticated operator surface and its controls are
     # live by default. HTTP startup still refuses writable non-loopback binds
     # without configured dashboard credentials.
@@ -25,6 +28,7 @@ defmodule Aiur.Config.Schema.Observability do
       attrs,
       [
         :dashboard_enabled,
+        :build_order_funnel_health_check,
         :dashboard_writable,
         :refresh_ms,
         :render_interval_ms,
