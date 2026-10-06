@@ -5,6 +5,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   """
 
   alias Aiur.AgentList.Renderer.{Style, Text}
+  alias Aiur.ProviderMeters.Text, as: MeterText
 
   # ---------- header / metadata ---------------------------------------------
 
@@ -63,6 +64,14 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   # standing and a reset time — its CLI exposes no utilization at all — so it
   # gets those instead. Rendering an empty bar for Claude would read as "0%
   # consumed", which is a claim the data does not support.
+  defp usage_segment({provider, %{state: :observed, freshness: :stale} = view}) do
+    usage_segment({provider, Map.delete(view, :freshness)}) <> MeterText.freshness_suffix(view)
+  end
+
+  defp usage_segment({provider, %{identity_scope: :host_unverified} = view}) do
+    usage_segment({provider, Map.delete(view, :identity_scope)}) <> " [account unverified]"
+  end
+
   defp usage_segment({provider, %{state: :observed} = view}) do
     case local_concurrency_summary(view) do
       nil ->
@@ -137,12 +146,10 @@ defmodule Aiur.AgentList.Renderer.Chrome do
     |> Map.get(:windows, %{})
     |> Map.values()
     |> Enum.find_value(fn
-      %{kind: :credit, credits: %{amount: amount}} when is_number(amount) -> "$#{format_amount(amount)} left"
+      %{kind: :credit, credits: %{amount: amount}} when is_number(amount) -> "$#{MeterText.amount(amount)} left"
       _window -> nil
     end)
   end
-
-  defp format_amount(amount), do: :erlang.float_to_binary(amount / 1, decimals: 2)
 
   defp standing_word(:allowed), do: "ok"
   defp standing_word(:allowed_warning), do: "near limit"
@@ -162,12 +169,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
 
   defp reset_suffix(_resets_at), do: nil
 
-  @bar_cells 10
-
-  defp usage_bar(percent) do
-    filled = percent |> max(0) |> min(100) |> Kernel./(100) |> Kernel.*(@bar_cells) |> round()
-    String.duplicate("█", filled) <> String.duplicate("░", @bar_cells - filled)
-  end
+  defp usage_bar(percent), do: MeterText.bar(percent)
 
   defp age_suffix(nil), do: "(age n/a)"
   defp age_suffix(seconds) when seconds < 60, do: "(#{seconds}s)"

@@ -5,6 +5,7 @@ defmodule Aiur.Opencode.ChatCompletions do
 
   alias Aiur.Opencode.ChatCompletions.{
     Caller,
+    InputIdentity,
     OperatorDispatch,
     Replay,
     Sse,
@@ -53,8 +54,12 @@ defmodule Aiur.Opencode.ChatCompletions do
   end
 
   defp handle_identified(body, conn, identifier) do
-    case TurnRequest.last_user_text(body) do
-      {:ok, text} -> handle_identified_text(body, conn, identifier, text)
+    with {:ok, conn} <- Caller.authorize(conn),
+         {:ok, body} <- InputIdentity.unwrap(body, conn),
+         {:ok, text} <- TurnRequest.last_user_text(body) do
+      handle_identified_text(body, conn, identifier, text)
+    else
+      {:error, :unauthorized} -> Sse.json(conn, 401, Caller.auth_failed_body())
       {:error, reason} -> Sse.json(conn, 400, %{error: inspect(reason)})
     end
   end
@@ -132,15 +137,15 @@ defmodule Aiur.Opencode.ChatCompletions do
   # agent before the segment stream opens, else it is silently dropped.
   defp dispatch_shadowed_operator_texts(body, identifier) do
     body
-    |> TurnRequest.trailing_user_texts()
+    |> TurnRequest.trailing_user_inputs()
     # The routed (last) message handles itself in the caller.
     |> Enum.drop(-1)
-    |> Enum.reject(&TurnRequest.synthetic_marker_text?/1)
-    |> Enum.each(fn text ->
+    |> Enum.reject(fn {text, _id} -> TurnRequest.synthetic_marker_text?(text) end)
+    |> Enum.each(fn {text, message_id} ->
       case TurnRequest.validate_body(text) do
         {:ok, sanitized} when sanitized != "" ->
           Logger.info("opencode_bridge coalesced_operator_text identifier=#{identifier}")
-          _ = OperatorDispatch.send_operator(identifier, sanitized, Sse.random_id())
+          _ = OperatorDispatch.send_operator(identifier, sanitized, Sse.random_id(), message_id)
 
         _ ->
           :ok

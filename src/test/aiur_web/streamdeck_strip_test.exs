@@ -28,6 +28,17 @@ defmodule AiurWeb.StreamdeckStripTest do
            }
   end
 
+  test "renders every registered provider logo, including Muse, through its descriptor" do
+    for provider <- Aiur.CodingAgent.provider_descriptors() do
+      command = StreamdeckStrip.command(%{identifier: "1", vendor: provider.provider, bucket: :running})
+      assert command.provider_logo == provider.logo
+      assert {:ok, "image/svg+xml", body} = AiurWeb.StaticAssets.fetch(command.provider_logo)
+      assert body =~ "<svg"
+    end
+
+    assert StreamdeckStrip.command(%{identifier: "1", vendor: "unknown", bucket: :running}).provider_logo == nil
+  end
+
   test "agrees with the key face that unknown progress has no percentage and no hue" do
     command = StreamdeckStrip.command(%{identifier: "1582", bucket: :running, progress_percent: nil})
 

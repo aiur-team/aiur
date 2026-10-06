@@ -1041,8 +1041,24 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
+  # `:unauthorized` is in this list because it is the one decline an operator
+  # cannot otherwise see. A dispatch-authorization read that is *deferred* (a
+  # local GitHub budget hold, a rate limit, a transport fault on the timeline
+  # fetch) leaves `dispatch_authorized?: false` with a `Logger.warning` and
+  # nothing else, and the catch-all clause below then actively cleared any
+  # prior decline. A ticket relabelled `agent:rework` while the core budget is
+  # held therefore sat out poll after poll with free slots, no alert, and no
+  # row on the status board — the operator saw only silence. Recording the
+  # decline makes the hold legible; it does not change whether the ticket
+  # dispatches.
   defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
-       when reason in [:state_capacity, :worker_capacity, :claimed_without_runtime, :blocked_on_decision] do
+       when reason in [
+              :state_capacity,
+              :worker_capacity,
+              :claimed_without_runtime,
+              :blocked_on_decision,
+              :unauthorized
+            ] do
     if Slots.available_slots(state) > 0 do
       record_dispatch_decline(
         state,
@@ -1069,10 +1085,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
       when is_list(opts) do
     case held_by_dependency_before_refresh(state, issue, opts) do
-      {:held, %Issue{} = hydrated} ->
+      {:held, %Issue{} = hydrated, terminal_states} ->
         Logger.info(
-          "Skipping dispatch before refresh; issue is blocked by a non-terminal dependency: " <>
-            "#{State.issue_context(hydrated)} blocked_by=#{inspect(hydrated.blocked_by)}"
+          "Skipping dispatch before refresh; #{State.issue_context(hydrated)} " <>
+            DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
         )
 
         emit_dispatch_attempt_decline(state, hydrated, :dependency, false)
@@ -1099,8 +1115,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     with false <- DispatchPolicy.blocked_on_decision?(issue, state.blocked_ticket_ids),
          {:ok, %Issue{} = hydrated} <- hydrator.(issue),
-         true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, DispatchPolicy.terminal_state_set()) do
-      {:held, hydrated}
+         terminal_states = DispatchPolicy.terminal_state_set(),
+         true <- DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
+      {:held, hydrated, terminal_states}
     else
       _not_held -> :continue
     end
@@ -1236,10 +1253,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp dispatch_issue_with_dependency_check(state, hydrated, attempt, preferred_worker_host, opts) do
-    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, DispatchPolicy.terminal_state_set()) do
+    terminal_states = DispatchPolicy.terminal_state_set()
+
+    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, terminal_states) do
       Logger.info(
-        "Skipping dispatch; issue is blocked by a non-terminal dependency: " <>
-          "#{State.issue_context(hydrated)} blocked_by=#{inspect(hydrated.blocked_by)}"
+        "Skipping dispatch; #{State.issue_context(hydrated)} " <>
+          DispatchPolicy.describe_dependency_hold(hydrated, terminal_states)
       )
 
       # Record the decline instead of only logging it. A ticket held here sits in

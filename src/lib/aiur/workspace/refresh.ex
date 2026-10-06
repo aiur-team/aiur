@@ -1,5 +1,5 @@
 defmodule Aiur.Workspace.Refresh do
-  @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles the dirty-leftover recreation path (#577), which saves uncommitted work before it deletes anything (#2743), and the in-flight WIP skip (#653)."
+  @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles dirty-leftover preservation before recreation and skips in-flight WIP refreshes."
 
   require Logger
   alias Aiur.{AgentBuildGuard, Config}

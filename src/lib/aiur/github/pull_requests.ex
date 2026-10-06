@@ -6,7 +6,7 @@ defmodule Aiur.GitHub.PullRequests do
   require Logger
 
   alias Aiur.{Codeowners, TicketBranch}
-  alias Aiur.GitHub.{Comments, Errors, Transport, WriteThrough}
+  alias Aiur.GitHub.{Comments, Errors, ResourceFetch, ResourceStore, Transport, WriteThrough}
 
   @issue_events_page 100
 
@@ -109,6 +109,27 @@ defmodule Aiur.GitHub.PullRequests do
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/reviews?per_page=100"
 
       Transport.fetch_json_list_conditional(request_fun, token, url, Keyword.get(opts, :etag), caller: "pull_request_reviews_conditional")
+    end
+  end
+
+  @doc "Fetch formal PR reviews for cold agent context with a fresh validator and CODEOWNERS classification."
+  @spec fetch_classified_pr_reviews(String.t() | integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_classified_pr_reviews(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         context when is_map(context) <- Codeowners.repo_ownership(opts) do
+      key = ResourceStore.key_for_repo(:pull_request_reviews, "#{owner}/#{repo}", pr_number)
+
+      fetcher = fn fetch_opts ->
+        fetch_pull_request_reviews_conditional(pr_number, Keyword.merge(opts, fetch_opts))
+      end
+
+      case ResourceFetch.need(key, fetcher, freshness: ResourceFetch.decision(), reason: "cold agent review context") do
+        {:ok, reviews, _meta} when is_list(reviews) ->
+          {:ok, Enum.map(reviews, &Codeowners.classify_comment(&1, context, opts))}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 

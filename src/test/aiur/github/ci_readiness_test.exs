@@ -265,6 +265,39 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
   end
 
+  test "recognizes a required job guarded only against cancellation" do
+    workflow = """
+    on:
+      pull_request:
+        branches: [develop]
+    jobs:
+      test:
+        name: ci / required
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-latest
+    """
+
+    assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
+  end
+
+  test "does not treat a cancellation guard with another predicate as an unconditional PR check" do
+    workflow = """
+    on:
+      pull_request:
+        branches: [develop]
+    jobs:
+      test:
+        name: ci / required
+        if: ${{ !cancelled() && github.actor == 'maintainer' }}
+        runs-on: ubuntu-latest
+    """
+
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"])
+
+    refute readiness.ready?
+    assert {:required_check_not_produced, ["ci / required"]} in readiness.issues
+  end
+
   test "reports a missing configured base branch after confirming repository access" do
     parent = self()
 

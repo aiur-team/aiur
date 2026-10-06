@@ -2,6 +2,7 @@ defmodule Aiur.AgentRunner.CommentContextTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner.CommentContext
+  alias Aiur.AgentRunner.EventsDigest
   alias Aiur.Issue
 
   describe "events/2" do
@@ -109,6 +110,103 @@ defmodule Aiur.AgentRunner.CommentContextTest do
   end
 
   describe "events/2 PR comments and review threads" do
+    test "cold bootstrap recovers a body-only changes-requested review without a queue seed" do
+      issue = %Issue{identifier: "CC-2794", id: "gid-2794"}
+
+      review = %{
+        "id" => 2794,
+        "state" => "CHANGES_REQUESTED",
+        "body" => "Please restore the failure path",
+        "submitted_at" => "2026-09-28T12:00:00Z",
+        "user" => %{"login" => "owner"},
+        authoritative: true
+      }
+
+      fetchers = %{
+        issue_comments: fn _ -> {:ok, []} end,
+        open_pr: fn _ -> {:ok, %{"number" => 49}} end,
+        pr_review_comments: fn _ -> {:ok, []} end,
+        unaddressed_pr_review_thread_comments: fn _ -> {:ok, []} end,
+        pr_reviews: fn 49 -> {:ok, [review]} end
+      }
+
+      assert [%{id: 2794, topic: "ticket.CC-2794.pr.review_comment", author: "owner", author_trusted?: true} = event] =
+               CommentContext.events(issue, fetchers)
+
+      assert event.summary == "Please restore the failure path"
+      assert event.comment["submitted_at"] == "2026-09-28T12:00:00Z"
+      assert event.comment["state"] == "CHANGES_REQUESTED"
+    end
+
+    test "formal reviews use submitted time and do not replay stale, superseded, or untrusted bodies" do
+      issue = %Issue{identifier: "CC-2794", id: "gid-2794"}
+      workpad = %{"id" => 1, "body" => "## Agent Workpad", "updated_at" => "2026-09-28T12:00:00Z"}
+
+      review = fn id, login, state, body, submitted_at, trusted ->
+        %{
+          "id" => id,
+          "state" => state,
+          "body" => body,
+          "submitted_at" => submitted_at,
+          "updated_at" => "2026-09-29T00:00:00Z",
+          "user" => %{"login" => login},
+          authoritative: trusted
+        }
+      end
+
+      reviews = [
+        review.(2, "stale", "CHANGES_REQUESTED", "stale request", "2026-09-28T11:00:00Z", true),
+        review.(3, "owner", "APPROVED", "resolved", "2026-09-28T13:00:00Z", true),
+        review.(4, "second", "CHANGES_REQUESTED", "current request", "2026-09-28T14:00:00Z", true),
+        review.(5, "third", "CHANGES_REQUESTED", "outsider request", "2026-09-28T15:00:00Z", false),
+        review.(6, "fourth", "CHANGES_REQUESTED", "unknown authority", "2026-09-28T16:00:00Z", nil),
+        review.(7, "fifth", "CHANGES_REQUESTED", "missing timestamp", nil, true)
+      ]
+
+      fetchers = %{
+        issue_comments: fn
+          "CC-2794" -> {:ok, [workpad]}
+          49 -> {:ok, []}
+        end,
+        open_pr: fn _ -> {:ok, %{"number" => 49}} end,
+        pr_review_comments: fn _ -> {:ok, []} end,
+        unaddressed_pr_review_thread_comments: fn _ -> {:ok, []} end,
+        pr_reviews: fn 49 -> {:ok, reviews} end
+      }
+
+      events = CommentContext.events(issue, fetchers)
+      assert Enum.map(events, & &1.id) |> Enum.sort() == [4, 5, 6]
+      assert Enum.find(events, &(&1.id == 4)).author_trusted? == true
+      assert Enum.find(events, &(&1.id == 5)).author_trusted? == false
+      assert Enum.find(events, &(&1.id == 6)).author_trusted? == false
+
+      rendered = EventsDigest.render(events, "CC-2794")
+      assert rendered =~ "current request"
+      refute rendered =~ "outsider request"
+      refute rendered =~ "unknown authority"
+    end
+
+    test "substantive commented reviews survive an empty inline container, while approval suppresses older requests" do
+      issue = %Issue{identifier: "CC-2794", id: "gid-2794"}
+
+      reviews = [
+        %{"id" => 10, "state" => "CHANGES_REQUESTED", "body" => "old request", "submitted_at" => "2026-09-28T10:00:00Z", "user" => %{"login" => "owner"}, authoritative: true},
+        %{"id" => 11, "state" => "APPROVED", "body" => "", "submitted_at" => "2026-09-28T11:00:00Z", "user" => %{"login" => "owner"}, authoritative: true},
+        %{"id" => 12, "state" => "COMMENTED", "body" => "Please check this", "submitted_at" => "2026-09-28T12:00:00Z", "user" => %{"login" => "second"}, authoritative: true},
+        %{"id" => 13, "state" => "COMMENTED", "body" => "", "submitted_at" => "2026-09-28T13:00:00Z", "user" => %{"login" => "second"}, authoritative: true}
+      ]
+
+      fetchers = %{
+        issue_comments: fn _ -> {:ok, []} end,
+        open_pr: fn _ -> {:ok, %{"number" => 49}} end,
+        pr_review_comments: fn _ -> {:ok, []} end,
+        unaddressed_pr_review_thread_comments: fn _ -> {:ok, []} end,
+        pr_reviews: fn 49 -> {:ok, reviews} end
+      }
+
+      assert [%{id: 12, summary: "Please check this"}] = CommentContext.events(issue, fetchers)
+    end
+
     test "collects issue comments, PR review comments, and unaddressed review threads" do
       issue = %Issue{identifier: "CC-10", id: "gid-cc10"}
 

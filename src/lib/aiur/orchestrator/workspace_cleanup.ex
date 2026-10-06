@@ -29,7 +29,7 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
   require Logger
 
-  alias Aiur.{Config, Issue, SessionHandle, Tracker, Workspace}
+  alias Aiur.{Config, Issue, SessionHandle, TestTicketScope, Tracker, Workspace}
   alias Aiur.Orchestrator.{DispatchPolicy, RetryEngine, State, TrackerHealth}
   alias Aiur.Workspace.{Layout, Ownership, WipPreservation}
 
@@ -140,7 +140,10 @@ defmodule Aiur.Orchestrator.WorkspaceCleanup do
 
   @doc false
   @spec clear_session_handle(binary() | term()) :: :ok
-  def clear_session_handle(identifier) when is_binary(identifier), do: SessionHandle.clear(identifier)
+  def clear_session_handle(identifier) when is_binary(identifier) do
+    if TestTicketScope.allowed_identifier?(identifier), do: SessionHandle.clear(identifier), else: :ok
+  end
+
   def clear_session_handle(_identifier), do: :ok
 
   @spec run_startup_todo_workspace_cleanup(State.t()) :: State.t()

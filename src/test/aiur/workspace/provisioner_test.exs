@@ -80,12 +80,12 @@ defmodule Aiur.Workspace.ProvisionerTest do
       build_start_stagger_seconds: 0,
       min_free_memory_mb: nil,
       hook_after_create: """
-      git init --quiet -b main
-      git config user.email test@example.com
-      git config user.name "Test User"
+      git -C "$PWD" init --quiet -b main
+      git -C "$PWD" config user.email test@example.com
+      git -C "$PWD" config user.name "Test User"
       printf initialized > README.md
-      git add README.md
-      git commit --quiet -m init
+      git -C "$PWD" add README.md
+      git -C "$PWD" commit --quiet -m init
       printf '#!/bin/sh\nexec mise exec -- mix compile\n' > hook-build
       chmod +x hook-build
       probe_bin=#{Aiur.Shell.escape(bin_dir)}
@@ -272,12 +272,12 @@ defmodule Aiur.Workspace.ProvisionerTest do
       tracker_kind: "memory",
       workspace_root: workspace_root,
       hook_after_create: """
-      git init --quiet -b main .
-      git config user.email test@example.com
-      git config user.name "Test User"
+      git -C "$PWD" init --quiet -b main .
+      git -C "$PWD" config user.email test@example.com
+      git -C "$PWD" config user.name "Test User"
       printf initialized > README.md
-      git add README.md
-      git commit --quiet -m init
+      git -C "$PWD" add README.md
+      git -C "$PWD" commit --quiet -m init
       """
     )
 

@@ -75,12 +75,15 @@ defmodule Aiur.Workspace.RefreshTest do
     refute File.exists?(before_run_marker)
   end
 
-  test "run/3 exit-65 recreation restores the full agent support tree before dispatch", %{
+  test "run/3 exit-65 recreation restores the full agent support tree when checkout is clean", %{
     workspace: workspace,
     test_root: test_root
   } do
     init_repo!(workspace)
-    sentinel = Path.join(workspace, "leftover-sentinel")
+    File.write!(Path.join(workspace, ".gitignore"), "ignored-sentinel\n.aiur-runtime/\n")
+    git!(["-C", workspace, "add", ".gitignore"])
+    git!(["-C", workspace, "commit", "--quiet", "-m", "ignore sentinel"])
+    sentinel = Path.join(workspace, "ignored-sentinel")
     File.write!(sentinel, "leftover")
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -89,14 +92,14 @@ defmodule Aiur.Workspace.RefreshTest do
       build_start_stagger_seconds: 0,
       min_free_memory_mb: nil,
       hook_before_run: """
-      if [ -f leftover-sentinel ]; then exit 65; fi
+      if [ -f ignored-sentinel ]; then exit 65; fi
       test -z "$(find . -mindepth 1 -maxdepth 1 -print -quit)"
-      git init --quiet -b main
-      git config user.email t@example.com
-      git config user.name T
+      git -C "$PWD" init --quiet -b main
+      git -C "$PWD" config user.email t@example.com
+      git -C "$PWD" config user.name T
       touch rebuilt
-      git add rebuilt
-      git commit --quiet -m rebuilt
+      git -C "$PWD" add rebuilt
+      git -C "$PWD" commit --quiet -m rebuilt
       """
     )
 
@@ -165,7 +168,7 @@ defmodule Aiur.Workspace.RefreshTest do
     assert File.read!(sentinel) == "keep\n"
   end
 
-  test "run/3 preserves an established ticket branch when recreation follows a title edit", %{
+  test "run/3 passes the established ticket branch to recreation hooks after a title edit", %{
     workspace: workspace,
     test_root: test_root
   } do

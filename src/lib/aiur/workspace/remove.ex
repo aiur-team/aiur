@@ -29,7 +29,7 @@ defmodule Aiur.Workspace.Remove do
 
   require Logger
 
-  alias Aiur.Config
+  alias Aiur.{Config, TestTicketScope}
   alias Aiur.Workspace.{Hooks, Layout, Remote, WipPreservation}
 
   # Exit status of the remote removal script when the checkout is dirty.
@@ -145,28 +145,32 @@ defmodule Aiur.Workspace.Remove do
 
   def remove_issue_workspaces(identifier, worker_host, opts)
       when is_binary(identifier) and is_binary(worker_host) do
-    safe_id = Layout.safe_identifier(identifier)
+    if TestTicketScope.allowed_identifier?(identifier) do
+      safe_id = Layout.safe_identifier(identifier)
 
-    case Layout.workspace_path_for_issue(safe_id, worker_host) do
-      {:ok, workspace} -> workspace |> remove(worker_host, Keyword.put_new(opts, :ticket, identifier)) |> summarize()
-      {:error, _reason} -> :ok
+      case Layout.workspace_path_for_issue(safe_id, worker_host) do
+        {:ok, workspace} -> workspace |> remove(worker_host, Keyword.put_new(opts, :ticket, identifier)) |> summarize()
+        {:error, _reason} -> :ok
+      end
     end
   end
 
   def remove_issue_workspaces(identifier, nil, opts) when is_binary(identifier) do
-    safe_id = Layout.safe_identifier(identifier)
+    if TestTicketScope.allowed_identifier?(identifier) do
+      safe_id = Layout.safe_identifier(identifier)
 
-    case Config.settings!().worker.ssh_hosts do
-      [] ->
-        case Layout.workspace_path_for_issue(safe_id, nil) do
-          {:ok, workspace} -> workspace |> remove(nil, Keyword.put_new(opts, :ticket, identifier)) |> summarize()
-          {:error, _reason} -> :ok
-        end
+      case Config.settings!().worker.ssh_hosts do
+        [] ->
+          case Layout.workspace_path_for_issue(safe_id, nil) do
+            {:ok, workspace} -> workspace |> remove(nil, Keyword.put_new(opts, :ticket, identifier)) |> summarize()
+            {:error, _reason} -> :ok
+          end
 
-      worker_hosts ->
-        worker_hosts
-        |> Enum.map(&remove_issue_workspaces(identifier, &1, opts))
-        |> Enum.find(:ok, &match?({:skipped, _reason}, &1))
+        worker_hosts ->
+          worker_hosts
+          |> Enum.map(&remove_issue_workspaces(identifier, &1, opts))
+          |> Enum.find(:ok, &match?({:skipped, _reason}, &1))
+      end
     end
   end
 
@@ -186,7 +190,7 @@ defmodule Aiur.Workspace.Remove do
   defp remove_unless_dirty(workspace, opts) do
     case WipPreservation.dirty?(workspace) do
       {:ok, false} ->
-        destroy_local(workspace, opts)
+        remove_preserved(workspace, opts)
 
       {:ok, true} ->
         Logger.info("Kept dirty workspace for its next dispatch, which saves the work before any recreate workspace=#{workspace}")
@@ -199,6 +203,9 @@ defmodule Aiur.Workspace.Remove do
   end
 
   defp remove_preserved(workspace, opts) do
+    # Run the hook before the final snapshot so its changes are included in the
+    # same durable artifact as the agent's work.
+    maybe_run_before_remove_hook(workspace, nil)
     destroy = fn -> destroy_local(workspace, opts) end
 
     case WipPreservation.guard_destroy(workspace, ticket(workspace, opts), "remove the workspace", destroy, Keyword.take(opts, [:terminal?])) do
@@ -207,12 +214,10 @@ defmodule Aiur.Workspace.Remove do
     end
   end
 
-  # The guard runs after the save and immediately before the hook and the
-  # delete, so nothing slow sits between the check and the `rm -rf`.
+  # The ownership guard runs after the save and immediately before the delete.
   defp destroy_local(workspace, opts) do
     case destroy_guard(opts) do
       :ok ->
-        maybe_run_before_remove_hook(workspace, nil)
         File.rm_rf(workspace)
 
       skipped ->

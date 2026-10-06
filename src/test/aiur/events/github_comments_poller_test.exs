@@ -1259,6 +1259,68 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       stop_codeowners(codeowners)
     end
 
+    test "a review remains discoverable after issue comments advance while review reads are disabled" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+      review = pr_review(9_081, "its-everdred", "CHANGES_REQUESTED", "please rework", "2026-06-24T12:00:00Z")
+
+      first_request = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/42/comments?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "id" => 99_081,
+                   "body" => "CI update",
+                   "updated_at" => "2026-06-24T12:30:00Z",
+                   "user" => %{"login" => "its-everdred"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [%{"number" => 77, "head" => %{"ref" => "aiur/42", "repo" => %{"full_name" => "owner/repo"}}}]
+             }}
+
+          String.contains?(url, "/issues/77/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
+
+          String.contains?(url, "/pulls/77/reviews") ->
+            flunk("review endpoint must stay disabled during ci-wait")
+        end
+      end
+
+      assert {:ok, %{since: %{"42" => issue_since}, pr_review_seen_at: review_seen_at}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 review_submission_targets: MapSet.new(),
+                 request_fun: first_request
+               )
+
+      assert issue_since > "2026-06-24T12:00:00Z"
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: %{"42" => issue_since},
+                 pr_review_seen_at: review_seen_at,
+                 repo: "owner/repo",
+                 review_submission_targets: MapSet.new(["42"]),
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_081}}}, 500
+      stop_codeowners(codeowners)
+    end
+
     test "blank-bodied COMMENTED reviews are not published (avoid double-wake for inline-only reviews)" do
       # GitHub creates an empty COMMENTED review as the container for inline
       # comments. Those inline comments are already published via review threads;

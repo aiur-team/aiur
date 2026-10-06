@@ -184,6 +184,30 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert {:ok, dir} = WipPreservation.workspace_dir("RM-3")
       refute File.exists?(dir)
     end
+
+    test "work written by before_remove is saved before the workspace is deleted", %{test_root: test_root} do
+      identifier = "RM-HOOK-#{System.unique_integer([:positive])}"
+      workspace = cloned_workspace!(test_root, identifier)
+      File.write!(Path.join(workspace, "README.md"), "agent edit\n")
+      before = snapshot(workspace)
+
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        workspace_root: test_root,
+        hook_before_remove: "touch hook-created.txt"
+      )
+
+      assert {:ok, _} = Remove.remove(workspace, nil, ticket: identifier)
+      refute File.exists?(workspace)
+
+      assert [artifact] = WipPreservation.pending_notices(workspace, identifier)
+      assert Enum.sort(artifact["tracked_files"]) == ["README.md"]
+      assert "hook-created.txt" in artifact["untracked_files"]
+
+      clone_at!(test_root, workspace)
+      run_restore!(artifact)
+      assert File.read!(Path.join(workspace, "README.md")) == elem(before["README.md"], 0)
+      assert File.regular?(Path.join(workspace, "hook-created.txt"))
+    end
   end
 
   describe "retention" do
@@ -224,11 +248,12 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert {:ok, _} = Remove.remove(workspace, nil)
       refute File.exists?(workspace)
 
-      assert [artifact] = WipPreservation.pending_notices(workspace)
+      artifacts = WipPreservation.pending_notices(workspace)
+      artifact = Enum.find(artifacts, &(&1["action"] == "remove the workspace"))
       assert Enum.sort(artifact["untracked_files"]) == Enum.sort(names)
 
       clone_at!(test_root, workspace)
-      run_restore!(artifact)
+      Enum.each(artifacts, &run_restore!/1)
       assert snapshot(workspace) == before
     end
   end
@@ -252,7 +277,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert {:ok, _} = Remove.remove(workspace, nil)
       refute File.exists?(workspace)
 
-      assert [manifest] = manifests("CAP-1")
+      assert [manifest] = Enum.filter(manifests("CAP-1"), &(&1["action"] == "remove the workspace"))
       assert manifest["untracked_files"] == ["a-fill.txt", "c-small.txt"]
       skipped = Map.new(manifest["skipped_untracked"], &{&1["path"], &1})
 
@@ -426,7 +451,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
       File.write!(Path.join(workspace, ".env"), "SECRET=1\n")
 
       assert {:ok, _} = Remove.remove(workspace, nil)
-      assert [artifact] = WipPreservation.pending_notices(workspace)
+      [artifact | _later_artifacts] = Enum.filter(WipPreservation.pending_notices(workspace), &(&1["action"] == "remove the workspace"))
       dir = artifact["artifact_dir"]
 
       for path <- [Path.join(state_dir, "wip-preserved"), Path.dirname(dir), dir], do: assert(mode(path) == 0o700, path)
@@ -467,7 +492,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
       before = snapshot(workspace)
 
       assert {:ok, _} = Remove.remove(workspace, nil)
-      assert [artifact] = WipPreservation.pending_notices(workspace)
+      [artifact | _later_artifacts] = Enum.filter(WipPreservation.pending_notices(workspace), &(&1["action"] == "remove the workspace"))
 
       # Squash-merge the branch into main and delete it on the remote.
       helper = clone_at!(test_root, Path.join(test_root, "helper"))
@@ -666,19 +691,21 @@ defmodule Aiur.Workspace.WipPreservationTest do
         tracker_kind: "memory",
         workspace_root: workspace_root,
         hook_after_create: """
-        git clone --quiet #{shell_quote(remote)} .
-        git config user.email t@example.com
-        git config user.name T
-        git checkout --quiet -b "aiur/$(basename "$PWD")" origin/main
+        PATH="/usr/bin:/bin:$PATH"
+        git -C "$PWD" clone --quiet #{shell_quote(remote)} .
+        git -C "$PWD" config user.email t@example.com
+        git -C "$PWD" config user.name T
+        git -C "$PWD" checkout --quiet -b "aiur/$(basename "$PWD")" origin/main
         """,
         hook_before_run: """
+        PATH="/usr/bin:/bin:$PATH"
         printf 'attempt\\n' >> #{shell_quote(trace_file)}
         if [ ! -d .git ]; then
           find . -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-          git clone --quiet #{shell_quote(remote)} .
-          git config user.email t@example.com
-          git config user.name T
-          git checkout --quiet -b "aiur/$(basename "$PWD")" origin/main
+          git -C "$PWD" clone --quiet #{shell_quote(remote)} .
+          git -C "$PWD" config user.email t@example.com
+          git -C "$PWD" config user.name T
+          git -C "$PWD" checkout --quiet -b "aiur/$(basename "$PWD")" origin/main
         elif ! git diff --quiet || ! git diff --cached --quiet; then
           exit 65
         fi

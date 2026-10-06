@@ -1,7 +1,153 @@
 defmodule Aiur.Opencode.Slot.ServeLifecycleTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
-  alias Aiur.Opencode.Slot.ServeLifecycle
+  alias Aiur.Opencode.{Slot.ServeLifecycle, TokenRegistry}
+
+  defmodule FailsThenServe do
+    def start_link(_opts), do: Agent.start_link(fn -> :serve end)
+
+    def await_ready(pid) do
+      attempts = Process.get(:serve_attempts, 0) + 1
+      Process.put(:serve_attempts, attempts)
+
+      if attempts <= Process.get(:failures_before_success, 1) do
+        Process.put(:failed_servers, [pid | Process.get(:failed_servers, [])])
+        {:error, {:opencode_exit_status, 1}}
+      else
+        {:ok, "http://127.0.0.1:43210", nil}
+      end
+    end
+  end
+
+  defmodule AlwaysFailsServe do
+    def start_link(_opts) do
+      {:ok, pid} = Agent.start_link(fn -> :serve end)
+      Process.put(:failed_servers, [pid | Process.get(:failed_servers, [])])
+      {:ok, pid}
+    end
+
+    def await_ready(_pid), do: {:error, {:opencode_exit_status, 1}}
+  end
+
+  defmodule ExitsBeforeAwaitServe do
+    def start_link(_opts) do
+      attempts = Process.get(:early_exit_attempts, 0) + 1
+      Process.put(:early_exit_attempts, attempts)
+
+      if attempts == 1 do
+        pid = spawn(fn -> :ok end)
+        ref = Process.monitor(pid)
+        assert_dead(ref, pid)
+        {:ok, pid}
+      else
+        Agent.start_link(fn -> :serve end)
+      end
+    end
+
+    def await_ready(pid) do
+      if Process.get(:early_exit_attempts) == 1,
+        do: GenServer.call(pid, :await_ready),
+        else: {:ok, "http://127.0.0.1:43211", nil}
+    end
+
+    defp assert_dead(ref, pid) do
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      after
+        1_000 -> raise "fake serve did not exit"
+      end
+    end
+  end
+
+  test "boot retries a transient serve exit so its slot can continue to attach-pane spawning" do
+    root = Aiur.TestSupport.tmp_root!("aiur-slot-locked-serve")
+    Process.put(:serve_attempts, 0)
+    Process.put(:failed_servers, [])
+
+    on_exit(fn ->
+      Process.delete(:serve_attempts)
+      Process.delete(:failed_servers)
+      File.rm_rf(root)
+    end)
+
+    state = %{slot_index: 98, generation: 1, workspace_path: Path.join(root, "slot")}
+
+    assert {:ok, server, "http://127.0.0.1:43210", token} =
+             ServeLifecycle.boot(state, [], [], FailsThenServe)
+
+    assert Process.get(:serve_attempts) == 2
+    assert [failed_server] = Process.get(:failed_servers)
+    refute Process.alive?(failed_server)
+    assert Process.alive?(server)
+    Agent.stop(server)
+    assert :ok = TokenRegistry.delete(token)
+  end
+
+  test "boot remains recoverable when the shared database locks twice" do
+    root = Aiur.TestSupport.tmp_root!("aiur-slot-twice-locked-serve")
+    Process.put(:serve_attempts, 0)
+    Process.put(:failures_before_success, 2)
+    Process.put(:failed_servers, [])
+
+    on_exit(fn ->
+      Process.delete(:serve_attempts)
+      Process.delete(:failures_before_success)
+      Process.delete(:failed_servers)
+      File.rm_rf(root)
+    end)
+
+    state = %{slot_index: 97, generation: 1, workspace_path: Path.join(root, "slot")}
+
+    assert {:ok, server, "http://127.0.0.1:43210", token} =
+             ServeLifecycle.boot(state, [], [], FailsThenServe)
+
+    assert Process.get(:serve_attempts) == 3
+    assert length(Process.get(:failed_servers)) == 2
+    assert Enum.all?(Process.get(:failed_servers), &(not Process.alive?(&1)))
+    assert Process.alive?(server)
+    Agent.stop(server)
+    assert :ok = TokenRegistry.delete(token)
+  end
+
+  test "boot retries when serve exits before await_ready can register" do
+    root = Aiur.TestSupport.tmp_root!("aiur-slot-serve-early-exit")
+    Process.put(:early_exit_attempts, 0)
+
+    on_exit(fn ->
+      Process.delete(:early_exit_attempts)
+      File.rm_rf(root)
+    end)
+
+    state = %{slot_index: 96, generation: 1, workspace_path: Path.join(root, "slot")}
+
+    assert {:ok, server, "http://127.0.0.1:43211", token} =
+             ServeLifecycle.boot(state, [], [], ExitsBeforeAwaitServe)
+
+    assert Process.get(:early_exit_attempts) == 2
+    assert Process.alive?(server)
+    Agent.stop(server)
+    assert :ok = TokenRegistry.delete(token)
+  end
+
+  test "boot stops after two retries and reaps all failed servers" do
+    root = Aiur.TestSupport.tmp_root!("aiur-slot-persistent-serve-failure")
+    Process.put(:failed_servers, [])
+
+    on_exit(fn ->
+      Process.delete(:failed_servers)
+      TokenRegistry.delete_stale(99, 2)
+      File.rm_rf(root)
+    end)
+
+    state = %{slot_index: 99, generation: 1, workspace_path: Path.join(root, "slot")}
+
+    assert {:error, {:error, {:opencode_exit_status, 1}}} =
+             ServeLifecycle.boot(state, [], [], AlwaysFailsServe)
+
+    failed_servers = Process.get(:failed_servers)
+    assert length(failed_servers) == 3
+    assert Enum.all?(failed_servers, &(not Process.alive?(&1)))
+  end
 
   # --- writers_for_base_url/2 ---
 

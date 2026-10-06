@@ -177,6 +177,20 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     refute_receive {:alert, %{name: "dispatch.candidate_declined"}}, 100
   end
 
+  # A candidate whose dispatch authorization could not be read (`:deferred` —
+  # a local GitHub budget hold, a rate limit, a timeline transport fault) used
+  # to be skipped in complete silence: no alert, no decline record, and the
+  # catch-all `maybe_emit_dispatch_decline/3` clause cleared any earlier one.
+  # With free slots, the operator saw the ticket vanish rather than wait.
+  test "records a decline when authorization is deferred and slots are free" do
+    candidate = %{issue("auth-deferred") | dispatch_authorized?: false, dispatch_authorization: :deferred}
+
+    state = Dispatcher.choose_issues(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4}, [candidate])
+
+    assert state.dispatch_declines[candidate.id] == :unauthorized
+    refute Map.has_key?(state.running, candidate.id)
+  end
+
   test "clearing an attention decline emits its matching resolution" do
     candidate = issue("orphaned-claim")
     :ok = AgentPubSub.subscribe_agent(candidate.identifier)
@@ -335,7 +349,37 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         end)
 
       refute_receive {:agent_runner_run, _, _, _}, 100
-      assert log =~ "blocked by a non-terminal dependency"
+      assert log =~ "blocked by open dependency #5 (in-progress)"
+    end
+
+    test "the hold log names only the open blocker when the list leads with closed ones" do
+      issue = %Issue{
+        id: "blocked-ticket",
+        identifier: "repo#blocked-ticket",
+        title: "blocked ticket",
+        state: "todo"
+      }
+
+      hydrated = %{
+        issue
+        | blocked_by: [
+            %{id: "28", identifier: "28", state: "Closed"},
+            %{id: "41", identifier: "41", state: "rework"},
+            %{id: "42", identifier: "42", state: "Closed"}
+          ]
+      }
+
+      log =
+        capture_log(fn ->
+          Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, issue, nil, nil,
+            issue_fetcher: fn [id] -> {:ok, [%{issue | id: id}]} end,
+            blocked_by_hydrator: fn _issue -> {:ok, hydrated} end
+          )
+        end)
+
+      assert log =~ "blocked by open dependency #41 (rework); 2 terminal dependencies ignored"
+      refute log =~ "#28"
+      refute log =~ "#42"
     end
 
     test "records a non-attention dependency decline instead of skipping silently" do
@@ -549,12 +593,12 @@ defmodule Aiur.Orchestrator.DispatcherTest do
              ) == :dispatch
     end
 
-    test "an answer recorded a minute after the blocking run ended resumes the ticket within one poll (#2713)" do
-      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4)
+    test "an answer recorded after a blocking run stops resumes its in-progress claim within one poll (#2713, #2818)" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 4, tracker_active_states: ["todo", "in-progress"])
       restore_workflow_file_after_test()
       test_pid = self()
       ticket_id = "answer-resume-#{System.unique_integer([:positive])}"
-      candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "todo", selected_backend: "codex"}
+      candidate = %Issue{id: ticket_id, identifier: ticket_id, title: ticket_id, state: "in-progress", selected_backend: "codex"}
 
       # `worker` is true while a worker runs the ticket. The fake dispatcher
       # stands in for `OperatorMessages`: it refuses `:no_running_agent` until

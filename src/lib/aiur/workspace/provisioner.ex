@@ -7,7 +7,7 @@ defmodule Aiur.Workspace.Provisioner do
   require Logger
   alias Aiur.{AgentGitHubGuard, Config, RepoBase, TicketBranch, Tracker}
   alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.Workspace.{Checkout, Context, Materialize, Reconstruction, Remote, WipPreservation}
+  alias Aiur.Workspace.{Checkout, Context, DirtyGuard, Materialize, Reconstruction, Remote, WipPreservation}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
   @remote_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentScratch]
@@ -415,6 +415,8 @@ defmodule Aiur.Workspace.Provisioner do
 
     case Remote.run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
       {:ok, {_output, 0}} -> :ok
+      {:ok, {_output, 75}} -> DirtyGuard.refuse(workspace, :dirty)
+      {:ok, {_output, 76}} -> DirtyGuard.refuse(workspace, :git_status_failed)
       {:ok, {output, status}} -> {:error, {:workspace_prepare_failed, worker_host, status, output}}
       {:error, reason} -> {:error, reason}
     end
@@ -426,13 +428,17 @@ defmodule Aiur.Workspace.Provisioner do
 
   defp force_recreate_workspace(workspace, branch_name, pr_head_ref) do
     Reconstruction.with_log_lock(workspace, fn ->
-      File.rm_rf!(workspace)
-
-      case create_or_materialize(workspace, branch_name, pr_head_ref) do
-        {:ok, _workspace, _created?} -> :ok
-        {:error, _reason} = error -> error
-      end
+      replace_workspace(workspace, branch_name, pr_head_ref)
     end)
+  end
+
+  defp replace_workspace(workspace, branch_name, pr_head_ref) do
+    File.rm_rf!(workspace)
+
+    case create_or_materialize(workspace, branch_name, pr_head_ref) do
+      {:ok, _workspace, _created?} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   # A materialization failure can race the first transcript event for an
