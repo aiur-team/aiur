@@ -16,14 +16,21 @@ for 300 observations per mode. Each resident writer represents an independent
 daemon. The benchmark includes both grants and valid capacity/stagger waits:
 these are admission decisions, not completed GitHub requests. Granted leases
 were released between calls. Host load average at start was
-19.42/21.08/19.41.
+6.44/8.62/7.95.
 
 | Admission latency | One-shot baseline | Resident broker |
 | --- | ---: | ---: |
-| p50 | 112.14 ms | 6.22 ms |
-| p99 | 175.89 ms | 143.24 ms |
-| Maximum | 321.09 ms | 308.27 ms |
+| p50 | 83.91 ms | 9.58 ms |
+| p99 | 201.32 ms | 174.42 ms |
+| Maximum | 498.36 ms | 521.52 ms |
 | Calls over 1,500 ms | 0 / 300 | 0 / 300 |
+
+This rerun includes the deadline/crash review fixes. An earlier run on the
+initial implementation measured p99 175.89 → 143.24 ms at load
+19.42/21.08/19.41. A rerun before the cold writable-preparation fix failed
+during resident warm-up waiting for SQLite; that failure led to moving
+preparation under the request-aware lock. The final run above completed both
+warm-ups and all measured calls.
 
 The resident p99 is below the transport's 1,500 ms admission deadline.
 The baseline also stayed below the deadline in this bounded run: this does not
