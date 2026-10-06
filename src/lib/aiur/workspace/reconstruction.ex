@@ -176,13 +176,23 @@ defmodule Aiur.Workspace.Reconstruction do
         :ok
 
       {:ok, %File.Stat{type: :directory}} ->
-        merge_log_tree(previous_logs, Path.join(workspace, "logs"), workspace, write_fun)
+        with :ok <- remove_stale_before_run_conflict_note(previous_logs) do
+          merge_log_tree(previous_logs, Path.join(workspace, "logs"), workspace, write_fun)
+        end
 
       {:ok, _stat} ->
         {:error, :unsafe_log_tree}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp remove_stale_before_run_conflict_note(previous_logs) do
+    case File.rm(Path.join(previous_logs, "before-run-merge-conflict.md")) do
+      :ok -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
