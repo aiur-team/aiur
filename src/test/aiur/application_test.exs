@@ -185,8 +185,12 @@ defmodule Aiur.ApplicationTest do
 
       enabled_modules = modules(enabled)
 
-      assert Enum.find_index(enabled_modules, &(&1 == Aiur.HttpServer)) <
-               Enum.find_index(enabled_modules, &(&1 == Aiur.TailscaleFunnel))
+      dashboard_index = Enum.find_index(enabled_modules, &(&1 == Aiur.HttpServer))
+      funnel_index = Enum.find_index(enabled_modules, &(&1 == Aiur.TailscaleFunnel))
+
+      assert is_integer(dashboard_index)
+      assert is_integer(funnel_index)
+      assert dashboard_index < funnel_index
 
       without_dashboard =
         AiurApp.child_specs(
