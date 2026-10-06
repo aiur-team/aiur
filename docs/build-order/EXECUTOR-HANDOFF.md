@@ -5,6 +5,16 @@
 > retained as historical context only; new handoffs must replace the state-node
 > document rather than append here.
 
+**Dashboard address (verified 2026-10-01):** The current Aiur operator dashboard
+is [on the tailnet](https://orangekid.tailee0e71.ts.net:4001/build-orders).
+It requires the configured dashboard Basic Auth credentials. The `100.81.109.51`
+addresses below are historical snapshots and time out on the current host. Before
+using a saved address, run `scripts/aiurdev status` to confirm the listener and
+`tailscale serve status` to confirm which tailnet URL proxies to that listener.
+For the verified instance, port 4001 proxies to local port 4000. A 401 without
+credentials confirms the listener is answering; an authenticated page and live
+connection confirm the dashboard is usable.
+
 ## New-machine handoff — orangekid-opus (2026-07-18 ~22:40 PDT)
 
 Supersedes all checkpoints below. Run is post-54: 54/54 core merged long ago;
@@ -754,7 +764,7 @@ anything else:
   command. The live instance is built from the literal `develop` branch at
   `cbfcdd5ac426acac59b8050822c7ed254e99807a` in
   `/home/orangekid/github/aiur-runtime-develop`; instance key is `5c1b32aea9`,
-  the dashboard is `http://100.81.109.51:4000`, and the configured ceiling is
+  the dashboard was `http://100.81.109.51:4000` at that checkpoint, and the configured ceiling is
   sixteen workers. The launch shape is `scripts/aiurdev --bg --host
   100.81.109.51 --max-agents 16 /home/orangekid/github/aiur/.aiur/config` after
   loading the root `.env`. Reuse the same instance key for control commands.
