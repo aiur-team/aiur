@@ -12,7 +12,7 @@ defmodule Aiur.Claude.CodingAgent do
 
   require Logger
   alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
+  alias Aiur.AppServer.{Adapter, Interrupts, Messages, OperatorDelivery, Rpc, TurnState}
   alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Claude.{AccountGeneration, AccountMeters, NotificationPolicy}
   alias Aiur.Claude.RemoteControl
@@ -294,7 +294,13 @@ defmodule Aiur.Claude.CodingAgent do
   @impl Aiur.AppServer.Adapter
   @doc false
   @spec handle_interrupt_error(map(), term()) :: {:error, term()}
-  def handle_interrupt_error(_state, error), do: {:error, {:turn_interrupt_failed, error}}
+  def handle_interrupt_error(state, error) do
+    if NotificationPolicy.no_active_turn_error?(error) do
+      Interrupts.handle_no_active_turn_error(state, error)
+    else
+      {:error, {:turn_interrupt_failed, error}}
+    end
+  end
 
   @impl Aiur.AppServer.Adapter
   @doc false

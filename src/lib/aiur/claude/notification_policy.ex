@@ -21,6 +21,27 @@ defmodule Aiur.Claude.NotificationPolicy do
   @limit_statuses [429, "429"]
   @limit_types ["rate_limit_error", "rate_limit"]
 
+  @spec no_active_turn_error?(term()) :: boolean()
+  def no_active_turn_error?(error) when is_map(error) do
+    no_active_turn_text?(Map.get(error, "message")) or
+      no_active_turn_data?(Map.get(error, "data"))
+  end
+
+  def no_active_turn_error?(_error), do: false
+
+  defp no_active_turn_data?(data) when is_map(data) do
+    no_active_turn_text?(Map.get(data, "message")) or
+      no_active_turn_text?(Map.get(data, "detail"))
+  end
+
+  defp no_active_turn_data?(data), do: no_active_turn_text?(data)
+
+  defp no_active_turn_text?(text) when is_binary(text) do
+    text |> String.downcase() |> String.contains?("no active turn")
+  end
+
+  defp no_active_turn_text?(_text), do: false
+
   # Free-text 429s, anchored so an unrelated "429" (a line number, a token
   # count) in provider stream output is not read as an exhaustion signal.
   @limit_text_patterns [
