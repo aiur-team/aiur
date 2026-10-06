@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.RemoveTest do
   use Aiur.TestSupport
 
   alias Aiur.Workflow
-  alias Aiur.Workspace.Remove
+  alias Aiur.Workspace.{Remove, WipPreservation}
 
   setup do
     test_root = Aiur.TestSupport.tmp_root!("remove_test")
@@ -45,23 +45,54 @@ defmodule Aiur.Workspace.RemoveTest do
     refute File.exists?(workspace)
   end
 
-  test "dirty checkout survives removal without running before_remove", %{workspace: workspace, test_root: test_root} do
+  test "a live lease skips removal before running before_remove", %{workspace: workspace, test_root: test_root} do
     marker = Path.join(test_root, "hook-ran")
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root, hook_before_remove: "touch #{marker}")
     init_checkout!(workspace)
     File.write!(Path.join(workspace, "work.txt"), "unfinished")
+    Aiur.TestSupport.put_runtime_state_dir!(Path.join(test_root, "runtime-state"))
+    guard = fn -> {:skipped, :live_lease} end
 
-    assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}, ""} = Remove.remove(workspace, nil)
-    assert File.read!(Path.join(workspace, "work.txt")) == "unfinished"
+    assert {:skipped, :live_lease} = Remove.remove(workspace, nil, destroy_guard: guard)
+    assert File.dir?(workspace)
+    refute File.exists?(marker)
+    assert {:ok, preservation_dir} = WipPreservation.workspace_dir(Path.basename(workspace))
+    refute File.exists?(preservation_dir)
+  end
+
+  test "a lease claimed during the save prevents before_remove", %{workspace: workspace, test_root: test_root} do
+    marker = Path.join(test_root, "hook-ran")
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root, hook_before_remove: "touch #{marker}")
+    Process.put(:destroy_guard_calls, 0)
+
+    guard = fn ->
+      calls = Process.get(:destroy_guard_calls) + 1
+      Process.put(:destroy_guard_calls, calls)
+      if calls == 1, do: :ok, else: {:skipped, :live_lease}
+    end
+
+    assert {:skipped, :live_lease} = Remove.remove(workspace, nil, destroy_guard: guard)
+    assert File.dir?(workspace)
     refute File.exists?(marker)
   end
 
-  test "work created by before_remove survives the final deletion check", %{workspace: workspace, test_root: test_root} do
-    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root, hook_before_remove: "touch new-work.txt")
-    init_checkout!(workspace)
+  test "remote git status failure exits closed", %{test_root: test_root} do
+    workspace = Path.join(test_root, "remote-workspace")
+    fake_bin = Path.join(test_root, "bin")
+    File.mkdir_p!(Path.join(workspace, ".git"))
+    File.mkdir_p!(fake_bin)
+    fake_git = Path.join(fake_bin, "git")
+    File.write!(fake_git, "#!/bin/sh\nexit 1\n")
+    File.chmod!(fake_git, 0o755)
 
-    assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}, ""} = Remove.remove(workspace, nil)
-    assert File.exists?(Path.join(workspace, "new-work.txt"))
+    {_, status} =
+      System.cmd("bash", ["-c", Remove.remote_dirty_check() <> "\nrm -rf \"$workspace\""],
+        env: [{"workspace", workspace}, {"PATH", fake_bin <> ":" <> System.get_env("PATH")}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 76
+    assert File.dir?(workspace)
   end
 
   defp init_checkout!(workspace) do
