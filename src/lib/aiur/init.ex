@@ -236,15 +236,6 @@ defmodule Aiur.Init do
     end
   end
 
-  defp provision_github_with_optional_token(io, deps, tracker, agents, pair) do
-    if github_token_present?(deps) do
-      provision_github_with_token(io, deps, tracker, agents, pair)
-    else
-      token_setup_instructions(io)
-      :ok
-    end
-  end
-
   defp provision(io, deps, %{kind: "linear"} = tracker, agents, _pair, _daemon_auth) do
     with :ok <- Aiur.Init.AgentCli.check_agent_clis(io, deps, agents) do
       linear_walkthrough(io, tracker)
@@ -256,6 +247,15 @@ defmodule Aiur.Init do
   defp provision(io, deps, _tracker, agents, _pair, _daemon_auth) do
     with :ok <- Aiur.Init.AgentCli.check_agent_clis(io, deps, agents) do
       final_screen(io)
+      :ok
+    end
+  end
+
+  defp provision_github_with_optional_token(io, deps, tracker, agents, pair) do
+    if github_token_present?(deps) do
+      provision_github_with_token(io, deps, tracker, agents, pair)
+    else
+      token_setup_instructions(io)
       :ok
     end
   end
