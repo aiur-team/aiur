@@ -2377,7 +2377,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       # `todo` wins the pair (a ticket that is also `todo` has no work for a
       # `rework` verdict to mean anything about), and the winner is written
       # through the tracker so GitHub stops carrying both labels.
-      assert_receive {:heal, "its-everdred/aiur#dual", "todo"}
+      assert_receive {:heal, "its-everdred/aiur#dual", "todo"}, 1000
 
       assert [healed] = healed_issues
       assert healed.state == "todo"
@@ -2409,7 +2409,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       # dispatch and nothing else repairs it, so it is restored to its last
       # known state and written through the tracker (#2420). A single-labelled
       # ticket passes through untouched.
-      assert_receive {:heal, "its-everdred/aiur#none", "rework"}
+      assert_receive {:heal, "its-everdred/aiur#none", "rework"}, 1000
       refute_receive {:heal, "its-everdred/aiur#single", _}, 0
 
       assert Enum.map(healed_issues, & &1.id) == ["single", "none"]
@@ -2448,7 +2448,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert is_nil(left_alone.state)
       assert healed_state.last_polled_issues == %{}
 
-      assert_receive {:event, %{topic: ^topic} = alert}
+      assert_receive {:event, %{topic: ^topic} = alert}, 1000
       assert alert["needs_attention"] == true
       assert alert["reason"] =~ "left as-is"
     end
@@ -2472,6 +2472,58 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert Enum.map(healed_issues, & &1.id) == ["parked", "human-todo", "epic"]
       assert Enum.all?(healed_issues, &(&1.state_labels == []))
       assert healed_state.last_polled_issues == %{}
+    end
+
+    test "leaves an agent:paused zero-label ticket alone and raises no attention alert" do
+      # `agent:paused` is a marker suffix, not a state suffix, so an
+      # operator-gated ticket carrying only `agent:paused` normalizes to zero
+      # state labels. It is deliberate parking, so the heal must neither rewrite
+      # it nor raise `state-label-missing-no-evidence` (#2610).
+      topic = "ticket.its-everdred/aiur#held.agent.attention.state-label-missing-no-evidence"
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe(topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      held = %{issue("held", nil) | state_labels: [], paused: true, labels: ["agent:paused", "complexity:2"]}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{},
+          [held],
+          fn _id, _target -> flunk("must not rewrite a paused ticket") end
+        )
+
+      assert [left_alone] = healed_issues
+      assert left_alone.id == "held"
+      assert left_alone.state_labels == []
+      assert is_nil(left_alone.state)
+      assert healed_state.last_polled_issues == %{}
+
+      refute_receive {:event, %{topic: ^topic}}, 50
+    end
+
+    test "leaves an agent:paused zero-label ticket alone even with prior workflow evidence" do
+      # A ticket the operator paused after it had been running still carries the
+      # parking marker, so the last-known-state heal must not fire and re-arm
+      # dispatch behind the operator's back (#2610).
+      held = %{issue("held", nil) | state_labels: [], paused: true, labels: ["agent:paused"]}
+
+      {healed_state, healed_issues} =
+        IssueSync.reconcile_contradictory_state_labels(
+          %State{last_polled_issues: %{held.id => issue("held", "in-progress")}},
+          [held],
+          fn _id, _target -> flunk("must not rewrite a paused ticket") end
+        )
+
+      assert [left_alone] = healed_issues
+      assert left_alone.state_labels == []
+      assert is_nil(left_alone.state)
+      assert healed_state.last_polled_issues[held.id].state == "in-progress"
+      assert healed_state.last_polled_issues[held.id].state_labels == nil
     end
 
     test "restores a zero-label ticket to its last known running state and alerts" do
@@ -2504,7 +2556,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       assert healed.state_labels == ["in-progress"]
       assert healed_state.last_polled_issues["sweep"].state_labels == ["in-progress"]
 
-      assert_receive {:event, %{topic: ^topic} = alert}
+      assert_receive {:event, %{topic: ^topic} = alert}, 1000
       assert alert["needs_attention"] == true
       assert alert["reason"] =~ "restored in-progress"
     end
@@ -2628,7 +2680,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           end
         )
 
-      assert_receive {:heal, "its-everdred/aiur#dual-done-rework", "rework"}
+      assert_receive {:heal, "its-everdred/aiur#dual-done-rework", "rework"}, 1000
 
       # Assert the healed issue state, not just the label set: the winner is
       # written through the tracker, and a non-terminal target is what keeps
@@ -2692,7 +2744,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           end
         )
 
-      assert_receive {:heal, "its-everdred/aiur#khala-198", "human-review"}
+      assert_receive {:heal, "its-everdred/aiur#khala-198", "human-review"}, 1000
 
       assert [healed] = healed_issues
       assert healed.state == "human-review"
@@ -2723,7 +2775,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           end
         )
 
-      assert_receive {:heal, "its-everdred/aiur#polled-198", "human-review"}
+      assert_receive {:heal, "its-everdred/aiur#polled-198", "human-review"}, 1000
       assert [%{state: "human-review", state_labels: ["human-review"]}] = healed_issues
     end
 
@@ -2745,7 +2797,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           end
         )
 
-      assert_receive {:heal, "its-everdred/aiur#no-provenance", "in-progress"}
+      assert_receive {:heal, "its-everdred/aiur#no-provenance", "in-progress"}, 1000
       assert [%{state: "in-progress"}] = healed_issues
     end
 
@@ -2769,7 +2821,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           end
         )
 
-      assert_receive {:heal, "its-everdred/aiur#fresh-done", "in-progress"}
+      assert_receive {:heal, "its-everdred/aiur#fresh-done", "in-progress"}, 1000
       assert [%{state: "in-progress"}] = healed_issues
     end
 
@@ -2793,7 +2845,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           end
         )
 
-      assert_receive {:heal, "its-everdred/aiur#fresh-todo", "todo"}
+      assert_receive {:heal, "its-everdred/aiur#fresh-todo", "todo"}, 1000
       assert [%{state: "todo"}] = healed_issues
     end
   end
@@ -2825,10 +2877,10 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       # A valid `agent:rework` label with a released claim and no recovery is
       # invisible to label checks but has no owner and nothing scheduled to give
       # it one; it must be re-queued to a dispatchable state and surfaced.
-      assert_receive {:requeue, "its-everdred/aiur#released", "todo"}
+      assert_receive {:requeue, "its-everdred/aiur#released", "todo"}, 1000
       assert next_state.released_claims == %{}
 
-      assert_receive {:event, %{topic: ^topic} = alert}
+      assert_receive {:event, %{topic: ^topic} = alert}, 1000
       assert alert["needs_attention"] == true
       assert alert["reason"] =~ "restored todo"
     end
@@ -2915,8 +2967,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
           end
         )
 
-      assert_receive {:requeue, "its-everdred/aiur#nolabel", "rework"}
-      assert_receive {:event, %{topic: ^topic} = alert}
+      assert_receive {:requeue, "its-everdred/aiur#nolabel", "rework"}, 1000
+      assert_receive {:event, %{topic: ^topic} = alert}, 1000
       assert alert["needs_attention"] == true
       assert next_state.released_claims == %{}
     end

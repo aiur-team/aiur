@@ -13,7 +13,8 @@ narrow config-key check behind it; it says so in place.
 ## Executor issue intake
 
 The GitHub accounts and orgs listed by numeric id in
-[`.github/ALLOWED-CONTRIBUTORS`](.github/ALLOWED-CONTRIBUTORS) may submit issues
+`tracker.github.allowed_contributors`, or the fallback
+[`.github/ALLOWED-CONTRIBUTORS`](.github/ALLOWED-CONTRIBUTORS), may submit issues
 for the Aiur Executor to triage and queue when they fit the active run's
 scope. Each new issue they open wakes the Executor with an
 `issue.opened.allowed_contributor` event. The format, precedence, caching, and
@@ -172,9 +173,9 @@ one per platform).
 
 | Channel | Trigger | Version | dist-tag |
 | --- | --- | --- | --- |
-| stable | push a `v<mix.exs version>` tag, or `channel=stable` | `0.0.8` | `latest` |
-| nightly | the 07:00 UTC schedule, or `channel=nightly` | `0.0.8-nightly.<short-sha>` | `nightly` |
-| dry run | `workflow_dispatch` default | `0.0.8-dev.<run>` | none |
+| stable | push a `v<mix.exs version>` tag, or `channel=stable` | `0.0.9` | `latest` |
+| nightly | the 07:00 UTC schedule, or `channel=nightly` | `0.0.9-nightly.<short-sha>` | `nightly` |
+| dry run | `workflow_dispatch` default | `0.0.9-dev.<run>` | none |
 
 ```bash
 # Stable cut without pushing a tag.
@@ -191,9 +192,32 @@ refuses if `mix.exs` names a version already on the registry.
 
 Nightlies sort below the release they lead to, so `npm install aiur-cli` never
 picks one up. `nightly` is its own dist-tag: `next` already carries a different
-meaning on this registry. The schedule is a no-op when `main` has not moved,
-because the nightly version embeds the head sha and an existing version is
-skipped.
+meaning on this registry. The schedule is a no-op when nothing shipped has
+changed: an existing version (the nightly version embeds the head sha) is
+skipped, and so is a head whose diff from the last published nightly's commit
+touches nothing under `src/` or `packaging/`. npm nightlies create no GitHub
+release and no tag.
+
+## Stream Deck nightly
+
+The Stream Deck sidecar is a binary archive, not an npm package, so its nightly
+is one rolling GitHub pre-release, `streamdeck-nightly`, cut by
+`.github/workflows/streamdeck-package.yml` on the same 07:00 UTC schedule. Each
+night that `packages/streamdeck` changed since the commit the tag points at,
+the workflow moves the tag to the new commit and replaces the two fixed-name
+assets (`aiur-streamdeck-nightly-linux-x64.tar.gz` and its `.json` manifest)
+in place. Nothing else is created, so the Releases and Tags lists hold at most
+one Stream Deck entry however many nights run, and an unchanged package skips
+the night entirely.
+
+```bash
+# Request a build; the workflow skips it when the package is unchanged. Nothing
+# is published unless publish=true.
+gh workflow run streamdeck-package.yml --ref main
+
+# Update the rolling pre-release now.
+gh workflow run streamdeck-package.yml --ref main -f publish=true
+```
 
 ### Authentication
 

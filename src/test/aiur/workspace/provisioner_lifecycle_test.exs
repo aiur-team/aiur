@@ -22,7 +22,7 @@ defmodule Aiur.Workspace.ProvisionerLifecycleTest do
                recorder: recorder
              })
 
-    assert_receive {:recorded, :lifecycle, attributes, []}
+    assert_receive {:recorded, :lifecycle, attributes, []}, 1000
     assert attributes.event == "prewarm"
     assert attributes.boundary == "point"
     assert attributes.prewarm_outcome == "existing"

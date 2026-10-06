@@ -233,6 +233,36 @@ grep -q 'metric-column-missing' "$visual_retro" || fail "visual verdict was not 
 visual_evidence_dir="$visual_retro.d"
 find "$visual_evidence_dir" -name build-orders.png -print -quit | grep -q . || fail "visual capture was not retained beside retrospective"
 
+# Codex exposes aiur-run through a directory symlink. Default sibling-skill
+# discovery must follow that symlink to the tracked .claude skill tree instead
+# of looking for a nonexistent .codex/skills/aiur-meta directory.
+repo_root="$(git -C "$(dirname "$script")" rev-parse --show-toplevel)"
+codex_script="$repo_root/.codex/skills/aiur-run/scripts/executor-retrospective.sh"
+fake_node_bin="$state_root/fake-node-bin"
+mkdir -p "$fake_node_bin"
+cat > "$fake_node_bin/node" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+capture_script="$(realpath -m -L "$1")"
+[ -f "$capture_script" ] || exit 66
+out="$2"
+printf '{"verdict":"healthy","pages":[]}\n' > "$out/report.json"
+printf '# Dashboard visual check\n\n- capture: **healthy**\n\nOverall: **healthy**.\n' > "$out/verdict.md"
+EOF
+chmod +x "$fake_node_bin/node"
+
+codex_retro="$state_root/codex-symlink-retrospective.md"
+PATH="$fake_node_bin:$PATH" \
+  AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=codex-symlink \
+  AIUR_EXECUTOR_RETRO_FILE="$codex_retro" \
+  AIUR_DASHBOARD_URL="http://127.0.0.1:4020" \
+  AIUR_DASHBOARD_USERNAME="test-user" \
+  AIUR_DASHBOARD_PASSWORD="test-password" \
+  "$codex_script" visual-check >/dev/null
+grep -q 'capture: \*\*healthy\*\*' "$codex_retro" ||
+  fail "Codex symlink invocation did not resolve the sibling aiur-meta capture script"
+
 # A missing capture helper is attention evidence, not a process exit: `record`
 # still has to print the event whose durable state it has already written.
 missing_capture_out="$state_root/missing-capture.out"
@@ -279,6 +309,24 @@ url_missing_report="$(find "$state_root/url-missing-retrospective.md.d" -name re
 [ -n "$url_missing_report" ] || fail "missing dashboard URL did not write a did-not-run report.json"
 jq -e '.verdict == "did-not-run" and (.pages | length) == 0 and (.precondition | contains("AIUR_DASHBOARD_URL"))' "$url_missing_report" >/dev/null ||
   fail "missing dashboard URL report.json did not say did-not-run"
+
+# A browser process can exit successfully without producing its verdict.
+empty_capture="$state_root/empty-capture.mjs"
+printf '// intentionally produces no artifacts\n' > "$empty_capture"
+set +e
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=empty-capture \
+  AIUR_EXECUTOR_RETRO_FILE="$state_root/empty-capture-retrospective.md" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$empty_capture" \
+  AIUR_DASHBOARD_URL=http://127.0.0.1:4019 \
+  AIUR_DASHBOARD_USERNAME=test-user \
+  AIUR_DASHBOARD_PASSWORD=test-password \
+  "$script" visual-check > "$state_root/empty-capture.out" 2> "$state_root/empty-capture.err"
+empty_capture_status=$?
+set -e
+[ "$empty_capture_status" -eq 70 ] || fail "empty successful browser capture did not fail"
+grep -q 'Overall:.*attention' "$state_root/empty-capture-retrospective.md" ||
+  fail "empty capture did not retain an attention verdict"
 
 # The missing password is the third precondition, with its own code (69), its
 # own stderr line, and a did-not-run verdict — distinct from a missing URL (67)
@@ -605,7 +653,7 @@ grep -q 'first_lines:' "$cli_retro" || fail "CLI first output lines were not app
 grep -q 'panes=6' "$cli_retro" || fail "pane count was not appended"
 grep -q 'pre_warmed_sessions=3' "$cli_retro" || fail "warm-pool count was not appended"
 grep -q 'live_agent_cap=16' "$cli_retro" || fail "live cap was not appended"
-grep -q 'TUI: attached=true, agents_row=true, cap_controls=true' "$cli_retro" || fail "TUI surface was not appended"
+grep -q 'TUI: mode=unknown, expected=true, attached=true, agents_row=true, cap_controls=true' "$cli_retro" || fail "TUI surface was not appended"
 
 # Both optional checks are best-effort. An unavailable helper must degrade the
 # evidence, never terminate `record` after the timer has already advanced —

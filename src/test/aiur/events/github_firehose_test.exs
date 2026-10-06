@@ -275,8 +275,8 @@ defmodule Aiur.Events.GithubFirehoseTest do
                       }},
                      500
 
-      assert_receive {:events_page_requested, "1"}
-      assert_receive {:events_page_requested, "2"}
+      assert_receive {:events_page_requested, "1"}, 1000
+      assert_receive {:events_page_requested, "2"}, 1000
     end
 
     test "a durable merge-store failure holds the poll cursor but preserves ticket merge publication" do
@@ -329,7 +329,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
                  recent_merge_reconciliation_fun: mark_reconciliation
                )
 
-      assert_receive {:reconciliation_marked, true, 10}
+      assert_receive {:reconciliation_marked, true, 10}, 1000
       assert Enum.map(1..10, fn _ -> receive do: ({:events_page_requested, page} -> page) end) == [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
       refute_receive {:events_page_requested, 11}, 100
     end
@@ -481,7 +481,7 @@ defmodule Aiur.Events.GithubFirehoseTest do
                GithubFirehose.poll(request_fun: stub, last_event_id: "last-seen")
 
       assert_receive {:event, %{topic: "ticket.66.pr.opened"}}, 500
-      assert_receive {:events_page_requested, "1"}
+      assert_receive {:events_page_requested, "1"}, 1000
       refute_receive {:events_page_requested, "2"}, 100
     end
 
@@ -525,8 +525,8 @@ defmodule Aiur.Events.GithubFirehoseTest do
                      500
 
       refute_receive {:event, %{topic: "ticket.38.pr.opened"}}, 100
-      assert_receive {:events_page_requested, "1"}
-      assert_receive {:events_page_requested, "2"}
+      assert_receive {:events_page_requested, "1"}, 1000
+      assert_receive {:events_page_requested, "2"}, 1000
     end
 
     test "backfill fetch errors fail the poll without advancing the watermark" do

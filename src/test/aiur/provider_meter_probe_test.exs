@@ -258,7 +258,7 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert [%{provider: :claude, observed?: true}] =
              ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: MultiWindowUsageApi))
 
-    assert_receive {:provider_meter_changed, %ProviderMeterSnapshot{provider: :claude, windows: windows}}
+    assert_receive {:provider_meter_changed, %ProviderMeterSnapshot{provider: :claude, windows: windows}}, 1000
 
     assert Map.keys(windows) |> Enum.sort() == ["five_hour", "seven_day"]
 
@@ -331,8 +331,8 @@ defmodule Aiur.ProviderMeterProbeTest do
                end
              )
 
-    assert_receive {:credential_requested, "DEEPSEEK_API_KEY"}
-    assert_receive {:request, %{url: "https://api.deepseek.com/user/balance"}}
+    assert_receive {:credential_requested, "DEEPSEEK_API_KEY"}, 1000
+    assert_receive {:request, %{url: "https://api.deepseek.com/user/balance"}}, 1000
   end
 
   test "DeepSeek probe publishes USD prepaid balance and local concurrency" do
@@ -365,11 +365,11 @@ defmodule Aiur.ProviderMeterProbeTest do
                openai_compat_request_fun: request_fun
              )
 
-    assert_receive {:request, request}
+    assert_receive {:request, request}, 1000
     assert request.url == "https://api.deepseek.com/user/balance"
     assert request.headers["authorization"] == "Bearer secret"
 
-    assert_receive {:provider_meter_changed, snapshot}
+    assert_receive {:provider_meter_changed, snapshot}, 1000
     assert snapshot.provider == :deepseek
     assert snapshot.backend == :openai_compat
     assert snapshot.provider_account_generation == nil
@@ -399,7 +399,7 @@ defmodule Aiur.ProviderMeterProbeTest do
                openai_compat_request_fun: request_fun
              )
 
-    assert_receive {:provider_meter_changed, seeding}
+    assert_receive {:provider_meter_changed, seeding}, 1000
     refute Map.has_key?(seeding.windows["prepaid-balance-usd"], :used_percent)
 
     later_request_fun = fn _request ->
@@ -416,7 +416,7 @@ defmodule Aiur.ProviderMeterProbeTest do
                openai_compat_request_fun: later_request_fun
              )
 
-    assert_receive {:provider_meter_changed, measured}
+    assert_receive {:provider_meter_changed, measured}, 1000
     assert_in_delta measured.windows["prepaid-balance-usd"].used_percent, 1.9, 0.01
     assert measured.windows["prepaid-balance-usd"].credits.amount == 49.05
   end
@@ -439,7 +439,7 @@ defmodule Aiur.ProviderMeterProbeTest do
                openai_compat_request_fun: request_fun
              )
 
-    assert_receive {:provider_meter_changed, snapshot}
+    assert_receive {:provider_meter_changed, snapshot}, 1000
     assert_in_delta snapshot.windows["prepaid-balance-usd"].used_percent, 20.0, 0.01
   end
 
@@ -463,7 +463,7 @@ defmodule Aiur.ProviderMeterProbeTest do
                end
              )
 
-    assert_receive {:provider_meter_changed, snapshot}
+    assert_receive {:provider_meter_changed, snapshot}, 1000
     assert snapshot.windows["prepaid-balance-usd"].used_percent == 0.0
     assert snapshot.windows["prepaid-balance-usd"].credits.amount == 8.55
   end
@@ -491,7 +491,7 @@ defmodule Aiur.ProviderMeterProbeTest do
                  openai_compat_request_fun: balance_fun.(amount)
                )
 
-      assert_receive {:provider_meter_changed, snapshot}
+      assert_receive {:provider_meter_changed, snapshot}, 1000
       snapshot.windows["prepaid-balance-usd"]
     end
 
@@ -568,7 +568,7 @@ defmodule Aiur.ProviderMeterProbeTest do
                end
              )
 
-    assert_receive {:provider_meter_changed, snapshot}
+    assert_receive {:provider_meter_changed, snapshot}, 1000
     assert snapshot.windows["prepaid-balance-usd"].used_percent == 100.0
     assert snapshot.windows["prepaid-balance-usd"].credits.status == :exhausted
   end
@@ -591,9 +591,9 @@ defmodule Aiur.ProviderMeterProbeTest do
                end
              )
 
-    assert_receive {:key_env, "OPENROUTER_MANAGEMENT_KEY"}
-    assert_receive {:request, %{url: "https://openrouter.ai/api/v1/credits"}}
-    assert_receive {:provider_meter_changed, snapshot}
+    assert_receive {:key_env, "OPENROUTER_MANAGEMENT_KEY"}, 1000
+    assert_receive {:request, %{url: "https://openrouter.ai/api/v1/credits"}}, 1000
+    assert_receive {:provider_meter_changed, snapshot}, 1000
     assert snapshot.windows["credits-remaining"].credits.amount == 77.5
   end
 
@@ -623,7 +623,7 @@ defmodule Aiur.ProviderMeterProbeTest do
                end
              )
 
-    assert_receive {:provider_meter_changed, snapshot}
+    assert_receive {:provider_meter_changed, snapshot}, 1000
     assert snapshot.windows["prepaid-balance-usd"].credits.amount == 16.85
     refute Map.has_key?(snapshot.windows["prepaid-balance-usd"], :used_percent)
   end

@@ -560,6 +560,46 @@ parse_todo_args() {
   [ "$saw_todo" -eq 1 ] && [ "${#parsed_targets[@]}" -gt 0 ]
 }
 
+# `--todo` is the one control command whose runtime scales with its arguments
+# rather than with daemon state: every requested ID is a GitHub issue fetch, and
+# `--only` adds an active-ticket enumeration plus up to 50 serial label DELETEs.
+# On a repo with a deep `agent:todo` queue that is minutes of network work, and
+# the shared 10s budget killed it every time — labels half-applied, outcome
+# reported as unknown, `--only` scoping unusable (#2519). Size the watchdog to
+# the work instead. An explicit operator override still wins outright.
+todo_rpc_seconds_base=15
+todo_rpc_seconds_per_id=3
+todo_rpc_seconds_only=90
+# The daemon is handed a budget this many seconds shorter than the watchdog, so
+# it always stops itself and prints its summary and exit marker before the
+# watchdog can discard them.
+todo_rpc_grace_seconds=10
+
+todo_rpc_seconds() {
+  local id_count="$1" only="$2" seconds
+
+  # Only a usable override wins. Everywhere else an unset, zero, or malformed
+  # value falls back to the shared 10s default; here that default is the bug, so
+  # fall back to work-proportional sizing instead.
+  if [[ "${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-}" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s' "$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"
+    return 0
+  fi
+
+  seconds=$((todo_rpc_seconds_base + todo_rpc_seconds_per_id * id_count))
+  [ "$only" -eq 1 ] && seconds=$((seconds + todo_rpc_seconds_only))
+  printf '%s' "$seconds"
+}
+
+# Never hand the daemon a non-positive budget: an operator who sets the override
+# below the grace window should still get a bounded run rather than an unlimited
+# one.
+todo_daemon_budget_ms() {
+  local seconds=$(($1 - todo_rpc_grace_seconds))
+  [ "$seconds" -ge 1 ] || seconds=1
+  printf '%s' $((seconds * 1000))
+}
+
 run_todo() {
   if ! parse_todo_args "$@"; then
     echo "aiur: --todo expects one or more numeric issue IDs, optionally followed by --only" >&2
@@ -568,7 +608,13 @@ run_todo() {
 
   local only_arg="false"
   [ "$parsed_todo_only" -eq 1 ] && only_arg="true"
-  run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, emit_exit_marker: true)"
+
+  local seconds budget_ms
+  seconds="$(todo_rpc_seconds "${#parsed_targets[@]}" "$parsed_todo_only")"
+  budget_ms="$(todo_daemon_budget_ms "$seconds")"
+
+  AIUR_CONTROL_RPC_TIMEOUT_SECONDS="$seconds" \
+    run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, budget_ms: $budget_ms, emit_exit_marker: true)"
 }
 
 # --- one-shot: findings (distribution-free, no daemon/tmux) -------------------
@@ -677,22 +723,10 @@ scrub_run_only_env() {
 }
 
 run_argv=()
-# Default dashboard bind host. Prefer this machine's Tailscale IPv4 so the
-# dashboard is reachable across the tailnet by default (when config omits it);
-# fall back to loopback when Tailscale is absent, or when dashboard credentials
-# are unset (a non-loopback bind requires them, so we stay on loopback rather
-# than refuse to start). The BEAM applies this below an explicit `server.host`,
-# while an explicit `--host` remains the highest-precedence value.
+# Default dashboard bind host. Remote access is an explicit operator choice.
+# The BEAM applies this below `server.host`; `--host` has highest precedence.
 default_dashboard_host() {
-  local ip=""
-  if command -v tailscale >/dev/null 2>&1; then
-    ip="$(tailscale ip -4 2>/dev/null | grep -m1 -E '^100\.[0-9]+\.[0-9]+\.[0-9]+$' || true)"
-  fi
-  if [ -n "$ip" ] && [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
-    printf '%s' "$ip"
-  else
-    printf '127.0.0.1'
-  fi
+  printf '%s' "${AIUR_DEFAULT_DASHBOARD_HOST:-127.0.0.1}"
 }
 
 build_run_argv() {
@@ -834,9 +868,10 @@ run_session() {
   # supplied. `aiur --bg --interactive` opts back into the full terminal stack
   # for an attachable background session.
   build_run_argv "$mode" "$@"
-  local no_dashboard=0
+  local no_dashboard=0 surface_mode=interactive
   for run_arg in "${run_argv[@]}"; do
     [ "$run_arg" = "--no-dashboard" ] && no_dashboard=1
+    [ "$run_arg" = "--headless" ] && surface_mode=headless
   done
   write_argv "${run_argv[@]}"
   export AIUR_ARGV_FILE="$argv_file"
@@ -1043,7 +1078,7 @@ run_session() {
     exit 1
   fi
 
-  write_aiur_instance_record "$session" "$socket"
+  write_aiur_instance_record "$session" "$socket" replace "$surface_mode"
   release_aiur_launch_lock "$launch_lock"
   _session_launch_lock=""
   print_config_status "$startup_capture"
@@ -1549,7 +1584,7 @@ release_aiur_launch_lock() {
 }
 
 write_aiur_instance_record() {
-  local session="$1" socket="$2" write_mode="${3:-replace}" record_dir record tmp root
+  local session="$1" socket="$2" write_mode="${3:-replace}" surface_mode="${4:-unknown}" record_dir record tmp root
   record_dir="$(aiur_instances_dir)"
   record="$(aiur_instance_record_path)"
   root="$(canonical_workspace_root "${AIUR_PROJECT_ROOT:-}")"
@@ -1561,6 +1596,7 @@ write_aiur_instance_record() {
     printf 'AIUR_RECORD_SESSION=%q\n' "$session"
     printf 'AIUR_RECORD_SOCKET=%q\n' "$socket"
     printf 'AIUR_RECORD_AGENT_TMPFILE=%q\n' "${AIUR_AGENT_TMPFILE:-}"
+    printf 'AIUR_RECORD_SURFACE_MODE=%q\n' "$surface_mode"
     printf 'AIUR_RECORD_WORKSPACE_ROOT_FILE=%q\n' "${AIUR_WORKSPACE_ROOT_FILE:-}"
     printf 'AIUR_RECORD_PROJECT_ROOT=%q\n' "$root"
     printf 'AIUR_RECORD_PROJECT_ROOT_SOURCE=%q\n' "${AIUR_PROJECT_ROOT_SOURCE:-}"

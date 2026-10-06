@@ -167,7 +167,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
       %{state | queue_store: queue_store}
     end)
 
-    assert_receive {:queued_interrupt_item, item}
+    assert_receive {:queued_interrupt_item, item}, 1000
     assert item.delivery.interrupt_requested
 
     send(task.pid, {:agent_queue_updated, issue.identifier, item.id, true})

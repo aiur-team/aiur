@@ -265,7 +265,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         max_concurrent_agents: 1
       })
 
-    assert_receive {:memory_tracker_state_update, ^candidate_identifier, "Todo"}
+    assert_receive {:memory_tracker_state_update, ^candidate_identifier, "Todo"}, 1000
     assert next.startup_claim_reconciliation_complete?
     assert next.last_polled_issues[candidate.id].state == "Todo"
     refute next.initial_dispatch_cycle
@@ -349,7 +349,37 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         end)
 
       refute_receive {:agent_runner_run, _, _, _}, 100
-      assert log =~ "blocked by a non-terminal dependency"
+      assert log =~ "blocked by open dependency #5 (in-progress)"
+    end
+
+    test "the hold log names only the open blocker when the list leads with closed ones" do
+      issue = %Issue{
+        id: "blocked-ticket",
+        identifier: "repo#blocked-ticket",
+        title: "blocked ticket",
+        state: "todo"
+      }
+
+      hydrated = %{
+        issue
+        | blocked_by: [
+            %{id: "28", identifier: "28", state: "Closed"},
+            %{id: "41", identifier: "41", state: "rework"},
+            %{id: "42", identifier: "42", state: "Closed"}
+          ]
+      }
+
+      log =
+        capture_log(fn ->
+          Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, issue, nil, nil,
+            issue_fetcher: fn [id] -> {:ok, [%{issue | id: id}]} end,
+            blocked_by_hydrator: fn _issue -> {:ok, hydrated} end
+          )
+        end)
+
+      assert log =~ "blocked by open dependency #41 (rework); 2 terminal dependencies ignored"
+      refute log =~ "#28"
+      refute log =~ "#42"
     end
 
     test "records a non-attention dependency decline instead of skipping silently" do
@@ -423,7 +453,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           runner: runner
         )
 
-      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}, 1000
       assert dispatched.id == candidate.id
       assert Map.has_key?(next_state.running, candidate.id)
       refute Map.has_key?(next_state.dispatch_declines, candidate.id)
@@ -496,7 +526,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           runner: runner
         )
 
-      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}, 1000
       assert dispatched.id == issue.id
       assert Map.has_key?(next_state.running, issue.id)
     end
@@ -828,7 +858,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           runner: runner
         )
 
-      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}, 1000
       assert dispatched.id == candidate.id
       assert Map.has_key?(next_state.running, candidate.id)
     end
@@ -848,7 +878,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:ok, readiness} end, emit)
 
     assert state.ci_readiness_checked
-    assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}, 1000
     assert opts[:needs_attention]
     assert opts[:reason] =~ "no workflow triggers on pull_request"
   end
@@ -864,8 +894,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       end)
 
     assert is_pid(state.ci_readiness_check_pid)
-    assert_receive :readiness_scan_started
-    assert_receive {:ci_readiness_result, token, {:ok, ^readiness}}
+    assert_receive :readiness_scan_started, 1000
+    assert_receive {:ci_readiness_result, token, {:ok, ^readiness}}, 1000
 
     state = Dispatcher.handle_ci_readiness_result(state, token, {:ok, readiness})
 
@@ -880,12 +910,12 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     refute state.ci_readiness_checked
     assert state.ci_readiness_unavailable_alerted
     assert is_integer(state.ci_readiness_retry_at_ms)
-    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}, 1000
 
     state = Dispatcher.check_initial_ci_readiness(state, "github", "develop", fn _ -> {:error, :timeout} end, emit)
 
     refute state.ci_readiness_checked
-    refute_receive {:ci_readiness_alert, _}
+    refute_receive {:ci_readiness_alert, _}, 100
   end
 
   test "readiness alerts explain organization repository authorization failures" do
@@ -897,7 +927,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:error, error} end, emit)
 
     assert state.ci_readiness_checked
-    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable", opts}
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable", opts}, 1000
     assert opts[:reason] =~ "Cannot read acme/private-repo"
     assert opts[:reason] =~ "classic PAT"
     assert opts[:reason] =~ "Configure SSO"
@@ -920,7 +950,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     refute state.ci_readiness_checked
     assert is_integer(state.ci_readiness_retry_at_ms)
     assert CiReadiness.cached_result() == :unavailable
-    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}, 1000
   end
 
   test "retries transient GitHub server errors without caching them as permanent" do
@@ -932,7 +962,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     refute state.ci_readiness_checked
     assert is_integer(state.ci_readiness_retry_at_ms)
     assert CiReadiness.cached_result() == :unavailable
-    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}, 1000
   end
 
   test "caches an operator-token readiness gap as a completed assessment" do
@@ -943,7 +973,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     assert state.ci_readiness_checked
     assert CiReadiness.cached_result(base_branch: "develop") == readiness
-    assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}, 1000
     assert opts[:needs_attention]
   end
 
@@ -978,7 +1008,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     refute state.ci_readiness_checked
     assert is_pid(state.ci_readiness_check_pid)
-    assert_receive {:readiness_rescan, check_opts}
+    assert_receive {:readiness_rescan, check_opts}, 1000
     assert check_opts[:base_branch] == "develop"
   end
 
@@ -1083,7 +1113,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         end
       )
 
-    assert_receive {:stranded_reconciliation_called, ["wired-strand"]}
+    assert_receive {:stranded_reconciliation_called, ["wired-strand"]}, 1000
     assert next.released_claims == %{"wired-strand" => %{cause: :tracker_retry_exhausted}}
   end
 
@@ -2681,7 +2711,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           runner: runner
         )
 
-      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}, 1000
       assert Keyword.fetch!(runner_opts, :worker_host) == nil
       assert get_in(next_state.running, [issue.id, :worker_host]) == nil
     end
@@ -2715,7 +2745,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         runner: runner
       )
 
-      assert_receive {:lifecycle_recorded, :lifecycle, attributes, _opts}
+      assert_receive {:lifecycle_recorded, :lifecycle, attributes, _opts}, 1000
       assert attributes.event == "dispatch"
       assert attributes.complexity == 4
     end
@@ -2752,7 +2782,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
 
-      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}, 1000
       assert Keyword.fetch!(runner_opts, :worker_host) == "worker-a"
       assert Keyword.fetch!(runner_opts, :attempt) == 3
       assert Keyword.fetch!(runner_opts, :prior_work) == true
@@ -2786,7 +2816,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
 
-      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}, 1000
       assert attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
       assert is_binary(attempt_id)
       assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
@@ -2844,7 +2874,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       next_state = Dispatcher.do_dispatch_issue(state, issue, nil, nil, runner: runner)
 
-      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}, 1000
       assert attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
       expected_ticket = "ticket-" <> (:crypto.hash(:sha256, issue_id) |> Base.encode16(case: :lower))
 
@@ -3030,7 +3060,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         runner: runner
       )
 
-    assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+    assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}, 1000
     attempt_id = Keyword.fetch!(runner_opts, :telemetry_attempt_id)
     assert get_in(next_state.running, [issue.id, :telemetry_attempt_id]) == attempt_id
 
@@ -3186,7 +3216,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           runner: runner
         )
 
-      assert_receive {:agent_runner_run, dispatched_id}
+      assert_receive {:agent_runner_run, dispatched_id}, 1000
       assert dispatched_id == candidate.id
       assert Map.has_key?(next_state.running, candidate.id)
       # No `tracker_revalidation_failed` decline was recorded.

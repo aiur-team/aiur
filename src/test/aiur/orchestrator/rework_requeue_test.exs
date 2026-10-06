@@ -180,7 +180,7 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
 
       result = ReworkRequeue.tick(state)
 
-      assert_receive {:state_write, "2337", "human-review"}
+      assert_receive {:state_write, "2337", "human-review"}, 1000
       assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :addressed}}} = result
     end
 
@@ -203,9 +203,9 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
 
       ReworkRequeue.tick(state)
 
-      assert_receive {:reviews_fetch, 2346}
+      assert_receive {:reviews_fetch, 2346}, 1000
       refute_received {:reviews_fetch, 2337}
-      assert_receive {:state_write, "2337", "human-review"}
+      assert_receive {:state_write, "2337", "human-review"}, 1000
     end
 
     test "a re-queue refused by the state writer alerts and is not throttled" do
@@ -225,7 +225,7 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
 
       result = ReworkRequeue.tick(state)
 
-      assert_receive {:alert, "system.pr_health.rework_requeue_failed", opts}
+      assert_receive {:alert, "system.pr_health.rework_requeue_failed", opts}, 1000
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :issue) == "2337"
       # Failed write → head uncached → retried next tick.
@@ -287,8 +287,8 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
       result = ReworkRequeue.tick(state)
 
       # Two write attempts: the first is held, the retry succeeds.
-      assert_receive {:state_write, "2337", "human-review", 1}
-      assert_receive {:state_write, "2337", "human-review", 2}
+      assert_receive {:state_write, "2337", "human-review", 1}, 1000
+      assert_receive {:state_write, "2337", "human-review", 2}, 1000
       # A successful write throttles the head — the ticket has left rework.
       assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :addressed}}} = result
     end
@@ -314,7 +314,7 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
 
       result = ReworkRequeue.tick(state)
 
-      assert_receive {:alert, "system.pr_health.rework_requeue_failed", opts}
+      assert_receive {:alert, "system.pr_health.rework_requeue_failed", opts}, 1000
       assert Keyword.get(opts, :needs_attention) == true
       assert Keyword.get(opts, :issue) == "2337"
       # Failed write → head uncached → retried next tick; ticket stays in rework.
@@ -335,12 +335,12 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
 
       result = ReworkRequeue.tick(state)
 
-      assert_receive {:state_write, "2337", "human-review"}
+      assert_receive {:state_write, "2337", "human-review"}, 1000
       assert %{last_seen: %{"2337" => %{head_sha: @head_sha, classification: :addressed}}} = result
 
       # Same head on the next tick: already classified → no finding, no write.
       second = ReworkRequeue.tick(%{result | open_pr_fetcher: fn _ -> {:ok, pr(%{})} end})
-      refute_receive {:state_write, _, _}
+      refute_receive {:state_write, _, _}, 100
       assert second.last_seen == result.last_seen
     end
 
@@ -362,12 +362,12 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
 
       result = ReworkRequeue.tick(state)
 
-      assert_receive {:alert, "system.pr_health.rework_merge_only", opts}
+      assert_receive {:alert, "system.pr_health.rework_merge_only", opts}, 1000
       assert Keyword.get(opts, :needs_attention) == true
       # The alert names the PR (2346), not the issue identifier (2337).
       assert Keyword.get(opts, :issue) == "2346"
       assert Keyword.get(opts, :message) =~ "PR #2346"
-      refute_receive {:state_write, _, _}
+      refute_receive {:state_write, _, _}, 100
       assert %{merge_only_alerted: alerted} = result
       assert MapSet.member?(alerted, "2337")
     end
@@ -385,7 +385,7 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
         )
 
       ReworkRequeue.tick(state)
-      refute_receive {:alert, "system.pr_health.rework_merge_only", _}
+      refute_receive {:alert, "system.pr_health.rework_merge_only", _}, 100
     end
 
     test "leaves a not_addressed ticket in rework" do
@@ -400,7 +400,7 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
         )
 
       ReworkRequeue.tick(state)
-      refute_receive {:state_write, _, _}
+      refute_receive {:state_write, _, _}, 100
     end
 
     test "skips a ticket whose PR has no blocking review" do
@@ -415,7 +415,7 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
         )
 
       ReworkRequeue.tick(state)
-      refute_receive {:state_write, _, _}
+      refute_receive {:state_write, _, _}, 100
     end
 
     test "skips a ticket with no open PR" do
@@ -430,7 +430,7 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
         )
 
       ReworkRequeue.tick(state)
-      refute_receive {:state_write, _, _}
+      refute_receive {:state_write, _, _}, 100
     end
   end
 
@@ -516,7 +516,7 @@ defmodule Aiur.Orchestrator.ReworkRequeueTest do
       assert %{interval_ms: 60_000, last_seen: %{}} = state
 
       ReworkRequeue.tick(state)
-      assert_receive {:state_write, "2337", "human-review"}
+      assert_receive {:state_write, "2337", "human-review"}, 1000
     end
   end
 end

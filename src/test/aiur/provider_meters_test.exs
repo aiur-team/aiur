@@ -9,7 +9,9 @@ defmodule Aiur.ProviderMetersTest do
 
   setup do
     ensure_pubsub()
-    {:ok, owner} = ProviderAccountGeneration.start_link(name: nil, mint: sequence_mint())
+    # PubSub and the application projection outlive each test owner. Reusing
+    # generation-1 would subscribe a new test to older retained observations.
+    {:ok, owner} = ProviderAccountGeneration.start_link(name: nil)
     {:ok, store} = Store.start_link(name: nil, account_generation_owner: owner, clock: fn -> @now end)
 
     %{owner: owner, store: store}
@@ -290,7 +292,11 @@ defmodule Aiur.ProviderMetersTest do
              Store.ingest(store, %{input | windows: [raw_window]})
 
     assert :sys.get_state(store) == before
+    broadcast_probe_tombstone()
     refute_receive {:provider_meter_changed, _snapshot}, 100
+
+    assert {:ok, snapshot} = Store.ingest(store, input)
+    assert_receive {:provider_meter_changed, ^snapshot}, 1000
   end
 
   test "subscription and API-key modes reject fabricated unsupported facts", %{owner: owner, store: store} do
@@ -475,12 +481,27 @@ defmodule Aiur.ProviderMetersTest do
     end
   end
 
-  defp sequence_mint do
-    counter = :counters.new(1, [])
+  defp broadcast_probe_tombstone do
+    projection =
+      start_supervised!({Aiur.ProviderMeterProjection, name: nil, subscribe?: false, clock: fn -> @now end})
 
-    fn ->
-      :counters.add(counter, 1, 1)
-      "generation-#{:counters.get(counter, 1)}"
-    end
+    snapshot = %ProviderMeterSnapshot{
+      provider: :codex,
+      backend: :app_server,
+      provider_account_generation: "generation-1",
+      update_kind: :tombstone,
+      observed_at: @now
+    }
+
+    send(projection, {:provider_meter_changed, snapshot})
+
+    # The synchronous call follows the observation from this same sender and
+    # completes the real probe-failure broadcast before the negative assertion.
+    assert :ok =
+             Aiur.ProviderMeterProjection.record_probe_result(
+               projection,
+               %{provider: :codex, observed?: false, reason: :probe_failed},
+               @now
+             )
   end
 end
