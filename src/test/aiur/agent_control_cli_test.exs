@@ -38,6 +38,23 @@ defmodule Aiur.AgentControlCLITest do
     assert ExecutorWakeInbox.pending() == []
   end
 
+  test "executor-wait renders initial sync only on backfilled wakes" do
+    start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+
+    backfill =
+      wake_record(1, "42", "ticket.42.pr.ready_for_review", "ticket.pr.ready_for_review")
+      |> Map.put("observation", "initial_sync")
+
+    :ok = ExecutorWakeInbox.enqueue(backfill)
+    :ok = ExecutorWakeInbox.enqueue(wake_record(2, "43", "ticket.43.pr.ready_for_review", "ticket.pr.ready_for_review"))
+
+    output = capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 500) end)
+
+    assert output =~ ~r/^WAKE ticket.42.pr.ready_for_review .* observation=initial_sync$/m
+    assert output =~ ~r/^WAKE ticket.43.pr.ready_for_review .* role=owner$/m
+    assert ExecutorWakeInbox.pending() == []
+  end
+
   test "executor-wait reports a quiet timeout as a successful empty result (#2600)" do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
 
