@@ -122,3 +122,33 @@ MP-N4 → N1-C2/C6; MP-E2 → native Command screen (MP-N6); MP-N7 consumes N1-C
 
 N1-RQ1 (pinned TLS in WebViews), N1-RQ2 (schema generator), N1-RQ3 (prebuild with
 targets), N1-RQ4 (NSE memory), N1-RQ5 (Android WebView cookie injection).
+
+## Phase C final tickets (2026-10-06)
+
+Ticket bodies and the dependency table are in [tickets/README.md](tickets/README.md).
+Candidate → final mapping:
+
+- **C1:** T1+T3+T4 → C1-T01 (skeleton, pins, Jest, guide page); T2 → C1-T02 (CI); new C1-T03
+  (expo-apple-targets with app-group and keychain-group entitlements; settles N1-RQ3).
+- **C2:** T1 → C2-T01; T2 → C2-T02 (Keystore-wrapped vault file; androidx security-crypto is
+  deprecated); T3 (decrypt) **moved to MP-N4-C4/C5**; T4 widened to the full pairing and token
+  protocol → C2-T03 (vectors from MP-N2-C5-T05, contract §4.0); T5 → C2-T04 (quicktype; settles
+  N1-RQ2); T6 → C2-T05 (`AiurNative`; `bootstrapWebSession` returns nothing to JS).
+- **C3:** T2+T3 → C3-T01 (resolver); T1+T4 → C3-T02 (cache, typed errors incl. `device_revoked`);
+  new C3-T03 (Swift and Kotlin resolver ports, because the watch broker runs without JS); T5 → C3-T04.
+- **C4:** T1 → C4-T01; T2 → C4-T02 (session via one-time `/device-session/<code>`, MP-N2-C6-T02;
+  settles N1-RQ5); T3+T4 → C4-T03; T5 → C4-T04; T6 → C4-T05 (new N1-RQ6: Android
+  `onPermissionRequest` origin check); new C4-T06 (native header, D-N1-5).
+- **C5:** T1 → C5-T01; T2 → C5-T02 (conditional on the owner keeping the HTTP-degraded mode;
+  new N1-RQ7); T3 → C5-T03; new C5-T04 (T-B client pinning; conditional on DESIGN-N2 §transport = T-B).
+- **C6:** collapsed to C6-T01 (entitlements, FCM build config, `pushToken()`, open callback). NSE
+  target → C1-T03 + MP-N4-C4; FCM service body → MP-N4-C5-T02; tap routing → MP-N6-C2-T02; token
+  registration → MP-N4-C4-T05/C5-T05.
+- **C7:** unchanged, conditional on OQ-N1-1 = public listing.
+- **C8:** unchanged; signing stays local, no secrets in CI.
+- **New C9:** C9-T01, the throwaway Expo prototype — a **proposal blocked on owner authorization**
+  (`OWNER-AUTH-N1-PROTO`), never executed by an implementer without it.
+- **New C10:** device validation. C10-T01 (DV-P1–P4, P11, P12, with MP-N4-C7), C10-T02 (DV-P6–P10,
+  P13). DV-P5 is in MP-N3-C4-T06; transport rows are in MP-N2-C10-T05; watch rows in MP-N7-C6.
+- **RC-15:** every ticket that loads a dashboard in a WebView is blocked on RQ-TRANSPORT and
+  MP-N2-C10-T01.

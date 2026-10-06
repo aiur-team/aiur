@@ -1,0 +1,133 @@
+---
+ticket_id: MP-E6-C2-T01
+feature_id: MP-E6
+chunk_id: MP-E6-C2
+bucket: 2-platform
+title: Conversation provider behaviour, normalized event structs and a fake provider
+status: ready
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend, DESIGN-E6 header)", MP-R5-C1-T01]
+prior_units: []
+prior_boundaries: [VOX]
+prior_features: [integrations-51]
+prior_findings: []
+size_owner: n/a (new files)
+base_sha: 45a290e3
+researched: 2026-10-06
+---
+
+# MP-E6-C2-T01 — `Aiur.VoiceConversation.Provider`
+
+## Identity and outcome
+
+- **Bucket / feature / chunk:** 2-platform / MP-E6 / C2 provider boundary.
+- **User value:** none directly; it makes the assistant provider-replaceable (ElevenLabs now,
+  OpenAI Realtime as the documented second adapter) and lets every later ticket be tested
+  without a network or a bill.
+- **Deliverable (all PROPOSED, `src/lib/aiur/voice_conversation/`):**
+  - `provider.ex` — behaviour `Aiur.VoiceConversation.Provider`.
+  - `events.ex` — structs for the contract §4.1 normalized events.
+  - `src/test/support/voice_conversation/fake_provider.ex` — `Aiur.VoiceConversation.FakeProvider`
+    implementing the behaviour, scriptable from tests.
+- **Non-goals:** the ElevenLabs adapter (C2-T02/T03), sessions (C4).
+
+## Dependencies and blockers
+
+- **Predecessors:** MP-R5-C1-T01 (the `Aiur.Voice` facade exists; this namespace sits beside
+  it in the voice component, `VOX`).
+- **Contracts:** voice-session §4 (Conversation role), §4.1 (events).
+- **May run concurrently with:** MP-E6-C6-T01, MP-E6-C2-T04.
+
+## Verified starting point (base `45a290e3`)
+
+- Seam precedent: a behaviour owning only the bytes, with the session owning decisions —
+  `Aiur.ElevenLabs.Realtime.Transport` (`realtime/transport.ex:1-25`) and its Mint
+  implementation (`realtime/mint_transport.ex:12-31`).
+- Fake precedent in channels: `:voice_stt_start_fun` / `:voice_tts_start_fun` injection
+  (`voice_channel.ex:235-291`), which MP-R5-C1 replaces with module injection.
+- Test support directory exists: `src/test/support/` (used by `use Aiur.TestSupport`,
+  e.g. `conversation_drawer_test.exs:2`).
+
+## Chosen design
+
+```elixir
+defmodule Aiur.VoiceConversation.Provider do
+  @type session_spec :: %{
+          required(:owner) => pid(),                 # receives {:voice_conversation, ref, event}
+          required(:system_prompt) => String.t(),    # role pre-context + glossary (C4-T04)
+          required(:first_message) => String.t() | nil,
+          required(:context) => String.t(),          # ContextBuilder output (C4-T03), already redacted
+          required(:tools) => [tool_spec()],
+          required(:audio_in) => :pcm_16000,
+          required(:audio_out) => :pcm_16000 | :pcm_44100,
+          optional(:voice_id) => String.t(),
+          optional(:llm) => String.t()
+        }
+  @type tool_spec :: %{name: String.t(), description: String.t(), parameters: map()}
+
+  @callback open(session_spec()) :: {:ok, ref :: term()} | {:error, Events.Error.t()}
+  @callback push_audio(ref :: term(), base64_pcm :: String.t()) :: :ok
+  @callback send_context(ref :: term(), text :: String.t()) :: :ok      # non-interrupting
+  @callback send_user_text(ref :: term(), text :: String.t()) :: :ok
+  @callback tool_result(ref :: term(), call_id :: String.t(), result :: String.t()) :: :ok
+  @callback close(ref :: term()) :: :ok
+  @callback capabilities() :: %{events: [atom()], text_only?: boolean()}
+end
+```
+
+- Owner messages: `{:voice_conversation, ref, %Events.X{}}` where X ∈ `UserTranscript{text,
+  final?}`, `AgentText{turn_id, text, final?}`, `AgentAudio{turn_id, format, data_b64}`,
+  `Interruption{turn_id}`, `ToolCall{call_id, name, params}`,
+  `ProviderConversationId{id}`, `Closed{reason}`, `Error{code, message}`.
+- `Error.code` ∈ contract §8 provider codes (`provider_auth`, `provider_quota`,
+  `provider_unavailable`, `provider_error`); `message` is operator-safe text, never a raw
+  provider frame (the realtime precedent discards raw error terms, `transport.ex:17-19`).
+- `capabilities/0` lets a provider declare missing events (contract §4.1 last sentence);
+  the session degrades (e.g. no `Interruption` → playback cannot be cut by the provider).
+- **Invariant:** no provider event name or field leaks past the adapter; the session sees only
+  these structs.
+- `FakeProvider`: `open/1` returns a ref registered to the test pid; helpers
+  `FakeProvider.emit(ref, event)` and `FakeProvider.calls(ref)` (records `push_audio`,
+  `send_context`, `tool_result`, `close` with arguments) — the same "record what was sent"
+  style the channel tests use for the fake transcriber.
+
+## Implementation steps
+
+1. `events.ex` structs with `@enforce_keys`.
+2. `provider.ex` behaviour and types.
+3. `fake_provider.ex` in test support (an `Agent` keyed by ref).
+4. Unit tests for the fake (it is used by C4–C7 tests, so its semantics are pinned).
+
+## Non-happy paths
+
+n/a beyond the type contract — no runtime behaviour in this ticket. The `Error` struct is the
+single path for provider failures.
+
+## Compatibility and rollout
+
+New modules, unused until C4. No config. Rollback: delete.
+
+## Verification
+
+| Test (`test/aiur/voice_conversation/fake_provider_test.exs`, PROPOSED) | Expected |
+| --- | --- |
+| "fake records every behaviour call in order" | `push_audio`, `send_context`, `tool_result`, `close` appear in `calls/1` with arguments |
+| "emitted events reach the owner as normalized structs" | `{:voice_conversation, ref, %Events.AgentText{}}` received |
+| "the behaviour module documents every §4.1 event" | `Events.__all__/0` (or a list constant) equals the contract list — a regression guard, labelled as such |
+
+```bash
+env -C src mise exec -- mix test test/aiur/voice_conversation/fake_provider_test.exs
+make -C src fmt-check lint
+```
+
+Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-check
+`~/.aiur/github-budget/agent-token` before and after: a local `mix test` boots aiur and can
+overwrite it.
+
+**Mutation check.** Make `FakeProvider.calls/1` drop `tool_result` entries: the first test
+fails. (The structure tests are regression guards, not coverage of new behaviour.)
+
+## Completion and handoff
+
+- [ ] Behaviour, structs and fake; tests green; `make lint` clean.
+- [ ] Docs: none (internal).
+- **Dependents:** MP-E6-C2-T02, MP-E6-C2-T03, MP-E6-C4-T01, every later E6 test.

@@ -137,9 +137,10 @@ before E7 exists:
   service; the overlay shows E7 receipts.
 - **Executor, before E7:** read-only, composer disabled with the reason (MP-E3).
 
-This makes E4-C6 a two-step chunk and is flagged for the coordinator: D15 says
-"sending messages (through the listener mode)". **Assumption needing
-reconciliation:** worker sends may keep the `AgentChat` path until E7 lands.
+**Superseded by RC-05 (Phase C):** MP-E7-C1–C3 move into wave 3 ahead of the
+write chunks, and E7-C3 ships behind a flag that keeps today's behaviour. E4-C6
+therefore ships once, on `Aiur.Listener.send/3`, with no interim `AgentChat`
+step (MP-E4-C6-T01).
 
 ## 6. Non-happy paths
 
@@ -218,7 +219,8 @@ reconciliation:** worker sends may keep the `AgentChat` path until E7 lands.
 - OQ-E4-6. Does the existing drawer stay as the quick view with a link to the full view, or is it replaced?
 
 **Research (Phase C):**
-- RQ-E4-1. Journal throughput and size: measure entries/hour and bytes/hour per agent on the live fleet (census, AGENTS.md "measured, not estimated").
+- RQ-E4-1. Journal throughput and size: measure entries/hour and bytes/hour per agent on the live fleet (census, AGENTS.md "measured, not estimated"). **Ticket MP-E4-C1-T00.** Preliminary census 2026-10-06 (deltas excluded): lower bound 249 entries/h and 112 KB/h per agent (p50, 389 ticket-launches); upper bound at a 64 KiB cap 228 KB/h p50, 3.0 MB/h p90 (352 workspaces, mostly 2026-08).
+- RQ-E4-6. Does the bus event's tool call id match a transcript entry? **Census 2026-10-06:** 1,851 of 2,164 completed publications matched a tool entry `msg_id` in the same launch; re-measured in MP-E4-C3-T02.
 - RQ-E4-2. `causal` matching rules for `git push` / `gh pr create` / `gh pr merge` command entries across Codex and Claude output shapes; false-positive rate on recorded transcripts.
 - RQ-E4-3. Whether IssueLog's `observed_at` for bus events and the journal's `observed_at` share one clock (both daemon) — confirm for webhook-sourced events.
 - RQ-E4-5. Confirm the `MessageHandler` closure runs daemon-side for SSH workers, so the journal tee covers them.

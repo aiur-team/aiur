@@ -44,7 +44,7 @@ Companion files:
 
 ## 1. Repository findings (extending the baseline)
 
-Baseline facts in `baseline/capability-baseline.md` R1 and
+Baseline facts in `baseline/capability-baseline-bucket-1.md` R1 and
 `baseline/existing-refactor-research.md` §2 are not repeated. New, verified at
 `45a290e3`:
 
@@ -202,113 +202,154 @@ Ticket IDs follow `MP-R1-C<n>-T<m>` (assignment instruction; the baseline's
 `MP-R1.C1.T01` dotted form is the same identity). Every implementation ticket is
 blocked on DESIGN-R1 (MP-REQ2); C10-T4 additionally on its page design.
 
+Phase C refined chunks C1–C5 into 26 tickets: `tickets/MP-R1-C1-T1.md` …
+`MP-R1-C5-T6.md`. Index, order and cross-chunk notes:
+[tickets/README-C1-C5.md](tickets/README-C1-C5.md). The ticket files are authoritative
+where they differ from the summary below.
+
 ### MP-R1-C1 — Manifest and dependency checker
-- **Outcome:** `components.json` + schema describing today's code; `scripts/check-components.py`
-  (Elixir module-reference walk + TS import walk) in the required `lint` job with a
-  ratchet allowlist; `scripts/test-check-components.sh`.
-- **Deps:** none. Cross-feature: **MP-E1 needs T3 in wave 0**, or ships its own source-scan test.
-- **Tickets:** T1 manifest schema and initial manifest (all 41 components, today's paths);
-  T2 Elixir reference walker ported from the research tooling; T3 rule set (private
-  module, layer, required→optional, client→src) with build-queue rule first; T4 TS
-  import walker for `packages/*` (Khala `check-boundaries.mjs` pattern); T5 ratchet
-  allowlist and CI wiring; T6 checker self-tests with failing fixtures.
-- **Tests:** fixture trees per rule that must fail; run against `45a290e3` to record the baseline count.
-- **Research (Phase C):** exact baseline violation count at the implementation head;
-  whether `mix xref` output can replace the custom walker; runtime of the check in CI.
+- **Outcome:** `components.json` + `components.schema.json`; `scripts/check-components.py`
+  (ownership, Elixir module-reference rules, TS import rule) in the required `lint` job
+  with a per-component ratchet allowlist; `scripts/test-check-components.sh`.
+- **Deps:** none. Cross-feature (RC-11): MP-E1 ships its own source-scan test in wave 0;
+  T6 absorbs it.
+- **Tickets:** T1 manifest, schema, ownership rule, CI wiring and self-test harness;
+  T2 Elixir walker (ported, parse-only) + R-declared/R-private + allowlist; T3 R-down,
+  R-optional, SCC report; T4 TS import walker + R-client + reverse `@external_resource`;
+  T5 ratchet enforcement (stale entries fail, prune, growth guard, step summary);
+  T6 build-queue seams and forbids, MP-E1 scan test deleted.
+- **Phase C answers:** RQ1 — prior walker at `45a290e3`: 2.9 s wall, 1,111 modules,
+  4,016 module edges, 2,140 cross-boundary and 339 upward edges on the prior 36-boundary
+  map, one SCC of all 36; the 41-component baseline is recorded by T2/T3. `mix xref`
+  rejected (file-level graph, needs a compile).
 
 ### MP-R1-C2 — Identity
-- **Outcome:** `Aiur.Identity` with `machine_id` (file, generation, reset path),
-  `instance_id`, `repository`, executor state, `session_ref` helper.
-- **Deps:** C1-T1. Cross: MP-N2 (reset verb, records), MP-E3 (executor harness fields).
-- **Tickets:** T1 `machine/identity.json` creation at first boot (format per MP-N2) (0600, atomic write, corrupt-file handling,
-  no silent regen); T2 daemon learns `instance_key` from the launcher (env var at
-  boot) and composes `instance_id`; T3 `repository` from tracker config; T4 executor
-  state projection from `Roster` + `Principal` incl. `absent`; T5 `session_ref` builder.
-- **Tests:** corrupt/unreadable file, two OS users, empty instance key, moved root.
-- **Research:** how the launcher passes `AIUR_INSTANCE_KEY` into the release today (or must start to).
+- **Outcome:** `identity.json` created at first boot (RC-01) and `Aiur.Identity`
+  (`machine`, `instance_key`, `instance_id`, `instance_section`, `identity` capability).
+- **Tickets:** T1 machine store (no-clobber `File.ln/2` create, no silent regeneration,
+  one attention when degraded); T2 facade and `instance_id`.
+- **Changed in Phase C:** `repository` and executor state moved to C3-T2 providers
+  (identity is L1 and must not reference tracker or executor-attention); the
+  `session_ref` builder was dropped — MP-E4 owns `SessionRef` (CQ3 resolved).
+- **RQ3 answered:** the launcher already exports `AIUR_INSTANCE_KEY` and the daemon
+  already reads it; no launcher change.
 
 ### MP-R1-C3 — Capability registry, endpoint, CLI, client contracts package
-- **Outcome:** `Aiur.Capabilities` registry fed by component callbacks and run-shape
-  flags; `GET /api/v1/capabilities`; `aiur capabilities [--json]`;
-  `system.capabilities.changed`; `packages/aiur-contracts` with JSON Schema for the
-  contract and generated TS types.
-- **Deps:** C2; MP-R2 for the event; MP-N2 for device auth (later ticket).
-- **Tickets:** T1 registry + callback behaviour; T2 initial callbacks for existing
-  components (orchestration, commands, build_orders, voice.stt, streamdeck,
-  webhook_ingress, remote_control, executor.wakes, accounting.meters); T3 route
-  (above `router.ex:193`) + controller; T4 CLI verb + `website/docs-app/reference/cli.md`
-  entry; T5 revision persistence and change event; T6 `aiur-contracts` package and
-  schema test; T7 docs: new `concepts` section on capabilities (docs ship with the change).
-- **Tests:** per run shape; orchestrator killed; key removed; router shadowing; no
-  secrets in payload (scan test).
-- **Research:** whether `check-cli-reference.sh` needs a change for a new verb.
+- **Tickets:** T1 registry (provider behaviour, crash-proof ETS table, monitor, `boot_id`
+  = `Aiur.Boot.run_id/0`, in-memory `revision`); T2 core providers; T3 endpoint,
+  `capability_unavailable` encoder, concepts page; T4 `aiur capabilities` verb, aiurdev
+  routing, CLI reference; T5 `system.capabilities.changed`; T6 `packages/aiur-contracts`
+  with a cross-language golden test; T7 optional-component providers.
+- **Changed in Phase C:** revision persistence replaced by `boot_id` + in-memory revision;
+  the concepts page ships with T3 (docs ship with the change), so T7 now holds the
+  optional providers.
+- **Answered:** `check-cli-reference.sh` needs no change (it derives commands from the
+  engine) and is not run by CI at base; `scripts/aiurdev` must list the verb or it boots
+  a release.
 
 ### MP-R1-C4 — Config ownership by registration
-- **Outcome:** each component registers its section, validator, `Config.Paths` keys
-  and env vars; root keeps `tracker`, `server`, `observability`, registry.
-- **Deps:** C1. One ticket per section group so it can ride along with moves.
-- **Tickets:** T1 registration mechanism keeping `embeds_one` reachability for
-  `check-config-docs.py`; T2–T9 one per owner (workspace, orchestration, harness,
-  commands, events, executor-attention, build-orders, voice/webhooks/upgrade).
-- **Tests:** config round-trip of `.aiur/examples/config.example` unchanged; `check-config-docs.py` passes.
-- **Research:** whether Ecto `embeds_one` can be composed at compile time from a registry, or the checker must learn registration.
+- **Changed in Phase C (RQ4):** sections stay literal `embeds_one` lines (Ecto compile-time
+  composition and `check-config-docs.py` both read them); ownership is manifest data,
+  and the work is removing the 24 measured config-layer upward edges.
+- **Tickets:** T1 registered semantic checks (`validate!/0`); T2 turn-sandbox root
+  contributors; T3 accessor moves and pure helpers down (six edges; backend-catalog
+  edges deferred to MP-R7); T4 env/global-config startup edges; T5 ownership data and
+  O-config/O-env/O-state rules.
 
 ### MP-R1-C5 — Kernel and signal port (prior §7 step 1)
-- **Outcome:** journal primitive, `Bounded`, `MapAccess`, process-kill helper in
-  kernel; `Signal.emit/2`; `Alerts`, `RunTelemetry.Lifecycle`, `Perf`,
-  `ObservabilityPubSub` become consumers.
-- **Deps:** C1; prior U6 (journal) first.
-- **Tickets:** T1 journal primitive move; T2 `Bounded`/`MapAccess`/kill helper; T3
-  `Signal.emit/2` + `Alerts` consumer; T4 telemetry consumers; T5 migrate callers in
-  batches (≤ 1 boundary per PR).
-- **Research:** behaviour proof that alert side effects (up to four files, three
-  broadcasts per alert, prior §6) keep their order.
+- **Tickets:** T1 `Aiur.DecisionLog` → kernel `Aiur.Journal` (after U6); T2 `Bounded` and
+  process signalling to kernel, MapAccess/CoordinationTasks reassigned; T3 `Aiur.Signal`
+  alert + refresh port, Alerts as sink; T4 lifecycle telemetry through the port,
+  Perf/LogFile to `signal`; T5 alert emitters outside orchestrator (39 files, 69 sites);
+  T6 orchestrator emitters (22 files, 91 sites).
+- **Research answered:** side-effect order is preserved by construction — the port calls
+  the sink synchronously in the caller's process (order listed in C5-T3).
+
+Phase C refined chunks C6–C11 into 43 tickets: `tickets/MP-R1-C6-T1.md` …
+`MP-R1-C11-T3.md`. The index, order and open items are in
+[tickets/README-C6-C11.md](tickets/README-C6-C11.md). The ticket files are
+authoritative where they differ from the summary below.
 
 ### MP-R1-C6 — Web-shell / dashboard-ui split
-- **Outcome:** HTTP endpoint and JSON API can run without LiveView pages; optional
-  components register routes and sockets.
-- **Deps:** C3. Cross: MP-R5, MP-R6 (their sockets register here).
-- **Tickets:** T1 router split with registration; T2 new run-shape flag distinct from
-  `dashboard?` (CLI flag naming is a docs + DESIGN-R1 confirmation); T3 socket registration; T4 tests per shape.
-- **Research:** whether a pages-off/API-on shape is wanted as an operator flag or only internally (DESIGN-R1 S4).
+- **Outcome:** the HTTP endpoint and JSON API can run without the LiveView pages.
+  Optional components add their own routes and sockets at compile time.
+- **Tickets:**
+  - T1: router composition through macros (not `forward`).
+  - T2: socket registration.
+  - T3: internal `dashboard_pages?` run shape (DESIGN-R1 S4 default: internal only).
+  - T4: operator flag, blocked on S4.
+- **Deps:** C1-T1, C3-T1. C6-T1 and C3-T3 both edit `router.ex`; merge C3-T3 first.
+- **Size:** U8 rule: `aiur.ex`, `cli.ex` and `aiur-engine.sh` must not grow.
+- **Contract request:** CR-C6-1. The report's `run_shape` gets `http_listener` and
+  `dashboard_pages`.
 
 ### MP-R1-C7 — Domain moves: tracker split, sandbox, workspace, GitHub family
-- **Outcome:** prior §7 steps 3, 4, 5 executed as manifest moves.
-- **Deps:** C1; prior U5 for GitHub. Cross: MP-R7 after sandbox.
-- **Tickets:** T1 IssueTracker/CodeHost split; T2 adapter registration; T3 agent sandbox;
-  T4 workspace; T5 GitHub umbrella component; T6 remove `Dispatcher` direct GitHub calls.
-- **Research:** per-ticket recheck of prior findings at the implementation head.
+- **Outcome:** prior §7 steps 3, 4 and 5, done as manifest moves.
+- **Tickets:**
+  - T1: IssueTracker/CodeHost split.
+  - T2: adapter registration.
+  - T3: sandbox boundary.
+  - T4: GitHub agent-environment contributor.
+  - T5: workspace.
+  - T6: GitHub family as one *logical* component (KTD11: no package, process or new
+    facade module).
+  - T7 and T8: Dispatcher goes through the tracker facade, and its CI-readiness gate
+    moves out.
+- **Deps:** prior U5 (T4, T6, T8), prior U2 (T7, T8), MP-E1-C1 (RC-19/RC-20).
+- **Placement:** `AgentGitHubGuard` belongs to `github`. MP-R7 starts after T3 and T4.
 
 ### MP-R1-C8 — Feature components: Commands, projections, conversations, build orders, build queue
-- **Outcome:** prior §7 steps 7–8 for these; `decision.answered` event; neutral
-  conversations read API (with MP-R6); build-orders component; build-queue final shape.
-- **Deps:** C5, MP-R2; prior U6. Cross: MP-E1 owner review for T5.
-- **Tickets:** T1 Commands facade + event delivery; T2 projections component; T3
-  conversations component (absorbs `LiveConversation`, `AgentEventFeed`, anchor rule);
-  T4 build-orders component; T5 build-queue move + `Signal.emit`.
+- **Correction:** answer delivery stays a **synchronous** call. It goes through a
+  delivery-target port that orchestration implements. The existing
+  `decision.answered` event only wakes the orchestrator (CR-C8-3). `commands` is a
+  required component.
+- **Tickets:**
+  - T1 and T2: Commands.
+  - T3 and T4: projections.
+  - T5: sanitizer moves to kernel.
+  - T6: `Aiur.Conversations` facade, on top of MP-R6-C1 (RC-06).
+  - T7 and T8: build-orders, plus a new `ticket-context` component.
+  - T9: build-queue move, with RC-11/RC-19/RC-20 guard tests.
+- **Deps:** prior U6 (T2), U5 (T7), U2 graph contract (T8), MP-E1 C1–C7 (T9).
 
 ### MP-R1-C9 — Listeners and orchestration core (prior §7 steps 9–10)
-- **Outcome:** `GitHub.Listeners` owns poll cursors; orchestration state fields have
-  owners; `AgentControlCLI` split by component with per-component verbs.
-- **Deps:** C7, C8, MP-R2; prior U2.
-- **Tickets:** T1 listener supervisor + cursor move; T2 `PRHealthScanner`/`ReworkRequeue`
-  out of core; T3 state-field owner table; T4 effects return; T5 CLI split.
-- **Research:** U2 ticket-transition ownership (prior open question) must be closed first.
+- **Tickets:**
+  - T1–T4: GitHub listeners. The firehose stays a synchronous call at the same point
+    in the tick.
+  - T5 and T6: `pr-lifecycle` component.
+  - T7–T9: `Orchestrator.State` owner table, back-call removal, and effects.
+  - T10–T14: `AgentControlCLI` split. Every function name stays as a delegate,
+    because the launcher calls 34 of them by name over RPC.
+- **Deps:** C7-T6, MP-R2-C2-T08 (same files), MP-E1-C1, U3 (T11), U6 (T14).
+- **Blocked:**
+  - T6 and T9 wait on **RQ-U2-TRANSITION**.
+  - T14 waits on **RQ-U6-STATUS-MODEL**.
+- **Deferred, with no ticket:**
+  - CI poll as a listener (after T9).
+  - Asynchronous candidate poll. It changes timing, so the gap study gates it.
 
 ### MP-R1-C10 — Public component directory page (MP-REQ4)
-- **Outcome:** [component-directory.md](component-directory.md).
-- **Deps:** C1 (manifest); go-live after C9 and C11 final run; DESIGN-R1.
-- **Tickets:** T1 public manifest fields and planned entries; T2 data loader + Vue
-  table; T3 `check-components.py` docs rules + `website.yml` trigger/guard; T4 sidebar
-  entry, AGENTS.md docs-table row, publish.
+- **Outcome:** [component-directory.md](component-directory.md). The "Planned" list is
+  generated from a `features` array in the manifest, never written by hand.
+- **Tickets:**
+  - T1: public fields and `features`.
+  - T2: VitePress data loader and unlisted page.
+  - T3: approved design (DESIGN-R1 §3).
+  - T4: docs-sync rules, run in the required `workflow security` job (it also runs on
+    docs-only PRs, unlike `lint`), plus a `website.yml` trigger.
+  - T5: publish.
+- **RQ2 resolved:** the loader reads the root manifest directly (VitePress 1.6.4
+  evidence in C10-T2).
+- **Deps:** C1-T1; DESIGN-R1 §3. T5 waits for all of C9 and C11-T3 (D20).
 
 ### MP-R1-C11 — Plan refresh
-- **Outcome:** after each move merges, regenerate the path map
-  ([migration-plan.md §4](migration-plan.md)) against the merged head and update every
-  later-wave ticket's `Verified starting point` and contract versions; final run after C9.
-- **Deps:** each move PR. Owner: coordinator or Executor, not an agent ticket alone.
-- **Tickets:** T1 path-map generator from `components.json` history (git diff of
-  `paths`); T2 per-wave ticket sweep; T3 final refresh before wave 2 (MP-E2) starts.
+- **Tickets:**
+  - T1: plan-refresh tool on the research branch (path map, stale citations, size
+    owners).
+  - T2: recurring runbook. Procedure A runs after each move; Procedure B is the
+    **RC-23** size-owner lookup at ticket start, against the current U8 ledger.
+  - T3: final refresh, which gates wave 2 and C10-T5.
+- **Owner:** the coordinator or the Executor.
 
 ## 10. Open questions
 
@@ -323,10 +364,13 @@ enablement or move them to a Bucket 2 feature — they add an API but change no
 behaviour; CQ2 pull C1-T1/T3 into wave 0 for MP-E1's seam, or have E1 ship its own
 scan test; CQ3 reconcile `session_ref` with MP-E2/E4.
 
-**Research (Phase C):** RQ1 baseline violation count and checker runtime; RQ2 VitePress
-loader reading outside the docs dir; RQ3 launcher→daemon instance-key handoff; RQ4
-Ecto section registration vs checker change; RQ5 Muse and `AllowedContributors`
-boundary placement confirmed by reference walk.
+**Research (Phase C):** RQ1 answered (C1-T2); RQ2 VitePress loader reading outside the
+docs dir (resolved in MP-R1-C10-T2: yes); RQ3 answered (C2-T2: no launcher change); RQ4
+answered (C4-T5: literal embeds, manifest ownership); RQ5 answered (component-map §5:
+Muse/AgentTools → harness-adapters, AllowedContributors → github).
+
+**Coordinator (Phase C):** CQ1 settled by RC-12; CQ2 settled by RC-11 (C1-T6); CQ3
+settled — MP-E4's `SessionRef` is the session identity.
 
 ## 11. Plan-refresh note
 

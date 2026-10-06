@@ -1,0 +1,103 @@
+---
+ticket_id: MP-R1-C11-T3
+feature_id: MP-R1
+chunk_id: MP-R1-C11
+bucket: 1-refactor
+title: Final post-refactor plan refresh — gate before wave 2 (MP-E2) and before the directory page goes live
+status: blocked
+blocked_by: [DESIGN-R1, MP-R1-C11-T2, "MP-R1-C9 (all tickets merged, migration step S16)"]
+prior_units: [U0, U8, U9]
+prior_boundaries: []
+prior_features: []
+prior_findings: []
+size_owner: n/a (research docs only)   # RC-23 applied to every later-wave ticket here
+base_sha: 45a290e3
+researched: 2026-10-06
+---
+
+# MP-R1-C11-T3 — Final post-refactor plan refresh
+
+## Identity and outcome
+
+- **Bucket / feature / chunk:** Bucket 1, MP-R1, C11 (migration step S17, final run).
+- **User value:** wave 2 (MP-E2) and every later wave start from tickets verified
+  against the post-refactor `main`, and the public directory page (C10-T5) is generated
+  from the final component map (D20).
+- **Deliverable:** one full refresh over `45a290e3..<main after the last C9 merge>`:
+  1. the C11-T1 report for the whole range;
+  2. every ticket in waves 2–5 (MP-E2 … MP-N7) and any not-yet-done wave-1 ticket
+     updated per C11-T2 Procedure A;
+  3. RC-23 size owners resolved for every wave-2 ticket that will be `ready` first
+     (Procedure B), and the ledger sha recorded;
+  4. migration-plan.md §4: every PR-xx row marked with its real target and merge sha;
+  5. a short sign-off note in the pack (coordinator file) that wave 2 may start.
+- **Non-goals:** contract changes (owners), design changes.
+
+## Dependencies and blockers
+
+- **DESIGN-R1**, **MP-R1-C11-T2**, all **MP-R1-C9** tickets merged (S16).
+- Also waits for any MP-R2/R5/R6/R7 move that wave 2 depends on (value-and-sequencing:
+  MP-E2 needs the MP-R2 event contract and MP-R7 adapters); list the ones not yet
+  merged in the sign-off note rather than blocking on unrelated R3/R4 work.
+- **Gates:** MP-E2's first implementation tickets and MP-R1-C10-T5 (publish) list this
+  ticket in `blocked_by`.
+
+## Verified starting point
+
+- Path map at research time: [migration-plan.md §4](../migration-plan.md), 16 rows.
+- Later-wave tickets live under `bucket-2-platform/*/tickets/` and
+  `bucket-3-mobile-watch/*/tickets/` on the research branch.
+- Contracts to re-check (migration-plan.md §4 contract rows):
+  `contracts/identity-and-capabilities.md`, `events-and-replay.md`,
+  `command-request-and-resolution.md`, `conversations-transcripts-anchors.md`
+  (frontmatter `status`, `base_main_sha`, `date`).
+
+## Chosen design
+
+Run C11-T2 Procedure A over the whole range rather than relying on the per-move runs
+alone: per-move runs may have been skipped or partial, and a single full-range diff is
+the only check that the pack matches the final head. Then Procedure B for wave-2
+tickets. The sign-off note states: refreshed sha, counts per status (`OK`, `MOVED`
+fixed, `LINES-*` fixed, `GONE` re-researched, tickets newly `blocked`), contracts whose
+status changed, and the U8 ledger sha used.
+
+## Implementation steps
+
+1. Confirm S16 merged: every MP-R1-C9 ticket closed; `python3 scripts/check-components.py`
+   green on `main`.
+2. Run the tool for `45a290e3..<head>`.
+3. Fix tickets (Procedure A); re-run until no unresolved `LINES-CHANGED`/`GONE` remain
+   in wave-2 tickets.
+4. Procedure B for wave-2 tickets.
+5. Update migration-plan.md §4 and write the sign-off note; coordinator commits.
+
+## Non-happy paths
+
+- **A wave-2 ticket's design no longer fits the code:** mark it `blocked` on a named
+  `REFRESH-…` item and notify the feature owner; wave 2 starts with the remaining ready
+  tickets only.
+- **C9 incomplete but wave 2 wanted early:** not allowed by this ticket; the operator
+  may override explicitly, recorded in the sign-off note.
+- **Final manifest differs from component-map.md:** update component-map.md §3
+  "Paths today" to the final paths so C10's page and the map agree.
+
+## Compatibility and rollout
+
+Research-branch only.
+
+## Verification
+
+- Re-run the tool after fixes: zero `GONE`, zero unresolved `LINES-CHANGED` in wave-2
+  tickets; any remaining entries are in tickets explicitly marked `blocked`.
+- Spot-check five wave-2 citations by hand at the refreshed sha.
+- `python3 scripts/check-components.py` and `--docs` green on the refreshed head (proves
+  the manifest the page will render is valid).
+
+## Completion and handoff
+
+- [ ] Full-range report committed.
+- [ ] Wave-2 tickets refreshed and size owners resolved (RC-23).
+- [ ] migration-plan.md §4 final; component-map.md §3 paths final.
+- [ ] Sign-off note written.
+- [ ] Docs: n/a — research.
+- **Dependents:** MP-E2 implementation tickets (first wave-2 work), MP-R1-C10-T5.

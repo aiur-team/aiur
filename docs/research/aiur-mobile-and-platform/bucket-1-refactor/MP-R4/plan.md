@@ -42,12 +42,12 @@ from operational patterns.
 Prior-units: U5 (GitHub outcomes; `website/docs-app/apis/github.md` is its
 cited doc). Prior-boundaries: `ING` #9, `GHC` #5. Prior-features:
 `integrations-25` (keep webhook ingress), `config-12`. Size-owner:
-`website/docs-app/apis/github.md` is 742 lines, assigned to `DOCS` (U8 split
+`website/docs-app/apis/github.md` is 760 lines (Phase C recount; the section starts at line 742), assigned to `DOCS` (U8 split
 pending), so a doc edit must not grow it without that owner's split.
 
 ## 1. Repository findings (verified at `45a290e3`)
 
-These extend `baseline/capability-baseline.md` § R4.
+These extend `baseline/capability-baseline-bucket-1.md` § R4.
 
 ### 1.1 What exists in code
 
@@ -243,16 +243,10 @@ fallback").
   knows what that ingress can see.
 - **Dependencies:** MP-R3-C1-T01 (the census asserts the single public route).
   DOCS U8 owner for `apis/github.md` size.
-- **Tickets:**
-  - MP-R4-C1-T01: in `website/docs-app/apis/github.md` § Cloudflare tunnel
-    boundary, add an "Ingress is replaceable" paragraph and a "What the
-    ingress operator observes" row (sourced). Rename the heading to "Webhook
-    ingress boundary (Cloudflare example)" only if the docs owner agrees,
-    because anchors are linked from AGENTS.md (`§ Cloudflare tunnel boundary`).
-    Keep the existing anchor.
-  - MP-R4-C1-T02: in `website/docs-app/reference/optional-optimizations.md`
-    § Webhook ingress, add one sentence that Cloudflare is an example, not a
-    requirement. The current text already says this for the hostname (step 4).
+- **Tickets (Phase C, see [tickets/](tickets/README.md)):** MP-R4-C1-T01, one
+  PR. It changes `apis/github.md` § Cloudflare tunnel boundary (net +2 lines, the
+  heading and anchor kept) and adds one sentence to `optional-optimizations.md`
+  § Webhook ingress. The plan's T01/T02 split was merged.
 - **Test strategy:**
   - `website/tests/gui-docs.spec.ts:243` asserts `hooks.aiur.dev` is
     mentioned. Keep that mention.
@@ -279,11 +273,15 @@ fallback").
 
 **Research (Phase C):**
 
-- RQ1: Does Cloudflare Tunnel terminate TLS at the edge for a proxied public
-  hostname, so that Cloudflare can read webhook bodies? Answer it with an
-  authoritative Cloudflare source and date.
-- RQ2: Confirm the `consumer_equivalence_test.exs` coverage list, so that the
-  MP-R2 bus move keeps the equivalence suite running.
+- RQ1 (answered in Phase C): yes. Edge certificates "secure the encrypted
+  connection between your visitors and Cloudflare"
+  (https://developers.cloudflare.com/ssl/edge-certificates/, accessed
+  2026-10-06), so TLS ends at the edge and Cloudflare can read delivery bodies.
+  The signature stops forgery, not reading.
+- RQ2 (answered in Phase C): four `mode_test`s (`:16`, `:25`, `:35`, `:44`) run
+  against both `EventSource` implementations, through
+  `test/support/webhook_mode_contract.exs`. `:35` is the transport-marker guard
+  for MP-R2.
 
 ## 10. Plan refresh
 

@@ -48,7 +48,7 @@ Chunks and tickets are in [chunks.md](chunks.md). The contract draft is
 ## Repository findings (verified at `45a290e3`)
 
 All paths are repo-relative. The baseline sections E2/E3/E4 in
-[../../baseline/capability-baseline.md](../../baseline/capability-baseline.md)
+[../../baseline/capability-baseline-bucket-2.md](../../baseline/capability-baseline-bucket-2.md)
 are not repeated here.
 
 **F1. The adapter seam exists.** `src/lib/aiur/coding_agent/backend.ex:1-148`
@@ -69,7 +69,12 @@ backend needs only an adapter module and a registry entry.
 | `claude-repl` | `Aiur.Claude.ReplAgent` | interactive `claude` in a tmux pane, hooks over HTTP | tmux `send-keys -l` + Enter, folded in by Claude's native input queue (`claude/repl/operator_inject.ex:31-43`); `immediate_delivery: true` (`providers/claude.ex:101-103`) | Ctrl+C out of band (`operator_inject.ex:60-62`) | `--resume` (`providers/claude.ex:117-122`) |
 | `muse` | `Aiur.Muse.CodingAgent` | Muse MSP stdio | `turn/start` with `ifBusy: "queue"` (`muse/coding_agent.ex:21-27`); receipts accept disposition `started`/`queued`/`steered` (`muse/protocol.ex:87-89`) | native `turn/interrupt` (`muse/turn_control.ex:6-18`) | yes (`providers/muse.ex:31`) |
 | `kimi`, `deepseek`, `openrouter` | `Aiur.OpenAICompat.CodingAgent` | in-process HTTP loop | appends a `user` message to the session's message list (`open_ai_compat/coding_agent.ex:117-123`) | none (`can_interrupt: false`, `open_ai_compat/registry.ex:113`) | no (:124) |
+| `gemini` *(conditional, RC-22)* | `Aiur.Gemini.CodingAgent` (draft PR #2870 @ `c1fc6f84`, not at base) | Gemini CLI ACP stdio (`gemini --acp`) | operator text becomes a queued turn (`gemini/coding_agent.ex:20`) | ACP `session/cancel` (`gemini/turn.ex:220-223`) | `session/load` (`gemini/session.ex:219`) |
 | `fake` | test-only (`registry.ex:20-29`) | — | — | — | — |
+
+RC-22: the Gemini row counts only if #2870 merges before MP-R7-C2 starts;
+otherwise it is recorded as a future adapter that lands directly in the
+harness package.
 
 **F3. Delivery policy is chosen by the entry point, not by the agent.**
 - Policies: `:immediate`, `:checkpoint`, `:interrupt`, plus `:auto`
@@ -259,7 +264,9 @@ If U4 (prior plan) lands first, C3 rebases onto its runner contract.
 
 **Owner (Kevin):** none blocking. Confirm DESIGN-R7 (no user-facing change).
 
-**Research (Phase C):**
+**Research (Phase C):** RQ-R7-1..4 are resolved in the tickets (see
+[tickets/README.md](tickets/README.md)); RQ-R7-5 (promotion criteria) is new
+and settled by MP-R7-C4-T02.
 - RQ-R7-1. Does `immediate_delivery` on `claude-repl` really land mid-turn,
   or at the next prompt boundary? Needs a foreground capture.
 - RQ-R7-2. Exact allowlist for F5 leaks that are legitimate (process reaper

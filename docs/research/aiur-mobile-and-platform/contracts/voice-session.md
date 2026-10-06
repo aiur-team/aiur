@@ -1,12 +1,19 @@
 ---
 contract: voice-session
-version: draft-1
-owner_feature: MP-E6 (co-owned with MP-E5 for §2–§5; MP-R5 owns the provider package that implements §4)
+version: draft-2
+owner_feature: MP-E6 (co-owned with MP-E5 for §2–§5 and §3.5; MP-R5 owns the provider package that implements the §4 STT and TTS roles)
 consumers: MP-E5, MP-E6, MP-R5, MP-R6 (Stream Deck), MP-N1, MP-N6, MP-N7
 base_main_sha: 45a290e3
 date: 2026-10-06
-status: draft — awaiting Phase B reconciliation
+status: reconciled draft — Phase B reconciliation RC-13, RC-14 and RC-16 applied (Phase C, 2026-10-06)
 ---
+
+> **Phase C changes (draft-2).** §4 adopts MP-R5's `Aiur.Voice` facade, `Transcriber` and
+> `Speaker` names and the neutral owner messages (RC-14). §7 adopts the MP-R1 capability IDs
+> `voice.stt`, `voice.tts` and `voice.conversation` and the MP-R1 report shape. §3.5 adds the
+> device-authenticated voice path for phone and watch (RC-16). §12 fixes the configuration
+> namespaces (RC-13). §3.6 records the frame budget for full-duplex converse audio
+> (RQ-E6-7, resolved by calculation).
 
 # Contract: voice session
 
@@ -86,11 +93,17 @@ submits the text (`dashboard_live.ex:640-661`).
 ```
 
 - Topic names become `voice:dictate` and `voice:converse` (proposed). `voice:dictation`
-  remains an alias for one release (compatibility, MP-E5-C2).
+  remains an alias for one release (compatibility, MP-E5-C2). The existing auto-submit
+  `voice:conversation` topic is unchanged until owner question E5-OQ2 is answered; it is not
+  `voice:converse`.
 - The daemon validates on join: capability present (§7), target exists and is writable for
-  this principal, limiter lease available. Refusals carry a stable `reason` code (§8).
-- Phone and watch authenticate with the MP-N2 device credential instead of the dashboard
-  session. The channel protocol is the same. (Consumed from the pairing contract; N2 owns it.)
+  this principal, limiter lease available. Refusals carry a stable `reason_code` (§8) plus
+  today's human-readable `reason` text.
+- A join with **no payload** (today's browser) is accepted on `voice:dictate` and
+  `voice:dictation` as `{mode: dictate, surface: agent_composer, target: null}`: no target
+  validation, exactly today's behaviour. A payload with `v: 1` is validated.
+- Phone and watch authenticate with the MP-N2 device credential through §3.5. The channel
+  protocol after connect is the same.
 
 ### 3.3 Client → daemon events
 
@@ -119,16 +132,74 @@ submits the text (`dashboard_live.ex:640-661`).
 | `draft` | converse | `{draft_id, kind, target, text, status}` (§5.3) |
 | `delivery` | both | `{draft_id \| message_id, status}` mirrored from MP-E7 / MP-E2 |
 
+### 3.5 Device-authenticated voice path (RC-16; MP-E5 owns, MP-N6 and MP-N7 consume)
+
+The dashboard socket cannot serve native clients: `AiurWeb.VoiceSocket.connect/3` requires a
+CSRF token and the signed dashboard cookie session (`voice_socket.ex:21-35`). A native app has
+neither. The device path follows the existing Stream Deck precedent: a short-lived signed
+ticket from an authenticated HTTP call, then a socket that verifies that ticket
+(`StreamdeckSessionController.create/2`, `streamdeck_auth.ex:11-36`,
+`streamdeck_socket.ex:11-23`).
+
+1. **Ticket.** `POST /api/v1/device/voice-ticket` with `Authorization: Bearer
+   <access_token>` (pairing contract §4.4), body `{}`. The route sits behind the MP-N2
+   device-auth plug and the writable gate (`:require_writable`, `router.ex:60-62`), so a
+   read-only dashboard refuses (`403`, `{error: {code: "read_only"}}`). Response `200
+   {ticket, expires_in_seconds: 60}`. The ticket is a `Phoenix.Token` with salt
+   `"device-voice-v1"` carrying `{device_id, expires_at_ms}`; it carries no access token.
+   A device token that is unknown, expired or revoked gets the pairing contract's `401`.
+2. **Socket.** `/voice/device` (`AiurWeb.DeviceVoiceSocket`, proposed) with params
+   `{ticket}`. `connect/3` verifies the token (`max_age: 60`), that the dashboard is
+   writable, and that the device row is still active in the machine store (MP-N2-C1). It
+   assigns `voice_authority = %{kind: :device, device_id}`. Topics: `voice:dictate` and
+   `voice:converse` (the same channel modules as the browser). The legacy topics
+   `voice:dictation` and `voice:conversation` are **not** served on this socket.
+3. **Session lifetime.** The ticket is checked once, at connect. While a channel is joined,
+   the daemon re-checks the device row every 15 s and on every `stop`/`end`; a revoked
+   device ends the channel with `auth_changed`. A device session is bounded by the same
+   audio budget as the browser (9,600,000 bytes for `dictate`).
+4. **Limits.** The limiter authority is `"device:" <> device_id`: two concurrent sessions per
+   device, inside the shared global cap of eight (`voice_session_limiter.ex:12-13`).
+5. **Authority.** Device auth grants the same voice authority as a Basic-Auth operator on
+   that instance (D19), no more: the target checks of §3.2 apply unchanged.
+6. **Logging.** Tickets and access tokens never reach a log line or crash reason. The
+   socket logs `device_id` only. A ticket is a bearer value in a URL query; its 60-second
+   life and single purpose bound the exposure (the Stream Deck token has 300 s,
+   `streamdeck_auth.ex:9`).
+7. **Transport security.** Whether the app reaches the socket over `wss://` or a tailnet
+   `ws://` is RQ-TRANSPORT (RC-15, owned by MP-N2). This path does not change that choice.
+
+### 3.6 Frame budget for converse audio (RQ-E6-7, resolved)
+
+Uplink: PCM16 mono 16 kHz = 32,000 B/s. A 200 ms chunk is 6,400 bytes, 8,536 bytes as
+base64, well under the socket's 400,000-byte `max_frame_size` (`endpoint.ex:27`) and the
+262,144-byte decoded chunk cap (`voice_channel.ex:29`). Downlink: the provider's agent
+output format is negotiated at start (`pcm_16000` requested, contract §4.1); at 16 kHz the
+daemon relays provider chunks as they arrive. A daemon-side relay splits any provider chunk
+larger than 131,072 decoded bytes before pushing it to the client. No change to
+`max_frame_size` is needed. The 9,600,000-byte `dictate` budget does **not** apply to
+`converse`; converse is bounded by time (§6, `voice.conversation.max_session_seconds`).
+
 ## 4. Transcription and provider boundary
 
 Three daemon-side provider roles. Each is a behaviour with a fake for tests, as today's
 `voice_stt_start_fun` / `voice_tts_start_fun` injection does (`voice_channel.ex:235-291`).
 
-| Role | Proposed behaviour | Implementation at launch | Owner |
+| Role | Behaviour (names from MP-R5 plan §2, RC-14) | Implementation at launch | Owner |
 | --- | --- | --- | --- |
-| Streaming STT | `Voice.Transcriber` — `start(owner, opts)`, `push/2`, `commit/1`, `stop/1`; messages `{:transcript, :partial \| :final, text}`, `{:transcriber_error, code}`, `{:transcriber_closed}` | `Aiur.ElevenLabs.Realtime` (`scribe_v2_realtime`, `commit_strategy=vad`) | MP-R5 package |
-| TTS | `Voice.Synthesizer` — `start(owner, text, opts)`; `{:audio, :chunk \| :done \| :error, ...}` | `Aiur.ElevenLabs.TTS` (`eleven_flash_v2_5`, `pcm_44100`) | MP-R5 package |
-| Conversation | `Voice.ConversationProvider` — `open(session_spec)`, `push_audio/2`, `send_context/2`, `tool_result/3`, `close/1`; emits normalized events (§4.1) | ElevenLabs Agents Platform over a daemon-held websocket (MP-E6 recommendation, see `../bucket-2-platform/MP-E6/provider-research.md`) | MP-E6 |
+| Facade | `Aiur.Voice` (core, always compiled): `availability/0 -> %{available: boolean, reason: nil \| :unconfigured \| :not_installed}`, `start_transcription(owner, opts) -> {:ok, ref} \| {:error, :unconfigured \| :not_installed \| term}`, `push(ref, b64_pcm16)`, `commit(ref)`, `stop(ref)`, `quota_snapshot/0` | MP-R5-C1 | MP-R5 |
+| Streaming STT | `Aiur.Voice.Transcriber`; owner messages `{:voice_transcript, :partial \| :final, text}`, `{:voice_error, reason}`, `{:voice_closed}` | `Aiur.ElevenLabs.Realtime` (`scribe_v2_realtime`, `commit_strategy=vad`, `realtime.ex:53-54,320-329`) | MP-R5 package |
+| TTS | `Aiur.Voice.Speaker` | `Aiur.ElevenLabs.TTS` (`eleven_flash_v2_5`, `pcm_44100`, `tts.ex:13-17`) | MP-R5 package |
+| Conversation | `Aiur.VoiceConversation.Provider` — `open(session_spec)`, `push_audio/2`, `send_context/2`, `tool_result/3`, `close/1`; emits normalized events (§4.1) | ElevenLabs Agents Platform over a daemon-held websocket (MP-E6 recommendation, see `../bucket-2-platform/MP-E6/provider-research.md`) | MP-E6 |
+
+`stop(ref)` closes **without** committing the current utterance (today
+`Aiur.ElevenLabs.Realtime.stop/1`, `realtime.ex:114-120`); it is the primitive behind the
+`cancel` event (§3.3). `commit(ref)` flushes and then closes (`realtime.ex:106-112`).
+
+Until MP-R5-C1 lands, the code still uses `{:elevenlabs_transcript, …}`,
+`{:elevenlabs_error, …}` and `{:elevenlabs_closed}` (`voice_channel.ex:154-167`). MP-E5 and
+MP-E6 tickets are scheduled after MP-R5-C1 (wave 4 after wave 1) and use only the neutral
+names.
 
 The sidecar's unwired TTS provider (`packages/streamdeck/src/audio/elevenlabs-tts.ts:56`,
 used only by tests) takes an `apiKey` (`:48`). It contradicts V4 and must not be wired. The
@@ -184,30 +255,70 @@ button on a visible draft (owner question E6-OQ1 decides whether speech alone ma
 
 `connecting → listening ⇄ thinking ⇄ speaking → ended`, plus `consulting` (waiting for the real
 agent), `reconnecting`, `error`. End reasons: `user_end`, `idle_timeout`, `max_duration`,
-`target_gone`, `provider_error`, `capability_lost`, `auth_changed`
-(`voice_channel.ex:184-191` already stops on dashboard auth change).
+`target_gone`, `provider_error`, `capability_lost`, `auth_changed`, `cost_cap`
+(`voice_channel.ex:184-191` already stops on dashboard auth change; a revoked device ends with
+`auth_changed`, §3.5).
+
+| From | Event | To |
+| --- | --- | --- |
+| `connecting` | provider `conversation_initiation_metadata` received | `listening` |
+| `listening` | `user_transcript{final: true}` | `thinking` |
+| `thinking` | first `agent_text` or `agent_audio` | `speaking` |
+| `speaking` | `interruption` | `listening` |
+| `speaking` | agent turn complete (`agent_text{final: true}` and audio drained) | `listening` |
+| any live state | `tool_call{name: "consult_agent"}` accepted | `consulting` (audio continues; returns to the prior state when the tool result is sent) |
+| any live state | provider socket closed unexpectedly | `reconnecting` (one retry, MP-E6 plan §8) |
+| `reconnecting` | retry fails | `error` → `ended{provider_error}` |
+| any | end trigger (above) | `ended{reason}` |
+
+The session manager (MP-E6-C4) owns this table; the provider adapter only emits §4.1 events.
 
 ## 7. Capability advertisement
 
-Consumed by the capabilities contract (MP-R1). Voice publishes:
+Voice publishes three IDs in the MP-R1 capability report
+([identity-and-capabilities.md](identity-and-capabilities.md) §2.2;
+[capability-matrix.md](../bucket-1-refactor/MP-R1/capability-matrix.md) §2). This contract
+uses those IDs and that shape; it defines no second map.
+
+| ID | Mode it gates | Computed from | Reasons when not `available` |
+| --- | --- | --- | --- |
+| `voice.stt` | `dictate` | `Aiur.Voice.availability/0` (MP-R5) | `:unconfigured` → `not_configured`; `:not_installed` → `not_installed`; read-only dashboard → `disabled` |
+| `voice.tts` | spoken replies (today's `voice:conversation`; `voice.conversation` audio) | key present and `elevenlabs.voice_id` set | `not_configured`, `not_installed`, `disabled` |
+| `voice.conversation` | `converse` | MP-E6 registered callback: `voice.stt` available, `voice.conversation.agent_id` set, last privacy preflight not failed | `not_installed`, `not_configured`, `disabled`, `dependency_unavailable` (`depends_on: ["voice.stt"]`), `unknown` (preflight never run) |
 
 ```json
-{ "voice.dictate":   { "status": "available | unconfigured | not_installed | degraded", "reason": "..." },
-  "voice.converse":  { "status": "...", "provider": "elevenlabs_agents", "reason": "..." },
-  "voice.speak":     { "status": "...", "reason": "..." } }
+"voice.stt":          { "state": "available" },
+"voice.tts":          { "state": "unavailable", "reason": "not_configured" },
+"voice.conversation": { "state": "degraded", "reason": "dependency_unavailable", "depends_on": ["voice.tts"] }
 ```
 
-Clients render a mode button only from this map (V1, V6). Today the dashboard learns about a
-missing key only after a failed join (`voice_channel.ex:253-254`); MP-E5-C2 moves that check
-to render time. The Stream Deck already pre-advertises (`StreamdeckProjection.voice/0`).
+- `state ∈ {available, degraded, unavailable, unknown}` (MP-R1). `voice.conversation` is
+  `degraded` when `voice.tts` is unavailable: the session still runs, but text-only.
+- **Internal atom versus wire reason.** MP-R5's facade returns `:unconfigured`
+  (RC-14); the capability report spells it `not_configured` (MP-R1 §2.2). The channel error
+  code (§8) keeps `unconfigured`, the string the Stream Deck already sends
+  (`streamdeck_channel_test.exs:1089-1095`). The mapping lives in one function in the voice
+  capability callback (MP-E5-C2-T03).
+- Clients render a mode button only from this report (V1, V6). Today the dashboard learns
+  about a missing key only after a failed join (`voice_channel.ex:253-254`); MP-E5-C2 moves
+  that check to render time. The Stream Deck already pre-advertises
+  (`StreamdeckProjection.voice/0`).
+- Earlier drafts used `voice.dictate`, `voice.converse` and `voice.speak`. They are retired
+  and never reused.
 
 ## 8. Error codes (stable, client-translatable)
 
 `unconfigured`, `not_installed`, `read_only`, `auth_changed`, `capacity`, `target_not_found`,
 `target_not_writable`, `target_stale`, `provider_auth`, `provider_quota`, `provider_unavailable`,
 `chunk_too_large`, `session_limit`, `permission_denied` (client-side), `no_device`
-(client-side), `transport_lost`, `privacy_preflight_failed` (converse, §10). Existing messages
-map onto these (`voice_channel.ex:54-56,93,254-266,308-314`; `realtime.ex:402-403`).
+(client-side), `transport_lost`, `privacy_preflight_failed` (converse, §10),
+`unsupported_target` (a target kind this build cannot address yet, e.g. `executor` before
+MP-E3), `invalid_payload`, `cost_cap_reached` (converse, §12), `provider_error` (a provider
+failure of no known class — cause-neutral, never relabelled as auth or quota), `unknown` (an
+unclassified daemon-side failure; AGENTS.md "a collapsed cause names the collapse at the
+source"). Existing messages map onto
+these (`voice_channel.ex:54-56,93,254-266,308-314`; `realtime.ex:402-403`); the mapping
+table is in MP-E5-C2-T01.
 
 ## 9. Conversation transcript storage (`converse` only)
 
@@ -261,13 +372,23 @@ Provider-side retention (sources in the MP-E6 provider research, accessed 2026-1
 Disabling voice (no key, or package absent) means no voice data leaves the machine
 (`website/docs-app/apis/elevenlabs.md:54`).
 
-## 11. Open items for reconciliation
+## 11. Reconciliation status
 
-- Identity contract: the target shapes in §5.1 are assumptions.
-- MP-E7: assumes a send call returning `{message_id, status}` with statuses at least
-  `queued | delivered | consumed | failed`, and a mode chosen per agent (default sync, D13).
-  The voice layer does not choose the listener mode.
-- MP-E2: assumes `answer(decision_id, %{custom_response | option_id, expected_version,
-  idempotency_key})` survives, and a version conflict returns a typed error the client can show.
-- MP-R5: assumes the package exposes the §4 STT and TTS behaviours and the §7 capability.
-  Config namespace (`elevenlabs.*` today, `voice.*` proposed for converse) is R5's call.
+| Item | Status (draft-2) |
+| --- | --- |
+| Identity: target shapes §5.1 | Kept. `instance_id = <machine_id>/<instance_key>` (RC-02). `ticket` is the tracker identifier string the dashboard already uses for `send-operator-message`. |
+| MP-E7 send | Consumed as `send(conversation_ref, text, client_request_id) → delivery_id` with receipts `accepted \| held_async \| harness_queued \| in_context \| read \| failed \| outcome_unknown` (listener-mode §7). The voice layer never chooses the mode. **Contract request:** an `origin` option (`:voice_assistant`) so consult and instruction entries are labelled in the agent transcript (MP-E6 `tickets/CONTRACT-REQUESTS.md`). |
+| MP-E2 answer | Consumed unchanged: `DecisionStore.answer/5` with `option_id \| custom_response`, `expected_version`, `idempotency_key` (`decision_store.ex:190`, `decision_commands.ex:85-107`). Conflicts are the typed `{:conflict, …}` set rendered by `decision_commands.ex:347-382`. |
+| MP-R5 | Names adopted (§4, RC-14). Config namespace fixed (§12, RC-13). |
+| MP-N2 | Device path §3.5 consumes the device-auth plug (MP-N2-C6) and a device-row read (MP-N2-C1). **Contract request** to MP-N2: expose `device_active?(device_id)` from the store library (MP-E5 `tickets/CONTRACT-REQUESTS.md`). |
+| MP-N6 / MP-N7 | Use `voice.stt` / `voice.conversation` (§7) and §3.5. N7's on-device dictation sends `client_text` (§3.3) only if OQ-N7-2 picks the relay path; system dictation needs no server voice. |
+
+## 12. Configuration namespaces (RC-13)
+
+| Namespace | Keys | Owner | Notes |
+| --- | --- | --- | --- |
+| `elevenlabs.*` | `api_key`, `language_code`, `voice_id` (`config/schema/eleven_labs.ex:13-19`) | MP-R5 | Unchanged. The same key serves STT, TTS and the Agents Platform; the key additionally needs the ElevenLabs Agents permission for `converse`. |
+| `voice.conversation.*` | `agent_id`, `llm`, `roles_dir`, `max_session_seconds`, `idle_timeout_seconds`, `daily_minutes_cap`, `context_token_budget` | MP-E6 (MP-E6-C3-T01) | New. Defaults are owner decisions E6-OQ6/OQ7; until answered the keys have no shipped defaults and `voice.conversation` reports `not_configured`. |
+
+No new environment variable is introduced. `ELEVENLABS_API_KEY` remains the only voice
+secret, and it stays in the daemon (V4).

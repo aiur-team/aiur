@@ -13,6 +13,45 @@ MP-E3 attached Executor ──► C6 hook delivery (Executor) ◄─ C1 codecs
 C2..C5 ──► C7 surfaces + docs (DESIGN-E7)
 ```
 
+## Phase C changes (2026-10-06)
+
+Ticket docs are in [tickets/](tickets/README.md) with two-digit IDs. Where this
+file and a ticket disagree, the ticket wins. Binding inputs: RC-05 (waves),
+RC-08 (topic), RC-22 (Gemini).
+
+- **Waves (RC-05):** C1–C3 are wave 3, ahead of MP-E3-C5 and MP-E4-C6. C4–C7
+  and the new C2-T05 are wave 4.
+- **Flag (RC-05):** C3 routes every send through the listener entry point
+  behind the internal app env `config :aiur, :listener_send_routing`
+  (`:legacy` default | `:listener`). `:legacy` keeps today's per-entry-point
+  policies, so the MP-R7-C1 characterization suite passes unchanged. New
+  ticket **C7-T04** flips the default and deletes the legacy branch after
+  DESIGN-E7 decision E7-D6.
+- **C1:** Khala tickets are cross-repo, cite Khala `origin/main` `99e72a43`
+  and are blocked on E7-D1. Khala's existing goldens stay in Khala; new
+  envelope-only goldens are added. T05 (optional fields) lands **before** T03
+  (first publish), because Khala's decoders reject unknown keys. T03 also
+  needs owner action OWNER-NPM-FIRST-PUBLISH.
+- **C2:** the CLI command, `POST /api/v1/:id/listen-mode` and the snapshot
+  field move to **C7-T03**, because `issue_control_capabilities` is
+  serialized into `/api/v1` JSON (`aiur_web/presenter.ex:323,452`). The bus
+  event splits out as **C2-T05** (wave 4, needs MP-R2-C5). C2-T01 also waits
+  on E7-D5. C2-T04 also fixes finding R7-C1-F1 (stale `:control` flags).
+- **C3:** no batching in wave 3 (one item per turn boundary). `sync` is never
+  claimed at a tool boundary, including the OpenAI-compat `:tool_result`
+  checkpoint. `Aiur.Listener.send/3` takes a ticket identifier; the
+  `ConversationRef` overload belongs to C6/MP-E3.
+- **C4:** **T01 is the precondition ticket**: fix the `aiur-claude`
+  `turn/steer` text drop in the sibling repo (cross-repo). Codex, Muse and
+  `claude-repl` steer are T02–T04. No Gemini steer ticket (RC-22: Gemini is
+  `emulated_interrupt` only).
+- **C5:** the pull tool is `aiur_read_messages`.
+- **C6:** no Node hook in `aiur-cli`. The daemon renders the envelope in
+  Elixir (T04) and the hook is a plain `curl` command (T02), because
+  `aiur-cli` requires Node `>=18` and Khala's packages need `>=22.18`.
+- **C7:** T01 dashboard, T02 TUI, T03 CLI + HTTP control, T04 flag flip,
+  T05 docs. T01/T02 hide the selector while routing is `:legacy`.
+
 ---
 
 ## MP-E7-C1 — Shared listener specification package

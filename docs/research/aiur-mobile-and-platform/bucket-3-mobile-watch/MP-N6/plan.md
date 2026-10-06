@@ -1,6 +1,6 @@
 ---
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: planned-with-blockers
+artifact_readiness: tickets-written (Phase C, 2026-10-06; see tickets/README.md)
 feature_id: MP-N6
 bucket: 3 (mobile and watch)
 base_main_sha: 45a290e3
@@ -9,7 +9,7 @@ depth: deep
 owns_contracts: [] # co-authors destination resolution rules, contracts/notification-destination-and-payload.md §3.1
 consumes_contracts: [command-request-and-resolution (MP-E2), conversations-transcripts-anchors (MP-E4), pairing-and-instance-registry (MP-N2), notification-destination-and-payload (MP-N4), voice-session (MP-E5/MP-R5/MP-E6), identity-and-capabilities (MP-R1)]
 design_gate: DESIGN-N6 (links DESIGN-E2, DESIGN-E5; watch layout with DESIGN-N7)
-blockers: [DESIGN-N6, DESIGN-E2 approval, DESIGN-E5 approval, MP-N1 framework, MP-N2 device auth, MP-E2 answer contract, MP-E4 anchors]
+blockers: [DESIGN-N6, DESIGN-E2 approval, DESIGN-E5 approval, MP-N1 framework, MP-N2 device auth, MP-E2 answer contract, MP-E4 anchors, RQ-TRANSPORT (RC-15), MP-E5 device voice path (RC-16)]
 ---
 
 # MP-N6 — Contextual Command response on phone and watch
@@ -56,13 +56,14 @@ human supersedes an undelivered Executor answer).
 | Supervisor API is Executor-credentialed, not a human device API | `aiur_web/router.ex:79-95` (`:supervisor_auth`, bearer `AIUR_SUPERVISOR_TOKEN`) | phone must **not** reuse it; needs device-authenticated routes (MP-N2) |
 | Deep-linkable web route exists | `router.ex:142-143` (`/commands/:decision_id`) | WebView fallback target if MP-N1 keeps this surface web |
 | Voice is a Phoenix socket requiring CSRF + session | `aiur_web/endpoint.ex:26` (`/voice`); baseline N1 constraints | a device-authenticated voice path is an MP-E5/MP-N2 dependency |
-| Delivery to the agent addresses the ticket, cap 7,800 chars | `decision_dispatch.ex:22,30` | custom responses longer than the cap are rejected client-side with a count |
+| Delivery to the agent addresses the ticket, dispatch cap 7,800 chars | `decision_dispatch.ex:22,30` | not the client limit (see next row) |
+| **Phase C:** the answer validator caps `custom_response` at 4,000 chars and reports a stale version as `{:stale_version, expected, current}` | `decision_answer.ex:15,55-59,158-159` | the phone counts against 4,000; the device API maps stale version to `409 stale_version` |
 
 ## 4. Proposed boundaries
 
 | Component | Interface | Notes |
 | --- | --- | --- |
-| Device Command API (daemon, per instance; requires a device token, pairing contract §4.4) | `GET /api/v1/device/commands/:id` → Command view (E2 presentation fields, routing state, version, anchor ref, requester); `POST /api/v1/device/commands/:id/answer` `{expected_version, idempotency_key, option_id \| custom_text, via: "tap"\|"dictate"\|"converse"}`; `GET /api/v1/device/commands?state=needs_you` | thin adapter over the MP-E2 contract; device auth plug from MP-N2; `commands.answer` capability |
+| Device Command API (daemon, per instance; requires a device token, pairing contract §4.4; own router scope before the `/api/v1/:issue_identifier` catch-alls; answers also need `x-aiur-request: 1` and `:require_writable`, MP-N6-C1-T01) | `GET /api/v1/device/commands/:id` → Command view (E2 presentation fields, routing state, version, anchor ref, requester); `POST /api/v1/device/commands/:id/answer` `{expected_version, idempotency_key, option_id \| custom_text, via: "tap"\|"dictate"\|"converse"}`; `GET /api/v1/device/commands?state=needs_you` | thin adapter over the MP-E2 contract; device auth plug from MP-N2; `commands.answer` capability |
 | Destination resolver (app) | `resolve(destination) -> Screen` | owns contract §3.1 rules; pure + testable |
 | Command response screen (phone) | native or WebView per MP-N1/DESIGN-N1 | presentation normative in DESIGN-E2 §4 |
 | Watch Command card | MP-N7 app | compact; hands off to phone for long context |
@@ -215,3 +216,11 @@ OQ revisits banner actions); RQ-N6-3 (resolved) outcome names follow the E2 cont
 Router, `DecisionStore` and voice socket paths are pre-refactor. After MP-R1 (web-shell,
 commands package) and MP-E2 land, MP-N6-C1-T00 maps the device API onto the post-refactor
 web-shell and the E2 contract's answer function.
+
+## 11. Phase C ticket map
+
+[tickets/README.md](tickets/README.md): 20 tickets (7 ready, 13 blocked by design content
+or owner/research items). Destinations carry `instance_id` (RC-02). Every phone → instance
+call depends on RQ-TRANSPORT (RC-15); Dictate/Converse on the phone use the MP-E5 device
+voice path (RC-16, voice-session §3.5). Live sync on an open screen polls every 10 s in
+v1 (MP-N6-C6-T01); the paired-device event feed (MP-R2-C7-T05) is a later switch.

@@ -39,6 +39,8 @@ Facts that shape the matrix:
 
 | Capability | Provided by | Needs (required components) | Detected today by |
 |---|---|---|---|
+| `identity` | identity | — (`identity.json` readable, `AIUR_INSTANCE_KEY` valid) | none (new, Phase C) |
+| `api.http` | web-shell | run shape with the HTTP listener | `--no-dashboard` absent (new, Phase C) |
 | `instance.status` | control-cli, projections | orchestration | `aiur status`, `GET /api/v1/state` |
 | `agents.run` | orchestration | harness-adapters (≥1), agent-runner, workspace, tracker | always on |
 | `agents.message` | orchestration (`AgentChat`) | web-shell for remote; control-cli locally | `observability.dashboard_writable`; drawer read-only text |

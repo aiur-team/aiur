@@ -8,6 +8,15 @@ parent: plan.md
 
 # MP-R2 chunks and candidate tickets
 
+> **Phase C (2026-10-06):** the implementation-ready tickets are in
+> [tickets/](tickets/README.md) and supersede the candidate lists below where
+> they differ. Changes: C2 gains T06 (Publisher `SourcePolicy`), T07
+> (IdGenerator floor sources), T09–T10 (facade batches) and T11 (manifest
+> reassignment, replacing the old "re-home" T04/T05); C2-T02 waits on U5
+> (RC-21); C2-T03 is write-only; C4 is a logical manifest component
+> (RQ-8), C4-T02 is absorbed by MP-R1-C4; C5–C7 are Bucket-2-enabling
+> (RC-09). See plan.md §12.
+
 Every ticket below is blocked by **DESIGN-R2** (C1–C4 by §1, C5–C7 by §2) and
 carries `Prior-units`, `Prior-boundaries`, `Size-owner`, `Base-SHA` fields per
 the pack conventions. Every test added follows AGENTS.md "Tests must fail
@@ -28,8 +37,9 @@ size owner for `EVENTS` paths is cited per ticket.
 C1 ──► C2 ──► C4 ──► (MP-R1 package layout gate)
  │      └──► C5 ──┐
  └──► C3 ─────────┴──► C6 ──► C7
-U3 event-delivery ticket ──► C2-T01        Identity contract ──► C5-T04
-Signal port (#11, MP-R1) ──► C2-T08 (Alerts callers)    MP-N2 pairing ──► C7-T05
+U3 event-delivery ticket ──► C2-T01        MP-R1-C2-T2 (instance_id) ──► C5-T04
+U5 KTD9 trust snapshot ──► C2-T02          MP-R1-C1-T1 manifest ──► C2-T11, C4-T01
+MP-R1-C3 capability registry ──► C7-T03   MP-N2-C6/C7 ──► C7-T05
 ```
 
 ## MP-R2-C1 — Characterize today's bus (no production change)

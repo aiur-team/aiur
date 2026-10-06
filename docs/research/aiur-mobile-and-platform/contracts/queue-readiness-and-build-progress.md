@@ -1,7 +1,7 @@
 ---
 contract_id: MP-CT-queue-readiness-and-build-progress
 owner_feature: MP-E1
-status: draft (Phase B; not reconciled by coordinator)
+status: reconciled (Phase C, 2026-10-06; applies RC-08, RC-10, RC-11, RC-19, RC-20)
 base_main_sha: 45a290e3
 date: 2026-10-06
 consumers: MP-N3, MP-N4, MP-N5, MP-N7, MP-E4, MP-R1, MP-R2
@@ -78,11 +78,27 @@ This order follows `Aiur.BuildOrder.Readiness.from_edges/1` (F6), with
 
 This is the only path that removes the todo label from an item.
 
-1. Put the item in the dispatch hold set.
-2. Ask `ClaimProbe.claimed?`.
-3. If the answer is `false`, remove todo and leave the marker.
-4. If the answer is `true`, raise an attention instead.
+1. Put the item in the dispatch hold set (`Hints`).
+2. Ask `ClaimProbe.status([id])`. The orchestration implementation answers
+   inside the orchestrator process, so the answer is ordered after any
+   in-flight dispatch decision (findings F4).
+3. If the answer is `:unclaimed`, remove todo and leave the marker.
+4. If the answer is `:claimed`, release the hold and raise an attention instead.
 5. If the answer is `:unavailable`, keep the hold and write nothing.
+
+### 2.5 Promotion write (RC-20)
+
+Promotion is a **conditional** state write through the existing label-writer
+seam: `Aiur.Tracker.update_issue_state(id, "todo", expected_state: :none)`.
+`:none` means "the issue carries no state label now"; the GitHub
+implementation re-reads the issue before writing
+(`github/issue_state.ex:142-188`), so a state label that another writer added
+since the queue's observation makes the write fail with `:stale_issue_state`
+and nothing is written. Markers survive the swap (F1). The queue is a
+sanctioned caller of the single label-writer seam: before U2 it calls the
+existing `IssueState` path; after U2 it calls U2's writer (RC-20).
+Withdrawal uses `Aiur.Tracker.remove_label/2` only after §2.4 proves the item
+is unclaimed.
 
 ## 3. Read model (CLI `aiur queue show --json`; dashboard; future clients)
 
@@ -125,6 +141,23 @@ This is the only path that removes the todo label from an item.
 
 ## 4. Build progress facts and milestones (D18, consumed by MP-N5/N4/N3/N7)
 
+### 4.0 Owner and read API (RC-10)
+
+Progress facts are held by a neutral module, `Aiur.BuildProgress` (proposed,
+`src/lib/aiur/build_progress.ex`, MP-E1-C7). It has two producers: the queue
+server (queue scopes) and a Build Order observer
+(`Aiur.BuildOrder.ProgressObserver`, build-order scopes; RC-08 names MP-E1-C7
+as the producer). It does not depend on `build_queue.enabled`: Build Order
+milestones exist without a queue.
+
+- **Read API:** `Aiur.BuildProgress.facts(scope_filter)` returns the current
+  facts (§4.1) for every scope, or for one.
+- **Progress-changed signal (internal):** Phoenix PubSub topic
+  `"build_progress"`, message `{:build_progress_changed, fact}`, sent whenever
+  a scope's `percent`, `resolution` or `freshness` changes. It is not a bus
+  topic and is not exported. MP-N5 computes per-device thresholds (for example
+  10% steps) from it; this contract keeps the milestone events at 25%.
+
 ### 4.1 Progress fact
 
 `{scope, completed, resolved, total, percent, resolution, observed_at,
@@ -155,13 +188,13 @@ Rules:
 
 | Topic | Class | Dedupe key | Executor-bound |
 | --- | --- | --- | --- |
-| `system.queue.<queue_id>.progress.milestone` | ledgered (exported later) | `(instance, queue_id, generation, milestone)` | no (notification only) |
-| `system.build_order.<root>.progress.milestone` | ledgered (exported later) | `(instance, root, generation, milestone)` | no |
+| `system.queue.<queue_id>.progress` | ledgered (exported later) | `(instance, queue_id, generation, milestone)` | no (notification only) |
+| `system.build_order.<root>.progress` (RC-08; producer MP-E1-C7) | ledgered (exported later) | `(instance, root, generation, milestone)` | no |
 | `ticket.<id>.queue.promoted` / `.withdrawn` / `.held` / `.released` / `.overridden` / `.removed` | live | `(instance, id, intent_id)` | no |
-| `ticket.<prereq>.queue.attention.prerequisite_failed` (+ `.resolved`) | ledgered | `(instance, prereq, cause)` | **yes**, add `ticket.*.queue.attention.*` to `ExecutorBindings` |
+| `ticket.<prereq>.queue.attention.prerequisite_failed` (+ `.resolved`) | ledgered | `(instance, prereq, cause)` | **yes**, add `ticket.*.queue.attention.#` to `ExecutorBindings` (`#` so the `.resolved` suffix also matches) |
 | `ticket.<id>.queue.attention.dependency_changed_after_start` | ledgered | `(instance, id, edge_set_hash)` | yes |
 | `ticket.<id>.queue.attention.promoted_unauthorized` / `.write_failed` / `.merged_issue_open` | ledgered | `(instance, id, cause)` | yes |
-| `system.queue.attention.inputs_unavailable` / `.store_unavailable` | ledgered | `(instance, cause)` | yes, add `system.queue.attention.*` |
+| `system.queue.attention.inputs_unavailable` / `.store_unavailable` | ledgered | `(instance, cause)` | yes, add `system.queue.attention.#` |
 
 **Payload allowlist (attrs/refs only; no free text on the bus):**
 - refs: `ticket`, `prerequisite`, `queue_id`, `root`, `blocked` (a list of
@@ -172,20 +205,21 @@ Rules:
 The human-readable message is built by `Aiur.Alerts` for the local alert feed,
 as today.
 
-**Note for reconciliation.** Events-and-replay §9 assigns the
-`system.build_order.<root>.*` producer to Build Orders. This contract defines
-the payload. MP-E1 chunk C7 implements the producer inside
-`src/lib/aiur/build_order/` (a small observer), unless the coordinator assigns
-it elsewhere.
+**Producer (RC-08).** MP-E1-C7 produces `system.build_order.<root>.progress`
+from a small observer inside `src/lib/aiur/build_order/`. MP-R2's catalog
+(R2-C5) registers every topic in this table, plus the requested
+`ticket.<id>.pr.closed_unmerged` and `ticket.<id>.issue.closed`. MP-E1 v1 does
+not depend on those two producers (§6 E-A3).
 
 ## 5. Interfaces offered (proposed)
 
 | Interface | Shape | Consumers |
 | --- | --- | --- |
 | `Aiur.BuildQueue.show/1` | read model §3 (map) | CLI, dashboard, MP-N3 meta counts |
-| `Aiur.BuildQueue.progress/1` | progress facts §4.1 for all scopes | MP-N3, MP-N5, MP-N7 |
-| `Aiur.BuildQueue.Hints.rank/1`, `held?/1` | ETS reads, `{0}`/`false` when absent | `DispatchPolicy` only |
-| `Aiur.BuildQueue.ClaimProbe` | behaviour `claimed?(issue_id) :: boolean() \| :unavailable`; `notify_demand([id]) :: :ok` | implemented by orchestration |
+| `Aiur.BuildProgress.facts/1`, `subscribe/0` | progress facts §4.1 for all scopes; the progress-changed signal §4.0 | MP-N3, MP-N5, MP-N7 |
+| `Aiur.BuildQueue.Hints.sort_key/1`, `held?/1` | ETS reads; `{0, 0}`/`false` when the table or the key is absent. `sort_key` returns `{-downstream_open, list_position}` as two integers that `DispatchPolicy` splices into its own key (`{d, priority_rank, position, created_at, identifier}`). It is **not** a whole tuple prepended to the key: Erlang orders tuples by size first, so a 1-tuple default would sort ahead of every 5-tuple rank | `DispatchPolicy` only (RC-11 edge 1) |
+| `Aiur.BuildQueue.ClaimProbe` | behaviour `status([issue_id]) :: %{issue_id => :claimed \| :unclaimed \| {:declined, atom()}} \| :unavailable`; `notify_demand([id]) :: :ok \| :unavailable` | implemented by orchestration (RC-11 edge 2) |
+| `Aiur.Tracker` optional observation callbacks | `open_issue_labels/1`, `blocked_by/1`, `issue_closure/1`, `ticket_pull_request/1` (MP-E1-C1-T03, C4-T03..T05). The GitHub adapter implements them; Linear answers `{:error, :unsupported}` | the queue's observer, so `build_queue/` never references `Aiur.GitHub.*` |
 | `Aiur.BuildQueue.Source` | behaviour `members(queue) :: {:ok, [item], [edge], freshness} \| {:unavailable, reason}` | ExecutorList, BuildOrder |
 | Capability | `build_queue`, `build_queue.build_order_source` (identity-and-capabilities contract) | clients detect presence |
 
@@ -196,10 +230,14 @@ it elsewhere.
   are reserved for MP-E1 (§9 there). *Matches the current draft.*
 - E-A2. `ticket.<id>.pr.merged` stays `live` and may be lost. The queue does
   not depend on it, and uses it only as a trigger (§11 there). *Matches.*
-- E-A3. **Requested:** a `ticket.<id>.pr.closed_unmerged` topic, published by
-  the webhook normalizer and the poll path (today nothing is published, F7).
-  If R2 does not add it, MP-E1 C4 observes closed-unmerged PRs from
-  `ResourceStore` pull-request deposits instead (RQ-1).
+- E-A3. **Resolved (RQ-1).** MP-E1 v1 observes a closed-unmerged ticket PR
+  from the `ResourceStore` `:branch_pull_request` deposit
+  (`events/github_webhook/deposit.ex:630-642`), read through the tracker's
+  `ticket_pull_request/1` callback at no request cost. Coverage is webhook
+  mode only: in poll-only mode the prerequisite stays `pending` (the safe
+  direction) and no `failed` verdict is produced. RC-08 registers
+  `ticket.<id>.pr.closed_unmerged`; once a producer exists the queue may use it
+  as a reconcile trigger, never as the source of truth.
 - E-A4. Attention topics emitted through `Aiur.Alerts` are `ledgered` and reach
   the Executor only when bound in `ExecutorBindings`. MP-E1 adds the two
   bindings in §4.3.
@@ -224,3 +262,16 @@ contract.
 - Rollback: a pre-marker release parses `agent:queued` as a state label (F1).
   The marker registration must ship at least one release before any marker
   write, and downgrading needs `aiur queue clear --remove-markers` first.
+
+## 8. Seam rules (RC-11, RC-19, RC-20)
+
+- No module under `src/lib/aiur/build_queue/` references `Aiur.Orchestrator`
+  or `Aiur.GitHub`; only `sources/build_order.ex` references
+  `Aiur.BuildOrder`. MP-E1 ships its own source-scan test (MP-E1-C1-T07);
+  MP-R1-C1 absorbs it later.
+- Orchestration depends on the queue through exactly two narrow edges: the
+  `Hints` read in `DispatchPolicy`, and the `ClaimProbe` implementation.
+- Core edits outside `build_queue/` are limited to the MP-E1-C1 hooks (plus
+  the tracker observation callbacks of C4 and the progress observer of C7).
+  The prior refactor's U2 and U5 tickets rebase over them and keep them
+  (RC-19).

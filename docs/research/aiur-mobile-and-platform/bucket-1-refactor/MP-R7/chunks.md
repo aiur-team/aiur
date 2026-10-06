@@ -12,6 +12,31 @@ C1 characterize ──► C2 declare primitives ──► C3 cut leaks ──►
 C2 ──► (MP-E7-C3, MP-E2 native capture)          C6 contributor docs (after C4)
 ```
 
+## Phase C changes (2026-10-06)
+
+Ticket docs are in [tickets/](tickets/README.md); ticket IDs use two digits
+(`MP-R7-C1-T01`). Where this file and a ticket disagree, the ticket wins.
+
+- **C1:** T04 is now the suite ticket (one tag, one command). The single-writer
+  lock is already tested (`app_server/operator_delivery_test.exs:47`,
+  `coding_agent_checkpoint_test.exs:12-65`); T02/T03 add only what is not
+  covered (sender policy choice, the headless Claude frame, the Muse frame).
+- **C2:** T01 adds a registry `delivery:` data map; the descriptor is derived
+  from it. RQ-R7-1 and RQ-R7-4 are resolved: `mid_turn_inject` is `:native`
+  for `claude-repl` and OpenAI-compat. T03 adds `source: :session | :dispatch`.
+  RC-22: the Gemini/ACP row is added only if PR #2870 merges first.
+- **C3:** T03 uses new registry keys `:launch_telemetry` and `:display_tailer`
+  (the existing `run_telemetry` key is a decoder, not the launch seam). T05
+  is a rule inside MP-R1's component checker, not a second script.
+- **C4:** re-scoped. MP-R1 keeps components logical until its promotion test
+  passes. T01 (registry-declared `:children`) ships always; T02 is the
+  go/no-go record (RQ-R7-5); T03–T05 are conditional moves. `Aiur.Harness.*`
+  renames are dropped.
+- **C5:** T02 is conditional on DESIGN-R7 §2 decision 2; superseded by
+  MP-E7-C4-T01 if the owner chooses "leave for E7".
+- **Finding R7-C1-F1:** running-entry delivery flags are not recomputed on
+  fallback or RC promotion. Fix owner: MP-E7-C2-T04.
+
 ---
 
 ## MP-R7-C1 — Characterize delivery and the backend contract

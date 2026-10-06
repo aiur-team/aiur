@@ -110,7 +110,7 @@ The gateway caches each instance summary for 5 s so several devices do not multi
 
 **Executor-state aggregation** (multiple consumers): `active` if any is active; else
 `stalled` if any is stalled (the case that matters, roster moduledoc); else `idle`; else
-`expired`; `none` when there are no claims; `unknown` otherwise. Rejected: "most recent
+`expired`; `absent` when there are no claims (the MP-R1 identity term; renamed from `none` in Phase C); `unknown` otherwise. Rejected: "most recent
 consumer wins", which can hide a stalled one.
 
 **Build-order % with several roots.** Recommend: show the count of open build orders and
@@ -204,6 +204,16 @@ repository names and counts, not Command text; the cache is cleared on revoke.
 | **MP-N3-C5** Synthetic multi-instance fixture | A script that runs a fake gateway with scripted instance states, for UI work and the parity check without live agents | MP-N3-C3 | T1 fixture server; T2 scenario files | Used by C4 tests and design review |
 
 Order: C1 → C2 → C3 (C3 can start in parallel from the contract) → C5 → C4.
+
+### Phase C changes (2026-10-06)
+
+Tickets are in [tickets/](tickets/README.md); the chunk list with final IDs is in
+[chunks.md](chunks.md). Changes from this plan: C1 T1 and T6 merged (envelope plus size and
+redaction guard); C2 T1 and T3 merged; C3 T1 and T2 merged into one model ticket plus a shared
+fixture ticket; C4-T6 (device validation) added; the Commands count follows MP-E2-C7-T1's
+"needs you" definition; build-order roots carry no titles (privacy, contract §7); the Executor
+aggregate uses `absent`. RQ-N3-1, RQ-N3-2 and RQ-N3-4 are resolved in the tickets; RQ-N3-3 is a
+dependency on MP-E2-C7-T1.
 
 ## 9. Open questions
 

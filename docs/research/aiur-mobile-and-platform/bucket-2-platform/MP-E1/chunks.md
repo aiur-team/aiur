@@ -261,3 +261,22 @@ in a real run.
 - **X-3 (MP-R2).** E-A3 requests a `ticket.<id>.pr.closed_unmerged` topic.
 - **X-4 (MP-N5).** Milestone semantics (highest milestone only, a generation
   rule) feed N5's no-burst requirement. N5 owns the per-device suppression.
+
+---
+
+## Phase C resolution of research questions (2026-10-06)
+
+Final tickets: [tickets/README.md](tickets/README.md) (40 tickets). The
+chunk-level ticket lines above are superseded by the ticket files.
+
+| ID | Resolution | Ticket |
+| --- | --- | --- |
+| RQ-1 | Read the `:branch_pull_request` deposit (`events/github_webhook/deposit.ex:630-642`) through a tracker callback; webhook mode only; no new request | C4-T05 |
+| RQ-2 | `BoundedBlockedBy.fetch/2` (`github/bounded_blocked_by.ex:80-94`), called lazily only for ExecutorList items whose local prerequisites are satisfied. Same bound as the dispatch gate: at most one read per item per 15 min. Build Order items take native edges from the projection | C4-T03 |
+| RQ-3 | `queued` in `@marker_suffixes` is seeded by `aiur init` (`label_set/2`) and by global-config startup (`global_config_startup.ex:81-86`). Existing repo-local installs: the queue ensures the label once through a new optional tracker callback `ensure_labels/1`, whose GitHub implementation calls `Labels.ensure/5` (422 `already_exists` = success, `labels.ex:154-194`). Whether `POST .../labels` auto-creates stays unverified and nothing depends on it | C1-T01, C3-T04 |
+| RQ-4 | `expected_state: :none` in `IssueState` | C1-T04 |
+| RQ-5 | `record_open_issues/3` (`github/issues.ex:437-441`) also records labels per open issue in `OpenIssueSnapshot` and broadcasts a PubSub signal | C1-T03 |
+| RQ-6 | See plan §11 item 8 | C6-T01, C6-T03 |
+| RQ-7 | Batched `ClaimProbe.status/1` reading `dispatch_declines` | C1-T06, C5-T04 |
+| RQ-8 | `Issues.fetch_issue_raw_conditional/2` body carries `state_reason`; one read per newly closed prerequisite, cached terminal | C4-T04 |
+| RQ-9 | **Open, non-blocking.** Not measured: the census needs the live daemon, which Phase C may not touch. Default pacing (20 writes/min) is a quarter of GitHub's 80/min secondary limit (F11). C9-T04 measures it | C9-T04 |

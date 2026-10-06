@@ -217,3 +217,17 @@ RQ-E6-7 the Phoenix channel frame budget for bidirectional PCM (400,000-byte max
 - After **MP-E7**: the consult/instruction send uses the listener package API.
 - After **MP-E3/E4**: Executor and full-history read ports become available; until then the
   Executor target is not offered and worker history uses `LiveConversation`.
+
+## 14. Phase C resolutions (2026-10-06)
+
+- Contract voice-session is draft-2: RC-13 (§12 config namespaces), RC-14 (§4 R5 names),
+  RC-16 (§3.5 device path), §3.6 frame budget, §6 transition table, §7 MP-R1 capability IDs
+  (`voice.conversation` replaces `voice.converse`).
+- RQ-E6-7 and RQ-E6-8 resolved (see chunks.md Phase C). RQ-E6-1..6 remain with the spike.
+- Websocket field names verified against
+  <https://elevenlabs.io/docs/agents-platform/api-reference/agents-platform/websocket> and
+  override paths (`conversation_config_override.agent.prompt.prompt`, `agent.first_message`,
+  `tts.voice_id`) against the overrides page, both accessed 2026-10-06. The documented
+  `user_transcript` event has no partial/final flag, which makes RQ-E6-6 a real question.
+- Contract requests to MP-E7 (`origin` option), MP-E4, MP-E2, MP-R1, MP-R5:
+  [tickets/CONTRACT-REQUESTS.md](tickets/CONTRACT-REQUESTS.md).

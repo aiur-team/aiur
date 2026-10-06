@@ -144,3 +144,18 @@ C2 ─► C3 ────┼─► C4 ─► C5 ─► C7 ─► C8 ─► C9
              │   (E2/E3/E4/R2 ports optional; E7 required for C5 sends)
 DESIGN-E6 gates C5-T3/T4, C7, C8. DESIGN-E5 owns the mic choice used by C7.
 ```
+
+## Phase C changes (2026-10-06)
+
+Ticket docs: [tickets/README.md](tickets/README.md) (31 tickets, 14 ready, 17 blocked).
+
+- **C1** is one ticket (old T1+T2): the paid spike with budget, steps and pass/fail
+  criteria, blocked on E6-OQ9.
+- **C3-T01 is blocked** on E6-OQ6/OQ7 (defaults are owner numbers); **C3-T03 is blocked** on
+  the spike (retention semantics, RQ-E6-3) and now also owns the `voice.conversation`
+  capability.
+- **C2-T04** persists its retry queue and raises `Aiur.Alerts.emit_custom/3` on give-up.
+- RQ-E6-7 resolved by calculation (voice-session §3.6); RQ-E6-8 resolved by the
+  conversations contract §7 (`list_entries` `tail`/`after`).
+- Config namespace fixed by RC-13: `voice.conversation.*`; `elevenlabs.*` unchanged.
+- C7-T01 serves `voice:converse` on both the dashboard socket and the MP-E5-C8 device socket.

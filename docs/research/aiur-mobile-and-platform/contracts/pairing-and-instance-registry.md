@@ -1,7 +1,7 @@
 ---
 contract_id: MP-CT-pairing-and-instance-registry
 owner_feature: MP-N2 (pairing, device credentials, machine registry); MP-N3 (per-instance summary payload, §7)
-status: draft (Phase B), awaiting coordinator reconciliation
+status: reconciled (Phase C, 2026-10-06): RC-01, RC-02, RC-03, RC-15 applied
 base_main_sha: 45a290e3
 date: 2026-10-06
 consumers: MP-N1, MP-N3, MP-N4, MP-N5, MP-N6, MP-N7, MP-E3, MP-R1, MP-R3
@@ -31,11 +31,11 @@ daemon for one project root (`aiur_instance_key`, `aiur-engine.sh:269-278`).
 
 | Identifier | Definition | Stability | Owner |
 | --- | --- | --- | --- |
-| `machine_id` | 128-bit random value, base32 (26 chars), made once by `aiur mobile enable`; stored in the machine store (§5). | Survives restarts, hostname changes and IP changes. A new value only after `aiur mobile reset` or deletion of the store; every device must then re-pair. | MP-N2 (proposed to MP-R1 for the identity contract) |
-| `machine_label` | Display name. Default: short hostname. Editable. Never used as a key. | Mutable. | MP-N2 |
-| `machine_key` | Ed25519 key pair, software, file mode 0600 in the machine store. Signs QR payloads and registry responses. | Same life as `machine_id`. | MP-N2 |
+| `machine_id` | 128-bit random value, base32 (26 chars). **Created by MP-R1 at first daemon boot** in `~/.config/aiur/machine/identity.json` (RC-01; `identity-and-capabilities.md` §1.1). MP-N2 only reads it and never creates a second identity. | Survives restarts, hostname changes and IP changes. A new value only through the MP-R1 identity reset path (invoked by `aiur mobile reset`); every device must then re-pair. | MP-R1 (identity); MP-N2 consumes |
+| `machine_label` | Display name, stored in `identity.json` (MP-R1). Default: short hostname. Never used as a key. | Mutable. | MP-R1 field; MP-N2 shows it |
+| `machine_key` | Ed25519 key pair, software, created by `aiur mobile enable` as `machine_key` (private, 0600) and `machine_key.pub` in the machine store. Signs QR payloads and registry responses. | Until `aiur mobile reset`. | MP-N2 |
 | `instance_key` | Today's launcher key: first 10 hex chars of sha256(realpath(project root)) (`aiur-engine.sh:269-278`). | Changes if the project root moves. Two clones of one repo are two instances. | MP-R1 (assumed unchanged) |
-| `instance_ref` | `<machine_id>/<instance_key>`. The only key a client stores for an instance. | As `instance_key`. | this contract |
+| `instance_id` | `<machine_id>/<instance_key>` (RC-02). The only key a client stores for an instance. The former name `instance_ref` is retired. | As `instance_key`. | MP-R1 (identity contract §1.2) |
 | `device_id` | 128-bit random, base32, made by the gateway at pairing. | Until revoked. Re-pairing the same phone makes a new `device_id`. | MP-N2 |
 | `repository` | `{tracker, owner, name}` for GitHub (`Aiur.GitHub.Config.repo/0`, `src/lib/aiur/github/config.ex:24-30`), or `{linear, project_slug}`. Display only; not unique per machine. | Config-derived. | MP-R1 identity contract (assumed) |
 
@@ -90,6 +90,7 @@ aiur-pair:v1?m=<machine_id>&n=<url-encoded machine_label>
   &k=<base64url machine_key public, 32 bytes>
   &s=<base64url pairing secret, 32 bytes>
   &x=<expiry, unix seconds>
+  &t=<base64url sha256(SPKI) of the TLS certificate>   # only under RQ-TRANSPORT option T-B
   &sig=<base64url Ed25519 signature by machine_key over all fields above>
 ```
 
@@ -115,6 +116,21 @@ Rules:
 All paths are on the gateway unless marked. JSON bodies. Every response carries
 `contract: "aiur.machine/v1"`.
 
+### 4.0 Bytes that are signed (settled in Phase C)
+
+- **Canonical JSON:** every `secret_proof` and every `sig` is computed over the RFC 8785
+  JSON Canonicalization Scheme serialization (<https://www.rfc-editor.org/rfc/rfc8785>,
+  accessed 2026-10-06) of the body **without** the `secret_proof` / `sig` member.
+- **Machine signatures** (`sig`, QR `sig`): Ed25519 (RFC 8032) over those bytes; for the QR,
+  over the URI query string with `sig` removed, parameters in the order shown in §3.
+- **Device signatures** (§4.2): ECDSA P-256 with SHA-256, DER-encoded, base64url, over the
+  ASCII bytes `nonce "." device_id "." machine_id`.
+- **Encoding:** base64url without padding everywhere.
+- Every signed response covers `contract`, `machine_id` and `observed_at`.
+- The test vectors in MP-N2-C4-T03 (response signatures) and MP-N2-C5-T05 (pairing and
+  token) are generated from these rules; the native cores
+  (MP-N1-C2-T03) and the gateway must agree with them byte for byte.
+
 ### 4.1 Claim (first pairing)
 
 ```text
@@ -130,8 +146,10 @@ POST /v1/pair/claim
 
 Errors: `pair_secret_expired`, `pair_secret_used`, `pair_secret_unknown`,
 `pairing_disabled` (mobile turned off), `device_limit` (default 20 devices). Five
-wrong proofs in a minute lock claiming for 5 minutes and write a needs-attention
-alert through the existing alert ledger.
+wrong proofs in a minute lock claiming for 5 minutes, record a `claim_lockout`
+journal entry and show it in `aiur mobile status` (the lean gateway has no alert ledger,
+`src/lib/aiur/alerts.ex:9-13,103-106`; CR-N2-2). Pairing bodies contain no non-integer
+numbers; a body with one is rejected `invalid_body` (CR-N2-7, avoids RFC 8785 float formatting).
 
 The secret is never sent; only an HMAC over the body is, so a passive observer of
 one request cannot claim with it. Confidentiality of later traffic is a transport
@@ -141,7 +159,8 @@ property (§6.2), not a pairing property.
 
 ```text
 POST /v1/token/challenge  { "device_id" }                 → { "nonce", "expires_at" (60 s) }
-POST /v1/token            { "device_id", "nonce", "signature": ECDSA-P256(nonce‖device_id‖machine_id) }
+   # a nonce is consumed by the first /v1/token attempt, success or failure; ≤ 4 live nonces per device (CR-N2-5)
+POST /v1/token            { "device_id", "nonce", "signature": ECDSA-P256(nonce.device_id.machine_id, §4.0) }
 → { "access_token", "expires_at" (15 min), "machine_id", "sig" }
 ```
 
@@ -152,11 +171,14 @@ The device refreshes before expiry. A revoked or unknown `device_id` gets
 ### 4.3 Re-link and endpoint refresh
 
 `GET /v1/machine` (token) returns the current `machine_label` and endpoint list,
-signed. The device replaces its stored endpoints on every success. If every stored
+signed. Under RQ-TRANSPORT option T-B it also returns `tls_spki_sha256` (and
+`tls_spki_sha256_next` during a key rotation); a device accepts a new pin only from a
+response signed by the pinned `machine_key` (MP-N2-C10-T04). The device replaces its stored endpoints on every success. If every stored
 endpoint fails, the app offers "scan the QR again"; scanning a QR with a known
 `machine_id` while the device still has a valid `device_id` calls
-`POST /v1/pair/relink` with the same secret proof and the existing `device_id`,
-and refreshes endpoints without a new device entry.
+`POST /v1/pair/relink` with body `{machine_id, device_id, secret_proof}` (proof per §4.0
+over that body), and refreshes endpoints without a new device entry. Relink never changes
+the device auth key; a lost key means revoke and pair again (CR-N2-6).
 
 ### 4.4 Using the token on an instance
 
@@ -164,18 +186,30 @@ Instances accept the gateway-minted token directly:
 
 - **JSON:** `Authorization: Bearer <access_token>` on any route the
   `:dashboard_auth` pipeline protects today (`src/lib/aiur_web/router.ex:111-199`).
-- **WebView:** `POST /api/v1/device-session` (instance) with the bearer returns a
-  302 to `/` and sets the normal signed dashboard session, using the same proof
-  marker `FinancialDataAccess` stores today (`financial_data_access.ex:82-93`). The
+- **WebView:** native code calls `POST /api/v1/device-session` (instance) with the bearer
+  and receives a single-use, short-lived `/device-session/<code>` URL; the WebView loads it,
+  and the instance sets the signed dashboard session with a **device-kind** session marker
+  (`{kind: "device", device_id}`), checked on every LiveView mount against the machine store.
+  It does not reuse today's proof marker, which is derived from the Basic-Auth pair
+  (`src/lib/aiur_web/financial_data_access.ex:82-93`; `proof.ex:18-38,79-124`). Details:
+  MP-N2-C6-T02. The
   session secret is regenerated at every boot (`src/lib/aiur/http_server.ex:268-270`),
   so after an instance restart the app silently repeats this exchange.
+- **Cookie scope.** Cookies do not isolate by port (RFC 6265 §8.5,
+  <https://www.rfc-editor.org/rfc/rfc6265#section-8.5>), so every instance on one host
+  would share today's single `_aiur_key` cookie (`src/lib/aiur_web/endpoint.ex:8-12`).
+  When device auth is enabled, each instance names its session cookie
+  `_aiur_key_<instance_key>` (MP-N2-C6), so WebViews for two instances on one machine do
+  not overwrite each other's session.
 
 An instance checks a token by reading the machine store (§5) and caching by file
 mtime; a revoked device fails on the next request after the store changes.
 Device auth adds a way to authenticate; it does not widen authority:
 `observability.dashboard_writable`, `:api_write` and `:require_writable`
-(`router.ex:50-62`) still apply. "Full access" (D19) means the same authority a
-Basic-Auth operator has on that instance, no more.
+(`router.ex:50-62`) still apply, with one adjustment: a request authenticated by a device
+bearer skips the `:api_write` Origin check (a bearer is not an ambient browser credential)
+but still needs `X-Aiur-Request: 1` and `:require_writable` (CR-N2-8, MP-N2-C6-T03).
+"Full access" (D19) means the same authority a Basic-Auth operator has on that instance, no more.
 
 When mobile is disabled, or no machine store exists, instances reject device
 tokens with `401 device_auth_disabled`, and Basic Auth behaviour is unchanged.
@@ -209,11 +243,18 @@ launcher state (`AIUR_BG_STATE_DIR`, `aiur-engine.sh:280-286`), mode 0700, files
 
 | File | Content |
 | --- | --- |
-| `identity.json` | machine_id, machine_label, machine_key public key, created_at, store schema version |
-| `machine_key` | Ed25519 private key (raw, 0600) |
+| `identity.json` | **Owned and written by MP-R1** at first daemon boot (RC-01): machine_id, machine_label, created_at. MP-N2 reads it and never writes it. If it is absent or corrupt, every MP-N2 command fails closed with `identity_unavailable` and tells the operator to start any aiur instance once (or run the MP-R1 identity repair); MP-N2 never regenerates it. |
+| `machine_key`, `machine_key.pub` | Ed25519 private key (raw 32-byte seed, 0600) and public key (raw 32 bytes), created by `aiur mobile enable` |
+| `store.json` | MP-N2 store schema version (`{"schema": 1}`) |
 | `devices.json` | device rows: device_id, label, platform, auth_public_key, parent_device_id, paired_at, last_seen_at, push_registration (opaque, MP-N4), token_hashes[{hash, expires_at}] |
 | `pairing.json` | outstanding pairing secret hashes with expiry and use flag |
 | `journal.ndjson` | append-only: paired, relinked, revoked, unpair_all, claim_lockout (no secrets) |
+| `known_instances.json` | gateway-kept list of instances seen in the last 7 days (§6.3 `stopped`) |
+| `store.lock/` | `mkdir` lock holding the writer's pid (algorithm of `acquire_aiur_launch_lock`, `aiur-engine.sh:1522-1563`) |
+| `gateway.pid`, `gateway.log` | gateway lifecycle (MP-N2-C4-T02) |
+
+`devices.json` also keeps a bounded `recently_revoked` list of device ids, so a revoked
+device receives `device_revoked` rather than `token_unknown`.
 
 Writes: the gateway is the single writer (write temp, fsync, rename). Instances
 and the CLI read only, except that the CLI may write when the gateway is not
@@ -233,9 +274,11 @@ running, under the same lock directory pattern the launcher uses
 2. **Instance advertisement** (new, MP-N2-C2):
    `~/.config/aiur/instances/<node-slug>.advert.json`, written by the instance
    BEAM after the HTTP listener binds and refreshed every 30 s:
-   `{contract, instance_key, node, repository, project_root_basename, pid, started_at,
-   heartbeat_at, dashboard: {bound: bool, base_url|null, bind_host, port|null,
-   loopback_only: bool}, mobile_device_auth: bool, summary_rpc: "v1"|null}`.
+   `{contract: "aiur.advert/v1", instance_id, instance_key, node, repository,
+   project_root_basename, pid, started_at, heartbeat_at, dashboard: {bound: bool,
+   base_url|null, device_url|null, transport: "https"|"http_overlay"|"none", bind_host,
+   port|null, loopback_only: bool}, mobile_device_auth: bool, summary_rpc: "v1"|null}`.
+   `device_url` is `Aiur.HttpServer.device_url/0` (MP-N2-C10-T01).
    `base_url` comes from `Aiur.HttpServer.base_url/0` (`http_server.ex:141-156`),
    which is nil unless a listener is really bound. Removed on clean shutdown.
 3. **Node liveness** through epmd (`probe_node_liveness`, `aiur-engine.sh:2136-2149`).
@@ -258,8 +301,8 @@ running, under the same lock directory pattern the launcher uses
   (<https://developer.android.com/privacy-and-security/security-config>). How the app
   reaches HTTP endpoints (ATS exception for 100.64.0.0/10, or HTTPS via `tailscale cert`,
   which publishes machine names to Certificate Transparency,
-  <https://tailscale.com/kb/1153/enabling-https>) is open question RQ-N2-1, shared
-  with MP-N1 and MP-R3.
+  <https://tailscale.com/kb/1153/enabling-https>) is **RQ-TRANSPORT** (RC-15), specified
+  in §8.1 and owned by MP-N2 with MP-R3.
 
 ### 6.3 Registry API
 
@@ -271,7 +314,7 @@ GET /v1/instances[?include=summary]   (token)
 `InstanceEntry`:
 
 ```text
-{ instance_ref, instance_key, repository, project_root_basename,
+{ instance_id, instance_key, repository, project_root_basename,
   state: "live" | "starting" | "stale" | "stopped" | "crashed" | "unknown",
   state_reason, last_seen_at,
   dashboard: { reachable_for_devices: bool, url|null, reason|null },
@@ -292,7 +335,11 @@ State rules (each evaluated by the gateway at `observed_at`):
 The gateway never deletes launcher records (the launcher owns them).
 `dashboard.reachable_for_devices` is false, with a reason, when the instance is
 loopback-only, not bound (`--no-dashboard` or a port conflict), or has device auth
-off. The phone shows the summary and explains why "Open dashboard" is unavailable.
+off. `reason ∈ {loopback_only, not_bound, device_auth_off, tls_unavailable,
+cleartext_not_allowed, unknown}` (closed list; unclassified causes are `unknown`).
+`dashboard.url` is the instance's HTTPS device URL (`Aiur.HttpServer.device_url/0`,
+MP-N2-C10-T01), or its overlay HTTP URL only when `transport.allow_cleartext_overlay`
+is true (§8.1). The phone shows the summary and explains why "Open dashboard" is unavailable.
 
 ## 7. Per-instance summary (owned with MP-N3)
 
@@ -312,9 +359,9 @@ missing value as 0.
 | `agents.active` | `Orchestrator.dashboard_snapshot/2` (`orchestrator.ex:684`), `length(snapshot.running)` as in `Presenter.state_payload` (`presenter.ex:41-58`) | Status `stale` maps to Fact `available` with `freshness: "stale"` and the snapshot's age; `:snapshot_unpublished` and `:orchestrator_unavailable` map to `unavailable` with that reason. |
 | `agents.capacity` | snapshot `capacity` | Optional. |
 | `fleet.globally_paused` | snapshot `globally_paused` | Shown so that "0 active" while paused reads as paused, not idle. |
-| `commands.awaiting` / `commands.awaiting_blocking` | `Aiur.DecisionQuery.counts/1` (`decision_query.ex:76-96`) `awaiting`, `awaiting_blocking` | nil means `unavailable`. `health.status == :partial` adds `lower_bound: true` ("at least"). The UI term is **"units awaiting commands"** / aria **"Commands awaiting you"** (`overview.ex:53,168-169`). |
-| `executor` | `Aiur.Executor.Roster.build(record?: false)` (`executor/roster.ex:50-67`) | Value `{state, consumers}`. Aggregate: `active` if any consumer is active, else `stalled` if any is stalled, else `idle`, else `expired`, else `none` (no claims), else `unknown`. Pass `record?: false` so a summary read does not change the roster's evidence. MP-E3 adds harness and conversation fields later. |
-| `build_orders` | `Aiur.BuildOrder.GraphProjection.catalog/1` (`graph_projection.ex:44`) roots: `RootSummary.progress` and `progress_resolution` (`root_summary.ex:21-22`) | List of non-completed roots `{identity, title, progress, resolution}`; `disabled` when the instance has no build-order capability. Which root(s) the phone shows is DESIGN-N3 OQ. |
+| `commands.awaiting` / `commands.awaiting_blocking` | `Aiur.DecisionQuery.counts/1` (`decision_query.ex:76-96`) `awaiting`, `awaiting_blocking`; after MP-E2-C7-T1 lands, the E2 "needs you" count definition (DESIGN-E2 §6.2) replaces it with the same field names | nil means `unavailable`. `health.status == :partial` adds `lower_bound: true` ("at least"). The UI term is **"units awaiting commands"** / aria **"Commands awaiting you"** (`overview.ex:53,168-169`). |
+| `executor` | `Aiur.Executor.Roster.build(record?: false)` (`executor/roster.ex:50-67`) | Value `{state, consumers}`. Aggregate: `active` if any consumer is active, else `stalled` if any is stalled, else `idle`, else `expired`, else `absent` (no claims; the MP-R1 identity term, §1.4), else `unknown`. Pass `record?: false` so a summary read does not change the roster's evidence. MP-E3 adds harness and conversation fields later. |
+| `build_orders` | `Aiur.BuildOrder.GraphProjection.catalog/1` (`graph_projection.ex:44`) roots: `RootSummary.progress` and `progress_resolution` (`root_summary.ex:21-22`) | List of non-completed roots `{identity, progress, resolution}` (root **titles are omitted**: the summary is mirrored to watches and cached on phones, and carries no ticket text; a title, if DESIGN-N3 needs one, is read from the instance dashboard); `disabled` when the instance has no build-order capability. Which root(s) the phone shows is DESIGN-N3 OQ. |
 | `background_agents` | none today | `unavailable` with `reason: "capability_not_provided"` until MP-E3 supplies it. |
 | `capabilities` | MP-R1 capability contract | List consumed as-is. |
 
@@ -324,20 +371,78 @@ list and may be mirrored to a watch.
 
 ## 8. Machine settings (`~/.aiur/machine`)
 
-Pure YAML, read by the gateway and `aiur mobile`, never by the workflow loader.
+Pure YAML, read by the gateway, `aiur mobile`, and the instance HTTP server's
+transport loader (§8.1), never by the workflow loader. Settled by RC-03: machine-level
+settings (mobile, pairing, relay, transport) live in this file; `~/.aiur/config` is
+unchanged. Note the two paths: **settings** are `~/.aiur/machine` (a file the operator
+edits), **state** is `~/.config/aiur/machine/` (a directory aiur writes).
 
 ```yaml
 mobile:
   enabled: false                 # aiur mobile enable|disable
 gateway:
   host: 127.0.0.1                # explicit; never auto-detected
-  port: 4710                     # fixed, so the phone's endpoints stay valid
+  port: 4710                     # fixed, so the phone's endpoints stay valid; 0 is rejected
   endpoints: []                  # advertised base URLs; empty = derive from host:port
-  tls: {cert_file: null, key_file: null}
 pairing:
   secret_ttl_seconds: 600
   max_devices: 20
+  pin_rotation_grace_seconds: 604800   # T-B only
+transport:                       # RQ-TRANSPORT (RC-15); see §8.1
+  tls:
+    cert_file: null              # PEM chain; e.g. written by `tailscale cert`
+    key_file: null               # PEM private key, mode 0600
+    bind_host: null              # address the HTTPS listeners bind (e.g. the tailnet IP); null = HTTPS off
+    advertise_host: null         # DNS name the certificate covers (e.g. host.tailnet.ts.net)
+  allow_cleartext_overlay: false # true only if the owner keeps the HTTP-degraded mode
 ```
+
+`gateway.tls` from the Phase B draft is replaced by the single machine-wide
+`transport.tls`: one certificate names the host, and every instance and the gateway
+serve it on their own ports.
+
+### 8.1 Transport security (RQ-TRANSPORT, owned by MP-N2 with MP-R3)
+
+The dashboard serves plain HTTP only (`src/lib/aiur/http_server.ex:64,147`). iOS ATS
+refuses HTTP and, since iOS 17, IP literals; Android refuses cleartext from API 28; an
+HTTP origin is not a secure context, so the WebView microphone cannot work. Every
+ticket that loads a dashboard in a WebView therefore depends on RQ-TRANSPORT.
+
+**Owner choice (DESIGN-N2 §transport, open):**
+
+| Option | What the operator does | Evidence (accessed 2026-10-06) | Cost |
+| --- | --- | --- | --- |
+| **T-A (recommended): publicly trusted certificate files** | Point `transport.tls` at a cert and key. The documented recipe is `tailscale cert`; any ACME client or CA works, so Tailscale stays optional. | `tailscale cert` gets a Let's Encrypt certificate; "you are responsible for renewing" (90-day validity); "machine names are still published in the public ledger" (<https://tailscale.com/kb/1153/enabling-https>) | Machine name in CT logs; renewal every ≤ 90 days |
+| T-B: aiur-managed self-signed certificate, SPKI pin carried in the QR | aiur generates the cert; the QR gains `&t=<base64url sha256(SPKI)>`; the native core pins it | WKWebView server-trust override does **not** apply to WebSocket connections (Apple DTS, r. 25491679, <https://developer.apple.com/forums/thread/104376>), so LiveView's socket fails unless it falls back to long-poll, which the endpoint disables today (`longpoll: false`, `src/lib/aiur_web/endpoint.ex:14-17`; `/voice` is WebSocket-only, `:26-29`). Google Play flags `onReceivedSslError` handlers that do not validate (<https://support.google.com/faqs/answer/7071387>). | No CT disclosure; every WebView path needs custom trust code and a device proof that LiveView works |
+
+Rules that hold for either option:
+
+1. With `transport.tls` set (cert, key, bind_host and advertise_host), every instance
+   and the gateway open a **second, HTTPS listener** on `bind_host` (instance port:
+   OS-assigned, reported in the advert; gateway port: `gateway.port`) and advertise
+   `https://<advertise_host>:<port>` (`InstanceEntry.dashboard.url`, QR `e=`). The
+   existing HTTP listener and `Aiur.HttpServer.base_url/0` are **unchanged**
+   (`server.host`/`server.port`, loopback by default), because local consumers such as
+   the Claude hook settings (`claude/hook_settings.ex:68` via `:dashboard_url_fun`)
+   call it on `127.0.0.1`, which a tailnet certificate does not name. The certificate's
+   names must cover `advertise_host`; a mismatch or an expiry under 14 days is reported
+   by `aiur mobile status` before a phone sees it.
+   The HTTPS listener keeps the existing fail-closed credential rule
+   (`guard_dashboard_credentials`, `http_server.ex:167-202`): a non-loopback bind needs
+   Basic Auth credentials **or** mobile device auth enabled (MP-N2-C6); MP-R3-C1 extends
+   its census to cover the second listener.
+2. Without `transport.tls`, the advertised URLs are `http://`. The QR refuses to show
+   non-loopback HTTP endpoints unless `transport.allow_cleartext_overlay: true`
+   (the HTTP-degraded mode of MP-N1 §5 / DESIGN-N1 D-N1-6). In that mode the app shows
+   a persistent warning and the WebView mic as `unavailable`. Overlay endpoints are
+   advertised by **DNS name, never IP literal** (iOS 17 ATS refuses IP literals, and the
+   app's build-time ATS / network-security exceptions can only name domains such as
+   `ts.net`; MP-N1-C5-T02). In practice the degraded mode works on the phone only with a
+   Tailscale MagicDNS name, pending device check N1-RQ7 / MP-N2-C10-T05 TR-7.
+3. Basic Auth, device tokens and the dashboard session are never weakened by TLS and
+   never strengthened by the network: reachability is not authorization (§6.2).
+4. Certificate renewal does not need a restart: the listener re-reads the files when
+   their mtime changes (MP-N2-C10-T01).
 
 Why not a section of `~/.aiur/config`: that file is the **fallback workflow
 config**, used whenever a directory has no `./.aiur/config`
@@ -359,7 +464,13 @@ configuration". Reconciliation item RC-1 below.
 | Two gateways | A lock in the store (one writer); the second exits with "gateway already running (pid)". |
 | Version skew | `contract` fields are versioned; unknown major is rejected, unknown fields ignored. |
 
-## 10. Reconciliation items for the coordinator
+## 10. Reconciliation status
+
+Applied in Phase C (2026-10-06): RC-01 (identity.json from MP-R1 at first boot; MP-N2
+reads only), RC-02 (`instance_id` everywhere), RC-03 (`~/.aiur/machine`), RC-15
+(§8.1 RQ-TRANSPORT). The Phase B items below remain for history.
+
+### Phase B items
 
 - **RC-1** The assignment text says pairing is exposed "via `~/.aiur/config`". This
   contract uses `~/.aiur/machine` for the hazard in §8. Owner confirms (DESIGN-N2 Q1).

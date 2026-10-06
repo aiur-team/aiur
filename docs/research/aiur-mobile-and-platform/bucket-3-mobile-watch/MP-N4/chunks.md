@@ -6,6 +6,12 @@ date: 2026-10-06
 
 # MP-N4 chunks
 
+**Phase C (2026-10-06):** full ticket docs are in [tickets/](tickets/README.md). Changes
+from the Phase B lists below: C2 splits packaging (T05, ready) from the default deployment
+(T06, blocked on OQ-N4-1) and moves Workers to T07; C3 adds T07 (status line and setup
+copy, blocked on DESIGN-N4); C7 splits the harness (T01) from the authorized run (T02);
+`push.*` settings move to `~/.aiur/machine` (RC-03); RQ-N4-1/E-C4 is resolved.
+
 Every ticket below lists its gates. **Blocked-by-design** means DESIGN-N4 must be approved
 first. All tickets are wave 5 and wait for the MP-R1/R2 refactor tickets they name; C1 and
 C2 have no aiur-internal dependency and may be researched and built earliest within wave 5.
@@ -29,13 +35,12 @@ C2 have no aiur-internal dependency and may be researched and built earliest wit
 golden vectors.
 
 Tickets:
-- MP-N4-C1-T01 Verify the pinned Erlang/OTP exposes X25519 ECDH, HKDF building blocks
-  (HMAC-SHA256) and `chacha20_poly1305` AEAD; record versions (resolves E-C4/RQ-N4-1).
-  If not, pick a maintained Elixir HPKE dependency with the same suite and record why.
+- MP-N4-C1-T01 Resolved in Phase C: OTP 28 `:crypto` has every primitive (E-C4). The
+  ticket adds `Aiur.Push.Crypto.Primitives` with a runtime support guard.
 - MP-N4-C1-T02 Implement HPKE base-mode seal/open (daemon) and pass RFC 9180 Appendix A
   vectors for the chosen suite.
-- MP-N4-C1-T03 Canonical JSON (RFC 8785) + Ed25519 sign/verify of ProtectedPayload;
-  size-budget encoder with truncation order (body → subtitle; never title/destination).
+- MP-N4-C1-T03 Payload encoder with size budget and truncation order; inner frame with a
+  detached Ed25519 signature over the exact bytes (no RFC 8785; contract §11).
 - MP-N4-C1-T04 `nid` and `collapse_token` derivation (HMAC) and golden vectors file
   (`aiur-contracts/push/v1/vectors.json`, proposed path) consumed by Swift and Kotlin
   tests.
@@ -62,9 +67,10 @@ Tickets:
 - MP-N4-C2-T04 Abuse controls: per-handle rate limit (default 60/hour, burst 10),
   payload size check (≤ 4,096 final), request log retention ≤ 7 days, no body logging
   (test asserts the sealed field never reaches the logger).
-- MP-N4-C2-T05 Packaging: container image, config by environment, health endpoint,
-  operator docs page (`website/docs-app/guide/` new page + sidebar, `AGENTS.md` docs rule).
-- MP-N4-C2-T06 (optional) Cloudflare Workers adapter + KV storage.
+- MP-N4-C2-T05 Packaging: container image, CI workflow, health endpoint, operator docs
+  page (`website/docs-app/guide/` new page + sidebar, `AGENTS.md` docs rule).
+- MP-N4-C2-T06 Default deployment for store apps (blocked: OQ-N4-1, RQ-N4-7).
+- MP-N4-C2-T07 (optional) Cloudflare Workers port (blocked: RQ-N4-8, OQ-N4-1).
 
 Test strategy: provider adapters against recorded-response fakes (APNs/FCM error
 catalogue fixtures); sandbox APNs + a test Firebase project in C7 only.
@@ -80,8 +86,9 @@ device, persists to an outbox, sends to the relay, handles responses, and report
 Tickets:
 - MP-N4-C3-T00 Plan refresh: map pre-refactor paths in this plan to MP-R1/R2 packages
   (see plan §12) before coding.
-- MP-N4-C3-T01 Config schema `push.*` (machine-level), docs entry in
-  `website/docs-app/reference/configuration.md` (checked by `scripts/check-config-docs.py`).
+- MP-N4-C3-T01 `push:` section in `~/.aiur/machine` (RC-03), docs entry in
+  `website/docs-app/reference/configuration.md` (checked by the MP-N2-C3-T5 extension of
+  `scripts/check-config-docs.py`).
 - MP-N4-C3-T02 Outbox: append-only ndjson + projection under `runtime_state_dir`
   (`src/lib/aiur/config/paths.ex:243`), persist-before-send, idempotent on
   `(intent_id, device_id)`, restart resumes unsent entries subject to N5 staleness rules.
@@ -95,6 +102,8 @@ Tickets:
   purges outbox entries for a device that disappears from `devices.json`.
 - MP-N4-C3-T06 Privacy tests: no summary text or identifiers in logs or in the HTTP
   request to the relay (assert on captured request body = only contract §8 fields).
+- MP-N4-C3-T07 `aiur status` / `aiur mobile status` push line and setup copy (blocked:
+  DESIGN-N4, DESIGN-N2).
 
 Test strategy: fake relay (Bandit/Plug test server) for success/429/410/5xx; restart test
 (kill after persist, before send → exactly one send after restart); unpair test.
@@ -158,3 +167,6 @@ Tickets:
 
 **Outcome:** the run described in [device-validation-plan.md](device-validation-plan.md),
 with a dated report committed next to this plan. AC-N4-9 is met only by this report.
+
+Tickets: MP-N4-C7-T01 harness, test-send tool and report template (ready);
+MP-N4-C7-T02 the authorized run (blocked: OQ-N4-1, owner authorization, devices).

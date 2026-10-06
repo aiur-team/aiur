@@ -6,6 +6,11 @@ date: 2026-10-06
 
 # MP-N6 chunks
 
+**Phase C (2026-10-06):** full ticket docs in [tickets/](tickets/README.md). Changes: the
+answer limit is 4,000 characters (not 7,800); C1 device routes get their own scope (device
+auth + `x-aiur-request` + `:require_writable`); C6-T01 polls in v1; RQ-TRANSPORT (RC-15)
+and the MP-E5 device voice path (RC-16) are explicit dependencies.
+
 | Chunk | Outcome | Depends on | Design gate |
 | --- | --- | --- | --- |
 | MP-N6-C1 | Device Command API (read, list needs-you, answer with D11 outcomes) | MP-E2 answer contract, MP-N2 device auth plug, MP-R1 web-shell | none (no UI) |
@@ -26,7 +31,9 @@ date: 2026-10-06
 - MP-N6-C1-T02 `GET /api/v1/device/commands?state=needs_you` for reconciliation on app
   open (counts used by MP-N3 meta-dashboard too).
 - MP-N6-C1-T03 `POST …/answer` mapping to E2 answer with `actor = device` from the
-  credential; outcome table plan §5.2; 7,800-char cap error; idempotency replay.
+  credential; outcome table plan §5.2; 4,000-char `custom_response` limit
+  (`decision_answer.ex:15`); stale version → 409; idempotency replay; `replace` → human
+  supersede.
 - MP-N6-C1-T04 Capability gating (`commands.read`, `commands.answer`) and revoked-device
   behaviour (no data leak).
 

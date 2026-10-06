@@ -240,8 +240,8 @@ shared with MP-N3, machine settings).
 1. With mobile disabled, no gateway runs, no machine store exists, instances reject
    bearer device tokens with `device_auth_disabled`, and every existing Basic-Auth and
    supervisor test passes unchanged.
-2. `aiur mobile enable` creates `identity.json` (0600, owned by `$USER`) and the machine
-   settings file without creating `~/.aiur/config`; `aiur` in an unconfigured directory
+2. `aiur mobile enable` creates `machine_key` (0600, owned by `$USER`) and the machine
+   settings file, never `identity.json` (MP-R1, RC-01) and never `~/.aiur/config`; `aiur` in an unconfigured directory
    behaves exactly as before.
 3. A QR older than `secret_ttl_seconds`, or one already used, is refused with the matching
    error code; a correct claim creates exactly one device row.
@@ -284,8 +284,7 @@ validation.
 
 **Research (Phase C):**
 
-- RQ-N2-1 Transport: ATS exception for the tailnet CIDR versus HTTPS (`tailscale cert` or an
-  operator cert); behaviour on a LAN without an overlay. Shared with N1/R3.
+- RQ-N2-1 → **RQ-TRANSPORT** (RC-15), specified in contract §8.1 and chunk MP-N2-C10.
 - RQ-N2-2 Whether per-instance reachability (pinned ports, firewall) is acceptable or a
   gateway per-instance port proxy is needed.
 - RQ-N2-3 Lean boot: the minimal child set for the gateway node, and whether a separate
@@ -295,6 +294,20 @@ validation.
 - RQ-N2-5 The WebView cookie injection API on the chosen framework (N1), and LiveView socket
   behaviour after a device-session bootstrap.
 - RQ-N2-6 Store locking between the gateway and a CLI writing while the gateway is down.
+
+## 9a. Phase C changes (2026-10-06)
+
+- RC-01: `identity.json` is created by MP-R1 at first daemon boot; MP-N2 reads it and fails
+  closed with `identity_unavailable` (acceptance criterion 2 now reads "`aiur mobile enable`
+  creates `machine_key` and the store files, and never creates `identity.json` or `~/.aiur/config`").
+- RC-02: `instance_id` replaces `instance_ref` everywhere.
+- RC-03: machine settings live in `~/.aiur/machine`; state stays in `~/.config/aiur/machine/`.
+- RC-15: RQ-N2-1 became **RQ-TRANSPORT**, owned here; new chunk MP-N2-C10 (contract §8.1).
+  Instances add a second HTTPS listener; the existing HTTP listener and `base_url/0` are
+  unchanged because local consumers call it on loopback.
+- Cookies do not isolate by port; with device auth on, each instance uses
+  `_aiur_key_<instance_key>` (contract §4.4).
+- Signed bytes are fixed in contract §4.0 (RFC 8785, Ed25519, DER ECDSA P-256).
 
 ## 10. Plan-refresh note
 

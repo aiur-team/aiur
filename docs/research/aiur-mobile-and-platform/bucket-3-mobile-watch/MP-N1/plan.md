@@ -139,18 +139,21 @@ Keys must not be reachable from web content (R-secret). And 4.2 (framework-evide
 The architecture works only if two things owned elsewhere exist. They are recorded
 here because MP-N1 is where their absence becomes visible.
 
-1. **Transport security (MP-N2 owns; MP-R3 informs).** The phone connects over HTTPS to
-   each instance origin. Options for MP-N2 to choose between, in order of preference for
-   N1: (a) an aiur-managed self-signed certificate whose fingerprint is carried in the
-   pairing QR and pinned by the native core; (b) operator-supplied TLS (for example
-   `tailscale serve`, optional and never required); (c) HTTP with ATS and cleartext
-   exceptions, which N1 supports only as a degraded mode: WebView mic unavailable,
-   review justification needed (S16). **N1-RQ1:** whether a pinned self-signed
-   certificate can be honoured by `WKWebView` (server-trust challenge) and Android
-   `WebView` (`onReceivedSslError`) without tripping Play's unsafe-SSL-handler check.
-   This is a Phase C research and device item.
+1. **Transport security — RQ-TRANSPORT (RC-15; MP-N2 owns with MP-R3).** Settled shape in
+   `contracts/pairing-and-instance-registry.md` §8.1 and chunk MP-N2-C10. The owner chooses in
+   DESIGN-N2 §transport between **T-A** (publicly trusted certificate files, e.g.
+   `tailscale cert`; recommended, discloses the machine name to Certificate Transparency) and
+   **T-B** (aiur self-signed certificate with an SPKI pin in the QR). Phase C evidence against
+   T-B as the default: WKWebView's server-trust override does not cover WebSockets (Apple DTS,
+   <https://developer.apple.com/forums/thread/104376>, accessed 2026-10-06), and `/live` and
+   `/voice` are WebSocket-only today (`endpoint.ex:14-29`); Google Play flags unvalidated
+   `onReceivedSslError` handlers (<https://support.google.com/faqs/answer/7071387>). The
+   HTTP-degraded mode survives only if the owner keeps `transport.allow_cleartext_overlay`.
+   N1-RQ1 is answered for T-A by MP-N2-C10-T05 and for T-B by the prototype MP-N1-C9-T01.
+   Every N1 ticket that loads a dashboard in a WebView is blocked on RQ-TRANSPORT and
+   MP-N2-C10-T01.
 2. **Session bootstrap (MP-N2 owns).** A device-credential call that returns the
-   `_aiur_key` session cookie carrying a `FinancialDataAccess` session marker for one
+   per-instance session cookie (`_aiur_key_<instance_key>`; cookies ignore ports, contract §4.4) carrying a `FinancialDataAccess` session marker for one
    instance origin. Native code places it in the WebView cookie store. The shared Basic
    Auth pair is never stored on the phone.
 

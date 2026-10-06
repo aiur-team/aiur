@@ -1,0 +1,93 @@
+---
+ticket_id: MP-E6-C4-T05
+feature_id: MP-E6
+chunk_id: MP-E6-C4
+bucket: 2-platform
+title: Live, non-interrupting context updates from the event bus during a conversation
+status: ready
+blocked_by: ["DESIGN-E6 (waived for this ticket: backend)", MP-E6-C4-T01, MP-E6-C4-T03, MP-R2-C5]
+prior_units: []
+prior_boundaries: [VOX, EVT]
+prior_features: []
+prior_findings: []
+size_owner: n/a (new file)
+base_sha: 45a290e3
+researched: 2026-10-06
+---
+
+# MP-E6-C4-T05 — Live context updates
+
+## Identity and outcome
+
+- **Bucket / feature / chunk:** 2-platform / MP-E6 / C4.
+- **User value:** if the agent opens a new Command, finishes a phase or a Command is answered
+  elsewhere while the operator is talking, the assistant knows, without interrupting itself.
+- **Deliverable:** `Aiur.VoiceConversation.LiveContext` (PROPOSED) — per session, subscribes
+  to `Aiur.Events.Exchange` patterns for the target, turns relevant events into one-line
+  updates, records each as a `context` record (fsync) and calls
+  `Provider.send_context/2` (`contextual_update`, non-interrupting). Also feeds the
+  `events` block of C4-T03 (last 10 milestones) and marks drafts stale (C5-T02).
+
+## Dependencies and blockers
+
+- **Predecessors:** C4-T01, C4-T03; MP-R2-C5 (topic catalog registering the E1/E2/E7 topics,
+  RC-08). Patterns below use only catalogued topics.
+
+## Verified starting point (base `45a290e3`)
+
+- `Aiur.Events.Exchange.subscribe(pattern, server)` with `*`/`#` wildcards; delivery is
+  `send(pid, {:event, event})` fire-and-forget (`events/exchange.ex:1-38,69-77,92-112`).
+- Exchange is supervised in the app (`aiur.ex` child `{Aiur.Events.Exchange, name:
+  Aiur.Events.Exchange}`, near `:355-360`).
+
+## Chosen design
+
+| Target | Patterns | Kept events → update text |
+| --- | --- | --- |
+| worker `ticket` | `ticket.<id>.#` | `decision.human-needed` (E2) → "New Command: <question>"; Command resolved → "Command <id> resolved" (+ mark draft stale); PR opened/merged/closed; phase change; agent ended → session `target_gone` |
+| executor | `system.#`, `executor.#` | blocker counts, build-order progress (`system.build_order.<root>.progress`, RC-08), Executor state changes |
+
+- Rate limit: at most one `contextual_update` per 5 s per session (coalesce; the transcript
+  records every event even when coalesced).
+- Update text passes `SecretRedactor` (C4-T03 rule).
+- Unknown event shapes are ignored (bus payloads are opaque to the exchange, `:47-51`).
+
+## Implementation steps
+
+1. Subscriber process linked to the session; pattern table per target kind.
+2. Event → text mappers; coalescing; transcript append then provider send.
+3. Tests with a private Exchange instance (`server` argument).
+
+## Non-happy paths
+
+- Event burst (e.g. reconnect replay) → coalesced; never interrupts the assistant.
+- Exchange not running → no live updates; `gaps` gets "Live updates unavailable".
+
+## Compatibility and rollout
+
+Internal. Rollback: revert.
+
+## Verification
+
+| Test | Expected |
+| --- | --- |
+| "a new Command on the ticket reaches the provider as a contextual update" | FakeProvider `send_context` once; transcript has the `context` record first |
+| "events for other tickets are ignored" | none sent |
+| "a burst is coalesced to one update per 5 s" | injected clock |
+| "a resolved Command marks its open draft stale" | draft status `stale` (with C5-T02) |
+
+```bash
+env -C src mise exec -- mix test test/aiur/voice_conversation/live_context_test.exs
+make -C src fmt-check lint
+```
+
+Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-check
+`~/.aiur/github-budget/agent-token` before and after.
+
+**Mutation check.** Subscribe to `ticket.#` instead of `ticket.<id>.#`: the "other tickets"
+test fails.
+
+## Completion and handoff
+
+- [ ] Live updates with coalescing and stale marking.
+- **Dependents:** C5-T02, C5-T05.

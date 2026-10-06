@@ -6,6 +6,11 @@ date: 2026-10-06
 
 # MP-N5 chunks
 
+**Phase C (2026-10-06):** full ticket docs in [tickets/](tickets/README.md). Changes:
+C1 adds T05 (blocker mute, blocked on DESIGN-N5 D-1); C2 is renumbered (T01 Source +
+ledger + reconciliation foundation; T02 Commands; T03 progress per RC-10 without the
+CatalogStore fallback; T04 opt-ins); settings live in the machine store (RC-03).
+
 | Chunk | Outcome | Depends on | Design gate |
 | --- | --- | --- | --- |
 | MP-N5-C1 | Preference model, store and capability-aware settings API | MP-N2 device registry + device auth (A-N2-1, A-N2-4), MP-R1 capability API | API: none; copy of reasons: blocked-by-design |
@@ -29,6 +34,7 @@ Tickets:
   `build_queue`, `commands.answer`, event sources).
 - MP-N5-C1-T04 Seed and baseline: on pairing (MP-N2 hook) create defaults and baseline
   progress trackers silently.
+- MP-N5-C1-T05 Per-instance blocker mute (blocked on DESIGN-N5 D-1 / OQ-N5-1).
 
 Tests: availability matrix fixtures (build orders absent / partial progress / present);
 unknown-path mutation check (replace `unavailable` with `off` → test fails); concurrent
@@ -39,14 +45,13 @@ readers see the new file after the gateway's rename.
 
 Tickets:
 - MP-N5-C2-T00 Plan refresh: map event/CatalogStore paths to post-refactor packages.
-- MP-N5-C2-T01 Command rules (plan §5.1) over the MP-E2 routing contract; re-ask
+- MP-N5-C2-T01 Policy process: Source adapter (export DurableConsumer or live Exchange,
+  RC-09), dedup ledger, boot/gap reconciliation.
+- MP-N5-C2-T02 Command rules (plan §5.1) over the MP-E2 routing contract; re-ask
   exclusion; retraction intents.
-- MP-N5-C2-T02 Progress rules (plan §5.2): consume E1 milestone topics for step 25;
-  per-device steps 10/50 from progress observations (needs E1 request A-E1-1, else those
-  steps report unavailable); fallback debounced recompute; persisted per-device state.
-- MP-N5-C2-T03 Opt-in sources (`pr.merged`, `agent.retry_exhausted`, `ci.failed`).
-- MP-N5-C2-T04 Dedup ledger + durable-consumer cursor (events-and-replay §7) + boot
-  reconciliation of open Commands from the DecisionStore snapshot.
+- MP-N5-C2-T03 Progress rules (plan §5.2, RC-10): per-device 10/25/50 % from
+  `Aiur.BuildQueue.progress/1` and the progress-changed signal; persisted trackers.
+- MP-N5-C2-T04 Opt-in sources (`pr.merged`, `agent.retry_exhausted`, `ci.failed`).
 
 Tests: table-driven progress sequences (AC-N5-3/4); escalation sequences (AC-N5-1);
 re-ask flood (AC-N5-2); kill-and-restart (AC-N5-5); webhook+poller double observation of

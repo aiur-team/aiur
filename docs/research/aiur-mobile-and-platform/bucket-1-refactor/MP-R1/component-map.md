@@ -113,7 +113,7 @@ Line counts are from the prior survey at `0972f0297` unless re-measured at `45a2
 | ID | Component | Prior | Paths today | Facade / public interface | Req | Opt | Owns config / state | Kind | Target |
 |---|---|---|---|---|---|---|---|---|---|
 | `orchestration` | Poll cycle, dispatch, control lifecycle, PR/CI lifecycle, operator messaging | `ORC` `DSP` `CTL` `PRL` `MSG` #12–#16 | `src/lib/aiur/orchestrator.ex`, `orchestrator/**`, `agent_chat.ex`, `agent_queue*.ex` | `Aiur.Orchestrator` control API (status, pause, resume, `send_operator_message/2`), `AgentChat.send/3`, `DispatchPolicy` (pure) | tracker, agent-runner, event-bus, signal, config, identity | github-listeners, build-queue (readiness labels only, through tracker) | `agent.max_concurrent_*`, load governor keys, `pr_health`, `pr_watch`, `worker`; `Orchestrator.State` | required for running agents | core; `DispatchPolicy` as package `aiur_dispatch_policy` |
-| `build-queue` | Build queue (MP-E1, new; ships before the refactor on a seam) | none | `src/lib/aiur/build_queue/**` (proposed) | `Aiur.BuildQueue` (CLI verbs `queue add/remove/reorder/hold/release/show`, read model) plus ports, §4 | tracker, event-bus, config, identity | build-orders (dependency source) | `build_queue.*` (proposed), queue journal under a new `Config.Paths` key | optional | core now; package after R1 |
+| `build-queue` | Build queue (MP-E1, new; ships before the refactor on a seam) | none | `src/lib/aiur/build_queue/**` (proposed) | `Aiur.BuildQueue` (CLI verbs `queue add/remove/reorder/hold/release/show`, read model), `Aiur.BuildQueue.Hints` (ETS rank/hold read by `DispatchPolicy`), behaviour `Aiur.BuildQueue.ClaimProbe` (implemented by orchestration) — RC-11/X-1, manifest `seams` in MP-R1-C1-T6 | tracker, event-bus, config, identity | build-orders (dependency source) | `build_queue.*` (proposed), queue journal under a new `Config.Paths` key | optional | core now; package after R1 |
 | `build-orders` | Build Order graph, catalog, progress, pages | `BO` #30 | `src/lib/aiur/build_order/**` (57 files, 11,148 lines †), `build_orders_cli.ex`, `AiurWeb.BuildOrder*` | `BuildOrder.GitHubGraph`, `RootSummary.progress`, `Readiness.from_edges/1`, `AiurWeb.BuildOrder.DataSource` behaviour (16 callbacks, already clean) | tracker, github, config | web-shell (pages) | `build_order.*`; catalog store | optional | package now; repo candidate |
 | `commands` | Commands (code: Decisions) and Asks | `DEC` #27, `Asks` from `EXE` | `decision*.ex`, `decision_store/**`, `asks*.ex`, `supervisor_token.ex`, `AiurWeb.DecisionApiController` | `DecisionStore.request/answer/...`, Supervisor Decision API `/api/v1/decisions*`; answer delivery by **event** (`decision.answered`) consumed by orchestration (prior #27) | event-bus, kernel, config, identity, signal | orchestration (delivery), web-shell (API) | `decisions.*`, `AIUR_SUPERVISOR_TOKEN`; `decisions.ndjson` | optional in principle, default on | package `aiur_decisions`; repo candidate |
 | `executor-attention` | Wake inbox, claims, roster, principal, alerts ledger, progress check-in | `EXE` #26 | `executor_*.ex`, `executor/**`, `alerts.ex`, `alert_*.ex`, `progress_checkin/**` | `executor-wait/-listen/-claim` verbs, `ExecutorEvents`, `AlertFeed` | event-bus, signal, kernel, config, identity | commands | `alerts.*`; `~/.aiur/repo/<owner>/<repo>/executor/*` | optional (on with recording) | package `aiur_executor` |
@@ -164,6 +164,7 @@ rewriting it. These are the seam rules R1 imposes; MP-E1 owns the design behind 
 | Attention is raised through one local function that calls `Aiur.Alerts` today | Becomes `Signal.emit/2` after the signal port lands (plan-refresh row PR-07) | review |
 | Own config section module and own `Config.Paths` key | Schema registration later (MP-R1-C4) | `check-config-docs.py` already gates the docs entry |
 | Registers capability `build_queue` (and `build_queue.build_order_source`) once MP-R1-C3 exists | Clients detect it | contract test |
+| Orchestration reaches the queue only through `Hints` (read) and implements `ClaimProbe` (RC-11, MP-E1 X-1) | D3 ordering and D8 race-free withdrawal need them | manifest `seams` (MP-R1-C1-T6); until then MP-E1's scan test |
 
 Baseline fact supporting the seam: no module under `src/lib/aiur/orchestrator/`
 references `Aiur.BuildOrder` at `45a290e3` (`git grep -l 'Aiur.BuildOrder' -- src/lib/aiur/orchestrator`
@@ -200,6 +201,23 @@ MP-R1-C4 risks).
 | `elevenlabs` (70) | voice-stt |
 | `upgrade` (71) | init |
 | `build_queue` (proposed) | build-queue |
+
+Phase C (MP-R1-C4-T5, RQ4): sections stay literal `embeds_one` lines in the root schema,
+because Ecto composes the struct at compile time and `check-config-docs.py` reads those
+lines. Ownership is manifest data (`owns.config`, exactly one owner per section;
+`polling` → orchestration and `agent` → harness-adapters, with `shared_with` noting the
+split above). Behavioural coupling is removed by C4-T1..T4 (registered semantic checks,
+turn-sandbox root contributors, accessor moves, env checks).
+
+Phase C placements for modules the prior survey did not map (RQ5, measured with the
+prior walker at `45a290e3`): `Aiur.Muse.*`, `Aiur.AgentTools.*` → harness-adapters;
+`Aiur.AllowedContributors*` → github (it references `Aiur.GitHub.*` 10 times and is
+referenced by `GitHub.Issues`, `Events.GithubWebhook`, `Config.Schema.Github`);
+`Aiur.DaemonHeartbeat*` → telemetry; `Aiur.AgentContextPresentation` → agent-runner;
+`Aiur.TestTicketScope` → control-cli; `Aiur.GlobalConfigStartup` → github (C4-T4);
+`Aiur.Perf`, `Aiur.LogFile` → signal (C5-T4); `Aiur.Protocol.MapAccess`,
+`Aiur.CoordinationTasks`, PROPOSED `Aiur.Journal`, `Aiur.Bounded`, `Aiur.ProcessTree` →
+kernel (C5-T1, C5-T2).
 
 Global machine config (`~/.aiur/config`, `~/.aiur/.env`, `~/.config/aiur/*`) is owned
 by `identity` (machine id), `pairing-discovery` (device credentials) and `launcher`

@@ -22,7 +22,7 @@ MP-N2-C8 QR settings surface (needs C4, C5, DESIGN-N2) ; MP-N2-C9 docs + device 
   permission and owner checks; fail-closed reads.
 - **Depends on:** none (MP-R1 placement only, A1).
 - **Tickets:**
-  - MP-N2-C1-T1 Store layout, schema version, `identity.json` and Ed25519 `machine_key` creation with 0700/0600 and an owner check mirroring `ensure_erlang_cookie` (engine:321-347).
+  - MP-N2-C1-T1 Store layout, schema version, **reading** MP-R1's `identity.json` (RC-01: never created here) and Ed25519 `machine_key` creation with 0700/0600 and an owner check mirroring `ensure_erlang_cookie` (engine:321-347).
   - MP-N2-C1-T2 Device rows, pairing secrets and token hashes, with atomic temp+fsync+rename writes and a single-writer lock.
   - MP-N2-C1-T3 `verify_token/1` with an mtime-keyed cache, constant-time compare of sha256 digests (the `SupervisorAuth` pattern, `supervisor_auth.ex:78-82`), expiry, revoked → error.
   - MP-N2-C1-T4 Append-only `journal.ndjson` with no secret fields.
@@ -143,12 +143,46 @@ MP-N2-C8 QR settings surface (needs C4, C5, DESIGN-N2) ; MP-N2-C9 docs + device 
 - **Depends on:** all above; MP-N1 app build.
 - **Tickets:** MP-N2-C9-T1 docs; MP-N2-C9-T2 device validation script and evidence template.
 
+## MP-N2-C10 — Transport security (RQ-TRANSPORT, RC-15) — added in Phase C
+
+- **Outcome:** instances and the gateway serve HTTPS to devices from machine-wide certificate
+  files in `~/.aiur/machine` `transport.tls`, through a second listener so local HTTP consumers
+  are unchanged; the QR and registry only advertise usable endpoints; the owner's choice between
+  T-A (publicly trusted certificate, e.g. `tailscale cert`; recommended) and T-B (aiur
+  self-signed with an SPKI pin) is implemented by one of two option tickets. Contract §8.1.
+- **Depends on:** DESIGN-N2 §transport (owner choice), MP-N2-C3-T01, MP-N2-C4-T01, MP-N2-C5-T01, MP-R3-C1-T02.
+- **Tickets:** MP-N2-C10-T01 instance HTTPS listener and cert reload; T02 gateway HTTPS, endpoint
+  selection, TLS health; T03 T-A helper (`aiur mobile tls status|tailscale`); T04 T-B self-signed,
+  pin and LiveView long-poll fallback (needs MP-N1-C9-T01 evidence); T05 device validation.
+- **Every ticket that loads a dashboard in a WebView** (MP-N1, MP-N3, MP-N6) depends on
+  RQ-TRANSPORT and MP-N2-C10-T01.
+
 ## Open research per chunk (Phase C)
 
 | Chunk | Question |
 | --- | --- |
 | C1 | RQ-N2-6 lock protocol |
 | C4 | RQ-N2-3 lean boot; RQ-N2-4 RPC mode and timeouts |
-| C5 | QR encoder dependency; ATS and cleartext (RQ-N2-1) |
+| C5 | QR encoder dependency; ATS and cleartext → RQ-TRANSPORT (C10) |
 | C6 | RQ-N2-5 WebView origin and cookie injection |
 | C4/C6 | RQ-N2-2 per-instance reachability versus a port proxy |
+
+## Phase C final tickets (2026-10-06)
+
+Ticket bodies and the dependency table: [tickets/README.md](tickets/README.md).
+
+- C1–C4: candidates 1:1 (C1-T01 reads MP-R1's `identity.json`, RC-01; C2-T03 parses the real
+  `AIUR_RECORD_*` keys; C3-T02 covers enable, disable, devices and CLI write routing; C3-T03 depends
+  on C4-T02; C4-T04 returns a summary placeholder that MP-N3-C2-T01 replaces).
+- C5: T1..T5 as candidates; **new C5-T06** app first-run, scan and relink screens (surface-boundary
+  row 1 had no chunk).
+- C6: candidate T4 (advert flag) merged into C6-T01; C6-T02 is the one-time device-session code
+  with a device-kind marker and the per-instance cookie; C6-T03 the bearer write rule.
+- C7: C7-T01 revoke and rename (the `devices` verb stays in C3-T02); **new C7-T04** app machines and
+  devices screens (surface-boundary row 2).
+- C8: candidate T3 (states) folded into C8-T01 and C8-T02.
+- C9: C9-T02 points to MP-N2-C10-T05 for transport rows.
+- C10: new, five tickets (above).
+- Resolved: RQ-N2-2 (no port proxy), RQ-N2-3 (lean `__machine-gateway` entry, hidden node, no
+  `:aiur` application), RQ-N2-4 (`:erpc`, 2 s per instance, 4 concurrent), RQ-N2-5 (one-time code
+  URL, no cookie injection), RQ-N2-6 (`mkdir` lock, launcher algorithm); QR encoder `eqrcode` 0.2.1.

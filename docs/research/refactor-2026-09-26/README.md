@@ -61,6 +61,18 @@ assigns every oversized path one provisional writer. The earlier [b4bc review](s
 records the dual P1 review. Each checkpoint is pinned; affected findings still
 need implementation-head checks before code work.
 
+## Relationship to the modular platform pack
+
+A later pack, [aiur-mobile-and-platform](../aiur-mobile-and-platform/context-and-decisions.md)
+(2026-10-06, base `45a290e3`), plans a modular platform, a build queue, command
+escalation, conversations, voice, and mobile and watch apps (features MP-R1–R7,
+MP-E1–E7, MP-N1–N7). It reuses this research rather than repeating it: its
+[existing-refactor-research baseline](../aiur-mobile-and-platform/baseline/existing-refactor-research.md)
+indexes these files, MP-R1 extends the 36-boundary map and carve order, and its
+tickets cite this research's boundaries, findings and U8 size owners. The U0–U9
+units stay as planned; the per-unit cross-references are in
+[the plan](../../plans/2026-09-29-001-refactor-production-readiness-plan.md#relationship-to-the-modular-platform-pack).
+
 ## Starting inventory (measured 2026-09-26)
 
 | Source | Size |

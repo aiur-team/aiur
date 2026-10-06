@@ -3,7 +3,7 @@
 All citations are against `origin/main` at `45a290e3`, read with
 `git show 45a290e3:<path>`. Paths are under `src/lib/aiur/` unless they start
 with another top-level directory. This file extends
-[../../baseline/capability-baseline.md](../../baseline/capability-baseline.md)
+[../../baseline/capability-baseline-bucket-2.md](../../baseline/capability-baseline-bucket-2.md)
 §E1. It does not repeat it.
 
 The plan is [plan.md](plan.md). The chunks are [chunks.md](chunks.md).

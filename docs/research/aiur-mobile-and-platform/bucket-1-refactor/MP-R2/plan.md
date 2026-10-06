@@ -1,8 +1,8 @@
 ---
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: planned-with-blockers
+artifact_readiness: ticketed (Phase C, 2026-10-06); implementation blocked on DESIGN-R2
 feature_id: MP-R2
-bucket: 1 (refactor) with three additive chunks flagged for reclassification (§4.4)
+bucket: 1 (refactor); C5-C7 tagged Bucket-2-enabling (RC-09)
 base_main_sha: 45a290e3
 date: 2026-10-06
 owner_gate: ../../owner-design-tasks/DESIGN-R2.md
@@ -24,9 +24,12 @@ companion_docs: inventory.md, chunks.md
   [contract §2](../../contracts/events-and-replay.md#2-which-channel-owns-which-fact-resolves-mp-q5).
 - **Does not** add a broker, make the bus durable by fiat, rename topics, or
   change any user-visible behaviour in the packaging chunks.
-- **Blockers.** DESIGN-R2 (owner gate), MP-R1's package-layout decision (KTD3/
-  KTD11 conditions), the Identity contract owner, and the reclassification
-  decision for the additive chunks (§4.4).
+- **Blockers.** DESIGN-R2 (owner gate); prior unit U3's event-delivery fix
+  before C2-T01; prior unit U5 before C2-T02 (RC-21); MP-R1-C1 (manifest and
+  checker) before C2-T11/C4; MP-R1-C2 (identity) before C5-T04; MP-N2-C6/C7
+  before C7-T05. The package-layout, identity-owner and reclassification
+  questions are settled (§12).
+- **Tickets:** [tickets/README.md](tickets/README.md).
 
 ## 2. Repository findings (extends baseline §R2; full catalogue in [inventory.md](inventory.md))
 
@@ -120,7 +123,7 @@ bus; `codeowners_refresh_seconds` moves to the trust-classifier owner; new
 docs row in `website/docs-app/reference/configuration.md` (AGENTS.md "Docs
 ship with the change"; `scripts/check-config-docs.py` enforces it).
 
-### 4.4 Bucket classification (needs coordinator decision MP-KD-R2-1)
+### 4.4 Bucket classification (settled by RC-09; original text kept)
 
 C1–C4 are behaviour-preserving (Bucket 1). C5 (catalog/envelope), C6 (export
 journal, durable consumer) and C7 (external API) add capability with no
@@ -246,6 +249,30 @@ versioning, topic catalog, external subscriber API).
 8. Docs: `website/docs-app/concepts/message-bus.md` gains the placement rule
    and durability classes (C4); `reference/configuration.md` and
    `reference/cli.md` rows for every new key/command (C6–C7).
+
+## 12. Phase C changes (2026-10-06)
+
+Ticket research changed this plan as follows. Tickets are authoritative.
+
+| Item | Change | Evidence / decision |
+| --- | --- | --- |
+| RQ-1 | Settled statically; C1-T01 is the witness | `publisher.ex:337-357`, `issue_log.ex:545-560,573-581` |
+| RQ-2 | Deterministic interleaving witness (C1-T02); finding goes to U3 | contract O-4 |
+| RQ-3 | `DecisionLog` is a generic kernel primitive (16 callers, depends only on `Aiur.Fs`); MP-R1-C5-T1 moves it; `Aiur.Events.Journal` is a thin facade (C3-T01) | `git grep DecisionLog.` at base |
+| RQ-5 | All `system.dispatch/fleet/tracker/config.*` producers go through `Aiur.Alerts.emit_system` → `ledgered` | contract §6 |
+| RQ-6 | `Webhooks.EventSource` has no production caller; default routed through the Publisher (C2-T04), not deleted (U7 decides cuts) | `webhook_mode_contract.exs:85,100-108` |
+| RQ-7 | New routes go before `router.ex:191`; otherwise `/api/v1/:issue_identifier` (`:193`) shadows them | C7-T01 |
+| RQ-8 | Logical component in `components.json` (MP-R1-KD1/KD7); no Mix app, no file moves, no renames | C4-T01 |
+| §4.1 members | `Sanitizer`, `BranchRefStore`, `CommentFilter`, `EventPublicationLog`, `DebugLog` are not bus-core members; manifest-only reassignment (C2-T11, CR-R2-1) | caller census |
+| New seams | Publisher's GitHub gates → `SourcePolicy` (C2-T06, gate order kept); IdGenerator cold-boot floors injected from boot (C2-T07); SubscriptionStore dead-letter alert → `Delivery.dead_letter/5` (C2-T01) | `publisher.ex:188-246`, `id_generator.ex:294-336`, `subscription_store.ex:500-514` |
+| HistoryStore | Write sink only (C2-T03); readers keep `IssueLog.event_history/2` | readers are not bus members |
+| TrustClassifier | Consumes U5's single KTD9 trust snapshot; defines no trust rules (RC-21) | C2-T02 |
+| C4-T02 | Absorbed by MP-R1-C4 (events section registration) | MP-R1 plan C4 |
+| Exporter placement | End of the always-on block, not after the Exchange (avoids a `:rest_for_one` cascade); boot `gap` covers the late bind | contract §8 |
+| Anchors | RC-07: envelope `anchor` reserved, `null` in v1 | contract §4.2 |
+| Topic catalog | RC-08 registrations incl. `system.capabilities.changed`; seven legacy alert-name topics classified `ledgered` | contract §9, C1-T05 |
+| AC1 | Boundary gate is MP-R1's `scripts/check-components.py` (C4-T03), with `bus_boundary_test.exs` (C1-T06) as the interim ratchet; there is no `mix xref` gate in the repo | `.github/workflows/ci.yml` lint job |
+| Size owner | Looked up at ticket start (RC-23) | |
 
 ## 11. Plan refresh (after MP-R1..R7 land)
 

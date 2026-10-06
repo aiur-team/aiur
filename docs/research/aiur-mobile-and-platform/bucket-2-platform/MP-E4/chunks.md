@@ -7,6 +7,31 @@ parent: plan.md
 
 # MP-E4 chunks
 
+## Phase C changes (2026-10-06)
+
+Tickets are in [tickets/README.md](tickets/README.md); where this file and a
+ticket disagree, the ticket wins.
+
+- **C1:** new research ticket C1-T00 (RQ-E4-1 census, moved from C8-T3). Body
+  bounds (old T4) are in C1-T01; storage docs (old T5) are in C8-T02. The worker
+  tee covers **three** ingest points, not one: the per-message closure, the
+  Remote-Control display path (`session_lifecycle.ex:741-765`) and operator
+  delivery (`message_handler.ex:173-216`).
+- **C3 (RC-06/RC-07):** MP-R6-C1-T01 extracts `Aiur.Conversation.Anchors`; old
+  T1 is recast as "extend Anchors" (positions, precision ladder). Old T4
+  (resolver process) is merged into C3-T02. Exact anchors read the tool call id
+  from the bus event's `provenance.source_event_id`, not from the per-launch
+  publication log. The resolver is a live bus subscriber (GitHub/CI/push events
+  are `live` class).
+- **C4:** push labels (old T3) are in C4-T01.
+- **C5:** live tail (old T4) is in C5-T01; browser tests ship with each ticket;
+  docs and link-in are C5-T04.
+- **C6 (RC-05):** no interim `AgentChat` step; the composer ships once on
+  `Aiur.Listener.send/3` after MP-E7-C3. Old T3 (overlay) is in C6-T01.
+- **C7 (RC-06):** one ticket: the deck's transcript source moves to the journal;
+  grouping stays R6's `at_or_before/2`.
+- **C8:** old T3 moved to C1-T00.
+
 Every implementation ticket is **blocked on DESIGN-E4** (MP-REQ2). C1–C3 and C8
 are backend, but their entry kinds, body bounds and jump-point catalogue are
 fixed by DESIGN-E4 decisions (OQ-E4-2/3/5), so they wait for it too. Phase C

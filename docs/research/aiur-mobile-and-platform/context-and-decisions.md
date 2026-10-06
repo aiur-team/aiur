@@ -25,7 +25,7 @@ This pack plans all of that in order of value. Each feature's plan is decomposed
 
 - **The Executor is overloaded.** It runs reviews, merges and conflict work while the ready-ticket pool drains, and active agents fall from about 10 to a few even when unblocked tickets exist.
 - **Noticing a blocker is high friction.** The operator approximates an event listener by reading GitHub email.
-- **Steering an Executor is limited.** It needs Claude Remote Control; there is no aiur-native Executor conversation (see [baseline/capability-baseline.md](baseline/capability-baseline.md) E3).
+- **Steering an Executor is limited.** It needs Claude Remote Control; there is no aiur-native Executor conversation (see [baseline/capability-baseline-bucket-2.md](baseline/capability-baseline-bucket-2.md) E3).
 
 ## Requirements
 

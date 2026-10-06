@@ -7,6 +7,31 @@ parent: plan.md
 
 # MP-E3 chunks
 
+## Phase C changes (2026-10-06)
+
+Tickets are in [tickets/README.md](tickets/README.md) with two-digit IDs
+(`MP-E3-C1-T01`); where this file and a ticket disagree, the ticket wins.
+
+- **C1:** the binding, token, header and URL files are named with the instance
+  key (`<repo>.<instance_key>.executor.*`), because the executor state dir is per
+  repository and two instances of one repo would collide. Hook commands read the
+  daemon URL from a file, so hooks survive port changes. Claude hooks install to
+  the repository's `.claude/settings.local.json` (owner decision CR-E3-8); Codex
+  is print-only (trust is interactive). The generator accepts extra entries for
+  MP-E7-C6 (CR-E7-3).
+- **C2:** `TranscriptTailer` gains `from: {:offset, n}`, `on_offset` and
+  `:extractor` options; session boundaries are folded into C2-T01 (old T2).
+- **C3:** census (2026-10-06) shows the rollout format at 0.157–0.160.1
+  (`event_msg/item_completed` with typed items), so the rollout reader is the
+  default; the spike (C3-T01, ready) closes the codex-tui 0.160 gap. RQ-E3-2 is
+  optional.
+- **C5 (RC-05, CR-E7-2):** C5-T01 depends on MP-E7-C3 and ships in wave 3 with
+  the composer disabled until MP-E7-C6 (Executor hook delivery) is installed. It
+  reuses MP-E4-C6-T01's overlay (old C5-T2 merged).
+- **C6:** browser tests ship with each ticket (old T4); docs go to C6-T01 and
+  C7-T02 (old T5).
+- **C7:** skills updates are in C7-T02 (old T3).
+
 Every implementation ticket below is **blocked on DESIGN-E3** (MP-REQ2), even
 backend ones, because the attach/opt-in UX and the status vocabulary are owner
 decisions. Ticket fields to fill in Phase C: `Prior-units`, `Prior-boundaries`,

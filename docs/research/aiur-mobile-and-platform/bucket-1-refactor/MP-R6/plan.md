@@ -7,8 +7,8 @@ base_main_sha: 45a290e3
 date: 2026-10-06
 owner_gate: ../../owner-design-tasks/DESIGN-R6.md
 blockers:
-  - Conversation-anchor contract (owned by the MP-E4 planner) must accept §5 before C1 fixes the neutral module's API
-  - MP-R1 package placement decides where the neutral modules live (C1 can land in-process first)
+  - Conversation-anchor contract: RESOLVED by RC-06/RC-07 (R6-C1 extracts; E4-C3 extends; E4 journal pos is the address). Name confirmation requested (tickets/CONTRACT-REQUESTS.md CR-R6-2)
+  - MP-R1 package placement: not blocking (C1 lands in core; MP-R1-C8-T3 moves it)
 ---
 
 # MP-R6 — Stream Deck: separate shared projections from hardware presentation
@@ -51,7 +51,7 @@ protocol exists). `ui-19` (demo mode) stays cut. Size-owner: `DECK_WEB` for
 
 ## 1. Repository findings (verified at `45a290e3`)
 
-This extends `baseline/capability-baseline.md` § R6.
+This extends `baseline/capability-baseline-bucket-1.md` § R6.
 
 ### 1.1 The anchoring algorithm (`src/lib/aiur_web/streamdeck_logs.ex`)
 
@@ -143,7 +143,7 @@ Command: `git grep -n -E "Streamdeck(Logs|Projection|Commands|…)|StreamDeckGri
 
 | Layer | Contents | Package (after R1) | Depends on |
 | --- | --- | --- | --- |
-| **Conversation anchors (neutral)** | NEW `Aiur.Conversation.EventAnchors`. The name is provisional and is the MP-E4 contract's choice. It holds the origin synthesis, event identity, attach rule and timestamp parsing, as a pure function `anchor(events, transcript) :: [%{event, entries}]` plus `load(identifier, limits)`. | core or `aiur_projections` (`PRJ` #28) | `Aiur.AgentEventFeed` |
+| **Conversation anchors (neutral)** | NEW `Aiur.Conversation.Anchors` (Phase C: the MP-E4 plan name; confirmation in CR-R6-2). It holds the origin synthesis, event identity, attach rule and timestamp parsing, as the pure functions `at_or_before/2`, `with_origin/2` and `event_identity/2`. There is no `load`: data sources stay in `StreamdeckLogs` until MP-E4-C7. | core or `aiur_projections` (`PRJ` #28) | `Aiur.AgentEventFeed` |
 | **Event badge vocabulary (neutral)** | `EMIT CONSUME AGENT SYSTEM INFO` defined in the neutral module; the visual contract asserts agreement with it | same | none |
 | **Shared fleet and command projections** | `StreamdeckProjection`, `StreamdeckCommands`, `StreamDeckGrid`, `StreamdeckTranscriptRelay`. **Kept in place and kept their names** (C3 rationale). | `aiur_web` (`SD` server side "with web") | Orchestrator, DecisionStore, `Aiur.Voice` (R5) |
 | **Deck presentation (daemon side)** | `StreamdeckLogs` (paging, LIVE, window, `line/1`, `wire/1`, now delegating anchoring), `StreamdeckStrip`, `StreamdeckKeyFaceContract`, `StreamdeckLive` | `aiur_web` | neutral anchors; visual contract |
@@ -240,53 +240,28 @@ The coordinator reconciles these:
 
 ## 8. Chunks
 
-### MP-R6-C1 — Extract device-neutral event anchors
+Phase C decomposed these chunks into tickets: see [tickets/README.md](tickets/README.md).
 
-- **Outcome:** a pure, documented anchoring module that E4 and the deck both
-  use. `StreamdeckLogs` keeps presentation only.
-- **Dependencies:** E4 contract reconciliation (§ 5) for the API names. C2-T01
-  for the vocabulary, or define it in C1-T01 and have C2 consume it.
-- **Tickets:**
-  - MP-R6-C1-T01: create the neutral module with `anchor/2`, the identity, the
-    origin and the badge vocabulary. Move the existing private functions
-    verbatim.
-  - MP-R6-C1-T02: make `StreamdeckLogs.project/1` and `load/1` delegate to it.
-    Pass `bus: 40, transcript: 50` explicitly.
-  - MP-R6-C1-T03: add unit tests for the attach boundary, nil timestamps,
-    twins and the origin fallback (with mutation proofs).
-- **Tests:** § 7.1–7.2.
+- **MP-R6-C1-T01** extracts `Aiur.Conversation.Anchors` (`at_or_before/2`,
+  `with_origin/2`, `event_identity/2`). It is behaviour-preserving (RC-06).
+  - The badge vocabulary moves to its producer, `Aiur.AgentEventFeed.directions/0`,
+    so `StreamdeckLogs` stops reading the visual contract.
+  - The oracle is `streamdeck_logs_test.exs`, unmodified. Mutations A–D are in
+    the ticket.
+  - The plan's T01–T03 were merged into one PR.
+- **MP-R6-C2-T01** moves the canonical `key-face-contract.json` and the parity
+  vectors to `src/priv/streamdeck/`.
+  - The sidecar keeps a byte-checked mirror, because `rootDir: src` forbids an
+    outside import.
+  - A source-scan test asserts that `src/lib` never references
+    `packages/streamdeck`.
+  - The compile-without-package proof is a one-time manual step. The plan's
+    T01–T03 were merged.
+- **MP-R6-C3-T01** adds the classification docs. The voice delegation and its
+  re-proof are MP-R5-C1-T03, not an R6 ticket.
 
-### MP-R6-C2 — Invert visual-contract ownership
-
-- **Outcome:** the daemon owns the deck protocol and visual contract file. The
-  sidecar consumes it. Core compiles without `packages/streamdeck`.
-- **Dependencies:** C1-T01 (vocabulary home). Phase C RQ2 (file home).
-- **Tickets:**
-  - MP-R6-C2-T01: move `key-face-contract.json` to the daemon-owned path
-    chosen in RQ2. Update `@contract_path`.
-  - MP-R6-C2-T02: make the sidecar build (`packages/streamdeck/scripts/build-package.mjs`,
-    `tsconfig`) import or copy it from that path. Keep
-    `key-face-contract.test.ts` byte-agreement.
-  - MP-R6-C2-T03: add a CI step that compiles core with the package directory
-    absent (§ 7.4).
-- **Tests:** both agreement tests; the package build test
-  `scripts/test/build-package.test.mjs`.
-
-### MP-R6-C3 — Classify shared versus presentation; voice delegation
-
-- **Outcome:** a written classification (the § 1.2 table) in
-  `docs/streamdeck-channel.md`, and the voice availability delegation landed.
-  No renames.
-- **Dependencies:** MP-R5-C1-T04.
-- **Tickets:**
-  - MP-R6-C3-T01: add a "Shared projections vs deck presentation" section to
-    `docs/streamdeck-channel.md`, plus one line in
-    `website/docs-app/guide/stream-deck.md`: "the dashboard never needs the
-    sidecar".
-  - MP-R6-C3-T02: re-verify after R5-C1-T03 and R5-C1-T04. The deck voice path
-    uses `Aiur.Voice` and the `voice_start` replies are unchanged
-    (`streamdeck_channel_test.exs:1089-1095`).
-- **Tests:** existing deck suites. Manual re-proof (§ 7.5).
+RC-06 consequence for MP-E4: E4-C3-T1 duplicates C1-T01 (CR-R6-1). E4-C3
+extends `Anchors`, and E4-C7 moves the deck data source onto the journal.
 
 ## 9. Open questions
 
@@ -299,15 +274,13 @@ The coordinator reconciles these:
 
 **Research (Phase C):**
 
-- RQ1: Do `AgentEventFeed.list/2` entries carry a stable per-entry id or
-  sequence usable as an anchor position? Answer from `agent_event_feed.ex` and
-  `IssueLog`.
-- RQ2: Where should the daemon-owned contract file live: `src/priv/…`, or a
-  small `packages/aiur-deck-protocol`? Decide by what the npm release and the
-  sidecar build can reach without the source tree.
-- RQ3: Does `StreamDeckGrid.dependency_ready?/2` have a non-deck consumer
-  beyond the `status_report.ex:1452` comment? If it is only a comment, keep it
-  in place.
+- RQ1 (answered): no. Entries carry the provider `msg_id`/`turn_id`, which
+  may be nil (`agent_event_feed.ex:196-197`). The daemon sequence is a
+  per-BEAM `unique_integer` (`agent_events.ex:129`). R6 keeps `start`; stable
+  positions are E4's journal `pos` (RC-07).
+- RQ2 (answered): `src/priv/streamdeck/`, with a byte-checked sidecar mirror
+  (MP-R6-C2-T01). A new package fails MP-R1's promotion test.
+- RQ3 (answered): there is no consumer outside the module. It stays in place.
 
 ## 10. Plan refresh
 

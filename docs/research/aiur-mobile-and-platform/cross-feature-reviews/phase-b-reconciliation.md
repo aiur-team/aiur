@@ -16,7 +16,7 @@ Written by the coordinator on 2026-10-06, after all 11 feature planners finished
 | RC-05 | **Wave conflict.** D15 routes dashboard sends through listener mode (MP-E7, wave 4), but MP-E3/E4 are wave 3, and the E4 send path depends on E7-C3. | Move **MP-E7-C1 to C3** (spec package, mode store, route every send through the mode) into **wave 3, ahead of the E3/E4 write chunks** (E3-C5, E4-C6). The E3/E4 read chunks are not blocked. E7-C4 to C7 stay in wave 4. The default change from interrupt to `sync` (E7-D6) is an owner item, so E7-C3 ships behind a flag that keeps today's behaviour until DESIGN-E7 is approved. |
 | RC-06 | MP-R6-C1 and MP-E4-C7 both move the `StreamdeckLogs` anchoring. | **MP-R6-C1 extracts** the neutral anchor module without changing behaviour. **MP-E4-C3 extends it** (exact anchors, stable entry IDs, durable journal positions). E4-C7 shrinks to switching the Stream Deck onto the E4 journal. |
 | RC-07 | Anchor address: row index (today), stable entry ID (MP-R6), or journal position (MP-E4). | The **E4 durable journal position** is the address. The stable entry ID is the position number that the journal writer assigns. The bus only reserves an `anchor` field (MP-R2). |
-| RC-08 | New bus topics are requested by several features. | MP-R2's catalog (R2-C5) registers all of them: `ticket.<id>.decision.human-needed` (E2), `ticket.<id>.pr.closed_unmerged` and `ticket.<id>.issue.closed` (E1), `ticket.<id>.agent.listen-mode.changed` (E7), `ticket.<id>.queue.*` and `system.queue.*` (E1), `system.build_order.<root>.progress` (producer: **MP-E1-C7**). |
+| RC-08 | New bus topics are requested by several features. | MP-R2's catalog (R2-C5) registers all of them: `ticket.<id>.agent.decision.human-needed` (E2; spelling per the command contract), `ticket.<id>.pr.closed_unmerged` and `ticket.<id>.issue.closed` (E1), `ticket.<id>.agent.listen-mode.changed` (E7), `ticket.<id>.queue.*` and `system.queue.*` (E1), `system.build_order.<root>.progress` (producer: **MP-E1-C7**). |
 | RC-09 | MP-R2-C5 to C7 (catalog, export journal, external read API) add capability inside a refactor feature. | They stay under MP-R2, are **tagged Bucket-2 enabling work**, are off by default, and are scheduled just before their first consumer (MP-N4/N5). |
 | RC-10 | MP-N5 needs 10% steps; the MP-E1 contract emits only 25/50/75/100 milestones (A-E1-1). | MP-E1-C7 also exposes a **progress read API and an internal progress-changed signal**. Milestone events stay at 25%. N5 computes per-device thresholds from the signal. The D18 default stays 25%. |
 | RC-11 | MP-E1 ships in wave 0, before MP-R1's dependency checker. | MP-E1 ships **its own source-scan test** that the queue never references `Aiur.Orchestrator`. R1-C1 absorbs it later. R1's component map adds two narrow edges: a rank and hold lookup in `DispatchPolicy`, and a claim-check interface that orchestration implements (E1 X-1). |
@@ -42,3 +42,24 @@ Written by the coordinator on 2026-10-06, after all 11 feature planners finished
 - #3009: `CurrentRunProjections` ignores the observability broadcast.
 - #3010: `dashboard_writable` defaults to `true`, but the router comments say it is disabled by default.
 - Not filed, in a sibling repo: `aiur-claude` `turn/steer` drops the steered text (`server.ts:194/466-469/505`). aiur does not call it yet. Recorded as MP-R7 research and as a precondition of E7-C4.
+
+## Prior refactor plan (U0–U9) against the pack
+
+These were found while cross-linking the U0–U9 plan. They are coordinator decisions.
+
+| ID | Conflict | Decision |
+|---|---|---|
+| RC-19 | MP-E1 (wave 0) edits U2 files (`issue_sync.ex`, `dispatch_policy.ex`) and U5 files (`github/labels.ex`, `github/issues.ex`). The prior plan blocks product code until U0 review. | That U0 gate covers refactor work only. MP-E1 is Bucket 2 and ships first by operator choice (D2). It is **not gated on U0**, and it limits its core edits to the MP-E1-C1 hooks. The U2 and U5 tickets must rebase over E1-C1 and keep its hooks. |
+| RC-20 | U2's exit criterion says "no second label writer remains"; MP-E1 adds the queue as an `agent:todo` writer. | The queue is a **sanctioned caller of the single label-writer seam**. Before U2 lands it calls the existing labels module. After U2 it calls U2's writer. U2's exit criterion means "no second label-*writing implementation*", not "one caller". |
+| RC-21 | The order of MP-R2-C2-T02 (`TrustClassifier` around `Sanitizer`) and U5 (the KTD9 trust snapshot) is unstated. | **U5 first.** R2-C2-T02 consumes U5's trust snapshot and does not define its own trust rules. |
+| RC-22 | U4 and R8 route Gemini through draft PR #2870; MP-R7's adapter set omits Gemini and ACP. | MP-R7 adds a **Gemini/ACP row** to its harness inventory. It is conditional on #2870: if #2870 merges first, R7-C2 declares Gemini's delivery capabilities; if not, the row records it as a future adapter. |
+| RC-23 | The U8 size ledger is pinned at `465aca643`; the pack is pinned at `45a290e3`. | Each ticket looks up its size owner **when it starts**, against the then-current U8 ledger. This is part of the MP-R1-C11 plan-refresh ticket. |
+
+## Phase C decisions
+
+| ID | Conflict | Decision |
+|---|---|---|
+| RC-24 | MP-R1-C5-T3 and MP-R1-C8-T4 both move `AiurWeb.ObservabilityPubSub` out of the web layer. | **C5-T3 owns the move.** C8-T4 drops its item 1 and depends on C5-T3. |
+| RC-25 | MP-E3-C5 (Executor composer, wave 3) depends on MP-E7-C6 (hook delivery into the Executor session, wave 4). | E3-C5 ships in wave 3 with the **composer disabled and an explanation**, as the E3 plan already allows. A follow-up enables it when E7-C6 lands. |
+| RC-26 | Closed-unmerged PR detection: MP-E1 reads the stored webhook delivery, and MP-R2 CR-R2-6 asks E1 to produce the topic. | R2 registers `ticket.<id>.pr.closed_unmerged`. **E1 produces it** from the same stored-delivery observation. Detection works in webhook mode only, and the E1 docs must say so. |
+| RC-27 | MP-E1 tickets say the CLI reference is machine-checked. | That is wrong. `website/docs-app/scripts/check-cli-reference.sh` exists only as an npm script, and no CI workflow runs it (checked on `origin/main`). AGENTS.md is correct as written. The E1 docs tickets keep the manual docs requirement. |

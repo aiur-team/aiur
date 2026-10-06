@@ -166,8 +166,10 @@ aiur-cli (npm): `aiur hook deliver --harness claude|codex` (Executor sessions; C
   `async` unavailable where no pull path exists (`claude-repl`).
 - **Transport change** (fallback, RC promotion): recompute effective mode;
   emit `listen-mode.changed` with `actor: system`.
-- **Restart:** mode store is durable per ticket run; pending items survive
-  in `AgentQueueStore`; a claimed-but-unacknowledged item is restored
+- **Restart:** mode store is durable per ticket run. Correction (Phase C):
+  pending items do **not** survive a daemon restart, because `AgentQueueStore`
+  is in-memory (`agent_queue_store.ex:2-3`); their receipt becomes `unknown`.
+  Within one daemon life, a claimed-but-unacknowledged item is restored
   (existing `restore_delivered_queue_items`).
 - **Duplicates:** `client_request_id` idempotency (#2717); hook delivery
   de-duplicates by message id before render (Khala `inbox.ts:22-35`).
@@ -228,7 +230,10 @@ Executor send are thin callers of C3/C6; if E4 ships first, it calls
 - E7-Q6. Is the switch from today's interrupt default to `sync` acceptable
   for Stream Deck dictation and `aiur message`? (Behaviour change.)
 
-**Research (Phase C):**
+**Research (Phase C):** RQ-E7-1..6 are answered in the tickets (see
+[tickets/README.md](tickets/README.md)); RQ-E7-C6-1 and RQ-E7-C6-2 are new.
+The Node-side hook command in this plan's release path is superseded: C6
+renders the hook envelope in the daemon (Elixir) and needs no Node package.
 - RQ-E7-1. Codex `turn/steer` availability in the Codex version aiur pins;
   error shapes; whether it emits item events for the steered input.
 - RQ-E7-2. Muse `ifBusy` values; does `"steer"` exist?

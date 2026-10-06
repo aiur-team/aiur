@@ -1,0 +1,132 @@
+---
+ticket_id: MP-R1-C10-T5
+feature_id: MP-R1
+chunk_id: MP-R1-C10
+bucket: 1-refactor
+title: Publish the component directory page (sidebar, AGENTS.md docs rule, go-live)
+status: blocked
+blocked_by: [DESIGN-R1, "DESIGN-R1 §3 final approval of the first generated page", MP-R1-C10-T3, MP-R1-C10-T4, "MP-R1-C9 (all tickets merged, migration step S16)", MP-R1-C11-T3]
+prior_units: [U8, U9]
+prior_boundaries: ["#40 docs-site"]
+prior_features: []
+prior_findings: []
+size_owner: DOCS (AGENTS.md, 639 lines at 45a290e3)   # re-resolve at ticket start against the current U8 ledger (RC-23, MP-R1-C11-T2)
+base_sha: 45a290e3
+researched: 2026-10-06
+---
+
+# MP-R1-C10-T5 — Publish the component directory page
+
+## Identity and outcome
+
+- **Bucket / feature / chunk:** Bucket 1, MP-R1, C10 (MP-REQ4; D20 "goes live after the
+  refactor").
+- **User value:** the public docs at `aiur.team/docs` list every component and the
+  approved planned features, reachable from the sidebar, matching the code.
+- **Deliverable:** one PR that
+  1. adds `{ text: 'Components', link: '/reference/components' }` to the Aiur sidebar
+     **Reference** group (or the location DESIGN-R1 Q2 approves);
+  2. removes `search: false` and the `noindex` head entry from
+     `reference/components.md`;
+  3. sets `"directory_published": true` in the manifest, which activates sidebar rule D6
+     (C10-T4);
+  4. adds the AGENTS.md "Where each thing is documented" row
+     `| New or changed component | components.json (the Components page regenerates) |`
+     and updates the following paragraph ("Only one row above is machine-checked") to
+     name `scripts/check-components.py` as the second machine-checked row;
+  5. is followed by a manual production deploy (Netlify production deploys are manual,
+     `website/netlify.toml` `[build]` comment) and the published-docs smoke check.
+- **Non-goals:** content or design changes (C10-T1/T3).
+
+## Dependencies and blockers
+
+- **D20:** live only after the refactor: all MP-R1-C9 tickets merged (migration step
+  S16) and the final plan refresh MP-R1-C11-T3 done, so the manifest describes the
+  post-refactor component map.
+- **DESIGN-R1 §3 acceptance:** "Kevin approves the first generated page from the
+  post-refactor manifest before the sidebar entry ships". The approval must be explicit
+  and linked in the PR body.
+- **MP-R1-C10-T3** (approved rendering), **MP-R1-C10-T4** (D6 rule exists).
+- **Concurrent:** nothing else in C10; runs alone.
+
+## Verified starting point (base `45a290e3`)
+
+- Sidebar Reference group: `website/docs-app/.vitepress/config.ts:163-169`
+  (`Configuration`, `Optional Optimizations`).
+- AGENTS.md: "Where each thing is documented" table at `AGENTS.md:53-61`; the sentence
+  "A genuinely new page must also be added to the sidebar" follows; "Only one row above
+  is machine-checked" paragraph follows that. AGENTS.md is 639 lines at `45a290e3`, an
+  oversized path owned by U8 package `DOCS` (ledger row `AGENTS.md,639,DOCS,...`).
+- Published-docs smoke check: `website/scripts/smoke-published-docs.sh`, run by
+  `website.yml:69-75` after a push to `main`; it checks
+  `https://aiur.team/docs/guide/stream-deck.html` only.
+- Netlify: `website/netlify.toml` — production builds started by a push are skipped
+  (`ignore` exits 0 in `production` context); publish is
+  `netlify deploy --prod --dir website/dist` after a local build.
+
+## Chosen design
+
+- Sidebar placement default "Reference, after Optional Optimizations"
+  (component-directory.md §2) unless Q2 approves otherwise.
+- Discovery flags removed in the same PR as the sidebar entry so the page is never
+  linked but hidden, or searchable but unlinked.
+- AGENTS.md edit is net-zero or shrinking in line count if the U0 size gate is
+  installed (AGENTS.md is grandfathered debt; growth fails the gate). If a net-zero
+  edit is not possible, coordinate with the `DOCS` size owner first.
+
+## Implementation steps
+
+1. Confirm C9 and C11-T3 are merged/done; regenerate nothing by hand — run
+   `python3 scripts/check-components.py` and `--docs` on the current head.
+2. Build locally and attach a screenshot of the generated page (desktop and phone) to
+   the PR for Kevin's approval.
+3. Edit `config.ts`, `reference/components.md` frontmatter, the manifest flag and
+   AGENTS.md.
+4. After merge: Executor or Kevin runs the documented manual production deploy, then
+   opens `https://aiur.team/docs/reference/components` and confirms it returns 200 and
+   lists the expected component count.
+
+## Non-happy paths
+
+- **Approval withheld:** do not merge; the page stays unlisted (no partial publish).
+- **Post-refactor manifest still has allowlisted dependency violations:** not a
+  blocker for publishing (the page shows components, not violations), but the PR body
+  states the current ratchet count.
+- **Deploy forgotten:** merged but not live. The completion checklist requires the
+  live URL check; "merged" is not done.
+- **Rollback:** revert the PR (removes sidebar entry, restores `noindex`/`search:
+  false`, flag back to false) and redeploy.
+
+## Compatibility and rollout
+
+- Public docs only. No runtime, config or CLI change.
+- Optional: extend `smoke-published-docs.sh` to also fetch
+  `/docs/reference/components.html` (2-3 lines) so a stale deploy is detected.
+
+## Verification
+
+- `python3 scripts/check-components.py --docs` passes with `directory_published: true`
+  (D6 active); the `sidebar_missing_when_published_fails` fixture (C10-T4) already
+  proves the rule.
+- Commands:
+  ```bash
+  env -C website/docs-app bun run build
+  grep -c 'reference/components' website/dist/docs/index.html     # >= 1 (sidebar link)
+  grep -c 'noindex' website/dist/docs/reference/components.html   # 0
+  bash scripts/test-check-components.sh
+  ```
+- Manual: local `bun run preview`, sidebar shows "Components", local search finds a
+  component name on the page; after deploy, the live URL check above.
+
+## Completion and handoff
+
+- [ ] Kevin's approval of the generated page linked.
+- [ ] Sidebar entry, discovery flags removed, manifest flag true, AGENTS.md row and
+      paragraph updated (net-zero lines if the size gate is on).
+- [ ] Production deploy done and live URL verified.
+- [ ] Docs: this is the docs change; AGENTS.md row added per "Docs ship with the
+      change".
+- **Dependents:** none in MP-R1. Later features add/flip manifest entries; the page
+  regenerates.
+- **Sources:** [component-directory.md §6](../component-directory.md),
+  [DESIGN-R1](../../../owner-design-tasks/DESIGN-R1.md) §3.

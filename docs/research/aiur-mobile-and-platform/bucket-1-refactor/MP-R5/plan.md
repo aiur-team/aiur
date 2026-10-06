@@ -7,8 +7,9 @@ base_main_sha: 45a290e3
 date: 2026-10-06
 owner_gate: ../../owner-design-tasks/DESIGN-R5.md
 blockers:
-  - MP-R1 package mechanism (in-repo optional Mix dependency vs umbrella app) for C3 only
-  - Voice-session contract (owned by the MP-E5/E6 planner) must accept §5 needs before C1 fixes message names
+  - RQ-R5-PKG (MP-R1 promotion test + package mechanism) for C3 only
+  - MP-R1-C4-T1 (config registration) for C2-T02 only
+  - Voice-session contract message names: RESOLVED by RC-14 (contract text update requested, tickets/CONTRACT-REQUESTS.md CR-R5-1)
 ---
 
 # MP-R5 — Optional voice package around ElevenLabs speech-to-text
@@ -63,7 +64,7 @@ coordinate with the U8 split.
 
 ## 1. Repository findings (verified at `45a290e3`)
 
-This extends `baseline/capability-baseline.md` § R5, which has the stage table.
+This extends `baseline/capability-baseline-bucket-1.md` § R5, which has the stage table.
 
 ### 1.1 Provider modules (9 Elixir files)
 
@@ -155,7 +156,7 @@ callers (VoiceChannel, StreamdeckChannel, StreamdeckProjection, DashboardLive)
         │    push(ref, b64_pcm16) / commit(ref) / stop(ref)
         │    quota_snapshot/0 -> today's Quota map, or %{state: :unconfigured, …}
         ▼
-Aiur.Voice.Transcriber (behaviour)      Aiur.Voice.Speaker (behaviour, TTS)
+Aiur.Voice.Transcriber (behaviour)      Aiur.Voice.Synthesizer (behaviour, TTS)
         ▼                                         ▼
 Aiur.ElevenLabs.Realtime  (optional package aiur_voice_elevenlabs)  Aiur.ElevenLabs.TTS
 ```
@@ -228,8 +229,9 @@ The coordinator reconciles these. R5 does not write that contract.
    decision lives in the session layer that E5/E6 owns. The port stays a pure
    transcriber.
 7. **Message tags** `{:voice_transcript | :voice_error | :voice_closed}` are
-   proposed here. If the E5/E6 contract names them differently, C1 adopts
-   those names. **C1 must not start until this is reconciled.**
+   **adopted by the contract (RC-14)**. Phase C adds the TTS tag
+   `{:voice_audio, …}` and the behaviour name `Aiur.Voice.Synthesizer` (the
+   contract's own name), recorded in CR-R5-1.
 
 ## 6. Non-happy paths
 
@@ -271,73 +273,26 @@ The coordinator reconciles these. R5 does not write that contract.
 
 ## 8. Chunks
 
-### MP-R5-C1 — `Aiur.Voice` port and facade (in-process)
+Phase C decomposed these chunks into tickets: see [tickets/README.md](tickets/README.md).
 
-- **Outcome:** every caller uses `Aiur.Voice`. There is one test seam, and an
-  absent provider is a handled state.
-- **Dependencies:** voice-session contract reconciliation (§ 5.7); DESIGN-R5
-  copy for `:not_installed`.
-- **Tickets:**
-  - MP-R5-C1-T01: define the `Aiur.Voice.Transcriber` behaviour and the
-    `Aiur.Voice` facade. Make the ElevenLabs Realtime adapter implement it with
-    neutral tags.
-  - MP-R5-C1-T02: move `VoiceChannel` to the facade and retire
-    `:voice_stt_start_fun`.
-  - MP-R5-C1-T03: move `StreamdeckChannel` to the facade and retire
-    `:streamdeck_voice_session`. Coordinate with MP-R6-C3.
-  - MP-R5-C1-T04: make `StreamdeckProjection.voice/0` delegate to
-    `Aiur.Voice.availability/0`, keeping the wire shape
-    `%{available, reason}`.
-  - MP-R5-C1-T05: add the `Aiur.Voice.Speaker` behaviour for TTS and move
-    `VoiceChannel`'s `TTS` use behind it.
-- **Tests:** existing suites with seam swaps; a new absent-provider test
-  (§ 7.3); a latency guard (`streamdeck_voice_latency_test.exs`).
+- **C1** — `Aiur.Voice` port and facade:
+  - T01: behaviours, facade and neutral tags, including the TTS tags;
+  - T02: dashboard channel;
+  - T03: deck channel and projection;
+  - T04: the `not_installed` copy and the absent-provider test.
+- **C2** — ownership:
+  - T01: quota and supervision through `Aiur.Voice.child_specs/0` and
+    `quota_snapshot/0`; it does not need MP-R1;
+  - T02: config and `init` registration, blocked on MP-R1-C4-T1.
+- **C3** — physical package: one ticket, blocked on RQ-R5-PKG. MP-R1's
+  promotion test (migration-plan § 5) does not pass for voice yet, and MP-R1
+  chose no package mechanism. MP-R5 is complete without C3.
+- **C4** — docs and dead code:
+  - T01: responsibilities and cloud-processing docs;
+  - T02: delete the `elevenlabs-tts.ts` / `node-fetch.ts` island.
 
-### MP-R5-C2 — Config, init, quota and supervision ownership
-
-- **Outcome:** the voice package owns its schema, `init` prompt and quota
-  child. Core works when they are absent.
-- **Dependencies:** C1; MP-R1 `CFG` schema-registration mechanism (`CFG` #2).
-- **Tickets:**
-  - MP-R5-C2-T01: register the `elevenlabs` embed through the R1 mechanism,
-    with the same keys.
-  - MP-R5-C2-T02: route the `init` prompt and YAML section through a voice
-    contribution hook. The output stays byte-identical
-    (`templates_test.exs`).
-  - MP-R5-C2-T03: add the `Aiur.Voice.quota_snapshot/0` facade. Supervise
-    `Quota` from the voice package's child spec. `DashboardLive` calls the
-    facade.
-- **Tests:** templates golden test; config schema test; dashboard quota row
-  absent when not installed (mutation: return `:unknown` and the row appears).
-
-### MP-R5-C3 — Physical optional package
-
-- **Outcome:** the ElevenLabs adapter, Quota, TTS and the schema live in
-  `aiur_voice_elevenlabs` (name per R1), excluded from core compile when
-  absent.
-- **Dependencies:** C1, C2; **MP-R1 package mechanism (blocker)**; U8 owners
-  for touched >500-line files.
-- **Tickets:**
-  - MP-R5-C3-T01: move the files and wire the dependency.
-  - MP-R5-C3-T02: add a CI job that compiles and tests core without the
-    package.
-  - MP-R5-C3-T03: release packaging includes the package by default. Whether
-    the npm product ships with voice is an owner question.
-- **Tests:** the § 7.4 compile and the § 7.1 grep gate.
-
-### MP-R5-C4 — Docs and the dead sidecar TTS
-
-- **Outcome:** responsibilities are documented; the key rule has no
-  contradicting code.
-- **Dependencies:** C1. Can follow C1 directly.
-- **Tickets:**
-  - MP-R5-C4-T01: add the responsibility table and the "cloud processing"
-    statement to `website/docs-app/apis/elevenlabs.md`.
-  - MP-R5-C4-T02: delete `packages/streamdeck/src/audio/elevenlabs-tts.ts` and
-    its test, after Phase C confirms it is unreachable. Alternatively, record a
-    U7 cut.
-- **Tests:** sidecar `npm test`; package build test
-  `scripts/test/build-package.test.mjs`.
+The TTS behaviour is named `Aiur.Voice.Synthesizer` (the contract name), not
+`Speaker`.
 
 ## 9. Open questions
 
@@ -353,14 +308,16 @@ The coordinator reconciles these. R5 does not write that contract.
 
 **Research (Phase C):**
 
-- RQ1: Can the Realtime adapter emit neutral tags with no latency change?
-  Measure with `streamdeck_voice_latency_test.exs`.
-- RQ2: Where is `VoiceSessionLimiter` supervised, and does it stay in
-  `aiur_web`?
-- RQ3: Is `elevenlabs-tts.ts` unreachable from `main.ts`, by an import graph
-  check?
-- RQ4: What is the R1 mechanism for optional Mix dependencies inside one
-  release (path dep with `optional: true`, or an umbrella app)?
+- RQ1 (answered): yes. The adapter sends the neutral tags itself, so there is
+  no extra process hop. The latency test is `:external` and only gets the
+  rename.
+- RQ2 (answered): `AiurWeb.FinancialData.Supervisor`
+  (`financial_data/supervisor.ex:9,18`). It stays in `aiur_web`.
+- RQ3 (answered): unreachable. `elevenlabs-tts.ts` and `node-fetch.ts` import
+  only each other (`node-fetch.ts:10` is type-only), and only their own tests
+  import them.
+- RQ4 (open, renamed RQ-R5-PKG): MP-R1 defines a promotion test, not a
+  mechanism. C3-T01 is blocked on it.
 
 ## 10. Plan refresh
 

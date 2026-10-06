@@ -1,10 +1,11 @@
 ---
 contract_id: MP-CT-events-and-replay
 owner_feature: MP-R2
-status: draft (Phase B; not reconciled by coordinator)
+status: reconciled (Phase C; applies RC-02, RC-04, RC-07, RC-08, RC-09; implementation blocked on DESIGN-R2)
 base_main_sha: 45a290e3
 date: 2026-10-06
-consumers: MP-E1, MP-E2, MP-E3, MP-E4, MP-E7, MP-N3, MP-N4, MP-N5, MP-N6, MP-R6
+consumers: MP-E1, MP-E2, MP-E3, MP-E4, MP-E7, MP-N3, MP-N4, MP-N5, MP-N6, MP-R1, MP-R6
+tickets: ../bucket-1-refactor/MP-R2/tickets/README.md
 evidence: ../bucket-1-refactor/MP-R2/plan.md, ../bucket-1-refactor/MP-R2/inventory.md
 ---
 
@@ -78,16 +79,19 @@ Placement rules for new facts:
 | Field | Today | Contract |
 | --- | --- | --- |
 | `id` (event id) | One integer per instance from `Aiur.Events.IdGenerator`: monotonic in *assignment*, restart-safe (`event-id.json` in the instance- and repository-qualified runtime state dir), gaps allowed, roughly microsecond-sized (`id_generator.ex:1-56`) | Unique within one instance, never reused. **Not dense, not a delivery order** (§5). |
-| `instance` | Implicit (one daemon = one repository) | **Proposed:** every exported event carries `instance` (the stable instance id from the Identity contract). Globally an event is `(machine, instance, id)`. |
+| `instance` | Implicit (one daemon = one repository) | **Proposed:** every exported event carries `instance` = `instance_id` = `"<machine_id>/<instance_key>"` from the Identity contract (RC-02; owner MP-R1, RC-04; provider MP-R1-C2-T2, adapter MP-R2-C5-T04). Globally an event is `(instance, id)`; `machine` is the prefix of `instance`. |
 | `seq` (feed position) | Does not exist | **Proposed:** dense, single-writer position in the export journal (§8). It is the only cursor external clients use. |
 | Correlation keys | Topic-embedded ticket id; payload `decision_id`, `pr_number`, `head_sha`, `wake_id` | Exported as typed `refs` (§4). |
 
-Assumption on the Identity contract (owner not yet assigned by the
-coordinator): `machine` and `instance` are opaque strings, stable across
-daemon restarts and upgrades, and an instance id is never reassigned to a
-different repository. If the Identity contract cannot promise that, the
-export journal must embed a per-journal `epoch` and clients must treat a new
-epoch as `reset` (§7).
+Assumption on the Identity contract (owner MP-R1, RC-04): `instance_id` is
+an opaque string, stable across daemon restarts and upgrades. The identity
+contract says a moved checkout gets a new `instance_key` and therefore a new
+`instance_id` (identity-and-capabilities §1.2); clients treat that as a new
+instance. An instance with an empty key has no `instance_id`
+(`identity: degraded`); the exporter then refuses to start and the
+`events.export` capability is `unavailable` with reason `identity_degraded`.
+The export journal still embeds a per-journal `epoch`, and clients treat a
+new epoch as `reset` (§7).
 
 ## 4. Envelopes
 
@@ -115,7 +119,7 @@ this shape.
   "class": "live",
   "occurred_at": "2026-10-06T15:02:11Z",
   "observed_at": "2026-10-06T15:02:13Z",
-  "source": "github",
+  "source": "legacy",
   "refs": {"ticket": "142", "pr_number": 2210, "head_sha": "abc1234",
            "decision_id": null, "decision_version": null},
   "attrs": {"action": "merged"},
@@ -128,11 +132,20 @@ this shape.
   (§9). Unknown or unlisted payload keys are dropped, never passed through.
 - `attrs` values are enums, numbers, booleans or ids. No comment bodies, titles,
   messages, failure excerpts or file paths (DESIGN-R2 KQ-R2-3).
+- `source` is derived from the observation source kind, which today is only
+  `agent_event`, `agent_alert` or `legacy` (`ticket_observation.ex:55`); it
+  never claims `github` until producers supply that kind (MP-R2-C5-T02).
 - `occurred_at` may be `null` (unknown); it is never replaced by the current
   time (rule already in `ticket_observation.ex:64-71`).
-- `anchor` is reserved for MP-E4: a conversation position (`session`,
-  `transcript_offset`) assigned by E4's anchoring service. The bus never
-  computes it.
+- `anchor` is reserved for MP-E4 (RC-07). The address of a conversation
+  position is the **E4 durable journal position**:
+  `{"conversation_id": "conv_…", "pos": 1207, "anchor_id": "anc_…"}`
+  (conversations-transcripts-anchors §10). The stable entry ID is the `pos`
+  the journal writer assigns. The bus never computes an anchor, and the
+  export journal is append-only, so **v1 always writes `anchor: null`**;
+  clients resolve anchors through E4's anchor API by `(instance, id)`. A
+  producer may set the field only when it already knows the position at
+  publish time; that is a later, separately approved change.
 
 ### 4.3 Control records on the feed
 
@@ -186,7 +199,7 @@ description of current behaviour, not a promise to keep its gaps.
 | --- | --- | --- |
 | `ephemeral` | Lost on crash or if nobody listens; consumer re-reads its source | Every PubSub topic; `aiur:events:debug*` mirror |
 | `live` | Has an event id, delivered only to subscribers bound at publish time; no durable copy | `system.<branch>.branch.push`; unattributed `ticket.*` events from GitHub/CI/orchestrator (IssueLog drops them: `issue_log.ex:573-581`); `system.*` without an alert |
-| `ledgered` | Delivered live; a separate audit record exists (alert ledger), not replayable by cursor | `system.*` and `ticket.*.agent.attention.*` emitted through `Aiur.Alerts` (`alerts.ex:191-197,245`) |
+| `ledgered` | Delivered live; a separate audit record exists (alert ledger), not replayable by cursor | `system.*` and `ticket.*.agent.attention.*` emitted through `Aiur.Alerts` (`alerts.ex:191-197,245`); every `system.dispatch.*`, `system.fleet.*`, `system.tracker.*` and `system.config.base_branch.changed` producer (Phase C RQ-5: `orchestrator/issue_sync.ex:580,600,1787,2052,2285,2294`, `orchestrator/dispatcher.ex:671,698,764,789,2010-2016`, `workflow_store.ex:37,512`); and seven legacy alert topics outside the topic grammar that `Aiur.Alerts` publishes under the alert name, e.g. `decision_store.corrupted`, `executor_events.corrupted` (`alerts.ex:144-152,293-313`; list in MP-R2-C1-T05) |
 | `logged` | Async, best-effort per-ticket marker in the IssueLog event log, readable with `since_id` | Agent-emitted `ticket.<id>.agent.*` with a joinable identity (`tool_executor.ex:123,441`), only while that ticket's writer is registered (`issue_log.ex:545-560,616`) |
 | `journaled` | Appended (and synced) **before** fan-out; replayable by cursor | `executor.*` (`executor_events.ex:448-452`); Command lifecycle via DecisionStore (`decision_store.ex:2558,4608`); Executor wake records (`executor_wake_inbox.ex`); webhook deliveries (`Aiur.Webhooks.DeliveryLog`) |
 | `exported` (**proposed**) | Copied into the bounded export journal by the exporter; replayable by `seq` until retention | Every catalog topic marked `export: true` |
@@ -243,17 +256,24 @@ generalized to `seq`.
 ## 8. Export journal (proposed; C6)
 
 - One writer process (the exporter) subscribes to the Exchange with the
-  catalog's exported patterns at boot, **before** producers start (same
-  `:rest_for_one` placement as the Executor recording children,
-  `aiur.ex:455-463,503`).
+  catalog's exported patterns. **Placement (changed in Phase C):** it starts
+  as the last child of the `:rest_for_one` tree, after `cli_children`
+  (`aiur.ex:118,482-484`), not right after the Exchange. A mid-tree exporter crash would otherwise restart the
+  Publisher, DecisionStore and Orchestrator. Events published before it
+  binds are covered by the boot `gap` record below, so binding late loses
+  nothing silently. An Exchange crash still restarts the exporter (it is
+  later in the tree), which re-binds and writes a new `gap`.
+- The export journal is registered as an `IdGenerator` cold-boot floor file
+  (MP-R2-C2-T07 `:floor_files`), because it can hold ids higher than any
+  per-issue log.
 - File: `<runtime_state_dir>/events/export.ndjson` + `export.meta.json`
   (`epoch`, `oldest_seq`, `head_seq`). Append uses the existing
   `DecisionLog.prepare/append` journal primitive; a corrupt tail stops the
   feed with `events_unavailable` and one `needs_attention` alert (precedent:
   `executor_events.ex:416-440`).
-- On boot the exporter writes a `gap` record covering the downtime
-  (`scope: "*"`), because it cannot know what was published while it was
-  down.
+- On boot (and on every restart) the exporter writes a `gap` record
+  covering the downtime (`scope: "*"`) **after** it has subscribed, because
+  it cannot know what was published while it was down or unbound.
 - Trimming keeps `seq` dense and moves `oldest_seq`; it never rewrites
   retained lines.
 - Disabled by default (`events.export.enabled: false`) until its first
@@ -272,13 +292,28 @@ generalized to `seq`.
   export?, refs allowlist, attrs allowlist, payload_version, owner feature}`.
   Unknown topics are `live`, not exported. A test fails if an exported topic
   lacks an allowlist.
-- **Reserved namespaces** for planned producers (owners define verbs):
-  `ticket.<id>.queue.*` and `system.queue.*` (MP-E1);
-  `ticket.<id>.agent.decision.*` stays DecisionStore-owned (MP-E2 adds
-  producers through DecisionStore, not new topics); `system.build_order.<root>.*`
-  (build-order progress for MP-N5; producer owned by build orders);
-  `executor.conversation.*` reserved but unused (MP-E3 uses the conversation
-  contract, not the bus).
+- **Registered topics for planned producers (RC-08).** The catalog
+  (MP-R2-C5-T03) registers all of these; the bus does not produce them:
+
+  | Topic | Producer (owner) | Class |
+  | --- | --- | --- |
+  | `ticket.<id>.agent.decision.human-needed` (+ `routed`, `native-released`) | DecisionStore (MP-E2) | journaled |
+  | `ticket.<id>.pr.closed_unmerged` | ingestion normalizer / poll path (MP-E1-C4) | live |
+  | `ticket.<id>.issue.closed` | ingestion normalizer / poll path (MP-E1-C4) | live |
+  | `ticket.<id>.agent.listen-mode.changed` | listener modes (MP-E7) | live |
+  | `ticket.<id>.queue.*` | build queue (MP-E1) | live / ledgered per queue-readiness §4.3 |
+  | `system.queue.*` | build queue (MP-E1) | ledgered |
+  | `system.build_order.<root>.progress` (`.milestone`) | **MP-E1-C7** (RC-08, RC-10) | ledgered |
+  | `system.capabilities.changed` | capability registry (MP-R1-C3-T5) | live |
+  | `executor.conversation.*` | reserved, unused (MP-E3 uses the conversation contract) | — |
+
+  `ticket.<id>.agent.decision.*` stays DecisionStore-owned: MP-E2 adds slugs
+  through DecisionStore, not new namespaces.
+- **Legacy topics outside the grammar.** The seven alert-name topics in §6
+  (`ledgered`) are catalogued as such, never exported, and are not
+  renamed by MP-R2 (DESIGN-R2 §1 "event names stay"); a rename is a
+  signal-port (MP-R1-C5) decision recorded in
+  `../bucket-1-refactor/MP-R2/tickets/CONTRACT-REQUESTS.md`.
 - **Versioning**: `v` is the envelope major; it changes only with a new API
   path (`/api/v2/events`). `payload_version` per topic changes when an
   allowlisted field changes meaning or is removed; adding a field does not
@@ -290,7 +325,7 @@ generalized to `seq`.
 
 | Surface | Shape |
 | --- | --- |
-| Pull | `GET /api/v1/events?after=<seq>&limit=<1..500>&topics=<pattern,…>` → `{instance, epoch, head_seq, oldest_seq, records:[…]}`; `after` older than `oldest_seq` → a single `reset` record |
+| Pull | `GET /api/v1/events?after=<seq>&limit=<1..500>&topics=<pattern,…>` → `{instance, epoch, head_seq, oldest_seq, records:[…]}`; `after` older than `oldest_seq` → a single `reset` record. Declared inside the `:dashboard_auth` scope **before** `/api/v1/:issue_identifier/events` and `/api/v1/:issue_identifier` (`router.ex:186-199`), which would otherwise shadow it (RQ-7) |
 | Catalog | `GET /api/v1/events/catalog` → exported topics, classes, payload versions |
 | Live | Phoenix socket `/events`, channel `events:feed`, join `{after}`; server sends backlog then live records and a `heartbeat` every 25 s |
 | CLI | `aiur events tail [--after] [--topic] [--json]` (only if DESIGN-R2 KQ-R2-2 approves) |
@@ -302,15 +337,27 @@ Authorization and scope:
   answered through the Decision API (MP-E2 contract), messages through the
   conversation API (MP-E4).
 - Today: the existing `:dashboard_auth` pipeline (basic auth) and the
-  loopback-by-default bind rules (MP-R3). Later: the paired-device credential
-  from the Pairing contract (MP-N2). Being on the tailnet is never
-  sufficient.
+  loopback-by-default bind rules (MP-R3). `:dashboard_auth` never becomes an
+  open pass-through: unconfigured credentials answer 401 or 503
+  (`financial_data_access.ex:50-84`). Later: the paired-device bearer, which
+  the Pairing contract accepts on every `:dashboard_auth` route (pairing
+  §4.4, MP-N2-C6); revoking a device must also close its live `events:feed`
+  channels (MP-R2-C7-T05). Being on the tailnet is never sufficient.
 - Topic filters may only narrow the allowlisted catalog; a client cannot
   request a non-exported topic.
 - The webhook pipeline (`/api/v1/github/webhook`, outside dashboard auth) is
   never used for the feed.
 
-## 11. What each consumer gets (summary; details in plan.md §8)
+## 11. Scheduling and classification (RC-09)
+
+The packaging chunks C1–C4 are Bucket 1 (behaviour-preserving). The catalog,
+export journal and external API (C5–C7) are **Bucket-2-enabling work inside
+MP-R2**: off by default (`events.export.enabled: false`), no user-facing
+change while disabled, and each is scheduled just before its first
+consumer — C5 and C6 before MP-N4/MP-N5, C7 before MP-N3 switches from
+polling to the stream. MP-E1 v1 does not need C6 (queue-readiness E-A5).
+
+## 12. What each consumer gets (summary; details in plan.md §8)
 
 | Consumer | Uses | Must not assume |
 | --- | --- | --- |

@@ -1,6 +1,6 @@
 ---
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: planned-with-blockers
+artifact_readiness: tickets-written (Phase C, 2026-10-06; see tickets/README.md)
 feature_id: MP-N4
 bucket: 3 (mobile and watch)
 base_main_sha: 45a290e3
@@ -94,20 +94,24 @@ even need those; it forwards opaque bytes). The mobile app does not need the das
 
 ### Configuration (new keys; docs ship with the change per `AGENTS.md`)
 
-Machine-level (`~/.aiur/config`, because pairing is machine-level, D19):
+Machine-level, in **`~/.aiur/machine`** under `push:` (RC-03; pairing contract §8). The
+Phase B draft put them in `~/.aiur/config`, which is the fallback *workflow* config
+(`workflow.ex:84-93`) — superseded.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `push.enabled` | `false` | master switch; `aiur init`/setup can offer it (MP-N2 setup flow) |
-| `push.relay_url` | none | relay service base URL; a device's registration may override per device |
-| `push.outbox.max_age_seconds` | `86400` | outbox entries older than this are coalesced or dropped (N5 rules) |
 | `push.send_timeout_ms` | `5000` | per relay request |
+| `push.outbox.max_age_seconds` | `86400` | outbox entries older than this are coalesced or dropped (N5 rules) |
+| `push.allow_loopback_relay` | `false` | allow `http://127.0.0.1`/`localhost` relay URLs (tests, self-hosting development) |
 
-No secrets in config: `send_secret`, `device_push_secret` and device public keys live in
-the device row's opaque `push_registration` in the MP-N2 machine store (`devices.json`,
-0600, written only by the MP-N2 gateway; pairing contract §5). Each instance daemon reads
-it and sends its own instance's notifications; the gateway calls push-relay's
-deregistration function on revoke and unpair-all (pairing contract §4.5, RC-3).
+The relay URL is not a machine setting: each device registers with a relay and the
+registration carries `relay_url` (contract §7). No secrets in config: `send_secret`,
+`device_push_secret` and device public keys live in the device row's opaque
+`push_registration` in the MP-N2 machine store (`devices.json`, 0600, written only by the
+MP-N2 gateway; pairing contract §5). Each instance daemon reads it and sends its own
+instance's notifications; the gateway calls push-relay's deregistration function on
+revoke and unpair-all (pairing contract §4.5, RC-3). Ticket: MP-N4-C3-T01.
 
 ## 6. Key technical decisions
 
@@ -116,8 +120,12 @@ deregistration function on revoke and unpair-all (pairing contract §4.5, RC-3).
   phone may not be on the tailnet). Sealing a ≤ 2.4 KB summary gives a useful lock-screen
   line with zero network. Rich context is fetched only on open.
 - **KD-N4-2 HPKE (RFC 9180) X25519/HKDF-SHA256/ChaCha20-Poly1305 + Ed25519 inner
-  signature.** Standard, available natively on both platforms (E-C1, E-C2), no custom
-  crypto. The signature authenticates the machine because base-mode HPKE does not.
+  signature.** Standard, available natively on both platforms (E-C1, E-C2) and on the
+  pinned OTP 28 `:crypto` (E-C4, verified in Phase C), no custom crypto. The signature
+  authenticates the machine because base-mode HPKE does not. Phase C refinements
+  (contract §11): detached signature over exact bytes in a binary frame (no JSON
+  canonicalization); device and key bound through HPKE `info` with empty AAD, because
+  Tink's public HPKE API exposes only `info` (E-C5); one push key per device per machine.
 - **KD-N4-3 Per-device sealing and fan-out.** One push per device; no shared group key.
   Revoking one device needs no re-keying of others. Cost: N sends per event, fine at
   personal scale (a handful of devices).
@@ -262,7 +270,9 @@ user-visible ticket is blocked on it; C1–C3 (crypto, relay, daemon client) may
   (DESIGN-N4 D-1, D-3).
 
 **Research (Phase C, evidence-resolvable):**
-- RQ-N4-1 Erlang `:crypto` X25519 + ChaCha20-Poly1305 on the pinned OTP (E-C4) — C1-T01.
+- RQ-N4-1 **Resolved (Phase C):** OTP 28 `:crypto` provides X25519, Ed25519,
+  ChaCha20-Poly1305 and HMAC-SHA256; RFC 9180 A.2.1 reproduced (E-C4). C1-T01 adds the
+  runtime guard.
 - RQ-N4-2 Watch shows NSE-decrypted content for forwarded notifications? (E-B6) — V-W1.
 - RQ-N4-3 iOS alert+NSE delivery after force-quit — V-I4.
 - RQ-N4-4 FCM delivery before first unlock on Android 14+ — V-A3.
@@ -270,7 +280,11 @@ user-visible ticket is blocked on it; C1–C3 (crypto, relay, daemon client) may
   (`removeDeliveredNotifications`) — V-I6.
 - RQ-N4-6 UnifiedPush provider for de-Googled Android: demand and relay adapter shape.
 - RQ-N4-7 Relay hosting cost and rate limits for the default deployment (measured, not
-  estimated, per `AGENTS.md` savings rule if claimed).
+  estimated, per `AGENTS.md` savings rule if claimed). Blocks C2-T06.
+- RQ-N4-8 (new) Can a Cloudflare Worker send to APNs (HTTP/2) and sign ES256 within
+  limits? Blocks only the optional C2-T07.
+- RQ-N4-9 (new) How the Android app detects it was force-stopped (candidate:
+  `ApplicationExitInfo` reasons, API 30+); re-read E-F7. Blocks part of C5-T03.
 
 ## 12. Plan refresh after the refactor (MP-R1..R7)
 
@@ -280,3 +294,10 @@ MP-R1/R2 land, refresh: (a) `Aiur.Events.*` module paths → the `event-bus` pac
 `DEC`); (c) `Config.Paths` → `aiur_config`; (d) the capability registry API from
 `contracts/identity-and-capabilities.md`. Contract field names do not change. Ticket
 MP-N4-C3-T00 is the refresh task.
+
+## 13. Phase C ticket map
+
+[tickets/README.md](tickets/README.md) lists 34 tickets. Relay *code* (C2-T01..T05),
+crypto (C1) and the daemon component (C3-T00..T06) are specified to implementation depth
+and are not blocked by OQ-N4-1; only the default relay deployment (C2-T06), the optional
+Workers port (C2-T07) and the device run (C7-T02) wait for the publisher/operator answer.

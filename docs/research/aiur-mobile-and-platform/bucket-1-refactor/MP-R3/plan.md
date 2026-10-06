@@ -35,7 +35,7 @@ That finding is closed by evidence, not by this feature.
 
 ## 1. Repository findings (verified at `45a290e3`)
 
-This extends `baseline/capability-baseline.md` § R3. It does not repeat it.
+This extends `baseline/capability-baseline-bucket-1.md` § R3. It does not repeat it.
 
 ### 1.1 Host selection: one owner, no Tailscale branch
 
@@ -236,14 +236,16 @@ never the lock.
    rejects a connect with no token or proof.
    - The list of sockets is enumerated from `AiurWeb.Endpoint.__sockets__/0`,
      so a new socket must be added to the test or it fails.
-   - Phase C confirms that this function exists in the pinned Phoenix version.
+   - Phase C confirmed: it exists but is `@doc false` (`deps/phoenix/lib/phoenix/endpoint.ex:692`).
 3. The bind-matrix test adds four cases. Each fails if the `loopback?` or guard
    branch is replaced with `true`.
    - `0.0.0.0` without credentials gives `:ignore`.
    - `::` without credentials gives `:ignore`.
    - `127.0.0.2` without credentials gives `:ignore`.
-   - A hostname resolving to a non-loopback address without credentials gives
-     `:ignore`.
+   - `0.0.0.0` with a writable dashboard and no credentials gives `:ignore`
+     (Phase C replaced the resolved-hostname case, which needs DNS).
+   - Plus an HTTP-only listener guard (RC-15): the endpoint config has `http:`
+     and no `https:`.
 4. `optional-optimizations.md` § Tailscale says that Tailscale provides
    reachability and transport encryption, never authorization. It also warns
    that a non-tailnet, non-loopback bind sends Basic Auth in cleartext.
@@ -258,42 +260,35 @@ never the lock.
   authenticator, or if the bind guard regresses.
 - **Dependencies:** none. It can run before MP-R1 lands. A later move of
   `aiur_web` into a package (MP-R1) only changes paths.
-- **Tickets:**
-  - MP-R3-C1-T01: route and socket auth census test (`router_auth_test.exs`,
-    or a new `route_auth_census_test.exs`).
-  - MP-R3-C1-T02: extend `http_server_credential_gate_test.exs` with the
-    `0.0.0.0`, `::`, `127.0.0.2` and resolved-hostname cases.
-- **Test strategy:**
-  - Pure ExUnit. T01 reads route metadata. Phoenix routes expose `pipe_through`
-    via `__routes__/0` `:pipe_through` metadata; Phase C verifies the field
-    name.
-  - T02 uses the existing `:host` option of `HttpServer.start_link/1`.
-  - Both are future-regression guards and say so in a comment.
-- **Phase C questions:**
-  - The exact route metadata key for pipelines in the pinned Phoenix.
-  - Whether `__sockets__/0` is public API or the test should parse
-    `endpoint.ex`.
-  - Whether the `/live` connect without a session is rejected at `connect` or
-    only at `on_mount`; assert whichever is true and name it.
+- **Tickets (Phase C, see [tickets/](tickets/README.md)):**
+  - MP-R3-C1-T01: one test-only PR with four parts:
+    - a route census through the public `Phoenix.Router.route_info/4`;
+    - a socket census;
+    - the `0.0.0.0`, `::`, `127.0.0.2` and writable-wildcard bind cases;
+    - an HTTP-only listener guard for RC-15.
+- **Phase C answers:**
+  - `routes/1` has no `pipe_through`, but `route_info/4` does.
+  - `__sockets__/0` is `@doc false`; it is used with a comment.
+  - `/live` accepts at connect and rejects at `on_mount`.
+  - The resolved-hostname case is dropped because it needs DNS.
 
 ### MP-R3-C2 — Docs: reachability is not authorization
 
 - **Outcome:** an operator reading the docs cannot conclude that Tailscale (or
   its absence) controls privacy.
 - **Dependencies:** none.
-- **Tickets:**
-  - MP-R3-C2-T01: edit `website/docs-app/reference/optional-optimizations.md`
-    § Tailscale and § Dashboard authentication. Cover:
-    - the three concerns;
-    - cleartext HTTP beyond a tailnet;
-    - the fact that "refuses to start" disables only the listener.
-  - MP-R3-C2-T02: add one dated banner line to `docs/voice-mode/spec.md`: "Draft;
-    Tailscale is one supported network, not a requirement (MP-R3)". Optional.
-    Drop it if the owner prefers to leave historical specs untouched (DESIGN-R3
-    Q2).
-- **Test strategy:** `website/tests/gui-docs.spec.ts` keeps passing. Docs
-  review is the gate (AGENTS.md: docs rows other than config are
-  review-enforced).
+- **Tickets (Phase C):** MP-R3-C2-T01 edits
+  `optional-optimizations.md`:
+  - § Tailscale "what it does not do";
+  - a new § Transport, which supports RC-15 RQ-TRANSPORT and names no HTTPS
+    method;
+  - "refuses to start" clarified to "listener disabled, agents keep running".
+
+  The Draft-spec banner is a conditional step, decided by DESIGN-R3 §2.2. The
+  § Transport copy needs DESIGN-R3 approval: CR-R3-1 in
+  `tickets/CONTRACT-REQUESTS.md`.
+- **Test strategy:** `website/tests/gui-docs.spec.ts` (brand project) and the
+  docs-app build keep passing. Review is the gate.
 
 ## 8. Open questions
 
@@ -305,7 +300,9 @@ never the lock.
 2. Should historical Draft specs (`docs/voice-mode/spec.md`) get a banner, or
    stay untouched?
 
-**Research (Phase C):** the three C1 questions above.
+**Research (Phase C):** answered in § 7 (C1) and `tickets/README.md`.
+
+**RC-15 (Phase B reconciliation):** MP-R3 supports MP-N2's RQ-TRANSPORT with the C1 HTTP-only guard and the C2 § Transport docs. MP-N2 owns the transport policy.
 
 ## 9. Plan refresh
 

@@ -7,6 +7,17 @@ parent: plan.md
 
 # MP-E2 — Chunks and candidate tickets
 
+> **Phase C (2026-10-06):** every ticket below now has an implementation-ready doc in
+> [tickets/](tickets/README.md) (36 tickets: 2 spikes `ready`, 34 `blocked`). Where the
+> ticket doc and this table differ, **the ticket doc wins**. Phase C decisions applied here:
+> config keys live under the existing `decisions.*` section (not `commands.*`); v2 fields
+> travel in a new `request_attributed` event and Executor Commands keep the reserved ticket
+> `"executor"` (rollback safety, R-Q4 answered); the Executor acknowledgement is
+> `aiur executor-ack` plus Executor actions (R-Q3 answered); no supervisor supersede route
+> (C3-T02); Executor answers reach `executor-wait` through a one-topic wake-inbox allowlist
+> (C6-T02); RC-08 (`human-needed` topic in MP-R2-C5's catalog) and RC-18 (#2819 cited by
+> C2-T03) are applied.
+
 Every ticket cites `Prior-units: U6` (decisions) unless it says otherwise, and
 `Prior-boundaries: DEC` (27) plus the listed extras. `Size-owner: DECISIONS` applies to any
 edit of `decision_store.ex`, `decision_projection.ex` or `decision_validation.ex`. Those
@@ -37,20 +48,20 @@ effective behaviour).
 
 | Ticket | Scope |
 | --- | --- |
-| MP-E2-C1-T1 | Add `requester`, `origin`, `native`, `route_*`, `escalations`, `questions[]`, `short_label` to `Aiur.Decision` (`decision.ex`) as optional fields, with `payload_version: 2`. Make `ticket` nullable with `scope: :repo`, and audit every `decision.ticket` caller (`decision_dispatch.ex:65`, `blocked_ticket_ids`, dashboard presenters). |
-| MP-E2-C1-T2 | Validation for v2: questions (1–4, options 2–4, header ≤12), `short_label` derivation, and the suggested-response rule as a warning plus a config flag `commands.require_suggested_responses` (default false). Config docs. |
-| MP-E2-C1-T3 | New lifecycle event types `routed`, `human_needed`, `native_released` in `decision_projection.ex` (status-neutral), topics in `decision_store.ex:2633-2653`, and a rollback test proving an old reducer tolerates or rejects them predictably (R-Q4). |
-| MP-E2-C1-T4 | Read API and `aiur commands --json` expose the new fields. Supervisor API response schema. |
+| MP-E2-C1-T01 | Add `requester`, `origin`, `native`, `questions[]`, `short_label` to `Aiur.Decision` as optional fields, persisted by a new `request_attributed` event (the `requested` snapshot stays v1 — its hash is recomputed on replay). Executor Commands keep the reserved ticket `"executor"` (a `nil` ticket would latch older binaries read-only, `decision_projection.ex:48`); expiry exempts them. Routing fields arrive in C2-T02. |
+| MP-E2-C1-T02 | Validation for v2: questions (1–4, options 2–4, header ≤12), `short_label` derivation, and the suggested-response rule as a warning plus a config flag `decisions.require_suggested_responses` (default false). Config docs. |
+| MP-E2-C1-T03 | `Aiur.Commands.Topics` (worker `ticket.<id>.agent.decision.*`, Executor `executor.decision.*`) replacing the literal builders at `decision_store.ex:2555,4604`, and the rollback suite (R-Q4: unknown event types are retained and skipped, `decision_event.ex:167-193`). The routing/native fact types themselves are added by C2-T02 and C4-T04. |
+| MP-E2-C1-T04 | Read API and `aiur commands --json` expose the new fields. Supervisor API response schema. |
 
 **Tests:**
 - Projection round-trip for v2.
 - Replay of v1 logs unchanged (fixture: a current `decisions.ndjson` sample).
-- `ticket: nil` paths in `blocked_ticket_ids` and expiry.
+- Reserved-ticket (`"executor"`) paths in expiry and validation.
 - A validation table.
 - Each test is mutation-checked: revert the field and the test fails.
 
-**Open research:** R-Q4 (rollback); whether `decision_id` for an Executor Command derives
-from `executor_id::invocation`.
+**Research resolved in Phase C:** R-Q4 (rollback) — see C1-T01/T03. An Executor Command's
+`decision_id` derives from `"executor::<source_id>"` (reserved ticket identifier).
 
 ---
 
@@ -65,11 +76,11 @@ Invariant N1 holds.
 
 | Ticket | Scope |
 | --- | --- |
-| MP-E2-C2-T1 | Pure policy `Routing.Policy.route/2` and `escalation_due/3`. Table tests over authority × reversibility × roster state × requester. |
-| MP-E2-C2-T2 | The `Routing` GenServer: subscribe to `ticket.*.agent.decision.requested` and `executor.decision.requested`; record `routed`; run a periodic tick (30 s) that recomputes deadlines from durable `routed_at`; persist escalations through the store API; make them idempotent per `{id, version, cause}`. |
-| MP-E2-C2-T3 | Roster integration: the `executor_offline` / `executor_stalled` causes; a roster-snapshot fixture; behaviour when the Executor's claim expires mid-deadline. |
-| MP-E2-C2-T4 | Executor acknowledgement signal (R-Q3). Candidate: `executor-wait` delivery of the Command wake, plus `aiur commands <id>` by an Executor identity, plus an explicit `aiur executor-ack <id>`. CLI docs. |
-| MP-E2-C2-T5 | Config `commands.escalation.executor_ack_ms`, `executor_answer_ms`, `urgent_factor` with schema, `configuration.md` and `check-config-docs`. Defaults come from DESIGN-E2 §6.1, so the defaults wait on the owner answer while the mechanism does not. |
+| MP-E2-C2-T01 | Pure policy `Routing.Policy.route/2` and `escalation_due/3`. Table tests over authority × reversibility × roster state × requester. |
+| MP-E2-C2-T02 | The `Routing` GenServer: subscribe to `ticket.*.agent.decision.requested` and `executor.decision.requested`; record `routed`; run a periodic tick (30 s) that recomputes deadlines from durable `routed_at`; persist escalations through the store API; make them idempotent per `{id, version, cause}`. |
+| MP-E2-C2-T03 | Roster integration: the `executor_offline` / `executor_stalled` causes; a roster-snapshot fixture; behaviour when the Executor's claim expires mid-deadline. |
+| MP-E2-C2-T04 | Executor acknowledgement (R-Q3 answered): explicit `aiur executor-ack <id>` plus implicit acks on Executor answer/escalate/moot/supersede. Reads and `executor-wait` delivery are not acks. CLI docs. |
+| MP-E2-C2-T05 | Config `decisions.escalation.enabled`, `executor_ack_ms`, `executor_answer_ms`, `urgent_factor` with schema, `configuration.md` and `check-config-docs`. Defaults come from DESIGN-E2 §6.1, so the defaults wait on the owner answer while the mechanism does not. |
 
 **Tests:**
 - Restart in the middle of a deadline: an overdue Command escalates once, and a second
@@ -78,8 +89,10 @@ Invariant N1 holds.
 - The empty-roster path.
 - Clock injection, with no sleeps.
 
-**Open research:** the tick cadence versus the ExecutorWakeInbox debounce (2 000 ms); the
-interaction with `decision_expiry.ex` (expiry must win over escalation for a dead ticket).
+**Research resolved in Phase C (C2-T03):** tick ≤ 30 s (deadlines are minutes; one in-memory
+`list/1` per tick); expiry wins because Routing skips terminal Commands. RC-18: live bug
+#2819 is the legacy `attention.*` re-ask that never stops; Routing never re-asks and does
+not edit `decision_attention.ex`.
 
 ---
 
@@ -92,10 +105,10 @@ human supersede path, and an Executor-over-human refusal.
 
 | Ticket | Scope |
 | --- | --- |
-| MP-E2-C3-T1 [B] | Store: refuse an `:executor` supersede when the active answer's actor is human. Add the winning-answer summary to `{:conflict, {:already_decided, _}}` and map it in `decision_api_controller.ex:114-127` and `executor_command_cli.ex:253-261`. |
-| MP-E2-C3-T2 [B] | API: `POST /api/v1/decisions/:id/supersede` (supervisor-auth). Or reuse `decide` with `supersede: true`; choose one in Phase C. CLI and API docs. |
-| MP-E2-C3-T3 [D] | Dashboard supersede action with the undelivered guard, the "too late" state, and the "already answered by…" state (DESIGN-E2 §4.4). Relabel `/revise` "Send correction". |
-| MP-E2-C3-T4 [D] | Stream Deck: show the conflict result for `answer_command` (no supersede on the deck unless DESIGN-E2 asks for it). |
+| MP-E2-C3-T01 [B] | Store: refuse an `:executor` supersede when the active answer's actor is human. Add the winning-answer summary to `{:conflict, {:already_decided, _}}` and map it in `decision_api_controller.ex:114-127` and `executor_command_cli.ex:253-261`. |
+| MP-E2-C3-T02 [B] | `Aiur.Commands.Answering` facade (answer/supersede for human actors, normalized outcomes, v2 `question_answers`). Phase C choice: **no** supervisor supersede route (the supervisor is not human, D11); MP-N6 adds the device route on this facade. |
+| MP-E2-C3-T03 [D] | Dashboard supersede action with the undelivered guard, the "too late" state, and the "already answered by…" state (DESIGN-E2 §4.4). Relabel `/revise` "Send correction". |
+| MP-E2-C3-T04 [D] | Stream Deck: show the conflict result for `answer_command` (no supersede on the deck unless DESIGN-E2 asks for it). |
 
 **Tests:**
 - A race test with two answers from two actors: exactly one `answer_recorded`.
@@ -120,12 +133,12 @@ Cross-feature: MP-R7 adapter callbacks (contract §10). Spike R-Q1.
 
 | Ticket | Scope |
 | --- | --- |
-| MP-E2-C4-T0 [S] | Spike: `codex-cli 0.160.0` with `features.default_mode_request_user_input=true` (or the Plan collaboration mode) through aiur's app-server. Capture real `requestUserInput` payloads as fixtures. Confirm the response shape and that there is no client timeout. Record findings. No production change. |
-| MP-E2-C4-T1 | `Aiur.Commands.NativeCapture`: classify (approval-shaped → `:policy`, `isSecret` → release plus alert, otherwise a question), map questions to v2 `questions[]`, and `request` the Command with `origin: native_question` and trusted source. |
-| MP-E2-C4-T2 | Codex path: replace the `false`-branch auto-answer at `codex/approvals.ex:260-262` with capture-and-hold behind a config gate `commands.native_capture.codex` (default false until the owner approves the feature-flag use). Keep the JSON-RPC id pending in the turn state, and add a `waiting_on_command` turn state that exempts it from stall detection. |
-| MP-E2-C4-T3 | In-band delivery: `DecisionDispatch` picks `reply_native_question` when `native.hold == :in_band` and the adapter reports the request pending; otherwise message. Record `delivered` on the reply ack. |
-| MP-E2-C4-T4 | Release paths: turn timeout, interrupt, pause and port exit answer the pending request with the release text if the port is alive, emit `native_released`, and keep the Command open. |
-| MP-E2-C4-T5 | Codex launch config: pass the feature flag when the gate is on, and document it. |
+| MP-E2-C4-T00 [S] | Spike: `codex-cli 0.160.0` with `features.default_mode_request_user_input=true` (or the Plan collaboration mode) through aiur's app-server. Capture real `requestUserInput` payloads as fixtures. Confirm the response shape and that there is no client timeout. Record findings. No production change. |
+| MP-E2-C4-T01 | `Aiur.Commands.NativeCapture`: classify (approval-shaped → `:policy`, `isSecret` → release plus alert, otherwise a question), map questions to v2 `questions[]`, and `request` the Command with `origin: native_question` and trusted source. |
+| MP-E2-C4-T02 | Codex path: replace the `false`-branch auto-answer at `codex/approvals.ex:260-262` with capture-and-hold behind a config gate `decisions.native_capture.codex` (default false until the owner approves the feature-flag use). Keep the JSON-RPC id pending in the turn state, and add a `waiting_on_command` turn state that exempts it from stall detection. |
+| MP-E2-C4-T03 | In-band delivery: `DecisionDispatch` picks `reply_native_question` when `native.hold == :in_band` and the adapter reports the request pending; otherwise message. Record `delivered` on the reply ack. |
+| MP-E2-C4-T04 | Release paths: turn timeout, interrupt, pause and port exit answer the pending request with the release text if the port is alive, emit `native_released`, and keep the Command open. |
+| MP-E2-C4-T05 | Codex launch config: pass the feature flag when the gate is on, and document it. |
 
 **Tests:**
 - Fixture-driven: a recorded requestUserInput gives one Command; answering gives the
@@ -146,15 +159,15 @@ be captured as non-blocking Commands.
 `aiur-claude` side uses a permission host plus a `PreToolUse` defer and resume, and aiur
 reuses C4's core.
 
-**Dependencies:** C4-T1 and C4-T3. External repo `its-everdred/claude-app-server`
+**Dependencies:** C4-T01 and C4-T03. External repo `its-everdred/claude-app-server`
 (npm `aiur-claude`). Spike R-Q2.
 
 | Ticket | Scope |
 | --- | --- |
-| MP-E2-C5-T0 [S] | Spike: `claude -p` 2.1.291 with `--permission-prompt-tool` (an MCP tool on the existing aiur bridge) plus a `PreToolUse` AskUserQuestion hook returning `defer`, under `bypassPermissions`. Verify that `tool_deferred`, `deferred_tool_use`, the resume, and `allow`+`updatedInput.answers` all work, and that Bash, Edit and other permissions are not routed to the host (D10). |
-| MP-E2-C5-T1 (aiur-claude) | Add the permission host and the defer hook. On `tool_deferred`, send `item/tool/requestUserInput` with stable question ids (a hash of the question text) and keep the thread awaiting. On the reply, resume with `allow`+answers. On the release text, resume with a `deny` message. Release a new `aiur-claude` version. |
-| MP-E2-C5-T2 | aiur: add a `handle_method` clause for `item/tool/requestUserInput` in `claude/coding_agent.ex` (today it falls into the catch-all at `:385-399`) delegating to `NativeCapture`. Add a minimum `aiur-claude` version check through the provider install hint (`coding_agent/providers/claude.ex:19-21`). |
-| MP-E2-C5-T3 | Multi-tool-call turns (defer ignored): detect it and release, so that no question is lost. |
+| MP-E2-C5-T00 [S] | Spike: `claude -p` 2.1.291 with `--permission-prompt-tool` (an MCP tool on the existing aiur bridge) plus a `PreToolUse` AskUserQuestion hook returning `defer`, under `bypassPermissions`. Verify that `tool_deferred`, `deferred_tool_use`, the resume, and `allow`+`updatedInput.answers` all work, and that Bash, Edit and other permissions are not routed to the host (D10). |
+| MP-E2-C5-T01 (aiur-claude) | Add the permission host and the defer hook. On `tool_deferred`, send `item/tool/requestUserInput` with stable question ids (a hash of the question text) and keep the thread awaiting. On the reply, resume with `allow`+answers. On the release text, resume with a `deny` message. Release a new `aiur-claude` version. |
+| MP-E2-C5-T02 | aiur: add a `handle_method` clause for `item/tool/requestUserInput` in `claude/coding_agent.ex` (today it falls into the catch-all at `:385-399`) delegating to `NativeCapture`. Add a minimum `aiur-claude` version check through the provider install hint (`coding_agent/providers/claude.ex:19-21`). |
+| MP-E2-C5-T03 | Multi-tool-call turns (defer ignored): detect it and release, so that no question is lost. |
 
 **Tests:**
 - A fake `aiur-claude` fixture emitting requestUserInput.
@@ -177,10 +190,10 @@ inbox API).
 
 | Ticket | Scope |
 | --- | --- |
-| MP-E2-C6-T1 | CLI `aiur command request "<question>" [--option id=label …] [--recommend id] [--blocking] [--urgency] [--ticket N] [--context-file]`, with the actor and requester from the Executor identity (`Claims.resolve_consumer_id/1`). Launcher engine passthrough. `cli.md`. |
-| MP-E2-C6-T2 | `Aiur.Commands.ExecutorDelivery`: on answer, publish `executor.decision.answered`. `executor-wait --json` shows it. Mark delivered on the cursor acknowledgement. |
-| MP-E2-C6-T3 | `aiur ask` alias: writes a Command; `ask --done ID` maps to moot. Existing `ask_` records stay readable. Deprecation note in docs. |
-| MP-E2-C6-T4 [D] | Dashboard "From Executor" filter and badge (DESIGN-E2 §6.6). |
+| MP-E2-C6-T01 | CLI `aiur command request "<question>" [--option id=label …] [--recommend id] [--blocking] [--urgency] [--ticket N] [--context-file]`, with the actor and requester from the Executor identity (`Claims.resolve_consumer_id/1`). Launcher engine passthrough. `cli.md`. |
+| MP-E2-C6-T02 | `Aiur.Commands.ExecutorDelivery`: skip worker dispatch; allowlist `executor.decision.answered` in `ExecutorListener`/`ExecutorWakeProjection` (today both ignore `executor.*`) so `executor-wait` returns it; record `requester_notified` after the wake enqueue (= delivered). |
+| MP-E2-C6-T03 | `aiur ask` alias: writes a Command; `ask --done ID` maps to moot. Existing `ask_` records stay readable. Deprecation note in docs. |
+| MP-E2-C6-T04 [D] | Dashboard "From Executor" filter and badge (DESIGN-E2 §6.6). |
 
 **Tests:**
 - Executor request, then dashboard answer, then `executor-wait` returns the answer.
@@ -201,11 +214,11 @@ anchor link), MP-E5 (mic placement).
 
 | Ticket | Scope |
 | --- | --- |
-| MP-E2-C7-T1 | Inbox routing chips and filters (Needs you / With Executor / From Executor / Resolved); overview banner counts per DESIGN-E2 §6.2; fleet `Commands` column semantics. |
-| MP-E2-C7-T2 | Detail view: escalation timeline, native multi-question form (single submit, multi-select, Other), and the recommended option first. |
-| MP-E2-C7-T3 | Unit row "Waiting for your answer" while a native question is held (DESIGN-E2 §6.8). |
-| MP-E2-C7-T4 | CLI `aiur commands` columns (route state, age, escalation cause) and `--filter needs-you`. |
-| MP-E2-C7-T5 | Stream Deck compatibility: option keys for v2 single-question Commands; multi-question shows "answer on dashboard". |
+| MP-E2-C7-T01 | Inbox routing chips and filters (Needs you / With Executor / From Executor / Resolved); overview banner counts per DESIGN-E2 §6.2; fleet `Commands` column semantics. |
+| MP-E2-C7-T02 | Detail view: escalation timeline, native multi-question form (single submit, multi-select, Other), and the recommended option first. |
+| MP-E2-C7-T03 | Unit row "Waiting for your answer" while a native question is held (DESIGN-E2 §6.8). |
+| MP-E2-C7-T04 | CLI `aiur commands` columns (route state, age, escalation cause) and `--filter needs-you`. |
+| MP-E2-C7-T05 | Stream Deck compatibility: option keys for v2 single-question Commands; multi-question shows "answer on dashboard". |
 
 **Tests:**
 - LiveView render tests per state, including a mutation test for the unknown and stale
@@ -224,10 +237,10 @@ rollout flags flip in order.
 
 | Ticket | Scope |
 | --- | --- |
-| MP-E2-C8-T1 | `concepts/commands.md` (routing, escalation, native questions, supersede), `concepts/executor.md`, `reference/configuration.md`, `reference/cli.md`. |
-| MP-E2-C8-T2 | `aiur-run` skill: Executor triage of `with_executor` Commands and deadlines, `executor-ack`, `command request`. Replace the "human answered; ingestion blocked" text with #3005's command if it has merged. |
-| MP-E2-C8-T3 | `aiur-agent` skill: the 2–3 suggested responses guidance, and when to use a native ask versus `decision.requested`. Flip `commands.require_suggested_responses` after a census of current option counts in live `decisions.ndjson` (count and record it, per AGENTS.md "population counted"). |
-| MP-E2-C8-T4 | Enable native capture by default per harness only after DESIGN-E2 approval and the owner decision on the Codex `UnderDevelopment` flag. |
+| MP-E2-C8-T01 | `concepts/commands.md` (routing, escalation, native questions, supersede), `concepts/executor.md`, `reference/configuration.md`, `reference/cli.md`. |
+| MP-E2-C8-T02 | `aiur-run` skill: Executor triage of `with_executor` Commands and deadlines, `executor-ack`, `command request`. Replace the "human answered; ingestion blocked" text with #3005's command if it has merged. |
+| MP-E2-C8-T03 | `aiur-agent` skill: the 2–3 suggested responses guidance, and when to use a native ask versus `decision.requested`. Flip `decisions.require_suggested_responses` after a census of current option counts in live `decisions.ndjson` (count and record it, per AGENTS.md "population counted"). |
+| MP-E2-C8-T04 | Enable native capture by default per harness only after DESIGN-E2 approval and the owner decision on the Codex `UnderDevelopment` flag. |
 
 ---
 
@@ -239,7 +252,7 @@ C1 ──► C2 ──► C6
  ├──► C3 ───► C7
  └──► C4 ──► C5
 C2..C7 ──► C8
-External: MP-R2 (topics) → C1-T3/C2; MP-R7 (adapter) → C4/C5; MP-E3 → C6 (optional); #3005 → C3
+External: MP-R2 (topics) → C1-T03/C2; MP-R7 (adapter) → C4/C5; MP-E3 → C6 (optional); #3005 → C3
 ```
 
-May run concurrently: C3 with C2; C4-T0 and C5-T0 spikes at any time (research only).
+May run concurrently: C3 with C2; C4-T00 and C5-T00 spikes at any time (research only).

@@ -24,7 +24,7 @@ references the primitives below.
 | --- | --- | --- |
 | `harness_id` | registry key: `codex`, `claude`, `claude-repl`, `muse`, `kimi`, `deepseek`, `openrouter` (`fake` in test) | `coding_agent/registry.ex:7-16` |
 | `family` | provider family (`codex`, `claude`, `muse`, …) | registry entry `:family` |
-| `transport` | `app_server_stdio` \| `tmux_pane` \| `msp_stdio` \| `in_process_http` | new, derived (R7-C2) |
+| `transport` | `app_server_stdio` \| `tmux_pane` \| `msp_stdio` \| `in_process_http` \| `acp_stdio` (Gemini, conditional on PR #2870, RC-22) | new, derived (R7-C2) |
 | `session.thread_id` | harness-native session/thread id; may be `nil` until the first turn | `backend.ex:24-27` |
 | `session.resumed` | `true` only after a successful rejoin | `backend.ex:24-27` |
 
@@ -72,15 +72,72 @@ delivery_primitives:
 native_question        : :in_band_hold | :defer_resume | :none      # MP-E2 (names from command contract §10)
 ```
 
-Values at `45a290e3` (R7-C2 must reproduce, nothing more):
+Values at `45a290e3` (R7-C2 must reproduce, nothing more). Phase C research
+(MP-R7-C2-T01) settled RQ-R7-1 and RQ-R7-4. The descriptor is derived from a
+registry `delivery:` map (data per entry), not hard-coded per harness, and
+`transport` is declared there rather than inferred.
 
-| harness | turn_boundary_start | mid_turn_inject | hard_interrupt | native_queue | pull_tool | hook_boundaries | native_question |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| codex | yes | none (upstream has `turn/steer`, unused) | in_band | no | yes (dynamic tools) | [] | none (auto-answered) |
-| claude | yes | none (`aiur-claude` steer defect) | in_band | no | yes (MCP bridge) | [] | none |
-| claude-repl | yes (typed at idle) | none declared; RQ-R7-1 | out_of_band (Ctrl+C) | yes | **no** (`claude/repl/command.ex:30-35`, no `--mcp-config`) | [prompt, tool, stop] | none |
-| muse | yes (`ifBusy: queue`) | none (receipt allows `steered`) | in_band | no | RQ | [] | none |
-| openai-compat | yes | RQ-R7-4 | none | no | yes | [] | none |
+| harness | transport | turn_boundary_start | mid_turn_inject | hard_interrupt | native_queue | pull_tool | hook_boundaries | native_question |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| codex | app_server_stdio | yes | none (upstream `turn/steer` unused; MP-E7-C4) | in_band | no | yes (dynamic tools) | [] | none (auto-answered) |
+| claude | app_server_stdio | yes | none (`aiur-claude` steer defect, MP-E7-C4-T01) | in_band | no | yes (MCP bridge) | [] | none |
+| claude-repl | tmux_pane | yes | native — Claude Code passes queued input "as soon as those tool calls finish, within the same turn" (https://code.claude.com/docs/en/interactive-mode, accessed 2026-10-06; aiur pins no `claude` version, foreground capture in MP-E7-C4) | out_of_band (Ctrl+C) | yes | **no** (`claude/repl/command.ex:30-35`, no `--mcp-config`) | [prompt, tool, stop] | none |
+| muse | msp_stdio | yes (`ifBusy: queue`) | none (receipt allows `steered`; steer value unverified, RQ-E7-2) | in_band | no | yes (aiur MCP, `muse/session.ex:75`) | [] | none |
+| kimi / deepseek / openrouter | in_process_http | yes | native (operator text inserted after each tool result inside the turn, `open_ai_compat/coding_agent.ex:222-244`; test `open_ai_compat/coding_agent_test.exs:638`) | none | no | yes | [] | none |
+| gemini *(only if PR #2870 merges, RC-22)* | acp_stdio | yes (operator text becomes a queued turn) | none | in_band (ACP `session/cancel`) | no | yes (aiur MCP bound per turn) | [] | none (`session/request_permission` is an approval, stays with policy) |
+
+**After MP-E7-C4 (wave 4).** These values change only when the named
+ticket ships: `codex` `mid_turn_inject: :native` via app-server `turn/steer`
+(MP-E7-C4-T02; codex-cli 0.160.0 schema, `TurnSteerParams{threadId, input,
+expectedTurnId}`); `muse` `:native` via MSP `turn/steer` (MP-E7-C4-T03; Muse
+1.4.3 schema, `IfBusy = queue | steer | replace`); `claude-repl` stays
+`:native` and gains the foreground capture (MP-E7-C4-T04). Headless `claude`
+stays `:none`: no documented mid-turn input for `claude --print`
+(RQ-E7-4); MP-E7-C4-T01 only fixes the sibling's text loss.
+
+Consumers (MP-E7 effective mode) read the running backend's descriptor
+through `Capabilities.harness_delivery/3` (MP-R7-C2-T03), never
+`running_entry.control`.
+
+Muse's and OpenAI-compat's `send_operator_message/2` have no production
+caller; runtime delivery is the runner drain or checkpoint.
+
+**Running entry, not dispatch.** Finding R7-C1-F1: the running entry's
+`:control` delivery flags are computed once at dispatch from the requested
+backend (`orchestrator/dispatcher.ex:2549`) and are not recomputed on
+fallback (`claude-repl → claude`) or RC promotion, although the real backend
+is recorded in `running_entry.session_execution.backend`
+(`orchestrator/state.ex:441-461`). R7-C2-T03 exposes the running backend
+(`source: :session | :dispatch`) without changing the existing map; the fix
+is MP-E7-C2-T04.
+
+**Gemini/ACP row (RC-22).** The `gemini` harness exists only in draft PR
+#2870 (aiur-team/aiur, open and draft, head `c1fc6f84`, checked 2026-10-06);
+it is not at `45a290e3`. Evidence at the PR head:
+`coding_agent/providers/gemini.ex` (`can_interrupt: true`,
+`safe_checkpoints: []`, `resumable: true`, `default_command: "gemini --acp"`),
+`gemini/coding_agent.ex:20` (`send_operator_message` returns
+`{:error, :gemini_messages_require_queued_turn}`), `gemini/turn.ex:103-112,220-223`
+and `gemini/protocol.ex:46-48` (urgent queue update sends `session/cancel`,
+then the message starts the next turn), `gemini/turn.ex:17` (per-turn aiur MCP
+binding). Rule: if #2870 merges before MP-R7-C2 starts, R7-C2 declares this
+row as values and the C1 registry contract test covers it; otherwise the row
+is a **future adapter** and lands directly in the harness package (R7-C4).
+
+### 3.1 Registry keys added by MP-R7-C3/C4 (decoupling only)
+
+| Key | Ticket | Replaces |
+| --- | --- | --- |
+| `:launch_telemetry` | MP-R7-C3-T03 | `agent_runner/session_lifecycle.ex` naming `Aiur.Claude.Telemetry` |
+| `:display_tailer` | MP-R7-C3-T03 | the same file naming `Aiur.Claude.DisplayTailer` |
+| `:children` | MP-R7-C4-T01 | `aiur.ex:432` starting `Aiur.Claude.Telemetry` by name |
+
+Pane and orchestrator interrupts call a `CodingAgent.interrupt/2` facade that
+dispatches to the optional `interrupt/1` callback (MP-R7-C3-T04). The agent
+tool surface is `Aiur.AgentTools.*` (MP-R7-C3-T01 moves `Aiur.Codex.DynamicTool`
+there). Module renames to an `Aiur.Harness.*` namespace are **dropped**: MP-R1
+keeps components logical until the migration-plan §5 promotion test passes
+(MP-R7-C4-T02), so "harness package" below means the logical component.
 
 ## 4. Normalized events (in-process)
 

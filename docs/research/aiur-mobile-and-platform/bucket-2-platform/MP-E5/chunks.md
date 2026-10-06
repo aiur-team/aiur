@@ -126,3 +126,27 @@ C1 ──► C2 ──► C3 ──┬─► C4 (needs MP-E2)
                    └─► C6 (needs MP-E7 status) ──► C7
 DESIGN-E5 gates C3–C6.
 ```
+
+## Phase C changes (2026-10-06)
+
+Ticket docs: [tickets/README.md](tickets/README.md) (19 tickets, 8 ready, 11 blocked).
+
+- **New chunk MP-E5-C8 — device-authenticated voice path (RC-16).** C8-T01: `POST
+  /api/v1/device/voice-ticket` (60 s `Phoenix.Token`, device-auth plug, writable gate) and
+  socket `/voice/device`; C8-T02: re-check the device every 15 s and end sessions on
+  revocation. Consumed by MP-N6/N7. Contract: voice-session §3.5.
+- **C1 gains T03** (standalone `VoiceInput` hook). RQ-E5-3 finding: the controller is
+  constructed by the drawer hook (`conversation-drawer-hook.js:16-17`), so other surfaces need
+  their own hook. RQ-E5-1 resolved with a `dom.onBeforeElUpdated` guard while recording.
+  RQ-E5-2 selectors listed in C1-T01.
+- **C1-T02 keeps the file name** `conversation-voice-controller.js` for the UI module and
+  splits out `voice-capture.js` and `voice-transport.js` (tests and globals depend on the
+  old name).
+- **C2 tickets regrouped:** T01 = topic + v1 payload + target validation + `reason_code`
+  (old T1+T3); T02 = cancel; T03 = capabilities, now the MP-R1 IDs `voice.stt`/`voice.tts`
+  instead of a separate `Voice.capabilities/0` map.
+- **C4:** T01 answer form (with the field-wait and the 4,000-character stop: a script-set
+  value bypasses `maxlength`); T02 revision form with a `command_revision` target rule
+  (revisions target answered Commands, `decision_revision_action.ex:43`). The old C4-T2
+  (idempotency) needs no code: `ensure_action_key/2` already keys per decision per LiveView.
+- **C7** is one verification + docs-audit ticket; per-surface docs ship inside each ticket.

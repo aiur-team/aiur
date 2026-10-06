@@ -161,3 +161,16 @@ replaces; E5-OQ4 no-key presentation; E5-OQ5 keyboard shortcut or hold-to-talk o
 - After **MP-E7**: `AgentChat.send/3` call sites are replaced by the listener send; E5 only
   changes if the Send button's handler name changes.
 - After **MP-E3**: the Executor composer's module path is known; C5 binds to it.
+
+## 11. Phase C resolutions (2026-10-06)
+
+- RQ-E5-1 resolved (MP-E5-C1-T03): server echo of the textarea can overwrite partials; a
+  `dom.onBeforeElUpdated` guard keeps the local value while `data-voice-recording="true"`.
+- RQ-E5-2 resolved (MP-E5-C1-T01): selector list recorded; all preserved.
+- RQ-E5-3 resolved (MP-E5-C1-T03): a standalone `VoiceInput` hook is required; the drawer
+  hook is the only place the controller is built today.
+- RC-14 applied: `Aiur.Voice` facade and `{:voice_transcript | :voice_error | :voice_closed}`;
+  RC-16 applied: new chunk C8. §2's `Voice.capabilities/0` is replaced by MP-R1 capability
+  IDs `voice.stt` / `voice.tts` (voice-session §7).
+- E5 depends on MP-R5-C1 as a hard predecessor (no in-core fallback seam): wave 4 follows
+  wave 1.

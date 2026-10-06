@@ -1,0 +1,13 @@
+# MP-N5 contract requests (for the coordinator)
+
+MP-N5 co-authors the intent fields of `notification-destination-and-payload.md` (owned by
+MP-N4, updated to v2 in Phase C incl. `summary.counts`). Requests to contracts MP-N5 does
+not own:
+
+| ID | Target (owner) | Request | Why | Blocks |
+| --- | --- | --- | --- | --- |
+| CR-N5-1 | `pairing-and-instance-registry.md` §4.4 + MP-N2-C6 (MP-N2) | Name the instance device-auth Phoenix pipeline (proposed `:device_auth`) and state that it assigns `conn.assigns.device_id` from the token; routes under it never read a device id from the body. | MP-N5-C1-T03 and MP-N6-C1 add routes under it. | MP-N5-C1-T03 (naming) |
+| CR-N5-2 | `pairing-and-instance-registry.md` §4.5, §5 (MP-N2) | (a) Add `notification-preferences.json` to the machine store file list (gateway single writer). (b) Revoke and unpair-all delete the device's preference section in the same atomic store write. (c) Gateway hosts `GET/PATCH /v1/notification-settings` (device-token, own record only) and seeds defaults inside the claim write (MP-N5-C1-T04). | Preferences are per device per machine (DESIGN-N5 §1). | MP-N5-C1-T01, C1-T03, C1-T04 |
+| CR-N5-3 | `cross-feature-reviews/phase-b-reconciliation.md` RC-08 (coordinator) and MP-R2-C5 catalog | RC-08 spells the topic `ticket.<id>.decision.human-needed`; the command contract §8 uses `ticket.<id>.agent.decision.human-needed` and `executor.decision.human-needed`. Confirm the `.agent.` form (it matches today's `ticket.<id>.agent.decision.<slug>` scheme, `decision_store.ex:2555,2633-2653`). | MP-N5-C2-T01/T02 subscribe to it. | MP-N5-C2-T00 resolves whichever lands |
+| CR-N5-4 | `queue-readiness-and-build-progress.md` §4–§5 (MP-E1) | Specify the RC-10 internal progress-changed signal: name, transport (PubSub topic or `Exchange` topic; internal, not exported), payload `{scope, generation}` (no percent needed — consumers read `Aiur.BuildQueue.progress/1`), and that it fires on every change of `percent`, `resolution` or `generation`, including decreases. | MP-N5-C2-T03 computes 10/50 % steps from it. | MP-N5-C2-T03 (adapter name only) |
+| CR-N5-5 | `identity-and-capabilities.md` §2.3 (MP-R1) | Confirm capability ids `build_queue` (MP-E1) and `build_orders` both appear in the capability report, so progress options can be masked with `build_queue_not_installed` vs `build_orders_not_installed`. The reason enum has no such values: use `not_installed` with `depends_on: ["build_queue"]` / `["build_orders"]` and N5's options API maps them to option-level reason codes. | AC-N5-7. | none (mapping is N5-side) |

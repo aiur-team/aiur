@@ -74,7 +74,10 @@ Rules:
    (`listening-modes.md:268-272`): if the harness has no proved mid-turn
    boundary, the *effective* mode is not `steer` (§4).
 2. `sync`: buffer while a tool or turn is active; at the turn boundary
-   claim all pending messages, in arrival order, as one batch. If idle,
+   the scheduler MAY claim all pending messages as one batch. aiur delivers
+   one message per turn boundary, in arrival order, because
+   `OperatorWaitLog` and transcript anchors are keyed per request
+   (`agent_runner/queue_drain.ex:399-408`; MP-E7-C3-T02). If idle,
    start a turn now (aiur today wakes an idle running agent,
    `delivery_policy.ex:177-180`).
 3. `async`: arrival only persists. Never inject, never wake an idle or
@@ -91,15 +94,22 @@ Rules:
 7. **Idempotency:** a send with the same `client_request_id`, target and
    text returns the first `delivery_id` (aiur `message_id`, #2717,
    `agent_chat.ex:22-25`).
+8. **Sync is never claimed at a tool boundary**, including the OpenAI-compat
+   in-process `:tool_result` checkpoint, which today inserts operator text
+   mid-turn (`open_ai_compat/coding_agent.ex:222-244`). Only `steer` may be
+   claimed there (MP-E7-C3-T02).
 
 ## 4. Support, requested and effective mode
 
 Each `(harness, mode)` pair has a support status (Khala
 `delivery/listening-mode.ts:7-9`): `proven | experimental |
-blocked_without_wrapper | unsupported | unknown`. aiur adds one value for
-`steer` only:
+blocked_without_wrapper | unsupported | unknown`. The status set is not
+extended, because Khala's decoders reject unknown values and keys
+(`messaging/decode.ts:94-101`, `delivery/decode.ts:70-80` at `99e72a43`).
+Instead the steer support entry carries an optional field
+`steer_carrier: native | emulated_interrupt` (spec v1, MP-E7-C1-T05):
 
-- `emulated_interrupt` — the harness has no non-destructive mid-turn input;
+- `steer_carrier: emulated_interrupt` — the harness has no non-destructive mid-turn input;
   steer is carried by aiur's existing hard-interrupt path (cancel the active
   turn, then start a turn with the message). This is today's
   `AgentChat.send/3` default (`agent_chat.ex:27`). It is offered **only if
@@ -111,14 +121,18 @@ A control record carries `requested` and derives `effective` plus
 `delivery/listening-mode.ts:144-149`). Rules:
 
 - `effective = requested` when its support is `proven` or `experimental`
-  (or `emulated_interrupt` when accepted).
+  (for steer with `steer_carrier: emulated_interrupt`, only when E7-D2
+  accepts it).
 - Otherwise `effective = sync` when sync is supported, else `async`, and
   `effective_reason` names the missing capability. The UI must show both.
 - A harness with no proved sync boundary is forced to `async` (Khala:
   codec-less harnesses, `packages/agent/src/client-impl.ts:50-51`).
 - `effective` is recomputed when the running transport changes
-  (fallback `claude-repl → claude`, RC promotion), using the running entry's
-  `delivery_primitives` (harness-adapter contract §3).
+  (fallback `claude-repl → claude`, RC promotion), using the running
+  backend's `delivery_primitives` read through
+  `Capabilities.harness_delivery/3` (MP-R7-C2-T03), **never**
+  `running_entry.control`, which is stale after a transport change (finding
+  R7-C1-F1; fixed by MP-E7-C2-T04).
 
 ## 5. Setting the mode
 
@@ -144,13 +158,19 @@ model (prior KTD4 and the Decision API pattern):
   `409 mode_conflict` with the current record. (Khala's CAS design is
   unimplemented; its m1 runtime keeps last-writer-wins by event time,
   `client-impl.ts:379`.)
-- **Durability:** aiur persists per *ticket run* (survives agent respawn and
-  daemon restart, cleared when the ticket leaves active states). Khala
+- **Durability:** aiur persists the mode per *ticket run* in a file under
+  the runtime state dir, after the `SessionHandle` pattern (survives agent
+  respawn and daemon restart, cleared at terminal cleanup; MP-E7-C2-T01,
+  lifetime per E7-D5). Pending **messages** are not durable today:
+  `AgentQueueStore` is in-memory (`agent_queue_store.ex:2-3`), so a daemon
+  restart loses unclaimed items; their receipt becomes `unknown` (§7). Khala
   persists per channel binding (`mode.json`, member state key
   `com.khala.listening_mode`).
-- **Event:** aiur publishes `ticket.<id>.agent.listen-mode.changed` with
-  `{requested, effective, effective_reason, version, actor}` (topic owned by
-  MP-R2's registry).
+- **Event:** in wave 3 the change is an in-process PubSub broadcast
+  (MP-E7-C2-T04). Once MP-R2 registers it, aiur publishes
+  `ticket.<id>.agent.listen-mode.changed` with
+  `{requested, effective, effective_reason, version, actor}` (MP-E7-C2-T05,
+  wave 4; topic owned by MP-R2's registry).
 
 ## 6. Mode transitions
 
@@ -158,7 +178,7 @@ model (prior KTD4 and the Decision API pattern):
 | --- | --- |
 | `steer` ↔ `sync` | Stay queued; delivered at the new mode's next boundary. |
 | any → `async` | Unclaimed messages become pull-only. |
-| `async` → `steer`/`sync` | **Divergence.** Khala advances the cursor and never injects the backlog (`packages/agent/src/mode.ts:11-22`). aiur default (proposed): inject a one-line notice "N earlier messages are waiting; read them with `read_messages`", never the bodies. Shared field `backlog_on_leave_async: skip \| notice`. Owner decision E7-D4. |
+| `async` → `steer`/`sync` | **Divergence.** Khala advances the cursor and never injects the backlog (`packages/agent/src/mode.ts:11-22`). aiur default (proposed): inject a one-line notice "N earlier messages are waiting; read them with `aiur_read_messages`", never the bodies. Shared field `backlog_on_leave_async: skip \| notice`. Owner decision E7-D4. |
 
 ## 7. Receipts and the async pull
 
@@ -174,8 +194,9 @@ Send API (consumed by MP-E4 §9):
 | `read` | pulled by the agent (async) | new |
 | `failed` | not delivered; reason given | `:failed` |
 | `outcome_unknown` | caller timed out; may still be stored | `{:error, {:outcome_unknown, _}}` (`agent_chat.ex:53-55`) |
+| `unknown` | the item is not found (for example after a daemon restart); never reported as `failed` | item absent from `AgentQueueStore` |
 
-Async pull: an agent tool `read_messages(since_cursor?) → {messages, cursor}`
+Async pull: an agent tool `aiur_read_messages(since_cursor?) → {messages, cursor}` (named after the existing `aiur_*` tools; MP-E7-C5-T01)
 that acks by advancing a per-agent cursor (CAS, as Khala's
 `advanceCursor`, `packages/agent/src/inbox.ts:51-61`). The operator sees an
 unread count per agent. A harness without a pull path
@@ -215,22 +236,30 @@ Khala agent), delivery is through harness hooks. Shared behaviour (Khala
 
 | harness | `sync` | `steer` | `async` |
 | --- | --- | --- | --- |
-| `codex` | proven: existing checkpoint path delivers at the turn boundary (`app_server/operator_delivery.ex:41-51`) | experimental: Codex `turn/steer` (`threadId`, `input`, `expectedTurnId`; fails with no active turn; no new `turn/started`; https://learn.chatgpt.com/docs/app-server, accessed 2026-10-06) — not yet used by aiur; else `emulated_interrupt` | proven once `read_messages` exists (dynamic tools) |
-| `claude` (headless, `aiur-claude`) | proven (same checkpoint path) | `unsupported` natively: sibling `turn/steer` drops text (R7 plan F7), and `claude --print` takes stdin once per turn; `emulated_interrupt` only | proven once the tool exists (MCP bridge) |
-| `claude-repl` | experimental: hold until the `Stop` hook, then type into the pane (`claude/repl/hook_turn.ex`) | experimental: pane input folded by Claude's native queue (`operator_inject.ex:14-28`); RQ-R7-1 | `unsupported` until the REPL gets a pull path (no `--mcp-config`, `claude/repl/command.ex:30-35`) |
-| `muse` | proven: `ifBusy: "queue"` (`muse/coding_agent.ex:24`) | unknown: receipts allow `steered` (`muse/protocol.ex:87-89`); verify an `ifBusy` steer value | unknown |
-| `kimi`/`deepseek`/`openrouter` | proven (checkpoint) | unknown (RQ-R7-4) | proven once the tool exists |
+| `codex` | proven: existing checkpoint path delivers at the turn boundary (`app_server/operator_delivery.ex:41-51`) | experimental: Codex `turn/steer` (`threadId`, `input`, `expectedTurnId`; codex-cli 0.160.0 schema; fails with no active turn or a mismatched id; no new `turn/started`; https://learn.chatgpt.com/docs/app-server, accessed 2026-10-06), falls back to sync on rejection (MP-E7-C4-T02); else `emulated_interrupt` | proven once `aiur_read_messages` exists (dynamic tools) |
+| `claude` (headless, `aiur-claude`) | proven (same checkpoint path) | `unsupported` natively: no documented mid-turn input for `claude --print` (RQ-E7-4); `emulated_interrupt` only. MP-E7-C4-T01 fixes the sibling's `turn/steer` text loss, which then lands next turn only | proven once the tool exists (MCP bridge) |
+| `claude-repl` | experimental: hold until the `Stop` hook, then type into the pane (`claude/repl/hook_turn.ex`; MP-E7-C4-T04) | experimental → proven after the MP-E7-C4-T04 foreground capture: queued input is passed "as soon as those tool calls finish, within the same turn" (https://code.claude.com/docs/en/interactive-mode, accessed 2026-10-06, local Claude Code 2.1.291) | `unsupported` until the REPL gets a pull path (no `--mcp-config`, `claude/repl/command.ex:30-35`) |
+| `muse` | proven: `ifBusy: "queue"` (`muse/coding_agent.ex:24`) | experimental: MSP `turn/steer` (`expectedTurnId`, `commandId`; `IfBusy = queue \| steer \| replace`; Muse 1.4.3 schema; MP-E7-C4-T03) | proven once `aiur_read_messages` exists (session MCP, `muse/session.ex:75`) |
+| `kimi`/`deepseek`/`openrouter` | proven (checkpoint; never claimed at `:tool_result`, §3 rule 8) | native boundary exists: operator text inserted after each tool result (`open_ai_compat/coding_agent.ex:222-244`); support status `experimental` until a steer ticket claims it | proven once the tool exists |
+| `gemini` *(ACP; only if PR #2870 merges, RC-22)* | proven: a message becomes a queued turn (`gemini/coding_agent.ex:20`, `gemini/turn.ex:103-112` @ `c1fc6f84`) | `emulated_interrupt` only: urgent → ACP `session/cancel`, then a new turn (`gemini/turn.ex:220-223`, `gemini/protocol.ex:46-48`); no non-cancelling input | possible once `aiur_read_messages` exists (MCP tools bound per turn, `gemini/turn.ex:17`) |
 | Executor (external, MP-E3) | via hooks (§8) | via hooks (§8) | via `aiur executor-wait`-style pull |
 
 Today's entry-point defaults (`:interrupt` for `AgentChat`, `:checkpoint`
 for HTTP, `:auto` for the TUI; R7 plan F3) are replaced by "the agent's
-effective mode" in MP-E7-C3. That is a behaviour change (Bucket 2).
+effective mode" in MP-E7-C3. That is a behaviour change (Bucket 2), so per
+RC-05 MP-E7-C3 routes every send through the listener entry point behind the
+internal application env `config :aiur, :listener_send_routing`
+(`:legacy` default | `:listener`). Under `:legacy` each entry point resolves
+to today's policy and the MP-R7-C1 characterization suite passes unchanged.
+It is not an operator config key (E7-D7 is an owner item). MP-E7-C7-T04
+flips the default and deletes the legacy branch after DESIGN-E7 decision
+E7-D6.
 
 ## 10. Shared versus per product
 
 | Shared (one package, §11) | aiur only | Khala only |
 | --- | --- | --- |
-| Mode literals, default, decoder; support statuses; requested/effective rule; boundary rules §3; transition table §6 with `backlog_on_leave_async`; hook boundary mapping §8; Claude/Codex hook stdin parser and envelope renderer; frame limits; conformance goldens | Elixir scheduler over `AgentQueueStore`; app-server, MSP and tmux transports; `emulated_interrupt`; CAS command; ticket-run persistence; frame copy; CLI/dashboard UI; Command exclusion | Matrix event `com.khala.listening_mode.v1` and member-state echo; room-owner authorization; channel inbox files; idle-wake ladder; web UI |
+| Mode literals, default, decoder; support statuses; requested/effective rule; boundary rules §3; transition table §6 with `backlog_on_leave_async`; hook boundary mapping §8; Claude/Codex hook stdin parser and envelope renderer; frame limits; conformance goldens | Elixir scheduler over `AgentQueueStore`; app-server, MSP and tmux transports; `steer_carrier: emulated_interrupt` behaviour; CAS command; hook envelope rendering in Elixir (MP-E7-C6-T04); ticket-run persistence; frame copy; CLI/dashboard UI; Command exclusion | Matrix event `com.khala.listening_mode.v1` and member-state echo; room-owner authorization; channel inbox files; idle-wake ladder; web UI |
 
 ## 11. Packaging and versioning (resolves MP-Q1; evidence in MP-E7 plan)
 
@@ -242,13 +271,18 @@ effective mode" in MP-E7-C3. That is a behaviour change (Bucket 2).
 - It is homed in the Khala monorepo as one publishable package and released
   through Khala's tag-driven npm workflow. aiur vendors the JSON files at a
   pinned version with a checksum and runs the goldens against its Elixir
-  scheduler in CI. aiur's Node-side hook command (shipped in `aiur-cli`)
-  may import the TypeScript codec directly.
+  scheduler in CI. aiur does **not** ship a Node hook: the daemon renders the
+  hook envelope in Elixir, tested against the shared envelope-only goldens,
+  and the hook is a plain `curl` command (MP-E7-C6), because `aiur-cli`
+  requires Node `>=18` and Khala's packages need `^22.18.0 || >=24.11.0`.
+  Hook goldens hold the envelope only; frame wording stays per product.
 - Wire content carries `v: 1`. Adding a mode or a support status is a major
   change (old decoders map unknown modes to `sync`, which would silently
-  downgrade). Adding a field is minor; decoders that reject unknown keys
-  (Khala `object(...)`, `delivery/listening-mode.ts:154`) must be relaxed
-  first, or the field ships as `v: 2`.
+  downgrade). While Khala's decoders reject unknown keys (Khala `object(...)`,
+  `delivery/listening-mode.ts:154`; `messaging/decode.ts:94-101`,
+  `delivery/decode.ts:70-80`), adding a field is also breaking. So v1 ships
+  `backlog_on_leave_async` and `steer_carrier` from its first release
+  (MP-E7-C1-T05 lands before MP-E7-C1-T03).
 
 ## 12. Security and privacy
 

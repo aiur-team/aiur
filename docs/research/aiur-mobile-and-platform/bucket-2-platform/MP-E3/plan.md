@@ -251,7 +251,7 @@ MP-E3.C4-T4 and an owner question.
 | MP-E3-C2 | Claude Executor transcript → journal (reuse tailer) | C1, MP-E4-C1 |
 | MP-E3-C3 | Codex Executor transcript → journal (rollout or app-server reader) | C1, RQ-E3-1/2 |
 | MP-E3-C4 | Executor status, blockers, background-agents projection | C1, MP-E2 (Executor Commands) |
-| MP-E3-C5 | Executor input through MP-E7, with receipts and overlay | C1, MP-E7 package, MP-E4-C6 |
+| MP-E3-C5 | Executor input through MP-E7, with receipts and overlay | C1, MP-E7-C3 (RC-05), MP-E4-C6; live delivery needs MP-E7-C6 (composer disabled until then) |
 | MP-E3-C6 | Dashboard Executor surface | C2/C4/C5, MP-E4-C5, **DESIGN-E3** |
 | MP-E3-C7 | Setup UX, docs, skill updates | C1, DESIGN-E3 (copy) |
 
@@ -266,7 +266,7 @@ MP-E3.C4-T4 and an owner question.
 - OQ-E3-6. Should the aiur-run skill emit `executor.progress` events so Executor progress becomes a jump point?
 
 **Research (Phase C):**
-- RQ-E3-1. Codex rollout JSONL record types at 0.160.x, and whether `migrate-rollouts` ("paginated thread history") changes the on-disk layout. Pin a fixture per version.
+- RQ-E3-1. Codex rollout JSONL record types at 0.160.x, and whether `migrate-rollouts` ("paginated thread history") changes the on-disk layout. Pin a fixture per version. **Census 2026-10-06 (types only, 200 + 40 local rollouts):** `event_msg/item_completed` carries typed items (`AgentMessage`, `Reasoning`, `CommandExecution`, `FileChange`, `UserMessage`, `DynamicToolCall`, `McpToolCall`, `SubAgentActivity`, `ContextCompaction`) at 0.157.1–0.160.1; no codex-tui rollout at 0.160 was present. MP-E3-C3-T01 closes that gap.
 - RQ-E3-2. Can a separate `codex app-server` read `thread/turns/list` for a thread a live TUI owns, consistently and without side effects? Does the 0.160 shared app-server daemon let a second client subscribe to the TUI's thread?
 - RQ-E3-3. Claude transcript flush latency on 2.1.29x (lazy flush noted at 2.1.177) — sets the live-lag acceptance number.
 - RQ-E3-4. Is Claude `agent_transcript_path` stable enough to show subagent transcripts, or only start/stop rows?

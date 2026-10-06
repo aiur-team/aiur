@@ -28,9 +28,40 @@ Owner gate: [../../owner-design-tasks/DESIGN-E2.md](../../owner-design-tasks/DES
   spikes on native capture for both harnesses (R-Q1, R-Q2); the MP-R7 adapter contract
   shape; and the escalation timeout defaults (owner).
 
+## 0. Phase C update (2026-10-06)
+
+Tickets: [tickets/README.md](tickets/README.md) (36: spikes C4-T00 and C5-T00 `ready`,
+34 implementation tickets `blocked` on DESIGN-E2 plus named predecessors). The contract
+was revised (its "Phase C changes" paragraph). Decisions made with evidence in Phase C:
+
+- **R-Q4 answered.** An older binary decodes an unknown named event type to
+  `Aiur.DecisionEvent.Unrecognized` and skips it (`decision_event.ex:167-193`,
+  `decision_projection.ex:158`), but it re-validates `requested` snapshots and recomputes
+  their hash (`decision_projection.ex:47-86`) and requires a `ticket` map (`:48`). So v2
+  attributes travel in a new `request_attributed` event, and Executor Commands keep the
+  reserved ticket `"executor"` instead of `nil` (C1-T01). This replaces "make `ticket`
+  nullable" below.
+- **R-Q3 answered.** Executor acknowledgement = `aiur executor-ack` + Executor
+  answer/escalate/moot/supersede (C2-T04); reads and wake delivery do not count.
+- **Config namespace** is the existing `decisions.*` section (`config/schema.ex:57`), not
+  `commands.*` (C2-T05).
+- **In-band delivery** reuses the correlated operator-message queue; the runner that holds
+  the request answers it (C4-T03). The store dispatcher contract is unchanged.
+- **Executor delivery:** today `executor.*` events never reach the wake inbox
+  (`executor_listener.ex:183-193`, `executor_wake_projection.ex:12`), so C6-T02 allowlists
+  `executor.decision.answered` there.
+- **No supervisor supersede route** (C3-T02): D11 grants supersede to humans; the device
+  route is MP-N6's, on `Aiur.Commands.Answering`.
+- **Citation fix:** `decision_id` derivation is `decision_validation.ex:466-479`, not
+  `decision.ex` (280 lines).
+- **RC-08** applied in C2-T02; **RC-18** in C2-T03 (#2819, no edit to
+  `decision_attention.ex`).
+- **New:** RQ-E2-1 (`claude-repl` native capture, deferred to MP-E3/MP-E7). Contract
+  requests: [tickets/CONTRACT-REQUESTS.md](tickets/CONTRACT-REQUESTS.md).
+
 ## 1. Repository findings (extend the baseline, `45a290e3`)
 
-The baseline (`../../baseline/capability-baseline.md` § E2) is correct in outline. These
+The baseline (`../../baseline/capability-baseline-bucket-2.md` § E2) is correct in outline. These
 findings add to it or correct it. Paths are under `src/lib/aiur/` unless they say
 otherwise.
 
@@ -334,14 +365,14 @@ the spike succeeds, **whether to enable an `UnderDevelopment` Codex feature flag
 production**. These are in DESIGN-E2 §6.
 
 **Research (Phase C):**
-- R-Q1: does `codex-cli 0.160.0` with `features.default_mode_request_user_input=true`
+- R-Q1 *(spike ticket C4-T00, not executed)*: does `codex-cli 0.160.0` with `features.default_mode_request_user_input=true`
   offer the tool in aiur's app-server sessions? Does the client really wait with no
   timeout?
-- R-Q2: does `aiur-claude` plus `--permission-prompt-tool` plus a PreToolUse defer
+- R-Q2 *(spike ticket C5-T00, not executed)*: does `aiur-claude` plus `--permission-prompt-tool` plus a PreToolUse defer
   round-trip with `bypassPermissions`, and does it leave permission prompts untouched
   (D10)?
-- R-Q3: what is the minimal Executor "acknowledgement" signal?
-- R-Q4: does the projection reducer tolerate unknown v2 events on rollback?
+- R-Q3: *(answered in Phase C, C2-T04)* what is the minimal Executor "acknowledgement" signal?
+- R-Q4: *(answered in Phase C, §0 and C1-T01)* does the projection reducer tolerate unknown v2 events on rollback?
 - R-Q5: where does #3005 land, and does it add `operator_relayed` to `decision_answer.ex`
   allowed kinds?
 

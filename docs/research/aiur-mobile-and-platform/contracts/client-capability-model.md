@@ -1,7 +1,7 @@
 ---
 contract_id: MP-CT-client-capability-model
 owner_feature: MP-N1
-status: draft
+status: reconciled (Phase C, 2026-10-06): RC-02, RC-04, RC-15 applied
 base_main_sha: 45a290e3
 date: 2026-10-06
 consumes: [MP-CT-identity-and-capabilities (MP-R1), pairing credentials (MP-N2), command-request-and-resolution (MP-E2), events external API (MP-R2)]
@@ -31,9 +31,9 @@ model generalises.
 | C-A2 | `state ∈ {available, degraded, unavailable, unknown}`; reasons as listed | Matches §2.2 |
 | C-A3 | A paired-device credential is accepted on that endpoint | Stated as an assumption to MP-N2 in §5 |
 | C-A4 | `system.capabilities.changed` carries the new `revision` | Matches §2.1 |
-| C-A5 | **Proposed addition:** a `boot_id` (random per daemon start) so a client can tell "same revision after restart" from "unchanged". MP-R1 §4 "Restart" leaves the choice between a persisted counter and a `boot_id` to Phase C. This contract works with either, but needs one. | Open; MP-R1 decides |
-| C-A6 | **Proposed addition:** `min_client_version` per client kind (`phone`, `watch`) at top level, absent = no minimum | Not in the draft; request to MP-R1 |
-| C-A7 | Write endpoints return a typed error naming the capability: `{error: "capability_unavailable", capability, state, reason}` | §3 rule 6 says "a typed error that names the capability"; shape proposed here |
+| C-A5 | **Proposed addition:** a `boot_id` (random per daemon start) so a client can tell "same revision after restart" from "unchanged". MP-R1 §4 "Restart" leaves the choice between a persisted counter and a `boot_id` to Phase C. This contract works with either, but needs one. | **Accepted by RC-04**: MP-R1 adds `boot_id` to the report |
+| C-A6 | **Proposed addition:** `min_client_version` per client kind (`phone`, `watch`) at top level, absent = no minimum | **Accepted by RC-04**: MP-R1 adds `min_client_version` |
+| C-A7 | Write endpoints return a typed error naming the capability: `{error: "capability_unavailable", capability, state, reason}` | §3 rule 6 says "a typed error that names the capability"; shape proposed here; **accepted by RC-04** as MP-R1's typed error |
 
 ## 2. Inputs
 
@@ -42,7 +42,7 @@ A client resolves each **affordance** (a thing the user can see or do) from five
 | Input | Source | Examples |
 |---|---|---|
 | I1 Server capability | The capability report (MP-R1) | `commands.answer: available`; `voice.stt: unavailable/not_configured` |
-| I2 Reachability | The client's last fetch outcome | `reachable`, `unreachable{since}`, `transport_error{kind}` |
+| I2 Reachability | The client's last fetch outcome | `reachable`, `unreachable{since}`, `transport_error{kind}` with `kind ∈ {tls_untrusted, tls_name_mismatch, tls_pin_mismatch, cleartext_blocked, timeout, refused, unknown}`; plus the transport mode `https` or `http_degraded` (RQ-TRANSPORT, `pairing-and-instance-registry.md` §8.1) |
 | I3 Authorization | Pairing state (MP-N2) | `paired`, `revoked`, `session_expired` |
 | I4 Local platform | OS permissions and device state | notification permission, mic permission, camera, watch paired and reachable, push token present |
 | I5 Client support | The client build | the client implements `voice.conversation` or not; contract versions it understands |
@@ -69,7 +69,7 @@ Evaluate in order; the first match wins.
 
 1. I3 `revoked` → `revoked` (for every affordance on that machine).
 2. I3 `session_expired` → attempt one re-bootstrap; on failure → `unknown` with reason `auth`.
-3. I2 `unreachable` → `unreachable`.
+3. I2 `unreachable` → `unreachable`. I2 `transport_error` → `unreachable` carrying the `kind` (never collapsed into one cause; `unknown` when unclassified).
 4. Server `contract_version` lower than the version that introduced the needed ID, or `min_client_version` above this client → `needs_update`.
 5. Any required I1 capability `unavailable` → `unavailable` (carry its `reason`; if several, list all in `reasons` and show the first, AGENTS.md `reasons` pattern).
 6. Any required I1 capability `unknown`, or an unknown `reason` → `unknown`.
@@ -90,17 +90,22 @@ write anyway, C-A7).
 | Instance row in the meta-dashboard | `instance.status` | `build_orders.progress`, `executor.conversation` (background agents) | — | n/a |
 | Commands-awaiting count | `commands.read` | — | — | n/a |
 | Build-order % | `build_orders.progress` | — | — | n/a |
-| Open instance dashboard (WebView) | `instance.status` + an established session | — | HTTPS, or the HTTP-degraded flag (MP-N1 §5) | n/a |
+| Open instance dashboard (WebView) | `instance.status` + an established session | — | transport mode `https`, or `http_degraded` when the owner kept that mode (RQ-TRANSPORT; resolves to `degraded`) | n/a |
 | Executor chat button | `executor.conversation` | — | — | n/a |
 | Answer a Command (option or text) | `commands.answer` | — | — | **Yes**, with `expected_version`; the server rejects changed Commands |
 | Send a message to an agent | `agents.message` | `listener_modes` (shows the delivery mode) | — | Yes |
-| Mic → Dictate (server STT) | `voice.stt` | — | mic permission; HTTPS for WebView surfaces | Yes |
+| Mic → Dictate (server STT) | `voice.stt` | — | mic permission; transport mode `https` for WebView surfaces (`http_degraded` → `unavailable`, reason `insecure_context`) | Yes |
 | Mic → Dictate (system recognizer, watch) | — (no server voice needed) | — | speech or dictation availability on the device | Yes |
 | Mic → Converse | `voice.conversation` | `voice.tts` (spoken replies; text-only if missing → `degraded`) | mic permission | No: start requires `ready` or `degraded` |
 | Receive push notifications | `push` | — | notification permission; push token | n/a |
 | Build-order progress notifications (setting) | `push`, `build_orders.progress` | — | notification permission | n/a |
 | PR-merge notifications (setting) | `push`, plus the event source MP-N5 names | — | notification permission | n/a |
 | Watch: any server-backed action | the same as the phone affordance | — | watch reachable to phone (I4) | as the phone affordance |
+
+Client-side reasons (added in Phase C, used with `unavailable`): `insecure_context` (the
+WebView origin is HTTP-degraded, so `getUserMedia` cannot run) and `tls_websocket_untrusted`
+(transport option T-B on iOS: WKWebView cannot apply a pinned trust to WebSockets, so `/voice`
+cannot connect; MP-N2-C10-T04). They are client reasons, never sent by the server.
 
 The Mic button itself is `ready` if **either** Dictate or Converse resolves to
 `ready` or `degraded`. The choice sheet shows both options, each with its own state
@@ -124,7 +129,7 @@ a report is `stale` when the client-observed age exceeds 60 s in the foreground,
 the server says `freshness: stale`. The client displays the server's `age_ms` plus its own
 fetch age; it does not trust its own clock over the server's (MP-R1 §4 clock skew).
 
-**Cache key:** `(machine_id, instance_id, boot_id or persisted revision, revision)`. A cache
+**Cache key:** `(machine_id, instance_id, boot_id, revision)` (`boot_id` per RC-04). A cache
 from a previous `boot_id` is shown only as stale until refetched.
 
 **Push-delivered hints** (a notification's capability-related fields) are never
@@ -144,11 +149,15 @@ watch `snapshot` (MP-N7 §4):
       "affordances": {
         "answer_command": {"state": "ready"},
         "mic_dictate_server": {"state": "unavailable", "reason": "not_configured"},
+        "mic_dictate_system": {"state": "ready"},
         "mic_converse": {"state": "unknown"},
         "build_progress": {"state": "unavailable", "reason": "not_installed"} } } ] }
 ```
 
-The watch adds one local input: whether it can reach the phone now. If not, every
+Affordance keys in the snapshot (v1): `answer_command`, `mic_dictate_server`,
+`mic_dictate_system` (the watch's own system recognizer; needs no server voice, so the phone
+sends `ready` unless the owner disabled it in DESIGN-N7 D-N7-2), `mic_converse`,
+`build_progress`. The watch adds one local input: whether it can reach the phone now. If not, every
 server-backed affordance renders as `unreachable` with "needs phone" and the snapshot's
 age.
 

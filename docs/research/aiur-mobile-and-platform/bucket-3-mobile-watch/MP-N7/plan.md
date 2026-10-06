@@ -145,7 +145,7 @@ last `snapshot`.
 
 - **Apple Watch:** v1 relies on **iPhone forwarding** (S15): when the iPhone is locked and the watch is on the wrist, the watch shows the iPhone's notification. The iPhone NSE decrypts first. That the watch then shows the decrypted text is supported only by vendor evidence (S39); DV-W1 must confirm it. The watch app does **not** register its own APNs token in v1. Doing so (S12) would need its own device credential and decryption key on the watch, a second pairing scope that MP-N2 does not define. It is deferred, as research N7-RQ4.
 - **Actions:** the notification's default action opens the watch app's Command card, where options are buttons. Dynamic option titles as notification action buttons are **not** assumed: categories are registered in advance, so per-Command option text in the banner is unverified (N7-RQ1).
-- **Wear OS:** the Android phone's FCM service decrypts and posts the notification. Wear OS bridges it automatically (S33). A `dismissalId` equal to `<instance_id>:<decision_id>` keeps dismissal in sync. Content intent on the watch opens the Wear app's Command card when the app is installed (bridged notifications with app-specific actions need `setBridgeTag` handling; Phase C confirms, N7-RQ2).
+- **Wear OS (revised in Phase C, N7-RQ2):** the Android phone's FCM service decrypts and posts the notification with bridge tag `aiur-command` and dismissal id `<instance_id>:<decision_id>`. When the Wear app is installed it excludes that tag from bridging and posts its own notification (sent by the phone broker as watch-link `notify`), whose content intent opens the Wear Command card. Without the Wear app, the phone notification bridges by default ("open on phone"). See tickets/MP-N7-C3-T04.md.
 - **Resolved elsewhere:** when a Command resolves on another surface, the phone removes or updates the notification; forwarded or bridged copies follow (DV-W7 checks Wear; Apple forwarding of removals is N7-RQ3).
 
 ## 8. Non-happy paths
@@ -202,8 +202,11 @@ phone's native core is affected.
 
 ### Research (Phase C)
 
-- **N7-RQ1.** Can per-Command option text appear as notification action buttons on watchOS and Wear OS (runtime category registration from the NSE path)?
-- **N7-RQ2.** Wear OS: does a bridged notification's content intent open the installed Wear app, or must the Wear app post its own local notification (and disable bridging for that tag)?
-- **N7-RQ3.** Apple: when the iPhone removes a delivered notification, is the forwarded watch copy removed?
-- **N7-RQ4.** Watch-own APNs registration and keys (deferred standalone path): what MP-N2 would need.
-- **N7-RQ5.** Does Wear OS traffic proxied through the phone use the phone's VPN, such as Tailscale (S35 silent)? Only relevant if a standalone path is ever considered.
+Phase C status (2026-10-06):
+
+- **N7-RQ1 — API resolved, forwarded case pending device.** `WKUserNotificationInterfaceController.notificationActions` (watchOS 5.0+) "dynamically update[s] the list of actions … only … during `didReceive(_:)`" (developer.apple.com/documentation/watchkit/wkusernotificationinterfacecontroller/notificationactions, accessed 2026-10-06). Whether forwarded notifications carry the decrypted options is device row DV-W10. On Wear OS, per-notification actions exist but bridged actions run on the phone; the Wear-local notification (C3-T04) avoids that. Ticket MP-N7-C2-T06 (conditional).
+- **N7-RQ2 — resolved.** Bridged notifications include a button to launch the app on the phone and `WearableExtender` actions "execute on the phone, not on the watch" (developer.android.com/training/wearables/notifications, updated 2026-09-22). Decision: the Wear app posts its own Command notification and excludes tag `aiur-command` from bridging; dismissal id `<instance_id>:<decision_id>` (bridger page, updated 2026-09-22). Device rows DV-W7/W7b/W7c confirm a non-standalone app's `BridgingConfig` is honoured. Ticket MP-N7-C3-T04.
+- **N7-RQ3 — not documented; device row DV-W11.** Apple's forwarding page (accessed 2026-10-06) does not cover removal. Fallback if not removed: watch-side cleanup on the next snapshot (MP-N6-C6 ticket filed from DV-W11).
+- **N7-RQ4 — deferred** (unchanged).
+- **N7-RQ5 — not documented** (network-access page, updated 2026-09-22, says traffic is "generally proxied through the phone" and does not mention VPNs). Irrelevant to v1; advisory measurement in DV-W8.
+- **RQ-N7-6 (new).** Do the daemon STT path and the MP-E6 provider accept watch audio relayed faster than real time? Until measured (DV-W6), the phone paces at real time. Blocks the fast-pacing option in MP-N7-C4-T04/T05.

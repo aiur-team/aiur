@@ -2,10 +2,11 @@
 contract_id: MP-CT-conversations-transcripts-anchors
 owner_feature: MP-E4
 co_consumers: [MP-E3, MP-E5, MP-E6, MP-E7, MP-N3, MP-N6, MP-N7, MP-R6]
-status: draft (Phase B)
+status: draft (Phase C; RC-02, RC-06, RC-07 applied)
 version: 1
 base_main_sha: 45a290e3
 date: 2026-10-06
+phase_c_changes: §15
 ---
 
 # Contract: conversations, transcripts and event anchors
@@ -48,18 +49,30 @@ never replaces a transcript.
 ## 3. Identity
 
 ```text
-ConversationRef  = { v: 1, instance_id, subject }
+ConversationRef  = { v: 1, instance_id | null, subject }
 subject          = { kind: "worker",   tracker_identity }     # repo + issue id (Aiur.TrackerIdentity)
                  | { kind: "executor" }                       # one Executor per instance (brief §3)
-conversation_id  = "conv_" <> base32(sha256(instance_id <> canonical(subject)))[0..25]
+conversation_id  = "conv_" <> base32_lower(sha256(canonical(subject)))[0..25]   # unique within one instance
 SessionRef       = { conversation_id, session_seq }           # session_seq: 1, 2, 3 … per conversation
-EntryRef         = { conversation_id, pos }
+EntryRef         = { conversation_id, pos }                   # THE stable entry address (RC-07)
+GlobalEntryRef   = { instance_id, conversation_id, pos }      # what a phone, push or deep link carries
 ```
 
-- `instance_id` comes from the identity contract (coordinator). **Assumption:** it is
-  the launcher's per-repository instance key recorded in
-  `~/.config/aiur/instances/*.instance` (baseline §4 fact 14). If the identity
-  contract picks another key, only this field changes.
+- `instance_id = "<machine_id>/<instance_key>"` (RC-02; identity contract owned by
+  MP-R1). It is **not** an input to `conversation_id`: the journal directory is
+  already instance-scoped (§6), and keeping `conversation_id` independent of
+  `machine_id` means a journal written before MP-R1's identity file exists keeps
+  its ids when the identity appears. Clients outside the daemon always key on
+  `(instance_id, conversation_id)`. `instance_id` is `null` only while the
+  identity contract is not implemented; external (paired) clients are refused
+  until it is present.
+- `canonical(subject)`: worker → `"worker:github:" <> owner <> "/" <> repository
+  <> ":" <> provider_id` from `Aiur.TrackerIdentity.github_key/1`
+  (`tracker_identity.ex:141-146`; owner and repository are downcased there, and
+  `provider_id` survives a display-number change); executor → `"executor"`. An
+  unjoinable identity (`TrackerIdentity.joinable?/1` false) has **no**
+  conversation: the tee skips it and counts the skip, as `LiveConversation`
+  does (`live_source/3`, `message_handler.ex:400-445`).
 - `tracker_identity` reuses `Aiur.TrackerIdentity`, which already keys
   `LiveConversation.Source` (`live_conversation/source.ex:8-15,60`).
 - The Executor subject is singular per instance. Re-attaching a different external
@@ -100,7 +113,7 @@ EntryRef         = { conversation_id, pos }
 ```json
 {
   "v": 1, "pos": 1207, "session_seq": 3,
-  "id": "ent_<sha256(provider_msg_id | tool_call_id | fallback tuple)>",
+  "dedup_key": "ent_<sha256(source identity, see below)>",
   "kind": "message | reasoning | command | tool_call | tool_result | diff | operator_message | system | gap",
   "role": "agent | operator | executor_operator | tool | system",
   "body": "string (bounded, see §8)",
@@ -111,32 +124,66 @@ EntryRef         = { conversation_id, pos }
 }
 ```
 
-- `id` is idempotency, not order. Re-ingesting the same provider record produces
-  the same `id`, and the writer drops it. The fallback tuple matches
-  `LiveConversation.Normalizer` (`normalizer.ex:138-145`).
-- `operator_message` is written only when the harness transcript shows the input
-  (for Claude, a `user` record or a `queued_command` attachment;
-  `claude/transcript.ex:100-140`). A send that was accepted but not yet seen is a
-  **delivery overlay** (§9), not an entry. This keeps the journal a record of what
-  the agent received.
+- **`pos` is the entry's stable identity** (RC-07). It is assigned once by the
+  single journal writer and never changes, so an anchor, a deep link and a deck
+  key all name an entry by `EntryRef {conversation_id, pos}`. There is no second
+  entry id.
+- `dedup_key` is idempotency only, never an address. Source identity, in order:
+  `provider_msg_id` (with role) → `tool_call_id` (with role) → the fallback tuple
+  `{role, turn_id | occurred_at, body}` that `LiveConversation.Normalizer.stable_id/3`
+  uses (`live_conversation/normalizer.ex:138-145,196-199`). Re-ingesting the same
+  record yields the same key and the writer drops it, inside the open session
+  and across a daemon restart (MP-E4-C1-T02).
+- `operator_message` is written when the input reaches the agent, never at
+  acceptance: for daemon-run workers at aiur's delivery point
+  (`MessageHandler.observe_operator_delivery/4`, `message_handler.ex:173-216`,
+  `msg_id "operator:<queue item id>"`, so `refs.delivery_id` is the
+  `AgentChat.send/3` request id); for an attached Executor when the provider
+  transcript shows it (Claude `user` record or `queued_command` attachment,
+  `claude/transcript.ex:100-140`). A send that was accepted but not yet
+  delivered is a **delivery overlay** (§9), not an entry.
 - `gap` is `{ "reason": "daemon_down | source_unreadable | pre_journal | truncated_source", "from": ISO8601, "to": ISO8601 }`.
 
 ## 6. Storage (owned by MP-E4.C1)
 
-- **Location:** a durable, owner-only directory beside the Decision state
-  (`Config.Paths.decision_state_dir/0`, `paths.ex:39-41`), not the per-launch log
-  root and not the workspace. Proposed path:
-  `<durable-state>/conversations/<conversation_id>/`.
-- **Files:** `entries.<segment>.jsonl` (append only, fsync per batch),
+- **Location:** a durable, owner-only directory beside the Decision state, not
+  the per-launch log root and not the workspace. PROPOSED
+  `Aiur.Config.Paths.conversation_state_dir/0` = `<decision_state_dir>/conversations`
+  with an `Application` env override `:conversation_state_dir` (the pattern of
+  `progress_retention_state_dir/0`, `config/paths.ex:99-109`; the root is
+  instance- and project-scoped by `decision_state_dir/0`, `paths.ex:61-66,322-328`).
+  One directory per conversation: `<conversation_state_dir>/<conversation_id>/`.
+- **Files:** `subject.json` (written once at creation: subject kind, and for
+  workers owner, repository, display identifier, provider id; lets a finished
+  ticket's identifier resolve to its conversation), `entries.<segment>.jsonl`
+  (append only, fsync per batch),
   `sessions.jsonl` (append only; an end is a new line, never an edit),
   `anchors.jsonl` (append only), `head.json` (last `pos`, last `session_seq`;
   rebuilt from the segments if lost).
 - **Never rewritten.** Segments roll at a size bound (proposed 8 MiB, the same
   bound as `AlertLedger`). Old segments are kept. No automatic deletion. Pruning
-  is out of scope, and an owner decision if ever added.
+  is out of scope, and an owner decision if ever added (DESIGN-E4 decision 5).
+- **Size budget** is measured, not estimated: MP-E4-C1-T00 (RQ-E4-1) gives
+  bytes/hour per agent from the live fleet and confirms or lowers the §8 body
+  bound before C1-T01 fixes it.
+- **Ingest points (workers).** Three daemon-side call sites see every transcript
+  record: the per-message closure (`MessageHandler.build/7`,
+  `agent_runner/message_handler.ex:52-63`), the Remote-Control display path
+  (`SessionLifecycle.display_tailer_handler/3`, `agent_runner/session_lifecycle.ex:741-765`,
+  which bypasses the closure on purpose and backfills `from: :start`), and
+  operator delivery (`MessageHandler.observe_operator_delivery/4`). All three
+  tee to the journal with a non-blocking cast.
 - **Permissions:** directory `0700`, files `0600`, like the Decision store.
 - **Single writer:** one writer process per conversation. `pos` is assigned under
-  that writer.
+  that writer. Anchor lines also go through it.
+- **Layering (MP-R1 CR-C8-1).** The write side (`Aiur.Conversation.{Ref, Entry,
+  Session, Store, Journal, Ingest}`) sits at the agent-runner layer, because
+  agent-runner call sites feed it; it depends only on `Config.Paths`,
+  `DecisionLog`, `TrackerIdentity` and PubSub. The read side
+  (`Aiur.Conversation.{History, Anchors, AnchorResolver, JumpPoints}`) is the
+  projection layer and is the in-daemon read facade every surface uses. The name
+  `Aiur.Conversations` (plural) is already taken by the tmux conversation-pane
+  facade (`src/lib/aiur/conversations.ex`), so it is not used here.
 
 ## 7. History API
 
@@ -186,7 +233,14 @@ Only two writes act on a conversation. Neither edits the journal.
 
 1. **Send a message** to the subject. The client calls the listener-mode service
    (MP-E7 contract) with `{ConversationRef, text, client_request_id}`. The service
-   returns a `delivery_id` and receipt states. The view shows a **delivery overlay**
+   returns a `delivery_id` and receipt states. The facade is
+   `Aiur.Listener.send(target, text, client_request_id)` and
+   `Aiur.Listener.receipt(delivery_id)` (MP-E7-C3-T03/T04). For workers it wraps
+   `Aiur.AgentChat.send/3` with `message_id: client_request_id`
+   (`agent_chat.ex:22-25`), so `delivery_id` is the queue request id; MP-E7-C3
+   routes it through the mode (RC-05), behind a flag that keeps today's
+   behaviour until DESIGN-E7 is approved. The Executor target arrives with
+   MP-E7-C6 (hook delivery). The view shows a **delivery overlay**
    keyed by `delivery_id` until the journal writes the matching `operator_message`
    entry (`refs.delivery_id`) or the receipt reports failure.
 2. **Answer an open Command** of that subject, through the Command contract
@@ -199,39 +253,70 @@ resume, interrupt or spawn (controls stay where they are, D15).
 
 ## 10. Anchors
 
+**Address (RC-07).** An anchor points at an `EntryRef {conversation_id, pos}`.
+Row indices (the Stream Deck's `start`, `streamdeck_logs.ex:355-396`) and byte
+offsets are presentation details derived from `pos`, never stored.
+
 ```json
 {
   "v": 1,
-  "anchor_id": "anc_<sha256(event_ref, conversation_id)>",
+  "anchor_id": "anc_<sha256(event_id, event_kind, conversation_id, precision)>",
   "event": { "event_id": 123456, "topic": "ticket.42.pr.merged", "kind": "pr_merged",
-             "occurred_at": "ISO8601 or null", "observed_at": "ISO8601" },
+             "occurred_at": "ISO8601 or null", "observed_at": "ISO8601",
+             "source_tool_call_id": "exec-… or null" },
   "conversation_id": "conv_…",
   "pos": 1207,
+  "placement": "at | after",
   "precision": "exact | causal | observed | unanchored",
-  "method": "tool_call_id | decision_source | command_text | at_or_before_observed | none",
+  "method": "provenance_tool_call | decision_source | command_text | at_or_before_observed | none",
   "label": "PR merged",
   "subject_ref": { "pr_number": 51, "head_sha": "abc123", "decision_id": null }
 }
 ```
+
+- `placement: "at"` (exact, causal): the event *is* that entry's effect; the
+  view highlights the entry. `placement: "after"` (observed): the event
+  happened after entry `pos` and before `pos + 1`; the view draws a marker
+  below `pos`. `unanchored` has `pos: null`.
+- `anchor_id` includes `precision`, so a stronger anchor found later is a new
+  line with a new id; re-running the resolver at the same precision produces
+  the same id and is dropped.
 
 Precision levels, strongest first. The resolver records the strongest it can
 prove and never upgrades a guess:
 
 | Precision | Rule | Applies to |
 | --- | --- | --- |
-| `exact` | The event was published by a tool call in this conversation. Match `event-publications.ndjson` `tool_call_id` → entry `refs.tool_call_id`. | Agent `emit_event` / `emit_alert`: progress, progress check-in, phase, blocked, pause request, `decision.requested` (`tool_executor.ex:423-503`). |
-| `causal` | A transcript command entry is the cause of an external effect. The resolver matches it by command text and outcome within a bounded window. | `git push` → `branch.push`; `gh pr create` → `pr.opened`; `gh pr merge` → `pr.merged` (Executor merges). |
-| `observed` | No causal link. Anchor to the last entry at or before the event's `observed_at` (the StreamdeckLogs rule, `streamdeck_logs.ex:306-338`). | CI results, review comments, merges by others, polled pushes (`ls_remote_ticker.ex:4`, 30 s polling). |
-| `unanchored` | No entry exists in a session covering the event time, or the time is unusable. | Event before the first session; event during a gap. Shown in the event list with no jump. |
+| `exact` | The event carries the id of the tool call that published it, and an entry of this conversation has that id in `refs.tool_call_id`. The id is on the bus event itself: `ticket_observation.provenance.source_event_id` = the tool invocation id (`agent_runner/tool_executor.ex:423,875-882`; kept verbatim by `ticket_observation.ex:181-198`). The per-launch `event-publications.ndjson` is **not** read (its moduledoc says no running code reads it back, `event_publication_log.ex:13-19`). | Agent `emit_event` / `emit_alert`: progress, check-in, phase, blocked, pause request, attention, `decision.requested`. |
+| `exact` (Command) | `Decision.source.event_id` is the same invocation id and `source.session_id` the provider thread id (`tool_executor.ex:845-850`), so a Command anchors `at` the tool-call entry with `method: "decision_source"`. | `command_requested`. |
+| `causal` | A command entry is the cause of an external effect: rule table in MP-E4-C3-T03 (command text, exit code, window, and for pushes the head sha in the output). | `git push` → `branch.push`; `gh pr create` → `pr.opened`; `gh pr merge` → `pr.merged`. |
+| `observed` | No provable link. Anchor `after` the last entry whose `observed_at` ≤ the event's `observed_at`, in a session whose span covers the event. Ties: the event goes after every entry with an equal `observed_at`. Both sides use the daemon clock (§11 clock skew). | CI results, review comments, merges by others, polled pushes (`events/ls_remote_ticker.ex:4`, 30 s). |
+| `unanchored` | No session covers the event time, the event falls inside a `gap`, or its `observed_at` is unusable. | Event before the first session; event while the daemon or the source was down. Listed, no jump. |
 
 - An event can anchor into several conversations (for example `pr.merged` anchors
   in the worker's conversation and, as `causal`, in the Executor's when the
   Executor ran the merge).
-- A Command anchors in the requester's conversation with `method:
-  "decision_source"`, using `Decision.source{session_id, event_id}`
-  (`decision.ex`; `tool_executor.ex:602`).
 - An anchor is append-only. A better anchor found later is a new line with a
-  stronger precision. Readers use the strongest.
+  stronger precision. Readers use the strongest per `(event_id, conversation_id)`.
+- **Event source.** GitHub, CI and push events are `live` class: they reach
+  only subscribers bound at publish time, and IssueLog keeps per-launch markers
+  only for joinable events while a writer is registered (events contract §6;
+  `issue_log.ex:545-560,573-581`). The resolver is therefore a live
+  `Aiur.Events.Exchange` subscriber (`events/exchange.ex:69-77`) bound at boot,
+  and `anchors.jsonl` stores the event metadata above, which makes it the
+  durable per-conversation jump-point index. Events published while the daemon
+  was down are not recoverable before MP-R2's export journal (R2-C6); after it
+  is enabled the resolver backfills from it by `seq`.
+- **Shared module (RC-06).** MP-R6-C1 extracts the Stream Deck rule verbatim
+  into the device-neutral `Aiur.Conversation.Anchors` (MP-R6-C1-T01:
+  `at_or_before/2`, `with_origin/2`, `event_identity/2`, `origin_id/0`; each
+  entry belongs to the last event at or before it; nil-timestamp events claim
+  nothing; leftovers go to a synthetic origin; identity `{source, kind, id}`;
+  `streamdeck_logs.ex:267-351`). MP-E4-C3-T01 extends the same module with
+  `position/3` (the `observed` rule above, over journal entries) and the
+  precision ladder. The two functions agree except at ties, where `at_or_before/2`
+  keeps the deck's `>=` membership (its tests are the oracle) and `position/3`
+  places the event after the tied entry.
 
 ### Jump-point catalogue (v1)
 
@@ -257,7 +342,10 @@ prove and never upgrades a guess:
 | --- | --- |
 | No transcript source (for example a backend that emits no transcript events; note `AgentEventLog` already writes nothing for a remote host, `agent_event_log.ex:24`, so the journal must not depend on workspace files) | Conversation exists with zero entries and a `gap` of reason `source_unreadable`. Anchors become `unanchored`. |
 | Daemon down while the agent ran | On restart the ingester re-reads the provider transcript from its stored offset when the source is a file (Claude, Executor). Otherwise it writes a `daemon_down` gap. |
-| Duplicate provider record | Same `id`; dropped. |
+| Duplicate provider record (Codex replay, Remote-Control `from: :start` backfill after restart) | Same `dedup_key`; dropped. |
+| Unjoinable tracker identity | No conversation; skip counted (§3). |
+| Journal write fails (disk full, permission) | The agent message path is unaffected (the tee is a cast). The writer keeps the failed batch's time span and, when a write next succeeds, appends one `gap` (`source_unreadable`) for it, plus one needs-attention alert per conversation per outage. |
+| Anchor resolver down or restarted | Events published while it was not subscribed are not anchored (live class). On boot it re-subscribes before agents start and writes nothing for the downtime; the view shows those events only if MP-R2's export journal later supplies them. |
 | Provider file truncated or replaced | Detected as in `TranscriptTailer` (`transcript_tailer.ex:112-120`); new session with `start_reason: "fork"` or `"compact"`, never a rewrite. |
 | Journal head lost | Rebuilt by scanning segments. |
 | Clock skew | `observed` anchors use the daemon's `observed_at` on both sides, so skew between provider and daemon does not move them. |
@@ -281,8 +369,24 @@ with both versions readable for one release.
 
 | Contract (owner) | What this contract needs |
 | --- | --- |
-| Events and replay (MP-R2) | Durable `event_id`, `topic`, ticket, `occurred_at`, `observed_at` per event; a per-ticket history read (today `IssueLog.event_history/2`); `executor.*` journal replay. A subscriber API for the anchor resolver. |
+| Events and replay (MP-R2) | Durable `event_id`, `topic`, `ticket_observation` (tracker identity, `observed_at`, `provenance.source_event_id`) per event; the in-BEAM `Exchange.subscribe/1` (exists); later the export journal (R2-C6) for downtime backfill; `executor.*` journal replay. The envelope's reserved `anchor` field (events contract §4.2) must become `{conversation_id, pos, placement, precision}` per RC-07 — requested in `bucket-2-platform/MP-E4/tickets/CONTRACT-REQUESTS.md`. |
 | Harness adapter (MP-R7) | Per harness: a transcript source that turns provider records into entries with `provider_msg_id`, `tool_call_id`, `turn_id`; session-boundary signals (SessionStart source, thread change). Must cover **attached external sessions** (Executor), not only daemon-spawned ones. |
-| Listener mode (MP-E7) | `send(ConversationRef, text, client_request_id) -> delivery_id`, receipts `harness_queued | in_context | failed | outcome_unknown`, and the effective mode. The receipt must carry enough (`delivery_id` echoed or a text hash plus time window) to match the later transcript entry. |
+| Listener mode (MP-E7) | `send(ConversationRef, text, client_request_id) -> delivery_id`, receipts `accepted | harness_queued | in_context | failed | outcome_unknown`, and the effective mode, for both subjects. For workers the `delivery_id` is the `AgentChat` queue item id, which the journal already records as `refs.delivery_id` at delivery (§5). For the attached Executor (E7-C6 hook transport) the receipt must echo `delivery_id` inside the delivered frame so the Executor transcript record can be matched. |
 | Command request and resolution (MP-E2) | `Decision.source.session_id` and `event_id` filled for worker and Executor requesters; `answer` with `expected_version`. |
-| Identity (coordinator) | `instance_id`. |
+| Identity (MP-R1, RC-01/02/04) | `instance_id = <machine_id>/<instance_key>` for `GlobalEntryRef`; not used to derive `conversation_id` (§3). |
+| Stream Deck (MP-R6, RC-06) | R6-C1 ships `Aiur.Conversation.Anchors.at_or_before/2` behaviour-preserving; E4-C3-T01 extends it; E4-C7 moves the deck's data source onto `History`. |
+
+## 15. Phase C changes (2026-10-06)
+
+- RC-02: `instance_id` form; `conversation_id` no longer hashes `instance_id` (§3).
+- RC-07: `pos` is the only entry identity; the hash field is renamed
+  `dedup_key` (§5); anchors carry `placement` (§10).
+- RC-06: the neutral anchor module name and the R6/E4 split (§10).
+- Verified: exact anchoring reads the tool call id from the bus event's own
+  `provenance.source_event_id`, not from the per-launch publication log (§10).
+  A census of the live fleet logs (48 launches, 2,164 completed publications,
+  read 2026-10-06) found 1,851 (85.5 %) whose `tool_call_id` equals a tool
+  transcript entry's `msg_id` in the same launch; MP-E4-C3-T02 re-measures it.
+- Verified: a third worker ingest point (the Remote-Control display path) and
+  the operator-delivery point (§6, §5).
+- Live events reach the resolver only by live subscription (§10).

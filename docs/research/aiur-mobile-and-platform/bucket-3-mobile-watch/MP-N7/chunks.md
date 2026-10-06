@@ -79,3 +79,18 @@ DESIGN-N7 gates all; DESIGN-N6, DESIGN-E5/E6 gate N7-C2-T3 and N7-C4.
 
 N7-RQ1 (dynamic action titles), N7-RQ2 (Wear bridged intents), N7-RQ3 (forwarded
 removal on Apple Watch), N7-RQ4 (watch-own APNs, deferred), N7-RQ5 (Wear proxied VPN).
+
+## Phase C changes (2026-10-06)
+
+Full ticket bodies are in [tickets/](tickets/README.md). Changes against the candidates above:
+
+- N7-C3-T4 (CI) is merged into MP-N7-C3-T01; N7-C4-T6 (disclosure) into MP-N7-C4-T02.
+- N7-C3-T3 is redesigned by the N7-RQ2 result: Command notifications on Wear OS are posted by
+  the Wear app itself (bridging excluded for tag `aiur-command`), because bridged
+  notifications only offer "open on phone" and their actions run on the phone (MP-N7-C3-T04).
+- New MP-N7-C2-T06: per-Command option buttons in the Apple Watch long-look, conditional on
+  device row DV-W10 (N7-RQ1).
+- New chunk **MP-N7-C6 — Physical-device validation**: C6-T01 Apple Watch, C6-T02 Wear OS,
+  with exact devices and procedures and new rows DV-W1b, W2b, W4b, W7b, W7c, W10–W13.
+- Watch-link protocol gains `notify` / `notify_cancel` (Wear only).
+- New research item RQ-N7-6 (faster-than-real-time audio relay), blocking C4-T04/T05 pacing.

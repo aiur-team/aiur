@@ -1,6 +1,6 @@
 ---
 artifact_contract: ce-unified-plan/v1
-artifact_readiness: planned-with-blockers
+artifact_readiness: tickets-written (Phase C, 2026-10-06; see tickets/README.md)
 feature_id: MP-N5
 bucket: 3 (mobile and watch)
 base_main_sha: 45a290e3
@@ -65,7 +65,7 @@ milestones and stale bursts after a reconnect.
 | Component | Interface | Notes |
 | --- | --- | --- |
 | `notification-policy` (module set inside the MP-N4 `push-relay` package) | `Policy.handle_event(event) -> [NotificationIntent]`; `Policy.handle_progress(root_summary) -> [intent]` | pure functions + small persisted state (tracker, ledger) |
-| `notification-preferences` store (machine-level, beside `devices.json` in the MP-N2 machine store) | `Prefs.get(device_id)`, `Prefs.put(device_id, patch, expected_version)`, `Prefs.effective(device_id, instance_key)` | the MP-N2 gateway is the single writer; every instance daemon reads (pairing contract §5) |
+| `notification-preferences` store (`notification-preferences.json`, machine-level, beside `devices.json` in the MP-N2 machine store; RC-03 — never in a `config` file) | `Prefs.get(device_id)`, `Prefs.put(device_id, patch, expected_version)`, `Prefs.effective(device_id, instance_key)` | the MP-N2 gateway is the single writer; every instance daemon reads (pairing contract §5) |
 | Preferences API (device token) | gateway `GET/PATCH /v1/notification-settings` (machine defaults + overrides, `expected_version`); per-instance `GET /api/v1/device/notification-options` → each option's availability from that instance's capabilities | writes on the gateway, availability from the instance (A-N2-4) |
 | Settings UI | phone app screen (MP-N1 boundary decides native vs WebView) | DESIGN-N5 |
 
@@ -139,9 +139,10 @@ State per `(device_id, instance_key, scope, id, generation)`: `last_notified_pct
 5. **Baseline on enable:** when a device pairs, enables progress, or changes the step,
    set `last_notified_pct = floor(current / step) * step` silently. No retroactive
    milestones.
-6. Until E1 ships its producer, the fallback is to read `RootSummary.progress` via
-   `CatalogStore.fetch/1` debounced 60 s after `ticket.*.pr.merged` or issue-closed
-   events, applying the same rules. Queue progress has no fallback (queues are E1-only).
+6. **Phase C (RC-10):** MP-E1-C7 is a hard predecessor and exposes
+   `Aiur.BuildQueue.progress/1` plus an internal progress-changed signal. All steps
+   (including 25 %) use one computation on that signal; the Phase B `CatalogStore`
+   fallback is dropped so notifications and the dashboard never disagree.
 
 ### 5.3 Opt-in events
 
@@ -160,9 +161,10 @@ A key is recorded when the intent is **accepted into the outbox**, so a crash af
 recording and before sending results in the outbox resend, never a second intent.
 Ledger entries expire after 30 days (Command keys) or with the root (progress keys).
 Event ids are unique but not a delivery order
-([events-and-replay.md](../../contracts/events-and-replay.md) §5). The policy uses the
-durable-consumer primitive proposed there (§7: subscribe, replay from export `seq`, live,
-dedupe on id) and persists its `seq` cursor. Topics that are `live` only (GitHub-sourced
+([events-and-replay.md](../../contracts/events-and-replay.md) §5). **RC-09:** the policy
+reads the export feed through the DurableConsumer (MP-R2-C6-T04) and persists its `seq`
+cursor when `events.export.enabled` is true; otherwise it subscribes live to `Exchange`.
+Boot/gap reconciliation and the ledger make both modes correct (MP-N5-C2-T01). Topics that are `live` only (GitHub-sourced
 `ticket.*.pr.merged`) are not replayed; boot reconciliation covers Commands and progress
 from their own stores; the ledger absorbs any overlap.
 
@@ -247,7 +249,7 @@ Applied by push-relay at **send time**, not only at intent time:
 - OQ-N5-6 aiur quiet hours, or rely on OS Focus only? Proposal: OS Focus only.
 
 **Research:**
-- RQ-N5-1 E1 accepts request A-E1-1 (a `progress.observed` signal or a read API) for non-25 % steps; otherwise v1 offers step 25 only and the 10/50 options are shown unavailable.
+- RQ-N5-1 **Resolved by RC-10**: E1-C7 provides the read API and progress-changed signal; 10/25/50 % steps are all offered.
 - RQ-N5-2 (resolved by the E2 contract) `human_needed` is once per Command; no epoch needed.
 - OQ-N5-7 (owner) Executor-created queue milestones follow the same progress setting as
   build orders (proposal), or get their own toggle?
@@ -257,3 +259,9 @@ Applied by push-relay at **send time**, not only at intent time:
 Event topics and `CatalogStore` paths are pre-refactor. After MP-R1/R2 and MP-E1 land,
 MP-N5-C2-T00 maps them to the `event-bus`, `build-orders`/`build-queue` and `commands`
 packages. Rules and contract fields are unaffected.
+
+## 11. Phase C ticket map
+
+[tickets/README.md](tickets/README.md): 17 tickets (12 ready, 5 blocked). Preference
+overrides are keyed by `instance_id` (RC-02). The per-instance blocker mute (D-1) is
+isolated in MP-N5-C1-T05 so the rest of C1 is not blocked.
