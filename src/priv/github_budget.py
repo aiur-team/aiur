@@ -4,12 +4,18 @@
 The broker deliberately persists only SHA-256 credential and consumer fingerprints. A
 single SQLite transaction covers every decision so independently started Aiur
 nodes and their shell wrappers share the same leases, rate ceiling, stagger,
-and cooldowns without a resident daemon or a network service.
+and cooldowns. Daemons use a resident line protocol; shell wrappers retain
+the one-shot CLI against the same database.
 """
 
 import argparse
+import contextlib
+import io
 import json
 import os
+import queue
+import threading
+import itertools
 import secrets
 import sqlite3
 import sys
@@ -61,7 +67,38 @@ def clamp(value, minimum, maximum):
     return max(minimum, min(int(value), maximum))
 
 
+SESSION_CONNECTIONS = None
+
+
+class SessionConnection:
+    """Keep the connection alive while command handlers retain their transactions."""
+
+    def __init__(self, conn):
+        self.conn = conn
+        self.prepared = False
+        self.batching = False
+
+    def __getattr__(self, name):
+        return getattr(self.conn, name)
+
+    def execute(self, sql, *args):
+        if self.batching and sql in ("BEGIN IMMEDIATE", "COMMIT"):
+            return None
+        if self.batching and sql == "ROLLBACK":
+            return self.conn.execute("ROLLBACK TO request")
+        return self.conn.execute(sql, *args)
+
+    def close(self):
+        pass
+
+
 def connection(path):
+    if SESSION_CONNECTIONS is not None and path in SESSION_CONNECTIONS:
+        return SESSION_CONNECTIONS[path]
+    if SESSION_CONNECTIONS is not None:
+        for cached in SESSION_CONNECTIONS.values():
+            cached.conn.close()
+        SESSION_CONNECTIONS.clear()
     directory = os.path.dirname(path)
     os.makedirs(directory, mode=0o700, exist_ok=True)
     os.chmod(directory, 0o700)
@@ -150,6 +187,10 @@ def connection(path):
         """
     )
     migrate(conn)
+    if SESSION_CONNECTIONS is not None:
+        wrapped = SessionConnection(conn)
+        SESSION_CONNECTIONS[path] = wrapped
+        return wrapped
     return conn
 
 
@@ -263,7 +304,9 @@ def _ensure_writable(conn):
 # ledger just to report on it; the first current-broker write after a deploy
 # installs them, which is the earliest a stale broker can be stopped (#2307).
 def _prepare_writable(conn):
-    conn.executescript(
+    if isinstance(conn, SessionConnection) and conn.prepared:
+        return
+    conn.execute(
         """
         CREATE TRIGGER IF NOT EXISTS admissions_require_lease
         BEFORE INSERT ON admissions
@@ -274,6 +317,8 @@ def _prepare_writable(conn):
         """
     )
     _stamp_ledger(conn)
+    if isinstance(conn, SessionConnection):
+        conn.prepared = True
 
 
 def cleanup(conn, now):
@@ -898,9 +943,7 @@ def parser():
     return root
 
 
-def main():
-    args = parser().parse_args()
-
+def execute(args):
     for attempt in range(6):
         try:
             args.fun(args)
@@ -909,6 +952,156 @@ def main():
             if "locked" not in str(error).lower() or attempt == 5:
                 raise
             time.sleep(0.01 * (attempt + 1))
+
+
+def read_requests(inbox):
+    try:
+        for line in sys.stdin:
+            inbox.put(json.loads(line))
+    finally:
+        inbox.put(None)
+
+
+def run_batch(requests, command_parser):
+    parsed = []
+    for request in requests:
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                args = command_parser.parse_args(request["args"])
+            parsed.append((request, args))
+        except (Exception, SystemExit) as error:
+            yield {"id": request["id"], "status": 1, "output": str(error)}
+    for db, group in itertools.groupby(parsed, key=lambda item: item[1].db):
+        active = []
+        for request, args in group:
+            if request["deadline_ms"] <= now_ms():
+                yield {"id": request["id"], "status": 2, "output": "broker deadline expired before admission"}
+            else:
+                active.append((request, args))
+        if active:
+            yield from run_transaction(db, active)
+
+
+COMMIT_MARGIN_MS = 50
+
+
+def begin_batch(conn, requests, replies):
+    # SQLite's long busy wait can lose every lock race to a hot resident peer.
+    # Short waits plus jitter give competing daemons chances to acquire it,
+    # while preserving the caller's absolute deadline and fail-closed behavior.
+    while True:
+        active = []
+        for request, args in requests:
+            if request["deadline_ms"] - COMMIT_MARGIN_MS <= now_ms():
+                replies.append({"id": request["id"], "status": 2, "output": "broker deadline expired waiting for SQLite"})
+            else:
+                active.append((request, args))
+        requests[:] = active
+        if not requests:
+            return False
+        remaining = min(request["deadline_ms"] for request, _args in requests) - COMMIT_MARGIN_MS - now_ms()
+        if remaining <= 0:
+            continue
+        conn.conn.execute(f"PRAGMA busy_timeout = {min(remaining, 20)}")
+        try:
+            conn.conn.execute("BEGIN IMMEDIATE")
+            return True
+        except sqlite3.OperationalError as error:
+            if "locked" not in str(error).lower():
+                raise
+            time.sleep(min(remaining, 2 + secrets.randbelow(9)) / 1000)
+
+
+def run_transaction(db, requests):
+    replies = []
+    conn = None
+    try:
+        conn = connection(db)
+        requests = list(requests)
+        if not begin_batch(conn, requests, replies):
+            return replies
+        conn.batching = True
+        if any(args.command in ("acquire", "release", "reconcile", "renew", "hold") for _request, args in requests):
+            _ensure_writable(conn)
+            _prepare_writable(conn)
+        for request, args in requests:
+            conn.conn.execute("SAVEPOINT request")
+            output = io.StringIO()
+            status = 0
+            try:
+                if request["deadline_ms"] - COMMIT_MARGIN_MS <= now_ms():
+                    raise TimeoutError("broker deadline expired before admission")
+                with contextlib.redirect_stdout(output):
+                    args.fun(args)
+            except Exception as error:
+                conn.conn.execute("ROLLBACK TO request")
+                status = 2 if isinstance(error, TimeoutError) else 1
+                output.write(str(error))
+            conn.conn.execute("RELEASE request")
+            replies.append({"id": request["id"], "status": status, "output": output.getvalue()})
+        expired = {request["id"] for request, _args in requests if request["deadline_ms"] - COMMIT_MARGIN_MS <= now_ms()}
+        if expired:
+            # Savepoints cannot remove an earlier command after later commands
+            # have run. Roll back the batch and replay only live requests.
+            conn.conn.execute("ROLLBACK")
+            conn.prepared = False
+            conn.batching = False
+            timed_out = [{"id": request["id"], "status": 2, "output": "broker deadline expired before commit"}
+                         for request, _args in requests if request["id"] in expired]
+            waiting_replies = [reply for reply in replies if reply["id"] not in {request["id"] for request, _args in requests}]
+            remaining = [(request, args) for request, args in requests if request["id"] not in expired]
+            return waiting_replies + timed_out + (run_transaction(db, remaining) if remaining else [])
+        conn.conn.execute("COMMIT")
+        return replies
+    except Exception as error:
+        if conn is not None and conn.in_transaction:
+            conn.conn.execute("ROLLBACK")
+            conn.prepared = False
+        local_timeout = isinstance(error, TimeoutError) or (isinstance(error, sqlite3.OperationalError) and "locked" in str(error).lower())
+        active_ids = {request["id"] for request, _args in requests}
+        completed = [reply for reply in replies if reply["id"] not in active_ids]
+        return completed + [{"id": request["id"], "status": 2 if local_timeout else 1, "output": str(error)} for request, _args in requests]
+    finally:
+        if conn is not None:
+            conn.batching = False
+
+
+def serve():
+    global SESSION_CONNECTIONS
+    SESSION_CONNECTIONS = {}
+    command_parser = parser()
+    inbox = queue.Queue(maxsize=64)
+    threading.Thread(target=read_requests, args=(inbox,), daemon=True).start()
+    finished = False
+    try:
+        while not finished:
+            request = inbox.get()
+            if request is None:
+                break
+            batch = [request]
+            while len(batch) < 32:
+                try:
+                    request = inbox.get_nowait()
+                except queue.Empty:
+                    break
+                if request is None:
+                    finished = True
+                    break
+                batch.append(request)
+            # Replies are published only after the batch commits: a granted
+            # lease must be durable before a caller may contact GitHub.
+            for reply in run_batch(batch, command_parser):
+                print(json.dumps(reply), flush=True)
+    finally:
+        for conn in SESSION_CONNECTIONS.values():
+            conn.conn.close()
+
+
+def main():
+    if sys.argv[1:] == ["serve"]:
+        serve()
+    else:
+        execute(parser().parse_args())
 
 
 if __name__ == "__main__":

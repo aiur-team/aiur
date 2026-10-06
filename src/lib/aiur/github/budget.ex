@@ -8,7 +8,7 @@ defmodule Aiur.GitHub.Budget do
   """
 
   alias Aiur.{Alerts, Config}
-  alias Aiur.GitHub.{CredentialHeadroom, EndpointPolicy, GraphQLErrors, Transport}
+  alias Aiur.GitHub.{BudgetBroker, CredentialHeadroom, EndpointPolicy, GraphQLErrors, Transport}
 
   require Logger
 
@@ -526,7 +526,7 @@ defmodule Aiur.GitHub.Budget do
 
       command_args = [broker_path(opts) | args] ++ token_args ++ identity_args
 
-      case port_command(python, command_args, command_deadline(opts)) do
+      case broker_command(python, command_args, command_deadline(opts), opts) do
         {:ok, output, 0} -> {:ok, output}
         {:ok, output, status} -> broker_unavailable(status, output)
         {:error, reason} -> broker_unavailable(:exception, inspect(reason))
@@ -537,6 +537,19 @@ defmodule Aiur.GitHub.Budget do
     end
   rescue
     error -> broker_unavailable(:exception, Exception.message(error))
+  end
+
+  defp broker_command(python, [broker | args] = command_args, deadline_at, opts) do
+    # Explicit executable/script injection retains the one-shot interface for
+    # diagnostic fixtures and older broker variants. The supervised production
+    # daemon always uses its single resident broker.
+    server = Keyword.get(opts, :broker_server, BudgetBroker)
+
+    if (Keyword.has_key?(opts, :broker_server) || Process.whereis(BudgetBroker)) && not Keyword.has_key?(opts, :broker_path) && python == System.find_executable("python3") do
+      BudgetBroker.command(server, broker, args, deadline_at)
+    else
+      port_command(python, command_args, deadline_at)
+    end
   end
 
   defp port_command(executable, args, deadline_at) do
