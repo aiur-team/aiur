@@ -598,6 +598,51 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     end
   end
 
+  test "repeated broker timeouts retain the claim and both retry counters" do
+    issue_id = "broker-timeout-claim"
+
+    reasons = [
+      :github_budget_broker_timeout,
+      {:github, :timeout, %{reason: :github_budget_broker_timeout}},
+      {:github, :local_hold, %{reason: :github_budget_broker_timeout}},
+      {:workspace_github_connectivity_failed, "/workspace", {:github_auth_preflight_failed, %{classification: :local_hold, detail: %{reason: :github_budget_broker_timeout}}}}
+    ]
+
+    final =
+      Enum.reduce(reasons ++ reasons, %State{claimed: MapSet.new([issue_id])}, fn reason, state ->
+        metadata = %{identifier: "repo#2990", retry_poll_failures: 2}
+        next = RetryEngine.handle_retry_poll_failure(state, issue_id, 2, metadata, reason)
+        retry = next.retry_attempts[issue_id]
+        assert retry.attempt == 2
+        assert retry.retry_poll_failures == 2
+        assert retry.delay_type == :local_budget_hold
+        Process.cancel_timer(retry.timer_ref)
+        next
+      end)
+
+    assert MapSet.member?(final.claimed, issue_id)
+    refute Map.has_key?(final.released_claims, issue_id)
+  end
+
+  test "a broker timeout on agent exit preserves the dispatched attempt" do
+    issue_id = "broker-exit"
+    ref = make_ref()
+    reason = {:workspace_github_connectivity_failed, "/workspace", {:github_auth_preflight_failed, %{classification: :local_hold, detail: %{reason: :github_budget_broker_timeout}}}}
+
+    state = %State{
+      running: %{issue_id => %{ref: ref, identifier: "repo#2990", started_at: DateTime.utc_now(), retry_attempt: 2}},
+      claimed: MapSet.new([issue_id]),
+      dispatch_recovery: %{workspace_ownership: %{waits: %{}, ready: %{}}, codex_thrash_budget: %{}}
+    }
+
+    assert {:noreply, next} = RetryEngine.handle_agent_down(state, ref, reason)
+    retry = next.retry_attempts[issue_id]
+    assert retry.attempt == 2
+    assert retry.delay_type == :local_budget_hold
+    assert MapSet.member?(next.claimed, issue_id)
+    Process.cancel_timer(retry.timer_ref)
+  end
+
   describe "agent exit on a local budget hold (#2339)" do
     test "a workspace-connectivity hold exit schedules a non-consuming reset_at-bounded retry" do
       issue_id = "issue-hold-exit"

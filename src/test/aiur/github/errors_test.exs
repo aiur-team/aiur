@@ -17,7 +17,7 @@ defmodule Aiur.GitHub.ErrorsTest do
     # `:timeout` (transient), a malformed reply stays `:transport` with its
     # distinctive reason so the shared classifier can treat it as permanent.
     assert Errors.classify_error({:error, :github_budget_broker_timeout}) ==
-             {:github, :timeout, %{reason: :github_budget_broker_timeout}}
+             {:github, :local_hold, %{reason: :github_budget_broker_timeout}}
 
     assert Errors.classify_error({:error, :github_budget_broker_unavailable}) ==
              {:github, :transport, %{reason: :github_budget_broker_unavailable}}
