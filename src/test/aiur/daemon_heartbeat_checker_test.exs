@@ -14,7 +14,7 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
 
     assert :ok = check(path, events, emit)
 
-    assert_receive {:alert, "system.daemon.gap", opts}
+    assert_receive {:alert, "system.daemon.gap", opts}, 1_000
     assert opts[:reason] == "unknown"
     assert opts[:severity] == "info"
     assert opts[:needs_attention] == false
@@ -37,7 +37,7 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
     parent = self()
     assert :ok = check(path, events, capture_alert(parent))
 
-    assert_receive {:alert, "system.daemon.gap", opts}
+    assert_receive {:alert, "system.daemon.gap", opts}, 1_000
     assert opts[:reason] == "clean_shutdown"
     assert opts[:needs_attention] == false
     assert opts[:message] =~ DateTime.to_iso8601(stopped_at)
@@ -59,7 +59,7 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
     parent = self()
     assert :ok = check(path, events, capture_alert(parent))
 
-    assert_receive {:alert, "system.daemon.gap", opts}
+    assert_receive {:alert, "system.daemon.gap", opts}, 1_000
     assert opts[:reason] == "clean_shutdown"
     assert opts[:message] =~ DateTime.to_iso8601(stopped_at)
   end

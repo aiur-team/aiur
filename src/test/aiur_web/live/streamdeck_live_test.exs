@@ -92,13 +92,16 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="streamdeck-download-control")
     assert html =~ ~s(phx-click="open-streamdeck-install")
     refute html =~ ~s(id="streamdeck-install-control")
-    refute html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
+    refute html =~ "releases/download/streamdeck-nightly/aiur-streamdeck-nightly-linux-x64.tar.gz"
     refute html =~ ~s(id="streamdeck-install-modal")
 
     html = view |> element("#streamdeck-download-control") |> render_click()
 
     assert html =~ ~s(id="streamdeck-install-modal")
-    assert html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
+    # The download points at the rolling nightly's fixed-name asset, never at a
+    # per-commit release that housekeeping could remove.
+    assert html =~ "releases/download/streamdeck-nightly/aiur-streamdeck-nightly-linux-x64.tar.gz"
+    refute html =~ ~r|releases/download/streamdeck-[0-9a-f]{40}/|
     assert html =~ "Install on your Stream Deck +"
     # Two steps: one download, then one copyable prompt. The old eyebrow, the
     # "download the package, then…" lede and the trailing release-metadata line
