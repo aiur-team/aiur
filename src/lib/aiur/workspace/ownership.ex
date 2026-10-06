@@ -143,7 +143,12 @@ defmodule Aiur.Workspace.Ownership do
   def release_and_wait(_lease), do: {:error, :workspace_ownership_lost}
 
   @doc false
-  @spec release_with_provider_exit_proof(lease()) :: :ok | {:error, :workspace_ownership_lost | :cannot_release_without_exit_proof}
+  @spec release_with_provider_exit_proof(lease()) ::
+          :ok
+          | {:error,
+             :workspace_ownership_lost
+             | :cannot_release_without_exit_proof
+             | {:audit_write_failed, term()}}
   def release_with_provider_exit_proof(%{guardian: guardian, generation: generation}) when is_pid(guardian),
     do: call(guardian, {:release_with_provider_exit_proof, generation})
 
@@ -233,7 +238,7 @@ defmodule Aiur.Workspace.Ownership do
   provider is gone.
   """
   @spec release_if_held_with_exit_proof(String.t(), pos_integer(), registry()) ::
-          :ok | :already_released | :not_held_for_reaping | {:error, :cannot_release_without_proof | :generation_mismatch | term()}
+          :ok | :already_released | :not_held_for_reaping | {:error, term()}
   def release_if_held_with_exit_proof(ticket, generation, registry \\ @registry)
       when is_binary(ticket) and is_integer(generation) and generation > 0 do
     with {:ok, lease} <- current(ticket, registry),
