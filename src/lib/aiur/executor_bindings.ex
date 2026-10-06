@@ -34,7 +34,9 @@ defmodule Aiur.ExecutorBindings do
     {"ticket.*.pr.parked_ready", "attention:auto"},
     {"ticket.*.ci.passed", "ci:auto"},
     {"ticket.*.ci.failed", "ci:auto"},
-    {"ticket.*.pr.ready_for_review", "pr:auto"}
+    {"ticket.*.pr.ready_for_review", "pr:auto"},
+    # Allowed-contributor intake (#2957): identifier-only, author id attached.
+    {"ticket.*.issue.opened.allowed_contributor", "intake:auto"}
   ]
 
   @spec defaults() :: [{String.t(), String.t()}]

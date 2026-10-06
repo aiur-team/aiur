@@ -9,9 +9,9 @@ defmodule Aiur.BuildOrder.CatalogStore do
   membership edges via `sub_issues` deliveries, dependency edges via
   `issue_dependencies` deliveries — so a projection that reads the store renders
   the catalog without spending a single GraphQL point. The GraphQL
-  `build_order_catalog` read survives only as the rare reconciliation (daemon
-  boot, degraded delivery mode) that re-converges the store after a dropped
-  delivery.
+  `build_order_catalog` read survives as bounded reconciliation at boot, on
+  explicit refresh/degradation, and on a safety interval in every delivery
+  mode. This recovers dropped or unconfigured membership deliveries.
 
   The metric rules here deliberately mirror `Aiur.BuildOrder.GitHubGraph.Normalizer`
   (progress, lane/phase counts, member-state digest), so a store-projected root

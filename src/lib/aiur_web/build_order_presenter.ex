@@ -352,6 +352,7 @@ defmodule AiurWeb.BuildOrderPresenter do
       input.kind != :native -> :unknown
       not internal_edge?(edge, member_index) -> :unknown
       MapSet.member?(graph.cyclic_edges, edge) -> EdgeState.cyclic()
+      Map.get(Map.fetch!(member_index, input.source_key), :draft?) == true -> :unknown
       true -> member_index |> Map.fetch!(input.source_key) |> Map.fetch!(:lifecycle) |> EdgeState.classify(planning_health)
     end
   end

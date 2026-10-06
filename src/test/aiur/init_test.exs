@@ -5,6 +5,14 @@ defmodule Aiur.InitTest do
   alias Aiur.Init
   alias Aiur.Workflow
 
+  defmodule SyntheticInit do
+    @spec prompt(Aiur.Init.io()) :: map()
+    def prompt(io), do: %{region: io.input.("Synthetic backend region", "west", nil)}
+
+    @spec config(map()) :: map()
+    def config(%{region: region}), do: %{"region" => region}
+  end
+
   @example_file Path.expand("../../../.aiur/examples/config.example", __DIR__)
 
   # Every topic the shipped alert examples must keep populated. Kept in sync with
@@ -183,6 +191,7 @@ defmodule Aiur.InitTest do
         reload_env: fn -> :ok end,
         persist_github_token: fn _token -> :ok end,
         check_agent_auth: fn _kind -> :ok end,
+        check_codex_sandbox: fn -> :ok end,
         install_claude_app_server: fn -> :ok end,
         claude_version: fn -> {:ok, "1.1.0"} end,
         # No installed CLI to ask in the wizard tests; discovery degrading to an
@@ -229,6 +238,45 @@ defmodule Aiur.InitTest do
   defp written_config(path) do
     assert {:ok, loaded} = Workflow.load(path)
     loaded.config
+  end
+
+  test "fresh Muse init requires explicit workspace trust and writes native settings", %{dir: dir, target: target} do
+    answers = %{
+      multiselect: %{"Which agents to support" => ["muse"]},
+      confirm: %{"Trust Muse to load skills and rules from agent workspaces?" => true}
+    }
+
+    assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+    assert %{"agent" => agent} = written_config(target)
+    assert agent["priority"] == ["muse"]
+    assert agent["backend_configs"]["muse"]["trust_workspace"] == true
+    assert agent["backend_configs"]["muse"]["approval_mode"] == "onRequest"
+    assert "Trust Muse to load skills and rules from agent workspaces?" in confirm_prompts()
+  end
+
+  test "fresh Muse init keeps workspace trust disabled without affirmative choice", %{dir: dir, target: target} do
+    answers = %{multiselect: %{"Which agents to support" => ["muse"]}}
+
+    assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+    assert written_config(target)["agent"]["backend_configs"]["muse"]["trust_workspace"] == false
+    assert "Trust Muse to load skills and rules from agent workspaces?" in confirm_prompts()
+  end
+
+  test "fresh init calls a synthetic provider descriptor without provider branches", %{dir: dir, target: target} do
+    descriptors =
+      Map.update!(Aiur.CodingAgent.backends(), "fake", fn descriptor ->
+        Map.put(descriptor, :init, SyntheticInit)
+      end)
+
+    answers = %{
+      multiselect: %{"Which agents to support" => ["fake"]},
+      input: %{"Synthetic backend region" => "east"}
+    }
+
+    d = deps(self(), dir, target, %{backend_descriptors: descriptors})
+    assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+    assert written_config(target)["agent"]["backend_configs"]["fake"]["region"] == "east"
+    assert_received {:input_label, "Synthetic backend region"}
   end
 
   defp assert_filled_alert_template(template, sound_path_regex) do
@@ -1426,7 +1474,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex", "kimi", "openrouter", "fake"]
+      assert opts == ["claude", "codex", "kimi", "openrouter", "muse", "fake"]
       refute "claude-repl" in opts
       # DeepSeek is registered but not dispatch-enabled by default, so it must
       # not be offerable from init.

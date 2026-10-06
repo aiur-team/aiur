@@ -158,6 +158,21 @@
     height: 28px;
     display: block;
   }
+  /* while the splash (which carries the big logo) is in view the nav brand is
+     tucked up out of sight; it slides down once the splash scrolls past.
+     main.ts drives `logo-tucked` from an IntersectionObserver on the splash;
+     without JS, or on a page with no splash, the class is never set. */
+  .brand-mini {
+    transition: transform 0.2s ease, opacity 0.2s ease;
+  }
+  .topbar.logo-tucked .brand-mini {
+    transform: translateY(-160%);
+    opacity: 0;
+    pointer-events: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .brand-mini { transition: none; }
+  }
   .topbar-actions {
     pointer-events: auto;
     display: flex;
@@ -336,7 +351,12 @@
     color: var(--fg);
   }
   .install .prompt { color: var(--accent); }
-  .install .cmd { letter-spacing: 0.01em; }
+  /* the prompt line is pasted into an agent, not a shell — no "$" */
+  .install.is-prompt .prompt { display: none; }
+  /* long lines (the prompt) wrap inside the box at phone widths instead of
+     pushing the page wider than the viewport */
+  .install .cmd { letter-spacing: 0.01em; flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .install .copy { flex-shrink: 0; }
   .install .copy {
     border: 0;
     background: transparent;

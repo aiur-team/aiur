@@ -142,7 +142,7 @@ defmodule Aiur.AgentPubSub do
   how many internal codex turns it contained. The opencode bridge
   uses it to close the SSE stream tied to that aiur turn so opencode
   renders ONE assistant message per `run_turn` (Approach C.2).
-  `reason` is `:done`, `{:failed, term}`, `:input_required`, or
+  `reason` is `:done`, `{:failed, term}`, `:paused`, `:input_required`, or
   `:cancelled`.
   """
   @spec broadcast_aiur_turn_done(AgentEvents.agent_identifier(), String.t(), term()) :: :ok

@@ -282,13 +282,13 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     identity = identity()
 
     for {kind, unsafe} <- [
-          {:chat, "/chat/42?capability=private"},
-          {:chat, "/chat/42#token=private"},
-          {:chat, "/chat/41"},
+          {:chat, "/chat/owner/repo/42?capability=private"},
+          {:chat, "/chat/owner/repo/42#token=private"},
+          {:chat, "/chat/owner/repo/41"},
           {:chat, "/commands/42"},
           {:commands, "/commands/42?token=private"},
           {:commands, "/commands/42#capability=private"},
-          {:commands, "/chat/42"},
+          {:commands, "/chat/owner/repo/42"},
           {:commands, "/commands"}
         ] do
       [capability] =
@@ -306,13 +306,13 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
 
     context =
       TicketContextPresenter.present(detail_state(identity), history(identity), [
-        %{kind: :chat, available?: true, href: "/chat/42"},
-        %{kind: :chat, available?: true, href: "/chat/42?capability=replacement"},
+        %{kind: :chat, available?: true, href: "/chat/owner/repo/42"},
+        %{kind: :chat, available?: true, href: "/chat/owner/repo/42?capability=replacement"},
         %{kind: :commands, available?: true, href: "/commands/42"}
       ])
 
     assert Enum.map(context.capabilities, &{&1.label, &1.href}) == [
-             {"Chat", "/chat/42"},
+             {"Chat", "/chat/owner/repo/42"},
              {"Commands", "/commands/42"}
            ]
   end
@@ -364,7 +364,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
           available?: true,
           href: "https://github.com/owner/repo/pull/7"
         },
-        %{kind: :chat, available?: true, href: "/chat/42"},
+        %{kind: :chat, available?: true, href: "/chat/owner/repo/42"},
         %{kind: :commands, available?: true, href: "/commands/42"},
         %{kind: :document, available?: true, href: "https://github.com/owner/repo/blob/main/doc.md"}
       ])
@@ -471,7 +471,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenterTest do
     [
       %{kind: :github, variant: :issue, available?: true, href: "https://github.com/owner/repo/issues/42"},
       %{kind: :github, variant: :pull_request, available?: false, reason: :not_opened},
-      %{kind: :chat, available?: true, href: "/chat/42"},
+      %{kind: :chat, available?: true, href: "/chat/owner/repo/42"},
       %{kind: :commands, available?: false, reason: :not_available}
     ]
   end

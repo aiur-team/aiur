@@ -2,7 +2,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, Tracker}
-  alias Aiur.AgentRunner.{MessageHandler, SessionResume, TurnLoop}
+  alias Aiur.AgentRunner.{CodexUpdateRelay, MessageHandler, ModelLabelRefresh, SessionResume, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
   alias Aiur.LiveConversation.Source
   alias Aiur.RunTelemetry.Lifecycle
@@ -163,6 +163,16 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     maybe_alert_unsupported_model(issue, workspace, worker_host, session_backend, model)
 
+    ModelLabelRefresh.maybe_alert(
+      issue,
+      workspace,
+      worker_host,
+      session_backend,
+      model,
+      Keyword.get(opts, :model_label_deferred),
+      Keyword.get(opts, :model_label, [])
+    )
+
     maybe_trust_remote_control_workspace(workspace, rc?, worker_host, fn ws ->
       Aiur.Orchestrator.ensure_remote_control_trust(orchestrator, ws)
     end)
@@ -183,7 +193,8 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       session_opts: session_opts,
       rc?: rc?,
       issue_state_fetcher: issue_state_fetcher,
-      orchestrator: orchestrator
+      orchestrator: orchestrator,
+      update_recipient: codex_update_recipient
     }
 
     # Claim a provisional provider before opening a port or tmux pane. If this
@@ -192,6 +203,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     # workspace underneath it.
     with_expected_provider(
       Keyword.get(opts, :workspace_ownership),
+      if(is_nil(worker_host), do: :local, else: :remote),
       fn ownership ->
         start_expected_session(
           workspace,
@@ -209,10 +221,10 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     )
   end
 
-  defp with_expected_provider(nil, start, _issue, _session_context), do: start.(nil)
+  defp with_expected_provider(nil, _scope, start, _issue, _session_context), do: start.(nil)
 
-  defp with_expected_provider(ownership, start, issue, session_context) do
-    case Ownership.expect_provider(ownership) do
+  defp with_expected_provider(ownership, scope, start, issue, session_context) do
+    case Ownership.expect_provider(ownership, scope) do
       :ok ->
         start.(ownership)
 
@@ -539,13 +551,34 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   end
 
   defp record_session_start_failure(issue, session_context, reason) do
-    Lifecycle.record(issue.identifier, session_context.lifecycle_attempt_id, :agent_spinup, :end, %{
-      operation_id: "session",
-      backend: session_context.session_backend,
-      outcome: :failed,
-      reason_class: Lifecycle.reason_class(reason)
-    })
+    observed_at = DateTime.utc_now()
+
+    Lifecycle.record(
+      issue.identifier,
+      session_context.lifecycle_attempt_id,
+      :agent_spinup,
+      :end,
+      %{
+        operation_id: "session",
+        backend: session_context.session_backend,
+        outcome: :failed,
+        reason_class: Lifecycle.reason_class(reason),
+        exit_status: startup_exit_status(reason)
+      },
+      timestamp: observed_at
+    )
+
+    if is_pid(session_context.update_recipient) and match?({:port_exit, status} when is_integer(status), reason) do
+      CodexUpdateRelay.relay(session_context.update_recipient, issue.id, %{
+        event: :startup_failed,
+        reason: reason,
+        timestamp: observed_at
+      })
+    end
   end
+
+  defp startup_exit_status({:port_exit, status}) when is_integer(status), do: status
+  defp startup_exit_status(_reason), do: nil
 
   # A missing local process group is expected for remote workers, headless
   # adapters, and an occasional `ps` lookup miss. The provider itself is still
@@ -963,11 +996,17 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   defp tag_session(session, backend, opts) do
     session
     |> Map.put(:backend, backend)
-    |> Map.put(:model, Keyword.get(opts, :model))
+    |> Map.put(:model, established_model(session, opts))
     |> Map.put(:effort, supported_effort(backend, Keyword.get(opts, :effort)))
     |> maybe_put_attempt_id(Keyword.get(opts, :attempt_id))
     |> maybe_put_telemetry_launch_session(Keyword.get(opts, :telemetry_launch))
   end
+
+  defp established_model(%{model: model}, opts) when is_binary(model) do
+    if String.trim(model) == "", do: Keyword.get(opts, :model), else: model
+  end
+
+  defp established_model(_session, opts), do: Keyword.get(opts, :model)
 
   defp supported_effort(backend, effort) when is_binary(effort) do
     if effort in CodingAgent.efforts(backend) do
@@ -987,8 +1026,9 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   # A model aiur doesn't recognize is far more likely to be newer than this
   # build than to be wrong, so it is never blocked and never quietly swapped
   # for the backend default — either would hide the real problem. Instead the
-  # Executor gets one attention naming both remediations: let `aiur init`
-  # discover the new tag, or repoint a retired pin at a generic family tag.
+  # Executor gets one attention naming both remediations: wait for the next
+  # model-list read to learn the new model, or repoint a retired pin at a
+  # generic family tag.
   #
   # "Recognized" spans the curated registry list *and* the provider catalogue
   # cache (`Aiur.ModelDiscovery`), so a model the provider currently serves
@@ -1024,10 +1064,10 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     "Model #{inspect(model)} is not one aiur knows for the #{backend} backend " <>
       "(known: #{Enum.join(CodingAgent.seedable_models(backend), ", ")}). It is being passed to the backend " <>
-      "unchanged — aiur is not substituting a different model. If it is a newly released model, run `aiur init` " <>
-      "and accept the offer to create its model tags. If it is a retired version, repoint the issue label or the " <>
-      "`agent.routing` entry at a generic tag such as #{inspect(generic)}, which always resolves to the newest " <>
-      "model in that family."
+      "unchanged — aiur is not substituting a different model. If it is a newly released model, aiur recognises " <>
+      "it once it next reads the backend's model list from its CLI; no upgrade or new label is needed. If it is a " <>
+      "retired version, repoint the issue label or the `agent.routing` entry at a generic tag such as " <>
+      "#{inspect(generic)}, which always resolves to the newest model in that family."
   end
 
   defp maybe_put_attempt_id(session, attempt_id) when is_binary(attempt_id), do: Map.put(session, :attempt_id, attempt_id)

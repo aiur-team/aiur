@@ -434,8 +434,8 @@ defmodule Aiur.UpgradeTest do
     end
 
     test "installed version falls back to the mix version when the launcher did not set it" do
-      # AIUR_CLI_VERSION is unset in setup; mix.exs is 0.0.5.
-      assert Upgrade.installed_version() == "0.0.5"
+      # AIUR_CLI_VERSION is unset in setup; mix.exs is 0.0.8.
+      assert Upgrade.installed_version() == "0.0.8"
     end
   end
 end

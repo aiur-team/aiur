@@ -31,10 +31,11 @@ defmodule Aiur.CodingAgent.Backend do
   Resume is carried by `c:start_session/2`, not a separate callback:
   a backend whose registry entry declares `resumable: true` receives
   `opts[:resume_thread_id]` and must attempt to rejoin that thread,
-  setting `resumed: true` on success and degrading silently to a
-  clean start (`resumed: false`) on any failure — a resume miss must
-  never strand an issue. Non-resumable backends never receive the
-  option.
+  setting `resumed: true` on success. Each adapter owns its fallback policy:
+  Codex retains its legacy clean-start fallback after any resume failure;
+  Muse starts cleanly only for a confirmed missing session and returns
+  authentication, transport, and other uncertain errors. Non-resumable
+  backends never receive the option.
 
   ## Interrupt policy
 
@@ -73,6 +74,8 @@ defmodule Aiur.CodingAgent.Backend do
       passes them through) or `:derived` (aiur synthesizes a family
       alias per `Aiur.CodingAgent.Models` and resolves it to the newest
       version itself). Defaults to `:native`.
+    * `:recoverable_session_error` — provider-owned predicate for errors
+      that can safely restore claimed work and replace the stale session.
   """
   @type capabilities :: %{
           required(:adapter) => module(),
@@ -91,16 +94,20 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:remote_transport) => CodingAgent.backend(),
           optional(:fallback_backend) => CodingAgent.backend(),
           optional(:model_catalog) => (map() -> term()),
+          optional(:model_probe) => (String.t(), keyword() -> {:ok, map()} | {:error, term()}),
           optional(:model_catalog_backend) => CodingAgent.backend(),
           optional(:meter_probe) => (atom(), CodingAgent.backend(), keyword() -> map()),
+          optional(:recoverable_session_error) => (term() -> boolean()),
           optional(:run_telemetry) => (map() -> term()),
           optional(:presentation) => map(),
           optional(:pricing) => map(),
           optional(:usage) => map(),
+          optional(:meter_identity_policy) => :account | :host_unverified,
           optional(:account_generation) => map(),
           optional(:default) => boolean(),
           optional(:rate_limit_fallback) => CodingAgent.backend(),
           optional(:configurable) => boolean(),
+          optional(:init) => module(),
           optional(:init_order) => non_neg_integer(),
           optional(:default_command) => String.t(),
           optional(:install_hint) => String.t(),

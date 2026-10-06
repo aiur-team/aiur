@@ -18,6 +18,11 @@ defmodule Aiur.Orchestrator.IssueSync do
   # before the single fleet alert fires, so a pair the heal repairs on the same
   # observation never alarms.
   @contradictory_label_alert_after_ms 60_000
+  # States a provenance resolution may promote over a stale daemon claim: real,
+  # non-terminal dispositions only. `done` is excluded so a provenance win can
+  # never close a ticket (#2437), `todo` is handled ahead of provenance, and an
+  # unknown or mistyped label is never promoted.
+  @provenance_promotable_states ~w(rework in-progress human-review error ci-wait)
 
   @spec sync_polled_issue_state(State.t(), list()) :: State.t()
   def sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
@@ -39,10 +44,16 @@ defmodule Aiur.Orchestrator.IssueSync do
   A ticket carrying both `agent:todo` and `agent:rework` is a broken lifecycle
   state: the dispatch guard used to refuse it, silently dropping the ticket
   from every poll with no error and no alert (#2075). This resolves the pair
-  deterministically via `DispatchPolicy.resolve_state_labels/1` (`todo` wins —
-  a ticket that is also `todo` has no work for a `rework` verdict to mean
-  anything about), writes the winner through the tracker so GitHub stops
-  carrying both labels, and logs the resolution. Transient write failures keep
+  deterministically (`todo` wins — a ticket that is also `todo` has no work for a
+  `rework` verdict to mean anything about), writes the winner through the tracker
+  so GitHub stops carrying both labels, and logs the resolution.
+
+  The winner is provenance-aware first and statically ordered second (#2805).
+  When one of the two labels is the daemon's own prior claim — the state on its
+  `running` entry, or the previous poll's single-label observation — the other
+  label is the one that arrived since, so it is the real disposition and wins.
+  Without that evidence `DispatchPolicy.resolve_state_labels/1` decides, and a
+  provenance win never promotes the terminal `done` (#2437) or overrides `todo`. Transient write failures keep
   the resolved issue in the returned list so the ticket is still dispatchable
   this cycle; the next poll retries the heal.
 
@@ -66,7 +77,9 @@ defmodule Aiur.Orchestrator.IssueSync do
       Enum.reduce(issues, {[], state}, fn issue, {acc, state_acc} ->
         case issue do
           %Issue{state_labels: [_, _ | _] = state_labels} = issue ->
-            {healed_issue, state_acc} = heal_contradictory_state(issue, winner_for(state_labels), state_acc, update_state_fun)
+            {healed_issue, state_acc} =
+              heal_contradictory_state(issue, winner_for(state_labels, issue, state_acc), state_acc, update_state_fun)
+
             {[healed_issue | acc], state_acc}
 
           # `state_labels == []` is the GitHub normalizer's zero-label signal
@@ -260,7 +273,104 @@ defmodule Aiur.Orchestrator.IssueSync do
     DispatchPolicy.normalize_issue_state(state_name) in ["ci-wait", "human-review", "error"]
   end
 
-  defp winner_for(state_labels), do: DispatchPolicy.resolve_state_labels(state_labels)
+  # Resolving a contradictory pair by the static precedence list alone is
+  # time- and provenance-blind, and that loses the one transition the daemon
+  # and an agent can race on: the CI-pass handoff (#2805). The daemon swaps
+  # `ci-wait` -> `in-progress` itself, the agent then adds `agent:human-review`
+  # for the finished PR, and the static order ranks `in-progress` above
+  # `human-review` — so the heal deleted the agent's fresh, deliberate handoff
+  # and kept the daemon's own stale claim, leaving a ticket that was waiting on
+  # a human marked as actively in progress (and re-woken by the turn loop,
+  # because `in-progress` is an active state and `human-review` is not).
+  #
+  # The daemon does not need label timestamps to tell the two apart: it already
+  # knows which of the two labels is its own prior claim, from its `running`
+  # entry or the previous poll's single-label observation. Whatever label stands
+  # *next to* that known-older claim is the one that arrived since, so it is the
+  # real disposition and wins. This is evidence-gated, not shape-gated: with no
+  # such evidence the static precedence still decides, so every pre-#2805
+  # resolution is unchanged.
+  defp winner_for(state_labels, %Issue{} = issue, %State{} = state) do
+    normalized = normalized_state_labels(state_labels)
+    claim = prior_daemon_state_claim(state, issue)
+
+    case fresh_label_beside_claim(normalized, claim) do
+      nil ->
+        DispatchPolicy.resolve_state_labels(state_labels)
+
+      fresh ->
+        Logger.warning(
+          "Contradictory state labels resolved by provenance for #{State.issue_context(issue)} " <>
+            "labels=#{inspect(state_labels)} prior_claim=#{inspect(claim)} -> #{fresh}"
+        )
+
+        fresh
+    end
+  end
+
+  # The single label that arrived since the daemon's own prior claim, or `nil`
+  # when provenance cannot decide. `todo` keeps its special case ahead of
+  # provenance — it means "no work exists yet", so it stays the honest fallback
+  # rather than promoting a disposition about work that never happened — and the
+  # promoted label must be a non-terminal disposition: healing to the terminal
+  # `done` routes the tracker write into the close path and would discard
+  # outstanding work (#2437), and an unknown or mistyped label must never win.
+  defp fresh_label_beside_claim(normalized, claim) do
+    with false <- "todo" in normalized,
+         true <- is_binary(claim) and claim in normalized,
+         [fresh] <- normalized -- [claim],
+         true <- fresh in @provenance_promotable_states do
+      fresh
+    else
+      _ -> nil
+    end
+  end
+
+  # A label the daemon itself is known to have observed or written before this
+  # poll: the state on its own `running` entry (refreshed by every daemon-side
+  # transition, including the CI-pass handoff) first, then the previous poll's
+  # observation when that carried exactly one state label.
+  defp prior_daemon_state_claim(%State{} = state, %Issue{id: issue_id}) do
+    running_state_claim(state, issue_id) || last_polled_state_claim(state, issue_id)
+  end
+
+  defp prior_daemon_state_claim(_state, _issue), do: nil
+
+  defp running_state_claim(%State{running: running}, issue_id) when is_map(running) do
+    case Map.get(running, issue_id) do
+      %{issue: %Issue{state: state_name}} when is_binary(state_name) ->
+        DispatchPolicy.normalize_state_label(state_name)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp running_state_claim(_state, _issue_id), do: nil
+
+  defp last_polled_state_claim(%State{last_polled_issues: polled}, issue_id) when is_map(polled) do
+    case Map.get(polled, issue_id) do
+      %Issue{state_labels: [single]} ->
+        DispatchPolicy.normalize_state_label(single)
+
+      %Issue{state_labels: labels, state: state_name} when labels in [nil, []] and is_binary(state_name) ->
+        DispatchPolicy.normalize_state_label(state_name)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp last_polled_state_claim(_state, _issue_id), do: nil
+
+  defp normalized_state_labels(state_labels) when is_list(state_labels) do
+    state_labels
+    |> Enum.map(&DispatchPolicy.normalize_state_label/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp normalized_state_labels(_state_labels), do: []
 
   # A ticket observed with zero `agent:*` state labels is invisible to dispatch
   # (#2420): every reconciler consumes either the filtered candidate list or

@@ -73,6 +73,18 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreviewTest do
     assert is_list(options.efforts)
   end
 
+  test "options keep models only the backend's CLI reported, with their families" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_kind: "codex")
+    cache = Path.join(Path.dirname(Workflow.workflow_file_path()), "preview-model-catalog.json")
+    {:ok, _} = Aiur.ModelDiscovery.refresh("codex", path: cache, discover: fn _ -> {:ok, ["gpt-5.7-astra"]} end)
+
+    models = AgentRoutingPreview.options("codex", path: cache).models
+
+    # A `model:astra` ticket must keep its choice when the modal opens.
+    assert "gpt-5.7-astra" in models
+    assert "astra" in models
+  end
+
   test "an out-of-vocabulary selection is clamped instead of becoming a tracker label" do
     write_workflow_file!(Workflow.workflow_file_path(), agent_kind: "codex")
 

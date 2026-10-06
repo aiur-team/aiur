@@ -46,6 +46,40 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     assert pending_item_ids == MapSet.new([41])
   end
 
+  # The human-review handoff leaves the entry in `state.running` with
+  # `control.status: :deactivated` so a later rework can reuse it. Its agent is
+  # gone, so no provider can ever acknowledge the fenced item and close the
+  # fence. Fencing it anyway latched the ticket: every poll answered
+  # `{:fenced, _}`, `maybe_reactivate_or_refresh/2` never ran, the dead entry
+  # stayed in `state.running` holding a fleet slot, and dispatch skipped the
+  # ticket as `:already_running` for as long as the daemon lived. Observed live
+  # on Khala: tickets relabelled `agent:rework` after a review sat unstarted for
+  # an hour while the fleet read 12/12 with five agents actually alive.
+  test "a deactivated entry is admitted so a rework relabel can reactivate it" do
+    issue_id = "issue-fence-deactivated"
+    identifier = "LF-9"
+
+    state = %State{
+      running: %{
+        issue_id => %{
+          identifier: identifier,
+          issue: %Issue{id: issue_id, identifier: identifier, state: "human-review"},
+          control: %{status: :deactivated},
+          lifecycle_fence: %{
+            authoritative_state: "human-review",
+            generation: 2,
+            opened_at: DateTime.utc_now(),
+            pending_item_ids: MapSet.new([77])
+          }
+        }
+      }
+    }
+
+    observed = %Issue{id: issue_id, identifier: identifier, state: "rework"}
+
+    assert :admit = LifecycleFence.reconcile_observed_state(state, observed)
+  end
+
   test "a terminal tracker state remains fenced during the grace window" do
     issue_id = "issue-fence-terminal"
     identifier = "LF-3"
