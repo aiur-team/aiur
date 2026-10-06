@@ -5,9 +5,10 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   use Aiur.TestSupport
 
   alias Aiur.{AgentQueueStore, AlertFeed, AlertLedger, Config, Issue, TrackerIdentity, Workflow}
+  alias Aiur.Events.{Exchange, Publisher, SubscriptionStore}
   alias Aiur.ExecutorListener
   alias Aiur.ExecutorWakeInbox
-  alias Aiur.Events.{Exchange, Publisher, SubscriptionStore}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, IssueSync, PushRouting, State}
 
   test "ignores a non-list poll result" do
@@ -1590,8 +1591,8 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     previous = %{previous | branch_name: "aiur/handoff"}
     current = %{previous | state: "human-review"}
     sha = String.duplicate("c", 40)
-    key = Aiur.GitHub.ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)
-    :ok = Aiur.GitHub.ResourceStore.put_resource(key, %{"number" => 3019, "head" => %{"ref" => "aiur/handoff", "sha" => sha}})
+    key = ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)
+    :ok = ResourceStore.put_resource(key, %{"number" => 3019, "head" => %{"ref" => "aiur/handoff", "sha" => sha}})
 
     state =
       IssueSync.sync_polled_issue_state(

@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   require Logger
 
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State}
@@ -1130,8 +1131,8 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp human_review_pr_details(%Issue{tracker_identity: %{kind: :github, owner: owner, repository: repository}, id: id, branch_name: branch_name})
        when is_binary(id) and is_binary(branch_name) do
-    key = Aiur.GitHub.ResourceStore.key_for_repo(:branch_pull_request_listing, "#{owner}/#{repository}", id)
-    key |> Aiur.GitHub.ResourceStore.data() |> human_review_pr_listing_identity(branch_name)
+    key = ResourceStore.key_for_repo(:branch_pull_request_listing, "#{owner}/#{repository}", id)
+    key |> ResourceStore.data() |> human_review_pr_listing_identity(branch_name)
   rescue
     _ -> {nil, nil}
   end
