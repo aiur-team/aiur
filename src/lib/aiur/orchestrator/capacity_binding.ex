@@ -16,7 +16,10 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   """
 
   @type kind ::
-          :admission
+          :tracker_preflight
+          | :dispatch_selection
+          | :awaiting_dispatch
+          | :admission
           | :ticket_supply
           | :idle_backoff
           | :has_not_polled
@@ -49,8 +52,14 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   @spec binding(map(), map(), DateTime.t()) :: t()
   def binding(capacity, polling, now)
 
+  def binding(%{dispatch_hold: %{held?: true, reason: :tracker_preflight} = hold}, _polling, _now),
+    do: {:tracker_preflight, hold}
+
   def binding(%{capacity_hold: %{} = hold}, polling, now),
     do: {:admission, mark_stale_sample(hold, polling, now)}
+
+  def binding(%{available: available, dispatch_selection_hold: %{} = hold}, polling, now) when available > 0,
+    do: {:dispatch_selection, mark_stale_sample(hold, polling, now)}
 
   def binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity, polling, _now)
       when is_integer(max) and is_integer(effective) and is_integer(configured) and is_integer(occupied) do
@@ -161,6 +170,20 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   labels, which carry the full admission measurement.
   """
   @spec short_label(t()) :: String.t() | nil
+  def short_label({:tracker_preflight, hold}), do: "tracker preflight: #{hold.detail} held=#{hold.held_for_seconds}s"
+
+  def short_label({:dispatch_selection, hold}) do
+    age =
+      case sample_age_seconds(hold) do
+        nil -> ""
+        seconds -> " sampled=#{seconds}s ago"
+      end
+
+    stale = if Map.get(hold, :stale_sample?, false), do: " STALE", else: ""
+    "dispatch selection: #{inspect(hold.reasons)}" <> age <> stale
+  end
+
+  def short_label({:awaiting_dispatch, _detail}), do: "awaiting dispatch"
   def short_label({:none, _detail}), do: nil
   def short_label({:paused_reservations, reserved}), do: "paused reservations=#{reserved}"
   def short_label({:envelope, _detail}), do: "AIMD envelope"
@@ -198,6 +221,9 @@ defmodule Aiur.Orchestrator.CapacityBinding do
 
       occupied >= max ->
         {:session_cap, max}
+
+      Map.get(capacity, :queued_demand?, false) ->
+        {:awaiting_dispatch, %{ceiling: ceiling_label(capacity)}}
 
       true ->
         # Slots are available and nothing is binding: name where the effective

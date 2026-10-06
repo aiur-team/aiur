@@ -446,20 +446,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
-  defp dispatch_hold_payload(%State{} = state, now_ms) do
-    case state.dispatch_hold do
-      %{reason: reason, detail: detail, held_since_ms: held_since_ms} ->
-        %{
-          held?: true,
-          reason: reason,
-          detail: detail,
-          held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0)
-        }
-
-      _other ->
-        %{held?: false, reason: nil, detail: nil, held_for_seconds: 0}
-    end
-  end
+  defp dispatch_hold_payload(state, now_ms), do: Slots.dispatch_hold_status(state, now_ms)
 
   defp running_snapshot(
          %State{} = state,

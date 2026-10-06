@@ -1995,6 +1995,13 @@ defmodule Aiur.AgentControlCLI do
     _error -> %{load: :unavailable, load_threshold: nil, schedulers: nil}
   end
 
+  defp capacity_binding_label({:tracker_preflight, hold}), do: "tracker preflight, reason=#{hold.detail} held=#{hold.held_for_seconds}s"
+
+  defp capacity_binding_label({:dispatch_selection, hold}),
+    do: "dispatch selection, reasons=#{inspect(hold.reasons)} candidates=#{hold.candidates}" <> admission_sample_age(hold)
+
+  defp capacity_binding_label({:awaiting_dispatch, %{ceiling: ceiling}}), do: "awaiting dispatch; ceiling: #{ceiling}"
+
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"

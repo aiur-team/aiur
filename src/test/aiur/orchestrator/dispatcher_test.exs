@@ -2595,6 +2595,84 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end
   end
 
+  test "tracker preflight skips dispatch with free slots and names its reason in status" do
+    ready = issue("preflight-empty")
+    state = %State{max_concurrent_agents: 12, effective_concurrent_agents: 12, last_polled_issues: %{ready.id => ready}, blocked_ticket_ids: MapSet.new()}
+    owner = self()
+
+    held =
+      Dispatcher.maybe_dispatch(
+        state,
+        fn state ->
+          send(owner, :dispatch_attempted)
+          state
+        end,
+        fn state -> {:error, :missing_github_token, state} end
+      )
+
+    refute_received :dispatch_attempted
+    capacity = Aiur.Orchestrator.Slots.max_concurrent_agent_status(held)
+    assert capacity.available == 12
+    assert capacity.queued_demand? == true
+
+    assert {:tracker_preflight, %{detail: :missing_github_token}} =
+             Aiur.Orchestrator.CapacityBinding.binding(capacity)
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: []}, %{status: :fresh}})
+      end)
+
+    assert output =~ ~r/binding: tracker preflight, reason=missing_github_token held=\d+s/
+    assert Aiur.Orchestrator.CapacityBinding.short_label(Aiur.Orchestrator.CapacityBinding.binding(capacity)) =~ ~r/held=\d+s/
+    assert Aiur.Orchestrator.Slots.dispatch_hold_status(held, held.dispatch_hold.held_since_ms + 90_000).held_for_seconds == 90
+  end
+
+  test "an empty dispatch cycle with ready work names revalidation failure in capacity status" do
+    with_prewarm_enabled_config()
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+    Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+    ready = issue("empty-selection")
+    state = %State{max_concurrent_agents: 12, effective_concurrent_agents: 12, blocked_ticket_ids: MapSet.new()}
+
+    declined =
+      Dispatcher.dispatch_or_hold(state, [ready], fn -> :ready end,
+        issue_fetcher: fn _ -> {:error, :transport_unavailable} end,
+        blocked_by_hydrator: fn issue -> {:ok, issue} end
+      )
+
+    assert map_size(declined.running) == 0
+    assert Aiur.Orchestrator.Slots.available_slots(declined) > 0
+    capacity = Aiur.Orchestrator.Slots.max_concurrent_agent_status(declined)
+
+    assert {:dispatch_selection, %{reasons: [:tracker_revalidation_failed], candidates: 1}} =
+             Aiur.Orchestrator.CapacityBinding.binding(capacity)
+
+    assert Aiur.Orchestrator.CapacityBinding.short_label(Aiur.Orchestrator.CapacityBinding.binding(capacity)) =~ "tracker_revalidation_failed"
+
+    output =
+      ExUnit.CaptureIO.capture_io(fn ->
+        Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: []}, %{status: :fresh}})
+      end)
+
+    assert output =~ "binding: dispatch selection, reasons=[:tracker_revalidation_failed] candidates=1"
+    assert output =~ ~r/sampled=\d+s ago/
+
+    cleared = Dispatcher.dispatch_or_hold(declined, [], fn -> :ready end)
+    assert cleared.dispatch_selection_hold == nil
+
+    dispatched =
+      Dispatcher.dispatch_or_hold(declined, [ready], fn -> :ready end,
+        issue_fetcher: fn _ -> {:ok, [ready]} end,
+        blocked_by_hydrator: fn issue -> {:ok, issue} end,
+        runner: fn _issue, _recipient, _opts -> :ok end
+      )
+
+    assert Map.has_key?(dispatched.running, ready.id)
+    assert Aiur.Orchestrator.Slots.available_slots(dispatched) > 0
+    assert dispatched.dispatch_selection_hold == nil
+  end
+
   describe "check_thrash_budget/3" do
     test "counts dispatches within window and trips over the threshold" do
       state = %State{}

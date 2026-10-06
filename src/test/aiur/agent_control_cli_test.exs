@@ -1510,7 +1510,7 @@ defmodule Aiur.AgentControlCLITest do
 
     fallback_output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert fallback_output =~ "AGENTS 0/10 (binding: none; ceiling: config max_concurrent_agents)"
+    assert fallback_output =~ "AGENTS 0/10 (binding: awaiting dispatch; ceiling: config max_concurrent_agents)"
     refute fallback_output =~ "AGENTS 0/10 (binding: load"
 
     assert fallback_output =~
@@ -1754,7 +1754,7 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     output = capture_io(fn -> AgentControlCLI.status() end)
-    assert output =~ "AGENTS 0/10 (binding: none; ceiling: config max_concurrent_agents)"
+    assert output =~ "AGENTS 0/10 (binding: awaiting dispatch; ceiling: config max_concurrent_agents)"
     assert output =~ "BUILD GATE 1/#{Config.max_concurrent_builds()} active, 1 queued"
     assert output =~ "BUILD GATE HOLDER slot=1 pid=2 command=\"test\" held="
     assert output =~ "BUILD GATE QUEUED pid=2 command=\"test\" waiting="

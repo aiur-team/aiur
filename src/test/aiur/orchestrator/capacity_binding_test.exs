@@ -141,10 +141,10 @@ defmodule Aiur.Orchestrator.CapacityBindingTest do
   test "an unconstrained fleet names where its effective ceiling came from" do
     free = %{@full | occupied: 0, available: 2}
 
-    assert CapacityBinding.binding(free) == {:none, %{ceiling: "config max_concurrent_agents"}}
+    assert CapacityBinding.binding(free) == {:awaiting_dispatch, %{ceiling: "config max_concurrent_agents"}}
 
     assert CapacityBinding.binding(%{free | session_override?: true}) ==
-             {:none, %{ceiling: "session max_concurrent_agents"}}
+             {:awaiting_dispatch, %{ceiling: "session max_concurrent_agents"}}
   end
 
   test "an unreadable capacity map binds nothing" do
