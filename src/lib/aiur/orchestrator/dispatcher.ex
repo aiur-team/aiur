@@ -482,12 +482,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def start_state_label_check(state, "github", check_fun) do
     parent = self()
     token = make_ref()
+    retry_at_ms = System.monotonic_time(:millisecond) + @state_label_retry_ms
 
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
            send(parent, {:state_label_preflight_result, token, check_fun.()})
          end) do
-      {:ok, pid} -> %{state | state_label_preflight_check_pid: pid, state_label_preflight_check_token: token}
-      {:error, reason} -> record_state_label_result(state, {:error, reason}, &Alerts.emit_system/2, &AlertFeed.active_system_attention?/1)
+      {:ok, pid} ->
+        %{state | state_label_preflight_check_pid: pid, state_label_preflight_check_token: token, state_label_preflight_retry_at_ms: retry_at_ms}
+
+      {:error, reason} ->
+        record_state_label_result(state, {:error, reason}, &Alerts.emit_system/2, &AlertFeed.active_system_attention?/1)
     end
   end
 
@@ -572,6 +576,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
         schedule_state_label_retry(state, "failed:" <> detail)
 
       "failed:" <> ^detail ->
+        schedule_state_label_retry(state, "failed:" <> detail)
+
+      "error:" <> _previous_detail ->
+        emit_fun.(@state_label_preflight_failed_topic,
+          message: "Workflow state-label preflight keeps failing; labels are unverified",
+          reason:
+            "Listing the repository labels failed on consecutive checks (latest: #{detail}), so aiur cannot confirm the workflow " <>
+              "state labels exist. If the repo has none, nothing can be dispatched. Check GITHUB_TOKEN access to the repository labels.",
+          needs_attention: true,
+          severity: "warning"
+        )
+
         schedule_state_label_retry(state, "failed:" <> detail)
 
       _other ->

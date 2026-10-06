@@ -5,7 +5,7 @@ defmodule Aiur.GitHub.StateLabelPreflight do
 
   A repo with no state labels is silently undispatchable: no ticket can be
   labelled into the workflow, so the daemon polls forever and reads as "no work
-  left" (#2639). The dispatcher runs this once at its first dispatch cycle and
+  left" (#2639). The dispatcher starts this asynchronously on its first dispatch cycle and
   raises a needs-attention alert naming the missing labels, in the same family
   as the tracker authentication preflight. The check is advisory: it never
   holds dispatch, because missing labels mean there is nothing to hold.
@@ -19,7 +19,7 @@ defmodule Aiur.GitHub.StateLabelPreflight do
   alias Aiur.GitHub.Transport
 
   @per_page 100
-  # The scan runs inside the orchestrator's dispatch cycle, so bound its cost:
+  # The scan runs in a supervised task started by the dispatch cycle, so bound its cost:
   # at most @max_pages sequential requests, each with its own short deadline
   # instead of the transport's 30 s default. A repository with more labels
   # than that is answered from the pages seen; the state labels aiur created
