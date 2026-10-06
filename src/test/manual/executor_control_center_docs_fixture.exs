@@ -568,7 +568,7 @@ defmodule Aiur.Docs.ControlCenterFixture do
         state =
           cond do
             System.get_env("AIUR_DOCS_WORKED_BUILD_ORDER") == "true" ->
-              if build_order_number(id) <= 408, do: "completed", else: "open"
+              worked_member_state(id)
 
             id in @build_order_completed ->
               "completed"
@@ -584,6 +584,10 @@ defmodule Aiur.Docs.ControlCenterFixture do
       end)
 
     %{"state" => "in_progress", "members" => members}
+  end
+
+  defp worked_member_state(id) do
+    if build_order_number(id) <= 408, do: "completed", else: "open"
   end
 
   defp build_order_lanes do
