@@ -5,8 +5,10 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   alias Aiur.AgentPubSub
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
+  alias Aiur.CodexProber
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
+  alias Aiur.ModelAvailability
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State, StatusReport, TrackerHealth}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
@@ -159,6 +161,43 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     assert name == "ticket.#{candidate.id}.agent.attention.dispatch-declined"
     assert reason =~ "tracker_revalidation_failed"
+  end
+
+  test "a ready Codex ticket reaches the dispatcher after a stale limit refresh" do
+    restore_workflow_file_after_test()
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory", max_concurrent_agents: 4)
+    ledger = ModelAvailability.path()
+    old_ledger = if File.exists?(ledger), do: File.read!(ledger), else: nil
+    on_exit(fn -> if is_binary(old_ledger), do: File.write!(ledger, old_ledger), else: File.rm(ledger) end)
+
+    now = DateTime.utc_now()
+    stale_at = DateTime.add(now, -301, :second)
+    reset_at = DateTime.add(now, 3_600, :second) |> DateTime.to_iso8601()
+    assert :ok = ModelAvailability.observe("codex", %{hourly: %{usedPercent: 100, windowDurationMins: 60, resetsAt: reset_at}}, now: stale_at)
+
+    assert :ok =
+             Aiur.CodexProber.probe_sync("codex", now,
+               fetch_limits_fun: fn ->
+                 {:ok, %{"rateLimits" => %{"primary" => %{"usedPercent" => 4, "windowDurationMins" => 60}}}}
+               end
+             )
+
+    candidate = issue("codex-refresh-ready")
+    Application.put_env(:aiur, :memory_tracker_issues, [candidate])
+    on_exit(fn -> Application.delete_env(:aiur, :memory_tracker_issues) end)
+    parent = self()
+
+    runner = fn dispatched, _recipient, _opts ->
+      send(parent, {:ready_ticket_started, dispatched.id})
+      Process.sleep(:infinity)
+    end
+
+    result = Dispatcher.choose_issues(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4}, [candidate], runner: runner)
+
+    assert_receive {:ready_ticket_started, id}, 2_000
+    assert id == candidate.id
+    assert Map.has_key?(result.running, candidate.id)
+    Process.exit(result.running[candidate.id].pid, :kill)
   end
 
   test "a repeated post-selection decline is emitted once across polling cycles" do
@@ -1938,6 +1977,137 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         alert_debounce_ms: 0,
         now_ms: now_ms
       ]
+    end
+
+    test "dispatch cycle refreshes stale provider usage before admitting ready work" do
+      path = Aiur.TestSupport.tmp_root!("aiur-dispatch-provider-refresh") <> ".json"
+      on_exit(fn -> File.rm(path) end)
+      now = DateTime.utc_now()
+      reset_at = DateTime.add(now, 3_600, :second) |> DateTime.to_unix()
+      stale_at = DateTime.add(now, -301, :second)
+
+      assert :ok =
+               ModelAvailability.observe(
+                 "codex",
+                 %{hourly: %{usedPercent: 100, windowDurationMins: 60, resetsAt: reset_at}},
+                 path: path,
+                 now: stale_at
+               )
+
+      provider_probe = fn backend, opts ->
+        CodexProber.probe_sync(
+          backend,
+          Keyword.fetch!(opts, :now),
+          Keyword.put(opts, :fetch_limits_fun, fn ->
+            {:ok,
+             %{
+               "rateLimits" => %{
+                 "primary" => %{
+                   "usedPercent" => 4,
+                   "windowDurationMins" => 60,
+                   "resetsAt" => DateTime.to_unix(DateTime.add(now, 7_200, :second))
+                 }
+               }
+             }}
+          end)
+        )
+      end
+
+      admission_probes = fn ->
+        %{
+          memory_mb: 4_096,
+          memory_threshold_mb: 1_024,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: 0.0,
+          load_threshold: 10.0,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: ["codex"],
+          provider_gate_opts: [path: path, now: now, probe_fun: provider_probe],
+          github_quota: :available,
+          cpu_snapshot: :unavailable,
+          target: nil
+        }
+      end
+
+      choose = fn state, _issues ->
+        send(self(), :dispatch_chosen)
+        state
+      end
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+
+      _next =
+        Dispatcher.maybe_choose_under_load(state, [issue("queued-codex")], choose, admission_probes_fun: admission_probes)
+
+      assert_received :dispatch_chosen
+      assert ModelAvailability.available?("codex", path: path, now: now)
+      assert ModelAvailability.load(path)["backends"]["codex"]["hourly"]["used"] == 4
+    end
+
+    test "provider capacity hold refreshes its freshness detail each dispatch cycle" do
+      path = Aiur.TestSupport.tmp_root!("aiur-provider-hold-detail") <> ".json"
+      on_exit(fn -> File.rm(path) end)
+      now = DateTime.utc_now()
+      stale_at = DateTime.add(now, -301, :second)
+      reset_at = DateTime.add(now, 3_600, :second) |> DateTime.to_unix()
+
+      assert :ok =
+               ModelAvailability.observe(
+                 "codex",
+                 %{hourly: %{usedPercent: 100, windowDurationMins: 60, resetsAt: reset_at}},
+                 path: path,
+                 now: stale_at
+               )
+
+      assert :ok = ModelAvailability.schedule_retry("codex", now, path: path)
+
+      admission_probes = fn ->
+        %{
+          memory_mb: 4_096,
+          memory_threshold_mb: 1_024,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: 0.0,
+          load_threshold: 10.0,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: ["codex"],
+          provider_gate_opts: [path: path, now: now],
+          github_quota: :available,
+          cpu_snapshot: :unavailable,
+          target: nil
+        }
+      end
+
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+      queued = [issue("queued-codex")]
+
+      first =
+        Dispatcher.maybe_choose_under_load(state, queued, noop_choose(), admission_probes_fun: admission_probes)
+
+      assert first.capacity_hold.signal == :provider
+      assert first.capacity_hold.detail =~ DateTime.to_iso8601(stale_at)
+
+      refreshed_at = DateTime.add(now, -302, :second)
+
+      assert :ok =
+               ModelAvailability.observe(
+                 "codex",
+                 %{hourly: %{usedPercent: 100, windowDurationMins: 60, resetsAt: reset_at}},
+                 path: path,
+                 now: refreshed_at
+               )
+
+      second =
+        Dispatcher.maybe_choose_under_load(first, queued, noop_choose(), admission_probes_fun: admission_probes)
+
+      assert second.capacity_hold.signal == :provider
+      assert second.capacity_hold.detail =~ DateTime.to_iso8601(refreshed_at)
+      refute second.capacity_hold.detail =~ DateTime.to_iso8601(stale_at)
     end
 
     test "a memory hold persists the limiting reason and emits a debounced backoff alert, then clears on recovery" do
