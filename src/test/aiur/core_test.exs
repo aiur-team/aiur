@@ -1885,6 +1885,101 @@ defmodule Aiur.CoreTest do
     end
   end
 
+  test "agent runner sends before_run conflict filenames in the first turn/start input" do
+    test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-conflict-prompt")
+
+    try do
+      template_repo = Path.join(test_root, "source")
+      workspace_root = Path.join(test_root, "workspaces")
+      codex_binary = Path.join(test_root, "fake-codex")
+      trace_file = Path.join(test_root, "codex.trace")
+      identifier = "MT-CONFLICT-PROMPT-#{System.unique_integer([:positive])}"
+
+      File.mkdir_p!(template_repo)
+      File.write!(Path.join(template_repo, "README.md"), "# test\n")
+      {_, 0} = System.cmd("git", ["-C", template_repo, "init", "-b", "main"])
+      {_, 0} = System.cmd("git", ["-C", template_repo, "config", "user.name", "Test User"])
+      {_, 0} = System.cmd("git", ["-C", template_repo, "config", "user.email", "test@example.com"])
+      {_, 0} = System.cmd("git", ["-C", template_repo, "add", "README.md"])
+      {_, 0} = System.cmd("git", ["-C", template_repo, "commit", "-m", "initial"])
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      trace_file=#{inspect(trace_file)}
+      while IFS= read -r line; do
+        printf 'JSON:%s\\n' "$line" >> "$trace_file"
+        request_id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p')
+        case "$line" in
+          *'"method":"initialize"'*)
+            printf '{"id":%s,"result":{}}\\n' "$request_id"
+            ;;
+          *'"method":"initialized"'*)
+            ;;
+          *'"method":"thread/start"'*)
+            printf '{"id":%s,"result":{"thread":{"id":"thread-conflict-prompt"}}}\\n' "$request_id"
+            ;;
+          *'"method":"turn/start"'*)
+            printf '{"id":%s,"result":{"turn":{"id":"turn-conflict-prompt"}}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "cp #{Path.join(template_repo, "README.md")} README.md",
+        hook_before_run: """
+        mkdir -p logs
+        printf '%s\\n' '## Conflicting files' '- lib/from-base.ex' > logs/before-run-merge-conflict.md
+        """,
+        codex_command: "#{codex_binary} app-server",
+        max_turns: 1
+      )
+
+      workspace = Path.join([workspace_root, "project", identifier])
+      File.mkdir_p!(workspace)
+      {_, 0} = System.cmd("git", ["-C", workspace, "init", "-b", "main"])
+      {_, 0} = System.cmd("git", ["-C", workspace, "config", "user.name", "Test User"])
+      {_, 0} = System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+      File.write!(Path.join(workspace, "README.md"), "# existing workspace\n")
+      {_, 0} = System.cmd("git", ["-C", workspace, "add", "README.md"])
+      {_, 0} = System.cmd("git", ["-C", workspace, "commit", "-m", "existing workspace"])
+
+      issue = %Issue{
+        id: "issue-conflict-prompt",
+        identifier: identifier,
+        title: "Resolve preflight merge conflict",
+        description: "The first provider turn must be told which files conflict.",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-CONFLICT-PROMPT",
+        labels: []
+      }
+
+      state_fetcher = fn [_issue_id] -> {:ok, [%{issue | state: "Done"}]} end
+      assert :ok = AgentRunner.run(issue, nil, issue_state_fetcher: state_fetcher)
+
+      assert File.read!(Path.join([workspace, "logs", "before-run-merge-conflict.md"])) =~ "lib/from-base.ex"
+
+      turn_start =
+        trace_file
+        |> File.read!()
+        |> String.split("\n", trim: true)
+        |> Enum.filter(&String.starts_with?(&1, "JSON:"))
+        |> Enum.map(&String.trim_leading(&1, "JSON:"))
+        |> Enum.map(&Jason.decode!/1)
+        |> Enum.find(&(&1["method"] == "turn/start"))
+
+      first_turn_text = get_in(turn_start, ["params", "input"]) |> Enum.map_join("\n", &Map.get(&1, "text", ""))
+      assert first_turn_text =~ "- `lib/from-base.ex`"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent runner forwards timestamped codex updates to recipient" do
     test_root = Aiur.TestSupport.tmp_root!("aiur-elixir-agent-runner-updates")
 

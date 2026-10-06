@@ -67,6 +67,41 @@ defmodule Aiur.AgentRunner.TurnPromptTest do
       refute prompt =~ issue.title
     end
 
+    test "turn prompts name files left by an aborted before_run base merge" do
+      workspace = Path.join(System.tmp_dir!(), "turn-prompt-conflict-#{System.unique_integer([:positive])}")
+      conflict_note = Path.join([workspace, "logs", "before-run-merge-conflict.md"])
+      File.mkdir_p!(Path.dirname(conflict_note))
+
+      on_exit(fn -> File.rm_rf!(workspace) end)
+
+      File.write!(conflict_note, """
+      # Base branch merge conflict
+
+      The preflight merge was aborted.
+
+      ## Conflicting files
+      - src/example.ex
+      - test/example_test.exs
+      """)
+
+      issue = %Issue{id: "3011", identifier: "3011", title: "Resolve base conflict"}
+      resumed_prompt = TurnPrompt.build_turn_prompt(issue, [resumed: true, workspace: workspace], 1, nil)
+      cold_prompt = TurnPrompt.build_turn_prompt(issue, [workspace: workspace], 1, nil)
+      prior_work_prompt = TurnPrompt.build_turn_prompt(issue, [prior_work: true, workspace: workspace], 1, nil)
+      next_turn_prompt = TurnPrompt.build_turn_prompt(issue, [workspace: workspace], 2, nil)
+
+      for prompt <- [resumed_prompt, cold_prompt, prior_work_prompt] do
+        assert prompt =~ "Merge `origin/$AIUR_BASE_BRANCH` and resolve these files"
+        assert prompt =~ "- `src/example.ex`"
+        assert prompt =~ "- `test/example_test.exs`"
+      end
+
+      refute next_turn_prompt =~ "Merge `origin/$AIUR_BASE_BRANCH` and resolve these files"
+      refute next_turn_prompt =~ "src/example.ex"
+
+      refute resumed_prompt =~ workspace
+    end
+
     test "turn one cold rework keeps the ticket contract without restarting discovery" do
       issue = %Issue{
         id: "1091",
