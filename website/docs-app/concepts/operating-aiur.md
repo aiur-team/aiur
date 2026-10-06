@@ -49,6 +49,7 @@ At Executor startup, Aiur compares the last heartbeat with its lifecycle
 journal. A stale heartbeat beyond `monitoring.daemon_heartbeat_stale_ms` creates
 an informational `system.daemon.gap` event. It reports `clean_shutdown` when
 the latest journal event is a stop, and `unknown` after an unmatched start.
+
 Missing heartbeat files are ignored; they may mean first boot or a changed
 state directory. The notice describes a past interval and opens no attention.
 
