@@ -716,7 +716,13 @@ These policy keys never grant transport access by themselves. The supervisor API
 
 When `server.host` is absent, the dashboard binds `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST` override). A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
 
-Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed. Before changing a different target, it probes that target's `/build-orders/1`; any HTTP response makes the reconciler leave the route unchanged and raise `system.build_order_funnel.target_mismatch`. An unreachable target may be stale and can be updated. Wildcard binds (`0.0.0.0` and `::`) map to loopback for the Funnel target. Enable this on only one Aiur daemon per node so multiple reconcilers do not compete for HTTPS 443. The opt-in reconciler suppresses the separate `observability.build_order_funnel_health_check` startup check and reports its own failures after each reconciliation attempt.
+Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed.
+
+Before changing a different target, Aiur probes that target's `/build-orders/1`. Any HTTP response makes the reconciler leave the route unchanged and raise `system.build_order_funnel.target_mismatch`.
+
+An unreachable target may be stale and can be updated. Wildcard binds (`0.0.0.0` and `::`) map to loopback for the Funnel target.
+
+Enable this on only one Aiur daemon per node so multiple reconcilers do not compete for HTTPS 443. When `server.tailscale_funnel` is enabled, the reconciler suppresses the separate `observability.build_order_funnel_health_check` startup check and reports its own failures after each reconciliation attempt.
 
 A non-root account needs Tailscale operator access before Aiur can manage the route. Grant it once with `sudo tailscale set --operator=$USER`; then run Aiur as that account.
 
