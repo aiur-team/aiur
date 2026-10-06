@@ -73,14 +73,15 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
     end
   end
 
-  @doc "True when `workspace` has uncommitted changes. Not a checkout reads as clean."
+  @doc "True when `workspace` has uncommitted changes or commits not held by a remote. Not a checkout reads as clean."
   @spec dirty?(Path.t(), map()) :: {:ok, boolean()} | {:error, term()}
   def dirty?(workspace, limits) do
     if checkout?(workspace) do
       context = %{workspace: workspace, limits: limits}
 
       with {:ok, status} <- git(context, ["status", "--porcelain=v1", "-z", "--untracked-files=normal"]),
-           do: {:ok, status != ""}
+           {:ok, unpushed} <- has_unpushed_commits?(context),
+           do: {:ok, status != "" or unpushed}
     else
       {:ok, false}
     end
@@ -98,6 +99,20 @@ defmodule Aiur.Workspace.WipPreservation.Capture do
       {:ok, {_out, 1}} -> {:ok, nil}
       {:ok, {out, status}} -> {:error, {:git_failed, ["rev-parse", "HEAD"], status, out}}
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp has_unpushed_commits?(context) do
+    case head(context) do
+      {:ok, nil} ->
+        {:ok, false}
+
+      {:ok, _head} ->
+        with {:ok, count} <- git(context, ["rev-list", "--count", "HEAD", "--not", "--remotes"]),
+             do: {:ok, String.trim(count) != "0"}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

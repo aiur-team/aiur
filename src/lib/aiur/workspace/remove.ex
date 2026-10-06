@@ -113,6 +113,7 @@ defmodule Aiur.Workspace.Remove do
   end
 
   @doc false
+  @spec remote_dirty_check() :: String.t()
   def remote_dirty_check do
     [
       "if [ -e \"$workspace/.git\" ]; then",
@@ -225,31 +226,39 @@ defmodule Aiur.Workspace.Remove do
     # run; the save then captures both agent and hook changes.
     case destroy_guard(opts) do
       :ok ->
-        destroy = fn -> destroy_local(workspace, opts) end
-
-        callback_options =
-          if is_nil(Config.settings!().hooks.before_remove) do
-            []
-          else
-            before_destroy = fn ->
-              case destroy_guard(opts) do
-                :ok -> maybe_run_before_remove_hook(workspace, nil)
-                skipped -> skipped
-              end
-            end
-
-            [before_destroy: before_destroy]
-          end
-
-        case WipPreservation.guard_destroy(workspace, ticket(workspace, opts), "remove the workspace", destroy, Keyword.take(opts, [:terminal?]) ++ callback_options) do
-          {:error, {:wip_preservation_failed, _workspace, _reason} = reason} -> {:error, reason, ""}
-          result -> result
-        end
+        preserve_before_destroy(workspace, opts)
 
       skipped ->
         skipped
     end
   end
+
+  defp preserve_before_destroy(workspace, opts) do
+    destroy = fn -> destroy_local(workspace, opts) end
+    guard_opts = Keyword.take(opts, [:terminal?]) ++ before_remove_options(workspace, opts)
+
+    workspace
+    |> WipPreservation.guard_destroy(ticket(workspace, opts), "remove the workspace", destroy, guard_opts)
+    |> normalize_preservation_result()
+  end
+
+  defp before_remove_options(workspace, opts) do
+    if is_nil(Config.settings!().hooks.before_remove) do
+      []
+    else
+      [before_destroy: fn -> run_before_remove_if_owned(workspace, opts) end]
+    end
+  end
+
+  defp run_before_remove_if_owned(workspace, opts) do
+    case destroy_guard(opts) do
+      :ok -> maybe_run_before_remove_hook(workspace, nil)
+      skipped -> skipped
+    end
+  end
+
+  defp normalize_preservation_result({:error, {:wip_preservation_failed, _workspace, _reason} = reason}), do: {:error, reason, ""}
+  defp normalize_preservation_result(result), do: result
 
   # The ownership guard runs after the save and immediately before the delete.
   defp destroy_local(workspace, opts) do

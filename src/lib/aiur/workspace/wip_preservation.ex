@@ -129,30 +129,7 @@ defmodule Aiur.Workspace.WipPreservation do
         destroy_after_prepare(workspace, ticket, action, destroy_fun, opts, leaf)
 
       {:ok, artifact} ->
-        case Keyword.get(opts, :before_destroy) do
-          before_destroy when is_function(before_destroy, 0) ->
-            callback_result = before_destroy.()
-
-            case callback_result do
-              :ok ->
-                mark_delivered([artifact])
-                guard_destroy(workspace, ticket, action, destroy_fun, Keyword.delete(opts, :before_destroy))
-
-              {:skipped, _reason} = skipped ->
-                destroyed(leaf, skipped)
-
-              _other ->
-                mark_delivered([artifact])
-                guard_destroy(workspace, ticket, action, destroy_fun, Keyword.delete(opts, :before_destroy))
-            end
-
-          nil ->
-            Logger.warning("Preserved uncommitted workspace state before an attempt to #{action} ticket=#{ticket} workspace=#{workspace} artifact=#{artifact["artifact_dir"]}")
-
-            result = destroy_fun.()
-            unless match?({:skipped, _reason}, result), do: emit_preserved_alert(ticket, action, artifact)
-            destroyed(leaf, result)
-        end
+        destroy_saved(workspace, ticket, action, destroy_fun, opts, artifact, leaf)
 
       {:error, reason} ->
         destroy_unsaved(workspace, ticket, action, reason, destroy_fun, opts)
@@ -160,17 +137,55 @@ defmodule Aiur.Workspace.WipPreservation do
   end
 
   defp destroy_after_prepare(workspace, ticket, action, destroy_fun, opts, leaf) do
-    case Keyword.get(opts, :before_destroy) do
-      before_destroy when is_function(before_destroy, 0) ->
-        case before_destroy.() do
-          :ok -> guard_destroy(workspace, ticket, action, destroy_fun, Keyword.delete(opts, :before_destroy))
-          {:skipped, _reason} = skipped -> destroyed(leaf, skipped)
-          _other -> guard_destroy(workspace, ticket, action, destroy_fun, Keyword.delete(opts, :before_destroy))
-        end
-
-      nil ->
-        destroyed(leaf, destroy_fun.())
+    case before_destroy_callback(opts) do
+      {:callback, callback} -> run_clean_callback(workspace, ticket, action, destroy_fun, opts, leaf, callback)
+      :none -> destroyed(leaf, destroy_fun.())
     end
+  end
+
+  defp destroy_saved(workspace, ticket, action, destroy_fun, opts, artifact, leaf) do
+    case before_destroy_callback(opts) do
+      {:callback, callback} -> run_saved_callback(workspace, ticket, action, destroy_fun, opts, artifact, leaf, callback)
+      :none -> destroy_and_alert(ticket, action, destroy_fun, artifact, leaf, workspace)
+    end
+  end
+
+  defp before_destroy_callback(opts) do
+    case Keyword.get(opts, :before_destroy) do
+      callback when is_function(callback, 0) -> {:callback, callback}
+      nil -> :none
+    end
+  end
+
+  defp run_clean_callback(workspace, ticket, action, destroy_fun, opts, leaf, callback) do
+    case callback.() do
+      {:skipped, _reason} = skipped -> destroyed(leaf, skipped)
+      _result -> guard_destroy(workspace, ticket, action, destroy_fun, Keyword.delete(opts, :before_destroy))
+    end
+  end
+
+  defp run_saved_callback(workspace, ticket, action, destroy_fun, opts, artifact, leaf, callback) do
+    case callback.() do
+      {:skipped, _reason} = skipped ->
+        destroyed(leaf, skipped)
+
+      _result ->
+        result = guard_destroy(workspace, ticket, action, destroy_fun, Keyword.delete(opts, :before_destroy))
+        mark_delivered_after_delete(result, artifact)
+    end
+  end
+
+  defp mark_delivered_after_delete(result, artifact) do
+    if match?(:ok, result) or match?({:ok, _value}, result), do: mark_delivered([artifact])
+    result
+  end
+
+  defp destroy_and_alert(ticket, action, destroy_fun, artifact, leaf, workspace) do
+    Logger.warning("Preserved uncommitted workspace state before an attempt to #{action} ticket=#{ticket} workspace=#{workspace} artifact=#{artifact["artifact_dir"]}")
+
+    result = destroy_fun.()
+    unless match?({:skipped, _reason}, result), do: emit_preserved_alert(ticket, action, artifact)
+    destroyed(leaf, result)
   end
 
   defp destroy_unsaved(workspace, ticket, action, reason, destroy_fun, opts) do

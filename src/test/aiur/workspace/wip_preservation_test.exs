@@ -188,6 +188,47 @@ defmodule Aiur.Workspace.WipPreservationTest do
       refute File.exists?(dir)
     end
 
+    test "a clean checkout with a local-only commit is saved and restored", %{test_root: test_root} do
+      identifier = "RM-LOCAL-COMMIT-#{System.unique_integer([:positive])}"
+      workspace = cloned_workspace!(test_root, identifier)
+      File.write!(Path.join(workspace, "local-only.txt"), "committed work\n")
+      git!(["-C", workspace, "add", "local-only.txt"])
+      git!(["-C", workspace, "commit", "--quiet", "-m", "local work"])
+      before = snapshot(workspace)
+
+      assert git!(["-C", workspace, "status", "--porcelain"]) == ""
+      assert {:ok, _} = Remove.remove(workspace, nil, ticket: identifier)
+      refute File.exists?(workspace)
+
+      assert [artifact] = WipPreservation.pending_notices(workspace, identifier)
+      assert File.regular?(artifact["files"]["unpushed_bundle"])
+      clone_at!(test_root, workspace)
+      run_restore!(artifact)
+      assert snapshot(workspace) == before
+    end
+
+    test "a failed save after before_remove keeps its changes and the first restore notice", %{
+      test_root: test_root
+    } do
+      identifier = "RM-HOOK-FAIL-#{System.unique_integer([:positive])}"
+      workspace = cloned_workspace!(test_root, identifier)
+      File.write!(Path.join(workspace, "README.md"), "agent edit\n")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: test_root,
+        hook_before_remove: "touch hook-created.txt"
+      )
+
+      fake_git!(test_root, {:fail_on_ls_files, 2})
+
+      assert {:error, {:wip_preservation_failed, ^workspace, _reason}, ""} =
+               Remove.remove(workspace, nil, ticket: identifier)
+
+      assert File.dir?(workspace)
+      assert File.regular?(Path.join(workspace, "hook-created.txt"))
+      assert [_artifact] = WipPreservation.pending_notices(workspace, identifier)
+    end
+
     test "work written by before_remove is saved before the workspace is deleted", %{test_root: test_root} do
       identifier = "RM-HOOK-#{System.unique_integer([:positive])}"
       workspace = cloned_workspace!(test_root, identifier)
@@ -356,6 +397,7 @@ defmodule Aiur.Workspace.WipPreservationTest do
       fake_git!(test_root, {:delay, 2})
 
       assert :ok = WorkspaceCleanup.cleanup_terminal_issue_artifacts(identifier, nil)
+      assert_eventually(fn -> File.exists?(Path.join(test_root, "ls-files-entered")) end)
       assert {:ok, lease} = Ownership.claim(identifier)
       on_exit(fn -> Ownership.release(lease) end)
       File.write!(Path.join(workspace, "new-run.txt"), "new run\n")
@@ -790,8 +832,15 @@ defmodule Aiur.Workspace.WipPreservationTest do
 
     stall =
       case mode do
-        :hang -> "exec sleep 30"
-        {:delay, seconds} -> "sleep #{seconds}"
+        :hang ->
+          "exec sleep 30"
+
+        {:delay, seconds} ->
+          "touch #{shell_quote(Path.join(test_root, "ls-files-entered"))}; sleep #{seconds}"
+
+        {:fail_on_ls_files, attempt} ->
+          count = shell_quote(Path.join(test_root, "ls-files-count"))
+          "count=$(cat #{count} 2>/dev/null || echo 0); count=$((count + 1)); echo $count > #{count}; if [ \"$count\" -eq #{attempt} ]; then exit 42; fi"
       end
 
     File.write!(path, """

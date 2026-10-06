@@ -76,10 +76,23 @@ defmodule Aiur.Workspace.RemoveTest do
     refute File.exists?(marker)
   end
 
-  test "remote git status failure refuses deletion", _context do
-    script = Remove.remote_dirty_check()
-    assert script =~ "|| exit 76"
-    assert script =~ "exit 75"
+  test "remote git status failure exits closed", %{test_root: test_root} do
+    workspace = Path.join(test_root, "remote-workspace")
+    fake_bin = Path.join(test_root, "bin")
+    File.mkdir_p!(Path.join(workspace, ".git"))
+    File.mkdir_p!(fake_bin)
+    fake_git = Path.join(fake_bin, "git")
+    File.write!(fake_git, "#!/bin/sh\nexit 1\n")
+    File.chmod!(fake_git, 0o755)
+
+    {_, status} =
+      System.cmd("bash", ["-c", Remove.remote_dirty_check() <> "\nrm -rf \"$workspace\""],
+        env: [{"workspace", workspace}, {"PATH", fake_bin <> ":" <> System.get_env("PATH")}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 76
+    assert File.dir?(workspace)
   end
 
   defp init_checkout!(workspace) do
