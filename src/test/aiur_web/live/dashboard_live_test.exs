@@ -3,6 +3,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
   import Phoenix.ConnTest, except: [build_conn: 0]
   import Phoenix.LiveViewTest
+  import Aiur.TestSupport.UsageAggregate, only: [envelope: 1, record: 3]
 
   alias Aiur.{
     CommandsCLI,
@@ -18,6 +19,7 @@ defmodule AiurWeb.DashboardLiveTest do
     TrackerIdentity
   }
 
+  alias Aiur.Agent.UsageSnapshotService
   alias Aiur.BuildOrder.Lifecycle
   alias Aiur.DecisionMetrics.Canonical, as: DecisionMetricsCanonical
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
@@ -4462,6 +4464,15 @@ defmodule AiurWeb.DashboardLiveTest do
       live_conversation_unsubscribe_fun: fn resolved ->
         send(test_pid, {:conversation_unsubscribed, resolved})
         :ok
+      end,
+      usage_snapshot_fun: fn agent_id, opts ->
+        UsageSnapshotService.current(
+          agent_id,
+          Keyword.merge(opts,
+            cells_snapshot_fun: fn -> %{cells: attempt_usage_cells(identity), metadata: %{source_position: 1}} end,
+            ledger_scan_fun: fn _scan_opts -> {:ok, [attempt_usage_record(identity)]} end
+          )
+        )
       end
     )
 
@@ -4481,6 +4492,8 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "its-everdred/aiur #1110"
     assert html =~ "Reviewing the drawer"
     assert html =~ "1200 / 4000 tokens (30%) · warning"
+    assert html =~ "Current attempt"
+    assert html =~ "150"
     refute html =~ handle
     refute html =~ "units-ticket-context"
 
@@ -5706,6 +5719,57 @@ defmodule AiurWeb.DashboardLiveTest do
         overrides
       )
     )
+  end
+
+  defp attempt_usage_cells(identity) do
+    relationship_revision = Aiur.Usage.Headless.Codex.ThreadUsage.relationship_revision()
+    ticket = TrackerIdentity.github_key(identity)
+
+    for {attempt_id, values} <- [
+          {"attempt-1110", %{input: 150, cached_input: 40, output: 30}},
+          {"attempt-other", %{input: 900, cached_input: 600, output: 200}}
+        ],
+        {dimension, amount} <- values,
+        into: %{} do
+      dims = %{provider: :codex, attempt_id: attempt_id, ticket: ticket, relationship_revision: relationship_revision}
+      {{dims, {:token, dimension}}, amount}
+    end
+  end
+
+  defp attempt_usage_record(identity) do
+    thread_usage = Aiur.Usage.Headless.Codex.ThreadUsage
+
+    usage_envelope =
+      envelope(%{
+        idempotency_key: "dashboard-attempt-usage",
+        source: thread_usage.source(),
+        source_version: thread_usage.source_version(),
+        source_event_id: "dashboard-attempt-usage",
+        source_sequence: 1,
+        relationship_revision: thread_usage.relationship_revision(),
+        measurement_kind: :absolute,
+        counter_scope: :thread,
+        update_kind: :full,
+        attribution: %{
+          run_id: "run-1110",
+          tracker_identity: identity,
+          attempt_id: "attempt-1110",
+          session_id: "session-1110",
+          thread_id: "thread-1110",
+          turn_id: nil,
+          request_id: nil
+        },
+        tokens: %{
+          input: 150,
+          cached_input: 40,
+          cache_creation_input: nil,
+          output: 30,
+          reasoning_output: nil,
+          provider_reported_total: nil
+        }
+      })
+
+    record(1, usage_envelope, %{tokens: usage_envelope.tokens})
   end
 
   defp context_subscription(test_pid, event, identity) do

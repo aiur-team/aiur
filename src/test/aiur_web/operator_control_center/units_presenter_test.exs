@@ -75,14 +75,19 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
                 tracker_identity: identity,
                 bucket: :running,
                 telemetry_attempt_id: "attempt-current",
-                context_usage: %{used_tokens: 1200, window_tokens: 4000, used_percent: 30.0}
+                context_usage: %{
+                  used_tokens: 1200,
+                  window_tokens: 4000,
+                  used_percent: 30.0,
+                  session_id: "private-session"
+                }
               }
             ],
             retrying: [],
             idle: [],
             snapshot_freshness: %{status: :current, observed_at: "2026-07-17T12:00:00Z", age_seconds: 0}
           },
-          fleet: %{running: [], retrying: [], idle: []},
+          fleet: %{running: [fleet_entry(identity)], retrying: [], idle: []},
           decisions: []
         },
         membership_fun: fn -> membership([member(identity)]) end,
@@ -92,6 +97,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert [row] = catalog.snapshot.rows
     assert row.telemetry_attempt_id == "attempt-current"
     assert row.context_usage == %{used_tokens: 1200, window_tokens: 4000, used_percent: 30.0}
+    refute Map.has_key?(row.context_usage, :session_id)
   end
 
   test "current orchestrator rows prevent a healthy empty membership from reporting Active 0" do

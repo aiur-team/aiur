@@ -48,6 +48,29 @@ defmodule Aiur.Agent.UsageSnapshotServiceTest do
     assert snapshot.scope_id == inspect(TrackerIdentity.github_key(ticket))
   end
 
+  test "current counts only the selected attempt when ticket cells contain multiple attempts" do
+    ticket = ticket_identity()
+    selected_attempt = "attempt-selected"
+    {selected_projection, selected_records} = current_projection(ticket, selected_attempt)
+    {other_projection, other_records} = current_projection(ticket, "attempt-other")
+    cells = Map.merge(selected_projection.cells, other_projection.cells)
+    records = selected_records ++ other_records
+
+    assert {:ok, snapshot} =
+             UsageSnapshotService.current("2881",
+               ticket: ticket,
+               attempt_id: selected_attempt,
+               cells_snapshot_fun: fn -> %{cells: cells, metadata: %{source_position: 2}} end,
+               ledger_scan_fun: fn _opts -> {:ok, records} end
+             )
+
+    assert snapshot.scope == :attempt
+    assert snapshot.scope_id =~ selected_attempt
+    assert snapshot.cumulative_metrics.input == 150
+    assert snapshot.cumulative_metrics.output == 30
+    assert snapshot.cumulative_metrics.cached_input == 40
+  end
+
   test "does not combine cells from different relationship revisions" do
     cells = %{
       {%{relationship_revision: "revision-a"}, {:token, :input}} => 100,

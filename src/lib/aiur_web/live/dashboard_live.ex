@@ -2144,7 +2144,9 @@ defmodule AiurWeb.DashboardLive do
     {usage_snapshot, usage_error} =
       case Map.get(row, :identity) do
         %TrackerIdentity{} = identity ->
-          case UsageSnapshotService.current(identity.identifier || "current agent", usage_opts) do
+          usage_snapshot_fun = Endpoint.config(:usage_snapshot_fun) || (&UsageSnapshotService.current/2)
+
+          case usage_snapshot_fun.(identity.identifier || "current agent", usage_opts) do
             {:ok, usage} -> {usage, nil}
             {:error, reason} -> {nil, reason}
           end

@@ -187,29 +187,49 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   defp status_source(payload) do
-    case Map.get(payload, :units_status_snapshot) do
-      %{running: running} = snapshot when is_list(running) ->
-        freshness = Map.get(snapshot, :snapshot_freshness, %{})
-
-        %{
-          generation: Map.get(payload, :generated_at),
-          health: source_health(payload, :fleet, %{}),
-          freshness: snapshot_freshness(freshness, payload),
-          running: running,
-          retrying: safe_snapshot_rows(snapshot, :retrying),
-          idle: safe_snapshot_rows(snapshot, :idle)
-        }
-
-      _missing_snapshot ->
-        presenter_status_source(payload)
-    end
+    payload
+    |> presenter_status_source()
+    |> enrich_internal_usage_fields(Map.get(payload, :units_status_snapshot))
   end
 
-  defp snapshot_freshness(%{status: status} = freshness, _payload) when status in [:current, :stale] do
-    %{status: if(status == :current, do: :fresh, else: :stale), observed_at: Map.get(freshness, :observed_at), age_seconds: Map.get(freshness, :age_seconds)}
+  defp enrich_internal_usage_fields(status, %{running: internal_running}) when is_list(internal_running) do
+    internal_by_identity =
+      Enum.reduce(internal_running, %{}, fn internal_row, rows ->
+        case Sources.identity(internal_row) do
+          %TrackerIdentity{} = identity -> Map.put(rows, Sources.key(identity), internal_row)
+          _identity -> rows
+        end
+      end)
+
+    running =
+      Enum.map(status.running, fn public_row ->
+        case Sources.identity(public_row) do
+          %TrackerIdentity{} = identity ->
+            case Map.get(internal_by_identity, Sources.key(identity)) do
+              nil ->
+                public_row
+
+              internal_row ->
+                public_row
+                |> Map.put(:telemetry_attempt_id, Map.get(internal_row, :telemetry_attempt_id))
+                |> Map.put(:context_usage, public_context_usage(Map.get(internal_row, :context_usage)))
+            end
+
+          _identity ->
+            public_row
+        end
+      end)
+
+    Map.put(status, :running, running)
   end
 
-  defp snapshot_freshness(_freshness, payload), do: source_freshness(payload)
+  defp enrich_internal_usage_fields(status, _snapshot), do: status
+
+  defp public_context_usage(%{used_tokens: used} = context) when is_integer(used) and used >= 0 do
+    Map.take(context, [:used_tokens, :window_tokens, :used_percent, :pressure])
+  end
+
+  defp public_context_usage(_context), do: nil
 
   defp presenter_status_source(payload) do
     fleet = Map.get(payload, :fleet, %{})
@@ -223,13 +243,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
       retrying: safe_rows(fleet, :retrying),
       idle: safe_rows(fleet, :idle)
     }
-  end
-
-  defp safe_snapshot_rows(snapshot, bucket) do
-    case Map.get(snapshot, bucket) do
-      rows when is_list(rows) -> rows
-      _rows -> []
-    end
   end
 
   defp issue_source(status) do
