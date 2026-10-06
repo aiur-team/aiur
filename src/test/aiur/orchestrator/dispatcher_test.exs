@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
   alias Aiur.ModelAvailability
+  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
@@ -1234,6 +1235,23 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert state.state_label_preflight_checked
       assert state.state_label_preflight_check_pid == nil
       assert state.state_label_preflight_check_token == nil
+    end
+
+    test "the orchestrator applies an asynchronous state-label result" do
+      token = make_ref()
+
+      state = %State{
+        state_label_preflight_check_pid: self(),
+        state_label_preflight_check_token: token,
+        state_label_preflight_retry_at_ms: System.monotonic_time(:millisecond) + 60_000
+      }
+
+      assert {:noreply, next_state} =
+               Orchestrator.handle_info({:state_label_preflight_result, token, present_labels()}, state)
+
+      assert next_state.state_label_preflight_checked
+      assert next_state.state_label_preflight_check_pid == nil
+      assert next_state.state_label_preflight_check_token == nil
     end
 
     test "one failed list call only retries; the same failure repeated alerts once and resolves on recovery" do
