@@ -485,7 +485,6 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
        aiur findings --record <json> --repo <owner/repo>  append one validated finding
        aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
-       aiur guard-pr-deletions [base-branch]  refuse PRs with excessive untouched deletions
        aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
        aiur ask --done <id> [--note <text>]  create or resolve an operator request
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
@@ -561,6 +560,46 @@ parse_todo_args() {
   [ "$saw_todo" -eq 1 ] && [ "${#parsed_targets[@]}" -gt 0 ]
 }
 
+# `--todo` is the one control command whose runtime scales with its arguments
+# rather than with daemon state: every requested ID is a GitHub issue fetch, and
+# `--only` adds an active-ticket enumeration plus up to 50 serial label DELETEs.
+# On a repo with a deep `agent:todo` queue that is minutes of network work, and
+# the shared 10s budget killed it every time — labels half-applied, outcome
+# reported as unknown, `--only` scoping unusable (#2519). Size the watchdog to
+# the work instead. An explicit operator override still wins outright.
+todo_rpc_seconds_base=15
+todo_rpc_seconds_per_id=3
+todo_rpc_seconds_only=90
+# The daemon is handed a budget this many seconds shorter than the watchdog, so
+# it always stops itself and prints its summary and exit marker before the
+# watchdog can discard them.
+todo_rpc_grace_seconds=10
+
+todo_rpc_seconds() {
+  local id_count="$1" only="$2" seconds
+
+  # Only a usable override wins. Everywhere else an unset, zero, or malformed
+  # value falls back to the shared 10s default; here that default is the bug, so
+  # fall back to work-proportional sizing instead.
+  if [[ "${AIUR_CONTROL_RPC_TIMEOUT_SECONDS:-}" =~ ^[1-9][0-9]*$ ]]; then
+    printf '%s' "$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"
+    return 0
+  fi
+
+  seconds=$((todo_rpc_seconds_base + todo_rpc_seconds_per_id * id_count))
+  [ "$only" -eq 1 ] && seconds=$((seconds + todo_rpc_seconds_only))
+  printf '%s' "$seconds"
+}
+
+# Never hand the daemon a non-positive budget: an operator who sets the override
+# below the grace window should still get a bounded run rather than an unlimited
+# one.
+todo_daemon_budget_ms() {
+  local seconds=$(($1 - todo_rpc_grace_seconds))
+  [ "$seconds" -ge 1 ] || seconds=1
+  printf '%s' $((seconds * 1000))
+}
+
 run_todo() {
   if ! parse_todo_args "$@"; then
     echo "aiur: --todo expects one or more numeric issue IDs, optionally followed by --only" >&2
@@ -569,7 +608,13 @@ run_todo() {
 
   local only_arg="false"
   [ "$parsed_todo_only" -eq 1 ] && only_arg="true"
-  run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, emit_exit_marker: true)"
+
+  local seconds budget_ms
+  seconds="$(todo_rpc_seconds "${#parsed_targets[@]}" "$parsed_todo_only")"
+  budget_ms="$(todo_daemon_budget_ms "$seconds")"
+
+  AIUR_CONTROL_RPC_TIMEOUT_SECONDS="$seconds" \
+    run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, budget_ms: $budget_ms, emit_exit_marker: true)"
 }
 
 # --- one-shot: findings (distribution-free, no daemon/tmux) -------------------
@@ -808,6 +853,16 @@ run_session() {
   scrub_run_only_env
   export AIUR_DEFAULT_DASHBOARD_HOST="$(default_dashboard_host)"
 
+  # The BEAM lives in tmux, but a fresh foreground run belongs to this shell:
+  # it waits on the UI attach and owns the teardown trap. Hand its pid to the
+  # pane watchdog so a hard-killed launcher cannot leave agents running.
+  # A detached run has no such owner; discard any inherited stale value.
+  if [ "$mode" = "foreground" ]; then
+    export AIUR_LAUNCHER_PID="$$"
+  else
+    unset AIUR_LAUNCHER_PID
+  fi
+
   # The daemon's `Aiur.Upgrade` check uses the CLI package version (not the mix
   # version) as the "installed" version, so an npm install's notice names what
   # the user actually has. `run_version` sets the same var for `--version`.
@@ -923,8 +978,8 @@ run_session() {
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE AIUR_ALERT_LEDGER_PATH_FILE \
-      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG \
-      AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
+      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG AIUR_DEV_TEST_TICKET_IDS \
+      AIUR_OPERATOR_PID AIUR_LAUNCHER_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
       AIUR_BG_STATE_DIR AIUR_CLI_VERSION; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
@@ -989,6 +1044,20 @@ run_session() {
     rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     release_aiur_launch_lock "$launch_lock"
     exit 1
+  fi
+
+  # Each instance has its own tmux socket. Publish the executable shipped next
+  # to this engine before the TUI opens a chat pane; tmux receives the path as
+  # one argument, including when the npm install directory contains spaces.
+  if [ "$mode" = "foreground" ]; then
+    local ctrlc_helper="$engine_dir/aiur-pane-ctrlc"
+    if [ ! -x "$ctrlc_helper" ] ||
+       ! "$tmux_bin" -L "$socket" -f "$conf" set-option -g @aiur_ctrlc "$ctrlc_helper"; then
+      "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+      rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
+      release_aiur_launch_lock "$launch_lock"
+      die "aiur pane control helper is unavailable at $ctrlc_helper"
+    fi
   fi
 
   # Title the agent-list pane (the only pane in the fresh session). The conf's
@@ -1404,7 +1473,8 @@ agent_pid_matches() {
 # never touching the Executor’s own default tmux. Headless agents (claude/codex
 # app-servers spawned via Port) are bare OS processes that reparent to init on a
 # BEAM crash; kill-server can't see them, so they're reaped from the pidfile by
-# process tree, comm-guarded against pid reuse. Idempotent.
+# process tree, checking the recorded command. A recycled pid with a matching
+# command is still possible (#2844). Idempotent.
 reap_aiur_agents() {
   local socket="$1" pidfile="${2:-}"
   local tmux_bin
@@ -1536,6 +1606,7 @@ write_aiur_instance_record() {
     printf 'AIUR_RECORD_INSTANCE_KEY=%q\n' "$AIUR_INSTANCE_KEY"
     printf 'AIUR_RECORD_SESSION=%q\n' "$session"
     printf 'AIUR_RECORD_SOCKET=%q\n' "$socket"
+    printf 'AIUR_RECORD_AGENT_TMPFILE=%q\n' "${AIUR_AGENT_TMPFILE:-}"
     printf 'AIUR_RECORD_WORKSPACE_ROOT_FILE=%q\n' "${AIUR_WORKSPACE_ROOT_FILE:-}"
     printf 'AIUR_RECORD_PROJECT_ROOT=%q\n' "$root"
     printf 'AIUR_RECORD_PROJECT_ROOT_SOURCE=%q\n' "${AIUR_PROJECT_ROOT_SOURCE:-}"
@@ -1773,6 +1844,31 @@ workspace_root_file_from_instance_record() {
   load_aiur_instance_record "$(aiur_instance_record_path)" || return 1
   [ -n "${AIUR_RECORD_WORKSPACE_ROOT_FILE:-}" ] || return 1
   printf '%s\n' "$AIUR_RECORD_WORKSPACE_ROOT_FILE"
+}
+
+agent_pidfile_from_instance_record() {
+  load_aiur_instance_record "$(aiur_instance_record_path)" || return 1
+  if [ -n "${AIUR_RECORD_AGENT_TMPFILE:-}" ]; then
+    printf '%s\n' "$AIUR_RECORD_AGENT_TMPFILE"
+    return 0
+  fi
+
+  # Records written before the pidfile field still carry the handoff created
+  # by the same launcher: aiur-PID-workspace-root and aiur-PID-agents share a
+  # runtime directory. Derive that one file only when the old path has the
+  # exact launch shape under this runtime root; never scan other instances.
+  local session_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" handoff pid
+  session_root="${session_root%/}"
+  [ -n "$session_root" ] || session_root=/
+  handoff="${AIUR_RECORD_WORKSPACE_ROOT_FILE:-}"
+  case "$handoff" in
+    "$session_root"/aiur-*-workspace-root) ;;
+    *) return 1 ;;
+  esac
+  pid="${handoff#"$session_root"/aiur-}"
+  pid="${pid%-workspace-root}"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  printf '%s/aiur-%s-agents\n' "$session_root" "$pid"
 }
 
 # Background watchdog that survives the BEAM. Polls for the release BEAM by
@@ -2091,6 +2187,7 @@ load_aiur_instance_record() {
   AIUR_RECORD_INSTANCE_KEY=""
   AIUR_RECORD_SESSION=""
   AIUR_RECORD_SOCKET=""
+  AIUR_RECORD_AGENT_TMPFILE=""
   AIUR_RECORD_WORKSPACE_ROOT_FILE=""
   AIUR_RECORD_PROJECT_ROOT=""
   AIUR_RECORD_PROJECT_ROOT_SOURCE=""
@@ -3457,8 +3554,9 @@ cmd_stop() {
   export RELEASE_NODE ERL_EPMD_ADDRESS
   resolve_control_identity_from_records
 
-  local workspace_root_file
+  local workspace_root_file agent_pidfile
   workspace_root_file="$(workspace_root_file_from_instance_record 2>/dev/null || true)"
+  agent_pidfile="$(agent_pidfile_from_instance_record 2>/dev/null || true)"
 
   local tmux_bin
   tmux_bin="$(command -v tmux || true)"
@@ -3517,16 +3615,13 @@ cmd_stop() {
     "$tmux_bin" -L "$socket" kill-server 2>/dev/null || true
   fi
 
-  # Belt-and-suspenders for a mid-turn stop: sweep any headless agent (this run
-  # or a prior crashed one) still recorded in a pidfile. comm-guarded, so a
-  # recycled pid is spared. Empty socket: the kill-server above already ran.
-  local session_root agentfile
-  session_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
-  for agentfile in "$session_root"/aiur-*-agents; do
-    [ -e "$agentfile" ] || continue
-    reap_aiur_agents "" "$agentfile"
-    rm -f "$agentfile" 2>/dev/null || true
-  done
+  # Belt-and-suspenders for this run's headless agents after the BEAM exits.
+  # The instance record owns its pidfile; a global sweep can kill live agents
+  # belonging to another instance that shares the runtime directory.
+  if [ -n "$agent_pidfile" ] && [ -e "$agent_pidfile" ]; then
+    reap_aiur_agents "" "$agent_pidfile"
+    rm -f "$agent_pidfile" 2>/dev/null || true
+  fi
 
   reap_stale_manual_smoke 0
   sweep_dead_tmux_sockets
@@ -4011,10 +4106,6 @@ aiur_engine_main() {
       ;;
     findings)
       run_findings "$@"
-      ;;
-    guard-pr-deletions)
-      shift
-      "$engine_dir/guard-pr-deletions.sh" "$@"
       ;;
     ask | asks)
       run_asks "$@"

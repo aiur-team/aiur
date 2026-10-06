@@ -134,6 +134,11 @@ if config_env() == :test do
   # setup) still win.
   config :aiur, :decision_state_dir, Path.join(test_log_root, "decisions")
   config :aiur, :github_budget_dir, Path.join(test_log_root, "github-budget")
+
+  # Durable runtime state (event-ID counter, subscriptions, session handles,
+  # alert ledger; #2722) survives a restart by design, so it needs the same
+  # per-VM isolation. Aiur.TestSupport gives each case its own root.
+  config :aiur, :runtime_state_dir, Path.join(test_log_root, "runtime-state")
   config :aiur, :workspace_ownership_sync_fun, fn -> :ok end
 
   config :aiur, :server_host_override, "127.0.0.1"

@@ -97,6 +97,7 @@ defmodule Aiur.Init.Templates do
       "{{MAX_AGENT_DURATION}}" => Integer.to_string(d.max_duration),
       "{{ROUTING}}" => routing_inline(d.routing),
       "{{PERMISSION_MODE}}" => d.permission_mode,
+      "{{BACKEND_CONFIGS}}" => render_backend_configs(Map.get(d, :backend_configs, %{})),
       "{{WORKSPACE_ROOT}}" => d.workspace_root,
       "{{PROMPT_FILE}}" => d.prompt_file,
       "{{POLLING}}" => Integer.to_string(d.polling),
@@ -135,6 +136,24 @@ defmodule Aiur.Init.Templates do
     end
   end
 
+  @doc false
+  @spec render_backend_configs(map()) :: String.t()
+  def render_backend_configs(configs) when map_size(configs) == 0, do: ""
+  def render_backend_configs(configs), do: "  backend_configs:\n" <> yaml_entries(configs, 4)
+
+  defp yaml_entries(map, indent) do
+    map
+    |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
+    |> Enum.map_join("", fn {key, value} ->
+      prefix = String.duplicate(" ", indent) <> Jason.encode!(to_string(key)) <> ":"
+
+      case value do
+        nested when is_map(nested) and map_size(nested) > 0 -> prefix <> "\n" <> yaml_entries(nested, indent + 2)
+        scalar -> prefix <> " " <> Jason.encode!(scalar) <> "\n"
+      end
+    end)
+  end
+
   defp tracker_provider_block(%{kind: "github"} = github) do
     # label_prefix is fixed (`agent`) and matches the schema default, so the
     # written config omits it. bot_account is the agents' publishing identity
@@ -142,7 +161,8 @@ defmodule Aiur.Init.Templates do
     [
       "  github:",
       github[:repo] && "    repo: #{github[:repo]}",
-      github[:bot_account] && "    bot_account: #{github[:bot_account]}"
+      github[:bot_account] && "    bot_account: #{github[:bot_account]}",
+      github[:identity_mode] && "    identity_mode: #{github[:identity_mode]}"
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")

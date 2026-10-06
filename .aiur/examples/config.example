@@ -50,6 +50,7 @@ agent:
   # backend_configs:                      # optional overrides keyed by registry instance
   #   deepseek: {balance_baseline: 100}   # prepaid-balance seed; enablement now comes from `priority` presence
   #   openrouter: {model: moonshotai/kimi-k2.7-code} # explicit underlying model required
+{{BACKEND_CONFIGS}}
   claude:
     command: aiur-claude
     permission_mode: {{PERMISSION_MODE}} # bypassPermissions (default/acceptEdits need an approval UI — coming soon)

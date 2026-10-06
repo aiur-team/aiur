@@ -92,7 +92,124 @@ defmodule AiurEngineTest do
     engine = File.read!(@engine)
 
     assert engine =~
-             "AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS"
+             "AIUR_OPERATOR_PID AIUR_LAUNCHER_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS"
+  end
+
+  test "fresh foreground pane receives its launcher pid and tmux bridge helper" do
+    rel = fake_release()
+    state = tmp_state()
+    tmp = Aiur.TestSupport.tmp_root!("aiur-launcher-watchdog")
+    pane_copy = Path.join(tmp, "pane.sh")
+    session = Path.join(tmp, "session")
+    helper_option = Path.join(tmp, "ctrlc-option")
+    File.mkdir_p!(tmp)
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" new-session "*)
+          cp "#{tmp}"/aiur-pane.* "#{pane_copy}"
+          touch "#{session}"
+          exit 0
+          ;;
+        *" has-session "*) [ -f "#{session}" ]; exit $? ;;
+        *" set-option -g @aiur_ctrlc "*) echo "$*" > "#{helper_option}"; exit 0 ;;
+        *" attach "*) exit 0 ;;
+        *" kill-session "*) rm -f "#{session}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(rel)
+      File.rm_rf(state)
+      File.rm_rf(tmp)
+    end)
+
+    script = """
+    export TMPDIR="$TMP_ROOT"
+    probe_control_liveness() { printf up; }
+    start_beam_death_watchdog() { printf '424242\\n'; }
+    reap_aiur_agents() { :; }
+    kill_beams_matching() { :; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    echo "LAUNCHER_PID=$$"
+    run_session foreground --no-dashboard
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"TMP_ROOT", tmp},
+        {"XDG_RUNTIME_DIR", tmp},
+        {"PATH", "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"},
+        {"AIUR_LAUNCHER_PID", "999999"}
+      ])
+
+    [_, launcher_pid] = Regex.run(~r/LAUNCHER_PID=(\d+)/, out)
+    assert File.read!(pane_copy) =~ "export AIUR_LAUNCHER_PID=#{launcher_pid}\n"
+    refute File.read!(pane_copy) =~ "export AIUR_LAUNCHER_PID=999999\n"
+    assert File.read!(helper_option) =~ "set-option -g @aiur_ctrlc #{Path.dirname(@engine)}/aiur-pane-ctrlc"
+  end
+
+  test "generated tmux pane launcher gives the inner daemon the pinned test ticket scope" do
+    rel = fake_release()
+    state = tmp_state()
+    tmp = Aiur.TestSupport.tmp_root!("aiur-test-scope-pane")
+    pane_copy = Path.join(tmp, "pane.sh")
+    session = Path.join(tmp, "session")
+    File.mkdir_p!(tmp)
+
+    File.write!(
+      Path.join([rel, "releases", "0.1.1", "elixir"]),
+      ~S|#!/usr/bin/env bash
+printf 'INNER_SCOPE=%s\n' "${AIUR_DEV_TEST_TICKET_IDS:-missing}"
+|
+    )
+
+    tmux =
+      fake_tmux_script("""
+      case " $* " in
+        *" new-session "*) cp "#{tmp}"/aiur-pane.* "#{pane_copy}"; touch "#{session}"; exit 0 ;;
+        *" has-session "*) [ -f "#{session}" ]; exit $? ;;
+        *" attach "*) exit 0 ;;
+        *" kill-session "*) rm -f "#{session}"; exit 0 ;;
+        *) exit 0 ;;
+      esac
+      """)
+
+    on_exit(fn ->
+      File.rm_rf(state)
+      File.rm_rf(tmp)
+    end)
+
+    script = """
+    export TMPDIR="$TMP_ROOT"
+    probe_control_liveness() { printf up; }
+    start_beam_death_watchdog() { printf '424242\n'; }
+    reap_aiur_agents() { :; }
+    kill_beams_matching() { :; }
+    sweep_dead_tmux_sockets() { :; }
+    sweep_stale_tmp_artifacts() { :; }
+    run_session foreground --no-dashboard
+    """
+
+    {_out, 0} =
+      run_sourced_engine(script, [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"AIUR_DEV_TEST_TICKET_IDS", "99,100,101"},
+        {"TMP_ROOT", tmp},
+        {"XDG_RUNTIME_DIR", tmp},
+        {"PATH", "#{Path.dirname(tmux)}:#{System.get_env("PATH")}"}
+      ])
+
+    # A pre-existing tmux server can carry an unrelated value. The generated
+    # pane must overwrite it with the scope selected by the outer launcher.
+    {inner, 0} = System.cmd("bash", [pane_copy], env: [{"AIUR_DEV_TEST_TICKET_IDS", "777"}])
+    assert inner =~ "INNER_SCOPE=99,100,101\n"
   end
 
   test "sourced-engine runs isolate the node identity so reaps can't hit a live host node" do
@@ -1021,7 +1138,59 @@ defmodule AiurEngineTest do
       )
 
     assert out =~
-             "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, emit_exit_marker: true)"
+             "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, budget_ms: 104000, emit_exit_marker: true)"
+  end
+
+  # #2519: the shared 10s control budget killed `--todo … --only` every time,
+  # because its work is proportional to the request and to the tracker's queue
+  # depth rather than to daemon state. The watchdog must scale with that work,
+  # and the daemon's own budget must stay strictly inside the watchdog so its
+  # summary is never the thing that gets discarded.
+  test "todo sizes its rpc watchdog to the requested work and stays inside it" do
+    for {argv, expected_timeout, expected_budget_ms} <- [
+          {"--todo 11", 18, 8000},
+          {"--todo 11 12 13", 24, 14_000},
+          {"--todo 11 --only", 108, 98_000},
+          {"--todo 1 2 3 5 --only", 117, 107_000}
+        ] do
+      {out, 0} =
+        run_sourced_engine(
+          ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }\nrun_todo #{argv}|,
+          []
+        )
+
+      assert out =~ "TIMEOUT:#{expected_timeout}"
+      assert out =~ "budget_ms: #{expected_budget_ms}"
+    end
+  end
+
+  test "an explicit todo timeout override wins and still bounds the daemon" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }\nrun_todo --todo 11 --only|,
+        [{"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", "300"}]
+      )
+
+    assert out =~ "TIMEOUT:300"
+    assert out =~ "budget_ms: 290000"
+  end
+
+  # An override shorter than the grace window must still produce a positive
+  # budget: a zero or negative one would read as "unlimited" on the daemon side
+  # and put us straight back to a watchdog kill with an unknown outcome. An
+  # unusable override falls back to work-proportional sizing rather than to the
+  # shared 10s default, which is the very budget #2519 is about.
+  test "a todo timeout override below the grace window still bounds the daemon" do
+    for {override, expected_timeout, expected_budget_ms} <- [{"3", 3, 1000}, {"0", 18, 8000}, {"bogus", 18, 8000}, {"", 18, 8000}] do
+      {out, 0} =
+        run_sourced_engine(
+          ~s|run_control_rpc() { echo "TIMEOUT:$AIUR_CONTROL_RPC_TIMEOUT_SECONDS"; echo "RPC:$1"; }\nrun_todo --todo 11|,
+          [{"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", override}]
+        )
+
+      assert out =~ "TIMEOUT:#{expected_timeout}"
+      assert out =~ "budget_ms: #{expected_budget_ms}"
+    end
   end
 
   test "commands routes filters and encoded detail arguments through the control rpc" do

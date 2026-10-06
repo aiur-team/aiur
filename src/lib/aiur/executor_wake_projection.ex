@@ -26,6 +26,7 @@ defmodule Aiur.ExecutorWakeProjection do
          "action" => enum(value(event, :action) || action_from_topic(topic), @actions),
          "draft" => strict_boolean(first_present(value(pr, :draft), value(event, :draft))),
          "author_trusted?" => trusted_github_author?(event),
+         "author_id" => positive_integer(value(event, :author_id)),
          "ci_conclusion" => ci_conclusion(event, topic),
          "needs_attention" => strict_boolean(value(event, :needs_attention)),
          "count" => 1,

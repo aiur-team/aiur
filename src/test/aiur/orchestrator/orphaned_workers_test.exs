@@ -223,6 +223,27 @@ defmodule Aiur.Orchestrator.OrphanedWorkersTest do
     assert {:ok, ^lease} = Ownership.current(identifier)
   end
 
+  test "test ticket scope reaps pinned orphans without stopping unrelated runners" do
+    previous_scope = System.get_env("AIUR_DEV_TEST_TICKET_IDS")
+
+    on_exit(fn ->
+      if previous_scope, do: System.put_env("AIUR_DEV_TEST_TICKET_IDS", previous_scope), else: System.delete_env("AIUR_DEV_TEST_TICKET_IDS")
+    end)
+
+    System.put_env("AIUR_DEV_TEST_TICKET_IDS", "99")
+
+    pinned = claim_in_process("99", %{issue_id: "issue-99", update_recipient: self(), worker_host: nil})
+    unrelated = claim_in_process("2413", %{issue_id: "issue-2413", update_recipient: self(), worker_host: nil})
+    pinned_ref = Process.monitor(pinned)
+    {:ok, unrelated_lease} = Ownership.current("2413")
+
+    _state = OrphanedWorkers.stop_untracked_runners(%State{})
+
+    assert_receive {:DOWN, ^pinned_ref, :process, ^pinned, _reason}, 5_000
+    assert Process.alive?(unrelated)
+    assert {:ok, ^unrelated_lease} = Ownership.current("2413")
+  end
+
   # The scan runs inside the Orchestrator; here the test process plays that
   # role, so each runner below reports to this process. Every running-map
   # shape that names the ticket or the runner pid must keep the runner alive.

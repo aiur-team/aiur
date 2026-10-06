@@ -114,14 +114,12 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
     assert Enum.map(live_routes, & &1.path) == [
              "/",
+             "/chat/:owner/:repository/:identifier",
              "/commands",
              "/commands/:decision_id",
              "/build-orders",
              "/build-orders/:root_number",
              "/analytics",
-             "/github-cache",
-             "/github-cache/:resource_type",
-             "/github-cache/:resource_type/:identity",
              "/streamdeck"
            ]
 

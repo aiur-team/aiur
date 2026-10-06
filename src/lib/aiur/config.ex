@@ -889,6 +889,20 @@ defmodule Aiur.Config do
     settings!().agent.max_turns
   end
 
+  @doc """
+  How many consecutive no-op continuation turns a run may take before
+  `Aiur.AgentRunner.TurnLoop` stops it and raises a needs-attention alert
+  (#2806). `nil` / 0 disables the bound. Reads as uncapped when the settings
+  cannot be loaded at all, so a config fault cannot invent a cap.
+  """
+  @spec agent_max_consecutive_noop_turns() :: pos_integer() | nil
+  def agent_max_consecutive_noop_turns do
+    case settings() do
+      {:ok, settings} -> Map.get(settings.agent, :max_consecutive_noop_turns)
+      _unavailable -> nil
+    end
+  end
+
   @spec agent_turn_timeout_ms() :: pos_integer()
   def agent_turn_timeout_ms do
     settings!().agent.turn_timeout_ms
@@ -1015,6 +1029,30 @@ defmodule Aiur.Config do
   @spec budget_broker_degraded_alert_after_seconds() :: pos_integer()
   def budget_broker_degraded_alert_after_seconds do
     settings!().agent.budget_broker_degraded_alert_after_seconds
+  end
+
+  @doc """
+  The IANA zone Codex usage-limit reset text is read in
+  (`agent.codex.reset_time_zone`), or `:local` for the daemon host's zone.
+  """
+  @spec codex_reset_time_zone() :: String.t() | :local
+  def codex_reset_time_zone do
+    case settings() do
+      {:ok, %{agent: %{codex: %{reset_time_zone: zone}}}} when is_binary(zone) -> zone
+      _ -> :local
+    end
+  end
+
+  @doc """
+  The least time Aiur waits before it resumes a worker whose Codex usage-limit
+  text names a reset that already passed (`agent.codex.reset_min_delay_seconds`).
+  """
+  @spec codex_reset_min_delay_seconds() :: pos_integer()
+  def codex_reset_min_delay_seconds do
+    case settings() do
+      {:ok, %{agent: %{codex: %{reset_min_delay_seconds: seconds}}}} when is_integer(seconds) and seconds > 0 -> seconds
+      _ -> 300
+    end
   end
 
   @spec codex_turn_sandbox_policy(Path.t() | nil) :: map()

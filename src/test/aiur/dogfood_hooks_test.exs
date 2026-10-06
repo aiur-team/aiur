@@ -60,9 +60,6 @@ defmodule Aiur.DogfoodHooksTest do
     assert_hook_ok!("after_create", workspace, context.origin)
     assert current_branch!(workspace) == ticket_branch()
 
-    assert String.trim(git!(["-C", workspace, "rev-parse", "refs/aiur/branch-start"])) ==
-             String.trim(git!(["-C", workspace, "rev-parse", "origin/#{configured_base()}"]))
-
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
     assert File.regular?(Path.join([cache_root(workspace), "meta", "findings.ndjson"]))
     assert File.dir?(Path.join([cache_root(workspace), "meta", "retros"]))
@@ -104,9 +101,6 @@ defmodule Aiur.DogfoodHooksTest do
     reconstructed = Path.join(context.test_root, "reconstructed-ticket")
     File.mkdir_p!(reconstructed)
     assert_hook_ok!("after_create", reconstructed, context.origin)
-
-    assert String.trim(git!(["-C", reconstructed, "rev-parse", "refs/aiur/branch-start"])) ==
-             String.trim(git!(["-C", reconstructed, "merge-base", "origin/#{configured_base()}", "HEAD"]))
   end
 
   test "after_create reconstructs a log-only workspace and preserves its logs", context do

@@ -8,6 +8,8 @@ defmodule Aiur.Opencode.Slot.ServeLifecycle do
 
   require Logger
 
+  @serve_retry_delays_ms [250, 500]
+
   alias Aiur.Opencode.Slot.AttachPane
 
   alias Aiur.Opencode.{
@@ -37,9 +39,9 @@ defmodule Aiur.Opencode.Slot.ServeLifecycle do
   Reads `state.workspace_path`, `state.slot_index`, `state.generation`.
   Returns `{:ok, server_pid, base_url, token}` on success or `{:error, reason}`.
   """
-  @spec boot(map(), [String.t()], keyword()) ::
+  @spec boot(map(), [String.t()], keyword(), module()) ::
           {:ok, pid(), String.t(), String.t()} | {:error, term()}
-  def boot(state, agent_ids, display_opt) do
+  def boot(state, agent_ids, display_opt, server_module \\ Server) do
     serve_span = Aiur.Perf.span_begin(:slot_start_serve, slot: state.slot_index)
     Process.put(:slot_serve_span, serve_span)
     bridge_url = "http://#{Config.bridge_host()}:#{Config.bridge_port()}"
@@ -54,12 +56,7 @@ defmodule Aiur.Opencode.Slot.ServeLifecycle do
              state.generation,
              display_opt
            ),
-         {:ok, server_pid} <-
-           Server.start_link(%{
-             identifier: "_slot-#{state.slot_index}",
-             workspace: state.workspace_path
-           }),
-         {:ok, base_url, _os_pid} <- Server.await_ready(server_pid) do
+         {:ok, server_pid, base_url} <- start_serve_with_retry(state, server_module) do
       Logger.info("opencode_slot phase=serve_ready elapsed_ms=#{Aiur.Boot.elapsed_ms()} slot=#{state.slot_index} base_url=#{base_url}")
 
       if span = Process.get(:slot_serve_span) do
@@ -73,6 +70,80 @@ defmodule Aiur.Opencode.Slot.ServeLifecycle do
         Logger.warning("opencode_slot phase=serve_failed elapsed_ms=#{Aiur.Boot.elapsed_ms()} slot=#{state.slot_index} reason=#{inspect(error)}")
 
         {:error, error}
+    end
+  end
+
+  # opencode's shared SQLite database can reject one of two concurrent slot
+  # boots with exit status 1 ("database is locked"). It can also exit before
+  # await_ready sends its GenServer.call, which then exits :noproc. Two delayed
+  # retries let the other serve finish initialization without leaving this slot failed.
+  # Other failures, and a third exit, remain bounded.
+  defp start_serve_with_retry(state, server_module) do
+    start_serve_with_retry(state, server_module, @serve_retry_delays_ms)
+  end
+
+  defp start_serve_with_retry(state, server_module, delays) do
+    case start_serve(state, server_module) do
+      {:error, reason} when reason in [{:opencode_exit_status, 1}, :serve_exited_before_ready] and delays != [] ->
+        [delay_ms | remaining] = delays
+        Logger.warning("opencode_slot phase=serve_retry slot=#{state.slot_index} reason=#{inspect(reason)} delay_ms=#{delay_ms}")
+        Process.sleep(delay_ms)
+        start_serve_with_retry(state, server_module, remaining)
+
+      result ->
+        result
+    end
+  end
+
+  defp start_serve(state, server_module) do
+    case server_module.start_link(%{identifier: "_slot-#{state.slot_index}", workspace: state.workspace_path}) do
+      {:ok, server_pid} ->
+        case await_serve(server_module, server_pid) do
+          {:ok, base_url, _os_pid} ->
+            {:ok, server_pid, base_url}
+
+          error ->
+            cleanup_failed_serve(server_pid, error)
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp cleanup_failed_serve(server_pid, error) do
+    case stop_failed_server(server_pid) do
+      :ok -> error
+      cleanup_error -> cleanup_error
+    end
+  end
+
+  defp await_serve(server_module, server_pid) do
+    server_module.await_ready(server_pid)
+  catch
+    :exit, {:noproc, _call} -> {:error, :serve_exited_before_ready}
+    :exit, {{:shutdown, {:opencode_exit_status, 1}}, _call} -> {:error, {:opencode_exit_status, 1}}
+    :exit, reason -> {:error, {:serve_await_exit, reason}}
+  end
+
+  defp stop_failed_server(server_pid) do
+    ref = Process.monitor(server_pid)
+
+    if Process.alive?(server_pid) do
+      try do
+        GenServer.stop(server_pid, :normal, 1_000)
+      catch
+        :exit, _ -> :ok
+      end
+    end
+
+    receive do
+      {:DOWN, ^ref, :process, ^server_pid, _reason} -> :ok
+    after
+      1_000 ->
+        Process.demonitor(ref, [:flush])
+        Logger.warning("opencode_slot phase=serve_retry_cleanup_timeout pid=#{inspect(server_pid)}")
+        {:error, :serve_cleanup_timeout}
     end
   end
 

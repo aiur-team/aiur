@@ -138,14 +138,12 @@ defmodule AiurWeb.Router do
 
     live_session :dashboard, on_mount: AiurWeb.FinancialDataAccess do
       live("/", DashboardLive, :index)
+      live("/chat/:owner/:repository/:identifier", DashboardLive, :index)
       live("/commands", DashboardLive, :decisions)
       live("/commands/:decision_id", DashboardLive, :decision)
       live("/build-orders", BuildOrderLive, :build_orders)
       live("/build-orders/:root_number", BuildOrderLive, :build_order)
       live("/analytics", AnalyticsLive, :analytics)
-      live("/github-cache", GithubCacheLive, :github_cache)
-      live("/github-cache/:resource_type", GithubCacheLive, :github_cache_group)
-      live("/github-cache/:resource_type/:identity", GithubCacheLive, :github_cache_entry)
       live("/streamdeck", StreamdeckLive, :streamdeck)
     end
   end

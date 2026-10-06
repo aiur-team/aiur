@@ -34,6 +34,7 @@ defmodule Aiur.TestBootGuard do
 
     derived_paths =
       for resolver <- [
+            :runtime_state_dir,
             :current_run_membership_state_dir,
             :progress_retention_state_dir,
             :usage_ledger_state_dir,
@@ -50,7 +51,7 @@ defmodule Aiur.TestBootGuard do
 
     # HOME isolation is a second barrier, not a replacement for explicit state
     # configuration. Removing a boot directory override must fail the suite.
-    for key <- [:github_budget_dir, :decision_state_dir, :executor_state_dir] do
+    for key <- [:github_budget_dir, :decision_state_dir, :executor_state_dir, :runtime_state_dir] do
       path = Application.get_env(:aiur, key)
       unless is_binary(path) and contained?(root, path), do: unsafe!(key, path)
     end

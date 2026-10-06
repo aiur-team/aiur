@@ -78,6 +78,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
 
       <div :if={@show_panes?} class="bo-selected-summary">
         <p :if={root_title(@snapshot)} class="bo-selected-lede">{root_title(@snapshot)}</p>
+        <p :if={membership_warning(@snapshot)} class="bo-state-card" role="status">{membership_warning(@snapshot)}</p>
+        <p :if={status_warning(@snapshot)} class="bo-state-card" role="status">{status_warning(@snapshot)}</p>
         <div :if={@model.status not in [:ready, :empty]} class="bo-state-card" role={model_state_role(@model)}>
           <h3>{model_state_title(@model)}</h3>
           <p>{model_summary(@model, @saved_as_of, @now)}</p>
@@ -362,6 +364,22 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   # just as stale, and its percentages must be marked all the same.
   defp saved_plan?(%{status: :provider_stale}), do: true
   defp saved_plan?(_model), do: false
+
+  defp membership_warning(%Snapshot{membership_health: %{state: :unavailable}}),
+    do: "Current-run membership is unavailable. The plan is readable, but live execution state is unresolved."
+
+  defp membership_warning(%Snapshot{membership_health: %{state: :stale}}),
+    do: "Current-run membership is stale. The plan is readable, but live execution state may have changed."
+
+  defp membership_warning(_snapshot), do: nil
+
+  defp status_warning(%Snapshot{status_health: %{state: :unavailable}}),
+    do: "Ticket status is unavailable. The plan is readable, but completion is unresolved where no status was observed."
+
+  defp status_warning(%Snapshot{status_health: %{state: :stale}}),
+    do: "Ticket status is stale or incomplete. The plan is readable; completion uses only observed ticket states."
+
+  defp status_warning(_snapshot), do: nil
 
   defp model_state_title(%{status: :provider_stale}), do: "Build Order plan"
   defp model_state_title(_model), do: "Build Order state"

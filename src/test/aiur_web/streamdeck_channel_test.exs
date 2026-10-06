@@ -107,7 +107,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     Application.put_env(:aiur, Endpoint, config)
 
     Aiur.TestSupport.start_owned_endpoint!()
-    Endpoint.config_change(config, [])
+    Endpoint.config_change([{Endpoint, config}], [])
 
     on_exit(fn ->
       Application.put_env(:aiur, Endpoint, original_config)

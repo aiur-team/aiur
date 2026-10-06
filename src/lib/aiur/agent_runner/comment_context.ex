@@ -3,7 +3,7 @@ defmodule Aiur.AgentRunner.CommentContext do
   Fetches and normalises GitHub comment context for agent bootstrap.
 
   Collects issue comments after the `## Agent Workpad` cutoff, PR review
-  comments, and unaddressed review threads after the latest workpad cutoff,
+  comments, formal changes-requested reviews, and unaddressed review threads after the latest workpad cutoff,
   then converts them to event maps suitable for the bootstrap digest. The
   `Sanitizer.scrub` pass is applied before events enter the digest.
   """
@@ -77,6 +77,12 @@ defmodule Aiur.AgentRunner.CommentContext do
         Map.get(fetchers, :unaddressed_pr_review_thread_comments),
         pr_number,
         cutoff
+      ) ++
+      fetch_formal_review_events(
+        "ticket.#{identifier}.pr.review_comment",
+        Map.get(fetchers, :pr_reviews),
+        pr_number,
+        cutoff
       )
   end
 
@@ -90,7 +96,8 @@ defmodule Aiur.AgentRunner.CommentContext do
       issue_comments: &Tracker.fetch_classified_issue_comments/1,
       open_pr: &Tracker.fetch_open_pull_request_for_branch/1,
       pr_review_comments: &Tracker.fetch_classified_pr_review_comments/1,
-      unaddressed_pr_review_thread_comments: &Tracker.fetch_unaddressed_pr_review_thread_comments/1
+      unaddressed_pr_review_thread_comments: &Tracker.fetch_unaddressed_pr_review_thread_comments/1,
+      pr_reviews: &Tracker.fetch_classified_pr_reviews/1
     }
   end
 
@@ -120,6 +127,52 @@ defmodule Aiur.AgentRunner.CommentContext do
       {:error, reason} ->
         Logger.warning("comment_context fetch_failed topic=#{topic} source=unaddressed_review_threads reason=#{inspect(reason)}")
         []
+    end
+  end
+
+  defp fetch_formal_review_events(_topic, nil, _pr_number, _cutoff), do: []
+
+  defp fetch_formal_review_events(topic, fetch_fun, pr_number, cutoff) when is_function(fetch_fun, 1) do
+    case fetch_fun.(pr_number) do
+      {:ok, reviews} when is_list(reviews) ->
+        reviews
+        |> latest_actionable_review_per_reviewer()
+        |> Enum.filter(&review_after_workpad?(&1, cutoff))
+        |> comments_to_events(topic)
+
+      {:error, reason} ->
+        Logger.warning("comment_context fetch_failed topic=#{topic} source=formal_reviews reason=#{inspect(reason)}")
+        []
+    end
+  end
+
+  defp latest_actionable_review_per_reviewer(reviews) do
+    reviews
+    |> Enum.filter(&(is_binary(comment_author(&1)) and match?(%DateTime{}, parse_comment_datetime(Map.get(&1, "submitted_at")))))
+    |> Enum.group_by(&comment_author/1)
+    |> Enum.flat_map(fn {_author, submitted} -> latest_actionable_review(submitted) end)
+  end
+
+  defp latest_actionable_review(submitted) do
+    submitted
+    |> Enum.sort_by(&Map.fetch!(&1, "submitted_at"), :desc)
+    |> Enum.find(&(actionable_review?(&1) or Map.get(&1, "state") in ["APPROVED", "DISMISSED"]))
+    |> case do
+      %{} = review -> if(actionable_review?(review), do: [review], else: [])
+      _ -> []
+    end
+  end
+
+  defp actionable_review?(%{"state" => "CHANGES_REQUESTED", "body" => body}) when is_binary(body) and body != "", do: true
+  defp actionable_review?(%{"state" => "COMMENTED", "body" => body}) when is_binary(body) and body != "", do: true
+  defp actionable_review?(_review), do: false
+
+  defp review_after_workpad?(_review, nil), do: true
+
+  defp review_after_workpad?(review, %DateTime{} = cutoff) do
+    case parse_comment_datetime(Map.get(review, "submitted_at")) do
+      %DateTime{} = submitted -> DateTime.compare(submitted, cutoff) == :gt
+      nil -> false
     end
   end
 

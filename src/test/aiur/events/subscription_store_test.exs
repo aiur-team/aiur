@@ -1,7 +1,6 @@
 defmodule Aiur.Events.SubscriptionStoreTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Config.Paths
   alias Aiur.Events.{Exchange, IdGenerator, SubscriptionStore}
   alias Aiur.JsonStore
 
@@ -10,6 +9,8 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     File.mkdir_p!(tmp_dir)
     original = Application.get_env(:aiur, :log_file)
     Application.put_env(:aiur, :log_file, Path.join(tmp_dir, "aiur.log"))
+    original_runtime_state_dir = Application.get_env(:aiur, :runtime_state_dir)
+    Application.put_env(:aiur, :runtime_state_dir, Path.join(tmp_dir, "runtime-state"))
 
     identifier = "test-issue-#{System.unique_integer([:positive])}"
 
@@ -20,6 +21,12 @@ defmodule Aiur.Events.SubscriptionStoreTest do
         Application.put_env(:aiur, :log_file, original)
       else
         Application.delete_env(:aiur, :log_file)
+      end
+
+      if original_runtime_state_dir do
+        Application.put_env(:aiur, :runtime_state_dir, original_runtime_state_dir)
+      else
+        Application.delete_env(:aiur, :runtime_state_dir)
       end
 
       # Non-raising rm_rf: the SubscriptionStore writer persists into this
@@ -74,11 +81,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       assert entry["reason"] == "auto:test"
       assert is_integer(entry["subscription_created_at_event_id"])
 
-      path =
-        Path.join(
-          Paths.log_root_dir(),
-          "#{Paths.repo_name()}.#{safe_id(id)}.subscriptions.json"
-        )
+      path = SubscriptionStore.path_for(id)
 
       {:ok, json} = JsonStore.read(path)
       assert [%{"topic" => "ticket.42.#"}] = json["subscribed_to"]
@@ -239,11 +242,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     end
 
     test "prunes persisted unsafe manual bindings before Exchange registration", %{identifier: id} do
-      path =
-        Path.join(
-          Paths.log_root_dir(),
-          "#{Paths.repo_name()}.#{safe_id(id)}.subscriptions.json"
-        )
+      path = SubscriptionStore.path_for(id)
 
       File.mkdir_p!(Path.dirname(path))
 
@@ -291,11 +290,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
     test "attach/1 returns AFTER bindings are registered (no race)", %{identifier: id} do
       # Pre-populate the on-disk subscriptions file so a fresh attach
       # has bindings to re-register during init.
-      tmp_path =
-        Path.join(
-          Paths.log_root_dir(),
-          "#{Paths.repo_name()}.#{safe_id(id)}.subscriptions.json"
-        )
+      tmp_path = SubscriptionStore.path_for(id)
 
       File.mkdir_p!(Path.dirname(tmp_path))
 
@@ -556,10 +551,6 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       topics = Enum.map(SubscriptionStore.snapshot(id).subscribed_to, & &1["topic"])
       assert topics == ["system.trunk.branch.push"]
     end
-  end
-
-  defp safe_id(id) do
-    String.replace(id, ~r/[^A-Za-z0-9._-]/, "_")
   end
 
   defp subscription(topic, reason) do
