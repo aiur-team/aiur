@@ -82,8 +82,8 @@ defmodule Aiur.GitHub.IssuesTest do
       assert {:ok, [%Issue{identifier: "99"}], cache} =
                Client.fetch_issues_by_states_conditional(["ci-wait"], %{}, request_fun: request_fun)
 
-      assert_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/99/timeline?per_page=50"}
-      refute_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/2413/timeline?per_page=50"}
+      assert_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/99/timeline?per_page=100"}
+      refute_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/2413/timeline?per_page=100"}
 
       assert {:ok, [%Issue{identifier: "99"}], _cache} =
                Client.fetch_issues_by_states_conditional(["ci-wait"], cache, request_fun: request_fun)
@@ -334,16 +334,16 @@ defmodule Aiur.GitHub.IssuesTest do
       assert {:ok, [%Issue{identifier: "99", dispatch_authorized?: true}]} =
                Client.fetch_candidate_issues(request_fun: request_fun)
 
-      assert_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/99/timeline?per_page=50"}
-      refute_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/2413/timeline?per_page=50"}
+      assert_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/99/timeline?per_page=100"}
+      refute_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/2413/timeline?per_page=100"}
 
       DispatchAuthorization.clear_cache()
 
       assert {:ok, [%Issue{identifier: "99", dispatch_authorized?: true}], _cache} =
                Client.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
 
-      assert_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/99/timeline?per_page=50"}
-      refute_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/2413/timeline?per_page=50"}
+      assert_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/99/timeline?per_page=100"}
+      refute_received {:timeline_requested, "https://api.github.com/repos/owner/repo/issues/2413/timeline?per_page=100"}
     end
 
     # Guards the too-large clause in `conditional_get/4`: with it reverted the
