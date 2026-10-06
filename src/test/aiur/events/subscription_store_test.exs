@@ -76,6 +76,20 @@ defmodule Aiur.Events.SubscriptionStoreTest do
           Supervisor.restart_child(Aiur.Supervisor, Aiur.Events.SubscriptionStoreRegistry)
       end
     end
+
+    test "is unavailable-safe when the attached store exits after registry lookup", %{identifier: id} do
+      :ok = SubscriptionStore.attach(id)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+      on_exit(fn -> SubscriptionStore.set_registry_lookup_fn(nil) end)
+
+      SubscriptionStore.set_registry_lookup_fn(fn _registry, identifier ->
+        assert identifier == id
+        Process.exit(pid, :shutdown)
+        [{pid, nil}]
+      end)
+
+      assert SubscriptionStore.snapshot(id) == :not_found
+    end
   end
 
   describe "add_subscription/3" do
