@@ -51,10 +51,10 @@ defmodule Aiur.DaemonHeartbeatChecker do
 
   @doc false
   @spec check_and_alert!(
-    (-> {:ok, String.t()} | {:error, term()}),
-    (-> non_neg_integer()),
-    ((String.t(), keyword()) -> :ok | {:error, term()})
-  ) :: :ok
+          (-> {:ok, String.t()} | {:error, term()}),
+          (-> non_neg_integer()),
+          (String.t(), keyword() -> :ok | {:error, term()})
+        ) :: :ok
   def check_and_alert!(path_fun, threshold_fun, emit_fun) do
     case read_heartbeat_age(path_fun) do
       {:ok, age_ms} ->
@@ -67,9 +67,7 @@ defmodule Aiur.DaemonHeartbeatChecker do
             end
 
           invalid_threshold ->
-            Logger.warning(
-              "daemon_heartbeat_checker config_error reason=invalid_threshold threshold=#{inspect(invalid_threshold)}"
-            )
+            Logger.warning("daemon_heartbeat_checker config_error reason=invalid_threshold threshold=#{inspect(invalid_threshold)}")
             :ok
         end
 
@@ -118,20 +116,20 @@ defmodule Aiur.DaemonHeartbeatChecker do
   # Emit an alert indicating the daemon heartbeat is stale.
   # age_ms and threshold_ms are used to construct a descriptive message.
   @spec emit_stale_alert(
-    ((String.t(), keyword()) -> :ok | {:error, term()}),
-    non_neg_integer() | nil,
-    non_neg_integer() | nil
-  ) :: :ok
+          (String.t(), keyword() -> :ok | {:error, term()}),
+          non_neg_integer() | nil,
+          non_neg_integer() | nil
+        ) :: :ok
   defp emit_stale_alert(emit_fun, age_ms, threshold_ms) do
     message = format_stale_message(age_ms, threshold_ms)
     reason = "Daemon heartbeat is stale; daemon may have stopped"
 
-    case emit_fun.(@alert_topic, [
-      message: message,
-      reason: reason,
-      needs_attention: true,
-      severity: "critical"
-    ]) do
+    case emit_fun.(@alert_topic,
+           message: message,
+           reason: reason,
+           needs_attention: true,
+           severity: "critical"
+         ) do
       :ok ->
         Logger.info("daemon_heartbeat_checker stale_alert_emitted age_ms=#{inspect(age_ms)}")
         :ok
@@ -143,17 +141,17 @@ defmodule Aiur.DaemonHeartbeatChecker do
   end
 
   # Emit a resolved alert to clear a prior stale condition.
-  @spec emit_resolved_alert(((String.t(), keyword()) -> :ok | {:error, term()})) :: :ok
+  @spec emit_resolved_alert((String.t(), keyword() -> :ok | {:error, term()})) :: :ok
   defp emit_resolved_alert(emit_fun) do
     message = "Daemon heartbeat is healthy again"
     reason = "Daemon heartbeat is now within acceptable staleness threshold"
 
-    case emit_fun.("#{@alert_topic}.resolved", [
-      message: message,
-      reason: reason,
-      needs_attention: false,
-      severity: "info"
-    ]) do
+    case emit_fun.("#{@alert_topic}.resolved",
+           message: message,
+           reason: reason,
+           needs_attention: false,
+           severity: "info"
+         ) do
       :ok ->
         Logger.info("daemon_heartbeat_checker resolved_alert_emitted")
         :ok
