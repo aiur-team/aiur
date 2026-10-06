@@ -877,11 +877,9 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     :ok = AgentPubSub.subscribe_agent("42")
     issue_a = issue(id: "42", identifier: "42")
     issue_b = issue(id: "43", identifier: "43")
+
     defer = fn ticket ->
-      DispatchAuthorization.authorize(ticket, "owner", "repo", "agent",
-        allowed_users: ["trusted"], token: "test-token",
-        request_fun: fn _request -> {:error, :timeout} end
-      )
+      DispatchAuthorization.authorize(ticket, "owner", "repo", "agent", allowed_users: ["trusted"], token: "test-token", request_fun: fn _request -> {:error, :timeout} end)
     end
 
     for _cycle <- 1..5 do
@@ -894,7 +892,8 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     deny = fn ticket ->
       DispatchAuthorization.authorize(ticket, "owner", "repo", "agent",
-        allowed_users: ["trusted"], token: "test-token",
+        allowed_users: ["trusted"],
+        token: "test-token",
         request_fun: fn _request ->
           {:ok, %{status: 200, body: [labeled_event(10, "agent:todo", "outsider", "2026-01-01T00:00:00Z")]}}
         end
@@ -1117,7 +1116,8 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
 
     authorized =
       DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
-        allowed_users: ["trusted"], token: "test-token",
+        allowed_users: ["trusted"],
+        token: "test-token",
         request_fun: fn %{url: url} = request ->
           Agent.update(sizes, &[query_value(url, "per_page") | &1])
           request_fun.(request)
