@@ -356,16 +356,16 @@ Agent Lifecycle with Compaction Integration:
 
 ## Acceptance Criteria
 
-✓ **Native Codex integration**: `thread/compact/start` API is wrapped, tested, and integrated into agent handoff  
-✓ **Real CLI/TUI approval**: `aiur agents compact` command and TUI state display implemented and tested  
-✓ **Threshold-based triggering**: Token count, message count, or elapsed-time thresholds configurable; no-repeat logic verified  
-✓ **Failure and restart handling**: Transient errors retry; failed state does not block handoff; restart resumes correctly  
-✓ **Unsupported provider handling**: Claude and non-Codex backends show "unsupported" state; no silent compaction  
-✓ **Transcript preservation**: Original transcript reference durable; resumable from compacted or original state  
-✓ **State visibility**: Compaction state (pending/completed/failed/unsupported) visible in CLI and TUI  
-✓ **Handoff summary contract**: Compaction respects Codex summary constraints: retains task, decisions, revision, evidence, review work  
-✓ **Comprehensive test coverage**: All acceptance criteria tested (threshold, no-repeat, failure/restart, unsupported)  
-✓ **No cost claims without baseline**: Plan does not claim savings; instrumentation and baseline measurement are follow-up work
+- [x] **Native Codex integration**: `thread/compact/start` request/completion wire flow is integrated into the human-review handoff and exercised against a local JSON-RPC server.
+- [ ] **Real CLI/TUI approval**: No per-ticket interactive approval command or prompt is implemented; the current manual opt-in is configuration-driven. Status appears in AgentList activity.
+- [x] **Threshold-based triggering**: Cumulative token threshold is configurable and tested at the boundary; unchanged-thread attempts are deduplicated.
+- [ ] **Failure and restart handling**: Request failure and missing completion are tested. Restart from a durable pending marker suppresses duplicate work, but interrupted-pending status recovery is not yet verified.
+- [x] **Unsupported provider handling**: Non-Codex configured backends report unsupported and do not call a compaction primitive.
+- [x] **Transcript preservation**: The original transcript and resume handle remain untouched; compaction only targets the existing Codex thread.
+- [x] **State visibility**: Pending/completed/failed/unsupported status is projected into AgentList activity.
+- [ ] **Handoff summary contract**: The native primitive takes only the thread ID, so this integration cannot enforce particular summary fields. The Agent Workpad remains the durable handoff record.
+- [ ] **Comprehensive test coverage**: Focused wire, schema, threshold, deduplication, storage, and projection tests pass; full restart behavior and real foreground CLI/TUI approval remain unverified.
+- [x] **No cost claims without baseline**: No savings claim is made; baseline, overhead, and feedback-resume latency remain unmeasured.
 
 ---
 
