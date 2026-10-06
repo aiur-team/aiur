@@ -510,6 +510,9 @@ defmodule Aiur.AgentControlCLITest do
           startup_claim_reconciliation_complete?: false,
           session_max_concurrent_agents: nil,
           capacity_hold: nil,
+          # Capacity fixtures start without dispatch holds from earlier polls.
+          dispatch_hold: nil,
+          dispatch_selection_hold: nil,
           dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil}
       }
     end)
