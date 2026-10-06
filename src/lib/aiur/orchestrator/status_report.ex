@@ -438,6 +438,7 @@ defmodule Aiur.Orchestrator.StatusReport do
           held?: true,
           signal: signal,
           measured: measured,
+          detail: Map.get(hold, :detail),
           threshold: threshold,
           held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0),
           # How long the hold has lasted and how old its measurement is are
@@ -448,7 +449,15 @@ defmodule Aiur.Orchestrator.StatusReport do
         }
 
       _other ->
-        %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0, sample_age_seconds: nil}
+        %{
+          held?: false,
+          signal: nil,
+          measured: nil,
+          detail: nil,
+          threshold: nil,
+          held_for_seconds: 0,
+          sample_age_seconds: nil
+        }
     end
   end
 
