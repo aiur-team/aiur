@@ -265,13 +265,13 @@ defmodule Aiur.Workspace.WipPreservation do
   defp refusal_message(workspace, ticket, action, reason, terminal?) do
     cause =
       case reason do
-        :remote_worker_unsupported -> "the uncommitted work of a remote worker's checkout cannot be saved on this daemon"
+        :remote_worker_unsupported -> "the uncommitted or unpushed work of a remote worker's checkout cannot be saved on this daemon"
         _ -> "its uncommitted work could not be saved (#{inspect(reason)})"
       end
 
     outcome =
       if terminal?,
-        do: "#{ticket} is closed. The workspace at #{workspace} is kept with its uncommitted work.",
+        do: "#{ticket} is closed. The workspace at #{workspace} is kept with its uncommitted or unpushed work.",
         else: "The workspace at #{workspace} is unchanged and the ticket is held."
 
     "Did not #{action} the workspace of #{ticket}: #{cause}. #{outcome} " <>

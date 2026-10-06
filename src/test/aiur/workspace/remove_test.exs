@@ -95,6 +95,92 @@ defmodule Aiur.Workspace.RemoveTest do
     assert File.dir?(workspace)
   end
 
+  test "remote unpushed commit check failure exits closed", %{test_root: test_root} do
+    workspace = Path.join(test_root, "remote-workspace")
+    fake_bin = Path.join(test_root, "bin")
+    File.mkdir_p!(Path.join(workspace, ".git"))
+    File.mkdir_p!(fake_bin)
+    fake_git = Path.join(fake_bin, "git")
+    File.write!(fake_git, "#!/bin/sh\ncase \"$*\" in *rev-list*) exit 1 ;; *) exit 0 ;; esac\n")
+    File.chmod!(fake_git, 0o755)
+
+    {_, status} =
+      System.cmd("bash", ["-c", Remove.remote_dirty_check() <> "\nrm -rf \"$workspace\""],
+        env: [{"workspace", workspace}, {"PATH", fake_bin <> ":" <> System.get_env("PATH")}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 76
+    assert File.dir?(workspace)
+  end
+
+  test "remote HEAD query failure exits closed", %{test_root: test_root} do
+    workspace = Path.join(test_root, "remote-workspace")
+    fake_bin = Path.join(test_root, "bin")
+    File.mkdir_p!(Path.join(workspace, ".git"))
+    File.mkdir_p!(fake_bin)
+    fake_git = Path.join(fake_bin, "git")
+    File.write!(fake_git, "#!/bin/sh\ncase \"$*\" in *rev-parse*) exit 128 ;; *) exit 0 ;; esac\n")
+    File.chmod!(fake_git, 0o755)
+
+    {_, status} =
+      System.cmd("bash", ["-c", Remove.remote_dirty_check() <> "\nrm -rf \"$workspace\""],
+        env: [{"workspace", workspace}, {"PATH", fake_bin <> ":" <> System.get_env("PATH")}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 76
+    assert File.dir?(workspace)
+  end
+
+  # This is a deliberate future-regression guard: the clean-unborn-HEAD path
+  # was already removable before checking for unpushed commits was added.
+  test "regression guard keeps a clean remote repository with no commits removable", %{test_root: test_root} do
+    workspace = Path.join(test_root, "remote-workspace")
+    {_, 0} = System.cmd("git", ["init", "--quiet", workspace])
+
+    {_, status} =
+      System.cmd("bash", ["-c", Remove.remote_dirty_check() <> "\nrm -rf \"$workspace\""],
+        env: [{"workspace", workspace}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 0
+    refute File.exists?(workspace)
+  end
+
+  test "remote dirty check preserves a clean checkout with a local-only commit", %{test_root: test_root} do
+    workspace = Path.join(test_root, "remote-workspace")
+    remote = Path.join(test_root, "origin.git")
+    File.mkdir_p!(workspace)
+    {_, 0} = System.cmd("git", ["init", "--quiet", "--bare", remote])
+    {_, 0} = System.cmd("git", ["init", "--quiet", "-b", "main", workspace])
+    {_, 0} = System.cmd("git", ["-C", workspace, "config", "user.email", "test@example.com"])
+    {_, 0} = System.cmd("git", ["-C", workspace, "config", "user.name", "Test"])
+    File.write!(Path.join(workspace, "tracked.txt"), "baseline")
+    {_, 0} = System.cmd("git", ["-C", workspace, "add", "tracked.txt"])
+    {_, 0} = System.cmd("git", ["-C", workspace, "commit", "--quiet", "-m", "baseline"])
+    {_, 0} = System.cmd("git", ["-C", workspace, "remote", "add", "origin", remote])
+    {_, 0} = System.cmd("git", ["-C", workspace, "push", "--quiet", "-u", "origin", "main"])
+
+    File.write!(Path.join(workspace, "local-only.txt"), "committed work")
+    {_, 0} = System.cmd("git", ["-C", workspace, "add", "local-only.txt"])
+    {_, 0} = System.cmd("git", ["-C", workspace, "commit", "--quiet", "-m", "local-only"])
+    {local_commit, 0} = System.cmd("git", ["-C", workspace, "rev-parse", "HEAD"])
+
+    {output, status} =
+      System.cmd("bash", ["-c", Remove.remote_dirty_check() <> "\nrm -rf \"$workspace\""],
+        env: [{"workspace", workspace}],
+        stderr_to_stdout: true
+      )
+
+    assert status == 75
+    assert output =~ "unpushed commits"
+    assert File.read!(Path.join(workspace, "local-only.txt")) == "committed work"
+    assert {commit, 0} = System.cmd("git", ["-C", workspace, "rev-parse", "HEAD"])
+    assert String.trim(commit) == String.trim(local_commit)
+  end
+
   defp init_checkout!(workspace) do
     {_, 0} = System.cmd("git", ["init", "-q", workspace])
     File.write!(Path.join(workspace, "tracked.txt"), "baseline")
