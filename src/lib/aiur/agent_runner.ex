@@ -11,7 +11,7 @@ defmodule Aiur.AgentRunner do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
   alias Aiur.Opencode.ApiClient
-  alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Orchestrator.{RetryEngine, StatusReason}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace.HostLock
   alias Aiur.Workspace.Ownership
@@ -52,8 +52,20 @@ defmodule Aiur.AgentRunner do
         else
           message = "Agent run failed for #{issue_context(issue)}: #{inspect(reason)}#{failure_detail(reason)}"
           Logger.error(message)
-          raise RuntimeError, message
+          fail_run(reason, message)
         end
+    end
+  end
+
+  @doc false
+  @spec fail_run(term(), String.t()) :: no_return()
+  def fail_run(reason, message) do
+    # Preserve the typed hold across Task's DOWN boundary. Turning it into a
+    # RuntimeError string hides reset_at from RetryEngine and consumes retries.
+    if is_map(RetryEngine.local_budget_hold_reason(reason)) do
+      exit(reason)
+    else
+      raise RuntimeError, message
     end
   end
 

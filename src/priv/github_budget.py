@@ -368,6 +368,10 @@ def actor_usage_rows(conn, token_key, consumer_key, resource, now):
 
 
 def actor_ceiling_hold(conn, args, now):
+    # Unmetered probes spend no hourly resource. They still pass through the
+    # shared cooldown, concurrency and request-rate admission checks.
+    if args.resource == "none":
+        return 0
     if args.resource == "graphql":
         limit = args.graphql_limit
     elif args.resource == "search":
