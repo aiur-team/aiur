@@ -42,27 +42,31 @@ defmodule Aiur.Orchestrator.IssueSync do
   @doc false
   @spec observe_human_review_handoffs(State.t(), list()) :: State.t()
   def observe_human_review_handoffs(%State{} = state, issues) when is_list(issues) do
-    Enum.reduce(issues, state, fn
-      %Issue{state: current_state} = issue, state_acc ->
-        if DispatchPolicy.state_slug(current_state) == "human-review" do
-          previous_issue = Map.get(state_acc.last_polled_issues, issue.id)
-          previous_state = previous_issue && DispatchPolicy.state_slug(previous_issue.state)
-          previously_observed_error? = MapSet.member?(state_acc.observed_error_alerts, issue.id)
+    Enum.reduce(issues, state, &observe_human_review_handoff/2)
+  end
 
-          if (previous_state && previous_state != "human-review") || previously_observed_error? do
-            publish_human_review_handoff(issue)
-          end
+  defp observe_human_review_handoff(%Issue{state: current_state} = issue, state) do
+    if DispatchPolicy.state_slug(current_state) == "human-review" do
+      maybe_publish_human_review_handoff(issue, state)
+      |> resolve_observed_error_transition_alert(issue)
+      |> put_in([Access.key!(:last_polled_issues), issue.id], issue)
+    else
+      state
+    end
+  end
 
-          state_acc
-          |> resolve_observed_error_transition_alert(issue)
-          |> put_in([Access.key!(:last_polled_issues), issue.id], issue)
-        else
-          state_acc
-        end
+  defp observe_human_review_handoff(_other, state), do: state
 
-      _other, state_acc ->
-        state_acc
-    end)
+  defp maybe_publish_human_review_handoff(issue, state) do
+    previous_issue = Map.get(state.last_polled_issues, issue.id)
+    previous_state = previous_issue && DispatchPolicy.state_slug(previous_issue.state)
+    previously_observed_error? = MapSet.member?(state.observed_error_alerts, issue.id)
+
+    if (previous_state && previous_state != "human-review") || previously_observed_error? do
+      publish_human_review_handoff(issue)
+    end
+
+    state
   end
 
   @doc """
