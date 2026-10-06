@@ -245,6 +245,7 @@ defmodule Aiur.Application do
     interactive_cli? = Keyword.fetch!(opts, :interactive_cli?)
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
+    tailscale_funnel? = Keyword.get(opts, :tailscale_funnel?, AiurConfig.server_tailscale_funnel?())
     telemetry? = Keyword.get(opts, :telemetry?, true)
     executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
     ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
@@ -467,6 +468,7 @@ defmodule Aiur.Application do
       if(dashboard?, do: AiurWeb.ControlCenterCache),
       if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
       if(dashboard?, do: Aiur.HttpServer),
+      if(dashboard? and tailscale_funnel?, do: Aiur.TailscaleFunnel),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,
       # Chat-pane machinery — UI-only, never read by a headless run.

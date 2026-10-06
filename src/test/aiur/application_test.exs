@@ -171,6 +171,34 @@ defmodule Aiur.ApplicationTest do
       assert length(headless) < length(interactive)
     end
 
+    test "Tailscale Funnel reconciliation is opt-in and starts after the dashboard" do
+      default = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: true)
+      refute Aiur.TailscaleFunnel in modules(default)
+
+      enabled =
+        AiurApp.child_specs(
+          interactive_cli?: false,
+          headless?: true,
+          dashboard?: true,
+          tailscale_funnel?: true
+        )
+
+      enabled_modules = modules(enabled)
+
+      assert Enum.find_index(enabled_modules, &(&1 == Aiur.HttpServer)) <
+               Enum.find_index(enabled_modules, &(&1 == Aiur.TailscaleFunnel))
+
+      without_dashboard =
+        AiurApp.child_specs(
+          interactive_cli?: false,
+          headless?: true,
+          dashboard?: false,
+          tailscale_funnel?: true
+        )
+
+      refute Aiur.TailscaleFunnel in modules(without_dashboard)
+    end
+
     test "Executor recording is armed on every run, with or without --executor" do
       plain =
         modules(

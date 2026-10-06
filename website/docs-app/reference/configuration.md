@@ -692,8 +692,11 @@ These policy keys never grant transport access by themselves. The supervisor API
 | --- | --- | --- | --- |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
 | `server.host` | string | `127.0.0.1` | HTTP bind address. Set it explicitly to serve the dashboard beyond the machine; there is no automatic Tailscale detection. |
+| `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures are logged and retried. |
 
 When `server.host` is absent, the dashboard binds `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST` override). A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
+
+Set `server.tailscale_funnel: true` only when this node already has a Funnel route that the operator intends to keep. Aiur reads the current bound dashboard port and updates that route with `tailscale funnel --bg`; it does not enable Funnel or change a route when the setting is false. The route remains behind the dashboard's existing authentication and supports its HTTP and WebSocket traffic.
 
 A fixed `server.port` that is already bound — for example a second `aiur` instance on the same host — does not crash the daemon. The second instance logs an explicit startup message naming the port and the conflict, disables only its own dashboard, and keeps running agents.
 

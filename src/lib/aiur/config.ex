@@ -1093,6 +1093,11 @@ defmodule Aiur.Config do
     end
   end
 
+  @spec server_tailscale_funnel?() :: boolean()
+  def server_tailscale_funnel? do
+    settings!().server.tailscale_funnel == true
+  end
+
   @spec observability_enabled?() :: boolean()
   def observability_enabled? do
     settings!().observability.dashboard_enabled
