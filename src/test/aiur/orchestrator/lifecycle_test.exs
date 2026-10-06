@@ -148,6 +148,46 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     refute_receive {:tick, _token}, 100
   end
 
+  # #2980: the floor counts from the last dispatch poll, and a wake never moves
+  # a pending tick later. Rescheduling at now + floor on every wake let a steady
+  # stream of webhook deliveries push the tick back forever, so no dispatch
+  # poll ran for 30 minutes while ready tickets waited.
+  test "repeated wakes never push a pending tick later than it already was" do
+    now = System.monotonic_time(:millisecond)
+
+    state = %State{
+      next_poll_due_at_ms: now + 5_000,
+      last_dispatch_poll_at_ms: now - 100_000,
+      poll_check_in_progress: false,
+      github_poll_delays: %{poll: 30_000}
+    }
+
+    due_after_wakes =
+      Enum.reduce(1..5, state, fn _wake, acc ->
+        {refreshed, _coalesced} = Lifecycle.request_refresh_state(acc)
+        refreshed
+      end).next_poll_due_at_ms
+
+    assert due_after_wakes <= now + 5_000
+  end
+
+  test "a wake still waits for the floor measured from the last dispatch poll" do
+    now = System.monotonic_time(:millisecond)
+
+    state = %State{
+      next_poll_due_at_ms: now + 600_000,
+      last_dispatch_poll_at_ms: now - 10_000,
+      poll_check_in_progress: false,
+      github_poll_delays: %{poll: 30_000}
+    }
+
+    {refreshed, coalesced} = Lifecycle.request_refresh_state(state)
+
+    refute coalesced
+    assert refreshed.next_poll_due_at_ms >= now + 19_000
+    assert refreshed.next_poll_due_at_ms <= now + 21_000
+  end
+
   # `aiur --todo` on an idle, backed-off fleet: the wake collapses the widened
   # timer to now AND records the queued identifiers, so the woken poll — and
   # one follow-up — stay at the base interval even if the tracker has not yet
