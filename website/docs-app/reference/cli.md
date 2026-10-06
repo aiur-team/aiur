@@ -155,7 +155,7 @@ Only a retry with the same `--message-id` is safe. It returns the first copy ins
 Any failure after the stop, whether a failed rebuild, a failed start, or an interrupt, reports that the daemon is stopped and was not restarted.
 Restart uses the same graceful agent-tree and workspace-descendant reap as `stop` before refreshing or starting the release.
 
-A restart can make Aiur delete or recreate a ticket workspace that still has uncommitted changes. Aiur saves the changes first; see [Saved uncommitted work](#saved-uncommitted-work).
+A restart can make Aiur delete or recreate a ticket workspace that still has uncommitted changes or commits not held by a remote. Aiur saves local work first; see [Saved uncommitted work](#saved-uncommitted-work).
 
 Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from the expected checkout and commit.
 
@@ -167,7 +167,7 @@ Under `scripts/aiurdev`, `restart` verifies that the refreshed release came from
 
 ### Saved uncommitted work
 
-Before Aiur deletes or recreates a ticket workspace that has uncommitted changes, it saves them in `wip-preserved/<workspace>/<timestamp>/` under the runtime state directory. The directories have mode 0700 and the files 0600, because untracked files can hold secrets.
+Before Aiur deletes or recreates a local ticket workspace that has uncommitted changes or commits not held by a remote, it saves them in `wip-preserved/<workspace>/<timestamp>/` under the runtime state directory. The directories have mode 0700 and the files 0600, because untracked files can hold secrets.
 
 Each save holds these files:
 
