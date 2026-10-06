@@ -90,9 +90,7 @@ defmodule Aiur.BuildOrderFunnelHealth do
   end
 
   defp check_response_status(%Req.Response{status: status}) when status in [200, 301, 302, 304, 307, 308, 401], do: :ok
-  defp check_response_status(%{status: status}) when status in [200, 301, 302, 304, 307, 308, 401], do: :ok
   defp check_response_status(%Req.Response{status: status}), do: {:error, status}
-  defp check_response_status(%{status: status}), do: {:error, status}
 
   defp emit_unreachable_alert({:error, :timeout}) do
     Alerts.emit_system(
@@ -104,10 +102,11 @@ defmodule Aiur.BuildOrderFunnelHealth do
   end
 
   defp emit_unreachable_alert({:error, :unreachable}) do
-    port_info = case bound_port() do
-      port when is_integer(port) -> " (port #{port})"
-      _ -> ""
-    end
+    port_info =
+      case bound_port() do
+        port when is_integer(port) -> " (port #{port})"
+        _ -> ""
+      end
 
     Alerts.emit_system(
       "system.build_order_funnel.target_unreachable",
