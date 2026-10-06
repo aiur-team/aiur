@@ -31,7 +31,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
       do: {:reply, :empty, state}
 
     def handle_call({:claim_next_checkpoint_queue_item, _id}, _from, state),
-      do: {:reply, state.checkpoint, state}
+      do: {:reply, state.checkpoint, %{state | checkpoint: :empty}}
 
     def handle_call({:restore_queue_item_pending, item_id}, _from, state) do
       send(state.report, {:restore, item_id})
@@ -120,6 +120,26 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert_receive {:operator_message, %{kind: :text, body: "survive closed checkpoint"}}, 1000
     assert_receive {:restore, 77}, 1000
     refute_receive {:mark_failed, 77, _reason}, 100
+  end
+
+  test "a queued operator message is delivered once at the next safe checkpoint" do
+    item = %{category: :operator_message, id: 79, body: %{text: "deliver after turn boundary"}}
+    {:ok, orch} = CheckpointOrchestrator.start_link(report: self(), checkpoint: {:ok, item})
+    issue = %Aiur.Issue{identifier: "OD-#{System.unique_integer([:positive])}", id: "gid-od"}
+
+    state =
+      state(%{
+        outstanding_turns: 0,
+        on_safe_checkpoint: CheckpointDelivery.safe_checkpoint_handler(issue, orch, "codex")
+      })
+
+    first_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), state, %{kind: :notification})
+    second_state = OperatorDelivery.maybe_process_safe_checkpoint(session(), first_state, %{kind: :notification})
+
+    assert_receive {:operator_message, %{kind: :text, body: "deliver after turn boundary"}}, 1000
+    refute_receive {:operator_message, %{kind: :text, body: "deliver after turn boundary"}}, 100
+    assert Map.has_key?(first_state.pending_operator_requests, 99)
+    assert second_state == first_state
   end
 
   test "a real closed-port checkpoint write still fails a Claude item" do

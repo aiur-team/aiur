@@ -106,7 +106,7 @@ defmodule Aiur.AppServer.TurnLoopTest do
     assert TurnLoop.receive_loop(%{port: port}, guarded_state) == {:ok, :turn_completed}
   end
 
-  test "normal completion wins over a queued no-active-turn interrupt response" do
+  test "no-active-turn interrupt response ends the operator-message turn cleanly" do
     port = cat_port()
 
     completed = %{
@@ -119,8 +119,8 @@ defmodule Aiur.AppServer.TurnLoopTest do
       "error" => %{"code" => -32_004, "message" => "No active turn to interrupt."}
     }
 
-    send(self(), {port, {:data, {:eol, Jason.encode!(completed)}}})
     send(self(), {port, {:data, {:eol, Jason.encode!(error)}}})
+    send(self(), {port, {:data, {:eol, Jason.encode!(completed)}}})
 
     codex_state =
       state(%{
@@ -134,7 +134,7 @@ defmodule Aiur.AppServer.TurnLoopTest do
         pending_anonymous_completion?: false
       })
 
-    assert TurnLoop.receive_loop(%{port: port}, codex_state) == {:ok, :turn_completed}
+    assert TurnLoop.receive_loop(%{port: port}, codex_state) == {:ok, :turn_interrupted_for_operator_message}
     Port.close(port)
   end
 

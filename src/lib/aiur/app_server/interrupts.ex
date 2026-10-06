@@ -59,6 +59,17 @@ defmodule Aiur.AppServer.Interrupts do
           {:ok, :turn_completed} | {:paused, map()} | {:ok, :turn_interrupted_for_operator_message} | {:error, term()}
   def handle_no_active_turn_error(state, error) do
     cond do
+      completed_turn_already_retired?(state) and state.interrupt_action == :pause ->
+        {:paused,
+         TurnState.pause_result_payload(
+           state.pause_request_id,
+           state.current_turn_id,
+           %{"error" => error, "status" => "interrupted"}
+         )}
+
+      completed_turn_already_retired?(state) and state.interrupt_action == :operator_message ->
+        {:ok, :turn_interrupted_for_operator_message}
+
       completed_turn_already_retired?(state) ->
         TurnState.maybe_finish_after_pending_response(%{state | pending_interrupt_request_id: nil})
 
