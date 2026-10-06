@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
+  alias Aiur.ModelAvailability
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State, StatusReport, TrackerHealth}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
@@ -159,6 +160,43 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     assert name == "ticket.#{candidate.id}.agent.attention.dispatch-declined"
     assert reason =~ "tracker_revalidation_failed"
+  end
+
+  test "a ready Codex ticket reaches the dispatcher after a stale limit refresh" do
+    restore_workflow_file_after_test()
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory", max_concurrent_agents: 4)
+    ledger = ModelAvailability.path()
+    old_ledger = if File.exists?(ledger), do: File.read!(ledger), else: nil
+    on_exit(fn -> if is_binary(old_ledger), do: File.write!(ledger, old_ledger), else: File.rm(ledger) end)
+
+    now = DateTime.utc_now()
+    stale_at = DateTime.add(now, -301, :second)
+    reset_at = DateTime.add(now, 3_600, :second) |> DateTime.to_iso8601()
+    assert :ok = ModelAvailability.observe("codex", %{hourly: %{usedPercent: 100, windowDurationMins: 60, resetsAt: reset_at}}, now: stale_at)
+
+    assert :ok =
+             Aiur.CodexProber.probe_sync("codex", now,
+               fetch_limits_fun: fn ->
+                 {:ok, %{"rateLimits" => %{"primary" => %{"usedPercent" => 4, "windowDurationMins" => 60}}}}
+               end
+             )
+
+    candidate = issue("codex-refresh-ready")
+    Application.put_env(:aiur, :memory_tracker_issues, [candidate])
+    on_exit(fn -> Application.delete_env(:aiur, :memory_tracker_issues) end)
+    parent = self()
+
+    runner = fn dispatched, _recipient, _opts ->
+      send(parent, {:ready_ticket_started, dispatched.id})
+      Process.sleep(:infinity)
+    end
+
+    result = Dispatcher.choose_issues(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4}, [candidate], runner: runner)
+
+    assert_receive {:ready_ticket_started, id}, 2_000
+    assert id == candidate.id
+    assert Map.has_key?(result.running, candidate.id)
+    Process.exit(result.running[candidate.id].pid, :kill)
   end
 
   test "a repeated post-selection decline is emitted once across polling cycles" do

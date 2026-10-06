@@ -562,6 +562,8 @@ defmodule Aiur.Orchestrator.PauseResume do
   @spec resume_issue(State.t(), String.t()) ::
           {{:ok, :resumed | :started | :reactivated | :already_running | :sleeping} | {:error, term()}, State.t()}
   def resume_issue(%State{} = state, issue_identifier) do
+    ModelAvailability.probe_stale_limits(DispatchPolicy.read_provider_backends())
+
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
         resume_running_issue(state, running_entry)
@@ -2143,7 +2145,6 @@ defmodule Aiur.Orchestrator.PauseResume do
 
         case DispatchPolicy.manual_resume_decision(tracker_issue, state) do
           :dispatch ->
-            ModelAvailability.probe_stale_limits(DispatchPolicy.read_provider_backends())
             Dispatcher.dispatch_prevalidated_issue(state, tracker_issue)
 
           {:skip, reason} ->

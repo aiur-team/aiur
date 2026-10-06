@@ -9,10 +9,8 @@ defmodule Aiur.CodexProber do
 
   require Logger
 
-  alias Aiur.Codex.{Frames, Rpc}
-  alias Aiur.ModelAvailability
-
-  @timeout_ms 5_000
+  alias Aiur.Codex.{AppServerPort, Handshake}
+  alias Aiur.{Config, ModelAvailability, Workspace}
 
   @doc """
   Probe Codex for current usage limits and update the ledger.
@@ -28,7 +26,11 @@ defmodule Aiur.CodexProber do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     path = Keyword.get(opts, :path, ModelAvailability.path())
 
-    spawn(fn -> probe_sync(backend, now, Keyword.put(opts, :path, path)) end)
+    spawn(fn ->
+      result = probe_sync(backend, now, Keyword.put(opts, :path, path))
+      if callback = Keyword.get(opts, :on_complete_fun), do: callback.(result)
+    end)
+
     :ok
   end
 
@@ -78,85 +80,59 @@ defmodule Aiur.CodexProber do
         end
 
       _ ->
-        probe_codex_limits_from_session()
+        probe_codex_limits_from_app_server(opts)
     end
   end
 
-  defp probe_codex_limits_from_session do
-    # Create a temporary workspace for the probe session
-    workspace = System.tmp_dir() <> "/codex-probe-#{:erlang.unique_integer([:positive])}"
+  defp probe_codex_limits_from_app_server(opts) do
+    with {:ok, workspace} <- probe_workspace(opts),
+         {:ok, port} <- start_probe_port(workspace, opts) do
+      try_probe_port(port, workspace, opts)
+    end
+  end
 
-    with :ok <- File.mkdir_p(workspace),
-         {:ok, session} <- start_probe_session(workspace) do
-      try do
-        # Read limits through the established session
-        case read_limits_from_session(session) do
-          {:ok, limits} -> normalize_codex_limits(limits)
-          error -> error
-        end
-      after
-        # Always clean up the session
-        stop_probe_session(session)
-        # Clean up the temporary workspace directory
-        File.rm_rf(workspace)
+  defp try_probe_port(port, workspace, opts) do
+    try do
+      with :ok <- initialize_probe_port(port, opts),
+           {:ok, limits} <- read_probe_limits(port, opts) do
+        normalize_codex_limits(limits)
       end
-    else
-      {:error, reason} -> {:error, reason}
+    after
+      stop_probe_port(port, opts)
+      File.rm_rf(workspace)
     end
   end
 
-  # Start a temporary probe session using the Codex backend
-  @spec start_probe_session(String.t()) :: {:ok, map()} | {:error, term()}
-  defp start_probe_session(workspace) do
-    agent_module = Aiur.Codex.CodingAgent
+  @doc false
+  @spec probe_workspace(keyword()) :: {:ok, Path.t()} | {:error, term()}
+  def probe_workspace(opts \\ []) do
+    workspace =
+      case Keyword.get(opts, :workspace) do
+        path when is_binary(path) -> path
+        _ -> Workspace.workspace_path_under(Config.workspace_root(), "codex-usage-probe-#{:erlang.unique_integer([:positive])}")
+      end
 
-    case agent_module.start_session(workspace, identifier: "model-usage-probe") do
-      {:ok, session} -> {:ok, session}
+    case File.mkdir_p(workspace) do
+      :ok -> {:ok, Path.expand(workspace)}
       {:error, reason} -> {:error, reason}
     end
   rescue
-    _error -> {:error, :failed_to_start_session}
+    _error -> {:error, :no_workspace_root}
   catch
-    _kind, _reason -> {:error, :failed_to_start_session}
+    _kind, _reason -> {:error, :no_workspace_root}
   end
 
-  # Stop the probe session
-  defp stop_probe_session(session) when is_map(session) do
-    agent_module = Aiur.Codex.CodingAgent
-    agent_module.stop_session(session)
-  rescue
-    _error -> :ok
-  catch
-    _kind, _reason -> :ok
-  end
+  defp start_probe_port(workspace, opts),
+    do: Keyword.get(opts, :start_port_fun, &AppServerPort.start_port/4).(workspace, nil, nil, nil)
 
-  # Read limits from an established Codex session via account/rateLimits/read
-  defp read_limits_from_session(session) when is_map(session) do
-    port = Map.get(session, :port)
+  defp initialize_probe_port(port, opts),
+    do: Keyword.get(opts, :initialize_fun, &Handshake.send_initialize/1).(port)
 
-    case port do
-      port when is_port(port) ->
-        try do
-          # Send the rate limits read frame
-          Rpc.send_message(port, Frames.rate_limits_read_frame())
+  defp read_probe_limits(port, opts),
+    do: Keyword.get(opts, :read_rate_limits_fun, &Handshake.read_rate_limits/1).(port)
 
-          # Wait for the response
-          case Rpc.await_response(port, Frames.rate_limits_read_id(), @timeout_ms) do
-            {:ok, response} -> {:ok, response}
-            {:error, reason} -> {:error, reason}
-          end
-        rescue
-          ArgumentError -> {:error, :port_closed}
-        catch
-          :exit, {:timeout, _} -> {:error, :timeout}
-          :exit, reason -> {:error, reason}
-          kind, error -> {:error, {kind, error}}
-        end
-
-      _ ->
-        {:error, :invalid_session}
-    end
-  end
+  defp stop_probe_port(port, opts),
+    do: Keyword.get(opts, :stop_port_fun, &AppServerPort.stop_port/1).(port)
 
   @doc false
   @spec normalize_codex_limits(map()) :: {:ok, map()} | {:error, term()}
