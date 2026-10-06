@@ -53,7 +53,7 @@ defmodule AiurWeb.Router do
   end
 
   # Read-only gate for the dashboard's agent-write endpoints (Executor chat,
-  # refresh). Disabled by default until a deliberate dashboard parity pass —
+  # refresh, pause, resume). Disabled by default until a deliberate dashboard parity pass —
   # see issue #371. Re-enable via `observability.dashboard_writable` config.
   # The TUI's pane endpoints and the RC claude-hook are intentionally NOT
   # behind this gate (see the route scopes below).

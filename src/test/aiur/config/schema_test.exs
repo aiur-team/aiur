@@ -841,7 +841,7 @@ defmodule Aiur.Config.SchemaTest do
     test "Observability section parses with defaults" do
       {:ok, settings} = Schema.parse(%{})
       assert settings.observability.dashboard_enabled == true
-      assert settings.observability.dashboard_writable == true
+      assert settings.observability.dashboard_writable == false
       assert settings.observability.refresh_ms == 1_000
       assert settings.observability.telemetry_enabled == true
       assert settings.observability.telemetry_retention_max_bytes == 64 * 1024 * 1024

@@ -202,6 +202,18 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   end
 
   describe "POST /api/v1/:id/pause and /resume" do
+    test "dashboard writes are read-only when dashboard_writable is omitted" do
+      orchestrator = start_control_orchestrator(pause_agent: {:ok, 17})
+      Phoenix.Config.put(AiurWeb.Endpoint, :orchestrator, orchestrator)
+      :ets.delete(AiurWeb.Endpoint, :dashboard_writable)
+
+      assert json_response(call(control_conn("MT-DEFAULT", "pause")), 403) == %{
+               "error" => "dashboard is read-only"
+             }
+
+      refute_received {:control_call, :pause, "MT-DEFAULT"}
+    end
+
     test "delegates pause and resume and returns their successful results" do
       orchestrator =
         start_control_orchestrator(
