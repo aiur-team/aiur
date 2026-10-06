@@ -56,6 +56,7 @@ before_run: |
     done
   }
   move_sidecars_to_state
+  rm -f logs/before-run-merge-conflict.md
   if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
      ! git rev-parse --verify HEAD >/dev/null 2>&1 ||
      ! git status --porcelain >/dev/null 2>&1; then
@@ -76,7 +77,27 @@ before_run: |
       echo "Commit or resolve the workspace changes before resuming this agent." >&2
       exit 65
     fi
-    git merge --no-edit "origin/$base_branch"
+    if ! git merge --no-edit "origin/$base_branch"; then
+      conflicted_files="$(git diff --name-only --diff-filter=U)"
+      if [ -z "$conflicted_files" ]; then
+        echo "Failed to merge origin/$base_branch without file conflicts; see the git error above." >&2
+        exit 1
+      fi
+      if ! git merge --abort; then
+        echo "Could not abort the conflicting merge with origin/$base_branch; refusing to start the agent." >&2
+        exit 1
+      fi
+      mkdir -p logs
+      {
+        echo "# Base branch merge conflict"
+        echo
+        echo "This workspace's branch conflicts with origin/$base_branch. The preflight merge was aborted, so HEAD remains on the ticket branch. Merge origin/$base_branch and resolve these files before continuing:"
+        echo
+        printf '%s\n' "$conflicted_files"
+      } > logs/before-run-merge-conflict.md
+      echo "Base branch merge conflict with origin/$base_branch; merge it and resolve these files before continuing:" >&2
+      printf '%s\n' "$conflicted_files" >&2
+    fi
   fi
 
 # Optional — run after each agent turn (e.g. format, quick checks):

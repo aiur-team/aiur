@@ -7,12 +7,14 @@ defmodule Aiur.DogfoodHooksTest do
   @config_path Path.expand("../../../.aiur/config", __DIR__)
   @gitignore_path Path.expand("../../../.gitignore", __DIR__)
   @prompt_path Path.expand("../../../.aiur/prompt.md", __DIR__)
+  @example_prompt_path Path.expand("../../../.aiur/examples/prompt.md.example", __DIR__)
   @contributing_path Path.expand("../../../CONTRIBUTING.md", __DIR__)
 
   @external_resource @hooks_path
   @external_resource @config_path
   @external_resource @gitignore_path
   @external_resource @prompt_path
+  @external_resource @example_prompt_path
   @external_resource @contributing_path
 
   setup do
@@ -67,9 +69,12 @@ defmodule Aiur.DogfoodHooksTest do
     File.write!(Path.join(context.seed, "README.md"), "stable two\n")
     git!(["-C", context.seed, "commit", "-am", "advance stable"])
     git!(["-C", context.seed, "push", "origin", configured_base()])
+    File.mkdir_p!(Path.join(workspace, "logs"))
+    File.write!(Path.join(workspace, "logs/before-run-merge-conflict.md"), "stale conflict note\n")
 
     assert_hook_ok!("before_run", workspace, context.origin)
     assert File.read!(Path.join(workspace, "README.md")) == "stable two\n"
+    refute File.exists?(Path.join(workspace, "logs/before-run-merge-conflict.md"))
   end
 
   test "before_run reconstructs a log-only workspace and preserves its logs", context do
@@ -77,6 +82,7 @@ defmodule Aiur.DogfoodHooksTest do
     log_path = Path.join([workspace, "logs", "agent.md"])
     File.mkdir_p!(Path.dirname(log_path))
     File.write!(log_path, "prior agent transcript\n")
+    File.write!(Path.join([workspace, "logs", "before-run-merge-conflict.md"]), "stale conflict note\n")
 
     assert_staged_hook_ok!("before_run", workspace, context.origin)
 
@@ -84,6 +90,7 @@ defmodule Aiur.DogfoodHooksTest do
     assert current_branch!(workspace) == ticket_branch()
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
     assert File.read!(log_path) == "prior agent transcript\n"
+    refute File.exists?(Path.join([workspace, "logs", "before-run-merge-conflict.md"]))
   end
 
   test "reconstruction restores branch start for an existing remote ticket branch", context do
@@ -276,7 +283,7 @@ defmodule Aiur.DogfoodHooksTest do
     assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
   end
 
-  test "before_run restores rewritten package caches when the base merge fails", context do
+  test "before_run lets the agent proceed after a base merge conflict", context do
     commit_legacy_package_caches!(context.seed)
     git!(["-C", context.seed, "push", "--quiet", "origin", configured_base()])
 
@@ -298,9 +305,16 @@ defmodule Aiur.DogfoodHooksTest do
     commit_package_cache_deletion!(context.seed)
     git!(["-C", context.seed, "push", "--quiet", "origin", configured_base()])
 
-    assert {output, status} = run_hook("before_run", workspace, context.origin)
-    refute status == 0
+    ticket_head = String.trim(git!(["-C", workspace, "rev-parse", "HEAD"]))
+    assert {output, 0} = run_hook("before_run", workspace, context.origin)
     assert output =~ "CONFLICT"
+    assert output =~ "README.md"
+    assert output =~ "resolve these files"
+    assert String.trim(git!(["-C", workspace, "rev-parse", "HEAD"])) == ticket_head
+    assert git!(["-C", workspace, "diff", "--name-only", "--diff-filter=U"]) == ""
+    assert File.read!(Path.join(workspace, "logs/before-run-merge-conflict.md")) =~ "README.md"
+    assert File.read!(@prompt_path) =~ "If `logs/before-run-merge-conflict.md` exists, read it before continuing"
+    assert File.read!(@example_prompt_path) =~ "If `logs/before-run-merge-conflict.md` exists, read it before continuing"
     state = cache_root(workspace)
     assert File.read!(Path.join(state, ".aiur-hex/cache.ets")) == "rewritten hex cache\n"
     assert File.read!(Path.join(state, ".aiur-mix/archives/hex.ez")) == "rewritten mix cache\n"
@@ -391,10 +405,11 @@ defmodule Aiur.DogfoodHooksTest do
   end
 
   defp run_hook(name, workspace, origin) do
-    System.cmd("sh", ["-lc", Map.fetch!(dogfood_hooks!(), name)],
+    System.cmd("sh", ["-c", Map.fetch!(dogfood_hooks!(), name)],
       cd: workspace,
       stderr_to_stdout: true,
       env: [
+        {"PATH", fixture_path()},
         {"THIS_REPOSITORY_URL", origin},
         {"THIS_BASE_BRANCH", configured_base()},
         {"AIUR_TICKET_BRANCH", ticket_branch()},
@@ -417,9 +432,13 @@ defmodule Aiur.DogfoodHooksTest do
   end
 
   defp git!(args) do
-    {output, 0} = System.cmd("git", args, stderr_to_stdout: true)
+    {output, 0} = System.cmd(real_git(), args, stderr_to_stdout: true)
     output
   end
+
+  defp real_git, do: System.get_env("AIUR_REAL_GIT") || System.find_executable("git")
+
+  defp fixture_path, do: Path.dirname(real_git()) <> ":/bin"
 
   defp configured_base, do: "stable"
   defp ticket_branch, do: "aiur/1054-test"
