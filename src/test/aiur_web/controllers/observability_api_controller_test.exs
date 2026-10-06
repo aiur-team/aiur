@@ -4,7 +4,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   import Plug.Conn
   import Plug.Test
 
-  alias Aiur.{Claude.HookEvents, DecisionStore, IssueLog}
+  alias Aiur.{Claude.HookEvents, Config, DecisionStore, IssueLog}
   alias Aiur.Orchestrator.SnapshotStore
 
   defmodule ControlOrchestrator do
@@ -205,7 +205,11 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     test "dashboard writes are read-only when dashboard_writable is omitted" do
       orchestrator = start_control_orchestrator(pause_agent: {:ok, 17})
       Phoenix.Config.put(AiurWeb.Endpoint, :orchestrator, orchestrator)
-      :ets.delete(AiurWeb.Endpoint, :dashboard_writable)
+
+      # HttpServer obtains its endpoint value from the config schema. Resolve
+      # that value as startup does so this request exercises the default.
+      assert Config.dashboard_writable?() == false
+      Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, Config.dashboard_writable?())
 
       assert json_response(call(control_conn("MT-DEFAULT", "pause")), 403) == %{
                "error" => "dashboard is read-only"
