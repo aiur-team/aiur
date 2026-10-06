@@ -248,7 +248,7 @@ defmodule Aiur.Workspace.Ownership do
     else
       :none -> :already_released
       false -> {:error, :generation_mismatch}
-      nil -> {:error, :not_held_for_reaping}
+      nil -> :not_held_for_reaping
       _ -> {:error, :cannot_release_without_proof}
     end
   end

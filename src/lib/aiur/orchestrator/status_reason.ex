@@ -44,12 +44,23 @@ defmodule Aiur.Orchestrator.StatusReason do
   def render({:workspace_ownership_waiting, generation, proof}) do
     detail =
       case proof do
-        :same_boot -> "unknown local provider; awaiting independent exit proof"
-        :boot_changed_release_pending -> "local host reboot proved provider exit; release pending"
-        :boot_probe_unavailable -> "unknown local provider; host boot proof unavailable"
-        :remote -> "unknown remote provider; exit unproven"
-        :not_recorded -> "unknown provider; exit proof not recorded"
-        :tracked_provider -> "tracked provider still reaping"
+        :same_boot ->
+          "unknown local provider; awaiting independent exit proof"
+
+        :boot_changed_release_pending ->
+          "local host reboot proved provider exit; audit/release pending, retry with aiur workspace-recover <ticket> <generation>"
+
+        :boot_probe_unavailable ->
+          "unknown local provider; host boot proof unavailable"
+
+        :remote ->
+          "unknown remote provider; exit unproven"
+
+        :not_recorded ->
+          "unknown provider; exit proof not recorded"
+
+        :tracked_provider ->
+          "tracked provider still reaping"
       end
 
     "workspace ownership held (generation #{generation}): #{detail}"

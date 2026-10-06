@@ -13,6 +13,9 @@ defmodule Aiur.Orchestrator.StatusReasonTest do
     assert StatusReason.render({:workspace_ownership_waiting, 9012, :not_recorded}) ==
              "workspace ownership held (generation 9012): unknown provider; exit proof not recorded"
 
+    assert StatusReason.render({:workspace_ownership_waiting, 9012, :boot_changed_release_pending}) ==
+             "workspace ownership held (generation 9012): local host reboot proved provider exit; audit/release pending, retry with aiur workspace-recover <ticket> <generation>"
+
     assert StatusReason.render({:latched, 20, 20}) == "latched 20/20"
     assert StatusReason.render(StatusReason.for_retry("tracker 403", 240_000)) == "transient: tracker 403, retry ~4m"
     assert StatusReason.render(StatusReason.for_pause(:operator_pause)) == "operator"

@@ -273,9 +273,11 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
   end
 
-  test "a local unknown provider awaits explicit recovery after a verified host reboot" do
+  test "a local unknown provider auto-releases after a verified reboot when audit persists" do
     ticket = "ownership-reboot-proof-#{System.unique_integer([:positive])}"
     {:ok, boot} = Agent.start_link(fn -> "boot-before" end)
+    audit_path = Path.join(Aiur.TestSupport.tmp_root!("workspace-reboot-audit"), "#{ticket}.ndjson")
+    audit_fun = &AuditLog.write(&1, path: audit_path)
 
     boot_id_fun = fn ->
       case Agent.get(boot, & &1) do
@@ -286,17 +288,28 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(boot)
+      File.rm(audit_path)
       _ = Store.delete(ticket)
     end)
 
-    assert {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert {:ok, lease} =
+             Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+               host_boot_id_fun: boot_id_fun,
+               audit_fun: audit_fun
+             )
+
     assert :ok = Ownership.expect_provider(lease, :local)
     assert {:ok, %{provider_scope: :local, provider_boot_id: "boot-before", provider: nil} = receipt} = Store.get(ticket)
 
     Process.exit(lease.guardian, :kill)
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
 
-    assert {:ok, held} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert {:ok, held} =
+             Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry,
+               host_boot_id_fun: boot_id_fun,
+               audit_fun: audit_fun
+             )
+
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
 
     assert %{generation: generation, proof: :same_boot} =
@@ -310,7 +323,12 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
     Agent.update(boot, fn _ -> :unavailable end)
 
-    assert {:ok, unprobed} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert {:ok, unprobed} =
+             Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry,
+               host_boot_id_fun: boot_id_fun,
+               audit_fun: audit_fun
+             )
+
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
 
     assert %{proof: :boot_probe_unavailable} =
@@ -320,16 +338,21 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
     Agent.update(boot, fn _ -> "boot-after" end)
 
-    assert {:ok, _recovered} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert {:ok, _recovered} =
+             Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry,
+               host_boot_id_fun: boot_id_fun,
+               audit_fun: audit_fun
+             )
 
-    assert %{generation: generation, proof: :boot_changed_release_pending} =
-             HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store, boot_id_fun)
-
-    assert generation == lease.generation
-    assert {:error, {:workspace_owned, {:ok, %{generation: generation}}}} = Ownership.claim(ticket)
-    assert generation == lease.generation
-    assert :ok = Ownership.release_if_held_with_exit_proof(ticket, generation)
     assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
+    assert [audit_line] = File.read!(audit_path) |> String.split("\n", trim: true)
+    assert {:ok, audit_record} = Jason.decode(audit_line)
+    assert audit_record["action"] == "workspace_hold_auto_release"
+    assert audit_record["actor"] == "guardian"
+    assert audit_record["ticket"] == ticket
+    assert audit_record["generation"] == lease.generation
+    assert audit_record["proof"] == "local_host_boot_id_changed"
+
     assert {:ok, replacement} = Ownership.claim(ticket)
     assert replacement.generation > lease.generation
     assert :ok = Ownership.release(replacement)
@@ -1327,14 +1350,18 @@ defmodule Aiur.Workspace.OwnershipTest do
     Process.exit(held.guardian, :kill)
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
     Agent.update(boot, fn _ -> "boot-after" end)
+    Agent.update(audit_mode, fn _ -> :fail_once end)
 
-    # Daemon restores guardian with new boot proof
+    # Daemon attempts auto-release with new boot proof. A failed audit write
+    # must retain the lease so an operator can retry after storage recovers.
     assert {:ok, _recovered} =
              Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry,
                host_boot_id_fun: boot_id_fun,
                telemetry_fun: telemetry_fun,
                audit_fun: audit_fun
              )
+
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
 
     assert %{generation: ^generation, proof: :boot_changed_release_pending} =
              HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store, boot_id_fun)
@@ -1343,6 +1370,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:error, :generation_mismatch} = Ownership.release_if_held_with_exit_proof(ticket, generation + 1)
     assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
 
+    Agent.update(audit_mode, fn _ -> :fail_once end)
     failed_output = capture_io(fn -> AgentControlCLI.recover_workspace(ticket, generation) end)
     assert failed_output =~ "durable audit write failed"
     assert failed_output =~ "__AIUR_CONTROL_EXIT__:1"
@@ -1420,7 +1448,7 @@ defmodule Aiur.Workspace.OwnershipTest do
     ticket = "ownership-live-recovery-#{System.unique_integer([:positive])}"
     assert {:ok, lease} = Ownership.claim(ticket)
 
-    assert {:error, :not_held_for_reaping} = Ownership.release_if_held_with_exit_proof(ticket, lease.generation)
+    assert :not_held_for_reaping = Ownership.release_if_held_with_exit_proof(ticket, lease.generation)
     assert {:ok, %{generation: generation, phase: :provisioning}} = Ownership.current(ticket)
     assert generation == lease.generation
     assert :ok = Ownership.release(lease)
