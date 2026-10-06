@@ -109,14 +109,23 @@ defmodule Aiur.ExecutorWakeProjectionTest do
     assert record["action"] == "human_review"
   end
 
-  test "projects the handoff action and legacy pull-request number fallbacks" do
+  test "projects the handoff action from its topic when the event omits it" do
     assert {:ok, record} =
              ExecutorWakeProjection.project(%{
-               topic: "ticket.42.agent.handoff.human_review",
-               pull_request_number: 3019
+               topic: "ticket.42.agent.handoff.human_review"
              })
 
     assert record["action"] == "human_review"
+  end
+
+  test "projects a legacy pull-request number field" do
+    assert {:ok, record} =
+             ExecutorWakeProjection.project(%{
+               topic: "ticket.42.agent.handoff.human_review",
+               action: "human_review",
+               pull_request_number: 3019
+             })
+
     assert record["pr_number"] == 3019
   end
 
