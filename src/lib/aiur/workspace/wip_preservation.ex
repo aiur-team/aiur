@@ -114,7 +114,8 @@ defmodule Aiur.Workspace.WipPreservation do
   returns. When the save fails, `destroy_fun` does not run, except as the
   module doc describes. `destroy_fun` can return `{:skipped, reason}` to keep
   the workspace after the save (a new run claimed it); the save is kept.
-  Options: `terminal?` (the ticket is closed).
+  Options: `terminal?` (the ticket is closed), `before_destroy` (a callback
+  that runs after the initial save and before a second save plus deletion).
   """
   @spec guard_destroy(Path.t(), String.t(), String.t(), (-> result), keyword()) ::
           result | {:error, {:wip_preservation_failed, Path.t(), term()}}
@@ -125,17 +126,50 @@ defmodule Aiur.Workspace.WipPreservation do
 
     case preserve(workspace, action, ticket: ticket) do
       {:ok, :clean} ->
-        destroyed(leaf, destroy_fun.())
+        destroy_after_prepare(workspace, ticket, action, destroy_fun, opts, leaf)
 
       {:ok, artifact} ->
-        Logger.warning("Preserved uncommitted workspace state before an attempt to #{action} ticket=#{ticket} workspace=#{workspace} artifact=#{artifact["artifact_dir"]}")
+        case Keyword.get(opts, :before_destroy) do
+          before_destroy when is_function(before_destroy, 0) ->
+            callback_result = before_destroy.()
 
-        result = destroy_fun.()
-        emit_preserved_alert(ticket, action, artifact)
-        destroyed(leaf, result)
+            case callback_result do
+              :ok ->
+                mark_delivered([artifact])
+                guard_destroy(workspace, ticket, action, destroy_fun, Keyword.delete(opts, :before_destroy))
+
+              {:skipped, _reason} = skipped ->
+                destroyed(leaf, skipped)
+
+              _other ->
+                mark_delivered([artifact])
+                guard_destroy(workspace, ticket, action, destroy_fun, Keyword.delete(opts, :before_destroy))
+            end
+
+          nil ->
+            Logger.warning("Preserved uncommitted workspace state before an attempt to #{action} ticket=#{ticket} workspace=#{workspace} artifact=#{artifact["artifact_dir"]}")
+
+            result = destroy_fun.()
+            unless match?({:skipped, _reason}, result), do: emit_preserved_alert(ticket, action, artifact)
+            destroyed(leaf, result)
+        end
 
       {:error, reason} ->
         destroy_unsaved(workspace, ticket, action, reason, destroy_fun, opts)
+    end
+  end
+
+  defp destroy_after_prepare(workspace, ticket, action, destroy_fun, opts, leaf) do
+    case Keyword.get(opts, :before_destroy) do
+      before_destroy when is_function(before_destroy, 0) ->
+        case before_destroy.() do
+          :ok -> guard_destroy(workspace, ticket, action, destroy_fun, Keyword.delete(opts, :before_destroy))
+          {:skipped, _reason} = skipped -> destroyed(leaf, skipped)
+          _other -> guard_destroy(workspace, ticket, action, destroy_fun, Keyword.delete(opts, :before_destroy))
+        end
+
+      nil ->
+        destroyed(leaf, destroy_fun.())
     end
   end
 

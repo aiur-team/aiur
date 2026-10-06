@@ -167,13 +167,16 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert snapshot(workspace) == before
     end
 
-    test "a failed save keeps the workspace", %{test_root: test_root, state_dir: state_dir} do
+    test "a failed save keeps the dirty checkout without running before_remove", %{test_root: test_root, state_dir: state_dir} do
       workspace = cloned_workspace!(test_root, "RM-2")
       File.write!(Path.join(workspace, "README.md"), "changed\n")
+      marker = Path.join(test_root, "remove-hook-ran")
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), workspace_root: test_root, hook_before_remove: "touch #{marker}")
       block_state_dir!(state_dir)
 
       assert {:error, {:wip_preservation_failed, ^workspace, _reason}, ""} = Remove.remove(workspace, nil)
       assert File.read!(Path.join(workspace, "README.md")) == "changed\n"
+      refute File.exists?(marker)
     end
 
     test "a clean workspace is removed without an artifact", %{test_root: test_root} do
@@ -361,6 +364,19 @@ defmodule Aiur.Workspace.WipPreservationTest do
       assert File.read!(Path.join(workspace, "new-run.txt")) == "new run\n"
       assert [%{"complete" => true}] = manifests(identifier)
       assert [_notice] = WipPreservation.pending_notices(workspace, identifier)
+    end
+
+    test "a skipped delete does not emit a preserved alert", %{test_root: test_root} do
+      identifier = "SKIP-#{System.unique_integer([:positive])}"
+      workspace = cloned_workspace!(test_root, identifier)
+      File.write!(Path.join(workspace, "README.md"), "changed\n")
+      subscribe!("ticket.#{identifier}.workspace.wip_preserved")
+
+      assert {:skipped, :live_lease} =
+               WipPreservation.guard_destroy(workspace, identifier, "remove the workspace", fn -> {:skipped, :live_lease} end)
+
+      refute_receive {:event, %{topic: "ticket." <> _}}, 300
+      assert File.read!(Path.join(workspace, "README.md")) == "changed\n"
     end
 
     test "a crash in one terminal cleanup entry does not stop the next one", %{test_root: test_root} do

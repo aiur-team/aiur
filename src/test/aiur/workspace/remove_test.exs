@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.RemoveTest do
   use Aiur.TestSupport
 
   alias Aiur.Workflow
-  alias Aiur.Workspace.Remove
+  alias Aiur.Workspace.{Remove, WipPreservation}
 
   setup do
     test_root = Aiur.TestSupport.tmp_root!("remove_test")
@@ -43,5 +43,49 @@ defmodule Aiur.Workspace.RemoveTest do
     assert File.dir?(workspace)
     assert {:ok, _} = Remove.remove(workspace, nil)
     refute File.exists?(workspace)
+  end
+
+  test "a live lease skips removal before running before_remove", %{workspace: workspace, test_root: test_root} do
+    marker = Path.join(test_root, "hook-ran")
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root, hook_before_remove: "touch #{marker}")
+    init_checkout!(workspace)
+    File.write!(Path.join(workspace, "work.txt"), "unfinished")
+    Aiur.TestSupport.put_runtime_state_dir!(Path.join(test_root, "runtime-state"))
+    guard = fn -> {:skipped, :live_lease} end
+
+    assert {:skipped, :live_lease} = Remove.remove(workspace, nil, destroy_guard: guard)
+    assert File.dir?(workspace)
+    refute File.exists?(marker)
+    assert {:ok, preservation_dir} = WipPreservation.workspace_dir(Path.basename(workspace))
+    refute File.exists?(preservation_dir)
+  end
+
+  test "a lease claimed during the save prevents before_remove", %{workspace: workspace, test_root: test_root} do
+    marker = Path.join(test_root, "hook-ran")
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root, hook_before_remove: "touch #{marker}")
+    Process.put(:destroy_guard_calls, 0)
+
+    guard = fn ->
+      calls = Process.get(:destroy_guard_calls) + 1
+      Process.put(:destroy_guard_calls, calls)
+      if calls == 1, do: :ok, else: {:skipped, :live_lease}
+    end
+
+    assert {:skipped, :live_lease} = Remove.remove(workspace, nil, destroy_guard: guard)
+    assert File.dir?(workspace)
+    refute File.exists?(marker)
+  end
+
+  test "remote git status failure refuses deletion", _context do
+    script = Remove.remote_dirty_check()
+    assert script =~ "|| exit 76"
+    assert script =~ "exit 75"
+  end
+
+  defp init_checkout!(workspace) do
+    {_, 0} = System.cmd("git", ["init", "-q", workspace])
+    File.write!(Path.join(workspace, "tracked.txt"), "baseline")
+    {_, 0} = System.cmd("git", ["-C", workspace, "add", "tracked.txt"])
+    {_, 0} = System.cmd("git", ["-C", workspace, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "baseline"])
   end
 end

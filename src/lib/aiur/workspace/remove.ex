@@ -32,8 +32,9 @@ defmodule Aiur.Workspace.Remove do
   alias Aiur.{Config, TestTicketScope}
   alias Aiur.Workspace.{Hooks, Layout, Remote, WipPreservation}
 
-  # Exit status of the remote removal script when the checkout is dirty.
+  # Exit statuses returned by the remote removal script.
   @remote_dirty_status 75
+  @remote_status_failed 76
 
   @type worker_host :: String.t() | nil
 
@@ -87,6 +88,7 @@ defmodule Aiur.Workspace.Remove do
     case Remote.run_remote_command(worker_host, Remote.remote_shell_assign("workspace", workspace) <> "\n" <> script, Config.settings!().hooks.timeout_ms) do
       {:ok, {_output, 0}} -> :clean
       {:ok, {_output, @remote_dirty_status}} -> :dirty
+      {:ok, {_output, @remote_status_failed}} -> {:error, {:workspace_remove_status_failed, worker_host}, ""}
       {:ok, {output, status}} -> {:error, {:workspace_remove_failed, worker_host, status, output}, ""}
       {:error, reason} -> {:error, reason, ""}
     end
@@ -110,11 +112,15 @@ defmodule Aiur.Workspace.Remove do
     end
   end
 
-  defp remote_dirty_check do
+  @doc false
+  def remote_dirty_check do
     [
-      "if [ -e \"$workspace/.git\" ] && [ -n \"$(git -C \"$workspace\" status --porcelain --untracked-files=normal 2>/dev/null | head -n 1)\" ]; then",
-      "  echo 'workspace has uncommitted changes; not removed' >&2",
-      "  exit #{@remote_dirty_status}",
+      "if [ -e \"$workspace/.git\" ]; then",
+      "  status=$(git -C \"$workspace\" status --porcelain --untracked-files=normal 2>/dev/null) || exit #{@remote_status_failed}",
+      "  if [ -n \"$status\" ]; then",
+      "    echo 'workspace has uncommitted changes; not removed' >&2",
+      "    exit #{@remote_dirty_status}",
+      "  fi",
       "fi"
     ]
     |> Enum.join("\n")
@@ -214,14 +220,34 @@ defmodule Aiur.Workspace.Remove do
   end
 
   defp remove_preserved(workspace, opts) do
-    # Run the hook before the final snapshot so its changes are included in the
-    # same durable artifact as the agent's work.
-    maybe_run_before_remove_hook(workspace, nil)
-    destroy = fn -> destroy_local(workspace, opts) end
+    # Do not run a removal hook against a workspace that a new lease owns.
+    # The second guard in destroy_local closes the race while the hook and save
+    # run; the save then captures both agent and hook changes.
+    case destroy_guard(opts) do
+      :ok ->
+        destroy = fn -> destroy_local(workspace, opts) end
 
-    case WipPreservation.guard_destroy(workspace, ticket(workspace, opts), "remove the workspace", destroy, Keyword.take(opts, [:terminal?])) do
-      {:error, {:wip_preservation_failed, _workspace, _reason} = reason} -> {:error, reason, ""}
-      result -> result
+        callback_options =
+          if is_nil(Config.settings!().hooks.before_remove) do
+            []
+          else
+            before_destroy = fn ->
+              case destroy_guard(opts) do
+                :ok -> maybe_run_before_remove_hook(workspace, nil)
+                skipped -> skipped
+              end
+            end
+
+            [before_destroy: before_destroy]
+          end
+
+        case WipPreservation.guard_destroy(workspace, ticket(workspace, opts), "remove the workspace", destroy, Keyword.take(opts, [:terminal?]) ++ callback_options) do
+          {:error, {:wip_preservation_failed, _workspace, _reason} = reason} -> {:error, reason, ""}
+          result -> result
+        end
+
+      skipped ->
+        skipped
     end
   end
 

@@ -191,6 +191,7 @@ defmodule Aiur.Workspace.RefreshTest do
     }
 
     assert {:error, _} = Refresh.run(workspace, issue, nil)
+    assert git!(["-C", workspace, "branch", "--show-current"]) |> String.trim() == "aiur/123-fix-login"
     assert File.read!(trace) == "aiur/123-fix-login\naiur/123-fix-login\n"
   end
 
