@@ -4,6 +4,8 @@ name: Stream Deck package
 #
 # Channels:
 #   pull_request   build + clean-install smoke only; nothing is published.
+#   push to main   remove legacy per-commit releases after this workflow change
+#                  merges; do not build or publish.
 #   nightly        the schedule, or workflow_dispatch with publish=true. There
 #                  is exactly ONE rolling pre-release, `streamdeck-nightly`,
 #                  updated in place: the tag moves to the built commit and the
@@ -17,6 +19,11 @@ name: Stream Deck package
 # Per-commit `streamdeck-<sha>` pre-releases are gone (#2633): they created one
 # release and one tag per push to main and buried the real releases.
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/streamdeck-package.yml"
   pull_request:
     paths:
       - "packages/streamdeck/**"
@@ -39,7 +46,7 @@ on:
 # release. Initial PR runs share a stable group; reruns and release events get a
 # unique group so they cannot replace another pending or in-progress run.
 concurrency:
-  group: ${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && 'nightly' || format('{0}-{1}-{2}', github.event_name, (github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number) || github.run_id, github.run_attempt) }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'nightly' || format('{0}-{1}-{2}', github.event_name, (github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number) || github.run_id, github.run_attempt) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
 
 permissions:
@@ -95,6 +102,21 @@ jobs:
             echo "| head | ${{ github.sha }} |"
             echo "| proceeding | ${{ steps.gate.outputs.proceed }} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup-legacy-main:
+    name: clean legacy Stream Deck nightlies
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Remove legacy per-commit Stream Deck nightlies
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node scripts/cleanup-legacy-streamdeck-nightlies.mjs
 
   build:
     needs: gate
@@ -188,6 +210,11 @@ jobs:
         with:
           name: streamdeck-${{ needs.build.outputs.commit }}
           path: package-dist
+      - name: Remove legacy per-commit Stream Deck nightlies
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: node scripts/cleanup-legacy-streamdeck-nightlies.mjs
       - name: Update the rolling pre-release in place
         env:
           GH_TOKEN: ${{ github.token }}

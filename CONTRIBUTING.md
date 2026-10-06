@@ -172,9 +172,9 @@ one per platform).
 
 | Channel | Trigger | Version | dist-tag |
 | --- | --- | --- | --- |
-| stable | push a `v<mix.exs version>` tag, or `channel=stable` | `0.0.8` | `latest` |
-| nightly | the 07:00 UTC schedule, or `channel=nightly` | `0.0.8-nightly.<short-sha>` | `nightly` |
-| dry run | `workflow_dispatch` default | `0.0.8-dev.<run>` | none |
+| stable | push a `v<mix.exs version>` tag, or `channel=stable` | `0.0.9` | `latest` |
+| nightly | the 07:00 UTC schedule, or `channel=nightly` | `0.0.9-nightly.<short-sha>` | `nightly` |
+| dry run | `workflow_dispatch` default | `0.0.9-dev.<run>` | none |
 
 ```bash
 # Stable cut without pushing a tag.
@@ -210,7 +210,8 @@ one Stream Deck entry however many nights run, and an unchanged package skips
 the night entirely.
 
 ```bash
-# Build only, nothing published.
+# Request a build; the workflow skips it when the package is unchanged. Nothing
+# is published unless publish=true.
 gh workflow run streamdeck-package.yml --ref main
 
 # Update the rolling pre-release now.
