@@ -5,9 +5,10 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   alias Aiur.AgentPubSub
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
+  alias Aiur.CodexProber
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.{CodexProber, ModelAvailability}
+  alias Aiur.ModelAvailability
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State, StatusReport, TrackerHealth}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 

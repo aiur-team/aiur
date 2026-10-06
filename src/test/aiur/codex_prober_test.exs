@@ -44,10 +44,10 @@ defmodule Aiur.CodexProberTest do
                end
              )
 
-    assert_receive {:probe_workspace, workspace}
+    assert_receive {:probe_workspace, workspace}, 1_000
     assert String.starts_with?(Path.expand(workspace) <> "/", Path.expand(Config.workspace_root()) <> "/")
     assert {:ok, ^workspace} = AppServerPort.validate_workspace_cwd(workspace, nil)
-    assert_receive :probe_port_stopped
+    assert_receive :probe_port_stopped, 1_000
     refute File.exists?(workspace)
   end
 

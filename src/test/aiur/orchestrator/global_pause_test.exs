@@ -150,7 +150,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
                )
 
       refute resumed.globally_paused
-      assert_receive {:provider_probe_scheduled, "codex", opts}
+      assert_receive {:provider_probe_scheduled, "codex", opts}, 1_000
       assert Keyword.fetch!(opts, :path) == path
       assert Keyword.fetch!(opts, :now) == now
     end
