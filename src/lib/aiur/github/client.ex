@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.Client do
   GitHub REST API client for issue tracking via labels.
   """
 
-  alias Aiur.{BuildOrder.GitHubGraph, BuildOrder.ProviderResult, Issue, TrackerIdentity}
+  alias Aiur.{BuildOrder.GitHubGraph, BuildOrder.ProviderResult, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
     AuthPreflight,
@@ -60,30 +60,32 @@ defmodule Aiur.GitHub.Client do
   def classify_error(error), do: Errors.classify_error(error)
 
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_candidate_issues(opts \\ []), do: Issues.fetch_candidate_issues(opts)
+  def fetch_candidate_issues(opts \\ []), do: Issues.fetch_candidate_issues(opts) |> TestTicketScope.filter_result()
 
   @spec fetch_candidate_issues_conditional(map(), keyword()) ::
           {:ok, [Issue.t()], map()} | {:error, term()}
   def fetch_candidate_issues_conditional(cache, opts \\ []),
-    do: Issues.fetch_candidate_issues_conditional(cache, opts)
+    do: Issues.fetch_candidate_issues_conditional(cache, opts) |> TestTicketScope.filter_result()
 
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issues_by_states(state_names, opts \\ []), do: Issues.fetch_issues_by_states(state_names, opts)
+  def fetch_issues_by_states(state_names, opts \\ []),
+    do: Issues.fetch_issues_by_states(state_names, opts) |> TestTicketScope.filter_result()
 
   @spec fetch_issues_by_states_conditional([String.t()], map(), keyword()) ::
           {:ok, [Issue.t()], map()} | {:error, term()}
   def fetch_issues_by_states_conditional(state_names, cache, opts \\ []) do
-    Issues.fetch_issues_by_states_conditional(state_names, cache, opts)
+    Issues.fetch_issues_by_states_conditional(state_names, cache, opts) |> TestTicketScope.filter_result()
   end
 
   @spec fetch_issue_states_by_ids([String.t()], keyword()) ::
           {:ok, [Issue.t()]} | {:error, term()}
-  def fetch_issue_states_by_ids(issue_ids, opts \\ []), do: Issues.fetch_issue_states_by_ids(issue_ids, opts)
+  def fetch_issue_states_by_ids(issue_ids, opts \\ []),
+    do: Issues.fetch_issue_states_by_ids(issue_ids, opts) |> TestTicketScope.filter_result()
 
   @spec fetch_issue_states_by_ids_conditional([String.t()], map(), keyword()) ::
           {:ok, [Issue.t()], map()} | {:error, term()} | {:error, term(), map()}
   def fetch_issue_states_by_ids_conditional(issue_ids, cache, opts \\ []) do
-    Issues.fetch_issue_states_by_ids_conditional(issue_ids, cache, opts)
+    Issues.fetch_issue_states_by_ids_conditional(issue_ids, cache, opts) |> TestTicketScope.filter_result()
   end
 
   @doc "Fetches a complete, bounded Build Order root catalog without tracker-polling semantics."
@@ -118,9 +120,20 @@ defmodule Aiur.GitHub.Client do
   Hydrates `blocked_by` on a GitHub `Issue.t()` from the native Issue
   Dependencies API. Only meaningful for issues that are actually being
   considered for dispatch (see `Aiur.GitHub.Issues.hydrate_blocked_by/1`).
+
+  The one-argument form is the dispatch gate's entry point
+  (`Tracker.hydrate_blocked_by/1`), so it must reach the *revalidating*
+  `Issues.hydrate_blocked_by/1`. An `opts \\ []` default here used to turn it
+  into `Issues.hydrate_blocked_by(issue, [])`, which serves the held
+  `:issue_blocked_by` body with no request at all: a blocker that closed after
+  the list was stored held its dependents at `dispatch_decline=:dependency`
+  indefinitely (#2709, a regression path around the #2550 fix).
   """
+  @spec hydrate_blocked_by(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def hydrate_blocked_by(issue), do: Issues.hydrate_blocked_by(issue)
+
   @spec hydrate_blocked_by(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, term()}
-  def hydrate_blocked_by(issue, opts \\ []), do: Issues.hydrate_blocked_by(issue, opts)
+  def hydrate_blocked_by(issue, opts), do: Issues.hydrate_blocked_by(issue, opts)
 
   @spec add_dependency(integer() | String.t(), integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -258,6 +271,10 @@ defmodule Aiur.GitHub.Client do
     end)
   end
 
+  @spec fetch_pull_request_was_draft(String.t() | integer(), keyword()) :: {:ok, boolean()} | {:error, term()}
+  def fetch_pull_request_was_draft(pr_number, opts \\ []),
+    do: PullRequests.fetch_pull_request_was_draft(pr_number, opts)
+
   @spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
   def fetch_pull_request_head_ref(pr_number, opts \\ []),
@@ -327,6 +344,10 @@ defmodule Aiur.GitHub.Client do
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number, opts \\ []),
     do: PullRequests.fetch_classified_pr_review_comments(pr_number, opts)
+
+  @spec fetch_classified_pr_reviews(String.t() | integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_classified_pr_reviews(pr_number, opts \\ []),
+    do: PullRequests.fetch_classified_pr_reviews(pr_number, opts)
 
   @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}

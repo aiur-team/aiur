@@ -1,6 +1,35 @@
 # Aiur Events — Attentions
 
-`attention.<slug>` events surface a ❗ chip in the Executor’s agent list. They are how an agent says "I need the Executor to look at this before I can keep going."
+`attention.<slug>` events surface a ❗ chip in the Executor’s agent list. They
+ask the Executor to look at the ticket. Aiur also projects them as legacy
+Commands with `human_required` and `irreversible` policy. The Executor cannot
+answer those Commands with `executor-answer`, even when the text asks only for
+an observed fact.
+
+When you need an **answer**, emit `decision.requested` instead. For a factual
+observation such as "Did the consent page open on the retry?", use
+`kind: "factual_observation"`, `authority: "supervisor_allowed"`, and
+`reversibility: "reversible"`, with a free-text question and enough context to
+identify the retry. This lets the Executor give a redacted observation through
+`executor-answer --custom-response`. Keep product policy, spend, publication,
+and irreversible actions `human_required` and escalate them to the human.
+If you also need a ❗ chip, emit the attention first, then immediately emit
+`decision.requested` with the same `attention_slug` to enrich its legacy
+Command with the correct policy before asking for an answer.
+
+```jsonc
+{
+  "name": "decision.requested",
+  "message": "Did discovery consent open and complete on the retry?",
+  "payload": {
+    "kind": "factual_observation",
+    "authority": "supervisor_allowed",
+    "reversibility": "reversible",
+    "blocking": true,
+    "context": { "short_summary": "Report the redacted observed outcome of the owner's retry." }
+  }
+}
+```
 
 The `agent.attention.*` family is **not** agent-exclusive. The orchestrator
 also publishes into it — `attention.state_divergence`,
@@ -16,9 +45,9 @@ attention slugs distinct from system ones.
 
 ```jsonc
 {
-  "name": "attention.scope-question",
-  "message": "OK to namespace blocker tools under aiur_* prefix?",
-  "payload": { "context": "U13 design — see thread", "alternatives": ["aiur_block_on", "declare_blocker"] }
+  "name": "attention.retry-status",
+  "message": "Investigating why the approved retry did not open consent",
+  "payload": { "context": "No answer is needed yet" }
 }
 ```
 

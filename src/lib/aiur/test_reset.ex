@@ -27,7 +27,7 @@ defmodule Aiur.TestReset do
   src/lib/aiur/sandbox/`) — refuses if HEAD doesn't contain the
   baseline files.
 
-  **Never deleted**: `<logs-root>/<repo>.event_id` (the
+  **Never deleted**: `<runtime-state>/event-id.json` (the
   `IdGenerator` counter file). Wiping it would let post-reset events
   re-use IDs from before the reset, breaking the at-least-once cursor
   contract.
@@ -36,9 +36,11 @@ defmodule Aiur.TestReset do
   require Logger
 
   alias Aiur.Config.Paths
+  alias Aiur.Events.SubscriptionStore
   alias Aiur.GitHub.HostCommand
   alias Aiur.GitHub.Labels
   alias Aiur.{JsonStore, TicketBranch}
+  alias Aiur.Workspace.Layout
 
   @tickets_file ".aiur-test-tickets.json"
 
@@ -478,7 +480,7 @@ defmodule Aiur.TestReset do
 
     say("\nPer-ticket actions:")
     say("  - Delete subscriptions file for <id>")
-    say("  - Remove workspace at <workspace_root>/<id> (fans across worker.ssh_hosts)")
+    say("  - Remove repo-namespaced workspace for <id> (fans across worker.ssh_hosts)")
     say("  - Delete remote branch aiur/<id>")
     say("  - Close any open PR from aiur/<id>")
     say("  - Delete agent-workpad comments (`## Agent Workpad` bodies) on the issue")
@@ -486,7 +488,7 @@ defmodule Aiur.TestReset do
     say("  - If closed: remove detected agent:*/model:* labels and abort before launch")
     say("\nAlways:")
     say("  - Restore sandbox baseline (git checkout HEAD -- " <> Enum.join(@baseline_files, " "))
-    say("  - Preserve <repo>.event_id (IdGenerator counter)")
+    say("  - Preserve event-id.json (IdGenerator counter)")
   end
 
   defp reset_one(id, _opts) do
@@ -578,7 +580,7 @@ defmodule Aiur.TestReset do
     end
   end
 
-  # Per-issue workspace clone (typically <workspace_root>/<id>) carries
+  # Per-issue workspace clone (typically <workspace_root>/<repo>/<id>) carries
   # the agent's uncommitted edits, untracked files, and git state from
   # the prior session. Without this, the agent on the next run starts
   # in a dirty tree and reports "I see uncommitted changes" — exactly
@@ -595,8 +597,14 @@ defmodule Aiur.TestReset do
   # (`<tmp_dir>/aiur_workspaces`).
   defp delete_workspace(id) do
     root = workspace_root_with_fallback()
+    remove_workspace(id, root)
+  end
+
+  @doc false
+  @spec remove_workspace(integer() | String.t(), Path.t()) :: :ok
+  def remove_workspace(id, root) do
     safe_id = Paths.sanitize(to_string(id))
-    path = Path.join(root, safe_id)
+    path = workspace_path_with_fallback(root, safe_id)
 
     case File.rm_rf(path) do
       {:ok, []} ->
@@ -608,6 +616,14 @@ defmodule Aiur.TestReset do
       {:error, reason, file} ->
         warn("##{id} workspace cleanup failed at #{file}: #{inspect(reason)}")
     end
+  end
+
+  defp workspace_path_with_fallback(root, safe_id) do
+    Layout.issue_workspace_path(root, safe_id)
+  rescue
+    _ -> Path.join(root, safe_id)
+  catch
+    _, _ -> Path.join(root, safe_id)
   end
 
   defp workspace_root_with_fallback do
@@ -818,9 +834,7 @@ defmodule Aiur.TestReset do
     end
   end
 
-  defp subscriptions_path(id) do
-    Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.#{id}.subscriptions.json")
-  end
+  defp subscriptions_path(id), do: SubscriptionStore.path_for(to_string(id))
 
   defp say(msg), do: IO.puts(:stderr, msg)
   defp ok(msg), do: say("✅ #{msg}")

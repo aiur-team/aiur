@@ -7,6 +7,18 @@ defmodule Aiur.ModelAvailability do
   Executor to inspect without querying a running node. Providers may report a
   subset of the hourly, weekly, and monthly windows; unknown windows never
   make a backend unavailable.
+
+  A usage-limit refusal that repeats for the same backend soon after the last
+  one backs off: the second refusal holds the backend for 10 minutes, and each
+  later one doubles the hold, to at most the one-hour unknown-reset rule
+  (`backoff_until`). A provider that still refuses after its printed reset
+  cannot make the fallback resume, fail and resume again every tick (#2737).
+  A later reset from the provider still wins.
+
+  A repeat means a refusal that *disproves* the last printed reset, so it has to
+  arrive at or after it. Refusals that arrive before it are the same limit seen
+  by other agents, and they never extend the hold. That is what keeps one
+  fleet-wide limit from holding a backend for an hour past its own reset.
   """
 
   alias Aiur.{CodingAgent, Workflow}
@@ -14,6 +26,11 @@ defmodule Aiur.ModelAvailability do
 
   @windows ~w(hourly weekly monthly)
   @unknown_reset_ttl_seconds 3_600
+  # A refusal within this time of the previous one is a repeat. It is two
+  # capped holds, so a refusal just after a one-hour hold still counts.
+  @repeat_window_seconds 2 * @unknown_reset_ttl_seconds
+  # The second refusal holds for twice this; each repeat doubles the hold.
+  @backoff_base_seconds 300
 
   @spec path() :: Path.t()
   def path, do: Path.join(Path.dirname(Workflow.workflow_file_path()), "model-usage.json")
@@ -44,6 +61,7 @@ defmodule Aiur.ModelAvailability do
         |> add_unknown_reset_deadlines(now)
         |> merge_entry(Map.get(backends, backend, %{}))
         |> Map.put("observed_at", DateTime.to_iso8601(now))
+        |> record_limit_streak(Map.get(backends, backend, %{}), normalized, now, opts)
         |> record_observation(normalized, now)
 
       write(path, Map.put(state, "backends", Map.put(backends, backend, entry)))
@@ -108,7 +126,8 @@ defmodule Aiur.ModelAvailability do
     explicit_limit? = Map.get(entry, "limited") == true
     reset_at = parse_time(Map.get(entry, "reset_at"))
 
-    (explicit_limit? and reset_active?(reset_at, entry, now)) or
+    backoff_active?(entry, now) or
+      (explicit_limit? and reset_active?(reset_at, entry, now)) or
       Enum.any?(@windows, &window_limited?(Map.get(entry, &1), now))
   end
 
@@ -130,6 +149,55 @@ defmodule Aiur.ModelAvailability do
 
   defp reset_active?(%DateTime{} = reset_at, _entry, now), do: DateTime.compare(reset_at, now) == :gt
   defp reset_active?(nil, entry, now), do: observed_recent?(entry, now)
+
+  defp backoff_active?(entry, now), do: future_reset?(Map.get(entry, "backoff_until"), now)
+
+  # An explicit limit (a usage-limit refusal) that follows the previous one
+  # within the repeat window extends the streak; the second and later ones set
+  # an exponential hold, capped at the unknown-reset ttl. Window-only
+  # observations leave the streak and the hold alone.
+  defp record_limit_streak(entry, existing, %{"limited" => true}, now, opts) do
+    streak = if repeat_limit?(existing, now), do: Map.get(existing, "limit_streak", 1) + 1, else: 1
+    base = Keyword.get(opts, :backoff_base_seconds, @backoff_base_seconds)
+
+    entry = Map.put(entry, "limit_streak", streak)
+
+    if streak > 1 do
+      hold = min(base * Integer.pow(2, min(streak - 1, 16)), @unknown_reset_ttl_seconds)
+      Map.put(entry, "backoff_until", now |> DateTime.add(hold, :second) |> DateTime.to_iso8601())
+    else
+      Map.delete(entry, "backoff_until")
+    end
+  end
+
+  defp record_limit_streak(entry, _existing, _normalized, _now, _opts), do: entry
+
+  defp repeat_limit?(%{"limit_streak" => streak} = existing, now) when is_integer(streak) and streak > 0 do
+    reset_disproved?(existing, now) and
+      case parse_time(Map.get(existing, "limited_observed_at")) do
+        %DateTime{} = previous -> DateTime.diff(now, previous, :second) < @repeat_window_seconds
+        nil -> false
+      end
+  end
+
+  defp repeat_limit?(_existing, _now), do: false
+
+  # Only a refusal that arrives **at or after** the reset the previous refusal
+  # printed disproves that reset, and only a disproved reset earns a backoff.
+  #
+  # A refusal that lands before the known reset carries no new information: it
+  # is another worker meeting the same still-active limit. A fleet-wide limit
+  # produces one such refusal per agent within seconds, and counting those as
+  # repeats drove the streak straight to the one-hour cap and re-armed a full
+  # hour from the last straggler, holding the backend past a reset the provider
+  # had already told us. A provider that prints no reset is unchanged: there is
+  # nothing to disprove, so every repeat still escalates.
+  defp reset_disproved?(existing, now) do
+    case parse_time(Map.get(existing, "reset_at")) do
+      %DateTime{} = reset_at -> DateTime.compare(now, reset_at) != :lt
+      nil -> true
+    end
+  end
 
   defp observed_recent?(entry, now) do
     case parse_time(Map.get(entry, "observed_at")) do
@@ -162,11 +230,17 @@ defmodule Aiur.ModelAvailability do
 
   defp merge_entry(new_entry, existing) do
     existing =
-      if Enum.any?(@windows, &Map.has_key?(new_entry, &1)) and
-           not Map.has_key?(new_entry, "limited") do
-        Map.drop(existing, ["limited", "reset_at"])
-      else
-        existing
+      cond do
+        Enum.any?(@windows, &Map.has_key?(new_entry, &1)) and not Map.has_key?(new_entry, "limited") ->
+          Map.drop(existing, ["limited", "reset_at"])
+
+        # A new limit with no reset must not inherit the reset of an older
+        # limit that already passed: that would read as available at once.
+        Map.get(new_entry, "limited") == true and not Map.has_key?(new_entry, "reset_at") ->
+          Map.delete(existing, "reset_at")
+
+        true ->
+          existing
       end
 
     existing

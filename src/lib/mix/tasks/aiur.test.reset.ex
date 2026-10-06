@@ -50,6 +50,9 @@ defmodule Mix.Tasks.Aiur.Test.Reset do
         _ -> File.cwd!()
       end
 
+    repo_config = Path.join([repo_root, ".aiur", "config"])
+    if File.regular?(repo_config), do: Aiur.Workflow.set_workflow_file_path(repo_config)
+
     opts =
       opts
       |> Keyword.put(:repo_root, repo_root)

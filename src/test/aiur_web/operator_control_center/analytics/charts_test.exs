@@ -170,6 +170,23 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     end
   end
 
+  test "actor and ticket labels remain text in SVG charts" do
+    marker = ~s|</text><text id="aiur-marker">MARKER</text><text>|
+    m = model()
+    actor = %{hd(m.actors) | label: marker}
+    cost_svg = Charts.cost(%{m | actors: [actor]}, MapSet.new([actor.key]), :cpu)
+    gantt_svg = Charts.gantt(%{m | tickets: [%{hd(m.tickets) | id: marker}]})
+
+    for svg <- [cost_svg, gantt_svg] do
+      document = Floki.parse_fragment!(svg)
+      assert Floki.find(document, "#aiur-marker") == []
+      assert svg =~ "&lt;/text&gt;"
+
+      assert Floki.find(document, "text")
+             |> Enum.any?(fn node -> Floki.text(node) =~ "</text>" end)
+    end
+  end
+
   test "burnup renders the scope line" do
     assert Charts.burnup(model()) =~ "scope"
   end

@@ -23,6 +23,24 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderStatus do
     """
   end
 
+  @doc """
+  A coarse "how long ago" phrase for a moment the page is dating.
+
+  Shared so the saved-plan banner and the percentages it is dating cannot drift
+  into two different accounts of the same age.
+  """
+  @spec age_phrase(DateTime.t(), DateTime.t()) :: String.t()
+  def age_phrase(%DateTime{} = at, %DateTime{} = now) do
+    seconds = max(DateTime.diff(now, at, :second), 0)
+
+    cond do
+      seconds < 60 -> "#{seconds}s ago"
+      seconds < 3_600 -> "#{div(seconds, 60)}m ago"
+      seconds < 86_400 -> "#{div(seconds, 3_600)}h #{div(rem(seconds, 3_600), 60)}m ago"
+      true -> "#{div(seconds, 86_400)}d ago"
+    end
+  end
+
   defp snapshot_health(%Snapshot{health: health}), do: health
   defp snapshot_health(_snapshot), do: nil
   defp refreshing?(%{refreshing?: true}), do: true

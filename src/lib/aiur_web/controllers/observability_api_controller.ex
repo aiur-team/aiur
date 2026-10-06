@@ -62,7 +62,7 @@ defmodule AiurWeb.ObservabilityApiController do
     text = Map.get(params, "text") || Map.get(params, "message") || ""
 
     issue_identifier
-    |> send_operator_message(text)
+    |> send_operator_message(text, Map.get(params, "message_id"))
     |> render_send_message_response(conn, issue_identifier)
   end
 
@@ -180,8 +180,16 @@ defmodule AiurWeb.ObservabilityApiController do
 
   defp legacy_snapshot_error(payload), do: payload
 
-  defp send_operator_message(issue_identifier, text) do
-    Orchestrator.send_operator_message(orchestrator(), issue_identifier, %{kind: :text, body: text})
+  # `message_id` is optional (#2717). A client that sends one gets its retry
+  # deduplicated: the same id, target and text return the first item. Without
+  # one, every request is a new message.
+  defp send_operator_message(issue_identifier, text, message_id) do
+    payload = %{kind: :text, body: text}
+
+    payload =
+      if is_binary(message_id) and message_id != "", do: Map.put(payload, :message_id, message_id), else: payload
+
+    Orchestrator.send_operator_message(orchestrator(), issue_identifier, payload)
   end
 
   defp pause_agent(issue_identifier),
@@ -194,6 +202,28 @@ defmodule AiurWeb.ObservabilityApiController do
     conn
     |> put_status(202)
     |> json(%{request_id: request_id, issue_identifier: issue_identifier})
+  end
+
+  # A timeout is an unknown outcome, not a failure: the daemon may still queue
+  # the message (#2717). 202 tells the client the send may be in progress. A
+  # retry is safe only with the same `message_id`, so `retry_safe` says if the
+  # request carried one.
+  defp render_send_message_response({:error, {:outcome_unknown, info}}, conn, issue_identifier) do
+    message_id = Map.get(info, :message_id)
+
+    conn
+    |> put_status(202)
+    |> json(%{
+      outcome: "unknown",
+      request_id: Map.get(info, :item_id),
+      message_id: message_id,
+      issue_identifier: issue_identifier,
+      retry_safe: is_binary(message_id)
+    })
+  end
+
+  defp render_send_message_response({:error, {:message_id_conflict, _item_id}}, conn, _issue_identifier) do
+    error_response(conn, 409, "message_id_conflict", "message_id was already used for a different message")
   end
 
   defp render_send_message_response({:error, :no_running_agent}, conn, _issue_identifier) do
@@ -242,6 +272,15 @@ defmodule AiurWeb.ObservabilityApiController do
     error_response(conn, 409, "control_conflict", inspect(reason))
   end
 
+  defp render_control_response({:error, {:blocked_on_decision, _detail} = reason}, conn, _issue_identifier, _action) do
+    error_response(conn, 409, "control_conflict", inspect(reason))
+  end
+
+  defp render_control_response({:error, {tag, _detail} = reason}, conn, _issue_identifier, _action)
+       when tag in [:worker_startup_failed, :not_resumable_control_status] do
+    error_response(conn, 409, "control_conflict", inspect(reason))
+  end
+
   defp render_control_response({:error, reason}, conn, _issue_identifier, _action)
        when reason in [
               :already_inactive,
@@ -258,10 +297,13 @@ defmodule AiurWeb.ObservabilityApiController do
               :not_routable_to_worker,
               :not_resumable,
               :pause_override_still_present,
+              :ticket_parked,
               :globally_paused,
               :stale_generation,
               :tracker_issue_not_found,
               :waiting_for_dependencies,
+              :worker_not_running,
+              :worker_not_started,
               :workspace_ownership_waiting
             ] do
     error_response(conn, 409, "control_conflict", inspect(reason))

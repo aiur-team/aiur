@@ -5,6 +5,7 @@ import { nextPaint } from './support/measurements.mjs'
 
 async function openUnits(page, path = '/units') {
   await page.goto('/auth/read_only')
+  await page.goto('/streamdeck-control/read_only')
   await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
@@ -734,7 +735,7 @@ test('Units preserves focused controls on stable updates and restores dialog foc
   await expect(page.getByRole('heading', { name: 'Units' })).toBeFocused()
 })
 
-test('Tickets panel lists open tickets and both dialogs focus and dismiss on Escape', async ({ page }) => {
+test('Tickets panel keeps details readable and gates Add an agent by dashboard mode', async ({ page }) => {
   await openUnits(page)
 
   const panel = page.locator('.tickets-card')
@@ -773,7 +774,17 @@ test('Tickets panel lists open tickets and both dialogs focus and dismiss on Esc
   await page.keyboard.press('Escape')
   await expect(detail).toHaveCount(0)
 
+  const readOnlyAddAgent = panel.getByRole('button', { name: 'Add an agent to ticket 2101 unavailable on this read-only dashboard' })
+  await expect(panel.locator('#tickets-agent-readonly')).toContainText('aiur --todo <ticket-id>')
+  await expect(readOnlyAddAgent).toBeDisabled()
+  await expect(readOnlyAddAgent).toHaveAttribute('aria-describedby', 'tickets-agent-readonly')
+  expect(await readOnlyAddAgent.getAttribute('phx-click')).toBeNull()
+  await expect(page.locator('#add-agent-modal')).toHaveCount(0)
+
+  await openWritableUnits(page)
+  await expect(page.locator('#tickets-agent-readonly')).toHaveCount(0)
   const addAgent = page.getByRole('button', { name: 'Add an agent to ticket 2101' })
+  await expect(addAgent).toBeEnabled()
   await addAgent.click()
 
   const modal = page.locator('#add-agent-modal')

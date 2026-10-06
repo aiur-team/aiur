@@ -46,6 +46,32 @@ defmodule Aiur.Config.SchemaTest do
   end
 
   describe "agent backend config sections" do
+    test "Muse config accepts native settings and rejects invalid trust and approval values" do
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "priority" => ["muse"],
+                   "backend_configs" => %{
+                     "muse" => %{
+                       "command" => "muse serve",
+                       "trust_workspace" => true,
+                       "approval_mode" => "onRequest",
+                       "model" => "muse-spark-1.3-contributor"
+                     }
+                   }
+                 }
+               })
+
+      assert settings.agent.backend_configs["muse"]["trust_workspace"] == true
+
+      for invalid <- [%{"trust_workspace" => "true"}, %{"approval_mode" => "always"}, %{"unsupported" => true}] do
+        assert {:error, {:invalid_workflow_config, message}} =
+                 Schema.parse(%{"agent" => %{"backend_configs" => %{"muse" => invalid}}})
+
+        assert message =~ "muse"
+      end
+    end
+
     test "rejects the obsolete root Codex section with a migration hint" do
       assert {:error, {:invalid_workflow_config, message}} =
                Schema.parse(%{"codex" => %{"approval_policy" => "never"}})

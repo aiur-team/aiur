@@ -2,8 +2,61 @@ defmodule Aiur.Workspace.OwnershipTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentRunner.SessionLifecycle
-  alias Aiur.Workspace.Ownership
-  alias Aiur.Workspace.Ownership.{Guardian, Store}
+  alias Aiur.Workspace.{HostLock, Ownership}
+  alias Aiur.Workspace.Ownership.{Guardian, HoldStatus, Store}
+
+  test "restored guardian releases its persisted host lock only after provider drainage" do
+    ticket = "ownership-restored-host-lock-#{System.unique_integer([:positive])}"
+    workspace = Path.join(Aiur.TestSupport.tmp_root!("ownership-restored-host-lock"), ticket)
+    parent = self()
+    group = System.unique_integer([:positive])
+    {:ok, alive} = Agent.start_link(fn -> true end)
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(alive)
+      _ = Store.delete(ticket)
+    end)
+
+    assert {:ok, lock} = HostLock.acquire(workspace, ticket, alive_fun: fn _ -> true end)
+
+    receipt = %{
+      ticket: ticket,
+      generation: 1,
+      owner_id: "workspace:1",
+      phase: :reaping,
+      provider_expected?: true,
+      provider: %{process_group_id: group, process_identities: %{{:group, group} => {:known, :restored_group}}},
+      provider_cleanup: :unresolved,
+      host_lock: lock
+    }
+
+    assert {:ok, lease} =
+             Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry,
+               group_alive_fun: fn ^group -> Agent.get(alive, & &1) end,
+               process_identity_fun: fn ^group -> {:ok, :restored_group} end,
+               reap_fun: fn ^group ->
+                 send(parent, {:restored_host_lock_reap_started, self()})
+
+                 receive do
+                   :drain_restored_provider -> :ok
+                 end
+
+                 Agent.update(alive, fn _ -> false end)
+                 :ok
+               end
+             )
+
+    guardian = lease.guardian
+    monitor = Process.monitor(guardian)
+    assert_receive {:restored_host_lock_reap_started, reaper}, 2_000
+    assert {:ok, holder} = HostLock.holder(workspace)
+    assert holder.owner_id == lock.holder.owner_id
+    assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
+
+    send(reaper, :drain_restored_provider)
+    assert_eventually(fn -> HostLock.holder(workspace) == :none and Ownership.current(ticket) == :none end)
+    assert_receive {:DOWN, ^monitor, :process, ^guardian, :normal}, 2_000
+  end
 
   test "a generation excludes a competing runner until it releases" do
     ticket = "ownership-#{System.unique_integer([:positive])}"
@@ -57,7 +110,7 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     release = Task.async(fn -> Ownership.release_and_wait(active_lease) end)
 
-    assert_receive {:telemetry_reap, reaper, ^process_group_id}
+    assert_receive {:telemetry_reap, reaper, ^process_group_id}, 2_000
 
     assert [{:start, :claimed, %{phase: :provisioning}}, {:point, :active, %{phase: :active}}, {:point, :reaping, %{phase: :reaping}}] =
              telemetry_events(telemetry)
@@ -87,6 +140,30 @@ defmodule Aiur.Workspace.OwnershipTest do
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
     assert_eventually(fn -> Ownership.current(ticket) == :none end)
+  end
+
+  test "a live generation reports its owner and claim metadata until the owner dies" do
+    ticket = "ownership-holder-#{System.unique_integer([:positive])}"
+    parent = self()
+    holder = %{issue_id: "issue-holder", update_recipient: parent, worker_host: nil}
+
+    owner =
+      spawn(fn ->
+        send(parent, {:claimed, Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, holder: holder)})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:claimed, {:ok, lease}}, 2_000
+    assert lease in Ownership.leases()
+    assert {:ok, %{owner: ^owner, holder: ^holder}} = Ownership.holder(lease)
+    assert {:error, :workspace_ownership_lost} = Ownership.holder(%{lease | generation: lease.generation + 1})
+
+    monitor = Process.monitor(owner)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    assert {:error, :workspace_ownership_lost} = Ownership.holder(lease)
+    refute Enum.any?(Ownership.leases(), &(&1.ticket == ticket))
   end
 
   test "brutal runner death retains the lease until its tracked child group is reaped" do
@@ -191,6 +268,98 @@ defmodule Aiur.Workspace.OwnershipTest do
     Process.exit(owner, :kill)
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
     assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+  end
+
+  test "a local unknown provider releases only after a verified host reboot" do
+    ticket = "ownership-reboot-proof-#{System.unique_integer([:positive])}"
+    {:ok, boot} = Agent.start_link(fn -> "boot-before" end)
+
+    boot_id_fun = fn ->
+      case Agent.get(boot, & &1) do
+        :unavailable -> :unknown
+        boot_id -> {:ok, boot_id}
+      end
+    end
+
+    on_exit(fn ->
+      Aiur.TestSupport.safe_stop(boot)
+      _ = Store.delete(ticket)
+    end)
+
+    assert {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert :ok = Ownership.expect_provider(lease, :local)
+    assert {:ok, %{provider_scope: :local, provider_boot_id: "boot-before", provider: nil} = receipt} = Store.get(ticket)
+
+    Process.exit(lease.guardian, :kill)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+
+    assert {:ok, held} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+
+    assert %{generation: generation, proof: :same_boot} =
+             HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store, boot_id_fun)
+
+    assert generation == lease.generation
+    assert {:error, {:workspace_owned, {:ok, %{generation: generation}}}} = Ownership.claim(ticket)
+    assert generation == lease.generation
+
+    Process.exit(held.guardian, :kill)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    Agent.update(boot, fn _ -> :unavailable end)
+
+    assert {:ok, unprobed} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+
+    assert %{proof: :boot_probe_unavailable} =
+             HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store, boot_id_fun)
+
+    Process.exit(unprobed.guardian, :kill)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+    Agent.update(boot, fn _ -> "boot-after" end)
+
+    assert {:ok, released} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: boot_id_fun)
+    assert released.generation == lease.generation
+    assert_eventually(fn -> Ownership.current(ticket) == :none and Store.get(ticket) == {:ok, nil} end)
+    assert {:ok, replacement} = Ownership.claim(ticket)
+    assert replacement.generation > lease.generation
+    assert :ok = Ownership.release(replacement)
+  end
+
+  test "remote, legacy, and unprobed unknown-provider receipts remain held after a host reboot" do
+    for scope <- [:remote, :legacy, :unprobed] do
+      ticket = "ownership-reboot-refusal-#{scope}-#{System.unique_integer([:positive])}"
+      initial_boot_id_fun = if scope == :unprobed, do: fn -> :unknown end, else: fn -> {:ok, "boot-before"} end
+      {:ok, lease} = Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: initial_boot_id_fun)
+      assert :ok = Ownership.expect_provider(lease, if(scope == :remote, do: :remote, else: :local))
+      assert {:ok, persisted} = Store.get(ticket)
+
+      receipt =
+        if scope == :legacy,
+          do: Map.drop(persisted, [:provider_scope, :provider_boot_id]),
+          else: persisted
+
+      if scope == :legacy, do: assert(:ok = Store.put(ticket, receipt))
+      Process.exit(lease.guardian, :kill)
+      assert_eventually(fn -> Ownership.current(ticket) == :none end)
+
+      # The changed local boot says nothing about a remote process, a legacy
+      # expectation, or an expectation whose original boot could not be read.
+      assert {:ok, held} =
+               Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, host_boot_id_fun: fn -> {:ok, "boot-after"} end)
+
+      assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+      expected_proof = if scope == :remote, do: :remote, else: :not_recorded
+
+      assert %{generation: generation, proof: ^expected_proof} =
+               HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store, fn -> {:ok, "boot-after"} end)
+
+      assert generation == lease.generation
+      assert {:error, {:workspace_owned, {:ok, %{generation: generation}}}} = Ownership.claim(ticket)
+      assert generation == lease.generation
+      Process.exit(held.guardian, :kill)
+      assert_eventually(fn -> Ownership.current(ticket) == :none end)
+      assert :ok = Store.delete(ticket)
+    end
   end
 
   test "release_and_wait retains an expected provider when containment and cleanup are unavailable" do
@@ -387,6 +556,11 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     assert {:ok, lease} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, [])
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+
+    assert %{generation: generation, proof: :not_recorded} =
+             HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store)
+
+    assert generation == receipt.generation
 
     Process.exit(lease.guardian, :kill)
     assert_eventually(fn -> Ownership.current(ticket) == :none end)

@@ -399,6 +399,9 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
             issue: %Aiur.Issue{id: "57", identifier: "57", state: "in-progress", title: "Slow setup"}
           }
         })
+        # This fixture owns exactly one running target plus two configured
+        # slots; pending reconciliation from the shared process adds waves.
+        |> Map.put(:github_comment_reconcile_targets, MapSet.new())
         |> CommentPolling.start_async(opts)
       end)
 
@@ -455,7 +458,9 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
       opts = comment_poll_opts(hanging_fetcher)
 
-      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, opts)
+      # Ownership is registry-scoped; isolate this poll from unrelated tests
+      # that also use the default nil snapshot key under coverage load.
+      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}, snapshot_key: self()}, opts)
       state = await_async_started(state)
       assert_receive {:comment_poll_started, first_pid}, 5_000
       first_poll = state.github_comment_poll.pid
@@ -471,6 +476,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       assert second_pid != first_pid
       assert next_state.github_comment_poll.pid != first_poll
       assert Process.alive?(second_pid)
+      CommentPolling.terminate_poll(next_state.github_comment_poll)
     end
 
     test "terminates target descendants before replacing an expired poll" do
