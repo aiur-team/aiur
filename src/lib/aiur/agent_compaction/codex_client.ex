@@ -1,142 +1,125 @@
 defmodule Aiur.AgentCompaction.CodexClient do
   @moduledoc """
-  Codex `thread/compact/start` API wrapper for native thread compaction.
+  Codex app-server `thread/compact/start` JSON-RPC request.
 
-  Handles request creation, response validation, polling for completion,
-  and error handling with bounded timeouts.
-
-  Future work: Replace mock implementations with real Codex API calls.
+  The method returns an empty result. Completion is reported through the
+  deprecated `thread/compacted` notification, correlated by thread id.
   """
 
   require Logger
 
-  @doc """
-  Request compaction for a thread, returns a request_id for polling.
+  @spec request_compact(port(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def request_compact(port, thread_id, opts \\ [])
 
-  Returns {:ok, request_id} or {:error, reason}.
-  """
-  @spec request_compact(
-          thread_id :: String.t(),
-          summary_prompt :: String.t(),
-          opts :: keyword()
-        ) :: {:ok, String.t()} | {:error, String.t()}
-  def request_compact(thread_id, summary_prompt, _opts \\ []) do
-    with {:ok, _request} <- build_request(thread_id, summary_prompt) do
-      Logger.info("Compaction request submitted thread_id=#{thread_id} prompt_length=#{String.length(summary_prompt)}")
-      # Mock: Return a mock request_id
-      # In production: POST to Codex /thread/compact/start, return request_id from response
-      {:ok, "req_#{:erlang.monotonic_time()}"}
-    end
-  end
+  def request_compact(port, thread_id, opts) when is_port(port) do
+    request_id = :erlang.unique_integer([:positive])
+    deadline = System.monotonic_time(:millisecond) + timeout(opts)
 
-  @doc """
-  Poll for compaction status and completion.
+    with {:ok, frame} <- build_request(thread_id, request_id),
+         :ok <- send_request(port, frame) do
+      notify_status(opts, :pending, thread_id, nil)
 
-  Returns {:ok, status} or {:error, reason} or {:timeout}.
-  """
-  @spec poll_status(
-          thread_id :: String.t(),
-          request_id :: String.t(),
-          opts :: keyword()
-        ) ::
-          {:ok, :pending | :completed | :failed}
-          | {:error, String.t()}
-          | {:timeout}
-  def poll_status(thread_id, request_id, _opts \\ []) do
-    Logger.debug("Polling compaction status thread_id=#{thread_id} request_id=#{request_id}")
-    # Mock: Always return pending for now
-    # In production: GET from Codex /thread/compact/start/{request_id}, return status
-    {:ok, :pending}
-  end
-
-  @doc """
-  Wait for compaction to complete with timeout.
-
-  Returns {:ok, summary, token_count, original_ref, compacted_ref}
-  or {:error, reason} or {:timeout}.
-  """
-  @spec wait_for_completion(
-          thread_id :: String.t(),
-          request_id :: String.t(),
-          timeout_ms :: non_neg_integer()
-        ) ::
-          {:ok, map(), non_neg_integer(), String.t(), String.t()}
-          | {:error, String.t()}
-          | {:timeout}
-  def wait_for_completion(thread_id, request_id, timeout_ms \\ 60_000) do
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    poll_until_complete(thread_id, request_id, deadline)
-  end
-
-  # Validates that a summary has the required sections for the handoff.
-  @spec validate_summary(map()) :: {:ok, map()} | {:error, String.t()}
-  def validate_summary(summary) when is_map(summary) do
-    with :ok <- validate_required_sections(summary),
-         :ok <- validate_summary_content(summary) do
-      {:ok, summary}
-    end
-  end
-
-  def validate_summary(_), do: {:error, "summary must be a map"}
-
-  defp validate_required_sections(summary) do
-    required_sections = [
-      "task_constraints",
-      "decisions",
-      "revision_history",
-      "validation_evidence",
-      "review_work"
-    ]
-
-    missing = Enum.reject(required_sections, &Map.has_key?(summary, &1))
-
-    case missing do
-      [] -> :ok
-      _ -> {:error, "summary missing required sections: #{Enum.join(missing, ", ")}"}
-    end
-  end
-
-  defp validate_summary_content(summary) do
-    # Ensure all sections contain non-empty content
-    if is_binary(Map.get(summary, "task_constraints", "")) and
-         Map.get(summary, "task_constraints", "") != "" do
-      :ok
+      with {:ok, response} <-
+             Aiur.Codex.Rpc.await_response(port, request_id, remaining_ms(deadline), on_notification: fn payload -> route_notification(payload, thread_id, opts) end),
+           :ok <- empty_response(response),
+           {:ok, completion} <- await_completion(port, thread_id, deadline, opts) do
+        notify_status(opts, :completed, thread_id, completion.turn_id)
+        Logger.info("Codex thread compaction completed thread_id=#{thread_id} turn_id=#{completion.turn_id}")
+        {:ok, completion}
+      else
+        {:error, reason} = error ->
+          notify_status(opts, :failed, thread_id, reason)
+          error
+      end
     else
-      {:error, "summary sections cannot be empty"}
+      {:error, reason} = error ->
+        notify_status(opts, :failed, thread_id, reason)
+        error
     end
   end
 
-  defp build_request(thread_id, summary_prompt)
-       when is_binary(thread_id) and byte_size(thread_id) > 0 and
-              is_binary(summary_prompt) and byte_size(summary_prompt) > 0 do
-    {:ok,
-     %{
-       "thread_id" => thread_id,
-       "summary_prompt" => summary_prompt,
-       "required_sections" => [
-         "task_constraints",
-         "decisions_made",
-         "revision_markers",
-         "validation_evidence",
-         "remaining_review_work"
-       ]
-     }}
+  def request_compact(_port, thread_id, _opts), do: {:error, {:invalid_thread_or_port, thread_id}}
+
+  @doc false
+  def build_request(thread_id, request_id \\ :erlang.unique_integer([:positive]))
+
+  def build_request(thread_id, request_id) when is_binary(thread_id) and byte_size(thread_id) > 0 and is_integer(request_id) do
+    {:ok, %{"id" => request_id, "method" => "thread/compact/start", "params" => %{"threadId" => thread_id}}}
   end
 
-  defp build_request(_, _) do
-    {:error, "thread_id and summary_prompt must be non-empty strings"}
+  def build_request(_, _), do: {:error, :invalid_thread_id}
+
+  defp timeout(opts), do: Keyword.get(opts, :timeout_ms, 30_000)
+
+  defp send_request(port, frame) do
+    Aiur.Codex.Rpc.send_message(port, frame)
+    :ok
+  rescue
+    ArgumentError -> {:error, :port_closed}
   end
 
-  defp poll_until_complete(_thread_id, _request_id, deadline) do
-    now = System.monotonic_time(:millisecond)
+  defp empty_response(response) when response == %{}, do: :ok
+  defp empty_response(response), do: {:error, {:invalid_compaction_response, response}}
 
-    if now > deadline do
-      Logger.warning("Compaction poll timeout reached")
-      {:timeout}
-    else
-      # Mock: always return timeout for now
-      # In production: GET /thread/compact/start/{request_id}, check status, retry with backoff
-      {:timeout}
+  defp route_notification(%{"method" => "thread/compacted", "params" => params}, expected_thread_id, _opts)
+       when is_map(params) do
+    turn_id = params["turnId"]
+
+    if params["threadId"] == expected_thread_id and is_binary(turn_id) and turn_id != "" do
+      Process.put(completion_key(expected_thread_id), turn_id)
+    end
+
+    :handled
+  end
+
+  defp route_notification(payload, thread_id, opts) do
+    case Keyword.get(opts, :on_notification, fn _ -> :ignore end).(payload) do
+      :handled ->
+        :handled
+
+      _ ->
+        if get_in(payload, ["params", "threadId"]) == thread_id do
+          notify_status(opts, :pending, thread_id, nil)
+        end
+
+        :ignore
+    end
+  end
+
+  defp await_completion(port, thread_id, deadline, opts) do
+    case Process.delete(completion_key(thread_id)) do
+      turn_id when is_binary(turn_id) ->
+        {:ok, %{thread_id: thread_id, turn_id: turn_id}}
+
+      _ ->
+        # The completion notification may follow the request response. Keep
+        # the shared app-server reader active until it arrives or the same
+        # bounded deadline expires.
+        sentinel = :erlang.unique_integer([:positive])
+        _ = await_completion_notification(port, sentinel, deadline, thread_id, opts)
+
+        case Process.delete(completion_key(thread_id)) do
+          turn_id when is_binary(turn_id) -> {:ok, %{thread_id: thread_id, turn_id: turn_id}}
+          _ -> {:error, :compaction_completion_timeout}
+        end
+    end
+  end
+
+  defp await_completion_notification(port, sentinel, deadline, thread_id, opts) do
+    case Aiur.Codex.Rpc.await_response(port, sentinel, remaining_ms(deadline), on_notification: fn payload -> route_notification(payload, thread_id, opts) end) do
+      {:error, :response_timeout} -> :ok
+      other -> other
+    end
+  end
+
+  defp remaining_ms(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
+
+  defp completion_key(thread_id), do: {__MODULE__, :completion, thread_id}
+
+  defp notify_status(opts, status, thread_id, detail) do
+    case Keyword.get(opts, :on_status) do
+      callback when is_function(callback, 3) -> callback.(status, thread_id, detail)
+      _ -> :ok
     end
   end
 end

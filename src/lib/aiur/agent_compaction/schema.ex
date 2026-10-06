@@ -33,7 +33,8 @@ defmodule Aiur.AgentCompaction.Schema do
          :ok <- validate_backend(state),
          :ok <- validate_trigger_type(state),
          :ok <- validate_status(state),
-         :ok <- validate_timestamps(state) do
+         :ok <- validate_timestamps(state),
+         :ok <- validate_references(state) do
       {:ok, state}
     end
   end
@@ -57,6 +58,8 @@ defmodule Aiur.AgentCompaction.Schema do
       :ok
     end
   end
+
+  defp validate_references(_), do: :ok
 
   @doc """
   Create a new pending compaction state.

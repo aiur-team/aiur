@@ -5,14 +5,8 @@ defmodule Aiur.AgentCompaction.Config do
   Config schema:
     compaction:
       enabled: bool (default: false)
-      backends:
-        - codex
+      backends: [codex]
       manual_approval: bool (default: false)
-      auto_trigger:
-        enabled: bool (default: false)
-        token_threshold: 50000
-        message_count_threshold: 20
-        elapsed_time_minutes: 60
       timeout_ms: 30000
   """
 
@@ -34,45 +28,30 @@ defmodule Aiur.AgentCompaction.Config do
     compaction_config.manual_approval || false
   end
 
-  @spec auto_trigger_enabled?() :: boolean()
-  def auto_trigger_enabled? do
-    compaction_config = get_compaction_config()
-
-    case compaction_config.auto_trigger do
-      %{enabled: enabled} -> enabled || false
-      nil -> false
-    end
+  @spec should_compact_at_handoff?() :: boolean()
+  @spec should_compact_at_handoff?(non_neg_integer() | nil) :: boolean()
+  def should_compact_at_handoff?(agent_total_tokens \\ nil) do
+    should_compact_at_handoff?(get_compaction_config(), agent_total_tokens)
   end
 
-  @spec token_threshold() :: non_neg_integer()
-  def token_threshold do
-    compaction_config = get_compaction_config()
-
-    case compaction_config.auto_trigger do
-      %{token_threshold: threshold} when is_integer(threshold) and threshold >= 1000 -> threshold
-      _ -> 50_000
-    end
+  @doc false
+  def should_compact_at_handoff?(%Aiur.Config.Schema.Compaction{} = config, agent_total_tokens) do
+    trigger_requested_at_handoff?(config, agent_total_tokens) and "codex" in config.backends
   end
 
-  @spec message_count_threshold() :: non_neg_integer()
-  def message_count_threshold do
-    compaction_config = get_compaction_config()
+  def should_compact_at_handoff?(_, _), do: false
 
-    case compaction_config.auto_trigger do
-      %{message_count_threshold: threshold} when is_integer(threshold) and threshold >= 1 -> threshold
-      _ -> 20
-    end
+  @doc false
+  def trigger_requested_at_handoff?(%Aiur.Config.Schema.Compaction{} = config, agent_total_tokens) do
+    auto_trigger = config.auto_trigger || %Aiur.Config.Schema.Compaction.AutoTrigger{}
+    manual? = config.manual_approval
+    automatic? = auto_trigger.enabled and is_integer(agent_total_tokens) and agent_total_tokens >= auto_trigger.token_threshold
+    config.enabled and (manual? or automatic?)
   end
 
-  @spec elapsed_time_minutes() :: non_neg_integer()
-  def elapsed_time_minutes do
-    compaction_config = get_compaction_config()
+  def trigger_requested_at_handoff?(_, _), do: false
 
-    case compaction_config.auto_trigger do
-      %{elapsed_time_minutes: minutes} when is_integer(minutes) and minutes >= 1 -> minutes
-      _ -> 60
-    end
-  end
+  def settings, do: get_compaction_config()
 
   @spec timeout_ms() :: non_neg_integer()
   def timeout_ms do

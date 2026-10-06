@@ -199,6 +199,18 @@ alerts:
 #   ticket_history_stale_after_ms: 60000      # 1..300000; floor for the typed-activity freshness window (the effective window is at least two poll intervals)
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
+# Optional Codex-native compaction immediately before final agent handoff.
+# It synchronously calls the live app-server method and leaves the original
+# rollout and thread resume handle intact. Other providers are rejected. The
+# app-server currently exposes no auto-trigger or progress polling protocol.
+# compaction:
+#   enabled: true
+#   backends: [codex]
+#   manual_approval: true # explicit operator opt-in at terminal handoff
+#   auto_trigger:
+#     enabled: false
+#     token_threshold: 50000 # cumulative tokens required at human-review handoff
+#   timeout_ms: 30000
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins
 # max_log_history_mb: 1000               # cap on total ~/.aiur/logs size (swept every 5 min)
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }

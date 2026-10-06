@@ -652,43 +652,36 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 
 ## compaction
 
-Optional thread compaction at the implementation-to-human-review handoff, supported for Codex backend only; preserves the original transcript and prevents repeat compaction on unchanged sessions.
+Optional synchronous Codex-native thread compaction immediately before the runner hands a `human-review` ticket back to the orchestrator. Codex uses its live app-server `thread/compact/start` method. The original rollout and thread resume handle are retained. Other providers are unsupported. Threshold mode uses Aiur's measured cumulative agent token usage at handoff; Codex does not receive a threshold parameter.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `compaction.enabled` | boolean | false | Master switch for compaction; must be true to enable any compaction features. |
-| `compaction.backends` | array | [] | Backends eligible for compaction (e.g., `["codex"]`). Other backends are not compacted. |
-| `compaction.manual_approval` | boolean | false | When true, manual approval at CLI/TUI is available (requires `compaction.enabled`). |
-| `compaction.auto_trigger.enabled` | boolean | false | When true, compaction fires automatically if thresholds are met. |
-| `compaction.auto_trigger.token_threshold` | integer | 50000 | Minimum tokens consumed before auto-compaction fires (must be >= 1000). |
-| `compaction.auto_trigger.message_count_threshold` | integer | 20 | Minimum messages in thread before auto-compaction fires (must be >= 1). |
-| `compaction.auto_trigger.elapsed_time_minutes` | integer | 60 | Minimum elapsed time in minutes before auto-compaction fires (must be >= 1). |
+| `compaction.backends` | array | [] | Must contain only `codex`; every other provider is rejected by config validation. |
+| `compaction.manual_approval` | boolean | false | Explicit opt-in to compact on terminal handoff. |
+| `compaction.auto_trigger.enabled` | boolean | false | Opt in to compaction when cumulative agent token usage reaches the configured threshold at human-review handoff. |
+| `compaction.auto_trigger.token_threshold` | integer | 50000 | Minimum cumulative agent tokens required for threshold mode (must be at least 1000). |
 | `compaction.timeout_ms` | integer | 30000 | Timeout in milliseconds for compaction API calls. |
 
-**Compaction state transitions:** pending → completed/failed. Failed compaction does not block handoff; the session remains resumable. Repeating compaction on the same unchanged session is prevented by tracking message count at the last compaction attempt.
+Codex reports completion with its `thread/compacted` notification. Failure does not block normal handoff. Aiur records the result in daemon-owned state and will not retry a completed or failed attempt on that thread. A daemon restart resumes the same Codex thread from its original rollout.
 
 **Example: manual-only compaction**
 ```yaml
 compaction:
   enabled: true
-  backends:
-    - codex
+  backends: [codex]
   manual_approval: true
-  auto_trigger:
-    enabled: false
+  timeout_ms: 30000
 ```
 
-**Example: threshold-based auto-compaction**
+**Example: threshold opt-in**
 ```yaml
 compaction:
   enabled: true
-  backends:
-    - codex
+  backends: [codex]
   auto_trigger:
     enabled: true
     token_threshold: 50000
-    message_count_threshold: 20
-    elapsed_time_minutes: 60
 ```
 
 ## observability

@@ -2,8 +2,8 @@ defmodule Aiur.AgentCompaction.Orchestrator do
   @moduledoc """
   Orchestrator logic for compaction trigger evaluation at agent handoff.
 
-  Integrates with the handoff flow to evaluate whether compaction should fire,
-  manage state transitions, and prevent repeat compaction on unchanged sessions.
+  Evaluates configured Codex support and sends the native request over the
+  still-live app-server port at terminal handoff.
   """
 
   require Logger
@@ -16,21 +16,24 @@ defmodule Aiur.AgentCompaction.Orchestrator do
   Returns one of:
   - `{:ok, :skipped, reason}` - compaction not applicable
   - `{:ok, :unsupported, reason}` - backend or config doesn't support compaction
-  - `{:ok, :pending, state}` - compaction request submitted
+  - `{:ok, :completed, state}` - compaction request completed
   - `{:error, reason}` - blocker or error
   """
   @spec evaluate_trigger(
           session :: map(),
           backend :: String.t(),
           current_message_count :: non_neg_integer()
-        ) :: {:ok, :skipped | :unsupported | :pending, Schema.t() | String.t()} | {:error, String.t()}
+        ) :: {:ok, :skipped | :unsupported | :completed, Schema.t() | String.t()} | {:error, String.t()}
   def evaluate_trigger(session, backend, current_message_count) do
     cond do
-      !Config.enabled?() ->
-        {:ok, :unsupported, "compaction disabled in config"}
-
       !backend_supported?(backend) ->
         {:ok, :unsupported, "unsupported backend: #{backend}"}
+
+      !Config.enabled?() ->
+        {:ok, :skipped, "compaction disabled in config"}
+
+      session_has_compacted?(session) ->
+        {:ok, :skipped, "this Codex session has already been compacted"}
 
       session_unchanged?(session, current_message_count) ->
         {:ok, :skipped, "no new messages since last compaction"}
@@ -40,25 +43,20 @@ defmodule Aiur.AgentCompaction.Orchestrator do
     end
   end
 
-  @doc """
-  Evaluate threshold-based triggers for auto-compaction.
+  @doc false
+  @spec supported_backend?(String.t()) :: boolean()
+  def supported_backend?(backend), do: backend == "codex" and "codex" in Config.backends()
 
-  Returns true if all thresholds are met (AND logic).
-  """
-  @spec threshold_met?(
-          tokens :: non_neg_integer(),
-          message_count :: non_neg_integer(),
-          elapsed_minutes :: non_neg_integer()
-        ) :: boolean()
-  def threshold_met?(tokens, message_count, elapsed_minutes) do
-    token_threshold = Config.token_threshold()
-    message_threshold = Config.message_count_threshold()
-    time_threshold = Config.elapsed_time_minutes()
+  @doc false
+  def already_compacted?(%{compacted_at: compacted_at}) when not is_nil(compacted_at), do: true
+  def already_compacted?(_session), do: false
 
-    tokens >= token_threshold and
-      message_count >= message_threshold and
-      elapsed_minutes >= time_threshold
-  end
+  @doc false
+  def already_attempted_for_thread?(%{"thread_id" => thread_id, "status" => status}, thread_id)
+      when status in ["pending", "completed", "failed", "unsupported"],
+      do: true
+
+  def already_attempted_for_thread?(_, _thread_id), do: false
 
   @doc """
   Check if a session has unchanged state (no new messages since last compaction).
@@ -81,17 +79,17 @@ defmodule Aiur.AgentCompaction.Orchestrator do
           session :: map(),
           backend :: String.t(),
           current_message_count :: non_neg_integer()
-        ) :: {:ok, :pending, Schema.t()} | {:error, String.t()}
-  def trigger_compaction(session, backend, current_message_count) do
+        ) :: {:ok, :completed, Schema.t()} | {:error, String.t()}
+  def trigger_compaction(session, backend, current_message_count, opts \\ []) do
     session_id = Map.get(session, :id) || "unknown"
-    state = Schema.new(session_id, backend, :auto_threshold)
+    state = Schema.new(session_id, backend, :manual)
     state = %{state | message_count_at_compaction: current_message_count}
 
-    # Submit async request to Codex
-    case submit_compaction_request(session, state) do
-      {:ok, _request_id} ->
-        Logger.info("Compaction triggered for session session_id=#{session_id} backend=#{backend} message_count=#{current_message_count}")
-        {:ok, :pending, %{state | status: :pending}}
+    # Compact synchronously before the runner tears down the app-server port.
+    case submit_compaction_request(session, state, opts) do
+      {:ok, completion} ->
+        Logger.info("Compaction completed for session session_id=#{session_id} backend=#{backend} turn_count=#{current_message_count}")
+        {:ok, :completed, %{state | status: :completed, compacted_transcript_ref: completion.turn_id, original_transcript_ref: Map.get(session, :thread_id)}}
 
       {:error, reason} ->
         Logger.error("Compaction request failed session_id=#{session_id} error=#{inspect(reason)}")
@@ -111,32 +109,13 @@ defmodule Aiur.AgentCompaction.Orchestrator do
     Map.has_key?(pending_requests, session_id)
   end
 
-  defp backend_supported?(backend) do
-    supported = Config.backends()
-    Enum.member?(supported, backend)
+  defp backend_supported?(backend), do: supported_backend?(backend)
+
+  defp session_has_compacted?(session), do: already_compacted?(session)
+
+  defp submit_compaction_request(%{port: port, thread_id: thread_id}, _state, opts) when is_port(port) and is_binary(thread_id) do
+    CodexClient.request_compact(port, thread_id, Keyword.merge([timeout_ms: Config.timeout_ms()], opts))
   end
 
-  defp submit_compaction_request(session, _state) do
-    # Build summary prompt from session context
-    summary_prompt = build_summary_prompt(session)
-    thread_id = Map.get(session, :thread_id, "unknown")
-
-    # Submit to Codex API
-    CodexClient.request_compact(thread_id, summary_prompt, timeout_ms: Config.timeout_ms())
-  end
-
-  defp build_summary_prompt(_session) do
-    """
-    Summarize this thread for a code review handoff.
-
-    Required sections:
-    1. Task Constraints: The task objectives and scope from the start
-    2. Decisions Made: Key implementation decisions and rationale
-    3. Revision History: Code changes, refactors, or major rework cycles
-    4. Validation Evidence: Test results, checks that passed or failed
-    5. Remaining Review Work: What the reviewer needs to focus on
-
-    Focus on information a human reviewer needs, not intermediate steps.
-    """
-  end
+  defp submit_compaction_request(_session, _state, _opts), do: {:error, "live Codex session is unavailable"}
 end

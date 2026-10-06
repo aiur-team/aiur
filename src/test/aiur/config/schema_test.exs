@@ -4,6 +4,34 @@ defmodule Aiur.Config.SchemaTest do
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.{Polling, StringOrMap}
 
+  describe "native compaction config" do
+    test "accepts Codex opt-in and rejects every other provider" do
+      assert {:ok, settings} = Schema.parse(%{"compaction" => %{"enabled" => true, "backends" => ["codex"], "manual_approval" => true}})
+      assert settings.compaction.enabled
+      assert settings.compaction.backends == ["codex"]
+      assert settings.compaction.manual_approval
+
+      assert {:ok, threshold_settings} = Schema.parse(%{"compaction" => %{"enabled" => true, "backends" => ["codex"], "auto_trigger" => %{"enabled" => true, "token_threshold" => 75_000}}})
+      assert threshold_settings.compaction.auto_trigger.enabled
+      assert threshold_settings.compaction.auto_trigger.token_threshold == 75_000
+
+      assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"compaction" => %{"backends" => ["claude"]}})
+      assert message =~ "only for 'codex'"
+    end
+
+    test "rejects non-positive compaction RPC timeout" do
+      assert {:error, {:invalid_workflow_config, message}} = Schema.parse(%{"compaction" => %{"timeout_ms" => 0}})
+      assert message =~ "timeout_ms"
+    end
+
+    test "rejects a token threshold below the supported minimum" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"compaction" => %{"auto_trigger" => %{"enabled" => true, "token_threshold" => 999}}})
+
+      assert message =~ "token_threshold"
+    end
+  end
+
   describe "agent Mix scheduler cap" do
     test "defaults to four and accepts an explicit override" do
       assert {:ok, defaults} = Schema.parse(%{})

@@ -519,6 +519,10 @@ defmodule Aiur.TicketActivity.Projection do
 
   defp safe_source(%{kind: :agent_alert, name: "alert"}), do: %{kind: :agent_alert, name: "alert"}
 
+  defp safe_source(%{kind: :agent_alert, name: "compaction." <> status} = source)
+       when status in ["pending", "completed", "failed", "unsupported"],
+       do: Map.take(source, [:kind, :name])
+
   defp safe_source(%{kind: :agent_alert, name: name}) do
     case phase_source(name) do
       {:ok, stage, transition} ->
@@ -535,7 +539,7 @@ defmodule Aiur.TicketActivity.Projection do
 
   defp safe_attributes(attributes) when is_map(attributes) do
     attributes
-    |> Map.take([:percent, :stage, :transition, :needs_attention, :severity])
+    |> Map.take([:percent, :stage, :transition, :needs_attention, :severity, :compaction_status])
     |> Enum.reduce(%{}, fn
       {:percent, percent}, acc when is_integer(percent) and percent >= 0 and percent <= 100 ->
         Map.put(acc, :percent, percent)
@@ -551,6 +555,9 @@ defmodule Aiur.TicketActivity.Projection do
 
       {:severity, severity}, acc when severity in ["info", "warning", "critical"] ->
         Map.put(acc, :severity, severity)
+
+      {:compaction_status, status}, acc when status in [:pending, :completed, :failed, :unsupported] ->
+        Map.put(acc, :compaction_status, status)
 
       _entry, acc ->
         acc

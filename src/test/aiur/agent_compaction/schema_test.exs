@@ -17,7 +17,7 @@ defmodule Aiur.AgentCompaction.SchemaTest do
   end
 
   describe "mark_completed/4" do
-    test "marks state as completed with summary details" do
+    test "marks state as completed with durable transcript references" do
       state = Schema.new("session-123", "codex", :manual)
 
       completed =
@@ -67,6 +67,13 @@ defmodule Aiur.AgentCompaction.SchemaTest do
 
       {:error, msg} = Schema.validate(state)
       assert String.contains?(msg, "session_id")
+    end
+
+    test "rejects an unknown trigger value" do
+      state = Schema.new("session-123", "codex", :manual) |> Map.put(:trigger_type, :auto_threshold)
+      assert {:ok, _} = Schema.validate(state)
+      state = Map.put(state, :trigger_type, :heuristic)
+      assert {:error, "trigger_type must be :manual or :auto_threshold"} = Schema.validate(state)
     end
   end
 
