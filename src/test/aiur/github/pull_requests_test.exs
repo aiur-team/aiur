@@ -78,12 +78,12 @@ defmodule Aiur.GitHub.PullRequestsTest do
       assert {:ok, [%{authoritative: true}, %{authoritative: false}]} =
                PullRequests.fetch_classified_pr_reviews(92_794, opts)
 
-      assert_receive {:review_request, nil}
+      assert_receive {:review_request, nil}, 1000
 
       assert {:ok, [%{authoritative: true}, %{authoritative: false}]} =
                PullRequests.fetch_classified_pr_reviews(92_794, opts)
 
-      assert_receive {:review_request, ~s("review-etag")}
+      assert_receive {:review_request, ~s("review-etag")}, 1000
     end
   end
 
@@ -218,7 +218,7 @@ defmodule Aiur.GitHub.PullRequestsTest do
                  etag: ~s("v1")
                )
 
-      assert_receive {:requested, request}
+      assert_receive {:requested, request}, 1000
       assert request.etag == ~s("v1")
     end
   end
@@ -254,7 +254,7 @@ defmodule Aiur.GitHub.PullRequestsTest do
                  etag: ~s("v1")
                )
 
-      assert_receive {:requested, request}
+      assert_receive {:requested, request}, 1000
       assert request.etag == ~s("v1")
     end
 

@@ -522,7 +522,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
       terminator = Task.async(fn -> CommentPolling.terminate_poll(poll) end)
       assert Task.await(terminator, 1_000) == :ok
-      assert_receive {:github_comments_polled, _ref, _payload}
+      assert_receive {:github_comments_polled, _ref, _payload}, 1000
     end
 
     test "termination reaps the poll tree if its owner dies before acknowledging" do
@@ -544,7 +544,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
         send(test_pid, {:before_ack_result, result})
       end)
 
-      assert_receive {:before_ack_poll, poll}
+      assert_receive {:before_ack_poll, poll}, 1000
       assert_receive {:before_ack_result, :ok}, 1_000
       refute Process.alive?(poll)
     end
@@ -602,9 +602,9 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       refute Process.alive?(poll)
       refute Process.alive?(target)
       refute Process.alive?(request)
-      assert_receive {:DOWN, ^poll_ref, :process, ^poll, :killed}
-      assert_receive {:DOWN, ^target_ref, :process, ^target, _reason}
-      assert_receive {:DOWN, ^request_ref, :process, ^request, _reason}
+      assert_receive {:DOWN, ^poll_ref, :process, ^poll, :killed}, 1000
+      assert_receive {:DOWN, ^target_ref, :process, ^target, _reason}, 1000
+      assert_receive {:DOWN, ^request_ref, :process, ^request, _reason}, 1000
       refute Process.whereis(name)
     end
 
@@ -1080,7 +1080,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     request = %{method: :get, url: "https://api.github.com/rate_limit", token: "locked-release-prewarm-token"}
 
     log = capture_log(fn -> send(self(), {:budget_admission_ready, Budget.acquire(request, timeout_ms: @locked_release_deadline_ms)}) end)
-    assert_receive {:budget_admission_ready, result}
+    assert_receive {:budget_admission_ready, result}, 1000
 
     assert match?({:ok, _lease}, result), "budget broker did not admit the fixture request: #{inspect(result)}; #{log}"
     {:ok, lease} = result

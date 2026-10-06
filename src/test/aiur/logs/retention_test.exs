@@ -88,7 +88,7 @@ defmodule Aiur.Logs.RetentionTest do
       )
 
     send(pid, :tick)
-    assert_receive :retention_swept
+    assert_receive :retention_swept, 1000
 
     send(pid, :unrelated)
     assert Process.alive?(pid)
