@@ -109,6 +109,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       state = %State{last_polled_issues: %{previous.id => previous}}
       first = CiLifecycle.poll_github_ci(state, opts)
       assert_received :ci_issue_fetch
+      assert first.last_polled_issues[current.id] == current
 
       assert {:ok, [wake]} = ExecutorWakeInbox.wait(500)
       assert wake["topic"] == "ticket.#{current.identifier}.agent.handoff.human_review"
