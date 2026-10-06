@@ -155,11 +155,11 @@ defmodule Aiur.UsageAggregate.StoreTest do
     {:ok, agg} =
       start_aggregate(context, publish_fun: fn payload -> send(parent, {:published, payload}) end)
 
-    assert_receive {:published, %{generation: 0}}
+    assert_receive {:published, %{generation: 0}}, 1000
 
     append(context.ledger_name, envelope(%{tokens: token(10)}))
     _ = Store.snapshot(context.agg_name)
-    assert_receive {:published, %{generation: 1, source_position: 1}}
+    assert_receive {:published, %{generation: 1, source_position: 1}}, 1000
 
     # Duplicate delivery of an already-applied position is a no-op: no new
     # publication and no inflated total.

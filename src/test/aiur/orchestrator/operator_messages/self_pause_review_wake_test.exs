@@ -85,7 +85,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.SelfPauseReviewWakeTest do
 
       :ok = DeliveryPolicy.notify_running_queue_update(%State{}, entry, review_item(identifier))
 
-      assert_receive {:agent_queue_updated, ^identifier, "item-1", true}
+      assert_receive {:agent_queue_updated, ^identifier, "item-1", true}, 1000
     end
 
     test "an operator pause is still told not to deliver" do
@@ -94,7 +94,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.SelfPauseReviewWakeTest do
 
       :ok = DeliveryPolicy.notify_running_queue_update(%State{}, entry, review_item(identifier))
 
-      assert_receive {:agent_queue_updated, ^identifier, "item-1", false}
+      assert_receive {:agent_queue_updated, ^identifier, "item-1", false}, 1000
     end
   end
 

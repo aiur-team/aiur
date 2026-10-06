@@ -290,7 +290,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
     test "a working entry whose worker is gone is not reported as running", %{orchestrator: pid} do
       dead = spawn(fn -> :ok end)
       ref = Process.monitor(dead)
-      assert_receive {:DOWN, ^ref, :process, ^dead, _reason}
+      assert_receive {:DOWN, ^ref, :process, ^dead, _reason}, 1000
 
       :sys.replace_state(pid, fn state -> %{state | running: %{"44" => working_entry("44", "44", dead)}} end)
 

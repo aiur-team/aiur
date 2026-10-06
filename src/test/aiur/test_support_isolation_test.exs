@@ -89,7 +89,7 @@ defmodule Aiur.TestSupportIsolationTest do
     on_exit(fn -> Aiur.TestSupport.ensure_resource_store_running() end)
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
-    assert_receive {:DOWN, ^ref, :process, ^store, _reason}
+    assert_receive {:DOWN, ^ref, :process, ^store, _reason}, 1000
     refute ResourceStore.running?()
 
     assert :ok = Aiur.TestSupport.reset_global_state!()

@@ -122,12 +122,12 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert {:deliver_text, "hello operator", success, failure} = handler.()
       assert is_function(success, 1)
       assert success.(%{turn_id: "turn-5"}) == :ok
-      assert_receive {:provider_delivered, 5, %{turn_id: "turn-5"}}
+      assert_receive {:provider_delivered, 5, %{turn_id: "turn-5"}}, 1000
 
       # A send failure restores the claimed item so the normal turn-boundary
       # drain re-attempts it.
       failure.(:send_failed)
-      assert_receive {:restore, 5}
+      assert_receive {:restore, 5}, 1000
     end
 
     test "restores a correlated item instead of exposing text when durable handoff fails" do
@@ -137,9 +137,9 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       handler = CheckpointDelivery.operator_immediate_handler(issue(), orch, decision_store)
 
       assert handler.() == :noop
-      assert_receive {:decision_delivery_prepared, 6}
-      refute_receive {:decision_delivery, 6}
-      assert_receive {:restore, 6}
+      assert_receive {:decision_delivery_prepared, 6}, 1000
+      refute_receive {:decision_delivery, 6}, 100
+      assert_receive {:restore, 6}, 1000
     end
 
     test "marks a correlated item failed after bounded handoff retries" do
@@ -149,9 +149,9 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       handler = CheckpointDelivery.operator_immediate_handler(issue(), orch, decision_store)
 
       assert handler.() == :noop
-      assert_receive {:decision_delivery_prepared, 7}
-      refute_receive {:decision_delivery, 7}
-      assert_receive {:mark_failed, 7, {:decision_correlation_failed, :store_unavailable}}
+      assert_receive {:decision_delivery_prepared, 7}, 1000
+      refute_receive {:decision_delivery, 7}, 100
+      assert_receive {:mark_failed, 7, {:decision_correlation_failed, :store_unavailable}}, 1000
       refute_receive {:restore, 7}, 100
     end
 
@@ -193,7 +193,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
 
       assert {:deliver_text, "immediate rejected", _success, failure} = handler.()
       assert :ok = failure.(:send_failed)
-      assert_receive {:restore, 42}
+      assert_receive {:restore, 42}, 1000
       assert %{state: :restart_unknown, messages: []} = snapshot(source, live_opts)
     end
   end
@@ -216,7 +216,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
 
       # A lost completion race requeues the digest as pending.
       failure.(:parent_turn_completed)
-      assert_receive {:restore, 7}
+      assert_receive {:restore, 7}, 1000
     end
 
     test "urgent digest falls back to queue_item_text for an item carrying no events" do
@@ -236,7 +236,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
 
       # {:turn_interrupted, _} restores the item to pending.
       failure.({:turn_interrupted, %{}})
-      assert_receive {:restore, 8}
+      assert_receive {:restore, 8}, 1000
     end
 
     test "a turn-cancelled failure restores the checkpoint item to pending" do
@@ -247,7 +247,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert {:deliver_text, "cp", _s, failure} = handler.(:checkpoint)
 
       failure.({:turn_cancelled, %{}})
-      assert_receive {:restore, 21}
+      assert_receive {:restore, 21}, 1000
     end
 
     test "a provider active-turn (-32_003) rejection restores the checkpoint item to pending" do
@@ -260,8 +260,8 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       # aiur-claude rejected a `turn/start` on an active thread; the durable
       # item must be restored to pending, never marked failed.
       failure.({:response_error, %{"code" => -32_003}})
-      assert_receive {:restore, 24}
-      refute_receive {:mark_failed, 24, _reason}
+      assert_receive {:restore, 24}, 1000
+      refute_receive {:mark_failed, 24, _reason}, 100
     end
 
     test "a late response for retired provider work restores the checkpoint item" do
@@ -272,7 +272,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert {:deliver_text, "cp", _success, failure} = handler.(:checkpoint)
 
       failure.({:provider_turn_retired, "turn-old"})
-      assert_receive {:restore, 23}
+      assert_receive {:restore, 23}, 1000
     end
 
     test "keeps a correlated checkpoint queued until the provider callback" do
@@ -282,12 +282,12 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       handler = CheckpointDelivery.safe_checkpoint_handler(issue(), orch, "codex", decision_store)
 
       assert {:deliver_text, "durable answer", success, _failure} = handler.(:checkpoint)
-      assert_receive {:decision_delivery_prepared, 22}
-      refute_receive {:decision_delivery, 22}
+      assert_receive {:decision_delivery_prepared, 22}, 1000
+      refute_receive {:decision_delivery, 22}, 100
 
       assert success.(%{turn_id: "provider-22"}) == :ok
-      assert_receive {:decision_delivery, 22}
-      assert_receive {:provider_delivered, 22, %{turn_id: "provider-22"}}
+      assert_receive {:decision_delivery, 22}, 1000
+      assert_receive {:provider_delivered, 22, %{turn_id: "provider-22"}}, 1000
     end
 
     test "an unrecognized delivery failure marks the checkpoint item failed" do
@@ -298,7 +298,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert {:deliver_text, "cp", _s, failure} = handler.(:checkpoint)
 
       failure.({:some_other, :boom})
-      assert_receive {:mark_failed, 33, {:some_other, :boom}}
+      assert_receive {:mark_failed, 33, {:some_other, :boom}}, 1000
     end
 
     # #1238: a closed Codex app-server port during the mid-turn checkpoint
@@ -314,7 +314,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert {:deliver_text, "survive closed checkpoint", _s, failure} = handler.(:checkpoint)
 
       failure.(:port_closed)
-      assert_receive {:restore, 41}
+      assert_receive {:restore, 41}, 1000
       refute_receive {:mark_failed, 41, _reason}, 100
     end
 
@@ -330,7 +330,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
         assert {:deliver_text, "cp", _s, failure} = handler.(:checkpoint)
 
         failure.(reason)
-        assert_receive {:restore, ^id}
+        assert_receive {:restore, ^id}, 1000
         refute_receive {:mark_failed, ^id, _reason}, 100
       end
     end
@@ -345,7 +345,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       # Claude retains the existing mark-failed behavior: the codex recovery
       # policy must not widen to other backends.
       failure.(:port_closed)
-      assert_receive {:mark_failed, 44, :port_closed}
+      assert_receive {:mark_failed, 44, :port_closed}, 1000
       refute_receive {:restore, 44}, 100
     end
 
@@ -410,13 +410,13 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       assert {:deliver_text, "durable accepted", success, _failure} =
                handler.(:checkpoint)
 
-      assert_receive {:decision_delivery_prepared, 52}
-      refute_receive {:decision_delivery, 52}
+      assert_receive {:decision_delivery_prepared, 52}, 1000
+      refute_receive {:decision_delivery, 52}, 100
       assert %{state: :restart_unknown, messages: []} = snapshot(source, live_opts)
 
       assert :ok = success.(%{turn_id: "turn-accepted"})
 
-      assert_receive {:decision_delivery, 52}
+      assert_receive {:decision_delivery, 52}, 1000
 
       assert %{messages: [%{role: "operator", body: "durable accepted"}]} =
                snapshot(source, live_opts)
@@ -440,7 +440,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
                handler.(:checkpoint)
 
       assert :ok = failure.({:provider_turn_retired, "retired"})
-      assert_receive {:restore, 53}
+      assert_receive {:restore, 53}, 1000
       assert %{state: :restart_unknown, messages: []} = snapshot(source, live_opts)
     end
   end

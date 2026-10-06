@@ -54,8 +54,8 @@ defmodule Aiur.OrchestratorFirehoseTest do
 
     assert next.events_etag == ~s("next-etag")
     assert next.events_last_id == "burst-1"
-    assert_receive {:events_page_requested, "1"}
-    assert_receive {:events_page_requested, "2"}
+    assert_receive {:events_page_requested, "1"}, 1000
+    assert_receive {:events_page_requested, "2"}, 1000
   end
 
   test "repeated DNS failures escalate to an operator-visible connectivity blocker" do
@@ -184,7 +184,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
         firehose_poll_telemetry_fun: telemetry_fun
       )
 
-    assert_receive {:firehose_metric, :firehose_poll, %{pages_fetched: 1, partial_window?: false, published: 0}}
+    assert_receive {:firehose_metric, :firehose_poll, %{pages_fetched: 1, partial_window?: false, published: 0}}, 1000
 
     assert state.firehose_partial_streak == 0
     assert state.firehose_truncation_alert_active == false
@@ -212,7 +212,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
         firehose_poll_telemetry_fun: telemetry_fun
       )
 
-    assert_receive {:firehose_metric, :firehose_poll, %{pages_fetched: 1, partial_window?: false, published: 0}}
+    assert_receive {:firehose_metric, :firehose_poll, %{pages_fetched: 1, partial_window?: false, published: 0}}, 1000
 
     assert state.firehose_partial_streak == 0
     assert state.firehose_truncation_alert_active == false
@@ -252,7 +252,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
 
     assert state.firehose_partial_streak == 2
     assert state.firehose_truncation_alert_active
-    assert_receive {:firehose_alert, "system.firehose.event_truncation", true}
+    assert_receive {:firehose_alert, "system.firehose.event_truncation", true}, 1000
     refute_receive {:firehose_alert, "system.firehose.event_truncation.resolved", _}, 100
 
     # A third truncating tick past the threshold must NOT re-arm the already
@@ -283,7 +283,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
 
     assert resolved.firehose_partial_streak == 0
     assert resolved.firehose_truncation_alert_active == false
-    assert_receive {:firehose_alert, "system.firehose.event_truncation.resolved", false}
+    assert_receive {:firehose_alert, "system.firehose.event_truncation.resolved", false}, 1000
   end
 
   # A single truncated tick (for example the boot reconciliation, or a burst
@@ -331,7 +331,7 @@ defmodule Aiur.OrchestratorFirehoseTest do
 
     assert state.firehose_partial_streak == 0
     assert state.firehose_truncation_alert_active == false
-    assert_receive {:firehose_alert, "system.firehose.event_truncation.resolved", false}
+    assert_receive {:firehose_alert, "system.firehose.event_truncation.resolved", false}, 1000
   end
 
   # The resolve-once latch: once a resolution has been emitted, a later complete

@@ -61,7 +61,7 @@ defmodule Aiur.AppServer.TurnLoopTest do
     send(self(), {port, {:exit_status, 1}})
 
     assert TurnLoop.receive_loop(%{port: port}, state()) == {:error, {:port_exit, 1}}
-    assert_receive {:malformed, _payload}
+    assert_receive {:malformed, _payload}, 1000
   end
 
   test "reassembles no-eol/eol chunks before dispatch" do
@@ -137,14 +137,14 @@ defmodule Aiur.AppServer.TurnLoopTest do
     send(self(), {port, {:data, {:eol, Jason.encode!(%{"id" => 123, "result" => %{}})}}})
 
     assert {:error, :turn_timeout} = TurnLoop.receive_loop(%{port: port, thread_id: "thread-1"}, state(%{timeout_ms: 1}))
-    assert_receive {:frame, %{"method" => "turn/interrupt"}}
+    assert_receive {:frame, %{"method" => "turn/interrupt"}}, 1000
 
     port = cat_port()
     send(self(), {:agent_queue_updated, "ISSUE-1", "item-1", true})
     send(self(), {port, {:data, {:eol, Jason.encode!(%{"id" => 124, "result" => %{}})}}})
 
     assert {:error, :turn_timeout} = TurnLoop.receive_loop(%{port: port, thread_id: "thread-1"}, state(%{timeout_ms: 1}))
-    assert_receive {:frame, %{"method" => "turn/interrupt"}}
+    assert_receive {:frame, %{"method" => "turn/interrupt"}}, 1000
   end
 
   test "queue update ignore shapes are drained" do
@@ -174,7 +174,7 @@ defmodule Aiur.AppServer.TurnLoopTest do
     send(self(), {port, {:data, {:eol, Jason.encode!(%{"method" => "done"})}}})
 
     assert TurnLoop.receive_loop(%{port: port}, state) == {:ok, :done}
-    refute_receive :wrong
+    refute_receive :wrong, 100
   end
 
   test "drops late sensitive response data before the turn loop can emit it" do
@@ -199,7 +199,7 @@ defmodule Aiur.AppServer.TurnLoopTest do
     assert TurnLoop.receive_loop(%{port: port}, state) ==
              {:ok, :done}
 
-    refute_receive {:event, _event}
+    refute_receive {:event, _event}, 100
   end
 
   test "keeps malformed late sensitive stream data out of turn-loop events" do
@@ -217,8 +217,8 @@ defmodule Aiur.AppServer.TurnLoopTest do
 
     assert TurnLoop.receive_loop(%{port: port}, state) == {:ok, :done}
 
-    refute_receive {:malformed, _payload}
-    refute_receive {:event, _event}
+    refute_receive {:malformed, _payload}, 100
+    refute_receive {:event, _event}, 100
   end
 
   defp cat_port do

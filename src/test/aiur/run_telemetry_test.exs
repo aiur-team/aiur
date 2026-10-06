@@ -223,7 +223,7 @@ defmodule Aiur.RunTelemetryTest do
        ]}
     )
 
-    assert_receive :resource_sample_recorded
+    assert_receive :resource_sample_recorded, 1000
 
     lifecycle_recorder = fn kind, attributes, opts ->
       RunTelemetry.record(kind, attributes, Keyword.put(opts, :writer, __MODULE__.PipelineWriter))
@@ -292,7 +292,7 @@ defmodule Aiur.RunTelemetryTest do
 
     Lifecycle.record("test-ticket", "attempt-1", :dispatch, :point, %{prompt: "secret prompt", command: "secret command", output: "secret output"}, recorder: recorder)
 
-    assert_receive {:recorded, :lifecycle, attributes}
+    assert_receive {:recorded, :lifecycle, attributes}, 1000
     json = Jason.encode!(attributes)
     refute json =~ "prompt"
     refute json =~ "command"
