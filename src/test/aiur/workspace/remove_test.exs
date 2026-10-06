@@ -44,4 +44,30 @@ defmodule Aiur.Workspace.RemoveTest do
     assert {:ok, _} = Remove.remove(workspace, nil)
     refute File.exists?(workspace)
   end
+
+  test "dirty checkout survives removal without running before_remove", %{workspace: workspace, test_root: test_root} do
+    marker = Path.join(test_root, "hook-ran")
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root, hook_before_remove: "touch #{marker}")
+    init_checkout!(workspace)
+    File.write!(Path.join(workspace, "work.txt"), "unfinished")
+
+    assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}, ""} = Remove.remove(workspace, nil)
+    assert File.read!(Path.join(workspace, "work.txt")) == "unfinished"
+    refute File.exists?(marker)
+  end
+
+  test "work created by before_remove survives the final deletion check", %{workspace: workspace, test_root: test_root} do
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root, hook_before_remove: "touch new-work.txt")
+    init_checkout!(workspace)
+
+    assert {:error, {:workspace_not_safe_to_delete, ^workspace, :dirty}, ""} = Remove.remove(workspace, nil)
+    assert File.exists?(Path.join(workspace, "new-work.txt"))
+  end
+
+  defp init_checkout!(workspace) do
+    {_, 0} = System.cmd("git", ["init", "-q", workspace])
+    File.write!(Path.join(workspace, "tracked.txt"), "baseline")
+    {_, 0} = System.cmd("git", ["-C", workspace, "add", "tracked.txt"])
+    {_, 0} = System.cmd("git", ["-C", workspace, "-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-qm", "baseline"])
+  end
 end

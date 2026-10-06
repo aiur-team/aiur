@@ -11,12 +11,12 @@ defmodule Aiur.GitHub.LabelsTest do
       assert "aiur:ci-wait" in labels
       assert "aiur:human-review" in labels
       assert "model:claude" in labels
-      assert "model:claude-opus" in labels
+      assert "model:opus" in labels
       assert "model:codex" in labels
-      assert "model:codex-gpt-5.6-sol" in labels
-      assert "model:codex-gpt-5.6-terra" in labels
-      assert "model:codex-gpt-5.6-luna" in labels
-      assert "model:codex-gpt-5.5" in labels
+      assert "model:sol" in labels
+      assert "model:terra" in labels
+      assert "model:luna" in labels
+      refute Enum.any?(labels, &(&1 =~ ~r/^model:.*\d/))
       assert "complexity:1" in labels
       assert "complexity:5" in labels
     end
@@ -70,7 +70,8 @@ defmodule Aiur.GitHub.LabelsTest do
       labels = Labels.label_set("aiur", ["claude-repl"])
 
       assert "model:claude-repl" in labels
-      assert "model:claude-repl-opus-4-8" in labels
+      assert "model:opus" in labels
+      refute "model:claude-repl-opus-4-8" in labels
       assert "model:claude" in labels
     end
 
@@ -84,22 +85,21 @@ defmodule Aiur.GitHub.LabelsTest do
       refute "model:remote" in Labels.label_set("agent", ["codex"])
     end
 
-    test "claude seeds bare haiku and the remote flag" do
+    test "claude seeds the haiku family and the remote flag" do
       labels = Labels.label_set("agent", ["claude"])
 
-      assert "model:claude-haiku" in labels
+      assert "model:haiku" in labels
       assert "model:remote" in labels
       refute "model:claude-repl" in labels
     end
 
-    test "codex seeds the cheaper model variants" do
+    test "codex seeds its model families, not individual versions" do
       labels = Labels.label_set("agent", ["codex"])
 
-      assert "model:codex-gpt-5.6-terra" in labels
-      assert "model:codex-gpt-5.6-luna" in labels
-      assert "model:codex-gpt-5.4" in labels
-      assert "model:codex-gpt-5.5-mini" in labels
-      assert "model:codex-gpt-5.4-mini" in labels
+      assert "model:terra" in labels
+      assert "model:luna" in labels
+      assert "model:mini" in labels
+      refute "model:codex-gpt-5.4" in labels
     end
 
     test "effort labels are seeded regardless of the chosen backend" do

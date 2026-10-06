@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { MICS_PER_PAGE, micAtSlot, nextMicPage, settingsView } from "../src/settings.js";
+import {
+  MICS_PER_PAGE,
+  MIC_KEY_INDICES,
+  SETTINGS_NEXT_PAGE_KEY,
+  SETTINGS_TEST_MIC_KEY,
+  micAtSlot,
+  micSlotForKey,
+  nextMicPage,
+  settingsView,
+} from "../src/settings.js";
 import type { AudioDevice } from "../src/audio/index.js";
 
 const devices = (count: number): AudioDevice[] =>
@@ -98,5 +107,33 @@ describe("micAtSlot", () => {
     expect(micAtSlot(devices(2), 0, 5)).toBeUndefined();
     expect(micAtSlot(devices(9), 0, MICS_PER_PAGE)).toBeUndefined();
     expect(micAtSlot(devices(9), 0, -1)).toBeUndefined();
+  });
+});
+
+/**
+ * One mapping, read by both the face painter and the press handler. TestMic
+ * takes the command surface's Mic slot, so the microphone keys are 0, 1, 3, 4,
+ * 5, 6 rather than a plain run.
+ */
+describe("the settings key map", () => {
+  it("keeps TestMic on the command surface's Mic slot and paging on the last key", () => {
+    expect(SETTINGS_TEST_MIC_KEY).toBe(2);
+    expect(SETTINGS_NEXT_PAGE_KEY).toBe(7);
+  });
+
+  it("fills the remaining keys with one microphone each, in slot order", () => {
+    expect(MIC_KEY_INDICES).toEqual([0, 1, 3, 4, 5, 6]);
+    expect(MIC_KEY_INDICES).toHaveLength(MICS_PER_PAGE);
+  });
+
+  it("inverts that map so a press addresses the slot the key was painted from", () => {
+    for (const [slot, key] of MIC_KEY_INDICES.entries()) expect(micSlotForKey(key)).toBe(slot);
+  });
+
+  it("gives TestMic and paging no microphone slot at all", () => {
+    expect(micSlotForKey(SETTINGS_TEST_MIC_KEY)).toBeUndefined();
+    expect(micSlotForKey(SETTINGS_NEXT_PAGE_KEY)).toBeUndefined();
+    expect(micSlotForKey(8)).toBeUndefined();
+    expect(micSlotForKey(-1)).toBeUndefined();
   });
 });

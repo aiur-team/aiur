@@ -26,6 +26,7 @@ import {
   maxHistoryOffset,
   maxOptionOffset,
   optionPageLabel,
+  pendingCommandCount,
   OPTIONS_PER_PAGE,
 } from "../src/commands.js";
 
@@ -258,6 +259,27 @@ describe("Commands idempotency keys", () => {
 describe("Commands panels", () => {
   it("counts the open Commands on a page", () => {
     expect(activeCommandCount(page([openCommand(), answeredCommand(), openCommand()]))).toBe(2);
+  });
+
+  it("counts the pending Commands the Commands key advertises", () => {
+    expect(pendingCommandCount(page([]))).toBe(0);
+    expect(pendingCommandCount(page([openCommand()]))).toBe(1);
+    expect(pendingCommandCount(page([openCommand(), answeredCommand(), openCommand({ status: "deferred" }), openCommand()]))).toBe(3);
+  });
+
+  it("counts nothing when the page is missing or the store could not be read", () => {
+    expect(pendingCommandCount(null)).toBe(0);
+    expect(pendingCommandCount(undefined)).toBe(0);
+    expect(pendingCommandCount({ items: [openCommand()], unavailable: true })).toBe(0);
+  });
+
+  it("counts nothing while the loaded page belongs to another agent", () => {
+    const loaded = { ...page([openCommand(), openCommand()]), identifier: "1682" };
+    expect(pendingCommandCount(loaded, "1682")).toBe(2);
+    expect(pendingCommandCount(loaded, "1904")).toBe(0);
+    // An unnamed page, or no focused agent, is the pre-identifier shape: count it.
+    expect(pendingCommandCount(page([openCommand()]), "1904")).toBe(1);
+    expect(pendingCommandCount(loaded, null)).toBe(2);
   });
 
   it("builds the history strip with the open count and page position", () => {

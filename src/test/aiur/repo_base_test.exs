@@ -7,6 +7,16 @@ defmodule Aiur.RepoBaseTest do
   alias Aiur.Orchestrator.DispatchPolicy
 
   setup do
+    assert :ok = Aiur.TestSupport.ensure_runtime_children_running()
+
+    # Recover the app-owned singleton if a sibling stopped this child alone.
+    # An ExUnit-owned replacement would remove the shared name at teardown.
+    if is_nil(Process.whereis(RepoBase)) do
+      assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, RepoBase)
+    end
+
+    assert is_pid(Process.whereis(RepoBase))
+
     tmp = Aiur.TestSupport.tmp_root!("aiur_rb")
     origin = Path.join(tmp, "origin")
     node = Path.join(tmp, "repo/owner/project")

@@ -5,6 +5,14 @@ defmodule Aiur.InitTest do
   alias Aiur.Init
   alias Aiur.Workflow
 
+  defmodule SyntheticInit do
+    @spec prompt(Aiur.Init.io()) :: map()
+    def prompt(io), do: %{region: io.input.("Synthetic backend region", "west", nil)}
+
+    @spec config(map()) :: map()
+    def config(%{region: region}), do: %{"region" => region}
+  end
+
   @example_file Path.expand("../../../.aiur/examples/config.example", __DIR__)
 
   # Every topic the shipped alert examples must keep populated. Kept in sync with
@@ -177,6 +185,7 @@ defmodule Aiur.InitTest do
           end
         end,
         check_agent_auth: fn _kind -> :ok end,
+        check_codex_sandbox: fn -> :ok end,
         install_claude_app_server: fn -> :ok end,
         claude_version: fn -> {:ok, "1.1.0"} end,
         # No installed CLI to ask in the wizard tests; discovery degrading to an
@@ -223,6 +232,45 @@ defmodule Aiur.InitTest do
   defp written_config(path) do
     assert {:ok, loaded} = Workflow.load(path)
     loaded.config
+  end
+
+  test "fresh Muse init requires explicit workspace trust and writes native settings", %{dir: dir, target: target} do
+    answers = %{
+      multiselect: %{"Which agents to support" => ["muse"]},
+      confirm: %{"Trust Muse to load skills and rules from agent workspaces?" => true}
+    }
+
+    assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+    assert %{"agent" => agent} = written_config(target)
+    assert agent["priority"] == ["muse"]
+    assert agent["backend_configs"]["muse"]["trust_workspace"] == true
+    assert agent["backend_configs"]["muse"]["approval_mode"] == "onRequest"
+    assert "Trust Muse to load skills and rules from agent workspaces?" in confirm_prompts()
+  end
+
+  test "fresh Muse init keeps workspace trust disabled without affirmative choice", %{dir: dir, target: target} do
+    answers = %{multiselect: %{"Which agents to support" => ["muse"]}}
+
+    assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+    assert written_config(target)["agent"]["backend_configs"]["muse"]["trust_workspace"] == false
+    assert "Trust Muse to load skills and rules from agent workspaces?" in confirm_prompts()
+  end
+
+  test "fresh init calls a synthetic provider descriptor without provider branches", %{dir: dir, target: target} do
+    descriptors =
+      Map.update!(Aiur.CodingAgent.backends(), "fake", fn descriptor ->
+        Map.put(descriptor, :init, SyntheticInit)
+      end)
+
+    answers = %{
+      multiselect: %{"Which agents to support" => ["fake"]},
+      input: %{"Synthetic backend region" => "east"}
+    }
+
+    d = deps(self(), dir, target, %{backend_descriptors: descriptors})
+    assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+    assert written_config(target)["agent"]["backend_configs"]["fake"]["region"] == "east"
+    assert_received {:input_label, "Synthetic backend region"}
   end
 
   defp assert_filled_alert_template(template, sound_path_regex) do
@@ -1256,7 +1304,8 @@ defmodule Aiur.InitTest do
   end
 
   describe "github bot_account setup (#1152)" do
-    @bot_account_label "GitHub account Aiur's agents post as (bot_account)"
+    @bot_account_label "GitHub account Aiur's agents post as"
+    @identity_mode_label "Will Aiur's agents post as your own GitHub account, or as a separate bot account?"
 
     test "persists the token's detected login accepted as the default", %{dir: dir, target: target} do
       d = deps(self(), dir, target, %{github_bot_account_default: fn -> "its-applekid" end})
@@ -1267,7 +1316,12 @@ defmodule Aiur.InitTest do
     end
 
     test "persists a normalized custom login over the default", %{dir: dir, target: target} do
-      answers = github_answers(%{input: %{@bot_account_label => "@Custom-Bot"}})
+      answers =
+        github_answers(%{
+          select: %{@identity_mode_label => "A separate bot account"},
+          input: %{@bot_account_label => "@Custom-Bot"}
+        })
+
       d = deps(self(), dir, target, %{github_bot_account_default: fn -> "octocat" end})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
@@ -1275,28 +1329,72 @@ defmodule Aiur.InitTest do
       assert written_config(target)["tracker"]["github"]["bot_account"] == "custom-bot"
     end
 
-    test "explains the credential-vs-identity distinction during setup", %{dir: dir, target: target} do
+    test "separate-account setup trusts the operator without a second CODEOWNERS confirmation", %{dir: dir, target: target} do
+      answers =
+        github_answers(%{
+          select: %{@identity_mode_label => "A separate bot account"},
+          input: %{@bot_account_label => "agent-bot"}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+
+      assert File.read!(codeowners_path(dir)) =~ "@octocat"
+      refute File.read!(codeowners_path(dir)) =~ "@agent-bot"
+      prompts = confirm_prompts()
+      assert "Create .github/CODEOWNERS for aiur's GitHub trust checks?" in prompts
+      refute Enum.any?(prompts, &String.contains?(&1, "Add @"))
+    end
+
+    test "asks one plain-language identity-mode question during setup", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
       log = Enum.join(puts_log(), "\n")
-      assert log =~ "GITHUB_TOKEN"
-      assert log =~ "github.bot_account"
-      # #2501: the wizard now names both identity modes and the key that
-      # selects them, in place of the "dedicated bot account" recommendation
-      # that treated a shared login as an unsupported ambiguity.
-      assert log =~ "identity_mode"
-      assert log =~ "single_account"
-      assert log =~ "separate_account"
+      assert Enum.count(io_trace(), &(&1 == {:select, @identity_mode_label})) == 1
+      assert log =~ "mark its comments"
+      refute log =~ "#2356"
+      refute log =~ "identity_mode"
     end
 
     test "a blank answer skips bot_account and writes no key", %{dir: dir, target: target} do
-      answers = github_answers(%{input: %{@bot_account_label => ""}})
+      answers = github_answers(%{select: %{@identity_mode_label => "A separate bot account"}, input: %{@bot_account_label => ""}})
       d = deps(self(), dir, target, %{github_bot_account_default: fn -> nil end})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
 
       refute Map.has_key?(written_config(target)["tracker"]["github"], "bot_account")
-      assert Enum.any?(puts_log(), &(&1 =~ ~r/Skipped bot_account/))
+      assert written_config(target)["tracker"]["github"]["identity_mode"] == "separate_account"
+    end
+
+    test "a blank human account retains a detected bot without asking for a CODEOWNERS account", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{"Your GitHub account" => ""}})
+
+      d =
+        deps(self(), dir, target, %{
+          github_login: fn -> nil end,
+          github_bot_account_default: fn -> "agent-bot" end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      github = written_config(target)["tracker"]["github"]
+      assert github["bot_account"] == "agent-bot"
+      assert github["identity_mode"] == "separate_account"
+      # Future guard: template enumeration has always omitted wizard-only keys.
+      refute Map.has_key?(github, "operator_account_skipped")
+      refute "GitHub account to add to CODEOWNERS" in input_labels()
+      refute File.read!(codeowners_path(dir)) =~ "@agent-bot"
+    end
+
+    test "a blank human account with no bot does not prompt for CODEOWNERS again", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{"Your GitHub account" => ""}})
+      d = deps(self(), dir, target, %{github_login: fn -> nil end, github_bot_account_default: fn -> nil end})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      github = written_config(target)["tracker"]["github"]
+      refute Map.has_key?(github, "bot_account")
+      refute Map.has_key?(github, "identity_mode")
+      refute "GitHub account to add to CODEOWNERS" in input_labels()
     end
 
     test "a failed token-identity lookup writes no bot_account and never exposes token material",
@@ -1312,7 +1410,7 @@ defmodule Aiur.InitTest do
 
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
 
-      refute Map.has_key?(written_config(target)["tracker"]["github"], "bot_account")
+      assert written_config(target)["tracker"]["github"]["bot_account"] == "octocat"
       refute File.read!(target) =~ secret
       refute Enum.any?(puts_log(), &(&1 =~ secret))
     end
@@ -1328,12 +1426,14 @@ defmodule Aiur.InitTest do
       # only observe the resume run.
       _ = puts_log()
       _ = input_labels()
+      _ = io_trace()
 
       # Resume must neither re-ask nor rewrite the tracker; the value stands.
       assert :ok = Init.run(%{force: false}, io(self()), d)
 
       assert written_config(target)["tracker"]["github"]["bot_account"] == "its-applekid"
-      refute Enum.any?(input_labels(), &(&1 == @bot_account_label))
+      refute Enum.any?(input_labels(), &(&1 in [@bot_account_label, "Your GitHub account"]))
+      refute Enum.any?(io_trace(), &(&1 == {:select, @identity_mode_label}))
       assert Enum.any?(puts_log(), &(&1 =~ ~r/bot_account: its-applekid/))
     end
   end
@@ -1420,7 +1520,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex", "kimi", "openrouter", "fake"]
+      assert opts == ["claude", "codex", "kimi", "openrouter", "muse", "fake"]
       refute "claude-repl" in opts
       # DeepSeek is registered but not dispatch-enabled by default, so it must
       # not be offerable from init.
@@ -1587,7 +1687,7 @@ defmodule Aiur.InitTest do
       log = Enum.join(puts_log(), "\n")
       hints = input_hints()
 
-      assert {@bot_account_label, "The login Aiur's agents post as: it is trusted for review comments and, in separate-account mode, distinguishes agent comments from human comments."} in hints
+      refute Enum.any?(hints, fn {label, _hint} -> label == @bot_account_label end)
 
       refute Enum.any?(hints, fn {_label, hint} ->
                is_binary(hint) and String.contains?(hint, "App bot login")
@@ -1970,6 +2070,216 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
 
       refute Enum.any?(puts_log(), &(&1 =~ ~r/couldn't check the aiur-claude version/))
+    end
+  end
+
+  describe "global config with no repo-local config" do
+    @scope_label_prefix "Use the global config at "
+    @repo_option "repo (./.aiur/)"
+    @global_option "global (~/.aiur/)"
+
+    defp global_config_yaml(repo) do
+      github = if repo, do: "  github:\n    repo: #{repo}\n", else: ""
+
+      """
+      tracker:
+        kind: github
+        base_branch: main
+      #{github}agent:
+        kind: claude
+      prewarm:
+        enabled: false
+      """
+    end
+
+    # Per-location config targets: the repo-local target is `target` (absent
+    # unless a test writes it) and the global one lives under a fake home dir
+    # that already holds a config tracking `global_repo`.
+    defp scoped_deps(parent, dir, target, global_repo, overrides \\ %{}) do
+      global_target = Path.join([dir, "home", ".aiur", "config"])
+      File.mkdir_p!(Path.dirname(global_target))
+      File.write!(global_target, global_config_yaml(global_repo))
+
+      d =
+        deps(
+          parent,
+          dir,
+          target,
+          Map.merge(
+            %{
+              config_target: fn
+                :global -> global_target
+                _location -> target
+              end,
+              legacy_config_target: fn
+                :global -> Path.join([dir, "home", ".aiurconfig"])
+                _location -> Path.join(dir, ".aiurconfig")
+              end,
+              detect_repo: fn -> "octo/repo" end
+            },
+            overrides
+          )
+        )
+
+      {d, global_target}
+    end
+
+    defp scope_prompt do
+      receive do
+        {:select_prompt, @scope_label_prefix <> _rest = label, opts, default} -> {label, opts, default}
+      after
+        0 -> nil
+      end
+    end
+
+    defp asked_location? do
+      Enum.any?(input_labels() ++ select_prompt_labels(), &(&1 == @location_label))
+    end
+
+    defp select_prompt_labels(acc \\ []) do
+      receive do
+        {:select_prompt, label, _opts, _default} -> select_prompt_labels([label | acc])
+      after
+        0 -> Enum.reverse(acc)
+      end
+    end
+
+    test "a differing remote prompts with repo-local as the default and creates the repo-local config", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/other")
+      global_before = File.read!(global_target)
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      assert {label, [@repo_option, @global_option], @repo_option} = scope_prompt()
+      assert label =~ global_target
+      assert label =~ "repo-local .aiur/config for octo/repo"
+      refute asked_location?()
+
+      assert_received {:write, ^target}
+      assert get_in(written_config(target), ["tracker", "github", "repo"]) == "octo/repo"
+      assert File.read!(global_target) == global_before
+      refute Enum.any?(puts_log(), &(&1 =~ "resuming setup"))
+    end
+
+    test "a matching remote prompts with global as the default and resumes the global config", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/repo")
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert {_label, _opts, @global_option} = scope_prompt()
+      refute asked_location?()
+      refute_received {:write, _path}
+      refute File.exists?(target)
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ "Found an existing config at #{global_target}; resuming setup."))
+      assert Enum.any?(log, &(&1 =~ ~r/Saved selections/i))
+    end
+
+    test "the remote match is case-insensitive", %{dir: dir, target: target} do
+      {d, _global_target} = scoped_deps(self(), dir, target, "Octo/Repo")
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert {_label, _opts, @global_option} = scope_prompt()
+    end
+
+    test "choosing global on a differing remote resumes the global config", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/other")
+      answers = %{select: %{"#{@scope_label_prefix}#{global_target}, or create a repo-local .aiur/config for octo/repo?" => "global"}}
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      refute_received {:write, _path}
+      assert Enum.any?(puts_log(), &(&1 =~ "resuming setup"))
+    end
+
+    test "choosing repo-local on a matching remote runs a fresh repo-local setup", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/repo")
+      global_before = File.read!(global_target)
+
+      answers =
+        github_answers(%{
+          select: %{"#{@scope_label_prefix}#{global_target}, or create a repo-local .aiur/config for octo/repo?" => "repo"}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert_received {:write, ^target}
+      assert File.read!(global_target) == global_before
+      refute asked_location?()
+    end
+
+    test "a global config that pins no repo defaults to global", %{dir: dir, target: target} do
+      {d, _global_target} = scoped_deps(self(), dir, target, nil)
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert {_label, _opts, @global_option} = scope_prompt()
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/Saved selections/i))
+    end
+
+    test "a directory with no detectable remote defaults to global", %{dir: dir, target: target} do
+      {d, _global_target} = scoped_deps(self(), dir, target, "octo/other", %{detect_repo: fn -> nil end})
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert {label, _opts, @global_option} = scope_prompt()
+      assert label =~ "repo-local .aiur/config for this repository?"
+    end
+
+    # Regression guard for pre-existing behavior: a repo-local config must keep
+    # winning the probe, so the new scope prompt never fires here.
+    test "an existing repo-local config resumes without the scope prompt", %{dir: dir, target: target} do
+      {d, _global_target} = scoped_deps(self(), dir, target, "octo/other")
+      File.write!(target, global_config_yaml("octo/repo"))
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert scope_prompt() == nil
+      assert Enum.any?(puts_log(), &(&1 =~ "Found an existing config at #{target}; resuming setup."))
+    end
+
+    # Regression guard for pre-existing behavior: --force still asks the plain
+    # location question and writes only the chosen target.
+    test "--force skips the scope prompt and scopes the fresh setup to the chosen location", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/other")
+      global_before = File.read!(global_target)
+
+      assert :ok = Init.run(%{force: true}, io(self(), github_answers()), d)
+
+      assert scope_prompt() == nil
+      assert_received {:write, ^target}
+      assert File.read!(global_target) == global_before
+    end
+
+    test "an unreadable global config defaults to global and keeps the --force hint", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/other")
+      File.write!(global_target, "- not\n- a\n- map\n")
+
+      assert {:error, message} = Init.run(%{force: false}, io(self()), d)
+
+      assert {_label, _opts, @global_option} = scope_prompt()
+      assert message =~ "Couldn't read the existing config at #{global_target}"
+      assert message =~ "--force"
+      refute_received {:write, _path}
+    end
+
+    test "a legacy global config still offers a repo-local setup", %{dir: dir, target: target} do
+      {d, _global_target} = scoped_deps(self(), dir, target, "octo/other")
+      legacy = Path.join([dir, "home", ".aiurconfig"])
+      File.write!(legacy, global_config_yaml("octo/other"))
+      # The legacy hit is probed after the canonical global path; drop the
+      # canonical file so the legacy one is what the wizard finds.
+      File.rm!(Path.join([dir, "home", ".aiur", "config"]))
+
+      assert {:error, message} = Init.run(%{force: false}, io(self()), d)
+      assert {_label, _opts, @global_option} = scope_prompt()
+      assert message =~ "#{legacy} is no longer supported"
+
+      answers = github_answers(%{select: %{"#{@scope_label_prefix}#{legacy}, or create a repo-local .aiur/config for octo/repo?" => "repo"}})
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+      assert_received {:write, ^target}
     end
   end
 end

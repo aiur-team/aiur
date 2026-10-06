@@ -1134,6 +1134,18 @@ th[data-sort-key]:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
+/* A row carried by retained readings says so beside its percent: the count of
+   members whose agent has not reported since, and how old the oldest reading
+   is. Retained work stays counted, but never dressed as current. */
+.bo-breakdown-row-last-known .num {
+  color: var(--attention-ink);
+}
+
+.bo-breakdown-row-age {
+  font-size: 0.7rem;
+  color: var(--faint);
+}
+
 .bo-breakdown-row-members {
   margin: 0;
   min-width: 0;
@@ -3606,6 +3618,8 @@ html[data-theme="light"] .toggle-icon .moon {
 .ut-latest-meta {
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
   margin-top: 0.28rem;
   font-size: 0.72rem;
   color: var(--muted);
@@ -3806,6 +3820,17 @@ html[data-theme="light"] .toggle-icon .moon {
   align-items: start;
   gap: 0.55rem;
   min-width: 0;
+}
+
+/* Account scope and observation age must not consume the meter's column. */
+.rs-models-rows {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+}
+
+.rs-model > .rs-head {
+  flex-wrap: wrap;
+  height: auto;
+  min-height: var(--rs-provider-row-height);
 }
 
 /* Top-aligned, not centred: the stat block on a provider card is taller than
@@ -4240,6 +4265,14 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   .rs-models-rows,
   .rs-apis-rows {
     gap: 0.55rem 0.55rem;
+  }
+
+  .rs-models-rows {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rs-model:not(:first-child) > .rs-head {
+    margin-top: 0.4rem;
   }
 
   .rs-provider-row > .rs-provider-body {
@@ -7768,6 +7801,28 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   color: var(--faint);
 }
 
+.bo-waves-asof {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--attention-ink);
+}
+
+/* A saved plan's percentages are real numbers about a moment that has passed,
+   so they carry a second marker besides the dateline above them. It has to be
+   a marker that does not touch luminance: --muted sits at 5.79:1 on --surface
+   with no headroom to spend, and an earlier opacity: 0.6 here blended it down
+   to 2.96:1 and failed the axe smoke. Italics differentiate for free. */
+.bo-waves-head.is-stale .bo-wave-seg-pct {
+  font-style: italic;
+}
+
+/* The meter is aria-hidden decoration duplicating the percentage text beside
+   it, so dimming the bar itself carries no contrast obligation. */
+.bo-waves-head.is-stale .bo-wave-seg-meter {
+  opacity: 0.6;
+}
+
 .bo-waves-strip {
   display: grid;
   grid-auto-flow: column;
@@ -7794,6 +7849,21 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   color: var(--muted);
 }
 
+/* Aggregates carried by retained readings say so under the meter, so a bar
+   that owes part of its fill to paused agents reads as last known, not live. */
+.bo-wave-seg-note,
+.bo-epic-note {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.68rem;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.bo-epic-count[data-progress-freshness="last_known"] {
+  color: var(--attention-ink);
+}
+
 .bo-wave-seg-meter {
   display: block;
   height: var(--progress-bar-height);
@@ -7806,6 +7876,20 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   display: block;
   height: 100%;
   border-radius: 999px;
+}
+
+/* Preserve an unresolved label rather than shrinking it to a misleading zero.
+   On phones, arrange the wave summaries in two columns so those honest labels
+   remain inside the document instead of widening the page. */
+@media (max-width: 480px) {
+  .bo-waves-strip {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .bo-wave-seg {
+    min-width: 0;
+  }
 }
 
 /* --- toolbar (legend + zoom) --- */
@@ -7971,8 +8055,10 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .bo-epic {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.45rem;
+  min-width: 0;
   padding: 0.5rem 0.7rem;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -8006,6 +8092,16 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   font-variant-numeric: tabular-nums;
   font-size: 0.82rem;
   color: var(--muted);
+}
+
+/* A last-known annotation is metadata for this fixed-width graph column, not
+   a reason to widen the grid beyond its own scroll viewport. Keep it on its
+   own line and let it wrap on phone-sized columns. */
+.bo-epic-note {
+  flex: 1 0 100%;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* --- body + wave rows --- */
@@ -8286,6 +8382,22 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 
 .bo-node.is-merged .bo-node-pct {
   color: var(--muted);
+}
+
+/* A card whose percent is a last-known reading keeps the number but flags it:
+   the percent turns to the warning tone and a note under the status row gives
+   the reading's age, so retained work is never mistaken for a live report. */
+.bo-node-pct[data-progress-freshness="last_known"] {
+  color: var(--attention-ink);
+}
+
+.bo-node-note {
+  font-size: 0.62rem;
+  line-height: 1.2;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* On the brighter merged fill (--surface-3), keep the small meta text at
@@ -8802,6 +8914,21 @@ html[data-theme="light"] .rs-elevenlabs-mark {
 .sd-ag-tag.ready { background: rgba(74, 200, 130, 0.2); color: #88e0a6; }
 
 .sd-ag-foot.col .sd-ag-tag { margin-left: 0; }
+
+/*
+ * The unblocked state is a glyph in the key's bottom-right corner, not a pill:
+ * the sidecar's rasterizer paints the same open padlock in the same green, so
+ * the emulator and the physical deck say "ready to start" the same way.
+ */
+.sd-ag-unblocked {
+  display: inline-flex;
+  align-self: flex-end;
+  width: 0.95rem;
+  height: 0.95rem;
+  color: var(--good-ink);
+}
+
+.sd-ag-unblocked svg { width: 100%; height: 100%; }
 
 .sd-ag-dot {
   width: 11px;

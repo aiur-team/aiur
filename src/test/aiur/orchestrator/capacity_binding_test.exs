@@ -122,8 +122,13 @@ defmodule Aiur.Orchestrator.CapacityBindingTest do
   test "a fleet that has not polled recently enough may not blame ticket supply" do
     capacity = %{@full | occupied: 0, available: 2, queued_demand?: false}
 
-    assert CapacityBinding.binding(capacity, %{idle_backoff: %{active?: true}, next_poll_in_ms: 30_000}) ==
-             {:has_not_polled, %{next_poll_in_ms: 30_000, ceiling: "config max_concurrent_agents"}}
+    # An active idle backoff is a designed wait after a completed poll, so it
+    # is named as such — with the factor that sized it — rather than as "has
+    # not polled yet", which only a failed fetch can honestly claim (#2640).
+    assert CapacityBinding.binding(capacity, %{idle_backoff: %{active?: true, factor: 5.0}, next_poll_in_ms: 30_000}) ==
+             {:idle_backoff, %{next_poll_in_ms: 30_000, factor: 5.0, ceiling: "config max_concurrent_agents"}}
+
+    assert CapacityBinding.short_label({:idle_backoff, %{}}) == "idle backoff"
 
     assert CapacityBinding.binding(capacity, %{tracker_snapshot_fresh?: false}) ==
              {:has_not_polled, %{ceiling: "config max_concurrent_agents"}}

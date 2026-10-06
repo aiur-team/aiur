@@ -18,6 +18,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   @type kind ::
           :admission
           | :ticket_supply
+          | :idle_backoff
           | :has_not_polled
           | :paused_reservations
           | :envelope
@@ -34,10 +35,12 @@ defmodule Aiur.Orchestrator.CapacityBinding do
 
   `polling` is the daemon's polling report from the same snapshot. It is threaded
   in for one honest reason: "ticket supply" is only claimable when the daemon
-  recently polled and found nothing. While idle backoff is active, or the
-  candidate snapshot is not fresh, the fleet has not looked recently enough to
-  see work that appeared — so the binding says that instead of blaming ticket
-  supply (#2138). A caller with no polling report gets the pre-#2138 behaviour.
+  recently polled and found nothing. While idle backoff is active the binding
+  is `:idle_backoff` (a designed wait, named with its knob), and while the
+  candidate snapshot is not fresh it is `:has_not_polled` — in both cases the
+  fleet has not looked recently enough to see work that appeared, so the
+  binding says that instead of blaming ticket supply (#2138, #2640). A caller
+  with no polling report gets the pre-#2138 behaviour.
   """
   @spec binding(map(), map()) :: t()
   def binding(capacity, polling \\ %{}), do: binding(capacity, polling, DateTime.utc_now())
@@ -53,6 +56,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
       when is_integer(max) and is_integer(effective) and is_integer(configured) and is_integer(occupied) do
     case ticket_supply(capacity, polling) do
       {:ticket_supply, detail} -> {:ticket_supply, detail}
+      {:idle_backoff, detail} -> {:idle_backoff, detail}
       {:has_not_polled, detail} -> {:has_not_polled, detail}
       :not_ticket_supply -> with_capacity(capacity, max, effective, configured, occupied)
     end
@@ -163,6 +167,7 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   def short_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   def short_label({:session_cap, _detail}), do: "session max_concurrent_agents"
   def short_label({:ticket_supply, _detail}), do: "ticket supply"
+  def short_label({:idle_backoff, _detail}), do: "idle backoff"
   def short_label({:has_not_polled, _detail}), do: "has not polled yet"
   def short_label({:admission, %{signal: signal, stale_sample?: true}}), do: "admission: #{signal} (stale sample)"
   def short_label({:admission, %{signal: signal}}), do: "admission: #{signal}"
@@ -215,8 +220,13 @@ defmodule Aiur.Orchestrator.CapacityBinding do
         # command (#2138).
         {:ticket_supply, %{ceiling: ceiling_label(capacity)}}
 
-      {:backed_off, next_poll_in_ms} ->
-        {:has_not_polled, %{next_poll_in_ms: next_poll_in_ms, ceiling: ceiling_label(capacity)}}
+      {:backed_off, next_poll_in_ms, factor} ->
+        # The daemon polled, found nothing dispatchable, and widened its
+        # cadence on purpose. That is neither "ticket supply" (the snapshot
+        # is a backed-off interval old) nor "has not polled yet" (it has —
+        # `idle_fleet?/1` requires a completed cycle); name the backoff and
+        # the knob that sized it instead (#2640).
+        {:idle_backoff, %{next_poll_in_ms: next_poll_in_ms, factor: factor, ceiling: ceiling_label(capacity)}}
 
       :fetch_failed ->
         {:has_not_polled, %{ceiling: ceiling_label(capacity)}}
@@ -231,8 +241,8 @@ defmodule Aiur.Orchestrator.CapacityBinding do
   # successful poll is a full backed-off interval old; a `tracker_snapshot_fresh?
   # == false` means the last fetch failed. Both are "has not polled recently
   # enough to know".
-  defp poll_observation(%{idle_backoff: %{active?: true}} = polling),
-    do: {:backed_off, Map.get(polling, :next_poll_in_ms)}
+  defp poll_observation(%{idle_backoff: %{active?: true} = backoff} = polling),
+    do: {:backed_off, Map.get(polling, :next_poll_in_ms), Map.get(backoff, :factor)}
 
   defp poll_observation(%{tracker_snapshot_fresh?: false}), do: :fetch_failed
   defp poll_observation(_polling), do: :fresh

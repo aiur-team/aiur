@@ -920,8 +920,23 @@ defmodule Aiur.IssueLog do
   defp format_transcript(role, body, event) do
     ts = timestamp(event)
     body_text = body |> to_string() |> String.replace("\r\n", "\n")
-    "#{ts} [#{tag_for_role(role)}] #{body_text}\n"
+    "#{ts} [#{transcript_tag(role, event)}] #{body_text}\n"
   end
+
+  # An Executor message is echoed when it is queued, not when the agent gets
+  # it. A `[user]` tag made a queued copy look delivered (#2717), so the echo
+  # is tagged `queued` with its queue item and decision id. Provider delivery
+  # is logged as its own line.
+  defp transcript_tag(:user, %{payload: %{operator_message: %{status: :queued} = message}}) do
+    ["queued", tag_field("item", Map.get(message, :request_id)), tag_field("decision", Map.get(message, :decision_id))]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
+  defp transcript_tag(role, _event), do: tag_for_role(role)
+
+  defp tag_field(_name, nil), do: nil
+  defp tag_field(name, value), do: "#{name}=#{value}"
 
   defp format_alert(name, message, event) do
     ts = timestamp(event)

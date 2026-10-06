@@ -13,6 +13,7 @@ defmodule Aiur.Claude.CodingAgent do
   require Logger
   alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.AppServer.{Adapter, Messages, OperatorDelivery, Rpc, TurnState}
+  alias Aiur.AppServer.Rpc.StreamDiagnostics
   alias Aiur.Claude.{AccountGeneration, AccountMeters, NotificationPolicy}
   alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
@@ -27,7 +28,8 @@ defmodule Aiur.Claude.CodingAgent do
           thread_id: String.t(),
           workspace: Path.t(),
           model: String.t() | nil,
-          account_generation_binding: reference()
+          account_generation_binding: reference(),
+          clock: (-> DateTime.t())
         }
 
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
@@ -71,7 +73,8 @@ defmodule Aiur.Claude.CodingAgent do
            Map.merge(lifecycle_session, %{
              thread_id: thread_id,
              workspace: expanded_workspace,
-             model: model
+             model: model,
+             clock: Keyword.get(opts, :clock, &DateTime.utc_now/0)
            })}
 
         {:error, reason} ->
@@ -320,10 +323,10 @@ defmodule Aiur.Claude.CodingAgent do
 
     TurnState.fail_pending_operator_requests(state.pending_operator_requests, {:turn_failed, params})
 
-    if NotificationPolicy.usage_limit_exhausted?(params) do
-      {:paused, NotificationPolicy.usage_limit_pause(params)}
-    else
-      {:error, {:turn_failed, params}}
+    # CLI provenance first (#2727); provider_error text never feeds the
+    # free-text fallbacks, which only see wrapper stderr and stream output.
+    with :unclassified <- NotificationPolicy.provider_refusal(params, session_now(session)) do
+      classify_unattributed_failure(session, params)
     end
   end
 
@@ -381,6 +384,9 @@ defmodule Aiur.Claude.CodingAgent do
 
   def handle_method(session, state, %{"method" => method} = payload, payload_string, _method)
       when is_binary(method) do
+    # item/created text is assistant content, even when it repeats a refusal
+    # verbatim. Exhaustion is decided at turn/failed, from the CLI provenance
+    # in provider_error or from provider failure diagnostics.
     Messages.emit_message(
       state.on_message,
       :notification,
@@ -391,6 +397,11 @@ defmodule Aiur.Claude.CodingAgent do
     Logger.debug("Claude notification: #{inspect(method)}")
     {:continue, OperatorDelivery.maybe_process_safe_checkpoint(session, state, %{kind: :notification, method: method})}
   end
+
+  @impl Aiur.AppServer.Adapter
+  @doc false
+  @spec classify_stream_failure(String.t()) :: {:paused, map()} | :unclassified
+  defdelegate classify_stream_failure(diagnostics), to: NotificationPolicy
 
   @impl Aiur.AppServer.Adapter
   @doc false
@@ -407,6 +418,23 @@ defmodule Aiur.Claude.CodingAgent do
 
     {:continue, state}
   end
+
+  defp classify_unattributed_failure(session, params) do
+    legacy_params = Map.delete(params, "provider_error")
+
+    if NotificationPolicy.usage_limit_exhausted?(legacy_params) do
+      {:paused, NotificationPolicy.usage_limit_pause(legacy_params)}
+    else
+      # An older wrapper reports only `"Error: claude exited with code 1"`;
+      # the 429 may still be on the provider's stream (#2607).
+      case classify_stream_failure(StreamDiagnostics.recent_text(session.port)) do
+        {:paused, pause} -> {:paused, pause}
+        :unclassified -> {:error, {:turn_failed, params}}
+      end
+    end
+  end
+
+  defp session_now(session), do: Map.get(session, :clock, &DateTime.utc_now/0).()
 
   defp await_response(port, request_id) do
     Rpc.with_timeout_response(port, request_id, Config.agent_read_timeout_ms(), "", "Claude")

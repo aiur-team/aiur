@@ -4,8 +4,9 @@ defmodule AiurWeb.BuildOrder.ContextRuntime do
   import Phoenix.Component, only: [assign: 3]
   import Phoenix.LiveView, only: [connected?: 1, start_async: 3]
 
-  alias Aiur.TrackerIdentity
+  alias Aiur.{LiveConversation, TrackerIdentity}
   alias AiurWeb.BuildOrder.{Runtime, TicketContextAdapter, TicketContextPresenter, TicketContextSelection}
+  alias AiurWeb.Endpoint
   alias Phoenix.LiveView.Socket
 
   @spec initialize(Socket.t(), term()) :: Socket.t()
@@ -183,7 +184,7 @@ defmodule AiurWeb.BuildOrder.ContextRuntime do
         socket.assigns.model,
         selection.selected,
         base,
-        context_capabilities(socket.assigns.model, selection.selected)
+        context_capabilities(socket.assigns.model, selection.selected, socket.assigns.sources.execution)
       )
 
     assign(socket, :context_view, view)
@@ -217,24 +218,77 @@ defmodule AiurWeb.BuildOrder.ContextRuntime do
 
   defp fallback_context(_identity, _model), do: TicketContextPresenter.normalize_view(nil)
 
-  defp context_capabilities(model, %TrackerIdentity{} = identity) do
-    case context_node(model, identity) do
-      %{card: %{planned?: true}} ->
-        %{}
+  defp context_capabilities(model, %TrackerIdentity{} = identity, execution) do
+    base =
+      case context_node(model, identity) do
+        %{card: %{planned?: true}} ->
+          %{}
 
-      # An external planning document may be available for a non-draft member.
-      %{document_url: doc} when is_binary(doc) ->
-        %{document: %{available?: true, destination: doc, identity: identity, label: "Planning doc"}}
+        # An external planning document may be available for a non-draft member.
+        %{document_url: doc} when is_binary(doc) ->
+          %{document: %{available?: true, destination: doc, identity: identity, label: "Planning doc"}}
 
-      %{url: url} when is_binary(url) ->
-        %{issue: %{available?: true, destination: url, identity: identity, label: "GitHub issue"}}
+        %{url: url} when is_binary(url) ->
+          %{issue: %{available?: true, destination: url, identity: identity, label: "GitHub issue"}}
 
-      _node ->
-        %{}
+        _node ->
+          %{}
+      end
+
+    case readable_conversation?(execution, identity) do
+      true ->
+        Map.put(base, :chat, %{
+          available?: true,
+          active?: true,
+          readable?: true,
+          destination: "/chat/#{identity.owner}/#{identity.repository}/#{identity.identifier}",
+          identity: identity
+        })
+
+      false ->
+        reason = if match?(%{card: %{planned?: true}}, context_node(model, identity)), do: :not_opened, else: :unavailable
+        Map.put(base, :chat, %{available?: false, reason: reason, identity: identity})
     end
   end
 
-  defp context_capabilities(_model, _identity), do: %{}
+  defp context_capabilities(_model, _identity, _execution), do: %{}
+
+  defp readable_conversation?(execution, identity) when is_map(execution) do
+    key = TrackerIdentity.github_key(identity)
+
+    rows =
+      Enum.flat_map([:running, :retrying, :idle], fn bucket ->
+        case Map.get(execution, bucket) do
+          rows when is_list(rows) -> rows
+          _rows -> []
+        end
+      end)
+
+    case Enum.filter(rows, &(is_map(&1) and TrackerIdentity.github_key(Map.get(&1, :tracker_identity)) == key)) do
+      [row] ->
+        case Map.get(row, :live_conversation) do
+          %{generation_handle: handle} when is_binary(handle) -> readable_snapshot?(safe_resolve(handle))
+          _conversation -> false
+        end
+
+      _rows ->
+        false
+    end
+  end
+
+  defp readable_conversation?(_execution, _identity), do: false
+
+  defp readable_snapshot?({:ok, %{state: state}}) when state in [:live, :stale, :ended, :known_empty], do: true
+  defp readable_snapshot?(_result), do: false
+
+  defp safe_resolve(handle) do
+    resolver = Endpoint.config(:live_conversation_resolve_fun) || (&LiveConversation.resolve/1)
+    resolver.(handle)
+  rescue
+    _error -> :unavailable
+  catch
+    :exit, _reason -> :unavailable
+  end
 
   defp context_node(%AiurWeb.BuildOrderViewModel{nodes: nodes}, identity) do
     key = TrackerIdentity.github_key(identity)

@@ -138,14 +138,12 @@ defmodule AiurWeb.Router do
 
     live_session :dashboard, on_mount: AiurWeb.FinancialDataAccess do
       live("/", DashboardLive, :index)
+      live("/chat/:owner/:repository/:identifier", DashboardLive, :index)
       live("/commands", DashboardLive, :decisions)
       live("/commands/:decision_id", DashboardLive, :decision)
       live("/build-orders", BuildOrderLive, :build_orders)
       live("/build-orders/:root_number", BuildOrderLive, :build_order)
       live("/analytics", AnalyticsLive, :analytics)
-      live("/github-cache", GithubCacheLive, :github_cache)
-      live("/github-cache/:resource_type", GithubCacheLive, :github_cache_group)
-      live("/github-cache/:resource_type/:identity", GithubCacheLive, :github_cache_entry)
       live("/streamdeck", StreamdeckLive, :streamdeck)
     end
   end
@@ -202,7 +200,15 @@ defmodule AiurWeb.Router do
 
   @doc false
   @spec dashboard_basic_auth(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
-  def dashboard_basic_auth(conn, opts), do: AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
+  def dashboard_basic_auth(conn, opts) do
+    opts =
+      case Map.fetch(conn.private, :aiur_dashboard_credentials) do
+        {:ok, credentials} -> Keyword.put(opts, :credentials, credentials)
+        :error -> opts
+      end
+
+    AiurWeb.FinancialDataAccess.authenticate_request(conn, opts)
+  end
 
   # Origin/Referer allowlist. Parses exact origins and accepts the configured
   # dashboard host or loopback equivalents Executors typically use.

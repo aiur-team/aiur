@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   MICS_PER_PAGE,
+  MIC_KEY_INDICES,
   StripRenderer,
   VOICE_WAVEFORM_COLUMNS,
   buildRegionReports,
@@ -27,6 +28,7 @@ describe("Stream Deck package", () => {
     expect(typeof createVoiceLink).toBe("function");
     expect(typeof createRepaintCoalescer).toBe("function");
     expect(MICS_PER_PAGE).toBe(6);
+    expect(MIC_KEY_INDICES).toEqual([0, 1, 3, 4, 5, 6]);
     expect(VOICE_WAVEFORM_COLUMNS).toBeGreaterThan(0);
   });
 });

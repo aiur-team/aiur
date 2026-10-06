@@ -609,8 +609,7 @@ defmodule Aiur.RunTelemetry.Dataset do
           {kept, record_ids, event_keys, [warning | warnings]}
 
         event_key && MapSet.member?(event_keys, event_key) ->
-          warning = %{type: :duplicate_lifecycle_boundary, event_key: event_key}
-          {kept, MapSet.put(record_ids, record.record_id), event_keys, [warning | warnings]}
+          {kept, MapSet.put(record_ids, record.record_id), event_keys, duplicate_boundary_warnings(record, event_key, warnings)}
 
         true ->
           {
@@ -626,16 +625,38 @@ defmodule Aiur.RunTelemetry.Dataset do
     end)
   end
 
+  # A point carried across a segment roll replicates a record that may still be
+  # in the retained prior segment; that is the writer keeping the boot's
+  # completion facts, not a duplicate emission, so it collapses silently.
+  defp duplicate_boundary_warnings(record, event_key, warnings) do
+    if carried_point?(record),
+      do: warnings,
+      else: [%{type: :duplicate_lifecycle_boundary, event_key: event_key} | warnings]
+  end
+
   defp maybe_put_event_key(event_keys, nil), do: event_keys
   defp maybe_put_event_key(event_keys, event_key), do: MapSet.put(event_keys, event_key)
 
-  defp lifecycle_event_key(%{kind: "lifecycle", attributes: attributes}) do
-    if Map.get(attributes, "source_id") || Map.get(attributes, "operation_id") do
+  defp lifecycle_event_key(%{kind: "lifecycle", attributes: attributes} = record) do
+    if Map.get(attributes, "source_id") || Map.get(attributes, "operation_id") || carried_point_event?(record) do
       Map.get(attributes, "event_key")
     end
   end
 
   defp lifecycle_event_key(_record), do: nil
+
+  # The point events the writer re-emits after a segment roll (see
+  # `Aiur.RunTelemetry.Writer`). Their identity is the event key, so the
+  # original and its carried replica collapse to one point.
+  @carried_point_events ~w(dispatch pr_opened pr_merged)
+
+  defp carried_point_event?(%{attributes: %{"event" => event, "boundary" => "point"}}),
+    do: event in @carried_point_events
+
+  defp carried_point_event?(_record), do: false
+
+  defp carried_point?(%{attributes: %{"segment_continuation" => "carried"}}), do: true
+  defp carried_point?(_record), do: false
 
   defp sequence_warnings(records) do
     records

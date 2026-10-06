@@ -49,6 +49,17 @@ delivering: leaving a finished PR as a draft means you have not delivered.
 If a turn ends in `agent:ci-wait` with the PR still a draft, marking it ready
 is the first step of the resume turn after the delivered CI pass.
 
+### Moving the ticket's state (`aiur_set_ticket_state`)
+
+Change your ticket's `agent:*` state **only** with
+`aiur_set_ticket_state({ "state": "human-review" })` — never
+`gh issue edit --add-label` / `--remove-label`. The daemon transitions the label
+too (the CI-pass handoff swaps `agent:ci-wait` for `agent:in-progress` before it
+wakes you), so a label you name for removal may already be gone: the removal
+no-ops and the ticket is left carrying two state labels, which dispatch refuses
+(#2805). The tool makes your target the sole state label from the issue Aiur
+re-reads at write time.
+
 ### Cross-ticket events (`emit_event`, `aiur_subscribe`, `aiur_declare_blocker`)
 
 Aiur agents on different tickets coordinate through a topic-exchange event bus —
@@ -181,6 +192,13 @@ Rules:
 When you complete `ce-plan` on a ticket that is still active, proceed directly to `ce-work` — the planning-to-work transition is authorized on active tickets without an operator message. Pause only if `ce-plan` surfaced an unresolved operator decision, a dependency blocker, or a scope question that genuinely requires human input before implementation can begin. Interactive CE phase menus do not end an autonomous ticket turn unless a real operator decision is required.
 
 ### Rename and signature-change test audit
+
+Run focused tests using the target repository's documented commands, package
+manager and runner configuration. Read its AGENTS.md, manifests and CI workflow;
+use its actual test roots, including colocated tests. The destructive
+`aiurdev --test` / `--test3` reset prohibition does not prohibit focused
+repository tests. The examples below apply only to Aiur's Elixir core; use
+the target repository's equivalents elsewhere.
 
 Directory-scoped test commands are not proof that a rename or signature change
 updated every caller. Before pushing one of those changes, search the entire test

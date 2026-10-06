@@ -127,6 +127,23 @@ defmodule Aiur.RecentMergeStoreTest do
     assert closing_identifiers_for("Closes other/repo#1570") == []
   end
 
+  # #2609: the live merged route has a raw PR body and no stored merge record,
+  # so it asks the same parser the same question directly.
+  test "reads closing references straight off a raw pull request body" do
+    assert RecentMerge.closing_issue_identifiers_in_body("Closes #176") == ["176"]
+    assert RecentMerge.closing_issue_identifiers_in_body("Refs #176 (merge does not close the ticket)") == []
+    assert RecentMerge.closing_issue_identifiers_in_body(nil) == []
+    assert RecentMerge.closing_issue_identifiers_in_body("") == []
+
+    assert RecentMerge.closing_issue_identifiers_in_body("Closes owner/repo#176", "owner/repo") == ["176"]
+    assert RecentMerge.closing_issue_identifiers_in_body("Closes owner/repo#176", "other/repo") == []
+
+    # An unknown repository keeps bare references and drops qualified ones
+    # rather than guessing that a qualified reference is local.
+    assert RecentMerge.closing_issue_identifiers_in_body("Closes owner/repo#176") == []
+    assert RecentMerge.closing_issue_identifiers_in_body("Closes #176", nil) == ["176"]
+  end
+
   test "retains closing references beyond the bounded merged PR summary" do
     event =
       merged_event(%{

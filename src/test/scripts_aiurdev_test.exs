@@ -20,6 +20,7 @@ defmodule ScriptsAiurdevTest do
     File.mkdir_p!(libexec)
     # `--test` resets the sandbox from $repo_root/src; the dir must exist to cd into.
     File.mkdir_p!(Path.join(root, "src"))
+    File.write!(Path.join(root, ".aiur-test-tickets.json"), ~s({"tickets":[99,100,101]}))
     engine = Path.join(libexec, "aiur-engine.sh")
 
     File.write!(
@@ -30,6 +31,7 @@ defmodule ScriptsAiurdevTest do
         "    echo '---'\n" <>
         "    echo \"ENGINE_ARGS: $*\"\n" <>
         "    echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
+        "    echo \"AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}\"\n" <>
         "    echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "    echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
         "    echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
@@ -57,6 +59,7 @@ defmodule ScriptsAiurdevTest do
         "echo \"RESTART_BUILD_CMD: ${AIUR_RESTART_BUILD_CMD:-}\"\n" <>
         "echo \"AIUR_DEBUG: ${AIUR_DEBUG:-}\"\n" <>
         "echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
+        "echo \"AIUR_DEV_TEST_TICKET_IDS: ${AIUR_DEV_TEST_TICKET_IDS:-}\"\n" <>
         "echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
         "echo \"AIUR_LOGS_ROOT: ${AIUR_LOGS_ROOT:-}\"\n" <>
         "echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
@@ -241,6 +244,7 @@ defmodule ScriptsAiurdevTest do
       {"AIUR_AGENT_WORKSPACE", nil},
       {"AIUR_AGENT_IR_SANDBOX", nil},
       {"AIUR_AGENT_IR_ROOT", nil},
+      {"AIUR_DEV_TEST_TICKET_IDS", nil},
       {"AIUR_OPENCODE_BRIDGE_PORT", nil}
     ]
 
@@ -905,6 +909,7 @@ defmodule ScriptsAiurdevTest do
     # Sandbox reset went through mise as a single-ticket, forced reset.
     assert out =~ "mix aiur.test.reset"
     assert out =~ "--single"
+    assert out =~ "AIUR_DEV_TEST_TICKET_IDS: 99"
     # --test is consumed by the shim, never handed to the engine/release.
     refute out =~ "ENGINE_ARGS: --test"
     # Operator runs outside an agent workspace keep the real home-log clear and
@@ -929,10 +934,65 @@ defmodule ScriptsAiurdevTest do
 
     assert out =~ "mix aiur.test.reset"
     assert out =~ "--allow-remote"
+    assert out =~ "AIUR_DEV_TEST_TICKET_IDS: 99,100,101"
     refute out =~ "--single"
     refute out =~ "ENGINE_ARGS: --test3"
     refute File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
     refute out =~ "agent IR sandbox"
+  end
+
+  test "test launch refuses missing pinned IDs before clearing logs or stopping the daemon" do
+    root = fake_repo()
+    home = sandbox_home()
+    File.rm!(Path.join(root, ".aiur-test-tickets.json"))
+
+    {out, 64} =
+      run_shim(["--test"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil},
+        {"HOME", home}
+      ])
+
+    assert out =~ "test launch requires jq and a readable"
+    refute out =~ "mix aiur.test.reset"
+    refute out =~ "ENGINE_ARGS:"
+    assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
+  end
+
+  test "test launch refuses malformed pinned IDs before resetting tickets" do
+    root = fake_repo()
+    home = sandbox_home()
+    File.write!(Path.join(root, ".aiur-test-tickets.json"), ~s({"tickets":[99,"2413"]}))
+
+    {out, 64} =
+      run_shim(["--test3"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"TMUX", nil},
+        {"HOME", home}
+      ])
+
+    assert out =~ "requires positive pinned ticket IDs"
+    refute out =~ "mix aiur.test.reset"
+    refute out =~ "ENGINE_ARGS:"
+    assert File.exists?(Path.join([home, ".aiur", "logs", "old-session"]))
+  end
+
+  test "ordinary launch discards an inherited test ticket scope" do
+    root = fake_repo()
+    mise = fake_mise()
+
+    {out, 0} =
+      run_shim([], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_DEV_TEST_TICKET_IDS", "777"},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ ~r/^AIUR_DEV_TEST_TICKET_IDS: *$/m
   end
 
   test "agent workspace --test is blocked before reset, clear, stop, or launch" do

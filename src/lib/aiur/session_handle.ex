@@ -5,14 +5,19 @@ defmodule Aiur.SessionHandle do
   a brand-new conversation that re-discovers the work (issue #378).
 
   The handle is a small JSON sidecar written via the crash-safe
-  `Aiur.JsonStore`. It lives in the shared per-issue state directory
-  (`Aiur.Config.Paths.log_root_dir/0`, keyed `<repo>.<id>.session.json`) — the
-  same place `Aiur.Events.SubscriptionStore` keeps its per-issue state — rather
-  than inside the per-issue git workspace. That location is deliberate: it
-  survives a workspace reclone, and the backend's on-disk rollout it points at
-  (codex keeps thread rollouts under `~/.codex/sessions/**`) is likewise
-  host-local and reclone-surviving, so the handle and the thread it names stay
-  paired.
+  `Aiur.JsonStore`. It lives in the durable runtime state directory
+  (`Aiur.Config.Paths.runtime_state_dir/0`, under `session-handles/`, keyed
+  `<repo>.<id>.session.json`) rather than inside the per-issue git workspace.
+  That location is deliberate: it survives a workspace reclone and a daemon
+  restart, and the backend's on-disk rollout it points at (codex keeps thread
+  rollouts under `~/.codex/sessions/**`) is likewise host-local and
+  reclone-surviving, so the handle and the thread it names stay paired.
+
+  The handles used to live in the per-launch log directory, which is new on
+  every launch, so a restart — the one case the handle exists for — lost them
+  (#2722). On the first boot after upgrading, the durable store starts empty;
+  legacy handles are never imported because old snapshots can resurrect
+  cleared sessions. Handles saved from that boot onward survive restarts.
 
   `load/3` is the safety gate: it returns the handle only when it is for the
   same backend the runner is about to start AND was written on this host (a
@@ -29,6 +34,7 @@ defmodule Aiur.SessionHandle do
   alias Aiur.JsonStore
 
   @schema_version 1
+  @state_leaf "session-handles"
 
   @type attrs :: %{
           required(:backend) => String.t(),
@@ -94,7 +100,7 @@ defmodule Aiur.SessionHandle do
   @doc """
   Absolute path of the handle file for `identifier`. Exposed for tests.
 
-  `opts` accepts `:dir` (defaults to the shared state dir), `:hostname`
+  `opts` accepts `:dir` (defaults to the durable runtime state dir), `:hostname`
   (defaults to this host) and `:repo_name` (defaults to the ambient
   `Paths.repo_name/0`). The `:repo_name` override exists so a test can pin the
   filename independent of the shared workflow config — `repo_name/0` reads the
@@ -103,9 +109,21 @@ defmodule Aiur.SessionHandle do
   """
   @spec path_for(String.t(), keyword()) :: Path.t()
   def path_for(identifier, opts \\ []) do
-    dir = Keyword.get(opts, :dir) || Paths.log_root_dir()
     repo_name = Keyword.get(opts, :repo_name) || Paths.repo_name()
+    dir = Keyword.get(opts, :dir) || default_dir()
     Path.join(dir, "#{repo_name}.#{Paths.sanitize(to_string(identifier))}.session.json")
+  end
+
+  # When the runtime state directory cannot be resolved, the per-launch log
+  # directory is the only place left, which keeps the old behavior.
+  defp default_dir do
+    case Paths.runtime_state_dir() do
+      {:ok, root} ->
+        Path.join(root, @state_leaf)
+
+      {:error, _reason} ->
+        Paths.log_root_dir()
+    end
   end
 
   defp validate(raw, expected_backend, host, identifier) do

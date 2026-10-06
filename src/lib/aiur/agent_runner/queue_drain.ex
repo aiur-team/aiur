@@ -18,8 +18,9 @@ defmodule Aiur.AgentRunner.QueueDrain do
   alias Aiur.{AgentPubSub, Alerts, DecisionStore, Issue, PauseContainment}
   alias Aiur.AgentRunner.{EventsDigest, MessageHandler, SessionLifecycle, TurnCallbacks}
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
-  alias Aiur.Codex.{DynamicTool, SessionRecovery}
+  alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
+  alias Aiur.Workspace
 
   @max_delivery_correlation_attempts 3
 
@@ -246,6 +247,13 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
       {:ok, :ignored} ->
         correlation_delivery_failed(item, identifier, action_id, :decision_correlation_ignored)
+
+      # The answer was mooted or replaced before it reached the agent (#2711).
+      # This is a final verdict, not a correlation fault: the item is failed at
+      # once, with no retry and no correlation alert, so it is never delivered.
+      {:error, {:answer_withdrawn, why} = reason} ->
+        Logger.info("Decision answer withdrawn before delivery issue=#{identifier} action_id=#{action_id} reason=#{why}")
+        {:error, {:failed, reason}}
 
       {:error, reason} ->
         correlation_delivery_failed(item, identifier, action_id, reason)
@@ -603,7 +611,31 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   defp maybe_broadcast_turn_completed(_turn_id, _issue), do: :ok
 
+  # #2697: a queued operator message starts a turn too; verify the agent's
+  # GitHub support first, exactly as `TurnLoop.run_turns/10` does. A refused
+  # turn never started, so the delivered item is restored to pending through
+  # the confirmed restore boundary instead of being marked failed.
   defp run_recorded_queue_item_turn(
+         app_session,
+         issue,
+         item,
+         orchestrator,
+         codex_update_recipient,
+         opts
+       ) do
+    workspace = SessionLifecycle.session_workspace(app_session)
+    worker_host = SessionLifecycle.session_worker_host(app_session)
+
+    case Workspace.ensure_agent_support_before_turn(workspace, issue, worker_host) do
+      :ok ->
+        run_supported_queue_item_turn(app_session, issue, item, orchestrator, codex_update_recipient, opts)
+
+      {:error, _reason} = error ->
+        TurnLoop.confirm_restore_for_replacement(orchestrator, issue, opts, error)
+    end
+  end
+
+  defp run_supported_queue_item_turn(
          app_session,
          issue,
          item,
@@ -645,6 +677,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         on_message: message_handler,
         on_safe_checkpoint: callbacks.on_safe_checkpoint,
         on_operator_message: callbacks.on_operator_message,
+        on_operator_response: callbacks.on_operator_response,
         on_provider_delivery: provider_delivery_callback(orchestrator, item, issue),
         tool_executor:
           ToolExecutor.build(
@@ -681,6 +714,8 @@ defmodule Aiur.AgentRunner.QueueDrain do
         )
 
       {:paused, pause_payload} ->
+        PauseContainment.confirm(Map.get(app_session, :containment))
+
         TurnAlerts.maybe_emit_usage_limit_alert(
           issue,
           SessionLifecycle.session_workspace(app_session),
@@ -688,7 +723,13 @@ defmodule Aiur.AgentRunner.QueueDrain do
           Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session))
         )
 
-        :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
+        if pause_payload[:native_terminal] == :completed do
+          maybe_observe_accepted_operator_delivery(issue, item, backend, callbacks.live_opts)
+          :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
+          maybe_broadcast_turn_completed(turn_id, issue)
+        else
+          :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
+        end
 
         Aiur.AgentRunner.write_pause_log(
           SessionLifecycle.session_workspace(app_session),
@@ -723,26 +764,20 @@ defmodule Aiur.AgentRunner.QueueDrain do
     end
   end
 
-  # A recoverable Codex session failure (closed port, port exit, or exact
-  # active-turn desync) routes through the one confirmed restore-and-replace
+  # A provider-classified recoverable session failure routes through the one confirmed restore-and-replace
   # boundary: the durable item is restored to pending and the recoverable error
   # is returned so the runner clean-exits for a fresh transport. Issue #1238
   # showed the old `:ok = restore_delivered_queue_items(...)` hard match raised a
   # MatchError on a transient `{:error, :unavailable}`, converting recovery into
-  # an abnormal exit that consumed a failure retry. Claude and genuine provider
+  # an abnormal exit that consumed a failure retry. Genuine provider
   # failures keep the fail-and-broadcast settlement.
-  defp settle_failed_queue_item_turn(orchestrator, issue, turn_id, "codex", reason, opts) do
-    if SessionRecovery.recoverable?(reason) do
+  defp settle_failed_queue_item_turn(orchestrator, issue, turn_id, backend, reason, opts) do
+    if CodingAgent.recoverable_session_error?(backend, reason) do
       TurnLoop.confirm_restore_for_replacement(orchestrator, issue, opts, {:error, reason})
     else
       fail_queue_item_turn(orchestrator, issue, turn_id, reason)
       {:error, reason}
     end
-  end
-
-  defp settle_failed_queue_item_turn(orchestrator, issue, turn_id, _backend, reason, _opts) do
-    fail_queue_item_turn(orchestrator, issue, turn_id, reason)
-    {:error, reason}
   end
 
   defp fail_queue_item_turn(orchestrator, issue, turn_id, reason) do

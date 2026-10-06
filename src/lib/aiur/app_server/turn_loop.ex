@@ -3,7 +3,8 @@ defmodule Aiur.AppServer.TurnLoop do
   Shared blocking receive loop for app-server turns.
   """
 
-  alias Aiur.AppServer.{Interrupts, Messages, OperatorDelivery, Rpc, TurnState}
+  alias Aiur.AppServer.{Adapter, Interrupts, Messages, OperatorDelivery, Rpc, TurnState}
+  alias Aiur.AppServer.Rpc.StreamDiagnostics
 
   @spec receive_loop(map(), map()) :: term()
   def receive_loop(%{port: port} = session, state) do
@@ -16,7 +17,7 @@ defmodule Aiur.AppServer.TurnLoop do
         receive_loop(session, %{state | pending_line: state.pending_line <> to_string(chunk)})
 
       {^port, {:exit_status, status}} ->
-        handle_port_exit(state, status)
+        handle_port_exit(session, state, status)
 
       {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         continue_or_return(
@@ -65,6 +66,7 @@ defmodule Aiur.AppServer.TurnLoop do
           handle_decoded_incoming(session, state, payload, payload_string, port, on_message)
 
         {:error, _reason} ->
+          StreamDiagnostics.record(port, payload_string)
           state.backend.handle_malformed(state, payload_string, port)
       end
     end
@@ -126,13 +128,25 @@ defmodule Aiur.AppServer.TurnLoop do
 
   defp resolve_pending_anonymous_completion(_state), do: :none
 
-  defp handle_port_exit(state, 0) do
+  defp handle_port_exit(session, state, 0) do
     case resolve_pending_anonymous_completion(state) do
-      :none -> {:error, {:port_exit, 0}}
-      {:continue, _next_state} -> {:error, {:port_exit, 0}}
+      :none -> port_exit_failure(session, state, 0)
+      {:continue, _next_state} -> port_exit_failure(session, state, 0)
       result -> result
     end
   end
 
-  defp handle_port_exit(_state, status), do: {:error, {:port_exit, status}}
+  defp handle_port_exit(session, state, status), do: port_exit_failure(session, state, status)
+
+  # A provider CLI that refuses the turn because the account is out of quota
+  # prints its refusal and exits, so the exit status alone says nothing. Give
+  # the backend the retained non-JSON stream output first: a recognised
+  # exhaustion signature is a pause (which the rate-limit fallback acts on),
+  # not a turn failure that burns the ticket's retries (#2607).
+  defp port_exit_failure(session, state, status) do
+    case Adapter.classify_stream_failure(state.backend, StreamDiagnostics.recent_text(session.port)) do
+      {:paused, payload} -> {:paused, payload}
+      :unclassified -> {:error, {:port_exit, status}}
+    end
+  end
 end
