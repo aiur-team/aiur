@@ -113,7 +113,7 @@ With no `AIUR_DASHBOARD_USERNAME` or `AIUR_DASHBOARD_PASSWORD`, the loopback lis
 
 ### The `observability.dashboard_writable` interaction
 
-`dashboard_writable` (default `false`) authorizes the dashboard's write controls; set it to `true` to opt in. It is not authentication. Either way, the two credentials are required to view the dashboard: a loopback listener binds without them but fails closed; beyond loopback it refuses to start. See [observability](/reference/configuration#observability).
+`dashboard_writable` (default `true`) authorizes the dashboard's write controls; set it to `false` to disable them. It is not authentication. Either way, the two credentials are required to view the dashboard: a loopback listener binds without them but fails closed; beyond loopback it refuses to start. See [observability](/reference/configuration#observability).
 
 ### Configuration
 
