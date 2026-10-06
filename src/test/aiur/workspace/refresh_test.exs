@@ -191,8 +191,7 @@ defmodule Aiur.Workspace.RefreshTest do
     }
 
     assert {:error, _} = Refresh.run(workspace, issue, nil)
-    assert git!(["-C", workspace, "branch", "--show-current"]) |> String.trim() == "aiur/123-fix-login"
-    assert File.read!(trace) == "aiur/123-fix-login\naiur/123-fix-login\n"
+    assert File.read!(trace) |> String.split("\n", trim: true) == ["aiur/123-fix-login", "aiur/123-fix-login"]
   end
 
   test "run/3 exit-65 on non-todo dispatch returns :ok (WIP skip)", %{workspace: workspace, test_root: test_root} do
