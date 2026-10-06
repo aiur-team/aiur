@@ -1,9 +1,9 @@
 defmodule Aiur.AppServer.OperatorDeliveryTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AgentQueue
   alias Aiur.AgentQueueStore
   alias Aiur.AgentRunner.{CheckpointDelivery, QueueDrain}
-  alias Aiur.AgentQueue
   alias Aiur.AppServer.{Interrupts, OperatorDelivery}
   alias Aiur.Orchestrator.{OperatorMessages, State}
 
