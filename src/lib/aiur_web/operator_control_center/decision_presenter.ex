@@ -110,6 +110,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionPresenter do
       rationale: answer.rationale,
       actor: DecisionSanitizer.actor(answer.actor),
       supervisor_basis: answer.supervisor_basis,
+      operator_quote: answer.operator_quote,
+      relayed_by: answer.relayed_by,
       accepted_at: answer.accepted_at
     }
   end

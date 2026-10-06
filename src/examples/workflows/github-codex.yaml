@@ -142,3 +142,8 @@ agent:
     approval_policy: never
     thread_sandbox: workspace-write
 prompt_file: github-codex.prompt.md
+
+# Let an attended Executor record answers you already gave in conversation.
+# Off by default; relays record your quote and relayer and raise an info alert.
+executor:
+  relay_operator_answers: false

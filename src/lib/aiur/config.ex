@@ -844,6 +844,15 @@ defmodule Aiur.Config do
     with {:ok, settings} <- settings(), do: {:ok, settings.alerts}
   end
 
+  @doc "Whether the operator explicitly permits recording relayed answers."
+  @spec relay_operator_answers?() :: boolean()
+  def relay_operator_answers? do
+    case settings() do
+      {:ok, settings} -> settings.executor.relay_operator_answers == true
+      {:error, _reason} -> false
+    end
+  end
+
   @doc """
   First Executor takeover advisory threshold in hours, or `0` when disabled.
   A nonterminal ticket first emits an advisory alert once its convergence age

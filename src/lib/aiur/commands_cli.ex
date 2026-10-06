@@ -217,6 +217,7 @@ defmodule Aiur.CommandsCLI do
       IO.puts("  Drawbacks: #{option["drawbacks"] || "none"}")
     end)
 
+    print_relay(decision["answer"])
     print_history(Enum.filter(history, &(&1["decision_id"] == decision["decision_id"])))
   end
 
@@ -237,10 +238,17 @@ defmodule Aiur.CommandsCLI do
   defp recommendation(%{"option_id" => option_id, "reason" => reason}), do: "#{option_id}: #{reason || "no rationale"}"
   defp recommendation(_recommendation), do: "none"
 
+  defp print_relay(%{"relayed_by" => relayer, "operator_quote" => quote, "accepted_at" => at}) when is_binary(relayer) do
+    IO.puts("Answer: answered by operator, relayed by #{relayer} at #{at}")
+    IO.puts("Operator quote: #{quote}")
+  end
+
+  defp print_relay(_answer), do: :ok
+
   defp print_history([]), do: IO.puts("History: none")
 
   defp print_history(history) do
     IO.puts("History:")
-    Enum.each(history, fn entry -> IO.puts("- #{entry["changed_at"] || "unknown"}: #{entry["change"] || "unknown"}") end)
+    Enum.each(history, fn entry -> IO.puts("- #{entry["changed_at"] || "unknown"}: #{entry["change"] || "unknown"} · #{get_in(entry, ["actor", "label"]) || "unknown source"}") end)
   end
 end

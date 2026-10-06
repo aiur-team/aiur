@@ -262,6 +262,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   # an operator answer are different facts about the same green row.
   defp answer_actor_label(%{answer: answer}) when is_map(answer) do
     case map_value(Map.get(answer, :actor), :kind) do
+      kind when kind in [:operator_relayed, "operator_relayed"] -> "answered by operator, relayed by #{map_value(answer, :relayed_by)}"
       kind when kind in [:operator, "operator"] -> "Operator answer"
       kind when kind in [:executor, "executor"] -> "Executor answer"
       kind when kind in [:supervisor, "supervisor"] -> "Supervisor answer"
@@ -273,7 +274,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   defp answer_actor_class(%{answer: answer}) do
     case map_value(Map.get(answer, :actor), :kind) do
-      kind when kind in [:operator, "operator"] -> "chip accent"
+      kind when kind in [:operator, "operator", :operator_relayed, "operator_relayed"] -> "chip accent"
       kind when kind in [:executor, "executor"] -> "chip good"
       _kind -> "chip super"
     end

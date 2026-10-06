@@ -107,3 +107,8 @@ agent:
 claude:
   command: aiur-claude
 prompt_file: github-claude.prompt.md
+
+# Let an attended Executor record answers you already gave in conversation.
+# Off by default; relays record your quote and relayer and raise an info alert.
+executor:
+  relay_operator_answers: false

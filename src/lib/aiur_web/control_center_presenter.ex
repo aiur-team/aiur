@@ -121,6 +121,7 @@ defmodule AiurWeb.ControlCenterPresenter do
       revision_result: Map.get(entry, :revision_result),
       choice: Map.get(entry, :choice),
       rationale: Map.get(entry, :rationale),
+      operator_quote: Map.get(entry, :operator_quote),
       provenance: Map.get(entry, :provenance),
       supervisor_basis: Map.get(entry, :supervisor_basis),
       dispatch_result: Map.get(entry, :dispatch_result),

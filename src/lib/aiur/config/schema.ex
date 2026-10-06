@@ -18,6 +18,7 @@ defmodule Aiur.Config.Schema do
     EnvResolver,
     Errors,
     Events,
+    Executor,
     Hooks,
     Monitoring,
     Observability,
@@ -54,6 +55,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:workspace, Workspace, on_replace: :update, defaults_to_struct: true)
     embeds_one(:worker, Worker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:agent, Agent, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:executor, Executor, on_replace: :update, defaults_to_struct: true)
     embeds_one(:decisions, Decisions, on_replace: :update, defaults_to_struct: true)
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:monitoring, Monitoring, on_replace: :update, defaults_to_struct: true)
@@ -166,6 +168,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
     |> cast_embed(:worker, with: &Worker.changeset/2)
     |> cast_embed(:agent, with: &Agent.changeset/2)
+    |> cast_embed(:executor, with: &Executor.changeset/2)
     |> cast_embed(:decisions, with: &Decisions.changeset/2)
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:monitoring, with: &Monitoring.changeset/2)

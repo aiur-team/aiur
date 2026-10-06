@@ -583,6 +583,24 @@ defaults to `aiur-cli`. The expected version prevents a stale listener event
 from overwriting a later answer, while the idempotency key makes event replay
 safe.
 
+When the operator has already answered a human-only Command in this attended
+conversation, record their answer through the opt-in relay path:
+
+```bash
+"$AIUR_CMD" operator-relay-answer <decision-id> --expected-version <n> \
+  --option <id> --quote <verbatim-operator-words> --relayed-by <executor-id> \
+  --idempotency-key <key>
+```
+
+Use `--custom-response` instead of `--option` for free text. The operator must
+enable `executor.relay_operator_answers`; do not enable it on their behalf.
+This records `operator_relayed` attribution and raises an info alert. It
+records a human's decision, never permission for the Executor to decide.
+Use `--supersede` to relay a corrected answer before delivery; the operator can
+also revise or moot it through the dashboard. If the gate is disabled, report
+"human answered; relay recording disabled" and direct the operator to the
+Command dashboard. A comment or worker message does not close the Command.
+
 An answer is addressed to the ticket, not to the worker that asked. Until an
 agent receives it, Aiur delivers it to any worker that runs the ticket, also a
 new worker after a requeue or a daemon restart. If the operator changes
