@@ -1078,9 +1078,6 @@ defmodule Aiur.Orchestrator.IssueSync do
       current_state == "error" ->
         emit_observed_error_transition_alert(state, issue)
 
-      previous_state == "error" ->
-        resolve_observed_error_transition_alert(state, issue)
-
       current_state == "human-review" ->
         Alerts.emit_system(
           "ticket.#{issue.identifier}.issue.label.added.agent.human-review",
@@ -1093,6 +1090,9 @@ defmodule Aiur.Orchestrator.IssueSync do
 
         publish_human_review_handoff(issue)
         clear_observed_error_alert(state, issue.id)
+
+      previous_state == "error" ->
+        resolve_observed_error_transition_alert(state, issue)
 
       true ->
         # Ticket B: label-flip alerts route through the new topic shape so
@@ -1138,8 +1138,8 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp human_review_pr_details(_issue), do: {nil, nil}
 
-  defp human_review_pr_listing_identity(%{"pull_requests" => pull_requests}, branch_name) when is_list(pull_requests),
-    do: pull_requests |> Enum.find(&human_review_pr_branch?(&1, branch_name)) |> human_review_pr_identity()
+  defp human_review_pr_listing_identity(%{"head" => %{"ref" => ref}} = pull_request, branch_name) when ref == branch_name,
+    do: human_review_pr_identity(pull_request)
 
   defp human_review_pr_listing_identity(pull_requests, branch_name) when is_list(pull_requests),
     do: pull_requests |> Enum.find(&human_review_pr_branch?(&1, branch_name)) |> human_review_pr_identity()

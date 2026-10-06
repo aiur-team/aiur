@@ -1591,7 +1591,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     current = %{previous | state: "human-review"}
     sha = String.duplicate("c", 40)
     key = Aiur.GitHub.ResourceStore.key_for_repo(:branch_pull_request_listing, "its-everdred/aiur", previous.id)
-    :ok = Aiur.GitHub.ResourceStore.put_resource(key, [%{"number" => 3019, "head" => %{"ref" => "aiur/handoff", "sha" => sha}}])
+    :ok = Aiur.GitHub.ResourceStore.put_resource(key, %{"number" => 3019, "head" => %{"ref" => "aiur/handoff", "sha" => sha}})
 
     state =
       IssueSync.sync_polled_issue_state(
