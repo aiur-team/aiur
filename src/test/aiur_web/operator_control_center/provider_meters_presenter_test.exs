@@ -45,8 +45,8 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       view = Presenter.present(authorized(), %{codex: healthy(:codex), claude: healthy(:claude)})
 
       assert view.state == :authorized
-      assert Enum.map(view.cards, & &1.provider) == [:codex, :claude, :kimi, :deepseek, :openrouter, :muse, :fake]
-      assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Kimi", "DeepSeek", "OpenRouter", "Muse", "Fake"]
+      assert Enum.map(view.cards, & &1.provider) == [:codex, :claude, :kimi, :deepseek, :openrouter, :muse, :gemini, :fake]
+      assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Kimi", "DeepSeek", "OpenRouter", "Muse", "Gemini", "Fake"]
     end
 
     test "names the generic transport backend" do
@@ -61,6 +61,13 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
 
       assert card(view, :codex).state == :healthy
       assert card(view, :claude).state == :loading
+    end
+
+    test "a backend without an account meter shows unavailable instead of an endless loading state" do
+      view = Presenter.present(authorized(), %{})
+      assert card(view, :gemini).state == :unavailable
+      assert card(view, :gemini).status_label == "Unavailable"
+      assert card(view, :gemini).windows == []
     end
   end
 

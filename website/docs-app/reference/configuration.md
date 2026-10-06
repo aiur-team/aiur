@@ -368,6 +368,29 @@ Remote workers and Claude Remote Control are unsupported for Muse.
 | `agent.backend_configs.muse.model` | string or nil | nil | Optional Muse model override; omit to use the CLI default. |
 | `agent.backend_configs.muse.provider_id` | string or nil | nil | Optional Muse provider identifier. |
 
+#### `agent.backend_configs.gemini`
+
+Select `gemini` in `agent.priority` to run the installed Gemini CLI through its native ACP session. Set `GEMINI_API_KEY` for the Gemini Developer API or `GOOGLE_API_KEY` for Vertex AI in the Aiur daemon environment. Set only one; dispatch stops if both are present.
+
+Aiur passes the key through ACP authentication without copying it into the Gemini child environment or storing it in a ticket workspace.
+
+Aiur gives each workspace an isolated Gemini settings home, permits only its ticket-scoped MCP server, and rejects personal OAuth. A missing supported key stops dispatch with an auth diagnostic.
+
+A workspace `.gemini/settings.json` must not set `security.auth.selectedType` or `security.auth.enforcedType`, since trusted workspace settings override the isolated home. Aiur accepts Gemini's JSON comments and rejects invalid JSON or trailing commas before launch.
+
+Native approval choices appear in chat as `/approve <token> <choice>` commands. Aiur returns only the selected choice and sets Gemini's default approval mode at session start.
+
+Aiur loads a stored Gemini session by exact ID after restart. It creates a new one only if Gemini confirms that session is missing; authentication, transport, and uncertain failures stop the ticket. Gemini does not support Aiur remote workers, Claude Remote Control, or reasoning effort routing.
+
+Gemini CLI 0.61.0's per-turn quota counts feed token usage without an inferred price. Other CLI versions show unknown usage until their wire shape is verified. Account allowance is unavailable; unavailable never means zero.
+
+Model choices come from the authenticated CLI's ACP session catalog.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.gemini.command` | non-empty string | `gemini --acp` | Command launching the local Gemini CLI ACP server. |
+| `agent.backend_configs.gemini.enabled` | boolean | `true` | Whether this configured backend may dispatch. |
+
 #### Cost attribution
 
 | Cost case | Attribution |

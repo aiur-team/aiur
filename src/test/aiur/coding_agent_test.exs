@@ -16,7 +16,7 @@ defmodule Aiur.CodingAgentTest do
   describe "provider presentation descriptors (registry-driven rendering)" do
     test "provider_families/0 lists families in card order, deduped across a shared family" do
       # claude and claude-repl share family :claude, so it appears once.
-      assert CodingAgent.provider_families() == [:codex, :claude, :kimi, :deepseek, :openrouter, :muse, :fake]
+      assert CodingAgent.provider_families() == [:codex, :claude, :kimi, :deepseek, :openrouter, :muse, :gemini, :fake]
     end
 
     test "default fallback is owned by the default backend registry entry" do
@@ -32,6 +32,7 @@ defmodule Aiur.CodingAgentTest do
                "deepseek" => :deepseek,
                "openrouter" => :openrouter,
                "muse" => :muse,
+               "gemini" => :gemini,
                "fake" => :fake
              }
     end
@@ -66,6 +67,7 @@ defmodule Aiur.CodingAgentTest do
                %{provider: :deepseek, order: 3},
                %{provider: :openrouter, order: 4},
                %{provider: :muse, order: 5},
+               %{provider: :gemini, order: 6},
                %{provider: :fake, order: 99}
              ] =
                CodingAgent.provider_descriptors()
@@ -510,6 +512,7 @@ defmodule Aiur.CodingAgentTest do
                "codex",
                "deepseek",
                "fake",
+               "gemini",
                "kimi",
                "muse",
                "openrouter"
