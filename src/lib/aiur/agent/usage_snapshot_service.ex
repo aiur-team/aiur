@@ -8,7 +8,8 @@ defmodule Aiur.Agent.UsageSnapshotService do
   """
 
   alias Aiur.Agent.UsageSnapshot
-  alias Aiur.UsageAggregate
+  alias Aiur.{TrackerIdentity, UsageAggregate}
+  alias Aiur.Usage.GroupedScopes.Scope
 
   @doc """
   Fetch the current usage snapshot for an agent.
@@ -65,19 +66,39 @@ defmodule Aiur.Agent.UsageSnapshotService do
   # Query UsageAggregate for cells matching the scope
   @spec fetch_aggregate_cells(%{run_id: String.t() | nil, ticket: any()}) ::
           {:ok, map()} | {:error, atom()}
-  defp fetch_aggregate_cells(_scope_params) do
+  defp fetch_aggregate_cells(scope_params) do
+    scope = aggregate_scope(scope_params)
     %{cells: cells} = UsageAggregate.cells_snapshot()
 
-    case cells do
-      cells when is_map(cells) and map_size(cells) > 0 ->
-        {:ok, cells}
+    selected =
+      Enum.filter(cells, fn {{dims, {:token, _dimension}}, _value} ->
+        dims.provider == :codex and not is_nil(scope) and Scope.matches?(scope, dims)
+      end)
 
-      _ ->
-        {:error, :no_usage_data}
+    case selected do
+      [] -> {:error, :no_usage_data}
+      selected -> {:ok, Map.new(selected)}
     end
   rescue
     _ -> {:error, :aggregate_query_failed}
   end
+
+  defp aggregate_scope(%{run_id: run_id, ticket: %TrackerIdentity{} = ticket}) when is_binary(run_id) do
+    {:ok, scope} = Scope.intersection(run_id, [ticket])
+    scope
+  end
+
+  defp aggregate_scope(%{run_id: run_id}) when is_binary(run_id) do
+    {:ok, scope} = Scope.this_run(run_id)
+    scope
+  end
+
+  defp aggregate_scope(%{ticket: %TrackerIdentity{} = ticket}) do
+    {:ok, scope} = Scope.explicit_ticket_set([ticket])
+    scope
+  end
+
+  defp aggregate_scope(_scope), do: nil
 
   # Assemble the snapshot from aggregate cells
   # This extracts token dimensions and computes derived values
@@ -116,7 +137,8 @@ defmodule Aiur.Agent.UsageSnapshotService do
   # Aggregate token dimensions from cells
   # Returns a metrics map with explicit unknown handling
   @spec aggregate_metrics_from_cells(map()) :: UsageSnapshot.cumulative_metrics()
-  defp aggregate_metrics_from_cells(cells) do
+  @doc false
+  def aggregate_metrics_from_cells(cells) do
     # Sum tokens across all cells, preserving unknowns
     input = sum_or_unknown(:input, cells)
     output = sum_or_unknown(:output, cells)
@@ -141,48 +163,17 @@ defmodule Aiur.Agent.UsageSnapshotService do
   # This follows the logic: if ANY cell reports unknown, the aggregate is unknown
   @spec sum_or_unknown(atom(), map()) :: non_neg_integer() | {:unknown, atom()}
   defp sum_or_unknown(field, cells) do
-    cells
-    |> Map.values()
-    |> Enum.reduce_while({:ok, 0}, &sum_field_step(&1, &2, field))
-    |> case do
-      {:ok, total} -> total
-      {:error, reason} -> reason
+    values =
+      Enum.flat_map(cells, fn
+        {{_dims, {:token, ^field}}, value} when is_integer(value) and value >= 0 -> [value]
+        _ -> []
+      end)
+
+    case values do
+      [] -> {:unknown, :not_reported}
+      values -> Enum.sum(values)
     end
   end
-
-  # Step function for summing a field across cells
-  @spec sum_field_step(any(), tuple(), atom()) :: {:cont, tuple()} | {:halt, tuple()}
-  defp sum_field_step(_cell, {:error, _} = err, _field), do: {:halt, err}
-
-  defp sum_field_step(cell, {:ok, total}, field) do
-    value = extract_token_field(cell, field)
-
-    case value do
-      {:unknown, reason} -> {:halt, {:error, {:unknown, reason}}}
-      nil -> {:cont, {:ok, total}}
-      n when is_integer(n) and n >= 0 -> {:cont, {:ok, total + n}}
-      _ -> {:halt, {:error, {:unknown, :invalid_value}}}
-    end
-  end
-
-  # Extract a token field from a cell
-  # Cells may have nested structure depending on aggregate partitioning
-  @spec extract_token_field(any(), atom()) :: non_neg_integer() | {:unknown, atom()} | nil
-  defp extract_token_field(cell, field) when is_map(cell) do
-    # Look for the field directly in the cell
-    case cell do
-      %{tokens: tokens} when is_map(tokens) ->
-        Map.get(tokens, field)
-
-      %{^field => value} ->
-        value
-
-      _ ->
-        nil
-    end
-  end
-
-  defp extract_token_field(_cell, _field), do: nil
 
   # Derive uncached_input = input - cached_input
   @spec derive_uncached_input(
@@ -234,9 +225,9 @@ defmodule Aiur.Agent.UsageSnapshotService do
   @spec get_most_recent_timestamp(map()) :: DateTime.t() | nil
   defp get_most_recent_timestamp(cells) do
     cells
-    |> Map.values()
-    |> Enum.filter(fn cell -> is_map(cell) && Map.has_key?(cell, :ingested_at) end)
-    |> Enum.map(fn cell -> cell.ingested_at end)
+    |> Map.keys()
+    |> Enum.map(fn {dims, _measure} -> Map.get(dims, :ingested_at) end)
+    |> Enum.filter(&match?(%DateTime{}, &1))
     |> case do
       [] -> nil
       timestamps -> Enum.max(timestamps)
@@ -247,16 +238,7 @@ defmodule Aiur.Agent.UsageSnapshotService do
   @spec extract_backend(map()) :: atom() | String.t()
   defp extract_backend(cells) do
     cells
-    |> Map.values()
-    |> Enum.find_value(
-      :unknown,
-      fn cell ->
-        if is_map(cell) && Map.has_key?(cell, :backend) do
-          cell.backend
-        else
-          nil
-        end
-      end
-    )
+    |> Map.keys()
+    |> Enum.find_value(:unknown, fn {dims, _measure} -> if dims.provider == :codex, do: dims.backend end)
   end
 end

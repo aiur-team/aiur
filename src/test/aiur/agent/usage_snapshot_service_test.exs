@@ -12,24 +12,17 @@ defmodule Aiur.Agent.UsageSnapshotServiceTest do
 
   describe "current/2 with explicit run_id" do
     test "returns error when no usage data found for run" do
-      # Mock: UsageAggregate.query returns empty cells
-      result = UsageSnapshotService.current("agent-123", run_id: "run-xyz")
-      assert {:error, _} = result
+      assert {:error, :no_usage_data} = UsageSnapshotService.current("agent-123", run_id: "run-xyz")
     end
 
     test "constructs query with provided run_id" do
-      # This test verifies that the service correctly builds and submits the query
-      # In a real test, we would mock UsageAggregate.query to track the query params
-      result = UsageSnapshotService.current("agent-123", run_id: "run-xyz")
-      # Current implementation will error with no_usage_data since we have no cells
-      assert {:error, _} = result
+      assert {:error, :no_usage_data} = UsageSnapshotService.current("agent-123", run_id: "run-xyz")
     end
   end
 
   describe "current/2 with explicit ticket" do
     test "returns error when no usage data found for ticket" do
-      result = UsageSnapshotService.current("agent-123", ticket: "issue-456")
-      assert {:error, _} = result
+      assert {:error, :no_usage_data} = UsageSnapshotService.current("agent-123", ticket: "issue-456")
     end
   end
 
@@ -40,27 +33,30 @@ defmodule Aiur.Agent.UsageSnapshotServiceTest do
     end
   end
 
-  describe "snapshot assembly with test cells" do
-    test "assembles snapshot with all dimensions known" do
-      # Integration test: manually call the service with synthetic data
-      # Since UsageAggregate is not mocked, this validates the error path
-      agent_id = "agent-123"
-      result = UsageSnapshotService.current(agent_id, run_id: "test-run")
+  describe "snapshot assembly with aggregate cells" do
+    test "sums disjoint ledger deltas once and preserves unsupported dimensions as unknown" do
+      cells = %{
+        {{%{provider: :codex, backend: :app_server, ingested_at: DateTime.utc_now()}, {:token, :input}}, 100},
+        {{%{provider: :codex, backend: :app_server, ingested_at: DateTime.utc_now()}, {:token, :input}}, 40},
+        {{%{provider: :codex, backend: :app_server, ingested_at: DateTime.utc_now()}, {:token, :cached_input}}, 35},
+        {{%{provider: :codex, backend: :app_server, ingested_at: DateTime.utc_now()}, {:token, :output}}, 12}
+      }
 
-      # We expect error because we have no real aggregate data
-      # In a real integration test, we would inject synthetic envelopes
-      # into UsageLedger and let UsageAggregate project them
-      assert {:error, _} = result
+      assert %{input: 140, output: 12, cached_input: 35, uncached_input: 105, cached_proportion: 0.25} =
+               UsageSnapshotService.aggregate_metrics_from_cells(cells)
+
+      assert %{input: {:unknown, :not_reported}, output: {:unknown, :not_reported}} =
+               UsageSnapshotService.aggregate_metrics_from_cells(%{})
     end
   end
 
   describe "unknown handling through service" do
-    test "preserves unknown dimensions (no zero-conversion)" do
-      # This is a critical invariant test
-      # The service must pass through unknowns from the aggregate without converting to zero
-      # Currently tested via unit tests on the helper functions
-      # A full integration would inject a sparse envelope and verify the snapshot
-      :ok
+    test "preserves unsupported dimensions instead of converting them to zero" do
+      metrics = UsageSnapshotService.aggregate_metrics_from_cells(%{{%{}, {:token, :input}} => 10})
+      assert metrics.input == 10
+      assert metrics.cached_input == {:unknown, :not_reported}
+      assert metrics.uncached_input == {:unknown, :missing_cached_input}
+      assert metrics.cached_proportion == {:unknown, :missing_cached_input}
     end
   end
 
@@ -98,43 +94,29 @@ defmodule Aiur.Agent.UsageSnapshotServiceTest do
 
   describe "integration: end-to-end Codex snapshot" do
     @tag :integration
-    test "retrieves and displays Codex usage snapshot" do
-      # FULL INTEGRATION TEST (requires running system)
-      # Steps:
-      # 1. Set up a test agent running against Codex (or inject synthetic envelope)
-      # 2. Trigger a Codex call that reports usage via thread/tokenUsage
-      # 3. Wait for UsageLedger to accept the envelope
-      # 4. Wait for UsageAggregate to project it
-      # 5. Call UsageSnapshotService.current/2
-      # 6. Verify:
-      #    - snapshot.scope == :thread (Codex thread-level usage)
-      #    - snapshot.cumulative_metrics has known values
-      #    - snapshot.freshness_assessment == :current (recent injection)
-      #    - Unknowns are preserved as {:unknown, _}
-      #    - No zero-conversion happened
-
-      # This test is marked :integration and should be run separately
-      # For now, it's a placeholder to document the full test flow
-      :ok
+    test "reports aggregate data only in the requested run scope" do
+      assert {:error, :no_usage_data} = UsageSnapshotService.current("agent-123", run_id: "unobserved-run")
     end
   end
 
   describe "snapshot semantics" do
     @tag :unit
-    test "derived values are computed correctly" do
-      # Tests that uncached_input = input - cached_input
-      # And cached_proportion = cached_input / input
-      # These are tested via unit tests on the calculations
-      :ok
+    test "derived values use provider reported input and cached input" do
+      assert %{uncached_input: 65, cached_proportion: 0.35} =
+               UsageSnapshotService.aggregate_metrics_from_cells(%{
+                 {{%{}, {:token, :input}}, 100},
+                 {{%{}, {:token, :cached_input}}, 35}
+               })
     end
 
     @tag :unit
-    test "cumulative snapshots are not summed or treated as deltas" do
-      # This is a critical invariant:
-      # If querying returns multiple cells for the same dimension,
-      # they should be summed once (cumulative), not treated as additive deltas
-      # Implementation: sum_or_unknown/2 in the service handles this
-      :ok
+    test "aggregate cells combine distinct accepted deltas once" do
+      cells = %{
+        {{%{relationship_revision: "r1"}, {:token, :input}}, 10},
+        {{%{relationship_revision: "r2"}, {:token, :input}}, 5}
+      }
+
+      assert %{input: 15} = UsageSnapshotService.aggregate_metrics_from_cells(cells)
     end
   end
 end
