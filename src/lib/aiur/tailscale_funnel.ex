@@ -146,21 +146,13 @@ defmodule Aiur.TailscaleFunnel do
     :exit, reason -> {:error, {:command_exit, reason}}
   end
 
-  @doc false
-  def run_tailscale(args, opts \\ []) do
-    executable = Keyword.get(opts, :executable, System.find_executable("tailscale"))
-    timeout_ms = Keyword.get(opts, :timeout_ms, @command_timeout_ms)
+  defp run_tailscale(args) do
+    executable = System.find_executable("tailscale")
 
     if executable do
-      # The reconciler is a supervised GenServer. Keep the subprocess task
-      # unlinked so a timeout cannot propagate its :killed exit and restart
-      # the worker; it can report the timeout and retry on its next interval.
-      task =
-        Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
-          System.cmd(executable, args, stderr_to_stdout: true)
-        end)
+      task = Task.async(fn -> System.cmd(executable, args, stderr_to_stdout: true) end)
 
-      case Task.yield(task, timeout_ms) do
+      case Task.yield(task, @command_timeout_ms) do
         {:ok, result} ->
           result
 
