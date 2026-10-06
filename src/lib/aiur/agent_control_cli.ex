@@ -1345,6 +1345,9 @@ defmodule Aiur.AgentControlCLI do
         :ok ->
           IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
 
+        :not_found ->
+          print_failure(:workspace_recover, status, :not_found)
+
         :not_held_for_reaping ->
           print_failure(:workspace_recover, status, :not_held_for_reaping)
 
@@ -3495,6 +3498,8 @@ defmodule Aiur.AgentControlCLI do
         message_too_long: "message is too long",
         invalid_message: "invalid message",
         unavailable: "orchestrator unavailable",
+        not_found: "workspace ownership hold not found",
+        invalid_ticket_identifier: "invalid ticket identifier",
         orchestrator_unavailable: "orchestrator unavailable",
         timeout: "orchestrator timed out",
         unknown_issue: "unknown issue",

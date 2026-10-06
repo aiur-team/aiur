@@ -1460,12 +1460,12 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert :not_found = Ownership.release_if_held_with_exit_proof(ticket, 7)
 
     output = capture_io(fn -> AgentControlCLI.recover_workspace("org/repo##{ticket}", 7) end)
-    assert output =~ "not_found"
+    assert output =~ "workspace ownership hold not found"
     assert output =~ "__AIUR_CONTROL_EXIT__:1"
     refute output =~ "already released"
 
     hash_identifier_output = capture_io(fn -> AgentControlCLI.recover_workspace("##{ticket}", 7) end)
-    assert hash_identifier_output =~ "not_found"
+    assert hash_identifier_output =~ "workspace ownership hold not found"
     assert hash_identifier_output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 
