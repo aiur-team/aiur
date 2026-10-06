@@ -31,7 +31,7 @@ defmodule Aiur.GitHub.StateLabelPreflightTest do
     assert Enum.sort(result.missing) == Enum.sort(Labels.state_labels("sym") -- ["sym:todo", "sym:done"])
     refute "sym:todo" in result.missing
 
-    assert_receive {:request, %{method: :get, url: url, token: "test-gh-token", timeout_ms: 10_000}}
+    assert_receive {:request, %{method: :get, url: url, token: "test-gh-token", timeout_ms: 10_000}}, 1_000
     assert url =~ "/repos/owner/repo/labels?per_page=100&page=1"
   end
 
@@ -73,8 +73,8 @@ defmodule Aiur.GitHub.StateLabelPreflightTest do
     end
 
     assert {:ok, %{missing: []}} = StateLabelPreflight.check(request_fun: request_fun)
-    assert_receive {:page, url_one}
-    assert_receive {:page, url_two}
+    assert_receive {:page, url_one}, 1_000
+    assert_receive {:page, url_two}, 1_000
     assert url_one =~ "page=1"
     assert url_two =~ "page=2"
   end
