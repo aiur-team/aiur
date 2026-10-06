@@ -10,7 +10,7 @@ defmodule Aiur.BuildOrderFunnelHealth do
   malformed or failed status reads retain a neutral cause and a separate reason.
   """
 
-  alias Aiur.{Alerts, HttpServer, TailscaleFunnel}
+  alias Aiur.{Alerts, Config, HttpServer, TailscaleFunnel}
 
   @default_timeout_ms 5_000
   @healthy_statuses [200, 301, 302, 304, 307, 308, 401]
@@ -31,9 +31,10 @@ defmodule Aiur.BuildOrderFunnelHealth do
   def check(opts \\ []) do
     timeout_ms = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
     port = Keyword.get_lazy(opts, :bound_port, &HttpServer.bound_port/0)
+    host = Keyword.get_lazy(opts, :bound_host, &Config.server_host/0) |> normalize_probe_host()
     http_client = Keyword.get(opts, :http_client, &fetch_endpoint/2)
 
-    case build_order_endpoint_reachable?(port, timeout_ms, http_client) do
+    case build_order_endpoint_reachable?(host, port, timeout_ms, http_client) do
       {:ok, port} ->
         case funnel_status(opts, port, timeout_ms) do
           :ok ->
@@ -117,9 +118,9 @@ defmodule Aiur.BuildOrderFunnelHealth do
     end
   end
 
-  defp build_order_endpoint_reachable?(port, timeout_ms, http_client)
+  defp build_order_endpoint_reachable?(host, port, timeout_ms, http_client)
        when is_integer(port) and port > 0 do
-    url = "http://127.0.0.1:#{port}/build-orders/1"
+    url = "http://#{url_host(host)}:#{port}/build-orders/1"
 
     case safe_http_request(http_client, url, timeout_ms) do
       {:ok, %Req.Response{status: status}} when status in @healthy_statuses ->
@@ -145,8 +146,20 @@ defmodule Aiur.BuildOrderFunnelHealth do
     end
   end
 
-  defp build_order_endpoint_reachable?(_port, _timeout_ms, _http_client),
+  defp build_order_endpoint_reachable?(_host, _port, _timeout_ms, _http_client),
     do: unknown_failure(:dashboard_not_bound)
+
+  defp normalize_probe_host(host) when host in ["0.0.0.0", "::"], do: "127.0.0.1"
+  defp normalize_probe_host(host) when is_binary(host) and host != "", do: host
+  defp normalize_probe_host(_host), do: "127.0.0.1"
+
+  defp url_host(host) do
+    if String.contains?(host, ":") and not String.starts_with?(host, "[") do
+      "[#{host}]"
+    else
+      host
+    end
+  end
 
   defp fetch_endpoint(url, timeout_ms) do
     Req.get(url, receive_timeout: timeout_ms, retry: false)

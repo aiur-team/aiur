@@ -11,9 +11,11 @@ defmodule Aiur.TailscaleFunnel do
   require Logger
 
   alias Aiur.{Config, HttpServer}
+  alias Aiur.Alerts
 
   @interval_ms 30_000
   @command_timeout_ms 5_000
+  @target_probe_timeout_ms 2_000
   @https_port 443
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
@@ -73,15 +75,36 @@ defmodule Aiur.TailscaleFunnel do
 
   defp report_result({:error, reason}, state) do
     Logger.warning("Tailscale Funnel dashboard reconciliation failed: #{format_reason(reason)}")
+    emit_reconciliation_alert(reason, state.opts)
     %{state | last_failure: reason}
   end
 
   defp report_result(_other, state), do: state
 
+  defp emit_reconciliation_alert({:live_funnel_target_conflict, _target}, opts) do
+    alert = Keyword.get(opts, :alert, &Alerts.emit_system/2)
+
+    alert.("system.build_order_funnel.target_mismatch",
+      message: "Tailscale Funnel HTTPS 443 is serving another live target; Aiur left it unchanged",
+      reason: "Existing target answered the Build Order probe; refusing to replace it",
+      needs_attention: true
+    )
+  end
+
+  defp emit_reconciliation_alert(reason, opts) do
+    alert = Keyword.get(opts, :alert, &Alerts.emit_system/2)
+
+    alert.("system.build_order_funnel.health_check_error",
+      message: "Tailscale Funnel dashboard reconciliation failed",
+      reason: "Build Order Funnel reconciliation cause: unknown; reason: #{inspect(reason)}",
+      needs_attention: true
+    )
+  end
+
   @doc false
   @spec reconcile(String.t(), pos_integer(), keyword()) :: :ok | {:error, term()}
   def reconcile(host, port, opts \\ []) when is_binary(host) and is_integer(port) and port > 0 do
-    target = "http://#{url_host(host)}:#{port}"
+    target = "http://#{url_host(normalize_target_host(host))}:#{port}"
 
     with {:ok, status} <- command(["funnel", "status", "--json"], opts),
          {:ok, current_target} <- funnel_target(status),
@@ -155,12 +178,47 @@ defmodule Aiur.TailscaleFunnel do
 
   defp maybe_update(target, target, _opts), do: :ok
 
-  defp maybe_update(_current_target, target, opts) do
+  defp maybe_update(current_target, target, opts) do
+    case probe_target(current_target, opts) do
+      :live -> {:error, {:live_funnel_target_conflict, current_target}}
+      :unreachable -> write_target(target, opts)
+    end
+  end
+
+  defp write_target(target, opts) do
     case command(["funnel", "--bg", "--https=#{@https_port}", "--yes", target], opts) do
       {:ok, _output} -> :ok
       {:error, _reason} = error -> error
     end
   end
+
+  # Any HTTP response proves something is serving this route. It may be
+  # another Aiur daemon, so never take over a live Funnel target.
+  defp probe_target(target, opts) do
+    probe = Keyword.get(opts, :target_probe, &probe_http_target/2)
+    timeout = Keyword.get(opts, :target_probe_timeout_ms, @target_probe_timeout_ms)
+
+    case safe_target_probe(probe, target, timeout) do
+      {:ok, %Req.Response{}} -> :live
+      _unreachable -> :unreachable
+    end
+  end
+
+  defp probe_http_target(url, timeout) do
+    Req.get(url, receive_timeout: timeout, retry: false)
+  end
+
+  defp safe_target_probe(probe, target, timeout) do
+    url = String.trim_trailing(target, "/") <> "/build-orders/1"
+    probe.(url, timeout)
+  rescue
+    _error -> {:error, :probe_failed}
+  catch
+    _kind, _reason -> {:error, :probe_failed}
+  end
+
+  defp normalize_target_host(host) when host in ["0.0.0.0", "::"], do: "127.0.0.1"
+  defp normalize_target_host(host), do: host
 
   defp safe_tailscale_run(runner, executable, args, timeout_ms) do
     runner.(executable, args, timeout_ms)
@@ -240,6 +298,10 @@ defmodule Aiur.TailscaleFunnel do
   defp format_reason(:tailscale_timeout), do: "tailscale command timed out; will retry"
   defp format_reason(:tailscale_executable_not_found), do: "tailscale executable not found; install Tailscale CLI"
   defp format_reason(:funnel_443_not_enabled), do: "no operator-enabled HTTPS 443 Funnel route exists"
+
+  defp format_reason({:live_funnel_target_conflict, _target}),
+    do: "existing Funnel target is live; refusing to replace it"
+
   defp format_reason(:dashboard_listener_not_bound), do: "dashboard listener is not bound; will retry"
   defp format_reason(reason), do: inspect(reason)
 end

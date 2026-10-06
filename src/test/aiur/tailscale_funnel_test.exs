@@ -3,8 +3,8 @@ defmodule Aiur.TailscaleFunnelTest do
 
   alias Aiur.TailscaleFunnel
 
-  @old_target "http://100.89.62.105:35015"
-  @new_target "http://100.89.62.105:43969"
+  @old_target "http://127.0.0.1:35015"
+  @new_target "http://127.0.0.1:43969"
   @listener "orangekid.example.ts.net:443"
 
   defp status(target, allow_funnel \\ true) do
@@ -43,7 +43,7 @@ defmodule Aiur.TailscaleFunnelTest do
   test "reconciles a stale Funnel target to the dynamically bound dashboard port" do
     {state, runner} = fake_command(status(@old_target), self())
 
-    assert :ok = TailscaleFunnel.reconcile("100.89.62.105", 43_969, funnel_opts(runner))
+    assert :ok = TailscaleFunnel.reconcile("127.0.0.1", 43_969, funnel_opts(runner))
     assert_receive {:funnel_update, @new_target}, 1_000
     assert Agent.get(state, & &1.writes) == [@new_target]
   end
@@ -51,7 +51,7 @@ defmodule Aiur.TailscaleFunnelTest do
   test "leaves an already-current Funnel target unchanged" do
     {state, runner} = fake_command(status(@new_target), self())
 
-    assert :ok = TailscaleFunnel.reconcile("100.89.62.105", 43_969, funnel_opts(runner))
+    assert :ok = TailscaleFunnel.reconcile("127.0.0.1", 43_969, funnel_opts(runner))
     refute_receive {:funnel_update, _target}, 0
     assert Agent.get(state, & &1.writes) == []
   end
@@ -60,7 +60,7 @@ defmodule Aiur.TailscaleFunnelTest do
     {state, runner} = fake_command(status(@old_target, false), self())
 
     assert {:error, :funnel_443_not_enabled} =
-             TailscaleFunnel.reconcile("100.89.62.105", 43_969, funnel_opts(runner))
+             TailscaleFunnel.reconcile("127.0.0.1", 43_969, funnel_opts(runner))
 
     refute_receive {:funnel_update, _target}, 0
     assert Agent.get(state, & &1.writes) == []
@@ -81,7 +81,62 @@ defmodule Aiur.TailscaleFunnelTest do
     end
 
     assert {:error, {:target_verification_failed, @old_target}} =
-             TailscaleFunnel.reconcile("100.89.62.105", 43_969, funnel_opts(runner))
+             TailscaleFunnel.reconcile("127.0.0.1", 43_969, funnel_opts(runner))
+  end
+
+  test "does not take over a route serving another live daemon" do
+    {state, runner} = fake_command(status(@old_target), self())
+
+    probe = fn url, 2_000 ->
+      assert url == "#{@old_target}/build-orders/1"
+      {:ok, %Req.Response{status: 401}}
+    end
+
+    assert {:error, {:live_funnel_target_conflict, @old_target}} =
+             TailscaleFunnel.reconcile("127.0.0.1", 43_969, funnel_opts(runner, target_probe: probe))
+
+    refute_receive {:funnel_update, _target}, 0
+    assert Agent.get(state, & &1.writes) == []
+  end
+
+  test "updates an unreachable old target and maps wildcard binds to loopback" do
+    old_target = "http://127.0.0.1:35016"
+    expected_target = "http://127.0.0.1:43970"
+    {state, runner} = fake_command(status(old_target), self())
+
+    probe = fn url, 2_000 ->
+      assert url == "#{old_target}/build-orders/1"
+      {:error, :econnrefused}
+    end
+
+    assert :ok =
+             TailscaleFunnel.reconcile("0.0.0.0", 43_970, funnel_opts(runner, target_probe: probe))
+
+    assert_receive {:funnel_update, ^expected_target}, 1_000
+    assert Agent.get(state, & &1.writes) == [expected_target]
+  end
+
+  test "alerts on reconciliation failure after its first attempt with a cause-neutral unknown reason" do
+    test_pid = self()
+    name = {:global, {__MODULE__, System.unique_integer([:positive])}}
+
+    runner = fn _executable, ["funnel", "status", "--json"], _timeout ->
+      {Jason.encode!(%{"AllowFunnel" => %{}}), 0}
+    end
+
+    start_supervised!(
+      {TailscaleFunnel,
+       name: name,
+       host_fun: fn -> "127.0.0.1" end,
+       port_fun: fn -> 43_969 end,
+       interval_ms: 60_000,
+       tailscale_executable: "/fake/tailscale",
+       tailscale_runner: runner,
+       alert: fn topic, opts -> send(test_pid, {:reconcile_alert, topic, opts}) end}
+    )
+
+    assert_receive {:reconcile_alert, "system.build_order_funnel.health_check_error", alert_opts}, 1_000
+    assert alert_opts[:reason] =~ "cause: unknown"
   end
 
   test "ignores an inactive HTTPS 443 handler when identifying the configured route" do
@@ -100,6 +155,22 @@ defmodule Aiur.TailscaleFunnelTest do
                | "AllowFunnel" => allow_funnel,
                  "Web" => web
              })
+  end
+
+  test "rejects multiple enabled HTTPS 443 routes instead of selecting one" do
+    other_listener = "other.example.ts.net:443"
+    current_status = status(@new_target)
+
+    status_with_multiple = %{
+      current_status
+      | "AllowFunnel" => Map.put(current_status["AllowFunnel"], other_listener, true),
+        "Web" =>
+          Map.put(current_status["Web"], other_listener, %{
+            "Handlers" => %{"/" => %{"Proxy" => @old_target}}
+          })
+    }
+
+    assert {:error, :multiple_funnel_443_routes} = TailscaleFunnel.funnel_target(status_with_multiple)
   end
 
   test "closes the spawned Tailscale process when its command times out" do
@@ -132,5 +203,12 @@ defmodule Aiur.TailscaleFunnelTest do
            end)
   end
 
-  defp funnel_opts(runner), do: [tailscale_executable: "/fake/tailscale", tailscale_runner: runner]
+  defp funnel_opts(runner, extra \\ []) do
+    [
+      tailscale_executable: "/fake/tailscale",
+      tailscale_runner: runner,
+      target_probe: fn _url, _timeout -> {:error, :econnrefused} end
+    ]
+    |> Keyword.merge(extra)
+  end
 end

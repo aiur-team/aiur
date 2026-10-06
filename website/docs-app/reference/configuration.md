@@ -674,7 +674,7 @@ Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, b
 
 A loopback listener — writable or read-only — may bind without them, but its authentication plug fails closed and refuses every dashboard request until both credentials are set. A dashboard bound beyond loopback refuses to start without both credentials.
 
-When `observability.build_order_funnel_health_check` is enabled, Aiur checks the local `/build-orders/1` endpoint and reads `tailscale funnel status --json` once after dashboard startup. Both the HTTP receive and Tailscale command timeouts are five seconds; a timed-out process is closed.
+When `observability.build_order_funnel_health_check` is enabled, Aiur checks the configured dashboard bind address at `/build-orders/1` and reads `tailscale funnel status --json` once after dashboard startup. Both the HTTP receive and Tailscale command timeouts are five seconds; a timed-out process is terminated. This one-time check is suppressed when `server.tailscale_funnel: true`, because the reconciler owns Funnel health reporting and has not yet run during the startup check.
 
 HTTP 200, redirects 301/302/304/307/308, and 401 (authentication required) count as reachable. Other statuses, including 201, 204, and 303, do not.
 
@@ -701,15 +701,15 @@ These policy keys never grant transport access by themselves. The supervisor API
 | --- | --- | --- | --- |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
 | `server.host` | string | `127.0.0.1` | HTTP bind address. Set it explicitly to serve the dashboard beyond the machine; there is no automatic Tailscale detection. |
-| `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures are logged and retried. |
+| `server.tailscale_funnel` | boolean | false | Reconcile an already-enabled Tailscale Funnel HTTPS route on port 443 to the dashboard's current bound host and port at startup and every 30 seconds. Requires the Tailscale CLI and an existing Funnel route; failures raise a Build Order Funnel alert and retry. |
 
 When `server.host` is absent, the dashboard binds `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST` override). A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
 
-Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed. Enable this on only one Aiur daemon per node so multiple reconcilers do not compete for HTTPS 443.
+Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed. Before changing a different target, it probes that target's `/build-orders/1`; any HTTP response makes the reconciler leave the route unchanged and raise `system.build_order_funnel.target_mismatch`. An unreachable target may be stale and can be updated. Wildcard binds (`0.0.0.0` and `::`) map to loopback for the Funnel target. Enable this on only one Aiur daemon per node so multiple reconcilers do not compete for HTTPS 443. The opt-in reconciler suppresses the separate `observability.build_order_funnel_health_check` startup check and reports its own failures after each reconciliation attempt.
 
 A non-root account needs Tailscale operator access before Aiur can manage the route. Grant it once with `sudo tailscale set --operator=$USER`; then run Aiur as that account.
 
-Aiur does not enable Funnel or create a route. The dashboard's existing authentication remains in place, and the route supports HTTP and WebSocket traffic.
+Aiur does not enable Funnel or create a route. The dashboard's existing authentication remains in place, and the route supports HTTP and WebSocket traffic. The target probe is a bounded liveness check, not proof of daemon identity or route ownership; a live stale service requires operator intervention. Aiur does not restart, stop, or otherwise manage the Tailscale daemon.
 
 A fixed `server.port` that is already bound — for example a second `aiur` instance on the same host — does not crash the daemon. The second instance logs an explicit startup message naming the port and the conflict, disables only its own dashboard, and keeps running agents.
 
