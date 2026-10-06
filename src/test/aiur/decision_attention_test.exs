@@ -100,6 +100,65 @@ defmodule Aiur.DecisionAttentionTest do
     refute_received {:event, %{topic: ^topic}}
   end
 
+  # Regression guard: condition-attention freshness follows the latest assertion.
+  test "a fresh main CI assertion restarts the expiry window" do
+    identifier = "MAIN-CI-REASSERT-#{System.unique_integer([:positive])}"
+    issue = %Issue{identifier: identifier, title: "Main CI observer"}
+    workspace = Aiur.TestSupport.tmp_root!("aiur-main-ci-reassert")
+    topic = "ticket.#{identifier}.agent.attention.main-red"
+    resolved_topic = topic <> ".resolved"
+    opened_at = ~U[2026-09-26 12:24:57Z]
+    {:ok, clock} = Agent.start_link(fn -> opened_at end)
+
+    File.mkdir_p!(workspace)
+    :ok = Exchange.subscribe(topic)
+    :ok = Exchange.subscribe(resolved_topic)
+
+    on_exit(fn ->
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      File.rm_rf!(workspace)
+    end)
+
+    {pid, name} =
+      start_attention(
+        now_fun: fn -> Agent.get(clock, & &1) end,
+        reask_interval_ms: 60_000,
+        condition_attention_ttl_ms: 60_000
+      )
+
+    assert :ok =
+             DecisionAttention.open(
+               name,
+               issue,
+               workspace,
+               nil,
+               "main-red",
+               "Main CI is still red."
+             )
+
+    assert_receive {:event, %{"needs_attention" => true, topic: ^topic}}, 1_000
+
+    Agent.update(clock, &DateTime.add(&1, 45, :second))
+
+    assert :ok =
+             DecisionAttention.open(
+               name,
+               issue,
+               workspace,
+               nil,
+               "main-red",
+               "Main CI is still red."
+             )
+
+    assert_receive {:event, %{"needs_attention" => true, topic: ^topic}}, 1_000
+
+    Agent.update(clock, &DateTime.add(&1, 30, :second))
+    send(pid, {:reask, {identifier, "main-red"}})
+
+    assert_receive {:event, %{"needs_attention" => true, topic: ^topic}}, 1_000
+    refute_received {:event, %{"needs_attention" => false, topic: ^resolved_topic}}
+  end
+
   test "does not restore a stale main CI attention after restart" do
     identifier = "MAIN-CI-IMPORT-#{System.unique_integer([:positive])}"
     slug = "main-ci-red-interfaces-mirror"
