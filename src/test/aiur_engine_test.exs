@@ -1834,6 +1834,8 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
       run_sourced_engine(script, [
         {"STATE", state},
         {"LAUNCH_ROOT", launch_root},
+        # Stop config discovery at the fixture, including under workspace TMPDIR.
+        {"HOME", launch_root},
         {"AIUR_RELEASE_NODE", nil},
         {"AIUR_INSTANCE_KEY", nil},
         {"AIUR_REPO_ROOT", nil}
