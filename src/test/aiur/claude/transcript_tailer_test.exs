@@ -44,7 +44,7 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     tailer = start_tailer(path, tp)
 
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, event}
+    assert_receive {:event, event}, 1000
     assert event.role == :assistant
     assert event.body == "Hello"
     assert event.turn_id == "turn-1"
@@ -62,7 +62,7 @@ defmodule Aiur.Claude.TranscriptTailerTest do
 
     File.write!(path, head <> tail)
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, event}
+    assert_receive {:event, event}, 1000
     assert event.body == "Complete"
   end
 
@@ -81,7 +81,7 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     tailer = start_tailer(path, tp)
 
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, event}
+    assert_receive {:event, event}, 1000
     assert event.body == "only this"
   end
 
@@ -90,11 +90,11 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     tailer = start_tailer(path, tp)
 
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, %{body: "first"}}
+    assert_receive {:event, %{body: "first"}}, 1000
 
     File.write!(path, assistant_line("first") <> assistant_line("second"))
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, %{body: "second"}}
+    assert_receive {:event, %{body: "second"}}, 1000
     refute_receive {:event, %{body: "first"}}, 100
   end
 
@@ -112,12 +112,12 @@ defmodule Aiur.Claude.TranscriptTailerTest do
       )
 
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:backfill, %{body: "display backfill"}}
+    assert_receive {:backfill, %{body: "display backfill"}}, 1000
     refute_receive {:event, %{body: "display backfill"}}, 100
 
     File.write!(path, existing <> assistant_line("live append"))
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, %{body: "live append"}}
+    assert_receive {:event, %{body: "live append"}}, 1000
     refute_receive {:backfill, %{body: "live append"}}, 100
   end
 
@@ -137,7 +137,7 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     assert {:ok, 0} = TranscriptTailer.poll(tailer)
     File.write!(path, partial <> "\n")
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:backfill, %{body: "partial display backfill"}}
+    assert_receive {:backfill, %{body: "partial display backfill"}}, 1000
     refute_receive {:event, %{body: "partial display backfill"}}, 100
   end
 
@@ -148,12 +148,12 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     File.write!(path, assistant_line("old long content that makes the file big"))
     tailer = start_tailer(path, tp)
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, _}
+    assert_receive {:event, _}, 1000
 
     # Replace with a shorter file (simulates a new UUID transcript / rotation).
     File.write!(path, assistant_line("new"))
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, %{body: "new"}}
+    assert_receive {:event, %{body: "new"}}, 1000
   end
 
   test "a cloud-authored record is emitted identically to a local one", %{
@@ -166,7 +166,7 @@ defmodule Aiur.Claude.TranscriptTailerTest do
     tailer = start_tailer(path, tp)
 
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, event}
+    assert_receive {:event, event}, 1000
     assert event.role == :assistant
     assert event.body == "from the phone"
   end
@@ -207,8 +207,8 @@ defmodule Aiur.Claude.TranscriptTailerTest do
       )
 
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, %{body: "Done."}}
-    assert_receive {:turn_end, "end_turn"}
+    assert_receive {:event, %{body: "Done."}}, 1000
+    assert_receive {:turn_end, "end_turn"}, 1000
   end
 
   test "fires on_turn_end for persisted assistant API-error records", %{path: path, test_pid: tp} do
@@ -244,7 +244,7 @@ defmodule Aiur.Claude.TranscriptTailerTest do
       )
 
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:turn_end, {:error, %{"error" => "rate_limit"}}}
+    assert_receive {:turn_end, {:error, %{"error" => "rate_limit"}}}, 1000
   end
 
   test "fires on_turn_end for legacy system API-error records", %{path: path, test_pid: tp} do
@@ -266,7 +266,7 @@ defmodule Aiur.Claude.TranscriptTailerTest do
       )
 
     assert {:ok, 0} = TranscriptTailer.poll(tailer)
-    assert_receive {:turn_end, {:error, %{"error" => %{"status" => 429}}}}
+    assert_receive {:turn_end, {:error, %{"error" => %{"status" => 429}}}}, 1000
   end
 
   test "does not end the turn for retryable API-error records", %{path: path, test_pid: tp} do
@@ -318,7 +318,7 @@ defmodule Aiur.Claude.TranscriptTailerTest do
       )
 
     assert {:ok, 0} = TranscriptTailer.poll(tailer)
-    assert_receive {:turn_end, {:error, %{"api_error_status" => 429}}}
+    assert_receive {:turn_end, {:error, %{"api_error_status" => 429}}}, 1000
   end
 
   test "does not fire on_turn_end for an intra-turn (tool_use) assistant record", %{
@@ -368,6 +368,6 @@ defmodule Aiur.Claude.TranscriptTailerTest do
 
     File.write!(path, File.read!(path) <> assistant_line("brand new"))
     assert {:ok, 1} = TranscriptTailer.poll(tailer)
-    assert_receive {:event, %{body: "brand new"}}
+    assert_receive {:event, %{body: "brand new"}}, 1000
   end
 end

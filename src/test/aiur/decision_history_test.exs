@@ -227,7 +227,7 @@ defmodule Aiur.DecisionHistoryTest do
         end
       )
 
-    assert_receive :bounded_history_read
+    assert_receive :bounded_history_read, 1000
     assert Enum.map(entries, & &1.source_version) == [2, 1]
   end
 

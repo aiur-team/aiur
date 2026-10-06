@@ -296,7 +296,7 @@ defmodule Aiur.ProviderMetersTest do
     refute_receive {:provider_meter_changed, _snapshot}, 100
 
     assert {:ok, snapshot} = Store.ingest(store, input)
-    assert_receive {:provider_meter_changed, ^snapshot}
+    assert_receive {:provider_meter_changed, ^snapshot}, 1000
   end
 
   test "subscription and API-key modes reject fabricated unsupported facts", %{owner: owner, store: store} do

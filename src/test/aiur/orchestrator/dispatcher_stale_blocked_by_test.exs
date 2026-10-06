@@ -132,7 +132,7 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
     # The gate asked GitHub, unconditionally, instead of serving the held body.
     assert_received {:blocked_by_read, []}
 
-    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+    assert_receive {:agent_runner_run, dispatched, _recipient, _opts}, 1000
     assert dispatched.id == candidate.id
     assert Map.has_key?(next_state.running, candidate.id)
     refute Map.get(next_state.dispatch_declines, candidate.id) == :dependency

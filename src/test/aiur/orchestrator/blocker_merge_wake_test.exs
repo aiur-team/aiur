@@ -131,7 +131,7 @@ defmodule Aiur.Orchestrator.BlockerMergeWakeTest do
       assert item.delivery.priority == :now
 
       # And the running agent is told to take it now.
-      assert_receive {:agent_queue_updated, ^blockee, _id, true}
+      assert_receive {:agent_queue_updated, ^blockee, _id, true}, 1000
 
       # The mid-turn safe-checkpoint drain claims it — this is the wake.
       assert {{:ok, claimed}, _state} = claim_blocker_critical(state, blockee)

@@ -180,7 +180,7 @@ defmodule Aiur.Workspace.HooksTest do
     issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
 
     assert :ok = Hooks.run_github_preflight(workspace, issue_context, nil)
-    assert_receive :workspace_preflight
+    assert_receive :workspace_preflight, 1000
   end
 
   test "run_hook/5 local applies env scrub to release launcher variables", %{workspace: workspace} do

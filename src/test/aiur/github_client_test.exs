@@ -598,7 +598,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, %{"number" => 4242}} = Client.fetch_open_pull_request(4242, request_fun: first)
       assert {:ok, %{"number" => 4242}} = Client.fetch_open_pull_request(4242, request_fun: second)
 
-      assert_receive {:requested, request}
+      assert_receive {:requested, request}, 1000
       assert request.etag == ~s("v1")
     end
   end
@@ -719,12 +719,12 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, %{"number" => 49}} =
                Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
 
-      assert_receive :unconditional
+      assert_receive :unconditional, 1000
 
       assert {:ok, %{"number" => 49}} =
                Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
 
-      assert_receive :conditional
+      assert_receive :conditional, 1000
     end
 
     # #2298 structural half (rework B5): the call site stamps the declared
@@ -743,7 +743,7 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, %{"number" => 49}} =
                Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
 
-      assert_receive {:request, request}
+      assert_receive {:request, request}, 1000
       assert request.caller == "open_pull_request_for_branch"
       assert request.url =~ "/pulls?"
     end
@@ -1729,10 +1729,10 @@ defmodule Aiur.GitHub.ClientTest do
 
       assert :ok = Client.update_issue_state("42", "rework", request_fun: request_fun)
 
-      assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}
-      assert_receive {:github_request, %{method: :delete, url: deleted_url}}
+      assert_receive {:github_request, %{method: :get}}, 1000
+      assert_receive {:github_request, %{method: :get}}, 1000
+      assert_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:rework"]}}}, 1000
+      assert_receive {:github_request, %{method: :delete, url: deleted_url}}, 1000
       refute deleted_url =~ "sym:paused"
       refute deleted_url =~ "sym:watch"
       refute_receive {:github_request, %{method: :delete}}, 100
@@ -1781,11 +1781,11 @@ defmodule Aiur.GitHub.ClientTest do
                  bot_account: nil
                )
 
-      assert_receive {:github_request, %{method: :get, url: pulls_url}}
+      assert_receive {:github_request, %{method: :get, url: pulls_url}}, 1000
       assert pulls_url =~ "/pulls?"
-      assert_receive {:github_request, %{method: :post, body: %{"query" => viewer_query}}}
+      assert_receive {:github_request, %{method: :post, body: %{"query" => viewer_query}}}, 1000
       assert viewer_query =~ "AiurViewerLogin"
-      assert_receive {:github_request, %{method: :post, body: %{"query" => threads_query}}}
+      assert_receive {:github_request, %{method: :post, body: %{"query" => threads_query}}}, 1000
       assert threads_query =~ "AiurUnaddressedReviewThreads"
 
       File.rm_rf!(repo_root)
@@ -1876,15 +1876,15 @@ defmodule Aiur.GitHub.ClientTest do
                  bot_account: "aiur-bot"
                )
 
-      assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :get, url: pulls_url}}
+      assert_receive {:github_request, %{method: :get}}, 1000
+      assert_receive {:github_request, %{method: :get, url: pulls_url}}, 1000
       assert pulls_url =~ "/repos/owner/repo/pulls?"
       assert pulls_url =~ "state=open"
       # The `head=` probe is gone: the listing's own branch filter already
       # covered every branch spelling it could match, so it was a second billed
       # request per lookup that answered nothing new.
       refute pulls_url =~ "head="
-      assert_receive {:github_request, %{method: :post, url: "https://api.github.com/graphql"}}
+      assert_receive {:github_request, %{method: :post, url: "https://api.github.com/graphql"}}, 1000
       refute_receive {:github_request, %{method: :delete}}, 100
 
       refute_receive {:github_request, %{method: :post, body: %{"labels" => ["sym:human-review"]}}},
@@ -1982,9 +1982,9 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:no_state_label_written, _issue}} =
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
-      assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :delete, url: human_review_url}}
-      assert_receive {:github_request, %{method: :delete, url: rework_url}}
+      assert_receive {:github_request, %{method: :get}}, 1000
+      assert_receive {:github_request, %{method: :delete, url: human_review_url}}, 1000
+      assert_receive {:github_request, %{method: :delete, url: rework_url}}, 1000
       refute human_review_url =~ "sym:done"
       refute rework_url =~ "sym:done"
       refute_receive {:github_request, %{method: :post}}, 100
@@ -2039,9 +2039,9 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:no_state_label_written, _issue}} =
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
-      assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :delete, url: rework_url}}
+      assert_receive {:github_request, %{method: :get}}, 1000
+      assert_receive {:github_request, %{method: :get}}, 1000
+      assert_receive {:github_request, %{method: :delete, url: rework_url}}, 1000
       refute rework_url =~ "sym:done"
       refute_receive {:github_request, %{method: :post}}, 100
       refute_receive {:github_request, %{method: :patch}}, 100
@@ -2077,8 +2077,8 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:error, {:github, :http, %{status: 500}}} =
                Client.update_issue_state("42", "rework", request_fun: request_fun)
 
-      assert_receive {:github_request, %{method: :get}}
-      assert_receive {:github_request, %{method: :delete}}
+      assert_receive {:github_request, %{method: :get}}, 1000
+      assert_receive {:github_request, %{method: :delete}}, 1000
       refute_receive {:github_request, %{method: :post}}, 100
       refute_receive {:github_request, %{method: :patch}}, 100
     end

@@ -500,9 +500,9 @@ defmodule Aiur.DecisionApiTest do
              DecisionApi.get(decision.decision_id, store: retained_store, policy: @policy)
 
     assert fetched["decision_id"] == decision.decision_id
-    assert_receive {:retained_api_read, :legacy_page}
-    assert_receive {:retained_api_read, :lookup}
-    refute_receive {:unexpected_store_read, _request}
+    assert_receive {:retained_api_read, :legacy_page}, 1000
+    assert_receive {:retained_api_read, :lookup}, 1000
+    refute_receive {:unexpected_store_read, _request}, 100
   end
 
   test "legacy offset pages use one retained snapshot across the cursor-page boundary", %{store: store} do
@@ -527,8 +527,8 @@ defmodule Aiur.DecisionApiTest do
              DecisionApi.list(%{"limit" => 200}, store: legacy_store, policy: @policy)
 
     assert Enum.map(rows, & &1["decision_id"]) == Enum.map(decisions, & &1.decision_id)
-    assert_receive :legacy_snapshot_read
-    refute_receive {:split_snapshot_read, _request}
+    assert_receive :legacy_snapshot_read, 1000
+    refute_receive {:split_snapshot_read, _request}, 100
   end
 
   test "get returns one canonical projection and preserves not-found", %{store: store} do

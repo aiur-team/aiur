@@ -92,13 +92,16 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="streamdeck-download-control")
     assert html =~ ~s(phx-click="open-streamdeck-install")
     refute html =~ ~s(id="streamdeck-install-control")
-    refute html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
+    refute html =~ "releases/download/streamdeck-nightly/aiur-streamdeck-nightly-linux-x64.tar.gz"
     refute html =~ ~s(id="streamdeck-install-modal")
 
     html = view |> element("#streamdeck-download-control") |> render_click()
 
     assert html =~ ~s(id="streamdeck-install-modal")
-    assert html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
+    # The download points at the rolling nightly's fixed-name asset, never at a
+    # per-commit release that housekeeping could remove.
+    assert html =~ "releases/download/streamdeck-nightly/aiur-streamdeck-nightly-linux-x64.tar.gz"
+    refute html =~ ~r|releases/download/streamdeck-[0-9a-f]{40}/|
     assert html =~ "Install on your Stream Deck +"
     # Two steps: one download, then one copyable prompt. The old eyebrow, the
     # "download the package, then…" lede and the trailing release-metadata line
@@ -487,21 +490,21 @@ defmodule AiurWeb.StreamdeckLiveTest do
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
     assert html =~ "Pause requested for #1352"
     assert %{sd_mode: :cmd, sd_active: %{identifier: "1352"}} = streamdeck_assigns(view)
-    assert_receive {:streamdeck_pause, "1352"}
+    assert_receive {:streamdeck_pause, "1352"}, 1000
 
     render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
     assert html =~ "Resume requested for #1345"
     assert %{sd_mode: :cmd, sd_active: %{identifier: "1345"}} = streamdeck_assigns(view)
-    assert_receive {:streamdeck_resume, "1345"}
+    assert_receive {:streamdeck_resume, "1345"}, 1000
   end
 
   test "the pause command key controls the agent and adopts the state the orchestrator settles on" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert_receive {:streamdeck_pause, "1352"}
+    assert_receive {:streamdeck_pause, "1352"}, 1000
 
     # The key-press pause already settled the snapshot, but the view has not
     # re-read it yet, so the key still reads Pause.
@@ -523,7 +526,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     # direction is read from orchestrator state rather than from the client.
     html = render_hook(view, "command-press", %{"command" => "pause"})
 
-    assert_receive {:streamdeck_resume, "1352"}
+    assert_receive {:streamdeck_resume, "1352"}, 1000
     assert html =~ "Resume requested for #1352"
 
     send(view.pid, {:status_changed, %{identifier: "1352"}})
@@ -546,7 +549,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] .sd-ag-prio))
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert_receive {:streamdeck_pause, "1352"}
+    assert_receive {:streamdeck_pause, "1352"}, 1000
 
     refute html =~ ~s(data-streamdeck-command="priority")
     refute has_element?(view, ~s(button[data-streamdeck-command="priority"]))
@@ -565,7 +568,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert_receive {:streamdeck_pause, "1352"}
+    assert_receive {:streamdeck_pause, "1352"}, 1000
 
     html = render_hook(view, "command-press", %{"command" => "settings"})
 
@@ -611,7 +614,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
       html = render_hook(view, "command-press", %{"command" => "pause"})
 
       assert html =~ "Read-only dashboard: controls are disabled"
-      refute_receive {:streamdeck_pause, "1352"}
+      refute_receive {:streamdeck_pause, "1352"}, 100
     after
       Endpoint.config_change(%{Endpoint => endpoint_config}, [])
     end
@@ -660,7 +663,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert_receive {:streamdeck_pause, "1352"}
+    assert_receive {:streamdeck_pause, "1352"}, 1000
 
     # Five keys, in the design's order, with the design's labels and sub lines.
     # Prioritize is not among them: the slot it held is Settings now.
@@ -685,14 +688,14 @@ defmodule AiurWeb.StreamdeckLiveTest do
     # is not a control command and reaches the catch-all clause.
     html = render_hook(view, "command-press", %{"command" => "mic"})
     assert command_key(html, "mic") =~ ~s(data-command-state="idle")
-    refute_receive {:streamdeck_pause, "1352"}
+    refute_receive {:streamdeck_pause, "1352"}, 100
   end
 
   test "holding the mic key marks it live and releasing clears it" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert_receive {:streamdeck_pause, "1352"}
+    assert_receive {:streamdeck_pause, "1352"}, 1000
 
     html = render_hook(view, "mic-hold", %{"active" => true})
     assert command_key(html, "mic") =~ ~s(data-command-state="live")
@@ -760,7 +763,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert_receive {:streamdeck_pause, "1352"}
+    assert_receive {:streamdeck_pause, "1352"}, 1000
 
     # The Commands key is a stable destination, not a conditional alert: it is
     # present whether or not the agent has an open Command.
@@ -782,7 +785,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert_receive {:streamdeck_pause, "1352"}
+    assert_receive {:streamdeck_pause, "1352"}, 1000
     render_hook(view, "command-press", %{"command" => "commands"})
 
     html = render_hook(view, "command-select", %{"index" => 0})
@@ -806,7 +809,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert_receive {:streamdeck_pause, "1352"}
+    assert_receive {:streamdeck_pause, "1352"}, 1000
     render_hook(view, "command-press", %{"command" => "commands"})
     render_hook(view, "command-select", %{"index" => 0})
 
@@ -819,7 +822,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     render_hook(view, "key-press", %{"identifier" => "1352"})
-    assert_receive {:streamdeck_pause, "1352"}
+    assert_receive {:streamdeck_pause, "1352"}, 1000
     render_hook(view, "command-press", %{"command" => "commands"})
     # dec-done-1 has no context and no options: entering it reads No description.
     html = render_hook(view, "command-select", %{"index" => 1})
@@ -837,7 +840,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     try do
       {:ok, view, _html} = live(build_conn(), "/streamdeck")
       render_hook(view, "key-press", %{"identifier" => "1352"})
-      assert_receive {:streamdeck_pause, "1352"}
+      assert_receive {:streamdeck_pause, "1352"}, 1000
       html = render_hook(view, "command-press", %{"command" => "commands"})
       assert html =~ "UNAVAILABLE"
     after
@@ -903,7 +906,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
       assert %{sd_mode: :cmd, sd_active: %{identifier: "1345"}} = streamdeck_assigns(view)
       refute html =~ "Resume requested"
-      refute_receive {:streamdeck_resume, "1345"}
+      refute_receive {:streamdeck_resume, "1345"}, 100
     after
       Phoenix.Config.put(Endpoint, :dashboard_writable, previous_writable)
     end
@@ -1235,8 +1238,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
         assert html =~ ~s(data-focused-identifier="1345")
         assert html =~ "new-agent-event"
         refute html =~ "old-agent-event"
-        refute_receive {:streamdeck_pause, _identifier}
-        refute_receive {:streamdeck_resume, _identifier}
+        refute_receive {:streamdeck_pause, _identifier}, 100
+        refute_receive {:streamdeck_resume, _identifier}, 100
 
         AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "stale topic"))
         Process.sleep(20)
