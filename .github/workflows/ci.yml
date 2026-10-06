@@ -125,7 +125,7 @@ jobs:
             echo "no changed files reported: running the full suite" >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
-          if printf '%s\n' "$files" | grep -qv '^website/'; then
+          if printf '%s\n' "$files" | grep -qv '^website/\|^packages/aiur-style/'; then
             docs_only=false
           else
             docs_only=true
