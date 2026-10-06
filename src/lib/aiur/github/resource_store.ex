@@ -258,7 +258,7 @@ defmodule Aiur.GitHub.ResourceStore do
   require Logger
 
   alias Aiur.{Config, Fs, JsonStore}
-  alias Aiur.GitHub.ResourceEvents
+  alias Aiur.GitHub.{MembershipAccess, ResourceEvents}
 
   @table __MODULE__.Table
   @retention_ms 72 * 60 * 60 * 1000
@@ -409,6 +409,7 @@ defmodule Aiur.GitHub.ResourceStore do
           version: String.t() | nil,
           source: atom() | nil,
           fetched_at_ms: integer() | nil,
+          full_body_at_ms: integer() | nil,
           etag: String.t() | nil
         }
 
@@ -724,7 +725,10 @@ defmodule Aiur.GitHub.ResourceStore do
   put it back" — merging labels into a held issue, folding a mutation's response
   into a fuller object. `fun` receives the held body, or `nil` when the store
   holds none, and its result is deposited exactly as `put_resource/3` would
-  deposit it. Options are `put_resource/3`'s.
+  deposit it. Options are `put_resource/3`'s, plus `partial: true` for a write
+  that replaces only some fields of the held body: `:fetched_at_ms` still moves,
+  but `:full_body_at_ms` in `fetch/1`'s answer keeps the time of the last
+  whole-body write.
 
   ## The concurrency guarantee, stated plainly
 
@@ -941,6 +945,7 @@ defmodule Aiur.GitHub.ResourceStore do
           # other direction and discards a held validator when the body moved.
           {existing
            |> Map.put(:fetched_at_ms, now_ms())
+           |> Map.put(:full_body_at_ms, now_ms())
            |> deposit_etag(confirmed_data, confirmed_data, etag), :confirmed}
 
         _newer ->
@@ -1048,6 +1053,9 @@ defmodule Aiur.GitHub.ResourceStore do
              # split.
              source: Map.get(entry, :data_source) || Map.get(entry, :source),
              fetched_at_ms: Map.get(entry, :fetched_at_ms),
+             # When a whole body was last written or confirmed; `nil` for an
+             # entry recorded before the field existed. See `stamp_full_body/2`.
+             full_body_at_ms: Map.get(entry, :full_body_at_ms),
              etag: Map.get(entry, :etag)
            }}
         end
@@ -1069,17 +1077,23 @@ defmodule Aiur.GitHub.ResourceStore do
   @doc """
   Removes every entry of one resource type in one repository.
 
-  This is the store operation behind a *set* reconciliation: when the Build
-  Order reconciliation re-fetches the graph from GitHub, it clears the repo's
-  `:sub_issue` edges and re-deposits the fetched membership, so an edge whose
-  `*_removed` delivery was dropped cannot linger as `present: true` (#2313).
-  Only the reconciled type is cleared — shared resources like `:issue` are left
-  alone, because other consumers read them and their events keep them fresh.
+  Clears only the selected type; shared resources are left alone. Membership
+  reconciliation uses `membership_snapshot/2` and `replace_membership/4`
+  instead, so newer deliveries survive and readers never see a partial set.
 
   Returns `:ok` even when no store is running.
   """
   @spec clear(resource_type(), String.t(), String.t()) :: :ok
-  def clear(resource_type, owner, repo) when is_atom(resource_type) and is_binary(owner) and is_binary(repo) do
+  def clear(resource_type, owner, repo)
+      when is_atom(resource_type) and is_binary(owner) and is_binary(repo),
+      do:
+        MembershipAccess.run(resource_type, :ok, fn ->
+          clear_entries(resource_type, owner, repo)
+        end)
+
+  def clear(_resource_type, _owner, _repo), do: :ok
+
+  defp clear_entries(resource_type, owner, repo) do
     if resource_type in @resource_types do
       owner = String.downcase(owner)
       repo = String.downcase(repo)
@@ -1094,7 +1108,49 @@ defmodule Aiur.GitHub.ResourceStore do
     end
   end
 
-  def clear(_resource_type, _owner, _repo), do: :ok
+  @doc "Captures a membership fence before an upstream reconciliation read."
+  @spec membership_snapshot(String.t(), String.t()) :: {:ok, list()} | {:error, :unavailable}
+  def membership_snapshot(owner, repo) do
+    MembershipAccess.run(:sub_issue, {:error, :unavailable}, fn ->
+      {:ok, list(:sub_issue, owner, repo) |> Enum.sort()}
+    end)
+  end
+
+  @doc "Replaces membership only if no edge changed since the upstream read began."
+  @spec replace_membership(String.t(), String.t(), list(), list()) :: :ok | {:error, atom()}
+  def replace_membership(owner, repo, expected, edges) do
+    MembershipAccess.run(:sub_issue, {:error, :unavailable}, fn ->
+      if Enum.sort(list(:sub_issue, owner, repo)) == expected do
+        replace_membership_entries(String.downcase(owner), String.downcase(repo), expected, edges)
+      else
+        {:error, :membership_changed}
+      end
+    end)
+  end
+
+  defp replace_membership_entries(owner, repo, previous, edges) do
+    version = DateTime.to_iso8601(DateTime.utc_now())
+    held = Map.new(previous)
+
+    entries =
+      Enum.map(edges, fn {id, data} ->
+        key = {:sub_issue, owner, repo, id}
+
+        entry =
+          deposit(Map.get(held, key, %{}), {:ok, data}, :reconciliation, version, etag: :derive)
+
+        {key, Map.put(entry, :recorded_at_ms, now_ms())}
+      end)
+
+    with_table({:error, :unavailable}, fn table ->
+      # All preparation precedes mutation; readers, writers, checkpoint and
+      # expiry run on this same owner for membership, so none see a partial set.
+      :ets.match_delete(table, {{:sub_issue, owner, repo, :_}, :_})
+      :ets.insert(table, entries)
+      ResourceEvents.publish_replaced(:sub_issue, owner, repo)
+      :ok
+    end)
+  end
 
   @doc """
   Enumerates every entry the store holds for one resource type in one
@@ -1111,10 +1167,17 @@ defmodule Aiur.GitHub.ResourceStore do
   entries.
 
   No write is performed: the store table is `:public` and this reads it from
-  the caller's process like every other reader.
+  the caller's process, except membership reads, which serialize through the
+  table owner with membership writes and replacements.
   """
   @spec list(resource_type(), String.t(), String.t()) :: [{key(), entry()}]
-  def list(resource_type, owner, repo) when is_atom(resource_type) and is_binary(owner) and is_binary(repo) do
+  def list(resource_type, owner, repo)
+      when is_atom(resource_type) and is_binary(owner) and is_binary(repo),
+      do: MembershipAccess.run(resource_type, [], fn -> list_entries(resource_type, owner, repo) end)
+
+  def list(_resource_type, _owner, _repo), do: []
+
+  defp list_entries(resource_type, owner, repo) do
     if resource_type in @resource_types do
       owner = String.downcase(owner)
       repo = String.downcase(repo)
@@ -1126,8 +1189,6 @@ defmodule Aiur.GitHub.ResourceStore do
       []
     end
   end
-
-  def list(_resource_type, _owner, _repo), do: []
 
   @doc """
   Lists every held body of `type` within one `"owner/repo"`.
@@ -1151,7 +1212,7 @@ defmodule Aiur.GitHub.ResourceStore do
         # pattern wraps the key in the tuple that is actually stored.
         pattern = {{type, String.downcase(owner), String.downcase(repo), :_}, :_}
 
-        with_table([], fn table -> list_type_entries(table, pattern) end)
+        MembershipAccess.run(type, [], fn -> read_type_entries(pattern) end)
 
       _other ->
         []
@@ -1159,6 +1220,10 @@ defmodule Aiur.GitHub.ResourceStore do
   end
 
   def list_type(_type, _full_name), do: []
+
+  defp read_type_entries(pattern) do
+    with_table([], fn table -> list_type_entries(table, pattern) end)
+  end
 
   defp list_type_entries(table, pattern) do
     table
@@ -1230,7 +1295,9 @@ defmodule Aiur.GitHub.ResourceStore do
   already has, and the shared test setup clears both for the same reason.
   """
   @spec reset() :: :ok
-  def reset do
+  def reset, do: MembershipAccess.run(:sub_issue, :ok, &reset_entries/0)
+
+  defp reset_entries do
     with_table(:ok, fn table ->
       :ets.delete_all_objects(table)
       :ok
@@ -1241,7 +1308,9 @@ defmodule Aiur.GitHub.ResourceStore do
   @spec forget(key() | nil) :: :ok
   def forget(nil), do: :ok
 
-  def forget(key) do
+  def forget(key), do: MembershipAccess.run(key, :ok, fn -> forget_entry(key) end)
+
+  defp forget_entry(key) do
     with_table(:ok, fn table ->
       :ets.delete(table, key)
       :ok
@@ -1260,9 +1329,9 @@ defmodule Aiur.GitHub.ResourceStore do
   True when there is a store to read and write.
 
   Answered from the table every read and write funnels through, not from a
-  process name: writes land in ETS from the caller's own process, and the table
-  name is fixed while the process name is a start-up option. A caller that gates
-  on the wrong one would skip its work silently against a store that is running.
+  process name: the table name is fixed while the process name is a start-up
+  option. A caller that gates on the wrong one would skip its work silently
+  against a store that is running.
   """
   @spec running?() :: boolean()
   def running?, do: with_table(false, fn _table -> true end)
@@ -1314,6 +1383,8 @@ defmodule Aiur.GitHub.ResourceStore do
     {:reply, reply, state}
   end
 
+  def handle_call({:membership_access, fun}, _from, state), do: {:reply, fun.(), state}
+
   @impl true
   def handle_info(:checkpoint, state) do
     {_reply, state} = checkpoint(state)
@@ -1346,7 +1417,9 @@ defmodule Aiur.GitHub.ResourceStore do
 
   defp schedule(_message, _interval), do: :ok
 
-  defp lookup(key) do
+  defp lookup(key), do: MembershipAccess.run(key, nil, fn -> lookup_entry(key) end)
+
+  defp lookup_entry(key) do
     with_table(nil, fn table ->
       case :ets.lookup(table, key) do
         [{^key, entry}] -> entry
@@ -1413,7 +1486,9 @@ defmodule Aiur.GitHub.ResourceStore do
   @update_backoff_attempts 128
   @update_attempts @update_spin_attempts + @update_yield_attempts + @update_backoff_attempts
 
-  defp update(key, fun) do
+  defp update(key, fun), do: MembershipAccess.run(key, :ok, fn -> update_entry(key, fun) end)
+
+  defp update_entry(key, fun) do
     with_table(:ok, fn table ->
       {_reply, result} = update_cas(table, key, &{fun.(&1), :ok}, :ok, @update_attempts)
       result
@@ -1430,7 +1505,10 @@ defmodule Aiur.GitHub.ResourceStore do
   # contention, for the same reason it is the answer when no table exists: an
   # abandoned write has decided nothing, so the caller must be told the
   # fail-open thing rather than a decision that never happened.
-  defp update_reply(key, default, fun) do
+  defp update_reply(key, default, fun),
+    do: MembershipAccess.run(key, default, fn -> update_entry_reply(key, default, fun) end)
+
+  defp update_entry_reply(key, default, fun) do
     with_table(default, fn table ->
       {reply, _result} = update_cas(table, key, fun, default, @update_attempts)
       reply
@@ -1554,10 +1632,21 @@ defmodule Aiur.GitHub.ResourceStore do
       |> Map.put(:data, data)
       |> Map.put(:data_version, version)
       |> Map.put(:fetched_at_ms, now_ms())
+      |> stamp_full_body(opts)
       |> Map.put(:data_source, source)
       |> deposit_etag(Map.get(entry, :data), data, Keyword.get(opts, :etag))
 
     apply_processed_mark(entry, source, version, opts)
+  end
+
+  # `:full_body_at_ms` is when a whole body was last written or confirmed. A
+  # `partial: true` write (a label merge that swaps one field of the held issue)
+  # still moves `:fetched_at_ms`, because the labels it wrote are current, but
+  # leaves this alone: every other field, `"state"` included, is exactly as old
+  # as it was. A reader that needs a field the partial write did not touch
+  # judges its age by this, never by `:fetched_at_ms` (#2714).
+  defp stamp_full_body(entry, opts) do
+    if Keyword.get(opts, :partial, false), do: entry, else: Map.put(entry, :full_body_at_ms, now_ms())
   end
 
   # `:version` moves only alongside `:processed_at_ms`. See the moduledoc:
@@ -1979,7 +2068,8 @@ defmodule Aiur.GitHub.ResourceStore do
       "data" => encoded_data,
       "data_version" => Map.get(entry, :data_version),
       "data_source" => entry |> Map.get(:data_source) |> encode_atom(),
-      "fetched_at_ms" => Map.get(entry, :fetched_at_ms)
+      "fetched_at_ms" => Map.get(entry, :fetched_at_ms),
+      "full_body_at_ms" => Map.get(entry, :full_body_at_ms)
     }
   end
 
@@ -2107,7 +2197,8 @@ defmodule Aiur.GitHub.ResourceStore do
       data: decode_data(Map.get(value, "data")),
       data_version: string_or_nil(Map.get(value, "data_version")),
       data_source: value |> Map.get("data_source") |> decode_source(),
-      fetched_at_ms: integer_or_nil(Map.get(value, "fetched_at_ms"))
+      fetched_at_ms: integer_or_nil(Map.get(value, "fetched_at_ms")),
+      full_body_at_ms: integer_or_nil(Map.get(value, "full_body_at_ms"))
     }
   end
 

@@ -54,7 +54,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
     assert html =~ "Read chat"
     assert html =~ ~s(href="https://github.com/owner/repo/issues/42")
     assert html =~ ~s(target="_blank")
-    assert html =~ ~s(href="/chat/42")
+    assert html =~ ~s(href="/chat/owner/repo/42")
     # Unavailable destinations still disclose their reason.
     assert html =~ ~s(aria-disabled="true")
     assert html =~ "Pull request has not been opened."
@@ -337,7 +337,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
       capabilities: [
         %Capability{kind: :github, variant: :issue, label: "Issue", href: "https://github.com/owner/repo/issues/42", available?: true, external?: true},
         %Capability{kind: :github, variant: :pull_request, label: "Pull request", available?: false, external?: false, reason: "Pull request has not been opened."},
-        %Capability{kind: :chat, label: "Chat", href: "/chat/42", available?: true, external?: false},
+        %Capability{kind: :chat, label: "Chat", href: "/chat/owner/repo/42", available?: true, external?: false},
         %Capability{kind: :commands, label: "Commands", available?: false, external?: false, reason: "Commands are unavailable."}
       ]
     }

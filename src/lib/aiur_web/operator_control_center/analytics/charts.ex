@@ -178,7 +178,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
       Enum.map_join(series, "", fn sample ->
         width = max(pw / max(length(series), 1), 1)
         color = pressure_state_color(Map.get(sample, :pressure_state))
-        ~s|<rect x="#{r2(xf.(sample.t_ms) - width / 2)}" y="190" width="#{r2(width)}" height="10" fill="#{color}"><title>#{Map.get(sample, :pressure_state, :empty)}</title></rect>|
+        ~s|<rect x="#{r2(xf.(sample.t_ms) - width / 2)}" y="190" width="#{r2(width)}" height="10" fill="#{color}">#{title(Map.get(sample, :pressure_state, :empty))}</rect>|
       end)
 
     inner =
@@ -199,7 +199,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     |> Enum.filter(fn chunk -> chunk != [] and is_number(Map.get(hd(chunk), key)) end)
     |> Enum.map_join("", fn chunk ->
       points = Enum.map(chunk, &{xf.(&1.t_ms), yf.(Map.get(&1, key))})
-      ~s|<path d="#{step_line(points)}" fill="none" stroke="#{color}" stroke-width="1.8"><title>#{label}</title></path>|
+      ~s|<path d="#{step_line(points)}" fill="none" stroke="#{color}" stroke-width="1.8">#{title(label)}</path>|
     end)
   end
 
@@ -366,7 +366,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         average_label = (tier.average_wall_clock_ms && fmt_elapsed(tier.average_wall_clock_ms)) || "—"
         center = x + barw / 2
 
-        ~s|<rect x="#{r2(x)}" y="#{r2(y)}" width="#{r2(barw)}" height="#{r2(bar_h)}" rx="3" fill="#{color}" fill-opacity="0.85"><title>Complexity #{tier.tier}: #{count_label} tickets, average #{average_label}</title></rect>| <>
+        ~s|<rect x="#{r2(x)}" y="#{r2(y)}" width="#{r2(barw)}" height="#{r2(bar_h)}" rx="3" fill="#{color}" fill-opacity="0.85">#{title("Complexity #{tier.tier}: #{count_label} tickets, average #{average_label}")}</rect>| <>
           text(center, max(y - 7, mt + 9), count_label, anchor: "middle", fill: "var(--fg)") <>
           text(center, mt + ph + 17, "C#{tier.tier}", anchor: "middle", fill: "var(--fg)") <>
           text(center, mt + ph + 34, average_label, anchor: "middle", fill: "var(--muted)")
@@ -416,7 +416,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         y1 = r2(yf.(after_total))
         label_x = r2((xf.(i) + xf.(i + 1)) / 2)
 
-        ~s|<line x1="#{x0}" y1="#{y0}" x2="#{x1}" y2="#{y1}" stroke="#{color}" stroke-width="3" stroke-linecap="round"><title>#{entry.label}: #{entry.total} tokens</title></line>| <>
+        ~s|<line x1="#{x0}" y1="#{y0}" x2="#{x1}" y2="#{y1}" stroke="#{color}" stroke-width="3" stroke-linecap="round">#{title("#{entry.label}: #{entry.total} tokens")}</line>| <>
           text(label_x, max(y1 - 6, mt + 9), model_label(entry.label), anchor: "middle", fill: "var(--muted)")
       end)
 
@@ -468,7 +468,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
         y = mt + ph - bh
         center = x + barw / 2
 
-        ~s|<rect x="#{r2(x)}" y="#{r2(y)}" width="#{r2(barw)}" height="#{r2(bh)}" rx="3" fill="#{color}" fill-opacity="0.85"><title>#{label}: #{value} tokens</title></rect>| <>
+        ~s|<rect x="#{r2(x)}" y="#{r2(y)}" width="#{r2(barw)}" height="#{r2(bh)}" rx="3" fill="#{color}" fill-opacity="0.85">#{title("#{label}: #{value} tokens")}</rect>| <>
           text(center, max(y - 6, mt + 9), to_string(value), anchor: "middle", fill: "var(--fg)") <>
           text(center, mt + ph + 16, label, anchor: "middle", fill: "var(--muted)")
       end)
@@ -611,8 +611,13 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
   defp text(x, y, body, opts) do
     anchor = Keyword.get(opts, :anchor, "start")
     fill = Keyword.get(opts, :fill, "var(--muted)")
-    ~s|<text x="#{x}" y="#{y}" text-anchor="#{anchor}" fill="#{fill}" font-size="9" font-family="var(--an-mono, monospace)">#{body}</text>|
+    ~s|<text x="#{x}" y="#{y}" text-anchor="#{anchor}" fill="#{fill}" font-size="9" font-family="var(--an-mono, monospace)">#{escape_text(body)}</text>|
   end
+
+  defp title(body), do: "<title>#{escape_text(body)}</title>"
+
+  defp escape_text(body),
+    do: body |> to_string() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
 
   # ---- formatting / palette ----
 

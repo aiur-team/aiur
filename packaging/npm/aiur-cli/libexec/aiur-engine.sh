@@ -456,7 +456,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
-       aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]
+       aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--supersede] [--executor-id <id>]
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
        aiur executor-moot <decision-id> --expected-version <n> --reason-class <class> [--reason <text>] [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
@@ -480,12 +480,11 @@ Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agent
        aiur upgrade [--force]   install the newer aiur-cli on your channel
        aiur pause | resume             flip the global pause switch (whole daemon)
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
-       aiur message <id> <text>  send Executor text to a running agent
+       aiur message <id> [--message-id ID] <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
        aiur findings --record <json> --repo <owner/repo>  append one validated finding
        aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
-       aiur guard-pr-deletions [base-branch]  refuse PRs with excessive untouched deletions
        aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
        aiur ask --done <id> [--note <text>]  create or resolve an operator request
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
@@ -589,31 +588,84 @@ run_asks() {
 # mode=foreground attaches the UI and tears down on exit; mode=background leaves
 # the detached tmux session running and returns.
 
-# Load operator/machine credentials before repo-local settings. Since each file
-# only fills unset names, shell exports win first, then ~/.aiur/.env, then ./.env.
+# Dotenv precedence: shell exports win, then ./.env, then ~/.aiur/.env. Each
+# file only fills names that are still unset, so the repo-local file (the more
+# specific scope) is read first and the machine-wide file only fills its gaps.
+# A blank value is a placeholder, not a setting: `aiur init` scaffolds
+# `GITHUB_TOKEN=` and `.env.example` renders every name blank, so a blank line
+# neither exports nor shadows anything.
+#
+# GitHub credentials are one group. A repo `.env` that sets any member has
+# chosen that repository's auth mode, so none of the global file's members may
+# leak in beside it: a global GITHUB_APP_* triple filling the gaps around a
+# repo-local GITHUB_TOKEN would outrank that token and force the daemon onto an
+# App that is not installed on the repo (#2638).
+GITHUB_CREDENTIAL_ENV_NAMES="GITHUB_TOKEN GITHUB_APP_ID GITHUB_APP_INSTALLATION_ID GITHUB_APP_PRIVATE_KEY_PATH GITHUB_APP_PRIVATE_KEY"
+
 load_dotenv() {
-  load_dotenv_file "$HOME/.aiur/.env"
+  local global_skip=""
+  if dotenv_file_sets_github_credential ".env"; then
+    global_skip="github_credentials"
+  fi
   load_dotenv_file ".env"
+  load_dotenv_file "$HOME/.aiur/.env" "$global_skip"
 }
 
+github_credential_env_name() {
+  case " $GITHUB_CREDENTIAL_ENV_NAMES " in
+    *" $1 "*) return 0 ;;
+  esac
+  return 1
+}
+
+# Parses one dotenv line into DOTENV_KEY / DOTENV_VAL. Returns 1 for blank,
+# comment, malformed, and blank-valued lines so callers skip them. Shared by
+# the loader and the credential-group probe so both agree on what counts.
+parse_dotenv_line() {
+  local line="$1" key val
+  DOTENV_KEY="" DOTENV_VAL=""
+  line="${line#"${line%%[![:space:]]*}"}"
+  case "$line" in '' | '#'*) return 1 ;; esac
+  [ "${line#*=}" = "$line" ] && return 1
+  key="${line%%=*}"
+  key="${key%"${key##*[![:space:]]}"}"
+  case "$key" in '' | *[!A-Za-z0-9_]*) return 1 ;; esac
+  val="${line#*=}"
+  val="${val#"${val%%[![:space:]]*}"}"
+  case "$val" in
+    \"*\") val="${val#\"}" && val="${val%\"}" ;;
+    \'*\') val="${val#\'}" && val="${val%\'}" ;;
+  esac
+  [ -n "$val" ] || return 1
+  DOTENV_KEY="$key"
+  DOTENV_VAL="$val"
+}
+
+# True when the file sets any GitHub credential name to a non-blank value.
+dotenv_file_sets_github_credential() {
+  local file="$1" line
+  [ -f "$file" ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    parse_dotenv_line "$line" || continue
+    if github_credential_env_name "$DOTENV_KEY"; then
+      return 0
+    fi
+  done <"$file"
+  return 1
+}
+
+# Usage: load_dotenv_file <file> [github_credentials]
+# The optional second argument skips the GitHub credential group.
 load_dotenv_file() {
-  local file="$1" line key val
+  local file="$1" skip="${2:-}" line
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
-    line="${line#"${line%%[![:space:]]*}"}"
-    case "$line" in '' | '#'*) continue ;; esac
-    [ "${line#*=}" = "$line" ] && continue
-    key="${line%%=*}"
-    key="${key%"${key##*[![:space:]]}"}"
-    case "$key" in '' | *[!A-Za-z0-9_]*) continue ;; esac
-    val="${line#*=}"
-    val="${val#"${val%%[![:space:]]*}"}"
-    case "$val" in
-      \"*\") val="${val#\"}" && val="${val%\"}" ;;
-      \'*\') val="${val#\'}" && val="${val%\'}" ;;
-    esac
-    [ -n "${!key+x}" ] && continue
-    export "$key=$val"
+    parse_dotenv_line "$line" || continue
+    if [ "$skip" = "github_credentials" ] && github_credential_env_name "$DOTENV_KEY"; then
+      continue
+    fi
+    [ -n "${!DOTENV_KEY+x}" ] && continue
+    export "$DOTENV_KEY=$DOTENV_VAL"
   done <"$file"
 }
 
@@ -755,6 +807,16 @@ run_session() {
   scrub_run_only_env
   export AIUR_DEFAULT_DASHBOARD_HOST="$(default_dashboard_host)"
 
+  # The BEAM lives in tmux, but a fresh foreground run belongs to this shell:
+  # it waits on the UI attach and owns the teardown trap. Hand its pid to the
+  # pane watchdog so a hard-killed launcher cannot leave agents running.
+  # A detached run has no such owner; discard any inherited stale value.
+  if [ "$mode" = "foreground" ]; then
+    export AIUR_LAUNCHER_PID="$$"
+  else
+    unset AIUR_LAUNCHER_PID
+  fi
+
   # The daemon's `Aiur.Upgrade` check uses the CLI package version (not the mix
   # version) as the "installed" version, so an npm install's notice names what
   # the user actually has. `run_version` sets the same var for `--version`.
@@ -870,8 +932,8 @@ run_session() {
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE AIUR_ALERT_LEDGER_PATH_FILE \
-      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG \
-      AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
+      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG AIUR_DEV_TEST_TICKET_IDS \
+      AIUR_OPERATOR_PID AIUR_LAUNCHER_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS \
       AIUR_BG_STATE_DIR AIUR_CLI_VERSION; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
@@ -936,6 +998,20 @@ run_session() {
     rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
     release_aiur_launch_lock "$launch_lock"
     exit 1
+  fi
+
+  # Each instance has its own tmux socket. Publish the executable shipped next
+  # to this engine before the TUI opens a chat pane; tmux receives the path as
+  # one argument, including when the npm install directory contains spaces.
+  if [ "$mode" = "foreground" ]; then
+    local ctrlc_helper="$engine_dir/aiur-pane-ctrlc"
+    if [ ! -x "$ctrlc_helper" ] ||
+       ! "$tmux_bin" -L "$socket" -f "$conf" set-option -g @aiur_ctrlc "$ctrlc_helper"; then
+      "$tmux_bin" -L "$socket" -f "$conf" kill-session -t "$session" 2>/dev/null || true
+      rm -f "${launch_tempfiles[@]}" 2>/dev/null || true
+      release_aiur_launch_lock "$launch_lock"
+      die "aiur pane control helper is unavailable at $ctrlc_helper"
+    fi
   fi
 
   # Title the agent-list pane (the only pane in the fresh session). The conf's
@@ -1351,7 +1427,8 @@ agent_pid_matches() {
 # never touching the Executor’s own default tmux. Headless agents (claude/codex
 # app-servers spawned via Port) are bare OS processes that reparent to init on a
 # BEAM crash; kill-server can't see them, so they're reaped from the pidfile by
-# process tree, comm-guarded against pid reuse. Idempotent.
+# process tree, checking the recorded command. A recycled pid with a matching
+# command is still possible (#2844). Idempotent.
 reap_aiur_agents() {
   local socket="$1" pidfile="${2:-}"
   local tmux_bin
@@ -1483,6 +1560,7 @@ write_aiur_instance_record() {
     printf 'AIUR_RECORD_INSTANCE_KEY=%q\n' "$AIUR_INSTANCE_KEY"
     printf 'AIUR_RECORD_SESSION=%q\n' "$session"
     printf 'AIUR_RECORD_SOCKET=%q\n' "$socket"
+    printf 'AIUR_RECORD_AGENT_TMPFILE=%q\n' "${AIUR_AGENT_TMPFILE:-}"
     printf 'AIUR_RECORD_WORKSPACE_ROOT_FILE=%q\n' "${AIUR_WORKSPACE_ROOT_FILE:-}"
     printf 'AIUR_RECORD_PROJECT_ROOT=%q\n' "$root"
     printf 'AIUR_RECORD_PROJECT_ROOT_SOURCE=%q\n' "${AIUR_PROJECT_ROOT_SOURCE:-}"
@@ -1720,6 +1798,31 @@ workspace_root_file_from_instance_record() {
   load_aiur_instance_record "$(aiur_instance_record_path)" || return 1
   [ -n "${AIUR_RECORD_WORKSPACE_ROOT_FILE:-}" ] || return 1
   printf '%s\n' "$AIUR_RECORD_WORKSPACE_ROOT_FILE"
+}
+
+agent_pidfile_from_instance_record() {
+  load_aiur_instance_record "$(aiur_instance_record_path)" || return 1
+  if [ -n "${AIUR_RECORD_AGENT_TMPFILE:-}" ]; then
+    printf '%s\n' "$AIUR_RECORD_AGENT_TMPFILE"
+    return 0
+  fi
+
+  # Records written before the pidfile field still carry the handoff created
+  # by the same launcher: aiur-PID-workspace-root and aiur-PID-agents share a
+  # runtime directory. Derive that one file only when the old path has the
+  # exact launch shape under this runtime root; never scan other instances.
+  local session_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}" handoff pid
+  session_root="${session_root%/}"
+  [ -n "$session_root" ] || session_root=/
+  handoff="${AIUR_RECORD_WORKSPACE_ROOT_FILE:-}"
+  case "$handoff" in
+    "$session_root"/aiur-*-workspace-root) ;;
+    *) return 1 ;;
+  esac
+  pid="${handoff#"$session_root"/aiur-}"
+  pid="${pid%-workspace-root}"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  printf '%s/aiur-%s-agents\n' "$session_root" "$pid"
 }
 
 # Background watchdog that survives the BEAM. Polls for the release BEAM by
@@ -2038,6 +2141,7 @@ load_aiur_instance_record() {
   AIUR_RECORD_INSTANCE_KEY=""
   AIUR_RECORD_SESSION=""
   AIUR_RECORD_SOCKET=""
+  AIUR_RECORD_AGENT_TMPFILE=""
   AIUR_RECORD_WORKSPACE_ROOT_FILE=""
   AIUR_RECORD_PROJECT_ROOT=""
   AIUR_RECORD_PROJECT_ROOT_SOURCE=""
@@ -2532,7 +2636,8 @@ cmd_reset_budget() {
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
 cmd_message() {
-  local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\")"
+  local usage="aiur: message expects an issue ID and text (e.g. aiur message 44 \"ship it\" or aiur message 44 --message-id ID \"ship it\")"
+  local message_id="" message_id_given=0
 
   local issue="${1:-}"
   if [ -z "$issue" ] || [[ ! "$issue" =~ ^[0-9]+$ ]]; then
@@ -2540,6 +2645,26 @@ cmd_message() {
     exit 64
   fi
   shift
+
+  # `--message-id ID` names this send, so a retry after an unknown outcome
+  # returns the first copy instead of queueing a second one (#2717).
+  case "${1:-}" in
+    --message-id)
+      [ "$#" -gt 1 ] || { echo "aiur: message --message-id requires a value" >&2; exit 64; }
+      message_id="$2"
+      message_id_given=1
+      shift 2
+      ;;
+    --message-id=*)
+      message_id="${1#--message-id=}"
+      message_id_given=1
+      shift
+      ;;
+  esac
+  if [ "$message_id_given" = 1 ] && [[ ! "$message_id" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
+    echo "aiur: message --message-id must be 1-128 letters, digits, '.', '_', ':' or '-' (it cannot be empty)" >&2
+    exit 64
+  fi
 
   local text="$*"
   if [ -z "$text" ]; then
@@ -2549,7 +2674,11 @@ cmd_message() {
 
   local encoded
   encoded="$(printf '%s' "$text" | base64 | tr -d '\n')"
-  run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"))"
+  if [ -n "$message_id" ]; then
+    run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"), \"$message_id\")"
+  else
+    run_control_rpc "Aiur.AgentControlCLI.message(\"$issue\", Base.decode64!(\"$encoded\"))"
+  fi
 }
 
 # `aiur agents` — concise one-line-per-agent state + current activity from a
@@ -2618,7 +2747,7 @@ encode_control_value() {
 # These are explicit trusted-Executor mutations, deliberately separate from
 # the read-only `commands` catalog. Revisions remain dashboard-owned.
 cmd_executor_answer() {
-  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" arg
+  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" supersede=0 arg
   if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
     echo "aiur: executor-answer expects exactly one decision ID" >&2
     exit 64
@@ -2640,6 +2769,7 @@ cmd_executor_answer() {
       --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
       --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
       --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      --supersede) supersede=1 ;;
       -*) echo "aiur: executor-answer received an unknown option: $arg" >&2; exit 64 ;;
       *) echo "aiur: executor-answer expects exactly one decision ID" >&2; exit 64 ;;
     esac
@@ -2664,6 +2794,9 @@ cmd_executor_answer() {
   opts="$opts, rationale: Base.decode64!(\"$(encode_control_value "$rationale")\")"
   opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
   opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  if [ "$supersede" -eq 1 ]; then
+    opts="$opts, supersede: true"
+  fi
   local AIUR_CONTROL_ATTEMPT_CONTEXT="decision ID ${decision_id} with expected version ${expected_version}"
   run_control_rpc "Aiur.AgentControlCLI.executor_answer([$opts])"
 }
@@ -3375,8 +3508,9 @@ cmd_stop() {
   export RELEASE_NODE ERL_EPMD_ADDRESS
   resolve_control_identity_from_records
 
-  local workspace_root_file
+  local workspace_root_file agent_pidfile
   workspace_root_file="$(workspace_root_file_from_instance_record 2>/dev/null || true)"
+  agent_pidfile="$(agent_pidfile_from_instance_record 2>/dev/null || true)"
 
   local tmux_bin
   tmux_bin="$(command -v tmux || true)"
@@ -3435,16 +3569,13 @@ cmd_stop() {
     "$tmux_bin" -L "$socket" kill-server 2>/dev/null || true
   fi
 
-  # Belt-and-suspenders for a mid-turn stop: sweep any headless agent (this run
-  # or a prior crashed one) still recorded in a pidfile. comm-guarded, so a
-  # recycled pid is spared. Empty socket: the kill-server above already ran.
-  local session_root agentfile
-  session_root="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
-  for agentfile in "$session_root"/aiur-*-agents; do
-    [ -e "$agentfile" ] || continue
-    reap_aiur_agents "" "$agentfile"
-    rm -f "$agentfile" 2>/dev/null || true
-  done
+  # Belt-and-suspenders for this run's headless agents after the BEAM exits.
+  # The instance record owns its pidfile; a global sweep can kill live agents
+  # belonging to another instance that shares the runtime directory.
+  if [ -n "$agent_pidfile" ] && [ -e "$agent_pidfile" ]; then
+    reap_aiur_agents "" "$agent_pidfile"
+    rm -f "$agent_pidfile" 2>/dev/null || true
+  fi
 
   reap_stale_manual_smoke 0
   sweep_dead_tmux_sockets
@@ -3929,10 +4060,6 @@ aiur_engine_main() {
       ;;
     findings)
       run_findings "$@"
-      ;;
-    guard-pr-deletions)
-      shift
-      "$engine_dir/guard-pr-deletions.sh" "$@"
       ;;
     ask | asks)
       run_asks "$@"

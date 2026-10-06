@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Muse">
+  <title>Muse</title>
+  <!-- Aiur provider monogram. -->
+  <rect x="1" y="1" width="22" height="22" rx="6" fill="#b5a0ff"/>
+  <path d="M6 17V7h2l4 6 4-6h2v10h-2v-6.5l-4 6-4-6V17Z" fill="#181327"/>
+</svg>

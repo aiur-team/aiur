@@ -43,14 +43,15 @@ defmodule Aiur.Orchestrator.RuntimeWatchdogTest do
              TokenAccounting.handle_codex_worker_update(state, "issue-1", %{
                event: :startup_failed,
                timestamp: now,
-               reason: :boom
+               reason: {:port_exit, 23}
              })
 
     assert {:noreply, next_state} = RetryEngine.handle_agent_down(failed_state, ref, :normal)
 
     refute Map.has_key?(next_state.running, "issue-1")
-    assert next_state.retry_attempts["issue-1"].error == "startup failed: :boom"
-    assert next_state.retry_attempts["issue-1"].transient_reason == {:startup_failed, :boom}
+    assert next_state.retry_attempts["issue-1"].error == "startup failed: {:port_exit, 23}"
+    assert next_state.retry_attempts["issue-1"].transient_reason == {:startup_failed, {:port_exit, 23}}
+    assert next_state.retry_attempts["issue-1"].last_failure_at == now
     cancel_retry(next_state, "issue-1")
   end
 

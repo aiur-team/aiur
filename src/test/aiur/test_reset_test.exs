@@ -2,6 +2,8 @@ defmodule Aiur.TestResetTest do
   use ExUnit.Case, async: false
 
   alias Aiur.TestReset
+  alias ExUnit.CaptureIO
+  alias Mix.Tasks.Aiur.Test.Reset, as: ResetTask
 
   setup do
     tmp_dir = Aiur.TestSupport.tmp_root!("aiur_test_reset")
@@ -62,6 +64,99 @@ defmodule Aiur.TestResetTest do
 
     {_, 0} = System.cmd("git", ["add", "."], cd: tmp)
     {_, 0} = System.cmd("git", ["commit", "-m", "baseline"], cd: tmp)
+  end
+
+  test "Mix reset from src uses repo-local config for workspace layout", %{tmp_dir: tmp_dir} do
+    write_reset_fixture!(tmp_dir, [2897])
+    repo_config = Path.join([tmp_dir, ".aiur", "config"])
+    global_config = Path.join(tmp_dir, "global-config")
+    local_root = Path.join(tmp_dir, "local-workspaces")
+    global_root = Path.join(tmp_dir, "global-workspaces")
+    File.mkdir_p!(Path.dirname(repo_config))
+
+    Aiur.TestSupport.write_workflow_file!(repo_config,
+      tracker_kind: "github",
+      tracker_repo: "aiur-team/aiur",
+      workspace_root: local_root
+    )
+
+    Aiur.TestSupport.write_workflow_file!(global_config,
+      tracker_kind: "github",
+      tracker_repo: "other/repo",
+      workspace_root: global_root
+    )
+
+    previous_config = Aiur.Workflow.workflow_file_path()
+
+    try do
+      Aiur.Workflow.set_workflow_file_path(global_config)
+
+      output =
+        File.cd!(Path.join(tmp_dir, "src"), fn ->
+          CaptureIO.capture_io(:stderr, fn ->
+            assert :ok = ResetTask.run(["--force", "--allow-remote"])
+          end)
+        end)
+
+      assert output =~ "--test DRY-RUN"
+      assert output =~ "2897"
+      assert Aiur.Workflow.workflow_file_path() == repo_config
+      assert Aiur.Config.workspace_root() == local_root
+    after
+      Aiur.Workflow.set_workflow_file_path(previous_config)
+    end
+  end
+
+  test "reset removes the repo-namespaced workspace for the ticket", %{tmp_dir: tmp_dir} do
+    root = Path.join(tmp_dir, "workspaces")
+    config_path = Path.join(tmp_dir, "config")
+    previous_config_path = Aiur.Workflow.workflow_file_path()
+
+    Aiur.TestSupport.write_workflow_file!(config_path,
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      workspace_root: root
+    )
+
+    Aiur.Workflow.set_workflow_file_path(config_path)
+
+    ticket_workspace = Path.join([root, "owner", "repo", "2897"])
+    other_workspace = Path.join([root, "owner", "repo", "2898"])
+    old_layout_workspace = Path.join(root, "2897")
+
+    try do
+      for path <- [ticket_workspace, other_workspace, old_layout_workspace] do
+        File.mkdir_p!(path)
+        File.write!(Path.join(path, "agent-edit.txt"), "uncommitted work")
+      end
+
+      TestReset.remove_workspace(2897, root)
+
+      refute File.exists?(ticket_workspace)
+      assert File.exists?(Path.join(other_workspace, "agent-edit.txt"))
+      assert File.exists?(Path.join(old_layout_workspace, "agent-edit.txt"))
+    after
+      Aiur.Workflow.set_workflow_file_path(previous_config_path)
+    end
+  end
+
+  test "reset falls back to a flat workspace path with invalid config", %{tmp_dir: tmp_dir} do
+    root = Path.join(tmp_dir, "workspaces")
+    workspace = Path.join(root, "2897")
+    invalid_config_path = Path.join(tmp_dir, "invalid-config")
+    previous_config_path = Aiur.Workflow.workflow_file_path()
+    File.mkdir_p!(workspace)
+    File.write!(Path.join(workspace, "agent-edit.txt"), "uncommitted work")
+    File.write!(invalid_config_path, "tracker: [not valid yaml")
+
+    try do
+      Aiur.Workflow.set_workflow_file_path(invalid_config_path)
+      assert_raise ArgumentError, fn -> Aiur.Config.settings!() end
+      TestReset.remove_workspace(2897, root)
+      refute File.exists?(workspace)
+    after
+      Aiur.Workflow.set_workflow_file_path(previous_config_path)
+    end
   end
 
   describe "guards" do
@@ -353,6 +448,13 @@ defmodule Aiur.TestResetTest do
         """
         #!/bin/sh
         printf '%s\\n' "$*" >> "$GH_TRACE"
+
+        # Inject the keyring lookup at the executable boundary. No host gh
+        # authentication or process-wide token is needed for this fixture.
+        if [ "$1" = "auth" ] && [ "$2" = "token" ]; then
+          printf '%s\\n' 'test-reset-token'
+          exit 0
+        fi
 
         if [ "$1" = "issue" ] && [ "$2" = "view" ] && [ "$3" = "99" ]; then
           printf '%s\\n' '{"state":"CLOSED","labels":[{"name":"agent:todo"}]}'

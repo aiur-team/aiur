@@ -113,7 +113,7 @@ defmodule Aiur.Orchestrator do
   def handle_info({:workspace_ownership_available, identifier, guardian, generation}, state)
       when is_binary(identifier) and is_pid(guardian) and is_integer(generation) and generation > 0 do
     state = RetryEngine.release_workspace_wait(state, identifier, guardian, generation)
-    {:noreply, Lifecycle.schedule_tick(state, 0)}
+    {:noreply, Lifecycle.wake_tick(state)}
   end
 
   # A waiter that observed the registry empty has no guardian generation to
@@ -121,7 +121,7 @@ defmodule Aiur.Orchestrator do
   # subsequent owner will make the redispatch contend and subscribe again.
   def handle_info({:workspace_ownership_available, identifier, :none, nil}, state) when is_binary(identifier) do
     state = RetryEngine.release_workspace_wait(state, identifier)
-    {:noreply, Lifecycle.schedule_tick(state, 0)}
+    {:noreply, Lifecycle.wake_tick(state)}
   end
 
   # Never let a pre-generation waiter from an older process release a current
@@ -230,10 +230,26 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  def handle_info({:deliver_pending_answers, _identifier, _store} = message, state) do
+    :ok = Dispatcher.handle_pending_answer_delivery(message)
+    {:noreply, state}
+  end
+
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
   end
+
+  # A wake that collapsed a widened timer changes the countdown `aiur status`
+  # reads from the snapshot store, so republish it: otherwise the status line
+  # keeps showing the old 600s countdown after `aiur --todo` until the woken
+  # tick itself renders (#2640). A coalesced request changed nothing.
+  defp publish_collapsed_poll({:reply, %{coalesced: false} = result, state}) do
+    StatusReport.notify_dashboard(state)
+    {:reply, result, state}
+  end
+
+  defp publish_collapsed_poll(reply), do: reply
 
   @doc false
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
@@ -414,6 +430,12 @@ defmodule Aiur.Orchestrator do
   def request_refresh, do: Lifecycle.request_refresh_api()
   @spec request_refresh(GenServer.server()) :: map() | :unavailable
   def request_refresh(server), do: Lifecycle.request_refresh_api(server)
+  @spec note_queued_demand([String.t()]) :: map() | :unavailable
+  def note_queued_demand(identifiers), do: note_queued_demand(__MODULE__, identifiers)
+  @spec note_queued_demand(GenServer.server(), [String.t()]) :: map() | :unavailable
+  def note_queued_demand(server, identifiers) when is_list(identifiers),
+    do: Lifecycle.note_queued_demand_api(server, identifiers)
+
   @spec send_operator_message(String.t() | Aiur.TrackerIdentity.t(), map()) :: {:ok, integer()} | {:error, term()}
   def send_operator_message(identifier, payload),
     do: OM.send_operator_message(identifier, payload)
@@ -589,6 +611,9 @@ defmodule Aiur.Orchestrator do
   def claim_next_operator_queue_item(server, identifier),
     do: OM.claim_next_operator_queue_item(server, identifier)
 
+  @spec claim_operator_response(GenServer.server(), String.t(), String.t()) :: {:ok, map()} | :empty | {:error, term()}
+  def claim_operator_response(server, identifier, command), do: OM.claim_operator_response(server, identifier, command)
+
   @spec mark_queue_item_consumed(GenServer.server(), integer()) :: :ok | {:error, term()}
   def mark_queue_item_consumed(server, item_id),
     do: OM.mark_queue_item_consumed(server, item_id)
@@ -691,7 +716,11 @@ defmodule Aiur.Orchestrator do
   def handle_call(:fleet_view, _from, state), do: StatusReport.fleet_view_call(state)
 
   def handle_call(:request_refresh, _from, state) do
-    Lifecycle.request_refresh(state)
+    state |> Lifecycle.request_refresh() |> publish_collapsed_poll()
+  end
+
+  def handle_call({:note_queued_demand, identifiers}, _from, state) when is_list(identifiers) do
+    state |> Lifecycle.note_queued_demand(identifiers) |> publish_collapsed_poll()
   end
 
   def handle_call({:send_operator_message, issue_identifier, payload}, _from, state),
@@ -828,6 +857,14 @@ defmodule Aiur.Orchestrator do
       when is_integer(item_id),
       do: OM.operator_message_status_call(state, item_id)
 
+  def handle_call({:lookup_operator_message, {kind, key} = lookup}, _from, state)
+      when kind in [:message_id, :action_id] and is_binary(key),
+      do: OM.lookup_operator_message_call(state, lookup)
+
+  def handle_call({:lookup_operator_message, {:message_id, key} = lookup, %{target: _, text: text} = expected}, _from, state)
+      when is_binary(key) and is_binary(text),
+      do: OM.lookup_operator_message_call(state, lookup, expected)
+
   def handle_call({:claim_next_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
       do: OM.claim_next_queue_item_call(state, issue_identifier)
@@ -843,6 +880,10 @@ defmodule Aiur.Orchestrator do
   def handle_call({:claim_next_operator_queue_item, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
       do: OM.claim_next_operator_queue_item_call(state, issue_identifier)
+
+  def handle_call({:claim_operator_response, identifier, command}, _from, state)
+      when is_binary(identifier) and is_binary(command) and command != "",
+      do: OM.claim_operator_response_call(state, identifier, command)
 
   def handle_call({:mark_queue_item_consumed, item_id}, _from, state)
       when is_integer(item_id),

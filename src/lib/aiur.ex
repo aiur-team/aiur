@@ -63,7 +63,8 @@ defmodule Aiur.Application do
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
-    with :ok <- validate_dashboard_compatibility(no_dashboard?) do
+    with :ok <- Aiur.GlobalConfigStartup.prepare(),
+         :ok <- validate_dashboard_compatibility(no_dashboard?) do
       headless? = Application.get_env(:aiur, :headless, false)
       # Headless is authoritative: if both flags somehow end up set (e.g. a
       # hand-run `aiur --headless` that also injected `--interactive`), the lean
@@ -100,13 +101,18 @@ defmodule Aiur.Application do
       #
       # `:rest_for_one` makes the ordering real: PubSub restarts first, then
       # everything after it, so dependents never start into a missing registry.
-      Supervisor.start_link(
+      start_supervisor(
         children ++ [supervision_health_child(children)],
-        strategy: :rest_for_one,
         name: Aiur.Supervisor
       )
       |> tap(fn _ -> start_upgrade_check() end)
     end
+  end
+
+  @doc false
+  @spec start_supervisor([Supervisor.child_spec() | {module(), term()} | module()], keyword()) :: Supervisor.on_start()
+  def start_supervisor(children, opts \\ []) do
+    Supervisor.start_link(children, Keyword.put(opts, :strategy, :rest_for_one))
   end
 
   # The `aiur run` version notice is deliberately out-of-band: it runs in a
@@ -353,18 +359,10 @@ defmodule Aiur.Application do
       # the Publisher and before anything that polls or receives, so the first
       # delivery of the boot already has somewhere to record that it handled a
       # comment — and so the first poll sweep already has last run's ETags.
+      # Owns the open-issue listing the dispatch gate reads as its close signal
+      # (#2714). A table owned by a poll writer would die with it.
+      Aiur.GitHub.OpenIssueSnapshot,
       Aiur.GitHub.ResourceStore,
-      # The bounded time-series the `/github-cache` history charts draw. Starts
-      # after the store it samples, so its first sample never races the store's
-      # boot fill; it reads ETS only, so it changes nothing about the page's
-      # zero-fetch property. Gated on the dashboard like the HTTP server that
-      # serves the page — there is no point sampling a cache nobody can view.
-      #
-      # `QuotaHistory` is the sibling ring behind the same page's "what is
-      # spending the budget" charts. It reads `Aiur.GitHub.Quota`'s already-held
-      # observations — a GenServer call, no client and no transport — so it too
-      # changes nothing about the page's zero-fetch property.
-      if(dashboard?, do: [Aiur.GitHub.CacheHistory, Aiur.GitHub.QuotaHistory, Aiur.GitHub.AgentCacheMetrics]),
       # Carries store changes into the agents' `gh` answer store, so a fact
       # learned for free retires the paid reads of the same resource. Starts
       # after the store because it subscribes to it.
@@ -389,6 +387,7 @@ defmodule Aiur.Application do
       # Reads the store's observations and serves them to consumer surfaces
       # without a binding. Starts after the store so no accepted observation
       # is broadcast before there is anything retaining it.
+      Aiur.ProviderMeters.HostObservations,
       Aiur.ProviderMeterProjection,
       # Decides when usage is observed: one baseline after boot, then only
       # while agents are running. Starts after the projection so a baseline
@@ -469,7 +468,12 @@ defmodule Aiur.Application do
       # Chat-pane machinery — UI-only, never read by a headless run.
       unless(headless?, do: Aiur.Opencode.PaneSupervisor),
       Aiur.Opencode.SessionSupervisor,
-      Aiur.Opencode.BridgeSupervisor
+      Aiur.Opencode.BridgeSupervisor,
+      # Allowed-contributor intake (#2957) feeds the Executor wake path armed
+      # above, so it runs whenever recording does. It is last in this
+      # `:rest_for_one` list so a restart of it can never cascade into the
+      # dashboard, the Principal, or the opencode supervisors.
+      if(recording?, do: Aiur.AllowedContributors)
     ]
     |> List.flatten()
     |> Enum.reject(&is_nil/1)

@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
+  alias Aiur.ProviderMeters.HostObservations
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.OperatorControlCenter.ProviderMeters
   alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter, as: Presenter
@@ -49,7 +50,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     assert html =~ "<dd>Pro</dd>"
   end
 
-  test "a stale card renders its last-known values without staleness text" do
+  test "a retained card renders its last-known values with the observation age" do
     snapshot =
       healthy(:codex)
       |> Map.put(:freshness, :stale)
@@ -66,11 +67,72 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     view = Presenter.present(authorized(), %{codex: snapshot})
     html = render(view, Presenter.announcement(view))
 
-    refute html =~ ">Stale<"
-    refute html =~ "Stale meters"
-    refute html =~ "stale observation"
-    refute html =~ "Observation age"
+    assert html =~ ">Stale<"
+    assert html =~ "stale observation"
+    assert html =~ "Observation age"
+    assert html =~ "3 days old"
     refute html =~ "Not live"
+
+    age_only = put_in(snapshot.health.failure, nil)
+    announcement = Presenter.present(authorized(), %{codex: age_only}) |> Presenter.announcement()
+    assert announcement =~ "Codex: stale observation"
+    refute announcement =~ "no earlier values to show"
+  end
+
+  test "a failed Muse host refresh labels retained quota stale in the card and announcement" do
+    now = ~U[2026-09-27 12:10:00Z]
+    observed_at = DateTime.add(now, -10, :second)
+    server = start_supervised!({HostObservations, name: nil, clock: fn -> now end})
+    {:ok, scope} = HostObservations.attach(server, :muse, :app_server, self())
+
+    assert :ok =
+             HostObservations.observe(server, scope, %{
+               identity: :unverified,
+               host_scope: scope,
+               observed_at: observed_at,
+               windows: [
+                 %{
+                   limit_id: "window.current",
+                   kind: :rate_limit,
+                   name: :primary,
+                   source: :provider,
+                   observed_at: observed_at,
+                   used_percent: 33,
+                   resets_at: ~U[2026-09-27 13:00:00Z],
+                   coverage: :supported
+                 }
+               ]
+             })
+
+    assert :ok = HostObservations.fail(server, scope, :transport, now)
+    snapshot = HostObservations.redacted_snapshot(server, :muse)
+    assert snapshot.identity_scope == :host_unverified
+    assert snapshot.provider_account_generation == nil
+    assert snapshot.age_seconds == 10
+    assert snapshot.health.state == :stale
+    assert snapshot.health.failure == :transport
+    assert snapshot.freshness == :stale
+    assert snapshot.windows["window.current"].used_percent == 33
+    assert snapshot.windows["window.current"].freshness == :stale
+
+    view = Presenter.present(authorized(), %{muse: snapshot})
+    card = Enum.find(view.cards, &(&1.provider == :muse))
+    assert card.state == :stale
+    assert card.status_label == "Stale"
+    assert card.health.label == "Stale"
+    assert card.freshness.label == "Stale"
+    assert hd(card.windows).freshness_label == "Stale"
+
+    announcement = Presenter.announcement(view)
+    assert announcement =~ "Muse: stale observation"
+    assert announcement =~ "transport error"
+
+    html = render(view, announcement)
+    assert html =~ ~r/provider-meter-badge state-stale[^>]*>Stale<\/span>/
+    assert html =~ ~r/<dt>Health<\/dt>\s*<dd>Stale<\/dd>/
+    assert html =~ ~s(aria-valuenow="33")
+    assert html =~ "10 seconds old"
+    refute html =~ "Healthy"
   end
 
   test "the live-region announcement is polite and atomic" do

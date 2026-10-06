@@ -7,7 +7,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   require Logger
 
   alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, PollCadence, Tracker}
-  alias Aiur.Config.Paths
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client, MergeQueue}
 
@@ -18,6 +17,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     LifecycleFence,
     OperatorMessages,
     PauseResume,
+    ReadyForReviewTransitions,
     Reconciler,
     RetryEngine,
     State,
@@ -587,6 +587,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
           |> reconcile_draft_stall_alert(issue, result, opts)
           |> reconcile_parked_ready_alert(issue, result, opts)
           |> reconcile_base_repair_invalidation(issue, result)
+          |> publish_ready_for_review_transition(issue, result)
           |> stash_last_ci_result(issue, result)
           |> apply_ci_poll_result(issue, result)
         end
@@ -934,7 +935,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         loader.()
 
       :error ->
-        [log_roots: [Paths.log_root_dir()], needs_attention: true]
+        [needs_attention: true]
         |> AlertFeed.list()
         |> Enum.reduce(MapSet.new(), &collect_active_alert_target(&1, &2, alert_name))
     end
@@ -980,6 +981,28 @@ defmodule Aiur.Orchestrator.CiLifecycle do
           ci_lifecycle = Map.put(state.ci_lifecycle, :poll_cache, Map.put(poll_cache, target, projection))
           %{state | ci_lifecycle: ci_lifecycle}
         end
+    end
+  end
+
+  # GitHub's repository Events API does not expose draft-to-ready transitions,
+  # so the CI poll feeds the draft flag it already reads into the shared,
+  # durable ledger (#2707). Only a complete current-head observation carries
+  # `:draft?`; any other result (head changed, PR not visible, poll error) is
+  # not evidence either way. The ledger is not `poll_cache`, which
+  # `prune_ci_lifecycle_state/3` drops when a ticket leaves `ci-wait` — exactly
+  # when an agent tends to run `gh pr ready`.
+  defp publish_ready_for_review_transition(%State{} = state, %Issue{} = issue, result) do
+    observation =
+      ReadyForReviewTransitions.observation(
+        ci_target_for_issue(issue),
+        Map.get(result, :pr_number),
+        Map.get(result, :head_sha),
+        Map.get(result, :draft?)
+      )
+
+    case observation do
+      nil -> state
+      observation -> ReadyForReviewTransitions.observe(state, [observation])
     end
   end
 
@@ -1437,8 +1460,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp rewake_ci_wait_entry(state, issue, running_entry) do
     cond do
-      not ci_wait_state?(issue.state) ->
-        state
+      not ci_wait_state?(effective_ci_state(issue)) ->
+        resolve_departed_ci_wait(state, issue, running_entry)
 
       Issue.paused?(issue) ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
@@ -1449,6 +1472,42 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       true ->
         transition_ci_wait_fallback(state, issue)
     end
+  end
+
+  # The ticket left `ci-wait` while its agent is still parked with
+  # `paused_reason: :ci_wait`, and this timer is the last one armed for it:
+  # `handle_ci_wait_rewake/4` has already dropped the rewake from the map, and
+  # the CI poll only reads tickets in `ci-wait`/`human-review`
+  # (`@ci_poll_states`), so no CI verdict will ever be produced for this ticket
+  # again. Returning `state` here therefore strands the agent paused
+  # "(CI waiting)" forever on a pull request whose checks are green — the
+  # aiur-team/khala stall where #138 and #146 sat parked with
+  # `pause_reason=ci_wait` while their tracker label had already moved to
+  # `agent:rework`.
+  #
+  # Hand the ticket back to the ordinary reconcile for the state it is actually
+  # in. An active state resumes the parked agent (Reconciler's `:ci_wait` pause
+  # branch); anything else — operator-paused, routed away, `human-review`
+  # (which the CI poll still covers), terminal — only refreshes the entry,
+  # exactly as before.
+  defp resolve_departed_ci_wait(state, issue, running_entry) do
+    issue = effective_issue_state(issue)
+
+    if resumable_departed_ci_wait?(issue, running_entry) do
+      Reconciler.maybe_reactivate_or_refresh(state, issue)
+    else
+      Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+    end
+  end
+
+  # Scoped to a *paused* entry: that is the stranded shape, and it is the one
+  # `Reconciler.maybe_reactivate_or_refresh/2` resumes through its `:ci_wait`
+  # pause branch. A deactivated entry keeps the previous behaviour.
+  defp resumable_departed_ci_wait?(%Issue{} = issue, running_entry) do
+    get_in(running_entry, [:control, :status]) == :paused and
+      not Issue.paused?(issue) and
+      DispatchPolicy.issue_routable_to_worker?(issue) and
+      DispatchPolicy.active_issue_state?(issue.state, DispatchPolicy.active_state_set())
   end
 
   defp transition_ci_wait_fallback(state, issue) do

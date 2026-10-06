@@ -67,11 +67,17 @@ defmodule Aiur.Opencode.WorkspaceSetup do
         opencode_os_pid: nil,
         extra_identifiers: extras
       })
+      |> Map.put("plugin", ["file://" <> Path.join(workspace, "input-identity.mjs")])
 
     tui = Protocol.tui_json()
     theme = Protocol.aiur_theme_json()
 
     with :ok <- File.mkdir_p(Path.join(workspace, ".opencode/themes")),
+         :ok <-
+           File.cp(
+             Application.app_dir(:aiur, "priv/opencode_plugins/input-identity.mjs"),
+             Path.join(workspace, "input-identity.mjs")
+           ),
          :ok <-
            File.write(Path.join(workspace, "opencode.json"), Jason.encode!(config, pretty: true)),
          :ok <- File.write(Path.join(workspace, "tui.json"), Jason.encode!(tui, pretty: true)),

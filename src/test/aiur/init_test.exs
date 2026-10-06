@@ -5,6 +5,14 @@ defmodule Aiur.InitTest do
   alias Aiur.Init
   alias Aiur.Workflow
 
+  defmodule SyntheticInit do
+    @spec prompt(Aiur.Init.io()) :: map()
+    def prompt(io), do: %{region: io.input.("Synthetic backend region", "west", nil)}
+
+    @spec config(map()) :: map()
+    def config(%{region: region}), do: %{"region" => region}
+  end
+
   @example_file Path.expand("../../../.aiur/examples/config.example", __DIR__)
 
   # Every topic the shipped alert examples must keep populated. Kept in sync with
@@ -177,6 +185,7 @@ defmodule Aiur.InitTest do
           end
         end,
         check_agent_auth: fn _kind -> :ok end,
+        check_codex_sandbox: fn -> :ok end,
         install_claude_app_server: fn -> :ok end,
         claude_version: fn -> {:ok, "1.1.0"} end,
         # No installed CLI to ask in the wizard tests; discovery degrading to an
@@ -223,6 +232,45 @@ defmodule Aiur.InitTest do
   defp written_config(path) do
     assert {:ok, loaded} = Workflow.load(path)
     loaded.config
+  end
+
+  test "fresh Muse init requires explicit workspace trust and writes native settings", %{dir: dir, target: target} do
+    answers = %{
+      multiselect: %{"Which agents to support" => ["muse"]},
+      confirm: %{"Trust Muse to load skills and rules from agent workspaces?" => true}
+    }
+
+    assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+    assert %{"agent" => agent} = written_config(target)
+    assert agent["priority"] == ["muse"]
+    assert agent["backend_configs"]["muse"]["trust_workspace"] == true
+    assert agent["backend_configs"]["muse"]["approval_mode"] == "onRequest"
+    assert "Trust Muse to load skills and rules from agent workspaces?" in confirm_prompts()
+  end
+
+  test "fresh Muse init keeps workspace trust disabled without affirmative choice", %{dir: dir, target: target} do
+    answers = %{multiselect: %{"Which agents to support" => ["muse"]}}
+
+    assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+    assert written_config(target)["agent"]["backend_configs"]["muse"]["trust_workspace"] == false
+    assert "Trust Muse to load skills and rules from agent workspaces?" in confirm_prompts()
+  end
+
+  test "fresh init calls a synthetic provider descriptor without provider branches", %{dir: dir, target: target} do
+    descriptors =
+      Map.update!(Aiur.CodingAgent.backends(), "fake", fn descriptor ->
+        Map.put(descriptor, :init, SyntheticInit)
+      end)
+
+    answers = %{
+      multiselect: %{"Which agents to support" => ["fake"]},
+      input: %{"Synthetic backend region" => "east"}
+    }
+
+    d = deps(self(), dir, target, %{backend_descriptors: descriptors})
+    assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+    assert written_config(target)["agent"]["backend_configs"]["fake"]["region"] == "east"
+    assert_received {:input_label, "Synthetic backend region"}
   end
 
   defp assert_filled_alert_template(template, sound_path_regex) do
@@ -1420,7 +1468,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex", "kimi", "openrouter", "fake"]
+      assert opts == ["claude", "codex", "kimi", "openrouter", "muse", "fake"]
       refute "claude-repl" in opts
       # DeepSeek is registered but not dispatch-enabled by default, so it must
       # not be offerable from init.
@@ -1970,6 +2018,216 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
 
       refute Enum.any?(puts_log(), &(&1 =~ ~r/couldn't check the aiur-claude version/))
+    end
+  end
+
+  describe "global config with no repo-local config" do
+    @scope_label_prefix "Use the global config at "
+    @repo_option "repo (./.aiur/)"
+    @global_option "global (~/.aiur/)"
+
+    defp global_config_yaml(repo) do
+      github = if repo, do: "  github:\n    repo: #{repo}\n", else: ""
+
+      """
+      tracker:
+        kind: github
+        base_branch: main
+      #{github}agent:
+        kind: claude
+      prewarm:
+        enabled: false
+      """
+    end
+
+    # Per-location config targets: the repo-local target is `target` (absent
+    # unless a test writes it) and the global one lives under a fake home dir
+    # that already holds a config tracking `global_repo`.
+    defp scoped_deps(parent, dir, target, global_repo, overrides \\ %{}) do
+      global_target = Path.join([dir, "home", ".aiur", "config"])
+      File.mkdir_p!(Path.dirname(global_target))
+      File.write!(global_target, global_config_yaml(global_repo))
+
+      d =
+        deps(
+          parent,
+          dir,
+          target,
+          Map.merge(
+            %{
+              config_target: fn
+                :global -> global_target
+                _location -> target
+              end,
+              legacy_config_target: fn
+                :global -> Path.join([dir, "home", ".aiurconfig"])
+                _location -> Path.join(dir, ".aiurconfig")
+              end,
+              detect_repo: fn -> "octo/repo" end
+            },
+            overrides
+          )
+        )
+
+      {d, global_target}
+    end
+
+    defp scope_prompt do
+      receive do
+        {:select_prompt, @scope_label_prefix <> _rest = label, opts, default} -> {label, opts, default}
+      after
+        0 -> nil
+      end
+    end
+
+    defp asked_location? do
+      Enum.any?(input_labels() ++ select_prompt_labels(), &(&1 == @location_label))
+    end
+
+    defp select_prompt_labels(acc \\ []) do
+      receive do
+        {:select_prompt, label, _opts, _default} -> select_prompt_labels([label | acc])
+      after
+        0 -> Enum.reverse(acc)
+      end
+    end
+
+    test "a differing remote prompts with repo-local as the default and creates the repo-local config", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/other")
+      global_before = File.read!(global_target)
+
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), d)
+
+      assert {label, [@repo_option, @global_option], @repo_option} = scope_prompt()
+      assert label =~ global_target
+      assert label =~ "repo-local .aiur/config for octo/repo"
+      refute asked_location?()
+
+      assert_received {:write, ^target}
+      assert get_in(written_config(target), ["tracker", "github", "repo"]) == "octo/repo"
+      assert File.read!(global_target) == global_before
+      refute Enum.any?(puts_log(), &(&1 =~ "resuming setup"))
+    end
+
+    test "a matching remote prompts with global as the default and resumes the global config", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/repo")
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert {_label, _opts, @global_option} = scope_prompt()
+      refute asked_location?()
+      refute_received {:write, _path}
+      refute File.exists?(target)
+
+      log = puts_log()
+      assert Enum.any?(log, &(&1 =~ "Found an existing config at #{global_target}; resuming setup."))
+      assert Enum.any?(log, &(&1 =~ ~r/Saved selections/i))
+    end
+
+    test "the remote match is case-insensitive", %{dir: dir, target: target} do
+      {d, _global_target} = scoped_deps(self(), dir, target, "Octo/Repo")
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert {_label, _opts, @global_option} = scope_prompt()
+    end
+
+    test "choosing global on a differing remote resumes the global config", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/other")
+      answers = %{select: %{"#{@scope_label_prefix}#{global_target}, or create a repo-local .aiur/config for octo/repo?" => "global"}}
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      refute_received {:write, _path}
+      assert Enum.any?(puts_log(), &(&1 =~ "resuming setup"))
+    end
+
+    test "choosing repo-local on a matching remote runs a fresh repo-local setup", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/repo")
+      global_before = File.read!(global_target)
+
+      answers =
+        github_answers(%{
+          select: %{"#{@scope_label_prefix}#{global_target}, or create a repo-local .aiur/config for octo/repo?" => "repo"}
+        })
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+
+      assert_received {:write, ^target}
+      assert File.read!(global_target) == global_before
+      refute asked_location?()
+    end
+
+    test "a global config that pins no repo defaults to global", %{dir: dir, target: target} do
+      {d, _global_target} = scoped_deps(self(), dir, target, nil)
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert {_label, _opts, @global_option} = scope_prompt()
+      assert Enum.any?(puts_log(), &(&1 =~ ~r/Saved selections/i))
+    end
+
+    test "a directory with no detectable remote defaults to global", %{dir: dir, target: target} do
+      {d, _global_target} = scoped_deps(self(), dir, target, "octo/other", %{detect_repo: fn -> nil end})
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert {label, _opts, @global_option} = scope_prompt()
+      assert label =~ "repo-local .aiur/config for this repository?"
+    end
+
+    # Regression guard for pre-existing behavior: a repo-local config must keep
+    # winning the probe, so the new scope prompt never fires here.
+    test "an existing repo-local config resumes without the scope prompt", %{dir: dir, target: target} do
+      {d, _global_target} = scoped_deps(self(), dir, target, "octo/other")
+      File.write!(target, global_config_yaml("octo/repo"))
+
+      assert :ok = Init.run(%{force: false}, io(self()), d)
+
+      assert scope_prompt() == nil
+      assert Enum.any?(puts_log(), &(&1 =~ "Found an existing config at #{target}; resuming setup."))
+    end
+
+    # Regression guard for pre-existing behavior: --force still asks the plain
+    # location question and writes only the chosen target.
+    test "--force skips the scope prompt and scopes the fresh setup to the chosen location", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/other")
+      global_before = File.read!(global_target)
+
+      assert :ok = Init.run(%{force: true}, io(self(), github_answers()), d)
+
+      assert scope_prompt() == nil
+      assert_received {:write, ^target}
+      assert File.read!(global_target) == global_before
+    end
+
+    test "an unreadable global config defaults to global and keeps the --force hint", %{dir: dir, target: target} do
+      {d, global_target} = scoped_deps(self(), dir, target, "octo/other")
+      File.write!(global_target, "- not\n- a\n- map\n")
+
+      assert {:error, message} = Init.run(%{force: false}, io(self()), d)
+
+      assert {_label, _opts, @global_option} = scope_prompt()
+      assert message =~ "Couldn't read the existing config at #{global_target}"
+      assert message =~ "--force"
+      refute_received {:write, _path}
+    end
+
+    test "a legacy global config still offers a repo-local setup", %{dir: dir, target: target} do
+      {d, _global_target} = scoped_deps(self(), dir, target, "octo/other")
+      legacy = Path.join([dir, "home", ".aiurconfig"])
+      File.write!(legacy, global_config_yaml("octo/other"))
+      # The legacy hit is probed after the canonical global path; drop the
+      # canonical file so the legacy one is what the wizard finds.
+      File.rm!(Path.join([dir, "home", ".aiur", "config"]))
+
+      assert {:error, message} = Init.run(%{force: false}, io(self()), d)
+      assert {_label, _opts, @global_option} = scope_prompt()
+      assert message =~ "#{legacy} is no longer supported"
+
+      answers = github_answers(%{select: %{"#{@scope_label_prefix}#{legacy}, or create a repo-local .aiur/config for octo/repo?" => "repo"}})
+      assert :ok = Init.run(%{force: false}, io(self(), answers), d)
+      assert_received {:write, ^target}
     end
   end
 end

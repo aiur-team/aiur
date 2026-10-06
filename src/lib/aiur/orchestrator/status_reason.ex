@@ -6,6 +6,8 @@ defmodule Aiur.Orchestrator.StatusReason do
           | :prewarm_blocked
           | :orphaned_claim
           | :stale_claim
+          | :workspace_ownership_waiting
+          | {:workspace_ownership_waiting, pos_integer(), atom()}
           | {:latched, non_neg_integer(), non_neg_integer()}
           | {:claim_released, atom() | String.t(), non_neg_integer() | nil}
           | {:transient, String.t() | nil, non_neg_integer() | nil}
@@ -37,6 +39,22 @@ defmodule Aiur.Orchestrator.StatusReason do
   def render(:prewarm_blocked), do: "prewarm-blocked"
   def render(:orphaned_claim), do: "orphaned claim: no live agent"
   def render(:stale_claim), do: "stale in-progress claim: no live agent"
+  def render(:workspace_ownership_waiting), do: "workspace ownership held; awaiting safe release"
+
+  def render({:workspace_ownership_waiting, generation, proof}) do
+    detail =
+      case proof do
+        :same_boot -> "unknown local provider; awaiting independent exit proof"
+        :boot_changed_release_pending -> "local host reboot proved provider exit; release pending"
+        :boot_probe_unavailable -> "unknown local provider; host boot proof unavailable"
+        :remote -> "unknown remote provider; exit unproven"
+        :not_recorded -> "unknown provider; exit proof not recorded"
+        :tracked_provider -> "tracked provider still reaping"
+      end
+
+    "workspace ownership held (generation #{generation}): #{detail}"
+  end
+
   def render({:latched, lifetime, maximum}), do: "latched #{lifetime}/#{maximum}"
 
   def render({:claim_released, cause, retry_in_ms}) do

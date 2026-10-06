@@ -122,8 +122,8 @@ workspace:
 agent:
   kind: codex
   max_concurrent_agents: 1
-codex:
-  command: /bin/true
+  codex:
+    command: /bin/true
 """)
 
 Workflow.set_workflow_file_path(workflow_file)

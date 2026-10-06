@@ -1023,8 +1023,8 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       configured_cap: positive_or(Map.get(capacity, :configured), effective),
       # The polling report travels from the same snapshot as the capacity, so
       # the page cannot blame "ticket supply" in a state where `aiur status`
-      # says "has not polled yet" (#2138). Two surfaces, one classifier, one
-      # answer.
+      # says "idle backoff" or "has not polled yet" (#2138, #2640). Two
+      # surfaces, one classifier, one answer.
       cap_binding: CapacityBinding.short_label(CapacityBinding.binding(capacity, polling)),
       cap_staleness: staleness
     ]

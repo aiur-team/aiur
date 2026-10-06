@@ -133,6 +133,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
              :requested,
              :answer_recorded,
              :dispatch_queued,
+             :handed_off,
              :delivered,
              :consumed,
              :acknowledged,

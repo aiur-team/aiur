@@ -32,10 +32,9 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
     # after which the delivery mode degrades and the projection reconciles from
     # GitHub. Derived from config; operators never set it directly.
     delivery_staleness_ms: 900_000,
-    # How long a degraded repo waits between reconciliation attempts. A dropped
-    # delivery re-converges on the next reconciliation, so this is the real
-    # convergence bound while a tunnel is down; it defaults to the same silence
-    # threshold the degradation itself is detected on.
+    # Minimum delay after a membership reconciliation before the safety sweep.
+    # All webhook modes need this: a healthy stream can omit sub-issue events.
+    # In-flight work coalesces; failed attempts retain the previous catalog.
     reconciliation_cooldown_ms: 900_000
   ]
 
@@ -57,6 +56,9 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
 
     %{
       catalog: Policy.unavailable_entry(:catalog, now_ms),
+      # Distinguishes a catalog read started before a store change from one
+      # started after it. The former cannot satisfy the new change signal.
+      catalog_change_seq: 0,
       # nil means "no labelled catalog read has landed under this authority", so
       # the first read after start or a configuration change buys the labels and
       # the page resolves its epic/wave counts promptly.
@@ -80,6 +82,11 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       # differ. Without it there would be no cadence *and* no trigger, which is
       # not "need-driven", it is "never read".
       selected_fingerprints: %{},
+      # Root key => the debounce timer a label or dependency-edge change armed
+      # for it. A root already marked keeps its first timer, so a burst of
+      # changes inside the window costs one read.
+      member_due: %{},
+      member_debounce_ms: non_negative(opts, :member_debounce_ms, 3_000, 60_000),
       inflight_by_ref: %{},
       pending: MapSet.new(),
       # Scopes whose queued read was asked for explicitly (`refresh/2`) rather
@@ -117,9 +124,9 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
       resource_subscription: Keyword.get(opts, :resource_subscription, &default_resource_subscription/1),
       mode_events_subscriber: Keyword.get(opts, :mode_events_subscriber, &DeliveryModeEvents.subscribe/0),
       after_broadcast: Keyword.get(opts, :after_broadcast, fn _event -> :ok end),
-      # The rare GraphQL reconciliation (boot, degraded delivery mode) that
-      # re-converges the event-sourced store. `nil` when none is running;
-      # `last_reconciliation_ms` gates how often a degraded repo re-converges.
+      # Bounded GraphQL reconciliation, independent of webhook health.
+      # `last_reconciliation_ms` gates automatic recovery attempts.
+      reconciliation_timer: nil,
       reconciliation: nil,
       last_reconciliation_ms: nil
     }
@@ -214,6 +221,13 @@ defmodule Aiur.BuildOrder.GraphProjection.Options do
   defp positive(opts, key, default, maximum) do
     case Keyword.get(opts, key, default) do
       value when is_integer(value) and value > 0 and value <= maximum -> value
+      _ -> default
+    end
+  end
+
+  defp non_negative(opts, key, default, maximum) do
+    case Keyword.get(opts, key, default) do
+      value when is_integer(value) and value >= 0 and value <= maximum -> value
       _ -> default
     end
   end

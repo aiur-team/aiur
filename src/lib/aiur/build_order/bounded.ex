@@ -153,12 +153,12 @@ defmodule Aiur.BuildOrder.Bounded do
     end
   end
 
-  @doc "Validates the exact query-free Chat route for one GitHub issue identity."
+  @doc "Validates the exact repository-qualified Chat route for one GitHub issue identity."
   @spec chat_route_for(term(), term()) :: {:ok, String.t()} | :error
-  def chat_route_for(value, %{identifier: identifier}) do
+  def chat_route_for(value, %{owner: owner, repository: repository, identifier: identifier}) do
     with {:ok, identifier} <- github_issue_identifier(identifier),
          {:ok, value, %URI{path: path}} <- destination_route(value),
-         true <- path == "/chat/#{identifier}" do
+         true <- path == "/chat/#{owner}/#{repository}/#{identifier}" do
       {:ok, value}
     else
       _ -> :error
