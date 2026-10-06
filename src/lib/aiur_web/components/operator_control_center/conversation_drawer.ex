@@ -15,6 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   use Phoenix.Component
 
   alias Aiur.OpaqueIdentifier
+  alias AiurWeb.OperatorControlCenter.AgentUsageSnapshot
 
   attr(:id, :string, required: true)
   attr(:view, :map, default: nil)
@@ -25,6 +26,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   attr(:writable, :boolean, default: false)
   attr(:drafts, :map, default: %{})
   attr(:errors, :map, default: %{})
+  attr(:usage_snapshot, :map, default: nil)
+  attr(:usage_error, :atom, default: nil)
 
   @spec conversation_drawer(map()) :: Phoenix.LiveView.Rendered.t()
   def conversation_drawer(%{view: nil} = assigns), do: ~H""
@@ -94,6 +97,12 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
             <dd>{item.value}</dd>
           </div>
         </dl>
+
+        <AgentUsageSnapshot.agent_usage_snapshot
+          snapshot={@usage_snapshot}
+          context_occupancy={%{}}
+          error={@usage_error}
+        />
 
         <div class="conversation-drawer-body">
           <p :if={@view.truncation_note} class="conversation-drawer-truncation" role="status">

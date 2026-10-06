@@ -64,13 +64,14 @@ defmodule AiurWeb.OperatorControlCenter.AgentUsageSnapshot do
             <%= scope_label(@snapshot.scope, @snapshot.scope_id) %>
           </span>
           <span class="freshness-label">
-            <%= UsageSnapshot.format_freshness(@snapshot.freshness_assessment, @snapshot.observed_at) %>
+            Observation age: <%= UsageSnapshot.format_freshness(@snapshot.freshness_assessment, @snapshot.observed_at) %>
           </span>
         </div>
       </div>
 
       <!-- Error State -->
-      <div :if={@error and !@snapshot} class="usage-section error-state">
+      <div :if={not is_nil(@error) and is_nil(@snapshot)} class="usage-section error-state">
+        <h3>Cumulative Token Usage</h3>
         <p class="usage-error">Usage data unavailable</p>
         <p class="usage-error-detail"><%= error_message(@error) %></p>
       </div>
