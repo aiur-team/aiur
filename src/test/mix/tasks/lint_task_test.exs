@@ -25,8 +25,8 @@ defmodule Mix.Tasks.LintTaskTest do
         end
       end)
 
-    assert_received {:ran, "specs.check"}, 1000
-    assert_received {:ran, "credo --strict"}, 1000
+    assert_received {:ran, "specs.check"}
+    assert_received {:ran, "credo --strict"}
     assert error_output =~ "lint: specs.check failed: missing specs"
     assert error_output =~ "lint: credo --strict failed: exit status 2"
   end
@@ -61,8 +61,8 @@ defmodule Mix.Tasks.LintTaskTest do
         end
       end)
 
-      assert_received {:ran, "specs.check"}, 1000
-      assert_received {:ran, "credo --strict"}, 1000
+      assert_received {:ran, "specs.check"}
+      assert_received {:ran, "credo --strict"}
     end)
   end
 end

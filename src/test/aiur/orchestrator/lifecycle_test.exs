@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     refute next.tick_token == old_token
     assert_receive {:tick, token}, 1000
     assert token == next.tick_token
-    refute_receive :superseded_tick
+    refute_receive :superseded_tick, 100
   end
 
   test "handle_tick clears the clock and starts one poll cycle" do

@@ -27,7 +27,7 @@ defmodule Aiur.BuildOrdersCLIStaleReadTest do
   test "an explicit stale CLI read refreshes and reports a closed member" do
     context = context()
     assert {:ok, result} = read(context)
-    assert_received {:refresh, identity}, 1000
+    assert_received {:refresh, identity}
     assert identity == context.root.identity
     assert result["sources"]["planning_graph"]["observed_at"] == DateTime.to_iso8601(@now)
     assert [%{"id" => "516", "state" => "closed"}] = result["data"]["graph"]["members"]
@@ -38,12 +38,12 @@ defmodule Aiur.BuildOrdersCLIStaleReadTest do
     health = %{context.held.health | failure: :rate_limited, next_retry_at: DateTime.add(@now, 60)}
     context = put_in(context.held.health, health)
     assert {:ok, result} = read(context)
-    refute_received {:refresh, _}, 0
+    refute_received {:refresh, _}
     assert result["sources"]["planning_graph"]["freshness"] == "stale"
     assert [%{"state" => "open"}] = result["data"]["graph"]["members"]
 
     assert {:ok, recovered} = read(context, DateTime.add(@now, 60))
-    assert_received {:refresh, _}, 1000
+    assert_received {:refresh, _}
     assert [%{"state" => "closed"}] = recovered["data"]["graph"]["members"]
   end
 
@@ -52,7 +52,7 @@ defmodule Aiur.BuildOrdersCLIStaleReadTest do
       context = context()
       context = put_in(context.held.health, Map.merge(context.held.health, patch))
       assert {:ok, _} = read(context)
-      refute_received {:refresh, _}, 0
+      refute_received {:refresh, _}
     end
   end
 

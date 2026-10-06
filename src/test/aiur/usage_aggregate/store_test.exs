@@ -166,7 +166,7 @@ defmodule Aiur.UsageAggregate.StoreTest do
     send(agg, {:usage_ledger_delta, %{position: 1, generation: 1, delta: %{}}})
     send(agg, {:usage_ledger_delta, %{position: 1, generation: 1, delta: %{}}})
     assert Store.query(%{runs: [@run]}, context.agg_name).totals.tokens == %{input: 10}
-    refute_received {:published, _payload}, 0
+    refute_received {:published, _payload}
     GenServer.stop(agg)
   end
 

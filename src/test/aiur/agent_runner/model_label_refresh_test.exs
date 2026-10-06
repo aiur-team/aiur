@@ -36,7 +36,7 @@ defmodule Aiur.AgentRunner.ModelLabelRefreshTest do
       refresh = refreshing(store, "codex", {["gpt-5.6-sol", "gpt-5.7-astra"], :discovered})
 
       assert {^issue, nil} = ModelLabelRefresh.prepare(issue, catalogue: reader, refresh: refresh)
-      assert_received {:refreshed, "codex"}, 1000
+      assert_received {:refreshed, "codex"}
       assert CodingAgent.backend_for(issue, catalogue: reader) == "codex"
       assert CodingAgent.model_for(issue, catalogue: reader) == "astra"
     end

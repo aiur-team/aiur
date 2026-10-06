@@ -200,7 +200,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
         end)
 
       assert result == {:ok, :on}
-      assert_received {:memory_tracker_add_label, "CLA-P", @remote_label}, 1000
+      assert_received {:memory_tracker_add_label, "CLA-P", @remote_label}
 
       # Old agent killed and its monitor flushed (no stray :DOWN re-dispatch).
       refute Process.alive?(agent_pid)
@@ -226,7 +226,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
         end)
 
       assert result == {:ok, :on}
-      assert_received {:memory_tracker_add_label, "CDX-P", @remote_label}, 1000
+      assert_received {:memory_tracker_add_label, "CDX-P", @remote_label}
       refute Process.alive?(agent_pid)
     end
 
@@ -249,7 +249,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
         end)
 
       assert result == {:ok, :off}
-      assert_received {:memory_tracker_remove_label, "REM-P", @remote_label}, 1000
+      assert_received {:memory_tracker_remove_label, "REM-P", @remote_label}
       refute Process.alive?(agent_pid)
     end
   end
@@ -302,7 +302,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
   # logs as it boots), forwarding its return value out of the capture.
   defp capture_and_return(fun) do
     ExUnit.CaptureLog.capture_log(fn -> send(self(), {:ret, fun.()}) end)
-    assert_received {:ret, ret}, 1000
+    assert_received {:ret, ret}
     ret
   end
 end

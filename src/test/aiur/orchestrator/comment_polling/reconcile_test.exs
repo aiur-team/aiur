@@ -114,7 +114,7 @@ defmodule Aiur.Orchestrator.CommentPolling.ReconcileTest do
 
     assert state.github_comment_reconcile_timer.token == token
     assert state.github_comment_reconcile_timer.delay_ms == 60_000
-    refute_received {:run_github_comment_reconcile, _token}, 0
+    refute_received {:run_github_comment_reconcile, _token}
   end
 
   test "a larger backoff token-fences an earlier reconcile timer" do

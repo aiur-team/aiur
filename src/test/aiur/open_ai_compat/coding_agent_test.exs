@@ -117,7 +117,7 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
     assert Enum.any?(messages, &(&1["role"] == "user" and &1["content"] == "Operator note"))
 
     assert_receive {:delivered, %{backend: "kimi", checkpoint: :tool_result}}, 1000
-    refute_receive {:delivery_failed, _}, 0
+    refute_receive {:delivery_failed, _}, 100
 
     assert_receive {:event, %{event: :reasoning, payload: %{text: "I should inspect the workspace."}}}, 1000
     assert_receive {:event, %{event: :tool_call, payload: %{name: "read_file"}}}, 1000
@@ -238,8 +238,8 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
 
     assert {:ok, _} = CodingAgent.run_turn(session, "Read it", issue(), on_message: fn event -> send(parent, {:event, event}) end)
     assert_receive {:request, _request}, 1000
-    refute_receive {:event, %{event: :tool_call}}, 0
-    refute_receive {:event, %{event: :tool_result}}, 0
+    refute_receive {:event, %{event: :tool_call}}, 100
+    refute_receive {:event, %{event: :tool_result}}, 100
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
   end
 
@@ -374,7 +374,8 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
                       upstream_provider: "DeepSeek",
                       payload: %{"upstream_provider" => "DeepSeek"},
                       usage: %{"prompt_tokens_details" => %{"cached_tokens" => 80}}
-                    }}
+                    }},
+                   1000
 
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
   end
@@ -572,7 +573,7 @@ defmodule Aiur.OpenAICompat.CodingAgentTest do
     assert {:paused, %{reason: :operator_pause, request_id: 42, generation: 3}} =
              CodingAgent.run_turn(session, "Start", issue(), [])
 
-    refute_receive {:unexpected_request, _request}, 0
+    refute_receive {:unexpected_request, _request}, 100
     assert {:ok, :cleanup_proven} = CodingAgent.stop_session(session)
   end
 

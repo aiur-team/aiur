@@ -228,7 +228,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
         assert_receive {:elevenlabs_error, ^reason}, 1000
         assert_receive {:elevenlabs_closed}, 1000
-        assert_receive :transport_close
+        assert_receive :transport_close, 1000
       end
     end
 
@@ -249,7 +249,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       assert_receive {:elevenlabs_error, "Speech-to-text connection failed"}, 1000
       assert_receive {:elevenlabs_closed}, 1000
-      assert_receive :transport_close
+      assert_receive :transport_close, 1000
     end
 
     test "a failed commit send ends the session instead of reporting a completed utterance" do
@@ -259,7 +259,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       assert_receive {:elevenlabs_error, "Speech-to-text connection failed"}, 1000
       assert_receive {:elevenlabs_closed}, 1000
-      assert_receive :transport_close
+      assert_receive :transport_close, 1000
     end
 
     test "a peer close ends the session without inventing an error" do
@@ -268,7 +268,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
       send(session, {:elevenlabs_transport, :closed})
 
       assert_receive {:elevenlabs_closed}, 1000
-      refute_received {:elevenlabs_error, _reason}, 0
+      refute_received {:elevenlabs_error, _reason}
     end
   end
 
@@ -309,7 +309,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
       send(session, :flush_deadline)
 
       assert_receive {:elevenlabs_closed}, 1000
-      assert_receive :transport_close
+      assert_receive :transport_close, 1000
     end
 
     test "audio pushed after the commit is dropped rather than reopening the utterance" do
@@ -348,7 +348,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       assert_receive {:elevenlabs_error, "Speech-to-text session did not become ready"}, 1000
       assert_receive {:elevenlabs_closed}, 1000
-      assert_receive :transport_close
+      assert_receive :transport_close, 1000
     end
 
     test "bounds audio queued before readiness" do
@@ -359,7 +359,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
 
       assert_receive {:elevenlabs_error, "Speech-to-text session did not become ready"}, 1000
       assert_receive {:elevenlabs_closed}, 1000
-      assert_receive :transport_close
+      assert_receive :transport_close, 1000
     end
   end
 
@@ -372,7 +372,7 @@ defmodule Aiur.ElevenLabs.RealtimeTest do
     Process.exit(owner, :kill)
 
     assert_receive {:DOWN, ^ref, :process, ^session, :normal}, 1000
-    assert_receive :transport_close
+    assert_receive :transport_close, 1000
   end
 
   defp start_session(opts \\ []), do: Realtime.start(session_opts(opts))

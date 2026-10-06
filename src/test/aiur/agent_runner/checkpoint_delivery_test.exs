@@ -138,7 +138,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
 
       assert handler.() == :noop
       assert_receive {:decision_delivery_prepared, 6}, 1000
-      refute_receive {:decision_delivery, 6}, 0
+      refute_receive {:decision_delivery, 6}, 100
       assert_receive {:restore, 6}, 1000
     end
 
@@ -150,7 +150,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
 
       assert handler.() == :noop
       assert_receive {:decision_delivery_prepared, 7}, 1000
-      refute_receive {:decision_delivery, 7}, 0
+      refute_receive {:decision_delivery, 7}, 100
       assert_receive {:mark_failed, 7, {:decision_correlation_failed, :store_unavailable}}, 1000
       refute_receive {:restore, 7}, 100
     end
@@ -261,7 +261,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
       # item must be restored to pending, never marked failed.
       failure.({:response_error, %{"code" => -32_003}})
       assert_receive {:restore, 24}, 1000
-      refute_receive {:mark_failed, 24, _reason}, 0
+      refute_receive {:mark_failed, 24, _reason}, 100
     end
 
     test "a late response for retired provider work restores the checkpoint item" do
@@ -283,7 +283,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
 
       assert {:deliver_text, "durable answer", success, _failure} = handler.(:checkpoint)
       assert_receive {:decision_delivery_prepared, 22}, 1000
-      refute_receive {:decision_delivery, 22}, 0
+      refute_receive {:decision_delivery, 22}, 100
 
       assert success.(%{turn_id: "provider-22"}) == :ok
       assert_receive {:decision_delivery, 22}, 1000
@@ -411,7 +411,7 @@ defmodule Aiur.AgentRunner.CheckpointDeliveryTest do
                handler.(:checkpoint)
 
       assert_receive {:decision_delivery_prepared, 52}, 1000
-      refute_receive {:decision_delivery, 52}, 0
+      refute_receive {:decision_delivery, 52}, 100
       assert %{state: :restart_unknown, messages: []} = snapshot(source, live_opts)
 
       assert :ok = success.(%{turn_id: "turn-accepted"})

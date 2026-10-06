@@ -65,7 +65,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
     assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, []}, 1000
     assert_receive {:snapshot_store_read, Aiur.Orchestrator, 5_000, [fleet_rows?: true]}, 1000
-    refute_receive _message
+    refute_receive _message, 100
   end
 
   test "default status readers reject stale and missing cached fleet snapshots" do
@@ -98,7 +98,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
     assert state.readers.status.() == :unavailable
     assert state.readers.status_facts.() == :unavailable
-    refute_receive {:orchestrator_message, _message}, 0
+    refute_receive {:orchestrator_message, _message}, 100
   end
 
   test "cached status readers preserve routing facts through the Units projection" do

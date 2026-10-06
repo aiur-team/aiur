@@ -214,7 +214,7 @@ defmodule Aiur.BuildOrder.CatalogTest do
     assert catalog.entries == [root]
     assert Agent.get(invocations, & &1) == 0
     refute_received :detail_provider_invoked
-    refute_received {:ticket_detail_updated, _state}, 0
+    refute_received {:ticket_detail_updated, _state}
   end
 
   test "catalog lookup case-folds canonical GitHub repository identity" do

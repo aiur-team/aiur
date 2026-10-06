@@ -1278,8 +1278,8 @@ defmodule Aiur.Claude.ReplAgentTest do
     assert result.session_id == "sess-1"
 
     # The hook loop emits control events only — no `→ Tool` or assistant rows.
-    refute_received {:msg, %{event: :transcript, transcript_event: %{role: :tool}}}, 0
-    refute_received {:msg, %{event: :transcript, transcript_event: %{role: :assistant}}}, 0
+    refute_received {:msg, %{event: :transcript, transcript_event: %{role: :tool}}}
+    refute_received {:msg, %{event: :transcript, transcript_event: %{role: :assistant}}}
 
     assert_receive {:msg, %{event: :turn_completed}}, 1000
   end

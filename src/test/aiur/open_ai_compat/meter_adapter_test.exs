@@ -42,7 +42,7 @@ defmodule Aiur.OpenAICompat.MeterAdapterTest do
     assert :ok =
              MeterAdapter.observe(%{headers: %{}}, state(:kimi), meter_ingester: fn update -> send(parent, {:meter, update}) end)
 
-    refute_receive {:meter, _update}, 0
+    refute_receive {:meter, _update}, 100
   end
 
   test "DeepSeek reports local concurrency headroom without claiming a provider percentage" do

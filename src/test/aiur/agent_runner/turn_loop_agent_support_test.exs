@@ -88,10 +88,10 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
 
       assert workspace == ctx.workspace
       assert ".aiur-runtime/gh" in missing
-      refute_received {:provider_called, _turn, _missing}, 0
+      refute_received {:provider_called, _turn, _missing}
       identifier = ctx.issue.identifier
       assert_receive {:queue_item_restored, ^identifier}, 1000
-      refute_received {:queue_item_failed, ^identifier, _reason}, 0
+      refute_received {:queue_item_failed, ^identifier, _reason}
     end
 
     test "the turn after a resume is refused without a provider call", ctx do
@@ -99,7 +99,7 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
                continue_after_resume(ctx, refusing_run_turn())
 
       assert ".aiur-runtime/gh" in missing
-      refute_received {:provider_called, _turn, _missing}, 0
+      refute_received {:provider_called, _turn, _missing}
     end
   end
 
@@ -119,7 +119,7 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
       on_exit(fn -> if Process.alive?(worker), do: Process.exit(worker, :kill) end)
       identifier = ctx.issue.identifier
       assert_receive {:queue_item_consumed, ^identifier}, 1_000
-      refute_received {:queue_item_restored, ^identifier}, 0
+      refute_received {:queue_item_restored, ^identifier}
     end
 
     test "pre-write closed turn/start restores the delivered work for replacement", ctx do
@@ -134,7 +134,7 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
 
       identifier = ctx.issue.identifier
       assert_receive {:queue_item_restored, ^identifier}, 1000
-      refute_received {:queue_item_failed, ^identifier, _reason}, 0
+      refute_received {:queue_item_failed, ^identifier, _reason}
     end
 
     # Future-regression guard: this behavior already held before Muse recovery.
@@ -150,7 +150,7 @@ defmodule Aiur.AgentRunner.TurnLoopAgentSupportTest do
 
       identifier = ctx.issue.identifier
       assert_receive {:queue_item_failed, ^identifier, {:native_port_exit, 9}}, 1000
-      refute_received {:queue_item_restored, ^identifier}, 0
+      refute_received {:queue_item_restored, ^identifier}
     end
   end
 

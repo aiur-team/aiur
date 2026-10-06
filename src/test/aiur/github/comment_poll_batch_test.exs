@@ -48,7 +48,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert {:ok, %{"42" => batch}} =
              CommentPollBatch.fetch(["42"], request_fun: request_fun)
 
-    assert_received {:query, query}, 1000
+    assert_received {:query, query}
     assert query =~ "delivered_0: pullRequest(number: 77)"
     refute query =~ "branch_0_0"
     refute query =~ "reviewThreads(first:"

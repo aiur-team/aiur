@@ -95,7 +95,7 @@ defmodule Aiur.Init.AgentCliTest do
     }
 
     assert :ok = AgentCli.check_agent_clis(io, deps, ["claude-repl"])
-    refute_received {:checked, "claude-repl"}, 0
+    refute_received {:checked, "claude-repl"}
   end
 
   test "init probes the selected Codex sandbox and reports its actual failure" do
@@ -116,7 +116,7 @@ defmodule Aiur.Init.AgentCliTest do
 
     assert :ok = AgentCli.check_agent_clis(io, deps, ["codex"])
     assert_received :sandbox_probed
-    assert_received {:warning, warning}, 1000
+    assert_received {:warning, warning}
     assert warning =~ "bwrap: setting up uid map: Permission denied"
     assert warning =~ "https://aiur.team/docs/guide/quick-start#codex-on-linux"
   end

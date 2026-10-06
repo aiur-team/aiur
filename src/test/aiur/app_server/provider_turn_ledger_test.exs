@@ -99,7 +99,7 @@ defmodule Aiur.AppServer.ProviderTurnLedgerTest do
     # installed — the CI flake #1920 saw, when the Agent exited during setup
     # under contention). Both prove the guarantee the test is named for: an
     # abnormally retired session owner does not leave a live store behind.
-    assert_receive {:DOWN, ^ref, :process, ^store, reason} when reason in [:killed, :noproc]
+    assert_receive {:DOWN, ^ref, :process, ^store, reason} when reason in [:killed, :noproc], 1000
   end
 
   test "a fresh store starts without an anonymous completion guard" do

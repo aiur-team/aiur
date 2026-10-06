@@ -244,6 +244,6 @@ defmodule Aiur.Claude.Repl.LauncherTest do
              )
 
     :sys.get_state(tmux)
-    refute_received {:tmux_mock_out, _command}, 0
+    refute_received {:tmux_mock_out, _command}
   end
 end

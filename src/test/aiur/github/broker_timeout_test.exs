@@ -81,7 +81,7 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
     check(1_001_000)
 
     # The 600s dwell has not elapsed yet: nothing raised.
-    refute_receive {:emitted, @degraded_topic, _}, 0
+    refute_receive {:emitted, @degraded_topic, _}, 100
 
     # Still degraded in the window, now past the dwell: exactly one alert.
     record(1_600_000, 5)
@@ -94,7 +94,7 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
 
     # Still degraded, still latched: exactly one, no re-emission.
     check(1_700_000)
-    refute_receive {:emitted, @degraded_topic, _}, 0
+    refute_receive {:emitted, @degraded_topic, _}, 100
 
     # The rate ages out of the window: the .resolved sibling fires once.
     check(2_000_000)
@@ -114,8 +114,8 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
     check(4_000)
     assert count(4_000) == 1
 
-    refute_receive {:emitted, @degraded_topic, _}, 0
-    refute_receive {:emitted, @resolved_topic, _}, 0
+    refute_receive {:emitted, @degraded_topic, _}, 100
+    refute_receive {:emitted, @resolved_topic, _}, 100
   end
 
   test "a momentary burst that ages out before the dwell raises nothing" do
@@ -126,7 +126,7 @@ defmodule Aiur.GitHub.BrokerTimeoutTest do
     # condition is gone and the dwell never completed on a live degradation.
     check(605_000)
 
-    refute_receive {:emitted, @degraded_topic, _}, 0
+    refute_receive {:emitted, @degraded_topic, _}, 100
   end
 
   test "the retry count is queryable after the fact" do

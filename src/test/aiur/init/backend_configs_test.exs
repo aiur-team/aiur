@@ -25,7 +25,7 @@ defmodule Aiur.Init.BackendConfigsTest do
 
     answers = BackendConfigs.prompt(io, ["plain", "third"], descriptors)
     assert answers == %{"third" => %{region: "east"}}
-    assert_received {:asked, "Third-provider region", "west"}, 1000
+    assert_received {:asked, "Third-provider region", "west"}
 
     config = BackendConfigs.config(["plain", "third"], answers, descriptors)
     assert config == %{"third" => %{"region" => "east", "features" => %{"tools" => true}}}

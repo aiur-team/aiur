@@ -72,7 +72,7 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
              )
 
     assert_receive {:add_label, "1577", "priority:1"}, 1000
-    refute_receive {:remove_label, "1577", "priority:3"}, 0
+    refute_receive {:remove_label, "1577", "priority:3"}, 100
   end
 
   test "a failed old-priority removal rolls back the new tracker priority" do

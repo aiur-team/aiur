@@ -77,7 +77,7 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
       # for ~10s after every `set max-agents` (#2137). Re-dispatch stays on the
       # normal poll cadence and the cap is effective immediately.
       assert next.next_poll_due_at_ms > System.monotonic_time(:millisecond)
-      refute_receive {:tick, _token}, 0
+      refute_receive {:tick, _token}, 100
     end
 
     test "does not wake reconciliation when the cap is unchanged" do
@@ -93,7 +93,7 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
       assert {:reply, {:ok, %{max: 5}}, ^state} =
                Slots.apply_session_max_concurrent_agents(state, 5)
 
-      refute_receive {:tick, _token}, 0
+      refute_receive {:tick, _token}, 100
     end
 
     test "sets an absolute cap and reports it" do
@@ -137,7 +137,7 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
         :timer.tc(fn -> Orchestrator.set_max_concurrent_agents(name, 6) end)
 
       assert elapsed_us < 1_000_000
-      refute_receive {:tick, _token}, 0
+      refute_receive {:tick, _token}, 100
       assert %{max: 6} = Orchestrator.max_concurrent_agents(name)
     end
 

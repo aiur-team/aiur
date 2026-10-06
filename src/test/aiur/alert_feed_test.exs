@@ -269,7 +269,7 @@ defmodule Aiur.AlertFeedTest do
           end)
         end)
 
-      assert_receive :append_lock_acquired
+      assert_receive :append_lock_acquired, 1000
 
       tasks =
         for record <- [first, second] do
@@ -280,7 +280,7 @@ defmodule Aiur.AlertFeedTest do
         end
 
       for task <- tasks do
-        assert_receive {:append_started, pid} when pid == task.pid
+        assert_receive {:append_started, pid} when pid == task.pid, 1000
         assert Task.yield(task, 0) == nil
       end
 
@@ -366,7 +366,7 @@ defmodule Aiur.AlertFeedTest do
         end)
       end)
 
-    assert_receive :backfill_lock_acquired
+    assert_receive :backfill_lock_acquired, 1000
     assert :ok = AlertLedger.append(%{"topic" => "ticket.42.agent.paused"}, ledger_path: ledger)
     send(task.pid, :release_backfill_lock)
     assert :ok = Task.await(task)

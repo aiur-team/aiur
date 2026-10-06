@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""Check for bare assert_receive/refute_receive without explicit timeout.
-
-ExUnit defaults to 100ms timeout for assert_receive, which is too tight for
-tests that wait on handshakes with registry writes, state persists, telemetry
-emits, and process spawns. All calls must have explicit timeouts.
-
-Usage: scripts/check-bare-assert-receive.py
-"""
+"""Reject assert_receive/refute_receive calls without explicit timeouts."""
 
 from __future__ import annotations
 
@@ -15,72 +8,94 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TEST_DIR = REPO_ROOT / "src/test"
+DEFAULT_TEST_DIR = REPO_ROOT / "src/test"
+CALL = re.compile(r"\b(assert_receive|refute_receive)\b")
+
+
+def scan_call(source: str, start: int) -> tuple[bool, int]:
+    """Return (has_timeout, insertion_point) for a receive macro call."""
+    stack: list[str] = []
+    pairs = {")": "(", "]": "[", "}": "{"}
+    quote: str | None = None
+    escaped = False
+    top_level_comma = False
+    i = start
+    while i < len(source) and source[i].isspace() and source[i] != "\n":
+        i += 1
+    parenthesized = i < len(source) and source[i] == "("
+    if parenthesized:
+        stack.append("(")
+        i += 1
+    base_depth = len(stack)
+    while i < len(source):
+        char = source[i]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            i += 1
+            continue
+        if char in ("\"", "'"):
+            quote = char
+        elif char == "#":
+            newline = source.find("\n", i)
+            if newline < 0:
+                return top_level_comma, len(source)
+            if len(stack) == base_depth and not parenthesized:
+                return top_level_comma, i
+            i = newline
+        elif char in "([{":
+            stack.append(char)
+        elif char in ")]}":
+            if stack and stack[-1] == pairs[char]:
+                stack.pop()
+                if parenthesized and not stack:
+                    return top_level_comma, i
+        elif char == "," and len(stack) == base_depth:
+            top_level_comma = True
+        elif char == "\n" and len(stack) == base_depth and not parenthesized:
+            return top_level_comma, i
+        i += 1
+    return top_level_comma, i
 
 
 def check_file(path: Path) -> list[tuple[int, str]]:
-    """Check a test file for bare assert_receive/refute_receive.
-
-    Returns list of (line_number, line_content) tuples.
-    """
+    source = path.read_text(encoding="utf-8")
     issues = []
-    content = path.read_text(encoding="utf-8")
-    lines = content.split("\n")
-
-    for line_no, line in enumerate(lines, 1):
-        # Match bare calls ending with } without a timeout argument
-        # Patterns:
-        #   assert_receive {:msg}         <- BARE
-        #   assert_receive {:msg}, 1000   <- OK
-        #   refute_receive :msg}          <- BARE (malformed but we catch it)
-
-        match = re.search(r'\b(assert_receive|refute_receive)\b.*\}\s*$', line)
-        if match:
-            # Check if there's a comma and timeout before the closing brace
-            # Look for comma followed by number
-            if not re.search(r',\s*\d+\s*$', line):
-                issues.append((line_no, line.rstrip()))
-
+    for match in CALL.finditer(source):
+        has_timeout, _ = scan_call(source, match.end())
+        if not has_timeout:
+            line_no = source.count("\n", 0, match.start()) + 1
+            line = source.splitlines()[line_no - 1].rstrip()
+            issues.append((line_no, line))
     return issues
 
 
 def main() -> int:
-    if not TEST_DIR.exists():
-        print(f"check-bare-assert-receive: test directory not found: {TEST_DIR}", file=sys.stderr)
+    test_dirs = [Path(arg).resolve() for arg in sys.argv[1:]] or [DEFAULT_TEST_DIR]
+    test_files = sorted(path for directory in test_dirs for path in directory.rglob("*_test.exs"))
+    if not test_files:
+        print("check-bare-assert-receive: no test files found", file=sys.stderr)
         return 1
 
-    test_files = sorted(TEST_DIR.glob("**/*_test.exs"))
-
-    all_issues = []
+    issues = []
     for test_file in test_files:
-        issues = check_file(test_file)
-        for line_no, line_content in issues:
-            rel_path = test_file.relative_to(REPO_ROOT)
-            all_issues.append((rel_path, line_no, line_content))
+        for line_no, line in check_file(test_file):
+            try:
+                display_path = test_file.relative_to(REPO_ROOT)
+            except ValueError:
+                display_path = test_file
+            issues.append((display_path, line_no, line))
 
-    if all_issues:
-        print("check-bare-assert-receive: bare assert_receive/refute_receive found:", file=sys.stderr)
-        print(file=sys.stderr)
-        for path, line_no, line_content in all_issues[:30]:
-            print(f"  {path}:{line_no}", file=sys.stderr)
-            if len(line_content) > 80:
-                line_content = line_content[:77] + "..."
-            print(f"    {line_content}", file=sys.stderr)
-
-        if len(all_issues) > 30:
-            print(f"  ... and {len(all_issues) - 30} more", file=sys.stderr)
-
-        print(file=sys.stderr)
-        print(
-            "assert_receive and refute_receive require explicit timeout.\n"
-            "ExUnit's 100ms default is too tight for tests waiting on handshakes\n"
-            "with registry writes, state persists, and process spawns.\n\n"
-            "Fix:\n"
-            "  assert_receive {:msg}, 1000\n"
-            "  refute_receive {:msg}, 0\n\n"
-            "See issue #2796.",
-            file=sys.stderr,
-        )
+    if issues:
+        print("check-bare-assert-receive: calls without explicit timeouts:", file=sys.stderr)
+        for path, line_no, line in issues[:30]:
+            print(f"  {path}:{line_no}: {line[:120]}", file=sys.stderr)
+        if len(issues) > 30:
+            print(f"  ... and {len(issues) - 30} more", file=sys.stderr)
         return 1
 
     print(f"check-bare-assert-receive: OK ({len(test_files)} test files)")

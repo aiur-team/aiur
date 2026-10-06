@@ -20,7 +20,7 @@ defmodule Aiur.ObservabilityPubSubTest do
     assert is_pid(application_pubsub)
     refute Process.whereis(pubsub)
     assert :ok = ObservabilityPubSub.broadcast_update(pubsub)
-    refute_receive {:observability_updated, _event_id}, 0
+    refute_receive {:observability_updated, _event_id}, 100
     assert Process.whereis(Aiur.PubSub) == application_pubsub
   end
 end

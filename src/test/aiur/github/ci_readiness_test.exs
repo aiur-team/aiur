@@ -337,7 +337,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
 
     assert_receive {:readiness_request, "https://api.github.com/repos/acme/private-repo", "ghp_test-token"}, 1000
     assert_receive {:readiness_request, "https://api.github.com/orgs/acme", "ghp_test-token"}, 1000
-    refute_receive {:readiness_request, _url, _token}, 0
+    refute_receive {:readiness_request, _url, _token}, 100
   end
 
   test "keeps a repository 404 ambiguous when the owner is not proven to be an organization" do

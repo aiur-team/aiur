@@ -164,7 +164,7 @@ defmodule Aiur.Init.ResumeTest do
 
       Resume.offer_section(io, deps, :repo_local, %{}, "/tmp/aiur-config", section)
 
-      assert_received {:appended, "/tmp/aiur-config", yaml}, 1000
+      assert_received {:appended, "/tmp/aiur-config", yaml}
       assert yaml =~ "api_key: $ELEVENLABS_API_KEY"
       assert yaml =~ "language_code: eng"
       assert yaml =~ "voice_id: null"
@@ -190,7 +190,7 @@ defmodule Aiur.Init.ResumeTest do
 
       Resume.offer_section(io, deps, :repo_local, %{}, "/tmp/aiur-config", section)
 
-      refute_received {:appended, _target, _yaml}, 0
+      refute_received {:appended, _target, _yaml}
 
       # The declined answer also renders nothing, so a config written by fresh
       # setup stays free of the section and stays offerable.

@@ -85,8 +85,8 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
 
     # A held dependent is never refreshed: the dependency gate runs before the
     # `issue_by_id` refresh and its `dispatch_authorization` read.
-    refute_received {:issue_fetch, _ids}, 0
-    refute_received {:github, _path}, 0
+    refute_received {:issue_fetch, _ids}
+    refute_received {:github, _path}
   end
 
   test "a blocker closing in the :issue store releases its dependent on the next pass with no blocked_by read" do
@@ -153,7 +153,7 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
 
     assert state.dispatch_declines["14"] == :dependency
     refute Map.has_key?(state.running, "14")
-    refute_received {:agent_runner_run, _dispatched, _recipient, _opts}, 0
+    refute_received {:agent_runner_run, _dispatched, _recipient, _opts}
     assert blocked_by_reads() == ["14"]
   end
 
@@ -310,12 +310,12 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     # The refresh runs off the calling process, so wait for its write.
     assert_receive {:routed, "/repos/owner/repo/issues/53"}, 2_000
     assert eventually(fn -> match?(%{"state" => "closed"}, ResourceStore.data(ResourceStore.key(:issue, "owner", "repo", "#{@blocker}"))) end)
-    refute_received {:routed, "/repos/owner/repo/issues/60"}, 0
+    refute_received {:routed, "/repos/owner/repo/issues/60"}
 
     released = run_pass(candidate("14"), held)
     assert Map.has_key?(released.running, "14")
     assert blocked_by_reads() == []
-    refute_received {:github, _path}, 0
+    refute_received {:github, _path}
   end
 
   test "an epic PR refreshes at most 10 closing issues, off the calling process" do

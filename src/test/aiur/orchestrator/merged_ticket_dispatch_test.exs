@@ -50,7 +50,7 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
     assert candidates == [open]
     assert_receive {:transition, "1570", "done", "Todo"}, 1000
     assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", _opts}, 1000
-    refute_receive {:transition, "1571", _state_name, _expected}, 0
+    refute_receive {:transition, "1571", _state_name, _expected}, 100
   end
 
   test "the dispatcher keeps a ticket a stored merge only mentions in passing", %{store: store} do
@@ -76,8 +76,8 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
       )
 
     assert candidates == issues
-    refute_receive {:transition, _identifier}, 0
-    refute_receive {:alert, _topic, _opts}, 0
+    refute_receive {:transition, _identifier}, 100
+    refute_receive {:alert, _topic, _opts}, 100
   end
 
   defp merge_closing(body) do

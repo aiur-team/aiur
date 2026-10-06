@@ -111,7 +111,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
       ResourceStore.put_etag(key(10), "W/\"y\"")
 
       assert_receive {:github_resource_changed, %{id: "10"}}, 1000
-      refute_received {:github_resource_changed, %{id: "9"}}, 0
+      refute_received {:github_resource_changed, %{id: "9"}}
     end
 
     test "a subscriber to one identity hears nothing about a sibling" do
@@ -384,7 +384,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
           end
         end)
 
-      assert_receive :watching
+      assert_receive :watching, 1000
 
       # The writer is an agent that needed the resource for its own reasons and
       # paid one round trip for it.

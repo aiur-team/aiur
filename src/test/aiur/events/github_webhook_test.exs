@@ -968,7 +968,7 @@ defmodule Aiur.Events.GithubWebhookTest.OrchestratorWakeProbe do
   `:request_refresh` GenServer call as `:request_refresh_called` and a raw
   `:run_poll_cycle` message as `:run_poll_cycle_received`, so a test can tell
   the two wake shapes apart — the mutant that reverts the default to a raw
-  `:run_poll_cycle` send would fail the `refute_receive`.
+  `:run_poll_cycle` send would fail the `refute_receive`., 100
   """
   use GenServer
 

@@ -49,10 +49,10 @@ defmodule Aiur.RunTelemetry.SamplerTest do
         end
       )
 
-    assert_receive :fleet_read
-    refute_receive :fleet_read
-    assert_receive :build_read
-    refute_receive :build_read
+    assert_receive :fleet_read, 1000
+    refute_receive :fleet_read, 100
+    assert_receive :build_read, 1000
+    refute_receive :build_read, 100
 
     daemon = by_actor(result.records)["_daemon"]
     assert daemon.fleet_capacity_status == "current"
@@ -186,7 +186,7 @@ defmodule Aiur.RunTelemetry.SamplerTest do
         end
       )
 
-    assert_receive :build_probed
+    assert_receive :build_probed, 1000
     first_daemon = by_actor(first.records)["_daemon"]
     assert first_daemon.build_gate_active == 1
     assert first_daemon.build_gate_observed_at_ms == observed_at

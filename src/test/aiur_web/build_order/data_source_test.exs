@@ -93,10 +93,10 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
 
     assert_received :catalog
     assert_received :subscribe_catalog
-    assert_received {:subscribe_selected, :root}, 1000
-    assert_received {:selected, :root}, 1000
-    assert_received {:demand, :root}, 1000
-    assert_received {:release, :root}, 1000
+    assert_received {:subscribe_selected, :root}
+    assert_received {:selected, :root}
+    assert_received {:demand, :root}
+    assert_received {:release, :root}
 
     forbidden = [:github, :provider, :mutate, :update, :create, :delete]
     exports = DataSource.__info__(:functions)
@@ -112,7 +112,7 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
     assert DataSource.refresh(:root, graph_projection: ProjectionSpy) == :ok
 
     assert_received :refresh_catalog
-    assert_received {:refresh, :root}, 1000
+    assert_received {:refresh, :root}
   end
 
   test "loads activity and execution from their complete cached snapshots" do
@@ -147,8 +147,8 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
 
     assert DataSource.unsubscribe_catalog({"owner", "repo"}, graph_projection: ProjectionSpy, unsubscribe: unsubscribe) == :ok
 
-    assert_received {:catalog_topic, {"owner", "repo"}}, 1000
-    assert_received {:unsubscribe, "catalog-topic"}, 1000
+    assert_received {:catalog_topic, {"owner", "repo"}}
+    assert_received {:unsubscribe, "catalog-topic"}
   end
 
   test "loads and unsubscribes context only through the two bounded caches" do
@@ -168,14 +168,14 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
 
     assert DataSource.unsubscribe_context(:ticket, opts) == :ok
 
-    assert_received {:subscribe_detail, :ticket}, 1000
-    assert_received {:subscribe_history, :ticket}, 1000
-    assert_received {:request_detail, :ticket}, 1000
-    assert_received {:request_history, :ticket}, 1000
-    assert_received {:detail_topic, :ticket}, 1000
-    assert_received {:history_topic, :ticket}, 1000
-    assert_received {:unsubscribe, "detail-topic"}, 1000
-    assert_received {:unsubscribe, "history-topic"}, 1000
+    assert_received {:subscribe_detail, :ticket}
+    assert_received {:subscribe_history, :ticket}
+    assert_received {:request_detail, :ticket}
+    assert_received {:request_history, :ticket}
+    assert_received {:detail_topic, :ticket}
+    assert_received {:history_topic, :ticket}
+    assert_received {:unsubscribe, "detail-topic"}
+    assert_received {:unsubscribe, "history-topic"}
   end
 
   test "unsubscribes a selected root without releasing its separately owned demand" do
@@ -186,8 +186,8 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
 
     assert DataSource.unsubscribe_selected(:root, graph_projection: ProjectionSpy, unsubscribe: unsubscribe) == :ok
 
-    assert_received {:selected_topic, :root}, 1000
-    assert_received {:unsubscribe, "selected-topic"}, 1000
-    refute_received {:release, :root}, 0
+    assert_received {:selected_topic, :root}
+    assert_received {:unsubscribe, "selected-topic"}
+    refute_received {:release, :root}
   end
 end

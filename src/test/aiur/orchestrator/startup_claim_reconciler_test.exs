@@ -268,7 +268,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     refute repeated_state.startup_claim_reconciliation_complete?
     assert repeated_state.startup_claim_reconciliation_failures["2076"].attempts == 2
     assert repeated_log =~ "retry 2/3"
-    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 0
+    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 100
 
     # The third failure reaches the per-ticket cap: the claim is latched and
     # the pass completes instead of reaping forever.
@@ -290,7 +290,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconcilerTest do
     assert final_state.startup_claim_reconciliation_complete?
     assert final_state.startup_claim_reconciliation_failures["2076"].attempts == 3
     assert final_log =~ "exhausted 3 attempts"
-    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 0
+    refute_receive {:alert, "ticket.2076.agent.attention.startup_claim_reconciliation_failed", _opts}, 100
 
     # The completed pass never re-attempts the latched ticket.
     assert {^final_state, [^issue]} =

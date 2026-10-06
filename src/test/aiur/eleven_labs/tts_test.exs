@@ -79,8 +79,8 @@ defmodule Aiur.ElevenLabs.TTSTest do
 
     monitor = Process.monitor(pid)
     assert_receive {:elevenlabs_audio, :error, "Voice reply exceeded its playback limit"}, 1000
-    refute_receive {:elevenlabs_audio, :chunk, _data}, 0
-    refute_receive {:elevenlabs_audio, :done}, 0
+    refute_receive {:elevenlabs_audio, :chunk, _data}, 100
+    refute_receive {:elevenlabs_audio, :done}, 100
     assert_receive {:DOWN, ^monitor, :process, ^pid, :normal}, 1000
     assert Process.alive?(owner)
   end

@@ -231,10 +231,10 @@ defmodule Aiur.GitHub.ClientTest do
                  gh_auth_status_fun: fn -> {:ok, :not_installed} end
                )
 
-      assert_received {:preflight_url, "https://api.github.com/rate_limit"}, 1000
-      assert_received {:preflight_url, "https://api.github.com/repos/owner/repo"}, 1000
+      assert_received {:preflight_url, "https://api.github.com/rate_limit"}
+      assert_received {:preflight_url, "https://api.github.com/repos/owner/repo"}
 
-      assert_received {:preflight_url, "https://api.github.com/repos/owner/repo/issues?state=open&per_page=1"}, 1000
+      assert_received {:preflight_url, "https://api.github.com/repos/owner/repo/issues?state=open&per_page=1"}
     end
 
     test "reports invalid GITHUB_TOKEN without leaking token material" do
@@ -719,12 +719,12 @@ defmodule Aiur.GitHub.ClientTest do
       assert {:ok, %{"number" => 49}} =
                Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
 
-      assert_receive :unconditional
+      assert_receive :unconditional, 1000
 
       assert {:ok, %{"number" => 49}} =
                Client.fetch_open_pull_request_for_branch(35, request_fun: request_fun)
 
-      assert_receive :conditional
+      assert_receive :conditional, 1000
     end
 
     # #2298 structural half (rework B5): the call site stamps the declared

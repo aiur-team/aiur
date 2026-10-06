@@ -246,7 +246,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
                  end
                )
 
-      assert_received {^identity, :completed}, 1000
+      assert_received {^identity, :completed}
     end
 
     test "tracker pause does not take ownership from an existing local pause" do
@@ -474,7 +474,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
           end
         )
 
-      assert_received {^identity, :completed}, 1000
+      assert_received {^identity, :completed}
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
     end
@@ -501,7 +501,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         end
       )
 
-      assert_received {^identity, :cancelled}, 1000
+      assert_received {^identity, :cancelled}
 
       replacement = %Issue{
         id: "issue-replaced",
@@ -522,7 +522,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         end
       )
 
-      assert_received {^identity, :replaced}, 1000
+      assert_received {^identity, :replaced}
     end
 
     test "stops an active worker when refreshed dispatch authorization is denied" do
@@ -559,7 +559,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
           end
         )
 
-      assert_received {^identity, :replaced}, 1000
+      assert_received {^identity, :replaced}
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
     end
@@ -649,7 +649,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
           end
         )
 
-      assert_received {^identity, :replaced}, 1000
+      assert_received {^identity, :replaced}
       refute Map.has_key?(result.running, issue.id)
       refute MapSet.member?(result.claimed, issue.id)
     end
@@ -777,7 +777,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       first = Reconciler.refresh_running_issue_states(state, [], issue_fetcher)
       second = Reconciler.refresh_running_issue_states(first, [], issue_fetcher)
 
-      assert_received {:running_issue_fetch, ["issue-1"], %{}}, 1000
+      assert_received {:running_issue_fetch, ["issue-1"], %{}}
 
       assert_received {:running_issue_fetch, ["issue-1"],
                        %{
@@ -826,8 +826,8 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
 
       next = Reconciler.refresh_running_issue_states(state, [polled], issue_fetcher)
 
-      assert_received {:running_issue_fetch, ["issue-2"], %{}}, 1000
-      refute_received {:running_issue_fetch, ["issue-1" | _], _}, 0
+      assert_received {:running_issue_fetch, ["issue-2"], %{}}
+      refute_received {:running_issue_fetch, ["issue-1" | _], _}
       assert Map.keys(next.running_issue_cache) == ["issue-2"]
     end
 

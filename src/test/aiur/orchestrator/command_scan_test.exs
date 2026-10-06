@@ -368,7 +368,7 @@ defmodule Aiur.Orchestrator.CommandScanTest do
 
       CommandScan.scan_pr_commands(etag_state(), steady)
 
-      refute_receive {:event, %{topic: "ticket.77.pr.review_comment"}}, 0
+      refute_receive {:event, %{topic: "ticket.77.pr.review_comment"}}, 100
     end
 
     # The store refuses an oversized stream outright — no body and no validator.

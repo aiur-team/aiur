@@ -128,7 +128,8 @@ defmodule Aiur.Claude.DisplayTailerTest do
                     %{
                       source_session_id: "session-one",
                       transcript_event: %{role: :assistant, body: "session one"}
-                    }}
+                    }},
+                   1000
 
     assert DisplayTailer.current_session(pid) == "session-one"
 
@@ -140,7 +141,8 @@ defmodule Aiur.Claude.DisplayTailerTest do
                     %{
                       source_session_id: "session-two",
                       transcript_event: %{role: :assistant, body: "session two"}
-                    }}
+                    }},
+                   1000
 
     assert DisplayTailer.current_session(pid) == "session-two"
   end
@@ -224,7 +226,8 @@ defmodule Aiur.Claude.DisplayTailerTest do
                     %{
                       projection_ingress: :display_backfill,
                       transcript_event: %{body: "old history"}
-                    }}
+                    }},
+                   1000
 
     File.write!(
       path,
@@ -239,7 +242,8 @@ defmodule Aiur.Claude.DisplayTailerTest do
                     %{
                       projection_ingress: :live,
                       transcript_event: %{body: "new live record"}
-                    }}
+                    }},
+                   1000
   end
 
   test "buffers confirmed cold-start operator deliveries by request id and flushes once" do

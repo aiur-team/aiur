@@ -233,7 +233,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                  end
                )
 
-      refute_received {:dispatch_authorization, _candidate}, 0
+      refute_received {:dispatch_authorization, _candidate}
       assert %{error: "no available orchestrator slots", retry_token: retry_token} = next_state.retry_attempts[issue.id]
       Process.cancel_timer(next_state.retry_attempts[issue.id].timer_ref)
       assert is_reference(retry_token)
@@ -1266,7 +1266,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       Process.exit(runner, :kill)
       assert_receive {:DOWN, ^exit_ref, :process, ^runner, :killed}, 2_000
-      refute_receive :unexpected_retry
+      refute_receive :unexpected_retry, 100
     end
 
     test "rejects a stale guardian release and preserves a DOWN-first retry envelope" do

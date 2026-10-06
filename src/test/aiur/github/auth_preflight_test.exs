@@ -98,9 +98,9 @@ defmodule Aiur.GitHub.AuthPreflightTest do
                gh_auth_status_fun: fn -> {:ok, :not_installed} end
              )
 
-    assert_received {:url, "https://api.github.com/rate_limit"}, 1000
-    assert_received {:url, "https://api.github.com/repos/owner/repo"}, 1000
-    assert_received {:url, "https://api.github.com/repos/owner/repo/issues?state=open&per_page=1"}, 1000
+    assert_received {:url, "https://api.github.com/rate_limit"}
+    assert_received {:url, "https://api.github.com/repos/owner/repo"}
+    assert_received {:url, "https://api.github.com/repos/owner/repo/issues?state=open&per_page=1"}
   end
 
   test "halts on the first failed endpoint and enriches diagnostics without token material" do
@@ -279,7 +279,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
       # jitter — nothing more.
       assert_receive {:sleep, wait_ms}, 1000
       assert wait_ms >= 1_500 and wait_ms <= 2_500
-      refute_receive {:sleep, _}, 0
+      refute_receive {:sleep, _}, 100
     end
 
     # #2444 acceptance 2 (the mutation guard): a hold whose `reset_at` is
@@ -306,7 +306,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
 
       assert diagnostic.classification == :local_hold
       assert count(counter) == 1
-      refute_receive :slept
+      refute_receive :slept, 100
     end
 
     # #2444 acceptance 3: a pathologically re-armed hold (each wait produces a
@@ -413,7 +413,7 @@ defmodule Aiur.GitHub.AuthPreflightTest do
       assert_receive {:sleep, wait_ms}, 1000
       assert wait_ms >= LocalHold.backoff_base_ms()
       assert wait_ms <= LocalHold.backoff_base_ms() + LocalHold.jitter_ms()
-      refute_receive {:sleep, _}, 0
+      refute_receive {:sleep, _}, 100
     end
 
     # #2457 acceptance 3 at the preflight boundary: a persistently unreachable

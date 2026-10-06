@@ -101,7 +101,7 @@ defmodule Aiur.DecisionWithdrawalTest do
       assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
       assert durable.decision_status == :moot
       assert Enum.all?(durable.dispatch_attempts, &is_nil(&1.delivered_at))
-      refute_received {:dispatched, _action_id, _item}, 0
+      refute_received {:dispatched, _action_id, _item}
     end
   end
 
@@ -158,7 +158,7 @@ defmodule Aiur.DecisionWithdrawalTest do
 
       assert_receive {:dispatched, dispatched_action_id, item}, 5_000
       assert dispatched_action_id == newest.action_id
-      refute_received {:dispatched, _other_action_id, _other_item}, 0
+      refute_received {:dispatched, _other_action_id, _other_item}
 
       _queued = wait_for(restarted, decision.decision_id, &(&1.delivery_status == :queued))
       assert {:ok, :accepted} = DecisionStore.validate_delivery(item, restarted)
@@ -279,7 +279,7 @@ defmodule Aiur.DecisionWithdrawalTest do
       assert resent_action_id == original.action_id
       assert resent_item.correlation.attempt_id != item.correlation.attempt_id
       _queued = wait_for(pid, decision.decision_id, &(&1.delivery_status == :queued))
-      refute_received {:dispatched, _action_id, _item}, 0
+      refute_received {:dispatched, _action_id, _item}
 
       # The new send passes the gate and gets its own handoff, so it is in
       # flight and cannot be withdrawn.

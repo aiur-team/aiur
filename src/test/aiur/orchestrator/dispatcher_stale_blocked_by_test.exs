@@ -130,7 +130,7 @@ defmodule Aiur.Orchestrator.DispatcherStaleBlockedByTest do
       )
 
     # The gate asked GitHub, unconditionally, instead of serving the held body.
-    assert_received {:blocked_by_read, []}, 1000
+    assert_received {:blocked_by_read, []}
 
     assert_receive {:agent_runner_run, dispatched, _recipient, _opts}, 1000
     assert dispatched.id == candidate.id

@@ -49,7 +49,7 @@ defmodule Aiur.DecisionAttentionTest do
     assert SubscriptionStore.snapshot(identifier).open_attentions == []
 
     send(pid, {:reask, {identifier, "scope-question"}})
-    refute_receive {:decision_alert, _}, 0
+    refute_receive {:decision_alert, _}, 100
   end
 
   test "writes a needs-attention alert with the operator question" do
@@ -158,7 +158,7 @@ defmodule Aiur.DecisionAttentionTest do
              "Should this facade target change?"
            ) == {:error, :store_down}
 
-    refute_receive {:decision_alert, _}, 0
+    refute_receive {:decision_alert, _}, 100
     assert SubscriptionStore.snapshot(identifier) == :not_found
   end
 
@@ -183,7 +183,7 @@ defmodule Aiur.DecisionAttentionTest do
                "What should happen next?"
              )
 
-    refute_receive :unexpected_projection
+    refute_receive :unexpected_projection, 100
     assert_receive {:decision_alert, %{slug: "decision-revision-parent"}}, 1000
     assert SubscriptionStore.snapshot(identifier).open_attentions == ["decision-revision-parent"]
   end
@@ -221,7 +221,7 @@ defmodule Aiur.DecisionAttentionTest do
     assert opts[:ticket].identifier == identifier
     assert opts[:legacy_attention].slug == "scope-question"
     assert opts[:legacy_import]
-    refute_receive {:decision_alert, _}, 0
+    refute_receive {:decision_alert, _}, 100
 
     assert eventually(fn ->
              match?(%{open_attentions: ["scope-question"]}, SubscriptionStore.snapshot(identifier))
@@ -266,7 +266,7 @@ defmodule Aiur.DecisionAttentionTest do
     assert SubscriptionStore.snapshot(identifier).open_attentions == []
 
     send(pid, {:reask, {identifier, "scope-question"}})
-    refute_receive {:decision_alert, _}, 0
+    refute_receive {:decision_alert, _}, 100
   end
 
   test "a repeated live alert does not reopen a dismissed canonical Decision" do
@@ -297,7 +297,7 @@ defmodule Aiur.DecisionAttentionTest do
                []
              )
 
-    refute_receive {:decision_alert, _}, 0
+    refute_receive {:decision_alert, _}, 100
     assert SubscriptionStore.snapshot(identifier).open_attentions == []
   end
 
@@ -334,7 +334,7 @@ defmodule Aiur.DecisionAttentionTest do
     second_identifier = "#{prefix}-2"
     assert_receive {:bounded_import, ^first_identifier, "Question 1?"}, 2_000
     assert_receive {:bounded_import, ^second_identifier, "Question 2?"}, 2_000
-    refute_receive {:bounded_import, _, _}, 0
+    refute_receive {:bounded_import, _, _}, 100
     assert eventually(fn -> :sys.get_state(pid).importing? == false end)
     assert map_size(:sys.get_state(pid).attentions) == 2
   end
@@ -481,7 +481,7 @@ defmodule Aiur.DecisionAttentionTest do
     assert_receive {:DOWN, ^ref, :process, ^loader_pid, :normal}, 1000
     assert eventually(fn -> :sys.get_state(pid).importing? == false end)
 
-    refute_receive {:projected, "Stale imported question?"}, 0
+    refute_receive {:projected, "Stale imported question?"}, 100
 
     send(pid, {:reask, {identifier, "scope-question"}})
     assert_receive {:decision_alert, %{question: "Live question?", worker_host: "live-worker"}}, 1000
@@ -527,7 +527,7 @@ defmodule Aiur.DecisionAttentionTest do
     assert_receive {:DOWN, ^ref, :process, ^loader_pid, :normal}, 1000
     assert eventually(fn -> :sys.get_state(pid).importing? == false end)
 
-    refute_receive {:unexpected_projection, _payload}, 0
+    refute_receive {:unexpected_projection, _payload}, 100
     assert SubscriptionStore.snapshot(identifier).open_attentions == []
   end
 

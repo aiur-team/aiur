@@ -78,7 +78,7 @@ defmodule Aiur.BuildOrder.ReconciliationInterleavingTest do
         end
       end)
 
-    assert_receive :subscribed
+    assert_receive :subscribed, 1000
 
     assert :ok =
              ResourceStore.replace_membership(@owner, @repo, fence, [
@@ -112,7 +112,7 @@ defmodule Aiur.BuildOrder.ReconciliationInterleavingTest do
         )
       end)
 
-    assert_receive :locked
+    assert_receive :locked, 1000
 
     writer =
       Task.async(fn ->
@@ -129,16 +129,16 @@ defmodule Aiur.BuildOrder.ReconciliationInterleavingTest do
         result
       end)
 
-    assert_receive :writing
-    assert_receive :reading
+    assert_receive :writing, 1000
+    assert_receive :reading, 1000
     refute_receive :written, 30
     refute_receive :read, 30
     send(owner, :continue)
     Task.await(held)
     Task.await(writer)
     assert Task.await(reader) in [[10], [10, 592]]
-    assert_receive :read
-    assert_receive :written
+    assert_receive :read, 1000
+    assert_receive :written, 1000
     assert members() == [10, 592]
   end
 

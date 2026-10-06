@@ -145,8 +145,8 @@ defmodule Aiur.Init.PromptTest do
                stty: stty
              ) == "a"
 
-      assert_received {:stty, ["-icanon" | _]}, 1000
-      assert_received {:stty, ["sane"]}, 1000
+      assert_received {:stty, ["-icanon" | _]}
+      assert_received {:stty, ["sane"]}
     end
   end
 

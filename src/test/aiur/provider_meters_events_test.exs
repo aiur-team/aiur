@@ -59,7 +59,7 @@ defmodule Aiur.ProviderMeters.EventsTest do
     :ok = Events.broadcast(snapshot)
 
     assert_receive {:provider_meter_changed, ^snapshot}, 1000
-    refute_received {:provider_meter_changed, ^snapshot}, 0
+    refute_received {:provider_meter_changed, ^snapshot}
   end
 
   test "a generation-scoped subscriber only sees its own generation" do

@@ -337,7 +337,7 @@ defmodule Aiur.AppServer.AdapterTest do
 
     assert_receive {:accepted, "turn-child-1"}, 1000
     assert_receive {:accepted, "turn-child-2"}, 1000
-    refute_receive {:failed, _reason}, 0
+    refute_receive {:failed, _reason}, 100
   end
 
   test "run_turn rejects late response and start registration for a retired ID" do
@@ -367,7 +367,7 @@ defmodule Aiur.AppServer.AdapterTest do
              Adapter.run_turn(CodexLifecycleBackend, session(port), "prompt", issue(), [])
 
     assert_receive {:failed, {:provider_turn_retired, "turn-late"}}, 1000
-    refute_receive {:accepted, "turn-late"}, 0
+    refute_receive {:accepted, "turn-late"}, 100
   end
 
   test "run_turn consumes duplicate anonymous completions only once" do
@@ -493,7 +493,7 @@ defmodule Aiur.AppServer.AdapterTest do
              end)
 
     try do
-      assert_received {:port_registered_at_spawn, ^port}, 1000
+      assert_received {:port_registered_at_spawn, ^port}
     after
       Port.close(port)
     end

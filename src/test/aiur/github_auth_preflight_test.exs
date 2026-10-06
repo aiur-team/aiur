@@ -135,7 +135,7 @@ defmodule Aiur.GitHubAuthPreflightTest do
     # which unrelated traffic on this system topic, from the application running
     # alongside the suite, could land and fail the test: a wall-clock race that
     # got likelier the busier the partition was (#2548).
-    refute_received {:event, %{topic: "system.tracker.auth_preflight_failed"}}, 0
+    refute_received {:event, %{topic: "system.tracker.auth_preflight_failed"}}
 
     # The same orchestrator must clear both the attention and its dashboard
     # hold as soon as the preflight succeeds.

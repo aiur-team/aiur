@@ -391,7 +391,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert_receive {:captured_operation, operation}, 2_000
       assert {:error, {:blocker_subscription_failed, :disk_busy}} = operation.()
       assert_receive {:unsubscribed, "1031", 999}, 2_000
-      refute_receive :unexpected_declare
+      refute_receive :unexpected_declare, 100
     end
 
     test "subscription failure retries without removing coverage for an existing dependency" do
@@ -417,8 +417,8 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert_receive {:captured_operation, operation}, 2_000
       assert :ok = operation.()
       assert Agent.get(calls, & &1) == 2
-      refute_receive :unexpected_unsubscribe
-      refute_receive :unexpected_declare
+      refute_receive :unexpected_unsubscribe, 100
+      refute_receive :unexpected_declare, 100
     end
 
     test "failed declaration removes stale subscription when GitHub confirms absence" do
@@ -464,7 +464,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert :ok = operation.()
       assert_receive {:subscribed, "1031", 999}, 2_000
       assert_receive {:subscribed, "1031", 999}, 2_000
-      refute_receive :unexpected_unsubscribe
+      refute_receive :unexpected_unsubscribe, 100
     end
 
     test "failed declaration reports an inconclusive authoritative-state read" do
@@ -1291,7 +1291,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
         )
 
       assert executor.("emit_event", %{"name" => "blocked", "message" => "Waiting for a dependency"})["success"] == true
-      refute_receive :unexpected_attention_projection
+      refute_receive :unexpected_attention_projection, 100
     end
 
     test "a resolution timeout cannot suppress the published resolved event or exit the caller" do
@@ -1864,7 +1864,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
 
       generic = executor.("emit_event", %{"name" => "decision.use-something", "message" => "ordinary"})
       assert generic["success"] == true
-      refute_receive {:resolved_through_store, _}, 0
+      refute_receive {:resolved_through_store, _}, 100
     end
 
     test "lifecycle rejection is returned as a normal tool failure" do

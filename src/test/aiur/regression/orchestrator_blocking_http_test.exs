@@ -1080,7 +1080,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     request = %{method: :get, url: "https://api.github.com/rate_limit", token: "locked-release-prewarm-token"}
 
     log = capture_log(fn -> send(self(), {:budget_admission_ready, Budget.acquire(request, timeout_ms: @locked_release_deadline_ms)}) end)
-    assert_receive {:budget_admission_ready, result}
+    assert_receive {:budget_admission_ready, result}, 1000
 
     assert match?({:ok, _lease}, result), "budget broker did not admit the fixture request: #{inspect(result)}; #{log}"
     {:ok, lease} = result

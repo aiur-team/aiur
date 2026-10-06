@@ -611,7 +611,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
       html = render_hook(view, "command-press", %{"command" => "pause"})
 
       assert html =~ "Read-only dashboard: controls are disabled"
-      refute_receive {:streamdeck_pause, "1352"}, 0
+      refute_receive {:streamdeck_pause, "1352"}, 100
     after
       Endpoint.config_change(%{Endpoint => endpoint_config}, [])
     end
@@ -685,7 +685,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     # is not a control command and reaches the catch-all clause.
     html = render_hook(view, "command-press", %{"command" => "mic"})
     assert command_key(html, "mic") =~ ~s(data-command-state="idle")
-    refute_receive {:streamdeck_pause, "1352"}, 0
+    refute_receive {:streamdeck_pause, "1352"}, 100
   end
 
   test "holding the mic key marks it live and releasing clears it" do
@@ -903,7 +903,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
       assert %{sd_mode: :cmd, sd_active: %{identifier: "1345"}} = streamdeck_assigns(view)
       refute html =~ "Resume requested"
-      refute_receive {:streamdeck_resume, "1345"}, 0
+      refute_receive {:streamdeck_resume, "1345"}, 100
     after
       Phoenix.Config.put(Endpoint, :dashboard_writable, previous_writable)
     end
@@ -1235,8 +1235,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
         assert html =~ ~s(data-focused-identifier="1345")
         assert html =~ "new-agent-event"
         refute html =~ "old-agent-event"
-        refute_receive {:streamdeck_pause, _identifier}, 0
-        refute_receive {:streamdeck_resume, _identifier}, 0
+        refute_receive {:streamdeck_pause, _identifier}, 100
+        refute_receive {:streamdeck_resume, _identifier}, 100
 
         AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "stale topic"))
         Process.sleep(20)

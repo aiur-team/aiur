@@ -32,7 +32,7 @@ defmodule Aiur.Init.FormatTest do
     }
 
     assert :ok = Format.print_hint(io, "Optional")
-    assert_received {:puts, rendered}, 1000
+    assert_received {:puts, rendered}
     assert rendered == Format.dim("  Optional") |> IO.chardata_to_string()
   end
 end

@@ -146,7 +146,7 @@ defmodule Aiur.OpenAICompat.CommandRunnerBudgetTest do
     assert %{"success" => false, "output" => "shared GitHub budget state unavailable"} =
              CommandRunner.run(workspace, "echo unsafe", sandbox_executable: "/usr/bin/bwrap", system_cmd: runner)
 
-    refute_receive :sandbox_started
+    refute_receive :sandbox_started, 100
   end
 
   defp restore_env(key, nil) when is_atom(key), do: Application.delete_env(:aiur, key)

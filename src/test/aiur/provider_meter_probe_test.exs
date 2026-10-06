@@ -169,8 +169,8 @@ defmodule Aiur.ProviderMeterProbeTest do
   test "a probe opens a session and closes it again", ctx do
     ProviderMeterProbe.observe(:codex, opts(ctx))
 
-    assert_received {:session_started, "usage-probe"}, 1000
-    assert_received {:session_stopped, %{fake: true}}, 1000
+    assert_received {:session_started, "usage-probe"}
+    assert_received {:session_stopped, %{fake: true}}
   end
 
   # The session must close even when nothing was observed, or a failed probe
@@ -178,7 +178,7 @@ defmodule Aiur.ProviderMeterProbeTest do
   test "the session closes even when the provider pushes nothing", ctx do
     assert [%{observed?: false, reason: nil}] = ProviderMeterProbe.observe(:codex, opts(ctx))
 
-    assert_received {:session_stopped, %{fake: true}}, 1000
+    assert_received {:session_stopped, %{fake: true}}
   end
 
   test "an observation arriving during the window is reported as observed", ctx do
@@ -197,7 +197,7 @@ defmodule Aiur.ProviderMeterProbeTest do
 
     assert [%{observed?: false, reason: :app_server_unavailable}] = ProviderMeterProbe.observe(:codex, opts(ctx))
 
-    refute_received {:session_stopped, _session}, 0
+    refute_received {:session_stopped, _session}
   end
 
   test "a failed probe records its result on the consumer projection", ctx do
@@ -648,7 +648,7 @@ defmodule Aiur.ProviderMeterProbeTest do
                openai_compat_request_fun: fn _ -> {:ok, %{status: 200, body: %{"data" => %{}}}} end
              )
 
-    refute_received {^broadcast_ref, _snapshot}, 0
+    refute_received {^broadcast_ref, _snapshot}
   end
 
   # A close that blows up must not turn the probe into a crash — the session is
@@ -675,8 +675,8 @@ defmodule Aiur.ProviderMeterProbeTest do
     outcome = ctx |> opts() |> Keyword.delete(:workspace) |> then(&ProviderMeterProbe.observe(:codex, &1))
 
     assert [%{provider: :codex}] = outcome
-    assert_received {:session_started, "usage-probe"}, 1000
-    assert_received {:session_workspace, workspace}, 1000
+    assert_received {:session_started, "usage-probe"}
+    assert_received {:session_workspace, workspace}
 
     expected = Aiur.Workspace.workspace_path_under(Aiur.Config.workspace_root(), "usage-probe")
     assert workspace == expected

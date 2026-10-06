@@ -16,7 +16,7 @@ defmodule Aiur.Webhooks.ConsumerEquivalenceTest do
   mode_test "the consumer receives the normalized event unchanged", ctx do
     {:ok, event} = deliver(ctx, "ticket.1683.pr.opened", %{number: 1683, actor: "octocat"})
 
-    assert_received {:published, published}, 1000
+    assert_received {:published, published}
     assert published == event
     assert published.topic == "ticket.1683.pr.opened"
     assert published.payload == %{number: 1683, actor: "octocat"}
@@ -26,7 +26,7 @@ defmodule Aiur.Webhooks.ConsumerEquivalenceTest do
     for n <- 1..3, do: deliver(ctx, "ticket.#{n}.branch.push", %{sha: "sha-#{n}"})
 
     for n <- 1..3 do
-      assert_received {:published, %{topic: topic, payload: payload}}, 1000
+      assert_received {:published, %{topic: topic, payload: payload}}
       assert topic == "ticket.#{n}.branch.push"
       assert payload == %{sha: "sha-#{n}"}
     end
@@ -44,7 +44,7 @@ defmodule Aiur.Webhooks.ConsumerEquivalenceTest do
   mode_test "an empty payload is still delivered as an empty payload", ctx do
     {:ok, _event} = deliver(ctx, "ticket.1683.agent.progress", %{})
 
-    assert_received {:published, published}, 1000
+    assert_received {:published, published}
     assert published.topic == "ticket.1683.agent.progress"
     assert published.payload == %{}, "an empty payload must arrive empty, not enriched by the transport"
   end

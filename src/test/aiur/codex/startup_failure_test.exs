@@ -70,10 +70,10 @@ defmodule Aiur.Codex.StartupFailureTest do
     end
 
     StartupFailure.record_with_writer("private-startup", "attempt-1", 23, "startup refused", writer)
-    assert_received {:mode_at_write, 0o600}, 1000
+    assert_received {:mode_at_write, 0o600}
 
     File.chmod!(path, 0o644)
     StartupFailure.record_with_writer("private-startup", "attempt-2", 23, "startup refused", writer)
-    assert_received {:mode_at_write, 0o600}, 1000
+    assert_received {:mode_at_write, 0o600}
   end
 end

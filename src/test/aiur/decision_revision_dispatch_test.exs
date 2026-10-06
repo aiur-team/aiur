@@ -122,7 +122,7 @@ defmodule Aiur.DecisionRevisionDispatchTest do
                terminal_states: @terminal_states
              ) == {:no_longer_applicable, :missing}
 
-      refute_receive :sent
+      refute_receive :sent, 100
     end
   end
 

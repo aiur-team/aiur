@@ -93,7 +93,7 @@ defmodule Aiur.Orchestrator.StatusReportTest do
       end)
 
     assert_receive {:repo_base_status_called, 100}, 1000
-    refute_receive {:repo_base_status_called, _}, 0
+    refute_receive {:repo_base_status_called, _}, 100
     assert Enum.all?(statuses, &(&1.reason == :prewarm_blocked))
   end
 

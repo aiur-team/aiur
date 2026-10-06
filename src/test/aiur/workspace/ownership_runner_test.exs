@@ -85,7 +85,7 @@ defmodule Aiur.Workspace.OwnershipRunnerTest do
       refute Enum.any?(AlertLedger.read(alert_path), &(&1["topic"] == "ticket.#{ticket}.workspace.live_session"))
     end
 
-    refute_receive {:workspace_setup_contended, _, _, _, _}, 0
+    refute_receive {:workspace_setup_contended, _, _, _, _}, 100
   end
 
   test "a local retry does not release a remote provider's reaping lease" do

@@ -389,7 +389,7 @@ defmodule Aiur.ExtensionsTest do
     assert {:error, {:stale_issue_state, "in-progress", "todo"}} =
              Aiur.Tracker.update_issue_state("issue-1", "Done", expected_state: "In Progress")
 
-    refute_receive {:memory_tracker_state_update, "issue-1", "Done"}, 0
+    refute_receive {:memory_tracker_state_update, "issue-1", "Done"}, 100
 
     Application.delete_env(:aiur, :memory_tracker_recipient)
     assert :ok = Memory.create_comment("issue-1", "quiet")
@@ -403,7 +403,7 @@ defmodule Aiur.ExtensionsTest do
     Application.put_env(:aiur, :linear_client_module, FakeLinearClient)
 
     assert {:ok, [:candidate]} = LinearTracker.fetch_candidate_issues()
-    assert_receive :fetch_candidate_issues_called
+    assert_receive :fetch_candidate_issues_called, 1000
 
     assert {:ok, ["Todo"]} = LinearTracker.fetch_issues_by_states(["Todo"])
     assert_receive {:fetch_issues_by_states_called, ["Todo"]}, 1000
@@ -555,7 +555,7 @@ defmodule Aiur.ExtensionsTest do
              LinearTracker.update_issue_state("issue-1", "Done", expected_state: "In Progress")
 
     assert_receive {:graphql_called, _stale_lookup_query, %{issueId: "issue-1", stateName: "Done"}}, 1000
-    refute_receive {:graphql_called, _query, %{stateId: "state-done"}}, 0
+    refute_receive {:graphql_called, _query, %{stateId: "state-done"}}, 100
   end
 
   test "phoenix observability api preserves state, issue, and refresh responses" do

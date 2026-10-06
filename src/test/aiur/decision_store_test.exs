@@ -1233,10 +1233,10 @@ defmodule Aiur.DecisionStoreTest do
       pid = start_store!(dir, filesystem_sync_fun: sync_fun)
 
       assert_receive :filesystem_synced, 2_000
-      refute_receive :filesystem_synced
+      refute_receive :filesystem_synced, 100
 
       assert {:ok, _} = request(pid, %{"question" => "Deploy now?", "blocking" => true})
-      refute_receive :filesystem_synced
+      refute_receive :filesystem_synced, 100
     end
 
     test "redacts ticket and artifact credentials before either durable file is written", %{dir: dir} do
@@ -2629,7 +2629,7 @@ defmodule Aiur.DecisionStoreTest do
       end)
 
       receive_barrier({:trace, ^pid, :receive, {:"$gen_call", _from, {:answer, ^decision_id, _payload, _opts}}})
-      refute_received {:answer_result, _result}, 0
+      refute_received {:answer_result, _result}
     after
       :erlang.trace(pid, false, [:receive])
     end
@@ -3118,8 +3118,8 @@ defmodule Aiur.DecisionStoreTest do
       # The dispatcher sends before it returns, and the store only reaches
       # `:queued` after it returns, so this message is already in the mailbox:
       # a zero-timeout check, not a race.
-      assert_received {:reconciled, ^reconciled_action_id, _attempt_id}, 1000
-      refute_received {:reconciled, _, _}, 0
+      assert_received {:reconciled, ^reconciled_action_id, _attempt_id}
+      refute_received {:reconciled, _, _}
     end
 
     test "transient dispatch failure is retried after request enrichment", %{dir: dir} do

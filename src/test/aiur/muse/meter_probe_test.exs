@@ -12,7 +12,7 @@ defmodule Aiur.Muse.MeterProbeTest do
     end
 
     assert {:error, :unavailable} = MeterProbe.read(request, scope)
-    assert_received {:requested, "usage/read"}, 1000
+    assert_received {:requested, "usage/read"}
   end
 
   test "native current and weekly windows retain independent reset, age basis and overage" do

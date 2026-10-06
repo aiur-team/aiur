@@ -925,7 +925,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
       implement = push(socket, "control", %{"identifier" => "AIUR-1", "action" => "implement"})
 
       assert_reply(implement, :ok, %{"identifier" => "AIUR-1", "action" => "implement", "result" => "queued"})
-      assert_received {:queued, "AIUR-1"}, 1000
+      assert_received {:queued, "AIUR-1"}
     end
 
     test "reports a ticket that cannot be queued as an error rather than a silent success" do
@@ -959,7 +959,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
         assert_reply(push(socket, "control", payload), :error, %{reason: "invalid_control"})
       end
 
-      refute_received {:queued, _identifier}, 0
+      refute_received {:queued, _identifier}
     end
 
     test "rejects an unauthenticated socket the way say does" do
@@ -980,7 +980,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
       assert_reply(say, :ok, %{"request_id" => 42})
       # Trimmed, and delivered through the one existing chat path.
-      assert_received {:sent, "AIUR-1", "ship the fix"}, 1000
+      assert_received {:sent, "AIUR-1", "ship the fix"}
     end
 
     # #2717. The sidecar sends one id per say press; the channel passes it on
@@ -999,11 +999,11 @@ defmodule AiurWeb.StreamdeckChannelTest do
       say = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "continue", "message_id" => "press-1"})
 
       assert_reply(say, :error, %{reason: "outcome_unknown"})
-      assert_received {:sent, "AIUR-1", "continue", "press-1"}, 1000
+      assert_received {:sent, "AIUR-1", "continue", "press-1"}
 
       plain = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "continue"})
       assert_reply(plain, :error, %{reason: "outcome_unknown"})
-      assert_received {:sent, "AIUR-1", "continue", nil}, 1000
+      assert_received {:sent, "AIUR-1", "continue", nil}
     end
 
     test "surfaces a delivery error as a reason string" do
@@ -1023,7 +1023,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
       say = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "   \n\t "})
 
       assert_reply(say, :error, %{reason: "empty_message"})
-      refute_received {:sent, _identifier, _text}, 0
+      refute_received {:sent, _identifier, _text}
     end
 
     test "rejects a message over the operator-message ceiling without calling delivery" do
@@ -1034,7 +1034,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
       say = push(socket, "say", %{"identifier" => "AIUR-1", "text" => String.duplicate("a", 8_001)})
 
       assert_reply(say, :error, %{reason: "message_too_long"})
-      refute_received {:sent, _identifier, _text}, 0
+      refute_received {:sent, _identifier, _text}
 
       at_ceiling = push(socket, "say", %{"identifier" => "AIUR-1", "text" => String.duplicate("a", 8_000)})
       assert_reply(at_ceiling, :ok, %{"request_id" => 1})

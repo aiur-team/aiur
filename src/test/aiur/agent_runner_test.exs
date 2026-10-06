@@ -121,8 +121,8 @@ defmodule Aiur.AgentRunnerTest do
 
       assert session.backend == "claude"
       # The REPL attempt carries the RC opt-in; the headless retry drops it.
-      assert_received {:attempt, "claude-repl", true}, 1000
-      assert_received {:attempt, "claude", nil}, 1000
+      assert_received {:attempt, "claude-repl", true}
+      assert_received {:attempt, "claude", nil}
     end
 
     test "a non-repl backend failure does NOT fall back" do
@@ -147,8 +147,8 @@ defmodule Aiur.AgentRunnerTest do
                  start_fun
                )
 
-      assert_received {:attempt, "claude-repl"}, 1000
-      refute_received {:attempt, "claude"}, 0
+      assert_received {:attempt, "claude-repl"}
+      refute_received {:attempt, "claude"}
     end
 
     test "a repl failure whose headless retry also fails surfaces the retry error" do
@@ -170,7 +170,7 @@ defmodule Aiur.AgentRunnerTest do
       trust_fun = fn ws -> send(parent, {:trusted, ws}) && :ok end
 
       assert :ok = AgentRunner.maybe_trust_remote_control_workspace("/ws/9", true, nil, trust_fun)
-      assert_received {:trusted, "/ws/9"}, 1000
+      assert_received {:trusted, "/ws/9"}
     end
 
     test "does not trust when RC is off" do

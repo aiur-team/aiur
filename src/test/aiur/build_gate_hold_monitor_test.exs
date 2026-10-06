@@ -25,7 +25,7 @@ defmodule Aiur.BuildGateHoldMonitorTest do
 
       next = BuildGateHoldMonitor.evaluate(s, status)
 
-      assert_received {:emit, "system.build_gate.hold_timeout.slot-1", opts}, 1000
+      assert_received {:emit, "system.build_gate.hold_timeout.slot-1", opts}
       assert opts[:needs_attention] == true
       assert opts[:severity] == "warning"
       assert opts[:message] =~ "mix test"
@@ -44,7 +44,7 @@ defmodule Aiur.BuildGateHoldMonitorTest do
 
       next = BuildGateHoldMonitor.evaluate(s, status)
 
-      assert_received {:emit, "system.build_gate.hold_timeout.slot-1", opts}, 1000
+      assert_received {:emit, "system.build_gate.hold_timeout.slot-1", opts}
       assert opts[:needs_attention] == true
       assert opts[:message] =~ "mix test --trace"
       assert MapSet.member?(next.alerted, 1)
@@ -56,7 +56,7 @@ defmodule Aiur.BuildGateHoldMonitorTest do
 
       next = BuildGateHoldMonitor.evaluate(s, status)
 
-      refute_received {:emit, _, _}, 0
+      refute_received {:emit, _, _}
       assert MapSet.member?(next.alerted, 1)
     end
 
@@ -66,7 +66,7 @@ defmodule Aiur.BuildGateHoldMonitorTest do
 
       next = BuildGateHoldMonitor.evaluate(s, status)
 
-      assert_received {:emit, "system.build_gate.hold_timeout.slot-1.resolved", opts}, 1000
+      assert_received {:emit, "system.build_gate.hold_timeout.slot-1.resolved", opts}
       assert opts[:needs_attention] == false
       assert opts[:severity] == "info"
       refute MapSet.member?(next.alerted, 1)
@@ -78,7 +78,7 @@ defmodule Aiur.BuildGateHoldMonitorTest do
 
       _next = BuildGateHoldMonitor.evaluate(s, status)
 
-      refute_received {:emit, _, _}, 0
+      refute_received {:emit, _, _}
     end
 
     test "a disabled gate resolves every latched slot without alerting" do
@@ -86,7 +86,7 @@ defmodule Aiur.BuildGateHoldMonitorTest do
 
       _next = BuildGateHoldMonitor.evaluate(s, %{enabled?: false})
 
-      assert_received {:emit, "system.build_gate.hold_timeout.slot-1.resolved", _opts}, 1000
+      assert_received {:emit, "system.build_gate.hold_timeout.slot-1.resolved", _opts}
     end
 
     test "a threshold of zero disables alerting entirely" do
@@ -95,7 +95,7 @@ defmodule Aiur.BuildGateHoldMonitorTest do
 
       _next = BuildGateHoldMonitor.evaluate(s, status)
 
-      refute_received {:emit, _, _}, 0
+      refute_received {:emit, _, _}
     end
 
     test "marker records win over held records for the same slot" do
@@ -109,7 +109,7 @@ defmodule Aiur.BuildGateHoldMonitorTest do
 
       _next = BuildGateHoldMonitor.evaluate(s, status)
 
-      assert_received {:emit, "system.build_gate.hold_timeout.slot-1", opts}, 1000
+      assert_received {:emit, "system.build_gate.hold_timeout.slot-1", opts}
       assert opts[:message] =~ "marker command"
     end
   end

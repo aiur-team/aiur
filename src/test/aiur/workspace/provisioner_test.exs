@@ -32,7 +32,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     end
 
     assert :ok = Provisioner.maybe_install_agent_support("/remote/workspace", "worker-1", runner)
-    assert_received {:remote_install, "worker-1", script, timeout}, 1000
+    assert_received {:remote_install, "worker-1", script, timeout}
     assert is_integer(timeout) and timeout > 0
     assert script =~ ".claude/skills/design-import"
     assert script =~ "agents/openai.yaml"

@@ -889,7 +889,7 @@ defmodule Aiur.OrchestratorStatusTest do
                    WorkspaceCleanup.run_terminal_workspace_cleanup(%Orchestrator.State{})
         end)
 
-      refute_received {:startup_cleanup_fetch_issues_by_states, _opts}, 0
+      refute_received {:startup_cleanup_fetch_issues_by_states, _opts}
       assert log =~ "Skipping startup terminal workspace cleanup: :missing_linear_api_token"
       # A blanket `refute log =~ "[warning]"/"[error]"` would pollute on an
       # unrelated concurrent test's warning: `capture_log` captures the whole
@@ -926,7 +926,7 @@ defmodule Aiur.OrchestratorStatusTest do
                    WorkspaceCleanup.run_terminal_workspace_cleanup(%Orchestrator.State{})
         end)
 
-      refute_received {:startup_cleanup_fetch_issues_by_states, _opts}, 0
+      refute_received {:startup_cleanup_fetch_issues_by_states, _opts}
       assert log =~ "Skipping startup terminal workspace cleanup: {:unsupported_agent_kind, \"bogus\"}"
       assert log =~ "[warning]"
     after
@@ -956,7 +956,7 @@ defmodule Aiur.OrchestratorStatusTest do
                    WorkspaceCleanup.run_terminal_workspace_cleanup(%Orchestrator.State{})
         end)
 
-      assert_received {:startup_cleanup_fetch_issues_by_states, opts}, 1000
+      assert_received {:startup_cleanup_fetch_issues_by_states, opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
       assert log =~ "Skipping startup terminal workspace cleanup; failed to fetch terminal issues: {:linear_api_status, 401}"
       # No global `refute log =~ "[warning]"/"[error]"` here: `capture_log`
@@ -994,9 +994,9 @@ defmodule Aiur.OrchestratorStatusTest do
       assert %Orchestrator.State{} =
                WorkspaceCleanup.run_terminal_workspace_cleanup(%Orchestrator.State{})
 
-      assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}, 1000
+      assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
-      refute_received {:startup_cleanup_fetch_issues_by_states, _opts}, 0
+      refute_received {:startup_cleanup_fetch_issues_by_states, _opts}
     after
       restore_application_env(:github_client_module, previous_github_client)
       restore_application_env(:linear_client_module, previous_linear_client)
@@ -1043,7 +1043,7 @@ defmodule Aiur.OrchestratorStatusTest do
       assert %Orchestrator.State{} =
                WorkspaceCleanup.run_terminal_workspace_cleanup(%Orchestrator.State{})
 
-      assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}, 1000
+      assert_received {:github_startup_cleanup_fetch_issues_by_states, ["done"], opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
       refute File.exists?(terminal_workspace)
       assert :none == SessionHandle.load("610", "codex")
@@ -1121,7 +1121,7 @@ defmodule Aiur.OrchestratorStatusTest do
       assert %Orchestrator.State{} =
                WorkspaceCleanup.run_startup_todo_workspace_cleanup(%Orchestrator.State{})
 
-      assert_received {:github_startup_cleanup_fetch_issues_by_states, ["todo"], opts}, 1000
+      assert_received {:github_startup_cleanup_fetch_issues_by_states, ["todo"], opts}
       assert Keyword.fetch!(opts, :quiet_auth_errors?) == true
       refute File.exists?(todo_workspace)
       assert File.exists?(in_progress_workspace)
@@ -3123,7 +3123,7 @@ defmodule Aiur.OrchestratorStatusTest do
         end
       end)
 
-    assert_receive :queued_evidence_worker_ready
+    assert_receive :queued_evidence_worker_ready, 1000
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
@@ -3159,7 +3159,8 @@ defmodule Aiur.OrchestratorStatusTest do
                        payload: %{
                          operator_message: %{request_id: ^request_id, status: :queued}
                        }
-                     }}}
+                     }}},
+                   1000
 
     assert_receive {:queued_evidence_worker_message, :second, {:agent_queue_updated, "MT-QUEUED-EVIDENCE", ^request_id, _deliver_now?}}, 1000
   end
@@ -3233,7 +3234,8 @@ defmodule Aiur.OrchestratorStatusTest do
                           provider_turn_id: "provider-turn-1"
                         }
                       }
-                    }}
+                    }},
+                   1000
 
     assert {:ok, %{id: ^second_id}} =
              Orchestrator.claim_next_queue_item(orchestrator_name, "MT-FENCE")
@@ -4221,7 +4223,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert paused_entry.completion_totals_recorded
     assert paused_entry.pid == nil
     assert paused_entry.ref == nil
-    refute_received {:pause_agent, _request_id}, 0
+    refute_received {:pause_agent, _request_id}
 
     assert PauseResume.pause_issue_for_label_override(paused, paused_issue) == paused
 

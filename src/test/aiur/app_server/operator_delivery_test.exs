@@ -57,8 +57,8 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
       })
 
     assert OperatorDelivery.maybe_process_safe_checkpoint(session(), state, %{kind: :notification}) == state
-    refute_receive :checkpoint_invoked
-    refute_receive {:operator_message, _}, 0
+    refute_receive :checkpoint_invoked, 100
+    refute_receive {:operator_message, _}, 100
   end
 
   test "noop checkpoint leaves state unchanged" do
@@ -280,7 +280,7 @@ defmodule Aiur.AppServer.OperatorDeliveryTest do
     assert state.active_turn_ids == MapSet.new(["turn-1"])
     assert state.accepted_turn_ids == MapSet.new()
     assert_receive {:failed, {:provider_turn_retired, "turn-retired"}}, 1000
-    refute_receive :succeeded
+    refute_receive :succeeded, 100
   end
 
   defp session(overrides \\ %{}) do

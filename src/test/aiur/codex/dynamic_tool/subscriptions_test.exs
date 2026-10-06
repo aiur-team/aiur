@@ -18,7 +18,7 @@ defmodule Aiur.Codex.DynamicTool.SubscriptionsTest do
         )
 
       assert response["success"] == true
-      assert_received {:subscribed, "ticket.42.#"}, 1000
+      assert_received {:subscribed, "ticket.42.#"}
     end
 
     test "missing subscriber returns unavailable error" do
@@ -48,7 +48,7 @@ defmodule Aiur.Codex.DynamicTool.SubscriptionsTest do
         assert Jason.decode!(response["output"])["error"]["message"] =~ "literal ticket"
       end
 
-      refute_received {:subscribed, _pattern}, 0
+      refute_received {:subscribed, _pattern}
     end
 
     test "tool spec advertises only literal ticket-scoped watches" do
@@ -74,7 +74,7 @@ defmodule Aiur.Codex.DynamicTool.SubscriptionsTest do
         )
 
       assert response["success"] == true
-      assert_received {:unsubscribed, "ticket.42.#"}, 1000
+      assert_received {:unsubscribed, "ticket.42.#"}
     end
 
     test "missing unsubscriber returns unavailable error" do
@@ -103,7 +103,7 @@ defmodule Aiur.Codex.DynamicTool.SubscriptionsTest do
         )
 
       assert response["success"] == true
-      assert_received {:unsubscribed, "executor.#"}, 1000
+      assert_received {:unsubscribed, "executor.#"}
     end
   end
 

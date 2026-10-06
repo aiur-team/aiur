@@ -860,11 +860,11 @@ defmodule Aiur.GitHub.BudgetTest do
     assert alert_opts[:reason] =~ "GitHub used=0/10"
 
     assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
-    refute_receive {:budget_alert, _, _}, 0
+    refute_receive {:budget_alert, _, _}, 100
 
     observe_headroom(request, limit: 10, remaining: 8, reset: reset)
     assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
-    refute_receive {:budget_alert, _, _}, 0
+    refute_receive {:budget_alert, _, _}, 100
 
     observe_headroom(request, limit: 10, remaining: 10, reset: reset)
     assert {:hold, %{reason: :actor_budget}} = acquire_retrying_timeout(request, hold_opts)
@@ -913,13 +913,13 @@ defmodule Aiur.GitHub.BudgetTest do
     assert alert_opts[:reason] =~ "remaining=100/100"
 
     assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)
-    refute_receive {:budget_alert, _, _}, 0
+    refute_receive {:budget_alert, _, _}, 100
 
     # GitHub agreeing that the credential really is spent clears the signal, so
     # the next genuine divergence is still able to speak.
     observe_headroom(pulls, limit: 100, remaining: 0, reset: reset)
     assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)
-    refute_receive {:budget_alert, _, _}, 0
+    refute_receive {:budget_alert, _, _}, 100
 
     observe_headroom(pulls, limit: 100, remaining: 100, reset: reset)
     assert {:hold, %{reason: :shared_budget}} = acquire_retrying_timeout(pulls, opts)

@@ -400,7 +400,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       trust_fun = fn ws -> send(parent, {:trusted, ws}) && :ok end
 
       assert :ok = SessionLifecycle.maybe_trust_remote_control_workspace("/ws/9", true, nil, trust_fun)
-      assert_received {:trusted, "/ws/9"}, 1000
+      assert_received {:trusted, "/ws/9"}
 
       assert :ok = SessionLifecycle.maybe_trust_remote_control_workspace("/ws/9", false, nil, fn _ -> flunk("must not run") end)
       assert :ok = SessionLifecycle.maybe_trust_remote_control_workspace("/ws/9", true, "box-2", fn _ -> flunk("must not run") end)
@@ -455,8 +455,8 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
                  start_fun
                )
 
-      assert_received {:attempt, "claude-repl", true}, 1000
-      assert_received {:attempt, "claude", nil}, 1000
+      assert_received {:attempt, "claude-repl", true}
+      assert_received {:attempt, "claude", nil}
 
       issue = %Issue{id: "issue-fallback-execution", identifier: "FALLBACK-EXECUTION"}
       assert :ok = SessionLifecycle.report_session_execution(self(), issue, fallback_session)
@@ -578,8 +578,8 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
                )
 
       refute Map.has_key?(session, :telemetry_launch)
-      assert_received {:fallback_attempt, "claude-repl", ^launch}, 1000
-      assert_received {:fallback_attempt, "claude", nil}, 1000
+      assert_received {:fallback_attempt, "claude-repl", ^launch}
+      assert_received {:fallback_attempt, "claude", nil}
     end
 
     test "passes a freshly correlated telemetry capability to the headless fallback" do
@@ -611,8 +611,8 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
                )
 
       assert launch_id == headless_launch.id
-      assert_received {:renewed_fallback_attempt, "claude-repl", ^repl_launch}, 1000
-      assert_received {:renewed_fallback_attempt, "claude", ^headless_launch}, 1000
+      assert_received {:renewed_fallback_attempt, "claude-repl", ^repl_launch}
+      assert_received {:renewed_fallback_attempt, "claude", ^headless_launch}
     end
   end
 
@@ -636,8 +636,8 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
 
       assert {:error, {:port_exit, 23}} = SessionLifecycle.run_session("/workspaces/2895", issue, self(), opts, nil)
 
-      assert_received {:lifecycle, %{event: "agent_spinup", boundary: "end", attempt_id: "2895:test", reason_class: "port_exit", exit_status: 23}}, 1000
-      assert_received {:codex_worker_update, "2895", %{event: :startup_failed, reason: {:port_exit, 23}, timestamp: %DateTime{}}}, 1000
+      assert_received {:lifecycle, %{event: "agent_spinup", boundary: "end", attempt_id: "2895:test", reason_class: "port_exit", exit_status: 23}}
+      assert_received {:codex_worker_update, "2895", %{event: :startup_failed, reason: {:port_exit, 23}, timestamp: %DateTime{}}}
     end
 
     test "persists local boot proof before invoking a provider start" do
@@ -661,7 +661,7 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
                  nil
                )
 
-      assert_received {:receipt_before_start, {:ok, %{provider_expected?: true, provider_scope: :local, provider_boot_id: "boot-before"}}}, 1000
+      assert_received {:receipt_before_start, {:ok, %{provider_expected?: true, provider_scope: :local, provider_boot_id: "boot-before"}}}
 
       assert {:ok, %{phase: :released}} = Ownership.release_and_wait(active_lease)
     end

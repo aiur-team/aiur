@@ -150,7 +150,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     refute String.contains?(notification_wire, "secret-turn-correlation")
     refute String.contains?(notification_wire, "secret-thread-correlation")
     refute String.contains?(notification_wire, "source_version")
-    refute_received {:meter_failure, _failure}, 0
+    refute_received {:meter_failure, _failure}
 
     ClaudeAgent.stop_session(session)
   end
@@ -189,7 +189,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
 
     ClaudeAgent.stop_session(session)
 
-    assert_received {:tool_called, "emit_event", %{"name" => "progress", "message" => "40%", "payload" => %{"percent" => 40}}}, 1000
+    assert_received {:tool_called, "emit_event", %{"name" => "progress", "message" => "40%", "payload" => %{"percent" => 40}}}
 
     response_frame =
       frames
@@ -274,10 +274,10 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
 
     ClaudeAgent.stop_session(session)
 
-    assert_received {:tool_called, "emit_alert", %{"name" => "phase.work.start", "message" => "starting"}, 101}, 1000
-    assert_received {:tool_called, nil, %{}, 102}, 1000
-    assert_received {:agent_message, %{event: :tool_call_failed, payload: %{"params" => %{"tool" => "emit_alert"}}}}, 1000
-    assert_received {:agent_message, %{event: :unsupported_tool_call, payload: %{"params" => %{}}}}, 1000
+    assert_received {:tool_called, "emit_alert", %{"name" => "phase.work.start", "message" => "starting"}, 101}
+    assert_received {:tool_called, nil, %{}, 102}
+    assert_received {:agent_message, %{event: :tool_call_failed, payload: %{"params" => %{"tool" => "emit_alert"}}}}
+    assert_received {:agent_message, %{event: :unsupported_tool_call, payload: %{"params" => %{}}}}
 
     response_ids =
       frames
@@ -397,7 +397,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert {:error, {:port_exit, 1}} =
              ClaudeAgent.run_turn(session, "do the thing", issue, on_message: on_message)
 
-    assert_received {:agent_message, %{event: :turn_ended_with_error, reason: {:port_exit, 1}}}, 1000
+    assert_received {:agent_message, %{event: :turn_ended_with_error, reason: {:port_exit, 1}}}
   end
 
   test "provider stderr session-limit refusal pauses without retries and resumes at the parsed reset" do
@@ -429,7 +429,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert {:ok, reset, 0} = DateTime.from_iso8601(pause.reset_at)
     assert reset.hour == 7 or reset.hour == 8
     assert reset.minute == 20
-    refute_received {:agent_message, %{event: :turn_ended_with_error}}, 0
+    refute_received {:agent_message, %{event: :turn_ended_with_error}}
 
     TurnAlerts.maybe_emit_usage_limit_alert(issue, workspace, nil, Map.put(pause, :backend, "claude"))
     ledger = ModelAvailability.load()
@@ -479,7 +479,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert RateLimitFallback.reconcile(operator_pause, Keyword.put(opts, :now, reset)) == operator_pause
 
     resumed = RateLimitFallback.reconcile(paused, Keyword.put(opts, :now, reset))
-    assert_received {:resume_agent, _request_id}, 1000
+    assert_received {:resume_agent, _request_id}
     assert resumed.running[issue.id].control.status == :working
     assert resumed.retry_attempts == state.retry_attempts
     assert resumed.running[issue.id].retry_attempt == 2
@@ -558,7 +558,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert pause.reason == "You've hit your session limit · resets 12:20am (America/Los_Angeles)"
     assert pause.reset_hint == "12:20am (America/Los_Angeles)"
     assert pause.reset_at == "2026-09-18T07:20:00Z"
-    refute_received {:agent_message, %{event: :turn_ended_with_error}}, 0
+    refute_received {:agent_message, %{event: :turn_ended_with_error}}
 
     entry = %{
       issue: issue,

@@ -84,8 +84,8 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
       # startup identity check (`system.github_app_token.identity_mismatch`,
       # covered in AppIdentityTest) depends on the ambient workflow config
       # rather than this acquisition, so it is not what this test pins.
-      refute_received {:alert, "system.github_app_token.refresh_failed", _, _}, 0
-      refute_received {:alert, "system.github_app_token.permission_violation", _, _}, 0
+      refute_received {:alert, "system.github_app_token.refresh_failed", _, _}
+      refute_received {:alert, "system.github_app_token.permission_violation", _, _}
     end
 
     test "is inert when no App credentials are configured" do
@@ -104,13 +104,13 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
       on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
       assert AppTokenRefresher.current_token() == nil
-      refute_received {:alert, _, _, _}, 0
+      refute_received {:alert, _, _, _}
 
       # Even a stray refresh message is ignored: a disabled refresher never
       # acquires, retries, or alerts.
       send(pid, :refresh)
       Process.sleep(50)
-      refute_received {:alert, _, _, _}, 0
+      refute_received {:alert, _, _, _}
     end
   end
 
@@ -168,7 +168,7 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
       assert_receive {:alert, "system.github_app_token.refresh_failed", _, _}, 2_000
 
       send(pid, :refresh)
-      refute_received {:alert, "system.github_app_token.refresh_failed", _, _}, 0
+      refute_received {:alert, "system.github_app_token.refresh_failed", _, _}
     end
   end
 
@@ -250,7 +250,7 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
       # The successful refresh re-armed alerting: another forced refresh (still
       # succeeding) must NOT re-alert — proving the failure episode stayed closed.
       send(pid, :refresh)
-      refute_received {:alert, "system.github_app_token.refresh_failed", _, _}, 0
+      refute_received {:alert, "system.github_app_token.refresh_failed", _, _}
     end
   end
 end

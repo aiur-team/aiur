@@ -176,7 +176,7 @@ defmodule Aiur.AgentList.AppTest do
   end
 
   test "renders on startup", %{} do
-    assert_received {:rendered, _output}, 1000
+    assert_received {:rendered, _output}
   end
 
   test "running_changed populates summaries and re-renders", %{app: app} do
@@ -281,7 +281,7 @@ defmodule Aiur.AgentList.AppTest do
     snapshot = App.snapshot(app)
 
     assert MapSet.member?(MockOrchestrator.calls(orchestrator), {:resume, "MT-PAUSED"})
-    assert_received {:rendered, "\a"}, 1000
+    assert_received {:rendered, "\a"}
     assert snapshot.max_agents_alert?
   end
 
@@ -302,7 +302,7 @@ defmodule Aiur.AgentList.AppTest do
     snapshot = App.snapshot(app)
 
     assert MapSet.member?(MockOrchestrator.calls(orchestrator), {:resume, "MT-QUEUED"})
-    assert_received {:rendered, "\a"}, 1000
+    assert_received {:rendered, "\a"}
     assert snapshot.max_agents_alert?
   end
 

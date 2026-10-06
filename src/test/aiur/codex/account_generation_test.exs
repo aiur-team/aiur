@@ -264,7 +264,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
 
     malformed = put_in(valid, ["rateLimits", "primary", "usedPercent"], -1)
     assert nil == AccountGeneration.observe_rate_limit_snapshot(session, malformed)
-    refute_receive {:rate_limits, "codex", _}, 0
+    refute_receive {:rate_limits, "codex", _}, 100
 
     snapshot = Store.snapshot(meter_store, :codex, :app_server, session.account_generation_binding)
 
@@ -377,7 +377,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
                "params" => %{"rateLimits" => %{"limited" => false}}
              })
 
-    refute_receive {:rate_limits, "codex", _}, 0
+    refute_receive {:rate_limits, "codex", _}, 100
   end
 
   test "unrecognized account notifications invalidate and redact provider payloads", %{owner: owner, session: session} do
@@ -535,7 +535,7 @@ defmodule Aiur.Codex.AccountGenerationTest do
         assert_receive {:provider_account_generation_changed, changed}, 2_000
         assert %{change: ^expected_change, generation: nil, reason: ^expected_reason} = changed
       else
-        refute_receive {:provider_account_generation_changed, _event}, 0
+        refute_receive {:provider_account_generation_changed, _event}, 100
       end
 
       assert %{generation: nil, reason: ^expected_reason} =

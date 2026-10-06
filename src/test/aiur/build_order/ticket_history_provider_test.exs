@@ -211,7 +211,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     assert {:error, %Failure{kind: :repository_mismatch}} =
              TicketHistoryProvider.request(server, identity(owner: "other"))
 
-    refute_receive {:queried, _}, 0
+    refute_receive {:queried, _}, 100
 
     assert {:ok, snapshot} = TicketHistoryProvider.request(server, identity())
     assert_receive {:queried, %{identifier: "42"}}, 1000
@@ -334,7 +334,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
     assert {:ok, snapshot} = TicketHistoryProvider.current(server, identity())
     assert snapshot.health == :missing_source
     assert snapshot.source_health == %{activity: :missing_source, history: :missing_source}
-    refute_receive :history_queried
+    refute_receive :history_queried, 100
   end
 
   test "restart restores only durable markers and reports current activity unknown" do
@@ -407,7 +407,7 @@ defmodule Aiur.BuildOrder.TicketHistoryProviderTest do
         exchange_pid_fun: fn -> Agent.get(exchange, & &1) end
       )
 
-    assert_receive :exchange_subscribed
+    assert_receive :exchange_subscribed, 1000
 
     second_exchange =
       spawn(fn ->

@@ -683,7 +683,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       # does not reach the store during the poll. The Orchestrator handles it
       # next, with the new running entry in its state.
       assert_received {:deliver_pending_answers, ^ticket_id, ^store} = message
-      refute_received {:no_worker, ^id}, 0
+      refute_received {:no_worker, ^id}
       Agent.update(worker, fn _running -> true end)
       assert :ok = Dispatcher.handle_pending_answer_delivery(message)
       assert_receive {:worker_received, ^id}, 1_000
@@ -894,7 +894,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       end)
 
     assert is_pid(state.ci_readiness_check_pid)
-    assert_receive :readiness_scan_started
+    assert_receive :readiness_scan_started, 1000
     assert_receive {:ci_readiness_result, token, {:ok, ^readiness}}, 1000
 
     state = Dispatcher.handle_ci_readiness_result(state, token, {:ok, readiness})
@@ -915,7 +915,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     state = Dispatcher.check_initial_ci_readiness(state, "github", "develop", fn _ -> {:error, :timeout} end, emit)
 
     refute state.ci_readiness_checked
-    refute_receive {:ci_readiness_alert, _}, 0
+    refute_receive {:ci_readiness_alert, _}, 100
   end
 
   test "readiness alerts explain organization repository authorization failures" do
@@ -1923,8 +1923,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       refute third.capacity_starvation.alert_active
       refute third.fleet_capacity_starvation.alert_active
 
-      refute_received {:event, %{topic: "system.dispatch.capacity_starved"}}, 0
-      refute_received {:event, %{topic: "system.fleet.capacity.starved"}}, 0
+      refute_received {:event, %{topic: "system.dispatch.capacity_starved"}}
+      refute_received {:event, %{topic: "system.fleet.capacity.starved"}}
     end
   end
 
@@ -1957,7 +1957,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         )
 
       assert %{signal: :memory, measured: 1_024, threshold: 2_048, alerted?: false} = held.capacity_hold
-      refute_received {:capacity_alert, "system.fleet.capacity.backoff", _}, 0
+      refute_received {:capacity_alert, "system.fleet.capacity.backoff", _}
 
       # Same signal on the next poll crosses the (zeroed) debounce window.
       alerted =
@@ -1969,8 +1969,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         )
 
       assert alerted.capacity_hold.alerted?
-      assert_received {:capacity_alert, "system.fleet.capacity.backoff", %{signal: :memory}}, 1000
-      assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "memory"}}, 1000
+      assert_received {:capacity_alert, "system.fleet.capacity.backoff", %{signal: :memory}}
+      assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "memory"}}
 
       # Recovery: memory frees above the floor; the hold clears and reports resume.
       Application.put_env(:aiur, :meminfo_source_override, fn -> {:ok, "MemAvailable: 3145728 kB\n"} end)
@@ -1984,8 +1984,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         )
 
       assert recovered.capacity_hold == nil
-      assert_received {:capacity_alert, "system.fleet.capacity.resumed", %{signal: :memory}}, 1000
-      assert_received {:capacity_telemetry, :capacity_resumed, %{"signal" => "memory"}}, 1000
+      assert_received {:capacity_alert, "system.fleet.capacity.resumed", %{signal: :memory}}
+      assert_received {:capacity_telemetry, :capacity_resumed, %{"signal" => "memory"}}
     end
 
     test "a saturated build gate defers dispatch and reports :build as the limiting reason" do
@@ -2006,7 +2006,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       assert %{signal: :build, threshold: 2} = held.capacity_hold
       assert map_size(held.running) == 0
-      assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}, 1000
+      assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}
     end
 
     # #2089: an unmeasurable CPU window cannot keep a load hold alive. The hold

@@ -174,7 +174,7 @@ defmodule Aiur.AppServer.TurnLoopTest do
     send(self(), {port, {:data, {:eol, Jason.encode!(%{"method" => "done"})}}})
 
     assert TurnLoop.receive_loop(%{port: port}, state) == {:ok, :done}
-    refute_receive :wrong
+    refute_receive :wrong, 100
   end
 
   test "drops late sensitive response data before the turn loop can emit it" do
@@ -199,7 +199,7 @@ defmodule Aiur.AppServer.TurnLoopTest do
     assert TurnLoop.receive_loop(%{port: port}, state) ==
              {:ok, :done}
 
-    refute_receive {:event, _event}, 0
+    refute_receive {:event, _event}, 100
   end
 
   test "keeps malformed late sensitive stream data out of turn-loop events" do
@@ -217,8 +217,8 @@ defmodule Aiur.AppServer.TurnLoopTest do
 
     assert TurnLoop.receive_loop(%{port: port}, state) == {:ok, :done}
 
-    refute_receive {:malformed, _payload}, 0
-    refute_receive {:event, _event}, 0
+    refute_receive {:malformed, _payload}, 100
+    refute_receive {:event, _event}, 100
   end
 
   defp cat_port do

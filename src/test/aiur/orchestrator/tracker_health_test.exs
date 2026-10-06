@@ -366,7 +366,7 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
       {:ok, _mode} = ModeRegistry.record_activity(@repo, server: registry, at: at(1_000))
       {:ok, [@repo]} = ModeRegistry.sweep(registry, at(2_000))
 
-      assert_received {:alert, "webhook.degraded", message, alert_opts}, 1000
+      assert_received {:alert, "webhook.degraded", message, alert_opts}
       assert message =~ @repo
       assert alert_opts[:needs_attention]
 
@@ -375,7 +375,7 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
 
       # And a delivery after degradation widens it again.
       {:ok, _mode} = ModeRegistry.record_delivery(@repo, server: registry, at: at(1_001))
-      assert_received {:alert, "webhook.recovered", _message, _opts}, 1000
+      assert_received {:alert, "webhook.recovered", _message, _opts}
       assert delay(registry, state) == 240_000
     end
 

@@ -223,7 +223,7 @@ defmodule Aiur.RunTelemetryTest do
        ]}
     )
 
-    assert_receive :resource_sample_recorded
+    assert_receive :resource_sample_recorded, 1000
 
     lifecycle_recorder = fn kind, attributes, opts ->
       RunTelemetry.record(kind, attributes, Keyword.put(opts, :writer, __MODULE__.PipelineWriter))

@@ -194,7 +194,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       assert_receive {:persistence_alert, "recent_merge_store.persistence_failed", message, alert_opts}, 1000
       assert message =~ "read-only"
       assert alert_opts[:needs_attention]
-      refute_receive {:persistence_alert, _, _, _}, 0
+      refute_receive {:persistence_alert, _, _, _}, 100
 
       fourth = CommentPolling.poll_github_firehose(third, opts)
 
@@ -202,7 +202,7 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       assert fourth.events_last_id == "new-merge"
       assert fourth.github_connectivity[:recent_merge_store] == {:unclassified, 3}
       assert Agent.get(attempts, & &1) == 3
-      refute_receive {:persistence_alert, _, _, _}, 0
+      refute_receive {:persistence_alert, _, _, _}, 100
     end
   end
 

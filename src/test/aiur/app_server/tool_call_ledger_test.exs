@@ -28,7 +28,7 @@ defmodule Aiur.AppServer.ToolCallLedgerTest do
 
     assert Task.await(first) == :completed
     assert Task.await(second) == :completed
-    refute_received {:executing, _duplicate}, 0
+    refute_received {:executing, _duplicate}
   end
 
   test "owner death after mutation preserves an uncertain claim without replay" do

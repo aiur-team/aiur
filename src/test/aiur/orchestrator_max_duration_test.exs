@@ -88,7 +88,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       # The worker is told to park cooperatively — this is the load-bearing
       # behavior that replaced the old terminate+retry kill.
-      assert_receive {:pause_agent, request_id, 101} when is_integer(request_id)
+      assert_receive {:pause_agent, request_id, 101} when is_integer(request_id), 1000
 
       # Entry survives — pausing keeps the agent in the list, not killed —
       # and no retry is scheduled for it (the kill path is gone).
@@ -155,7 +155,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert {{:ok, :resumed}, next} =
                PauseResume.resume_paused_issue(state, state.running[issue_id])
 
-      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id)
+      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id), 1000
 
       assert {:noreply, next} =
                Orchestrator.handle_info(
@@ -192,7 +192,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert {{:ok, :resumed}, next} =
                PauseResume.resume_paused_issue(state, state.running[issue_id])
 
-      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id)
+      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id), 1000
 
       assert {:noreply, next} =
                Orchestrator.handle_info(
@@ -236,7 +236,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert {{:ok, :resumed}, next} =
                PauseResume.resume_paused_issue(state, state.running[issue_id], false)
 
-      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id)
+      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id), 1000
 
       assert {:noreply, next} =
                Orchestrator.handle_info(
@@ -282,7 +282,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
       assert {{:ok, :resumed}, next} =
                PauseResume.resume_paused_issue(state, state.running[issue_id])
 
-      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id)
+      assert_receive {:resume_agent, request_id, 101} when is_integer(request_id), 1000
 
       assert {:noreply, next} =
                Orchestrator.handle_info(
@@ -327,7 +327,7 @@ defmodule Aiur.OrchestratorMaxDurationTest do
 
       # The refused resume must not wake the worker, clear the reason, or
       # reset the duration clock — the agent stays duration-paused.
-      refute_received {:resume_agent, _request_id}, 0
+      refute_received {:resume_agent, _request_id}
       paused = next.running[paused_id]
       assert get_in(paused, [:control, :status]) == :paused
       assert paused.paused_reason == :max_agent_duration

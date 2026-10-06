@@ -864,7 +864,7 @@ defmodule Aiur.RunTelemetry.WriterTest do
              )
 
     assert :ok = Writer.flush(writer)
-    refute_receive {:event, %{topic: "ticket.930.pr.merged"}}, 0
+    refute_receive {:event, %{topic: "ticket.930.pr.merged"}}, 100
 
     records = read_records(path)
     [merged] = Enum.take(records, -1)

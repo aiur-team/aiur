@@ -299,7 +299,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert File.read!(context.status_path) == body
     refute File.read!(context.status_path) =~ "2026-08-02T12:05:00Z"
     assert PackStatus.health(poller).generation == generation
-    refute_receive {:build_order_pack_status_changed, _health}, 0
+    refute_receive {:build_order_pack_status_changed, _health}, 100
   end
 
   test "chunks 51 promoted members into GraphQL requests of 50 and 1", context do
@@ -368,7 +368,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     queries = for _ <- 1..4, do: receive(do: ({:budget_query, numbers} -> numbers))
     assert Enum.map(queries, &length/1) == [50, 50, 50, 50]
-    refute_receive {:budget_query, _numbers}, 0
+    refute_receive {:budget_query, _numbers}, 100
 
     assert File.exists?(PackPaths.status_path(Enum.at(paths, 0)))
     assert File.exists?(PackPaths.status_path(Enum.at(paths, 1)))
@@ -400,7 +400,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     assert {:ok, [^first, ^second]} = PackStatus.refresh_sync(poller)
     assert_receive {:dedupe_query, [1, 2, 3]}, 1000
-    refute_receive {:dedupe_query, _numbers}, 0
+    refute_receive {:dedupe_query, _numbers}, 100
     assert context_members(first) |> Map.keys() |> Enum.sort() == ["1", "2"]
     assert context_members(second) |> Map.keys() |> Enum.sort() == ["2", "3"]
   end
@@ -430,7 +430,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert {:error, _reason} = PackStatus.refresh_sync(poller)
     assert_receive {:repository_query, %{"owner" => "other", "name" => "project"}, 2}, 1000
     refute File.read!(retained_path) == retained
-    refute_receive {:repository_query, _variables, _number}, 0
+    refute_receive {:repository_query, _variables, _number}, 100
   end
 
   test "an invalid lifecycle in the second chunk preserves the projection", context do
@@ -471,8 +471,8 @@ defmodule Aiur.BuildOrder.PackStatusTest do
       end)
 
     assert {:error, _reason} = PackStatus.refresh_sync(poller)
-    assert_receive :failed_chunk_request
-    refute_receive :failed_chunk_request
+    assert_receive :failed_chunk_request, 1000
+    refute_receive :failed_chunk_request, 100
     assert File.read!(context.status_path) == previous
     assert PackStatus.health(poller).state == :unavailable
   end
@@ -567,7 +567,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert {:ok, [^state_path]} = PackStatus.refresh_sync(poller)
     assert_receive {:repository_query, %{"owner" => owner, "name" => name}}, 1000
     assert String.downcase("#{owner}/#{name}") == String.downcase(repository)
-    refute_receive {:repository_query, _variables}, 0
+    refute_receive {:repository_query, _variables}, 100
     refute File.exists?(PackPaths.status_path(foreign_path))
   end
 

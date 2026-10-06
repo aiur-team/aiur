@@ -311,7 +311,7 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
       # PR never costs a history read.
       _state = poll_draft_flag(state, "57", 902, "ready-head", false)
       refute_receive {:event, %{topic: ^topic}}, 100
-      refute_received {:history_read, _url}, 0
+      refute_received {:history_read, _url}
     end
 
     test "webhook plus poll of the same draft-to-ready transition wakes once" do
@@ -359,7 +359,7 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
       clear_replay_window()
       _next_restart = poll_draft_flag(%State{}, "59", 904, "ready-head", false)
       refute_receive {:event, %{topic: ^topic}}, 100
-      refute_received {:history_read, _url}, 0
+      refute_received {:history_read, _url}
     end
 
     test "a PR first seen ready that was a draft publishes once" do
@@ -369,13 +369,13 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
       history = [%{"event" => "labeled"}, %{"event" => "ready_for_review"}]
       state = poll_draft_flag(%State{}, "60", 905, "ready-head", false, history)
 
-      assert_received {:history_read, url}, 1000
+      assert_received {:history_read, url}
       assert url =~ "/repos/owner/repo/issues/905/events"
       assert %{pr: %{"number" => 905, "head" => %{"sha" => "ready-head"}}} = await_event(topic)
 
       _state = poll_draft_flag(state, "60", 905, "ready-head", false, history)
       refute_receive {:event, %{topic: ^topic}}, 100
-      refute_received {:history_read, _url}, 0
+      refute_received {:history_read, _url}
     end
 
     # The comment poll folds an observation read when its task started. A
@@ -405,11 +405,11 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
       :ok = Exchange.subscribe(topic)
 
       state = poll_draft_flag(%State{}, "63", 908, "ready-head", false, {:status, 404})
-      assert_received {:history_read, _url}, 1000
+      assert_received {:history_read, _url}
       refute_receive {:event, %{topic: ^topic}}, 100
 
       state = poll_draft_flag(state, "63", 908, "ready-head", false, {:status, 404})
-      refute_received {:history_read, _url}, 0
+      refute_received {:history_read, _url}
 
       # The backoff expires: the read is due again.
       assert {:history_failed, retry_at_ms} = state.pr_ready_ledger[{"63", 908}]
@@ -427,12 +427,12 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
 
       history = [%{"event" => "labeled"}]
       state = poll_draft_flag(%State{}, "61", 906, "ready-head", false, history)
-      assert_received {:history_read, _url}, 1000
+      assert_received {:history_read, _url}
       refute_receive {:event, %{topic: ^topic}}, 100
 
       _state = poll_draft_flag(state, "61", 906, "ready-head", false, history)
       refute_receive {:event, %{topic: ^topic}}, 100
-      refute_received {:history_read, _url}, 0
+      refute_received {:history_read, _url}
     end
   end
 

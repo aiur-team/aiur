@@ -136,7 +136,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       alert_fun = fn name, message, opts -> send(parent, {:codeowners_alert, name, message, opts}) end
       {_pid, name} = start_owners(path, alert_fun: alert_fun)
 
-      refute_receive {:codeowners_alert, "github.codeowners.degraded", _, _}, 0
+      refute_receive {:codeowners_alert, "github.codeowners.degraded", _, _}, 100
       trust = CodeOwners.trust_snapshot(name)
       assert trust.codeowners == ["alice"]
       assert trust.source == :file
@@ -157,7 +157,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
         )
 
       assert_receive {:codeowners_alert, "github.codeowners.degraded", _, _}, 1000
-      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 0
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 100
       assert CodeOwners.trust_snapshot(name).drift == nil
     end
 
@@ -171,13 +171,13 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       {_pid, matching_name} =
         start_owners(path, allowed_users_fun: fn -> ["bob", "alice"] end, alert_fun: alert_fun)
 
-      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 0
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 100
       assert CodeOwners.trust_snapshot(matching_name).drift == nil
 
       {_pid, fallback_name} =
         start_owners(path, allowed_users_fun: fn -> [] end, alert_fun: alert_fun)
 
-      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 0
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 100
       assert CodeOwners.trust_snapshot(fallback_name).drift == nil
 
       {_pid, drifted_name} =
@@ -202,7 +202,7 @@ defmodule Aiur.GitHub.CodeOwnersTest do
       {_pid, name} =
         start_owners(path, allowed_users_fun: fn -> ["alice"] end, alert_fun: alert_fun)
 
-      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 0
+      refute_receive {:codeowners_alert, "github.codeowners.allowlist_drift", _, _}, 100
       File.write!(path, "* @bob\n")
       :ok = CodeOwners.refresh(name)
 

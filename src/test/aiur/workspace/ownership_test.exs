@@ -523,10 +523,11 @@ defmodule Aiur.Workspace.OwnershipTest do
       )
 
     assert_receive {
-      :workspace_guardian_claimed,
-      ^competing_guardian,
-      {:error, {:workspace_owned, {:ok, %{generation: competing_generation}}}}
-    }
+                     :workspace_guardian_claimed,
+                     ^competing_guardian,
+                     {:error, {:workspace_owned, {:ok, %{generation: competing_generation}}}}
+                   },
+                   1000
 
     assert competing_generation == lease.generation
 

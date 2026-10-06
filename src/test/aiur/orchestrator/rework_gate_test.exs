@@ -211,7 +211,7 @@ defmodule Aiur.Orchestrator.ReworkGateTest do
                  end
                )
 
-      refute_receive {:alert_emitted, _, _}, 0
+      refute_receive {:alert_emitted, _, _}, 100
     end
 
     test "a nil head SHA fails open and never trips the bound" do

@@ -23,7 +23,7 @@ defmodule Aiur.Init.QuestionsTest do
     assert Questions.prompt_tracker(io, deps, :repo_local) ==
              %{kind: "github", repo: "owner/repo", base_branch: "develop"}
 
-    assert_received {:puts, message}, 1000
+    assert_received {:puts, message}
     assert message =~ "default branch"
     assert message =~ "develop"
   end

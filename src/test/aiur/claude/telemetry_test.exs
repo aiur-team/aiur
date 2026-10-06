@@ -136,7 +136,7 @@ defmodule Aiur.Claude.TelemetryTest do
     assert {:ok, %{canonical_total: 226, input_total: 203, output_total: 23, coverage: :full}} =
              UsageEnvelope.reconcile(envelope, UsageAdapter.relationship_catalog())
 
-    refute_receive {:claude_usage_coverage, _coverage}, 0
+    refute_receive {:claude_usage_coverage, _coverage}, 100
   end
 
   test "accounts for bounded subagent request sources without publishing the agent name", %{server: server, issue: issue} do
@@ -197,8 +197,8 @@ defmodule Aiur.Claude.TelemetryTest do
 
     headless = launch(server, issue)
     assert submit(server, authorization(headless), payload("session-headless", "request-headless")).status == 200
-    refute_receive {:claude_usage, _envelope}, 0
-    refute_receive {:claude_usage_coverage, _coverage}, 0
+    refute_receive {:claude_usage, _envelope}, 100
+    refute_receive {:claude_usage_coverage, _coverage}, 100
 
     repl = launch(server, issue, backend: "claude-repl")
     authorization = authorization(repl)
@@ -210,8 +210,8 @@ defmodule Aiur.Claude.TelemetryTest do
 
     assert submit(server, authorization, accepted).status == 409
     assert submit(server, authorization, payload("session-stale", "request-stale")).status == 409
-    refute_receive {:claude_usage, _envelope}, 0
-    refute_receive {:claude_usage_coverage, _coverage}, 0
+    refute_receive {:claude_usage, _envelope}, 100
+    refute_receive {:claude_usage_coverage, _coverage}, 100
 
     other_issue = issue("1124")
     other = launch(server, other_issue, backend: "claude-repl", attempt_id: "attempt-2", workspace_ownership: %{generation: 8})
@@ -232,8 +232,8 @@ defmodule Aiur.Claude.TelemetryTest do
       put_in(payload("session-hook", "request-hook"), ["resourceLogs", Access.at(0), "scopeLogs", Access.at(0), "logRecords", Access.at(0), "body"], %{"stringValue" => "claude_code.hook_turn"})
 
     assert submit(server, authorization, unsupported).status == 400
-    refute_receive {:claude_usage, _envelope}, 0
-    refute_receive {:claude_usage_coverage, _coverage}, 0
+    refute_receive {:claude_usage, _envelope}, 100
+    refute_receive {:claude_usage_coverage, _coverage}, 100
 
     disallowed =
       [
@@ -288,7 +288,7 @@ defmodule Aiur.Claude.TelemetryTest do
                    2_000
 
     refute inspect(measurement_coverage) =~ "request-missing-input"
-    refute_receive {:claude_usage, _envelope}, 0
+    refute_receive {:claude_usage, _envelope}, 100
   end
 
   test "rejects unreviewed accounting strings and inexact cost before publication", %{server: server, issue: issue} do

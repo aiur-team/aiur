@@ -35,18 +35,18 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
 
     assert length(observations) == 11
 
-    assert_received {"I-running", :running}, 1000
-    assert_received {"I-paused", :paused}, 1000
-    assert_received {"I-waiting", :waiting}, 1000
-    assert_received {"I-awaiting-dispatch", :waiting}, 1000
-    assert_received {"I-tracker-unavailable", :waiting}, 1000
-    assert_received {"I-unresponsive", :waiting}, 1000
-    assert_received {"I-replaced", :replaced}, 1000
-    assert_received {"I-retrying", :retrying}, 1000
-    assert_received {"I-queued", :queued}, 1000
-    assert_received {"I-completed", :completed}, 1000
-    assert_received {"I-cancelled", :cancelled}, 1000
-    refute_received {nil, _}, 0
+    assert_received {"I-running", :running}
+    assert_received {"I-paused", :paused}
+    assert_received {"I-waiting", :waiting}
+    assert_received {"I-awaiting-dispatch", :waiting}
+    assert_received {"I-tracker-unavailable", :waiting}
+    assert_received {"I-unresponsive", :waiting}
+    assert_received {"I-replaced", :replaced}
+    assert_received {"I-retrying", :retrying}
+    assert_received {"I-queued", :queued}
+    assert_received {"I-completed", :completed}
+    assert_received {"I-cancelled", :cancelled}
+    refute_received {nil, _}
   end
 
   test "accepts explicit lifecycle facts from a compatibility StatusReport adapter" do
@@ -60,7 +60,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
                MapSet.new()
              )
 
-    assert_received {"I-allocated", :allocated}, 1000
+    assert_received {"I-allocated", :allocated}
   end
 
   test "projects an orphaned claim as waiting rather than queued" do
@@ -74,8 +74,8 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
                MapSet.new()
              )
 
-    assert_received {"I-orphaned", :waiting}, 1000
-    refute_received {"I-orphaned", :queued}, 0
+    assert_received {"I-orphaned", :waiting}
+    refute_received {"I-orphaned", :queued}
   end
 
   test "a reconciliation snapshot never removes an absent terminal store member" do

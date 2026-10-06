@@ -26,7 +26,7 @@ defmodule Aiur.Opencode.Slot.EventsTest do
 
   test "slot_ready broadcasts {:slot_ready, index, pid}" do
     Events.slot_ready(44, self())
-    assert_receive {:slot_ready, 44, pid} when pid == self()
+    assert_receive {:slot_ready, 44, pid} when pid == self(), 1000
   end
 
   test "visible_changed broadcasts and mirrors to SlotRegistry" do

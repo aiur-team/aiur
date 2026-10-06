@@ -183,7 +183,7 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       assert_receive {:slot_start_blocked, 1}, 2_000
       assert Process.alive?(pid)
       assert SlotPolicy.target_count(pid) == 0
-      refute_received {:DOWN, ^monitor, :process, ^pid, _reason}, 0
+      refute_received {:DOWN, ^monitor, :process, ^pid, _reason}
       assert Process.alive?(pid)
 
       assert :ok = BlockingSlotStarter.release()

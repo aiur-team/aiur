@@ -654,7 +654,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         end)
 
       assert log =~ ":rework_attempt_limit_reached"
-      refute_receive {:alert_emitted, _, _}, 0
+      refute_receive {:alert_emitted, _, _}, 100
       assert MapSet.member?(result.rework_attempt_alerted, {"2422", "abc123"})
     end
 
@@ -679,7 +679,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       refute log =~ ":rework_attempt_limit_reached"
       assert log =~ "rework transition skipped"
-      refute_receive {:alert_emitted, _, _}, 0
+      refute_receive {:alert_emitted, _, _}, 100
     end
   end
 
@@ -774,7 +774,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       cleared = CommentWake.cancel_comment_rework_retries(state)
 
       assert cleared.comment_rework_retries == %{}
-      refute_received {:retry_comment_rework, _issue, _source, _event, _attempt}, 0
+      refute_received {:retry_comment_rework, _issue, _source, _event, _attempt}
     end
 
     test "cancel_comment_rework_retries/1 leaves unrelated mailbox messages alone" do
@@ -1060,7 +1060,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
           local_hold_sleep_fun: fn _ms -> flunk("must not sleep for a beyond-ceiling hold") end
         )
 
-      refute_receive :membership_recorded
+      refute_receive :membership_recorded, 100
       assert Map.has_key?(result.running, issue.id)
       assert MapSet.member?(result.claimed, issue.id)
     end
@@ -1085,7 +1085,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       )
 
       assert_receive {:checked_allowlist, "its-everdred"}, 1000
-      refute_receive :unexpected_alert
+      refute_receive :unexpected_alert, 100
     end
 
     test "emits unauthorized-merger alert when merged_by_login is not allowlisted" do
@@ -1143,11 +1143,11 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         )
 
         assert_receive {:alert_emitted, "ticket.424242.merge.attribution_check_failed", opts}, 1000
-        refute_received {:alert_emitted, "ticket.424242.merge.unauthorized_merger", _opts}, 0
+        refute_received {:alert_emitted, "ticket.424242.merge.unauthorized_merger", _opts}
 
         # The allowlist is never consulted: "is nil allowed?" has no meaningful
         # answer, and asking it is what produced the accusatory wording.
-        refute_received {:checked_allowlist, _login}, 0
+        refute_received {:checked_allowlist, _login}
 
         # Still fail-closed.
         assert Keyword.get(opts, :needs_attention) == true
@@ -1349,9 +1349,9 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         )
 
       assert_receive {:transition, "2307", "rework"}, 1000
-      refute_receive {:transition, "2307", "done"}, 0
-      refute_receive :membership_recorded
-      refute_receive :blockees_resumed
+      refute_receive {:transition, "2307", "done"}, 100
+      refute_receive :membership_recorded, 100
+      refute_receive :blockees_resumed, 100
       assert Map.has_key?(result.running, issue.id)
       assert MapSet.member?(result.claimed, issue.id)
     end
@@ -1408,10 +1408,10 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
         )
 
       assert_receive {:transition, "176", "human-review"}, 1000
-      refute_receive {:transition, "176", "done"}, 0
-      refute_receive :membership_recorded
-      refute_receive :session_cleared
-      refute_receive :blockees_resumed
+      refute_receive {:transition, "176", "done"}, 100
+      refute_receive :membership_recorded, 100
+      refute_receive :session_cleared, 100
+      refute_receive :blockees_resumed, 100
       assert Map.has_key?(result.running, issue.id)
       assert MapSet.member?(result.claimed, issue.id)
     end
@@ -1435,7 +1435,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       )
 
       assert_receive {:transition, "176", "human-review"}, 1000
-      refute_receive {:transition, "176", "done"}, 0
+      refute_receive {:transition, "176", "done"}, 100
     end
 
     # A body naming the ticket mid-prose is not a closing keyword either — the
@@ -1455,7 +1455,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       )
 
       assert_receive {:transition, "176", "human-review"}, 1000
-      refute_receive {:transition, "176", "done"}, 0
+      refute_receive {:transition, "176", "done"}, 100
     end
 
     test "a same-repository qualified closing keyword still closes the ticket" do
@@ -1493,7 +1493,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       )
 
       assert_receive {:transition, "176", "human-review"}, 1000
-      refute_receive {:transition, "176", "done"}, 0
+      refute_receive {:transition, "176", "done"}, 100
     end
 
     # A closing keyword for a *different* ticket is not a closing keyword for
@@ -1513,7 +1513,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       )
 
       assert_receive {:transition, "176", "human-review"}, 1000
-      refute_receive {:transition, "176", "done"}, 0
+      refute_receive {:transition, "176", "done"}, 100
     end
 
     # A failing repository lookup must not fail the merge route: bare `#N` —

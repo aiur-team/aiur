@@ -124,7 +124,7 @@ defmodule Aiur.AgentRunner.TurnLoopTest do
       assert {:completed, ^issue} =
                TurnLoop.return_completed(%{codex_update_recipient: self()}, issue)
 
-      refute_receive {:worker_control_state, "issue-completed", :completed}, 0
+      refute_receive {:worker_control_state, "issue-completed", :completed}, 100
     end
   end
 

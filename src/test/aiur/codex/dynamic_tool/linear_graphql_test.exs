@@ -91,7 +91,7 @@ defmodule Aiur.Codex.DynamicTool.LinearGraphQLTest do
           end
         )
 
-      assert_received {:called, "query Viewer { viewer { id } }", %{}}, 1000
+      assert_received {:called, "query Viewer { viewer { id } }", %{}}
       assert response["success"] == true
     end
 
@@ -107,7 +107,7 @@ defmodule Aiur.Codex.DynamicTool.LinearGraphQLTest do
         end
       )
 
-      assert_received {:called, "q", %{"id" => "123"}}, 1000
+      assert_received {:called, "q", %{"id" => "123"}}
     end
   end
 end

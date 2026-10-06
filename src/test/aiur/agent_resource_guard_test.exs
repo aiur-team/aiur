@@ -99,7 +99,7 @@ defmodule Aiur.AgentResourceGuardTest do
     on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
     send(pid, :tick)
-    assert_receive :guard_enforced
+    assert_receive :guard_enforced, 1000
     assert Process.alive?(pid)
   end
 end

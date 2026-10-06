@@ -22,7 +22,7 @@ defmodule Aiur.Claude.CodingAgentLimitTest do
              CodingAgent.handle_method(%{port: port}, state, payload, Jason.encode!(payload), "turn/failed")
 
     assert reason =~ "rate_limit_error"
-    assert_received {:message, %{event: :turn_failed}}, 1000
+    assert_received {:message, %{event: :turn_failed}}
     close_port(port)
   end
 

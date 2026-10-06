@@ -143,7 +143,7 @@ defmodule Aiur.CodeownersTest do
     assert Codeowners.owners_for_path("lib/app.ex", opts) == ["owner-one", "owner-two"]
     assert Codeowners.owners_for_path("lib/other.ex", opts) == ["owner-one", "owner-two"]
     assert_receive {:team_request, "https://api.github.com/orgs/acme/teams/platform/members?per_page=100"}, 1000
-    refute_receive {:team_request, _}, 0
+    refute_receive {:team_request, _}, 100
   end
 
   test "does not cache team-member fetch failures", %{repo_root: repo_root} do

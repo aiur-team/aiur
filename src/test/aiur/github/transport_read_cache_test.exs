@@ -61,7 +61,7 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
     end
 
     assert {:ok, %{status: 200}} = request.()
-    assert_receive :request_sent
+    assert_receive :request_sent, 1000
 
     calls_after_first = Quota.snapshot(quota) |> attributed_calls()
 
@@ -97,9 +97,9 @@ defmodule Aiur.GitHub.TransportReadCacheTest do
     end
 
     assert {:ok, %{status: 200}} = request.()
-    assert_receive :request_sent
+    assert_receive :request_sent, 1000
     assert {:ok, %{status: 200}} = request.()
-    assert_receive :request_sent
+    assert_receive :request_sent, 1000
 
     assert %{refused: %{unsafe_kind: 2}, totals: %{hit: 0}} = ReadCache.snapshot()
   end

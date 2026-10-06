@@ -172,7 +172,7 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
         PrAnchored.maybe_route_pr_anchored_or_legacy(base_state(), "42", :github, event, final_attempt)
 
       refute_received :pr_anchored_dispatched
-      refute_received {:retry_comment_rework, _pr, _source, _event, _attempt}, 0
+      refute_received {:retry_comment_rework, _pr, _source, _event, _attempt}
       refute Map.has_key?(result.comment_rework_retries || %{}, {"42", "github"})
 
       assert_receive {:event, %{topic: "system.dispatch.pr_anchored_held"} = alert}, 1_000

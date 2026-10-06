@@ -1,64 +1,60 @@
-#!/bin/bash
-# Test the bare assert_receive/refute_receive check
-
+#!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")"/..
+cd "$(dirname "$0")/.."
 
-# Test 1: Verify the check passes on actual test files (should be all fixed)
-if python3 scripts/check-bare-assert-receive.py 2>&1 | grep -q "OK"; then
-    echo "✓ Check passes - all bare assert_receive/refute_receive calls have explicit timeouts"
-else
-    echo "✗ Check failed - found bare calls that need fixing"
-    python3 scripts/check-bare-assert-receive.py
-    exit 1
-fi
-
-# Test 2: Create a temporary test directory with bare calls and verify check catches them
 tmpdir=$(mktemp -d)
-cleanup() {
-    rm -rf "$tmpdir"
-}
-trap cleanup EXIT
+trap 'rm -rf "$tmpdir"' EXIT
+mkdir -p "$tmpdir/fixtures"
 
-mkdir -p "$tmpdir/test"
-cat > "$tmpdir/test/example_test.exs" << 'EOF'
-defmodule ExampleTest do
+cat > "$tmpdir/fixtures/receive_test.exs" <<'EOF'
+defmodule ReceiveTest do
   use ExUnit.Case
 
-  test "bare assert_receive" do
-    assert_receive {:msg}
+  test "bare forms are reported" do
+    assert_receive :atom_message
+    refute_receive {:tuple, ^pinned}
+    assert_receive {:guarded, pid} when is_pid(pid)
+    assert_receive(
+      {:multiline, %{value: value}}
+    )
   end
 
-  test "bare refute_receive" do
-    refute_receive {:msg}
-  end
-
-  test "with timeout" do
-    assert_receive {:msg}, 1000
+  test "explicit bounds are accepted" do
+    assert_receive :message, 1000
+    refute_receive {:message, _}, 0
+    refute_receive :message, 100
+    assert_received :instant_message
   end
 end
 EOF
 
-# Modify check script to look at our temp test directory
-# We'll create a minimal test to check the detection logic
-python3 -c "
-import re
+output="$tmpdir/checker.out"
+if python3 scripts/check-bare-assert-receive.py "$tmpdir/fixtures" >"$output" 2>&1; then
+  echo "checker accepted fixture calls without explicit timeouts" >&2
+  exit 1
+fi
 
-content = open('$tmpdir/test/example_test.exs').read()
-lines = content.split('\n')
+for expected in ":5" ":6" ":7" ":8"; do
+  if ! grep -q "receive_test.exs${expected}" "$output"; then
+    cat "$output" >&2
+    echo "checker did not report expected fixture line ${expected}" >&2
+    exit 1
+  fi
+done
 
-bare_count = 0
-for line in lines:
-    if re.search(r'\b(assert_receive|refute_receive)\b.*\}\s*$', line):
-        if not re.search(r',\s*\d+\s*$', line):
-            bare_count += 1
+cat > "$tmpdir/fixtures/receive_test.exs" <<'EOF'
+defmodule ReceiveTest do
+  use ExUnit.Case
 
-if bare_count == 2:
-    print('✓ Check correctly detects 2 bare calls in test file')
-else:
-    print(f'✗ Expected 2 bare calls, found {bare_count}')
-    exit(1)
-"
+  test "explicit bounds including zero pass" do
+    assert_receive :message, 1000
+    refute_receive {:message, _}, 0
+    refute_receive :message, 100
+    assert_received :instant_message
+  end
+end
+EOF
 
-echo "All tests passed!"
+python3 scripts/check-bare-assert-receive.py "$tmpdir/fixtures"
+python3 scripts/check-bare-assert-receive.py

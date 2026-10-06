@@ -598,7 +598,7 @@ defmodule Aiur.DecisionQueryTest do
     assert_receive {:atomic_snapshot, :query}, 1000
     assert_receive {:atomic_snapshot, :counts}, 1000
     assert_receive {:atomic_snapshot, :counts}, 1000
-    refute_receive {:split_read_attempted, _request}, 0
+    refute_receive {:split_read_attempted, _request}, 100
   end
 
   property "generated retained pages preserve lifecycle audit order without duplicates", %{store: store} do
@@ -667,7 +667,7 @@ defmodule Aiur.DecisionQueryTest do
       assert {:error, {:invalid_query, _reason}} = DecisionQuery.list(params, store: boundary_store)
       assert {:error, :invalid_query} = DecisionStore.retained_query(params, store)
       assert Process.alive?(store)
-      refute_receive {:atomic_snapshot, :query}, 0
+      refute_receive {:atomic_snapshot, :query}, 100
     end
   end
 

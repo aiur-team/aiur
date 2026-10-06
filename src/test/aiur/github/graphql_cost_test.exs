@@ -391,7 +391,7 @@ defmodule Aiur.GitHub.GraphQLCostTest do
     targets = Enum.map(1..60, &to_string/1)
     assert {:ok, _batch} = fetch.(targets, request_fun: request_fun, token: "t")
 
-    assert_received {:query, query}, 1000
+    assert_received {:query, query}
     query
   end
 

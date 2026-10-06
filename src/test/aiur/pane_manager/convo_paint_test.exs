@@ -42,7 +42,7 @@ defmodule Aiur.PaneManager.ConvoPaintTest do
 
       Task.await(task)
 
-      assert_receive {:convo_first_paint, "issue-1", "%10", wall_ms} when is_integer(wall_ms)
+      assert_receive {:convo_first_paint, "issue-1", "%10", wall_ms} when is_integer(wall_ms), 1000
 
       assert_receive {:aiur_perf, %{phase: :convo_first_paint, meta: %{identifier: "issue-1", pane_id: "%10", slot: 1}}}, 1000
     end

@@ -122,7 +122,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert {:reply, {:ok, 42}, ^accepted_state} =
                PauseResume.request_control_call(accepted_state, issue_id, :pause, 42)
 
-      refute_receive {:pause_agent, 42, _generation}, 0
+      refute_receive {:pause_agent, 42, _generation}, 100
 
       assert [%{request_id: 42, status: :accepted}] =
                ControlLifecycle.history(accepted_state.control_lifecycle, issue_id)
@@ -282,7 +282,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert %{status: :rejected, rejection: %{class: :unsupported}} =
                rejected_state.control_lifecycle.records[43]
 
-      refute_receive {:pause_agent, 43, _generation}, 0
+      refute_receive {:pause_agent, 43, _generation}, 100
 
       assert {:reply, {:error, {:control_rejected, %{class: :unsupported}}}, ^rejected_state} =
                PauseResume.request_control_call(rejected_state, issue_id, :pause, 43)
@@ -311,7 +311,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert %{status: :rejected, rejection: %{class: :already_in_state}} =
                rejected_state.control_lifecycle.records[44]
 
-      refute_receive {:pause_agent, 44, _generation}, 0
+      refute_receive {:pause_agent, 44, _generation}, 100
     end
 
     test "an explicit resume request cannot bypass the existing capacity limit" do
@@ -342,7 +342,7 @@ defmodule Aiur.OrchestratorControlRoutingTest do
       assert {:reply, {:error, :max_concurrent_agents_reached}, ^state} =
                PauseResume.request_control_call(state, paused_issue_id, :resume, 46)
 
-      refute_receive {:resume_agent, 46, _generation}, 0
+      refute_receive {:resume_agent, 46, _generation}, 100
     end
 
     test "worker completion expires a pending control instead of leaving it applied or pending" do
