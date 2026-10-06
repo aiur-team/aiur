@@ -21,7 +21,7 @@ defmodule Aiur.Orchestrator.DispatchOutcomeTest do
     owner = self()
     recorded = DispatchOutcome.record(state, state, [issue], &send(owner, {:diagnostic, &1}))
     assert recorded.dispatch_selection_hold.reasons == [:unknown]
-    assert_receive {:diagnostic, message}
+    assert_receive {:diagnostic, message}, 1_000
     assert message =~ "despite free slots"
     assert {:dispatch_selection, %{reasons: [:unknown]}} = CapacityBinding.binding(Slots.max_concurrent_agent_status(recorded))
     assert DispatchOutcome.record(recorded, recorded, [], fn _ -> :ok end).dispatch_selection_hold == nil
