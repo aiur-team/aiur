@@ -270,6 +270,20 @@ defmodule Aiur.ModelAvailabilityTest do
   end
 
   describe "stale detection and retry scheduling" do
+    test "provider hold details disclose freshness, observation, and next probe", %{path: path} do
+      now = DateTime.utc_now()
+      observed_at = DateTime.add(now, -301, :second)
+      retry_at = DateTime.add(now, 120, :second) |> DateTime.to_iso8601()
+
+      assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 10, limit: 10}}, path: path, now: observed_at)
+      assert :ok = ModelAvailability.schedule_retry("codex", now, path: path)
+
+      detail = ModelAvailability.provider_freshness_detail(["codex"], path: path, now: now)
+      assert detail =~ "codex=stale"
+      assert detail =~ DateTime.to_iso8601(observed_at)
+      assert detail =~ retry_at
+    end
+
     test "detects stale limits (> 5 minutes old)", %{path: path} do
       now = DateTime.utc_now()
       fresh_time = DateTime.add(now, -60, :second)
@@ -314,26 +328,32 @@ defmodule Aiur.ModelAvailabilityTest do
       stale_time = DateTime.add(now, -301, :second)
       fresh_time = DateTime.add(now, -60, :second)
 
-      # Setup: one stale limit, one fresh, one already scheduled
+      # Setup: stale Codex, fresh Claude, and a non-Codex backend.
       assert :ok = ModelAvailability.observe("codex", %{hourly: %{used: 10, limit: 10}}, path: path, now: stale_time)
       assert :ok = ModelAvailability.observe("claude", %{hourly: %{used: 5, limit: 10}}, path: path, now: fresh_time)
-      assert :ok = ModelAvailability.schedule_retry("openrouter", now, path: path)
+      assert :ok = ModelAvailability.observe("openrouter", %{hourly: %{used: 10, limit: 10}}, path: path, now: stale_time)
+      assert :ok = ModelAvailability.schedule_retry("codex", now, path: path)
 
-      # Probe stale limits (should only trigger for codex)
-      # Note: this test verifies the filtering logic; probe_async is mocked by the test suite
+      # Probe stale limits (only Codex is eligible).
       state = ModelAvailability.load(path)
       backends = ["codex", "claude", "openrouter"]
 
-      # The function will return count of stale backends without retry scheduled
-      # In this case: codex is stale and no retry scheduled (count = 1)
-      # claude is fresh (not stale), openrouter has retry scheduled
+      # Codex has a pending retry that is not due yet, so it is not probed.
+      # Claude is fresh and OpenRouter must never use the Codex prober.
       count = ModelAvailability.probe_stale_limits(backends, state: state, now: now, path: path)
-      assert count == 1
+      assert count == 0
+
+      due_state = ModelAvailability.load(path)
+      due_now = DateTime.add(now, 120, :second)
+      assert ModelAvailability.probe_stale_limits(backends, state: due_state, now: due_now, path: path) == 1
+
+      # Claiming a due probe advances retry before spawn, preventing every-tick duplication.
+      assert ModelAvailability.probe_stale_limits(backends, state: ModelAvailability.load(path), now: due_now, path: path) == 0
     end
   end
 
   describe "stale limit refresh integration" do
-    test "cached 100% limit refreshes to 4% when provider is probed", %{path: path} do
+    test "cached 100% limit refreshes to 4% through the provider prober", %{path: path} do
       now = DateTime.utc_now()
       stale_time = DateTime.add(now, -301, :second)
 
@@ -351,19 +371,22 @@ defmodule Aiur.ModelAvailabilityTest do
       # Verify dispatch would be blocked by the 100% limit
       refute ModelAvailability.available?("codex", path: path, now: now)
 
-      # Simulate a successful probe: provider now reports 4% usage with a new reset time
-      new_reset_time = DateTime.add(now, 3600, :second) |> DateTime.to_iso8601()
-
       assert :ok =
-               ModelAvailability.observe(
-                 "codex",
-                 %{hourly: %{usedPercent: 4, windowDurationMins: 60, resetsAt: new_reset_time}},
+               Aiur.CodexProber.probe_sync("codex", now,
                  path: path,
-                 now: now
+                 fetch_limits_fun: fn ->
+                   {:ok,
+                    %{
+                      "rateLimits" => %{
+                        "primary" => %{
+                          "usedPercent" => 4,
+                          "windowDurationMins" => 60,
+                          "resetsAt" => DateTime.to_unix(DateTime.add(now, 3600, :second))
+                        }
+                      }
+                    }}
+                 end
                )
-
-      # Clear any retry schedule (as a successful probe would)
-      assert :ok = ModelAvailability.clear_retry_schedule("codex", path: path)
 
       # After refresh, dispatch should be allowed (4% < 100% limit)
       assert ModelAvailability.available?("codex", path: path, now: now)
@@ -390,8 +413,11 @@ defmodule Aiur.ModelAvailabilityTest do
       # Dispatch is blocked
       refute ModelAvailability.available?("codex", path: path, now: now)
 
-      # Simulate probe failure: schedule retry (as CodexProber.probe_sync would)
-      assert :ok = ModelAvailability.schedule_retry("codex", now, path: path)
+      assert {:error, :provider_unavailable} =
+               Aiur.CodexProber.probe_sync("codex", now,
+                 path: path,
+                 fetch_limits_fun: fn -> {:error, :provider_unavailable} end
+               )
 
       # Cached reading is still there (not cleared by failure)
       refute ModelAvailability.available?("codex", path: path, now: now)

@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, DecisionStore, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, DecisionStore, Issue, ModelAvailability, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
@@ -2143,6 +2143,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
         case DispatchPolicy.manual_resume_decision(tracker_issue, state) do
           :dispatch ->
+            ModelAvailability.probe_stale_limits(DispatchPolicy.read_provider_backends())
             Dispatcher.dispatch_prevalidated_issue(state, tracker_issue)
 
           {:skip, reason} ->

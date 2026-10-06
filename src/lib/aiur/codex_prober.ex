@@ -28,7 +28,7 @@ defmodule Aiur.CodexProber do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     path = Keyword.get(opts, :path, ModelAvailability.path())
 
-    spawn(fn -> probe_sync(backend, now, path: path) end)
+    spawn(fn -> probe_sync(backend, now, Keyword.put(opts, :path, path)) end)
     :ok
   end
 
@@ -68,7 +68,21 @@ defmodule Aiur.CodexProber do
     end
   end
 
-  defp probe_codex_limits(_opts) do
+  defp probe_codex_limits(opts) do
+    case Keyword.get(opts, :fetch_limits_fun) do
+      fun when is_function(fun, 0) ->
+        case fun.() do
+          {:ok, response} when is_map(response) -> normalize_codex_limits(response)
+          {:error, _reason} = error -> error
+          _ -> {:error, :invalid_response}
+        end
+
+      _ ->
+        probe_codex_limits_from_session()
+    end
+  end
+
+  defp probe_codex_limits_from_session do
     # Create a temporary workspace for the probe session
     workspace = System.tmp_dir() <> "/codex-probe-#{:erlang.unique_integer([:positive])}"
 
@@ -144,16 +158,13 @@ defmodule Aiur.CodexProber do
     end
   end
 
+  @doc false
   @spec normalize_codex_limits(map()) :: {:ok, map()} | {:error, term()}
-  defp normalize_codex_limits(result) do
-    # Codex returns a structure like:
-    # {
-    #   "primary": {"usedPercent": N, "windowDurationMins": M, "resetsAt": "..."},
-    #   "secondary": {"usedPercent": N, "windowDurationMins": M, "resetsAt": "..."},
-    #   "rateLimitReachedType": null or "..."
-    # }
+  def normalize_codex_limits(result) do
+    # account/rateLimits/read returns the windows under `rateLimits`.
     limits =
       result
+      |> Map.get("rateLimits", %{})
       |> Map.take(["primary", "secondary"])
       |> Enum.into(%{})
 

@@ -143,6 +143,34 @@ defmodule Aiur.ModelAvailability do
     end
   end
 
+  @doc false
+  @spec provider_freshness_detail([String.t()], keyword()) :: String.t()
+  def provider_freshness_detail(backends, opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+    state = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path())))
+
+    details =
+      backends
+      |> Enum.map(&backend_key/1)
+      |> Enum.uniq()
+      |> Enum.map(fn backend ->
+        entry = get_in(state, ["backends", backend]) || %{}
+        observed_at = Map.get(entry, "observed_at", "unknown")
+
+        freshness =
+          cond do
+            not Map.has_key?(entry, "observed_at") -> "unknown"
+            stale?(backend, state: state, now: now) -> "stale"
+            true -> "fresh"
+          end
+
+        next_probe = Map.get(entry, "retry_scheduled_at", "now")
+        "#{backend}=#{freshness} observed_at=#{observed_at} next_probe=#{next_probe}"
+      end)
+
+    "backends=" <> Enum.join(details, "; ")
+  end
+
   @doc """
   Schedule a retry probe for this backend after the retry delay (2 minutes).
   Returns updated state to be persisted.
@@ -212,15 +240,36 @@ defmodule Aiur.ModelAvailability do
     stale_backends =
       backends
       |> Enum.filter(fn backend ->
-        stale?(backend, state: state, now: now, path: path) and
-          not retry_scheduled?(backend, state: state, now: now, path: path)
+        backend_key(backend) == "codex" and stale_or_unknown?(backend, state: state, now: now, path: path) and
+          probe_due?(backend, state: state, now: now, path: path)
       end)
 
+    probe_fun = Keyword.get(opts, :probe_fun, &CodexProber.probe_async/2)
+
     Enum.each(stale_backends, fn backend ->
-      CodexProber.probe_async(backend, path: path, now: now)
+      schedule_retry(backend, now, path: path)
+      probe_fun.(backend, path: path, now: now)
     end)
 
     Enum.count(stale_backends)
+  end
+
+  defp stale_or_unknown?(backend, opts) do
+    backend = backend_key(backend)
+    state = Keyword.fetch!(opts, :state)
+    entry = get_in(state, ["backends", backend]) || %{}
+    not Map.has_key?(entry, "observed_at") or stale?(backend, opts)
+  end
+
+  defp probe_due?(backend, opts) do
+    backend = backend_key(backend)
+    state = Keyword.fetch!(opts, :state)
+    entry = get_in(state, ["backends", backend]) || %{}
+
+    case parse_time(Map.get(entry, "retry_scheduled_at")) do
+      nil -> true
+      %DateTime{} = retry_at -> DateTime.compare(Keyword.fetch!(opts, :now), retry_at) != :lt
+    end
   end
 
   defp limited?(entry, now) do

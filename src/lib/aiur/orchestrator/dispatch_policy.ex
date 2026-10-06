@@ -245,13 +245,15 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # the mixed-backend case; this gate only surfaces the fleet-wide saturation.
   # As a side effect, when we would hold due to all backends being limited,
   # trigger probes for any stale limits to refresh the cached readings.
-  @spec provider_gate([String.t()]) :: :dispatch | :hold
-  def provider_gate(backends) when is_list(backends) and backends != [] do
-    case ModelAvailability.first_available(backends) do
+  @spec provider_gate([String.t()], keyword()) :: :dispatch | :hold
+  def provider_gate(backends, opts \\ [])
+
+  def provider_gate(backends, opts) when is_list(backends) and backends != [] do
+    case ModelAvailability.first_available(backends, opts) do
       nil ->
         # All backends are limited; trigger probes for any stale limits
         # This is a non-blocking side effect that happens in the background
-        ModelAvailability.probe_stale_limits(backends)
+        ModelAvailability.probe_stale_limits(backends, opts)
         :hold
 
       _backend ->
@@ -259,7 +261,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  def provider_gate(_backends), do: :dispatch
+  def provider_gate(_backends, _opts), do: :dispatch
 
   @doc false
   @spec github_quota_gate(:available | {:hold, map()} | term()) :: :dispatch | :hold
