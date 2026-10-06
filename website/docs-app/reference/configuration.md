@@ -705,7 +705,9 @@ These policy keys never grant transport access by themselves. The supervisor API
 
 When `server.host` is absent, the dashboard binds `127.0.0.1` (or the `AIUR_DEFAULT_DASHBOARD_HOST` override). A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
 
-Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed.
+Set `server.tailscale_funnel: true` only when this node already has a Funnel route the operator intends to keep. At startup and every 30 seconds, Aiur reads the dashboard's bound host and port and updates the route with `tailscale funnel --bg` when needed. Enable this on only one Aiur daemon per node so multiple reconcilers do not compete for HTTPS 443.
+
+A non-root account needs Tailscale operator access before Aiur can manage the route. Grant it once with `sudo tailscale set --operator=$USER`; then run Aiur as that account.
 
 Aiur does not enable Funnel or create a route. The dashboard's existing authentication remains in place, and the route supports HTTP and WebSocket traffic.
 

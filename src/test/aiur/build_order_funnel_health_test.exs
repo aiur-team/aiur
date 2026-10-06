@@ -38,7 +38,7 @@ defmodule Aiur.BuildOrderFunnelHealthTest do
 
     test "keeps invalid Tailscale JSON separate from a genuine target mismatch" do
       runner = fn _executable, _args, _timeout -> {"{broken", 0} end
-      failure = %{cause: :unknown, reasons: [:invalid_funnel_status_json]}
+      failure = %{cause: :unknown, reasons: [:invalid_status_json]}
 
       assert {:error, ^failure} =
                BuildOrderFunnelHealth.check(
@@ -57,7 +57,7 @@ defmodule Aiur.BuildOrderFunnelHealthTest do
         "Web" => %{"dashboard.example.ts.net:443" => %{"Handlers" => %{}}}
       }
 
-      assert {:error, %{cause: :unknown, reasons: [:root_proxy_handler_missing]}} =
+      assert {:error, %{cause: :unknown, reasons: [:funnel_443_root_proxy_missing]}} =
                BuildOrderFunnelHealth.funnel_target_status(status, 4_000)
     end
 

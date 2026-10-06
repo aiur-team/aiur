@@ -31,6 +31,27 @@ defmodule Aiur.ApplicationTest do
     assert :ok = AiurApp.stop(:any_state)
   end
 
+  test "startup Funnel health check stays quiet while the reconciler owns the route" do
+    settings =
+      {:ok,
+       %{
+         server: %{tailscale_funnel: true},
+         observability: %{build_order_funnel_health_check: true}
+       }}
+
+    refute AiurApp.build_order_funnel_health_check_startup?(settings, false)
+    refute AiurApp.build_order_funnel_health_check_startup?(settings, true)
+
+    health_only_settings =
+      {:ok,
+       %{
+         server: %{tailscale_funnel: false},
+         observability: %{build_order_funnel_health_check: true}
+       }}
+
+    assert AiurApp.build_order_funnel_health_check_startup?(health_only_settings, false)
+  end
+
   test "logs the resolved base branch exactly once at info level" do
     log = capture_log(fn -> assert :ok = AiurApp.log_base_branch({:ok, %{tracker: %{base_branch: "develop"}}}) end)
 

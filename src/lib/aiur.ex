@@ -111,7 +111,7 @@ defmodule Aiur.Application do
       |> tap(fn
         {:ok, _supervisor} ->
           start_upgrade_check()
-          start_build_order_funnel_check(not no_dashboard? and Aiur.Config.build_order_funnel_health_check_enabled?(settings))
+          start_build_order_funnel_check(build_order_funnel_health_check_startup?(settings, no_dashboard?))
 
         _error ->
           :ok
@@ -155,6 +155,14 @@ defmodule Aiur.Application do
   end
 
   defp start_build_order_funnel_check(false), do: :ok
+
+  @doc false
+  @spec build_order_funnel_health_check_startup?(term(), boolean()) :: boolean()
+  def build_order_funnel_health_check_startup?(settings, no_dashboard?) do
+    not no_dashboard? and
+      Aiur.Config.build_order_funnel_health_check_enabled?(settings) and
+      not match?({:ok, %{server: %{tailscale_funnel: true}}}, settings)
+  end
 
   @doc false
   @spec maybe_validate_environment() :: :ok

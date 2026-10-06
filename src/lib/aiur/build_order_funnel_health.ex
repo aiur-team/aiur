@@ -10,7 +10,7 @@ defmodule Aiur.BuildOrderFunnelHealth do
   malformed or failed status reads retain a neutral cause and a separate reason.
   """
 
-  alias Aiur.{Alerts, HttpServer}
+  alias Aiur.{Alerts, HttpServer, TailscaleFunnel}
 
   @default_timeout_ms 5_000
   @healthy_statuses [200, 301, 302, 304, 307, 308, 401]
@@ -56,8 +56,8 @@ defmodule Aiur.BuildOrderFunnelHealth do
   @doc false
   @spec funnel_target_status(map(), port_number()) :: :ok | :not_configured | {:error, failure()}
   def funnel_target_status(status, bound_port) when is_map(status) do
-    case configured_funnel_proxy(status) do
-      :not_configured ->
+    case TailscaleFunnel.funnel_target(status) do
+      {:error, :funnel_443_not_enabled} ->
         :not_configured
 
       {:ok, proxy} ->
@@ -81,119 +81,27 @@ defmodule Aiur.BuildOrderFunnelHealth do
   end
 
   defp read_funnel_status(bound_port, timeout_ms, opts) do
-    case Keyword.get_lazy(opts, :tailscale_executable, fn -> System.find_executable("tailscale") end) do
-      nil ->
+    case TailscaleFunnel.command(["funnel", "status", "--json"], Keyword.put(opts, :timeout_ms, timeout_ms)) do
+      {:error, :tailscale_executable_not_found} ->
         :not_configured
 
-      executable ->
-        runner = Keyword.get(opts, :tailscale_runner, &run_tailscale/3)
-
-        case safe_tailscale_run(runner, executable, timeout_ms) do
-          {output, 0} when is_binary(output) ->
-            decode_funnel_status(output, bound_port)
-
-          {_output, exit_status} when is_integer(exit_status) ->
-            unknown_failure({:tailscale_exit, exit_status})
-
-          {:error, :timeout} ->
-            unknown_failure(:tailscale_status_timeout)
-
-          {:error, reason} ->
-            unknown_failure(reason)
-
-          _other ->
-            unknown_failure(:invalid_tailscale_result)
+      {:ok, output} ->
+        case TailscaleFunnel.funnel_target(output) do
+          {:ok, proxy} -> funnel_proxy_status(proxy, bound_port)
+          {:error, :funnel_443_not_enabled} -> :not_configured
+          {:error, reason} -> unknown_failure(reason)
         end
+
+      {:error, {:tailscale_exit, exit_status}} ->
+        unknown_failure({:tailscale_exit, exit_status})
+
+      {:error, :tailscale_timeout} ->
+        unknown_failure(:tailscale_status_timeout)
+
+      {:error, reason} ->
+        unknown_failure(reason)
     end
   end
-
-  defp safe_tailscale_run(runner, executable, timeout_ms) do
-    runner.(executable, ["funnel", "status", "--json"], timeout_ms)
-  rescue
-    exception ->
-      {:error, {:tailscale_runner_exception, exception.__struct__}}
-  catch
-    kind, reason ->
-      {:error, {:tailscale_runner_exit, kind, reason}}
-  end
-
-  defp run_tailscale(executable, args, timeout_ms) do
-    port =
-      Port.open({:spawn_executable, String.to_charlist(executable)}, [
-        :binary,
-        :exit_status,
-        :stderr_to_stdout,
-        :use_stdio,
-        {:args, Enum.map(args, &String.to_charlist/1)}
-      ])
-
-    deadline = System.monotonic_time(:millisecond) + timeout_ms
-    collect_tailscale_output(port, deadline, [])
-  end
-
-  defp collect_tailscale_output(port, deadline, output) do
-    receive do
-      {^port, {:data, chunk}} ->
-        collect_tailscale_output(port, deadline, [chunk | output])
-
-      {^port, {:exit_status, status}} ->
-        {output |> Enum.reverse() |> IO.iodata_to_binary(), status}
-    after
-      max(deadline - System.monotonic_time(:millisecond), 0) ->
-        safe_close_tailscale_port(port)
-        flush_tailscale_messages(port)
-        {:error, :timeout}
-    end
-  end
-
-  defp safe_close_tailscale_port(port) do
-    Port.close(port)
-  rescue
-    ArgumentError -> :ok
-  end
-
-  defp flush_tailscale_messages(port) do
-    receive do
-      {^port, _message} -> flush_tailscale_messages(port)
-    after
-      0 -> :ok
-    end
-  end
-
-  defp decode_funnel_status(output, bound_port) do
-    case Jason.decode(output) do
-      {:ok, status} when is_map(status) -> funnel_target_status(status, bound_port)
-      {:ok, _other} -> unknown_failure(:invalid_funnel_status_shape)
-      {:error, _reason} -> unknown_failure(:invalid_funnel_status_json)
-    end
-  end
-
-  defp configured_funnel_proxy(%{"AllowFunnel" => allow_funnel} = status) when is_map(allow_funnel) do
-    if Enum.any?(allow_funnel, fn {_target, enabled?} -> enabled? == true end) do
-      funnel_https_proxy(status)
-    else
-      :not_configured
-    end
-  end
-
-  defp configured_funnel_proxy(_status), do: {:error, :missing_allow_funnel_status}
-
-  defp funnel_https_proxy(%{"Web" => web}) when is_map(web) do
-    target = Enum.find(Map.keys(web), &(is_binary(&1) and String.ends_with?(&1, ":443")))
-
-    case target do
-      nil ->
-        {:error, :https_443_target_missing}
-
-      _target ->
-        case get_in(web, [target, "Handlers", "/", "Proxy"]) do
-          proxy when is_binary(proxy) -> {:ok, proxy}
-          _other -> {:error, :root_proxy_handler_missing}
-        end
-    end
-  end
-
-  defp funnel_https_proxy(_status), do: {:error, :web_status_missing}
 
   defp funnel_proxy_status(proxy, bound_port) do
     case URI.parse(proxy) do

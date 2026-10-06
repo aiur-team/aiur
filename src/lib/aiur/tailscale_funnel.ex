@@ -82,12 +82,11 @@ defmodule Aiur.TailscaleFunnel do
   @spec reconcile(String.t(), pos_integer(), keyword()) :: :ok | {:error, term()}
   def reconcile(host, port, opts \\ []) when is_binary(host) and is_integer(port) and port > 0 do
     target = "http://#{url_host(host)}:#{port}"
-    command_fun = Keyword.get(opts, :command_fun, &run_tailscale/1)
 
-    with {:ok, status} <- command(command_fun, ["funnel", "status", "--json"]),
+    with {:ok, status} <- command(["funnel", "status", "--json"], opts),
          {:ok, current_target} <- funnel_target(status),
-         :ok <- maybe_update(current_target, target, command_fun),
-         {:ok, verified_status} <- command(command_fun, ["funnel", "status", "--json"]),
+         :ok <- maybe_update(current_target, target, opts),
+         {:ok, verified_status} <- command(["funnel", "status", "--json"], opts),
          {:ok, ^target} <- funnel_target(verified_status) do
       :ok
     else
@@ -105,67 +104,127 @@ defmodule Aiur.TailscaleFunnel do
     end
   end
 
-  def funnel_target(status) when is_map(status) do
-    allow_funnel = Map.get(status, "AllowFunnel", %{})
-    web = Map.get(status, "Web", %{})
-
-    routes =
+  def funnel_target(%{"AllowFunnel" => allow_funnel} = status) when is_map(allow_funnel) do
+    listeners =
       for {listener, true} <- allow_funnel,
+          is_binary(listener),
           String.ends_with?(listener, ":#{@https_port}"),
-          route = Map.get(web, listener),
-          is_map(route),
-          do: route
+          do: listener
 
-    case routes do
-      [%{"Handlers" => %{"/" => %{"Proxy" => target}}}] when is_binary(target) -> {:ok, target}
-      [] -> {:error, :funnel_443_not_enabled}
-      [_] -> {:error, :funnel_443_root_proxy_missing}
-      _ -> {:error, :multiple_funnel_443_routes}
+    case listeners do
+      [] ->
+        {:error, :funnel_443_not_enabled}
+
+      [listener] ->
+        web = Map.get(status, "Web", %{})
+        proxy = if is_map(web), do: get_in(web, [listener, "Handlers", "/", "Proxy"])
+
+        case proxy do
+          target when is_binary(target) -> {:ok, target}
+          _other -> {:error, :funnel_443_root_proxy_missing}
+        end
+
+      _multiple ->
+        {:error, :multiple_funnel_443_routes}
     end
   end
 
   def funnel_target(_status), do: {:error, :invalid_status_shape}
 
-  defp maybe_update(target, target, _command_fun), do: :ok
+  @doc false
+  @spec command([String.t()], keyword()) :: {:ok, String.t()} | {:error, term()}
+  def command(args, opts \\ []) do
+    executable = Keyword.get_lazy(opts, :tailscale_executable, fn -> System.find_executable("tailscale") end)
+    runner = Keyword.get(opts, :tailscale_runner, &run_tailscale/3)
+    timeout_ms = Keyword.get(opts, :timeout_ms, @command_timeout_ms)
 
-  defp maybe_update(_current_target, target, command_fun) do
-    case command(command_fun, ["funnel", "--bg", "--https=#{@https_port}", "--yes", target]) do
+    case executable do
+      nil ->
+        {:error, :tailscale_executable_not_found}
+
+      executable ->
+        case safe_tailscale_run(runner, executable, args, timeout_ms) do
+          {output, 0} when is_binary(output) -> {:ok, output}
+          {_output, status} when is_integer(status) -> {:error, {:tailscale_exit, status}}
+          {:error, :timeout} -> {:error, :tailscale_timeout}
+          {:error, reason} -> {:error, reason}
+          _other -> {:error, :invalid_tailscale_result}
+        end
+    end
+  end
+
+  defp maybe_update(target, target, _opts), do: :ok
+
+  defp maybe_update(_current_target, target, opts) do
+    case command(["funnel", "--bg", "--https=#{@https_port}", "--yes", target], opts) do
       {:ok, _output} -> :ok
       {:error, _reason} = error -> error
     end
   end
 
-  defp command(command_fun, args) do
-    case command_fun.(args) do
-      {output, 0} when is_binary(output) -> {:ok, output}
-      {output, status} when is_binary(output) -> {:error, {:command_failed, status, output}}
-      other -> {:error, {:invalid_command_result, other}}
-    end
+  defp safe_tailscale_run(runner, executable, args, timeout_ms) do
+    runner.(executable, args, timeout_ms)
   rescue
-    error -> {:error, {:command_exception, Exception.message(error)}}
+    error -> {:error, {:tailscale_runner_exception, Exception.message(error)}}
   catch
-    :exit, reason -> {:error, {:command_exit, reason}}
+    :exit, reason -> {:error, {:tailscale_runner_exit, reason}}
   end
 
-  defp run_tailscale(args) do
-    executable = System.find_executable("tailscale")
+  defp run_tailscale(executable, args, timeout_ms) do
+    port =
+      Port.open({:spawn_executable, String.to_charlist(executable)}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        :use_stdio,
+        {:args, Enum.map(args, &String.to_charlist/1)}
+      ])
 
-    if executable do
-      task = Task.async(fn -> System.cmd(executable, args, stderr_to_stdout: true) end)
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    collect_tailscale_output(port, deadline, [])
+  end
 
-      case Task.yield(task, @command_timeout_ms) do
-        {:ok, result} ->
-          result
+  defp collect_tailscale_output(port, deadline, output) do
+    receive do
+      {^port, {:data, chunk}} ->
+        collect_tailscale_output(port, deadline, [chunk | output])
 
-        {:exit, reason} ->
-          {inspect(reason), 1}
+      {^port, {:exit_status, status}} ->
+        {output |> Enum.reverse() |> IO.iodata_to_binary(), status}
+    after
+      max(deadline - System.monotonic_time(:millisecond), 0) ->
+        terminate_tailscale_process(port)
+        flush_tailscale_messages(port)
+        {:error, :timeout}
+    end
+  end
 
-        nil ->
-          _ = Task.shutdown(task, :brutal_kill)
-          {"tailscale command timed out", 124}
-      end
-    else
-      {"tailscale executable not found", 127}
+  defp terminate_tailscale_process(port) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, os_pid} ->
+        case System.find_executable("kill") do
+          nil -> :ok
+          kill -> System.cmd(kill, ["-KILL", Integer.to_string(os_pid)], stderr_to_stdout: true)
+        end
+
+      nil ->
+        :ok
+    end
+
+    close_tailscale_port(port)
+  end
+
+  defp close_tailscale_port(port) do
+    Port.close(port)
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp flush_tailscale_messages(port) do
+    receive do
+      {^port, _message} -> flush_tailscale_messages(port)
+    after
+      0 -> :ok
     end
   end
 
@@ -177,9 +236,9 @@ defmodule Aiur.TailscaleFunnel do
     end
   end
 
-  defp format_reason({:command_failed, 127, _output}), do: "tailscale executable not found; install Tailscale CLI"
-  defp format_reason({:command_failed, 124, _output}), do: "tailscale command timed out; will retry"
-  defp format_reason({:command_failed, status, _output}), do: "tailscale exited with status #{status}; will retry"
+  defp format_reason({:tailscale_exit, status}), do: "tailscale exited with status #{status}; will retry"
+  defp format_reason(:tailscale_timeout), do: "tailscale command timed out; will retry"
+  defp format_reason(:tailscale_executable_not_found), do: "tailscale executable not found; install Tailscale CLI"
   defp format_reason(:funnel_443_not_enabled), do: "no operator-enabled HTTPS 443 Funnel route exists"
   defp format_reason(:dashboard_listener_not_bound), do: "dashboard listener is not bound; will retry"
   defp format_reason(reason), do: inspect(reason)
