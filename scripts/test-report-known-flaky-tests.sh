@@ -128,9 +128,33 @@ assert_contains 'a missing log is a no-op' 'test log not found' "$output"
 workflow="$root/.github/workflows/ci.yml"
 coverage_partition_job="$(sed -n '/^  coverage-partition:$/,/^  coverage:$/p' "$workflow")"
 
-assert_contains 'ci.yml runs the reporter step' 'Report known-flaky test names' "$coverage_partition_job"
-assert_contains 'reporter step runs only on failure' 'if: ${{ failure() }}' "$coverage_partition_job"
-assert_contains 'reporter step invokes the script' 'run: bash scripts/report-known-flaky-tests.sh' "$coverage_partition_job"
+# Scope every assertion to the reporter step itself, and assert the semantics
+# of its gate rather than the whole `if:` line (#docs-only CI).
+#
+# This used to pin the literal `if: ${{ failure() }}` anywhere in the
+# coverage-partition job -- both too loose (any step's gate satisfied it) and
+# too tight (it broke as soon as an unrelated condition was ANDed in, which is
+# not a regression in flake reporting). What matters is that THIS step still
+# runs only on failure and still invokes the reporter, so assert exactly that.
+reporter_step="$(
+  awk '
+    $0 == "      - name: Report known-flaky test names" { inside = 1; print; next }
+    inside && /^      - name: / { inside = 0 }
+    inside { print }
+  ' <<<"$coverage_partition_job"
+)"
+
+if [[ -z "$reporter_step" ]]; then
+  echo "ci.yml must run the known-flaky reporter step in coverage-partition" >&2
+  exit 1
+fi
+
+if ! grep -Eq '^        if: .*failure\(\)' <<<"$reporter_step"; then
+  echo "the known-flaky reporter step must still be gated on failure()" >&2
+  exit 1
+fi
+
+assert_contains 'reporter step invokes the script' 'run: bash scripts/report-known-flaky-tests.sh' "$reporter_step"
 
 if [[ "$(grep -Fc 'report-known-flaky-tests.sh' "$workflow")" -lt 1 ]]; then
   echo "workflow must wire the known-flaky reporter" >&2

@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper}
+  alias Aiur.{AgentPubSub, CIApprovalStore, Config, LiveConversation, PollCadence, ProcessReaper, TestTicketScope}
   alias Aiur.Events.{Exchange, Publisher}
 
   alias Aiur.Orchestrator.{
@@ -37,6 +37,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
     "ticket.*.ci.passed",
     "ticket.*.agent.pause.request",
     "ticket.*.agent.unblocked",
+    "ticket.*.agent.decision.answered",
     "ticket.*.branch.push",
     "system.*.branch.push"
   ]
@@ -78,6 +79,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
   def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
+    :ok = TestTicketScope.validate!()
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
     Process.flag(:trap_exit, true)

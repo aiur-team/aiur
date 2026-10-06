@@ -221,6 +221,7 @@ See [GitHub polling and webhooks](/apis/github) for the setup story and runtime 
 | `agent.rate_limit_fallback` | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
+| `agent.max_consecutive_noop_turns` | integer | 3 | Consecutive continuation turns that changed nothing observable (no commit, no push, no working-tree change, no label change, no new input) before the loop stops and raises a needs-attention alert. A productive turn resets the count; 0 disables the bound. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
 | `agent.max_retry_backoff_ms` | integer | 300000 | Retry backoff ceiling in milliseconds. |
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
@@ -347,6 +348,25 @@ These settings control the OpenRouter *transport*; selection lives entirely in `
 | `agent.backend_configs.openrouter.provider.ignore` | array of strings or nil | omitted | Upstream providers to exclude. |
 | `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean or nil | omitted | Whether OpenRouter may cross to another upstream within one request. |
 | `agent.backend_configs.openrouter.provider.sort` | string or nil | omitted | `price`, `throughput`, or `latency`. |
+
+#### `agent.backend_configs.muse`
+
+Select `muse` in `agent.priority` to dispatch native Muse sessions. `aiur init` asks separately before trusting an agent workspace; selecting Muse alone leaves that trust disabled. Enable it only for workspaces whose skills and rules you intend Muse to load. Muse CLI authentication is handled by `muse auth` outside Aiur's config.
+
+Local Muse sessions retain a native session handle across Aiur restarts. Aiur
+starts a fresh session only when Muse explicitly reports that the stored session
+was not found. Other resume errors, including a busy session, timeout, or
+mismatched session identity, remain failures to preserve conversation continuity.
+
+Remote workers and Claude Remote Control are unsupported for Muse.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `agent.backend_configs.muse.command` | non-empty string | `muse serve` | Command launching the native Muse MSP server. |
+| `agent.backend_configs.muse.trust_workspace` | boolean | `false` | Allows Muse to load workspace-local skills and rules. `aiur init` asks explicitly before writing `true`. |
+| `agent.backend_configs.muse.approval_mode` | string | `onRequest` | Muse approval mode: `allowAll`, `promptUnmatched`, `onRequest`, or `denyUnmatched`. |
+| `agent.backend_configs.muse.model` | string or nil | nil | Optional Muse model override; omit to use the CLI default. |
+| `agent.backend_configs.muse.provider_id` | string or nil | nil | Optional Muse provider identifier. |
 
 #### Cost attribution
 
@@ -491,7 +511,7 @@ costed at zero. A refresh logs how many discovered models are unpriced.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.backend_configs.<backend>.model_discovery` | boolean | true | Set `false` to stop aiur asking this backend's catalogue endpoint. The curated list keeps working. |
+| `agent.backend_configs.<backend>.model_discovery` | boolean | true | Set `false` to stop aiur asking this backend for its model list — the catalogue endpoint for an OpenAI-compatible backend, or the CLI's `model/list` for `codex` and `claude`. The curated list and any list already cached keep working; aiur just stops refreshing them. |
 
 ```yaml
 agent:

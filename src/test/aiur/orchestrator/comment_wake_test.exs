@@ -1115,28 +1115,45 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       assert Keyword.get(opts, :reason) =~ "unknown-bot"
     end
 
-    test "emits unauthorized-merger alert when merged_by_login is nil" do
+    # A merge that carries no merger login is UNVERIFIED, not unauthorized. It
+    # still raises a critical, needs-attention alert -- the guard stays
+    # fail-closed -- but under the name and wording that say which of the two
+    # it is. An allowlisted human merging with `gh pr merge --squash` produced
+    # this on a live fleet, and "Unauthorized PR merger nil detected" is how a
+    # security alert gets muted; once muted it can no longer distinguish a real
+    # unauthorized merge from a failed read, which is its entire job.
+    test "an absent merger login is reported as unverified, not as unauthorized" do
       state = base_state()
       parent = self()
 
-      CommentWake.mark_pr_merged_issue_done(state, "424242",
-        pr_body: "Closes #424242",
-        merged_by_login: nil,
-        update_issue_state_fun: fn _id, "done" -> :ok end,
-        merger_allowed_fun: fn login ->
-          send(parent, {:checked_allowlist, login})
-          false
-        end,
-        emit_alert_fun: fn name, opts ->
-          send(parent, {:alert_emitted, name, opts})
-          :ok
-        end,
-        open_pull_requests_fun: fn _identifier -> {:ok, []} end
-      )
+      for absent <- [nil, ""] do
+        CommentWake.mark_pr_merged_issue_done(state, "424242",
+          pr_body: "Closes #424242",
+          merged_by_login: absent,
+          update_issue_state_fun: fn _id, "done" -> :ok end,
+          merger_allowed_fun: fn login ->
+            send(parent, {:checked_allowlist, login})
+            false
+          end,
+          emit_alert_fun: fn name, opts ->
+            send(parent, {:alert_emitted, name, opts})
+            :ok
+          end,
+          open_pull_requests_fun: fn _identifier -> {:ok, []} end
+        )
 
-      assert_receive {:checked_allowlist, nil}
-      assert_receive {:alert_emitted, "ticket.424242.merge.unauthorized_merger", opts}
-      assert Keyword.get(opts, :needs_attention) == true
+        assert_receive {:alert_emitted, "ticket.424242.merge.attribution_check_failed", opts}
+        refute_received {:alert_emitted, "ticket.424242.merge.unauthorized_merger", _opts}
+
+        # The allowlist is never consulted: "is nil allowed?" has no meaningful
+        # answer, and asking it is what produced the accusatory wording.
+        refute_received {:checked_allowlist, _login}
+
+        # Still fail-closed.
+        assert Keyword.get(opts, :needs_attention) == true
+        assert Keyword.get(opts, :severity) == "critical"
+        assert Keyword.get(opts, :reason) =~ "not a detected unauthorized one"
+      end
     end
 
     test "still emits unauthorized-merger alert when tracker update fails" do

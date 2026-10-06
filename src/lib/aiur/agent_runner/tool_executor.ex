@@ -18,7 +18,8 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     DecisionAttention,
     DecisionStore,
     EventPublicationLog,
-    Issue
+    Issue,
+    Tracker
   }
 
   alias Aiur.Codex.DynamicTool
@@ -66,7 +67,13 @@ defmodule Aiur.AgentRunner.ToolExecutor do
       unblock_dependency: Keyword.get(opts, :dependency_unblocker, &IssueDependencies.unblock/2),
       dependency_present: Keyword.get(opts, :dependency_present, &IssueDependencies.declared?/2),
       subscribe_blocker: Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2),
-      unsubscribe_blocker: Keyword.get(opts, :blocker_unsubscriber, &Orchestrator.unsubscribe_for_declared_blocker/2)
+      unsubscribe_blocker: Keyword.get(opts, :blocker_unsubscriber, &Orchestrator.unsubscribe_for_declared_blocker/2),
+      # The tracker writer behind `aiur_set_ticket_state` (#2805). It goes
+      # through the same `Tracker.update_issue_state/2` the daemon uses, which
+      # re-reads the issue and makes the target the sole `agent:*` state label —
+      # so an agent never has to name (and never has to guess) the label to
+      # remove.
+      set_ticket_state: Keyword.get(opts, :ticket_state_writer, &Tracker.update_issue_state/2)
     }
 
     event_handlers = %{
@@ -129,6 +136,9 @@ defmodule Aiur.AgentRunner.ToolExecutor do
         end,
         unblocker: fn blocker_number ->
           unblock_for_issue(issue, blocker_number, coordination)
+        end,
+        ticket_state_setter: fn state_name ->
+          set_ticket_state_for_issue(issue, state_name, coordination)
         end
       )
     end
@@ -164,6 +174,40 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           fn -> declare_and_reconcile(current, blocker_number, coordination) end,
           coordination_operation_opts(issue)
         )
+    end
+  end
+
+  # Serialized on the same per-ticket coordination key as blocker declaration,
+  # so an agent's own state write cannot interleave with another mutation of the
+  # same ticket. The write itself is a swap: add the target label, then remove
+  # every other `agent:*` state label present on the freshly fetched body.
+  defp set_ticket_state_for_issue(issue, state_name, coordination) do
+    case tracker_issue_id(issue) do
+      nil ->
+        {:error, :no_issue_number}
+
+      issue_id ->
+        coordination.run.(
+          ticket_coordination_key(issue),
+          fn -> write_ticket_state(coordination, issue_id, state_name) end,
+          coordination_operation_opts(issue)
+        )
+    end
+  end
+
+  defp write_ticket_state(coordination, issue_id, state_name) do
+    case coordination.set_ticket_state.(issue_id, state_name) do
+      :ok -> {:ok, %{state: state_name, issue: issue_id}}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, other}
+    end
+  end
+
+  defp tracker_issue_id(issue) do
+    case Map.get(issue, :id) || Map.get(issue, :identifier) do
+      id when is_binary(id) and id != "" -> id
+      id when is_integer(id) -> Integer.to_string(id)
+      _ -> nil
     end
   end
 

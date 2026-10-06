@@ -117,6 +117,33 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
     assert html =~ ~s(aria-live="polite")
   end
 
+  test "provider model labels stay text inside the rendered SVG" do
+    marker = ~s|</title></line><text x="40" y="40" id="aiur-marker">MARKER</text><line><title>&|
+
+    snap =
+      snapshot(%{
+        contributors: %{
+          snapshot().contributors
+          | by_model: [%{key: marker, tokens: %{input: 100}}]
+        }
+      })
+
+    html = render(UsageSummaryPresenter.present(snap))
+    document = Floki.parse_fragment!(html)
+
+    assert Floki.find(document, "#aiur-marker") == []
+    assert html =~ "&lt;/title&gt;"
+    assert html =~ "&lt;/text&gt;"
+    assert html =~ "&amp;"
+    refute html =~ "&amp;amp;"
+
+    assert Floki.find(document, ".usage-token-line svg title")
+           |> Enum.any?(fn node -> Floki.text(node) =~ "&lt;/title&gt;" end)
+
+    assert Floki.find(document, ".usage-token-line svg text")
+           |> Enum.any?(fn node -> Floki.text(node) =~ "</title>" end)
+  end
+
   test "authorized panel renders route costs immediately after tokens by model" do
     html = render(ready_view())
 

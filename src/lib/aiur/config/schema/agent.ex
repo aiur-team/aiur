@@ -170,7 +170,25 @@ defmodule Aiur.Config.Schema.Agent do
     # nil = uncapped (no per-issue turn limit). A YAML value of `none` /
     # `unlimited` (or an absent key) resolves to nil; any present number must
     # be > 0.
+    #
+    # #2806 asked whether this should default to a finite value, and the answer
+    # is no. This cap counts *effort*, not outcome: it cannot tell eleven wasted
+    # turns from eleven turns of real work, so any default low enough to stop a
+    # spin is also low enough to cut a legitimate long run short. Reaching it
+    # does not abort the ticket — the loop hands control back and the
+    # orchestrator recycles the ticket with `prior_work: true` — but that costs
+    # a fresh provider session and the context rebuild #378 exists to avoid.
+    # `max_consecutive_noop_turns` below is the outcome-based bound instead:
+    # productive turns are unbounded, unproductive ones are not. Operators who
+    # do want an effort cap set this key, or `max_turns_by_complexity`.
     field(:max_turns, :integer)
+    # #2806: how many CONSECUTIVE continuation turns that changed nothing
+    # observable (no commit, no push, no working-tree change, no label change,
+    # and no new input in the prompt) a run may take before the loop stops and
+    # raises a needs-attention alert. A productive turn resets the count, so
+    # this never caps a long run of real work — unlike `max_turns`, which does.
+    # 0 / `nil` disables the bound.
+    field(:max_consecutive_noop_turns, :integer, default: 3)
     field(:max_retry_attempts, :integer, default: 3)
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     field(:max_concurrent_agents_by_state, :map, default: %{})
@@ -328,6 +346,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> validate_number(:budget_broker_rate_window_seconds, greater_than: 0)
     |> validate_number(:budget_broker_degraded_retry_threshold, greater_than: 0)
     |> validate_number(:budget_broker_degraded_alert_after_seconds, greater_than: 0)
+    |> validate_backend_configs()
     |> update_change(:max_concurrent_agents_by_state, &AgentValidation.normalize_state_limits/1)
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
@@ -360,6 +379,25 @@ defmodule Aiur.Config.Schema.Agent do
     |> cast_embed(:pricing_policy, with: &PricingPolicy.changeset/2)
     |> cast_embed(:rtk, with: &Rtk.changeset/2)
   end
+
+  defp validate_backend_configs(changeset) do
+    configs = Ecto.Changeset.get_field(changeset, :backend_configs) || %{}
+
+    Enum.reduce(configs, changeset, fn {backend, config}, acc ->
+      case get_in(Aiur.CodingAgent.backends(), [backend, :config_validator]) do
+        validator when is_function(validator, 1) ->
+          apply_backend_validation(acc, backend, validator.(config))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp apply_backend_validation(changeset, _backend, :ok), do: changeset
+
+  defp apply_backend_validation(changeset, backend, {:error, reason}),
+    do: add_error(changeset, :backend_configs, "#{backend}: #{reason}")
 
   defp validate_dispatch_selections(changeset) do
     dispatchable = dispatchable_with_priority(changeset)

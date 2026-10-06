@@ -4476,6 +4476,31 @@ defmodule AiurWeb.DashboardLiveTest do
     view |> element(~s(#units-conversation-drawer button), "Close") |> render_click()
     assert_receive {:conversation_unsubscribed, ^handle}
     refute has_element?(view, "#units-conversation-drawer")
+
+    path = "/chat/#{identity.owner}/#{identity.repository}/#{identity.identifier}"
+    {:ok, linked_view, linked_html} = live(build_conn(), path)
+    assert_receive {:conversation_resolved, ^handle}
+    assert linked_html =~ ~s(id="units-conversation-drawer")
+    assert render(linked_view) =~ "Reviewing the drawer"
+
+    linked_view |> element(~s(#units-conversation-drawer button), "Close") |> render_click()
+    refute has_element?(linked_view, "#units-conversation-drawer")
+    assert_patch(linked_view, "/?v=1")
+
+    {:ok, wrong_repo_view, wrong_repo_html} = live(build_conn(), "/chat/other/#{identity.repository}/#{identity.identifier}")
+    refute wrong_repo_html =~ ~s(id="units-conversation-drawer")
+    assert render(wrong_repo_view) =~ "Chat is unavailable for this ticket."
+
+    unknown_config =
+      Application.get_env(:aiur, AiurWeb.Endpoint, [])
+      |> Keyword.put(:live_conversation_resolve_fun, fn _resolved ->
+        {:ok, %{conversation_snapshot(handle) | state: :restart_unknown, messages: []}}
+      end)
+
+    :ok = AiurWeb.Endpoint.config_change([{AiurWeb.Endpoint, unknown_config}], [])
+    {:ok, unknown_view, unknown_html} = live(build_conn(), path)
+    refute unknown_html =~ ~s(id="units-conversation-drawer")
+    assert render(unknown_view) =~ "Chat is unavailable for this ticket."
   end
 
   test "ordinary row inspection opens ticket context, not the conversation drawer" do
@@ -5164,6 +5189,23 @@ defmodule AiurWeb.DashboardLiveTest do
     assert_received {:dashboard_refresh_requested, ^orchestrator}
     refute has_element?(view, "#add-agent-modal")
     assert render(view) =~ "Waiting for an agent to start"
+  end
+
+  test "read-only Tickets prevents opening the setup dialog even for a forged event" do
+    start_test_endpoint(
+      control_center_cache: false,
+      dashboard_writable: false,
+      open_tickets_fun: fn -> open_ticket_snapshot([open_ticket("2101", [])]) end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+    assert html =~ "Read-only dashboard: adding an agent is unavailable here"
+    assert has_element?(view, ~s(button[id^="ticket-add-agent-"][disabled]))
+    refute has_element?(view, ~s(button[phx-click="open-add-agent"]))
+
+    [_, token] = Regex.run(~r/id="ticket-add-agent-([^"]+)"/, html)
+    render_hook(view, "open-add-agent", %{"ticket" => token})
+    refute has_element?(view, "#add-agent-modal")
   end
 
   test "Add Agent stays responsive while the tracker blocks and reports completion after closing" do

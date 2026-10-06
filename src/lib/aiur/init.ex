@@ -8,6 +8,7 @@ defmodule Aiur.Init do
 
   # credo:disable-for-this-file Credo.Check.Design.AliasUsage
   alias Aiur.Init.Alerts
+  alias Aiur.Init.BackendConfigs
   alias Aiur.Init.ElevenLabs
   alias Aiur.Init.Format
   alias Aiur.Init.GitHubApp
@@ -151,6 +152,9 @@ defmodule Aiur.Init do
         agents = Questions.prompt_agents(io)
         routing = Questions.prompt_routing(io, agents)
         permission_mode = Questions.prompt_permission_mode(io)
+        backend_descriptors = Map.get(deps, :backend_descriptors, Aiur.CodingAgent.backends())
+        backend_answers = BackendConfigs.prompt(io, agents, backend_descriptors)
+        backend_configs = BackendConfigs.config(agents, backend_answers, backend_descriptors)
         workspace_root = io.input.("Where should agents work?", Questions.workspace_default(tracker), nil)
         max_agents = Questions.prompt_int(io, "Max concurrent agents", 10, 1)
         max_turns = Questions.prompt_max_turns(io)
@@ -172,6 +176,7 @@ defmodule Aiur.Init do
             agents: agents,
             routing: routing,
             permission_mode: permission_mode,
+            backend_configs: backend_configs,
             workspace_root: workspace_root,
             max_agents: max_agents,
             max_turns: max_turns,
