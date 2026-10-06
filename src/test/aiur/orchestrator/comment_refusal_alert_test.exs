@@ -67,7 +67,7 @@ defmodule Aiur.Orchestrator.CommentRefusalAlertTest do
 
     result =
       CommentWake.maybe_transition_idle_issue_to_rework(
-        %{state() | queue_store: AgentQueueStore.new(), last_polled_issues: %{"r6" => issue}},
+        %{state() | queue_store: AgentQueueStore.new(), last_polled_issues: %{"r2" => issue}},
         "r2",
         :pr_comment,
         event,
