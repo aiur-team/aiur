@@ -106,7 +106,8 @@ defmodule Aiur.ConfigurationReferenceTest do
     assert is_binary(row)
     assert row =~ "does not install, enable, or disable rtk's hook"
     assert row =~ "does not enforce this setting at agent dispatch"
-    assert row =~ "the operator owns whether a host-wide rtk hook runs for agents"
+    assert row =~ "A host-wide rtk hook applies to every agent regardless of this setting"
+    assert row =~ "but cannot disable the hook"
     assert row =~ ~s(`exclude_commands = ["gh"]`)
     refute row =~ "Aiur refuses to admit rtk"
   end
