@@ -465,10 +465,7 @@ defmodule Aiur.Application do
       executor_principal_child(recording?, executor_mode?),
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.
-      if(dashboard?, do: AiurWeb.ControlCenterCache),
-      if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
-      if(dashboard?, do: Aiur.HttpServer),
-      if(dashboard? and tailscale_funnel?, do: Aiur.TailscaleFunnel),
+      dashboard_children(dashboard?, tailscale_funnel?),
       Aiur.Opencode.TokenRegistry,
       Aiur.Opencode.ActiveTurns,
       # Chat-pane machinery — UI-only, never read by a headless run.
@@ -507,6 +504,15 @@ defmodule Aiur.Application do
 
   defp executor_principal_child(true, true), do: Aiur.Executor.Principal
   defp executor_principal_child(_recording?, _executor_mode?), do: nil
+
+  defp dashboard_children(dashboard?, tailscale_funnel?) do
+    [
+      if(dashboard?, do: AiurWeb.ControlCenterCache),
+      if(dashboard?, do: AiurWeb.FinancialData.Supervisor),
+      if(dashboard?, do: Aiur.HttpServer),
+      if(dashboard? and tailscale_funnel?, do: Aiur.TailscaleFunnel)
+    ]
+  end
 
   @impl true
   def prep_stop(state) do
