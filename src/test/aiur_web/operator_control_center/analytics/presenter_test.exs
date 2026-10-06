@@ -287,12 +287,14 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
 
     assert ticks.(1) == [0, 1]
     assert ticks.(2) == [0, 1, 2]
-    assert ticks.(7) == [0, 1, 2, 3, 4, 5, 6, 7]
+    assert ticks.(7) == [0, 2, 4, 6, 7]
+    assert ticks.(40) == [0, 10, 20, 30, 40]
 
     for maximum <- 1..10 do
       labels = ticks.(maximum)
       assert length(labels) == length(Enum.uniq(labels))
       assert Enum.all?(labels, &is_integer/1)
+      assert List.last(labels) == maximum
     end
   end
 

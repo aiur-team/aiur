@@ -804,8 +804,22 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   @doc "Integer ticket-count ticks for the complexity breakdown axis."
   @spec complexity_count_ticks([map()]) :: [non_neg_integer()]
   def complexity_count_ticks(tiers) do
-    maximum = tiers |> Enum.map(& &1.count) |> Enum.max(fn -> 0 end)
-    Enum.to_list(0..max(maximum, 1))
+    maximum = tiers |> Enum.map(& &1.count) |> Enum.max(fn -> 0 end) |> max(1)
+    step = nice_tick_step(div(maximum + 4, 5))
+    ticks = for tick <- 0..maximum, rem(tick, step) == 0, do: tick
+
+    if List.last(ticks) == maximum, do: ticks, else: ticks ++ [maximum]
+  end
+
+  defp nice_tick_step(target) do
+    magnitude = Integer.pow(10, length(Integer.digits(target)) - 1)
+
+    cond do
+      target <= magnitude -> magnitude
+      target <= magnitude * 2 -> magnitude * 2
+      target <= magnitude * 5 -> magnitude * 5
+      true -> magnitude * 10
+    end
   end
 
   defp ticket_wall_clock_ms(ticket) do

@@ -284,4 +284,20 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert svg =~ "var(--an-s1)"
     refute svg =~ "#3987e5"
   end
+
+  test "complexity breakdown renders each integer axis label through its ceiling" do
+    for {maximum, expected} <- [{1, ["0", "1"]}, {2, ["0", "1", "2"]}, {7, ["0", "2", "4", "6", "7"]}, {40, ["0", "10", "20", "30", "40"]}] do
+      tiers = for tier <- 1..5, do: %{tier: tier, count: if(tier == 1, do: maximum, else: 0), average_wall_clock_ms: nil}
+      ticks = Presenter.complexity_count_ticks(tiers)
+      svg = Charts.complexity_breakdown(%{complexity_breakdown: tiers, complexity_count_ticks: ticks})
+      document = Floki.parse_fragment!(svg)
+
+      labels =
+        document
+        |> Floki.find(~s|text[x="33"]|)
+        |> Enum.map(&Floki.text/1)
+
+      assert labels == expected
+    end
+  end
 end
