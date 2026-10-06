@@ -51,9 +51,14 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
 
   describe "check_and_alert!/3 with dependency injection" do
     test "emits stale alert when heartbeat file is missing" do
+      test_pid = self()
       path_fun = fn -> {:error, :no_such_file} end
       threshold_fun = fn -> 3_600_000 end
-      emit_fun = fn topic, opts -> send(self(), {:alert, topic, opts}); :ok end
+
+      emit_fun = fn topic, opts ->
+        send(test_pid, {:alert, topic, opts})
+        :ok
+      end
 
       DaemonHeartbeatChecker.check_and_alert!(path_fun, threshold_fun, emit_fun)
 
@@ -65,6 +70,7 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
     end
 
     test "emits stale alert when heartbeat is older than threshold" do
+      test_pid = self()
       tmp_file = Path.join(System.tmp_dir!(), "heartbeat_#{System.unique_integer()}")
 
       # Write a heartbeat from 2 hours ago
@@ -75,8 +81,13 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
       on_exit(fn -> File.rm(tmp_file) end)
 
       path_fun = fn -> {:ok, tmp_file} end
-      threshold_fun = fn -> 1_800_000 end  # 30 minutes
-      emit_fun = fn topic, opts -> send(self(), {:alert, topic, opts}); :ok end
+      # 30 minutes
+      threshold_fun = fn -> 1_800_000 end
+
+      emit_fun = fn topic, opts ->
+        send(test_pid, {:alert, topic, opts})
+        :ok
+      end
 
       DaemonHeartbeatChecker.check_and_alert!(path_fun, threshold_fun, emit_fun)
 
@@ -86,6 +97,7 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
     end
 
     test "emits resolved alert when heartbeat is recent (within threshold)" do
+      test_pid = self()
       tmp_file = Path.join(System.tmp_dir!(), "heartbeat_#{System.unique_integer()}")
 
       # Write a heartbeat from 1 minute ago
@@ -96,8 +108,13 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
       on_exit(fn -> File.rm(tmp_file) end)
 
       path_fun = fn -> {:ok, tmp_file} end
-      threshold_fun = fn -> 300_000 end  # 5 minutes
-      emit_fun = fn topic, opts -> send(self(), {:alert, topic, opts}); :ok end
+      # 5 minutes
+      threshold_fun = fn -> 300_000 end
+
+      emit_fun = fn topic, opts ->
+        send(test_pid, {:alert, topic, opts})
+        :ok
+      end
 
       DaemonHeartbeatChecker.check_and_alert!(path_fun, threshold_fun, emit_fun)
 
@@ -107,6 +124,7 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
     end
 
     test "handles unparseable heartbeat file gracefully" do
+      test_pid = self()
       tmp_file = Path.join(System.tmp_dir!(), "heartbeat_#{System.unique_integer()}")
       File.write!(tmp_file, "invalid timestamp\n")
 
@@ -114,7 +132,11 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
 
       path_fun = fn -> {:ok, tmp_file} end
       threshold_fun = fn -> 3_600_000 end
-      emit_fun = fn topic, opts -> send(self(), {:alert, topic, opts}); :ok end
+
+      emit_fun = fn topic, opts ->
+        send(test_pid, {:alert, topic, opts})
+        :ok
+      end
 
       DaemonHeartbeatChecker.check_and_alert!(path_fun, threshold_fun, emit_fun)
 
@@ -175,9 +197,14 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
     end
 
     test "alert topic is system.daemon.stopped for stale alerts" do
+      test_pid = self()
       path_fun = fn -> {:error, :missing} end
       threshold_fun = fn -> 3_600_000 end
-      emit_fun = fn topic, _opts -> send(self(), {:topic, topic}); :ok end
+
+      emit_fun = fn topic, _opts ->
+        send(test_pid, {:topic, topic})
+        :ok
+      end
 
       DaemonHeartbeatChecker.check_and_alert!(path_fun, threshold_fun, emit_fun)
 
@@ -185,6 +212,7 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
     end
 
     test "alert topic is system.daemon.stopped.resolved for resolved alerts" do
+      test_pid = self()
       tmp_file = Path.join(System.tmp_dir!(), "heartbeat_#{System.unique_integer()}")
       fresh = DateTime.utc_now() |> DateTime.add(-10, :second)
       File.write!(tmp_file, DateTime.to_iso8601(fresh) <> "\n")
@@ -193,7 +221,11 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
 
       path_fun = fn -> {:ok, tmp_file} end
       threshold_fun = fn -> 300_000 end
-      emit_fun = fn topic, _opts -> send(self(), {:topic, topic}); :ok end
+
+      emit_fun = fn topic, _opts ->
+        send(test_pid, {:topic, topic})
+        :ok
+      end
 
       DaemonHeartbeatChecker.check_and_alert!(path_fun, threshold_fun, emit_fun)
 
@@ -201,6 +233,7 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
     end
 
     test "does not emit alert when heartbeat is very close to threshold boundary" do
+      test_pid = self()
       tmp_file = Path.join(System.tmp_dir!(), "heartbeat_#{System.unique_integer()}")
 
       # Write a heartbeat exactly at threshold (e.g., 3599s ago for 3600s threshold)
@@ -213,7 +246,11 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
 
       path_fun = fn -> {:ok, tmp_file} end
       threshold_fun = fn -> threshold_ms end
-      emit_fun = fn topic, _opts -> send(self(), {:topic, topic}); :ok end
+
+      emit_fun = fn topic, _opts ->
+        send(test_pid, {:topic, topic})
+        :ok
+      end
 
       DaemonHeartbeatChecker.check_and_alert!(path_fun, threshold_fun, emit_fun)
 
@@ -221,6 +258,7 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
     end
 
     test "emits stale alert when heartbeat exceeds threshold boundary" do
+      test_pid = self()
       tmp_file = Path.join(System.tmp_dir!(), "heartbeat_#{System.unique_integer()}")
 
       # Write a heartbeat just over threshold (e.g., 3601s ago for 3600s threshold)
@@ -232,7 +270,11 @@ defmodule Aiur.DaemonHeartbeatCheckerTest do
 
       path_fun = fn -> {:ok, tmp_file} end
       threshold_fun = fn -> threshold_ms end
-      emit_fun = fn topic, _opts -> send(self(), {:topic, topic}); :ok end
+
+      emit_fun = fn topic, _opts ->
+        send(test_pid, {:topic, topic})
+        :ok
+      end
 
       DaemonHeartbeatChecker.check_and_alert!(path_fun, threshold_fun, emit_fun)
 
