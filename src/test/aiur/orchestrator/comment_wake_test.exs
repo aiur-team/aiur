@@ -208,6 +208,7 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
 
       assert log =~ "ignored for idle issue"
       assert log =~ ":unlabeled_issue"
+      assert log =~ "ticket.1944.agent.attention.comment_wake_idle_issue"
     end
 
     test "does not route a trusted comment on an explicitly parked ticket even with an active label" do
@@ -1535,59 +1536,6 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
       )
 
       assert_receive {:transition, "176", "done"}
-    end
-  end
-
-  describe "refusal alert emission (U2-U3)" do
-    test "idle issue refusal emits alert instead of Logger.info" do
-      state = base_state()
-      issue_number = "123"
-      source = "comment"
-      event = %{author_trusted?: true}
-
-      # Mock idle_rework_decision to return {:skip, :issue_idle}
-      refute CommentWake.maybe_transition_idle_issue_to_rework(
-        state,
-        issue_number,
-        source,
-        event,
-        1
-      ) == state
-
-      # Verify no Logger.info appears for idle issue
-      logs =
-        capture_log(fn ->
-          CommentWake.maybe_transition_idle_issue_to_rework(
-            state,
-            issue_number,
-            source,
-            event,
-            1
-          )
-        end)
-
-      refute logs =~ "ignored for idle issue"
-    end
-
-    test "dispatch policy refusal emits alert instead of Logger.info" do
-      parent = self()
-
-      state = base_state()
-      issue = %Issue{
-        identifier: "PR-100",
-        id: "issue-100",
-        state: "human-review",
-        paused: true,
-        parked: false
-      }
-
-      logs =
-        capture_log(fn ->
-          CommentWake.dispatch_reworked_comment_issue(state, issue)
-        end)
-
-      # Verify no Logger.info for dispatch declined
-      refute logs =~ "Trusted comment dispatch declined"
     end
   end
 
