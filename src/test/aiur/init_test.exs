@@ -258,18 +258,16 @@ defmodule Aiur.InitTest do
 
   test "fresh init calls a synthetic provider descriptor without provider branches", %{dir: dir, target: target} do
     descriptors =
-      Map.update!(Aiur.CodingAgent.backends(), "fake", fn descriptor ->
-        Map.put(descriptor, :init, SyntheticInit)
-      end)
+      Map.put(Aiur.CodingAgent.backends(), "synthetic", Map.put(Aiur.CodingAgent.Providers.Fake.entry(), :init, SyntheticInit))
 
     answers = %{
-      multiselect: %{"Which agents to support" => ["fake"]},
+      multiselect: %{"Which agents to support" => ["synthetic"]},
       input: %{"Synthetic backend region" => "east"}
     }
 
     d = deps(self(), dir, target, %{backend_descriptors: descriptors})
     assert :ok = Init.run(%{force: false}, io(self(), answers), d)
-    assert written_config(target)["agent"]["backend_configs"]["fake"]["region"] == "east"
+    assert written_config(target)["agent"]["backend_configs"]["synthetic"]["region"] == "east"
     assert_received {:input_label, "Synthetic backend region"}
   end
 
@@ -1521,7 +1519,7 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex", "kimi", "openrouter", "muse", "fake"]
+      assert opts == ["claude", "codex", "kimi", "openrouter", "muse"]
       refute "claude-repl" in opts
       # DeepSeek is registered but not dispatch-enabled by default, so it must
       # not be offerable from init.
