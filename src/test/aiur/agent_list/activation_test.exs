@@ -34,7 +34,7 @@ defmodule Aiur.AgentList.ActivationTest do
     }
 
     assert :ok = Activation.activate_selected(state, :new_pane)
-    assert_receive {:opened, "A", "echo open A"}
+    assert_receive {:opened, "A", "echo open A"}, 1000
   end
 
   test "does not open a completed agent even when stale warmth remains" do

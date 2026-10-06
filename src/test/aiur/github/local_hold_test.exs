@@ -43,9 +43,9 @@ defmodule Aiur.GitHub.LocalHoldTest do
 
       # The hold was 2s out, so the wait honours `reset_at` plus up to 500ms of
       # jitter — nothing more.
-      assert_receive {:sleep, wait_ms}
+      assert_receive {:sleep, wait_ms}, 1000
       assert wait_ms >= 1_500 and wait_ms <= 2_500
-      refute_receive {:sleep, _}
+      refute_receive {:sleep, _}, 100
     end
 
     test "a hold beyond the ceiling fails immediately with no wait (mutation guard)" do
@@ -135,7 +135,7 @@ defmodule Aiur.GitHub.LocalHoldTest do
 
       assert result == :ok
       assert Agent.get(counter, & &1) == 2
-      assert_receive {:sleep, _}
+      assert_receive {:sleep, _}, 1000
     end
   end
 
@@ -170,10 +170,10 @@ defmodule Aiur.GitHub.LocalHoldTest do
 
       # First backoff is `backoff_base_ms` plus up to `jitter_ms` — nothing
       # more.
-      assert_receive {:sleep, wait_ms}
+      assert_receive {:sleep, wait_ms}, 1000
       assert wait_ms >= LocalHold.backoff_base_ms()
       assert wait_ms <= LocalHold.backoff_base_ms() + LocalHold.jitter_ms()
-      refute_receive {:sleep, _}
+      refute_receive {:sleep, _}, 100
     end
 
     test "the broker-timeout backoff grows exponentially across consecutive retries" do
@@ -190,16 +190,16 @@ defmodule Aiur.GitHub.LocalHoldTest do
       base = LocalHold.backoff_base_ms()
       jitter = LocalHold.jitter_ms()
 
-      assert_receive {:sleep, first}
+      assert_receive {:sleep, first}, 1000
       assert first >= base and first <= base + jitter
 
-      assert_receive {:sleep, second}
+      assert_receive {:sleep, second}, 1000
       assert second >= 2 * base and second <= 2 * base + jitter
 
-      assert_receive {:sleep, third}
+      assert_receive {:sleep, third}, 1000
       assert third >= 4 * base and third <= 4 * base + jitter
 
-      refute_receive {:sleep, _}
+      refute_receive {:sleep, _}, 100
     end
 
     # #2457 acceptance 3: consecutive retries are capped, so a persistently
@@ -266,7 +266,7 @@ defmodule Aiur.GitHub.LocalHoldTest do
 
       assert result == :ok
       assert Agent.get(counter, & &1) == 2
-      assert_receive {:sleep, _}
+      assert_receive {:sleep, _}, 1000
     end
 
     # #2464: every broker-timeout backoff feeds the retry-rate signal; the

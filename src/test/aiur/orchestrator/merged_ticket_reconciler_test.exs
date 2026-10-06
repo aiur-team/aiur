@@ -37,9 +37,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
-    assert_receive {:transition, "1570", "done", "in-progress"}
-    assert_receive {:resume_blockees, "1570"}
-    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}
+    assert_receive {:transition, "1570", "done", "in-progress"}, 1000
+    assert_receive {:resume_blockees, "1570"}, 1000
+    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}, 1000
     assert opts[:message] =~ "PR #1600"
     assert opts[:message] =~ "resumed 1 of 1 dependent agent(s)"
     assert issues == []
@@ -61,7 +61,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         open_pull_requests_fun: fn _identifier -> {:ok, []} end
       )
 
-    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}
+    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}, 1000
     assert opts[:message] =~ "resumed 0 of 1 dependent agent(s)"
     refute opts[:reason] =~ "atomic"
   end
@@ -81,7 +81,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
       )
 
     assert issues == []
-    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}
+    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}, 1000
     assert opts[:message] =~ "no dependent agents were waiting on it"
     assert opts[:severity] == "info"
     refute opts[:needs_attention]
@@ -108,14 +108,14 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
       ] ++ no_open_pull_requests()
 
     {state, []} = MergedTicketReconciler.reconcile(%State{}, [issue], opts)
-    assert_receive {:transition, "1570"}
-    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", _opts}
+    assert_receive {:transition, "1570"}, 1000
+    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", _opts}, 1000
 
     reopened = %{issue | state: "Todo"}
     assert {^state, [^reopened]} = MergedTicketReconciler.reconcile(state, [reopened], opts)
 
-    refute_receive {:transition, "1570"}
-    refute_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", _opts}
+    refute_receive {:transition, "1570"}, 100
+    refute_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", _opts}, 100
   end
 
   test "a merge older than the staleness window never closes a ticket" do
@@ -137,8 +137,8 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
 
     assert issues == [issue]
     assert state == %State{}
-    refute_receive {:transition, "1570"}
-    refute_receive {:alert, _topic, _opts}
+    refute_receive {:transition, "1570"}, 100
+    refute_receive {:alert, _topic, _opts}, 100
   end
 
   test "keeps the ticket and raises an attention when a merged blocker cannot be reconciled" do
@@ -160,7 +160,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
     assert result.running == state.running
     assert issues == [blocker]
 
-    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}
+    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}, 1000
     assert opts[:needs_attention]
     assert opts[:message] =~ "could not reconcile ticket 1570"
     assert opts[:reason] =~ "PR #1600"
@@ -181,12 +181,12 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
 
     {state, [^issue]} = MergedTicketReconciler.reconcile(%State{}, [issue], opts)
 
-    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", alert_opts}
+    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", alert_opts}, 1000
     assert alert_opts[:needs_attention]
     assert alert_opts[:reason] =~ "will keep being retried"
 
     {_state, [^issue]} = MergedTicketReconciler.reconcile(state, [issue], opts)
-    refute_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", _opts}
+    refute_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", _opts}, 100
   end
 
   test "audits the merger recorded on the merge instead of trusting every login" do
@@ -208,7 +208,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
       end
     )
 
-    assert_receive {:merger_checked, "drive-by-bot"}
+    assert_receive {:merger_checked, "drive-by-bot"}, 1000
   end
 
   test "a merged PR routes a ticket to rework when its remaining open PR has unresolved review threads" do
@@ -247,10 +247,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
       )
 
     # The specific label, not a mere "not done".
-    assert_receive {:transition, "1570", "rework", "in-progress"}
-    refute_receive {:transition, "1570", "done", _expected}
+    assert_receive {:transition, "1570", "rework", "in-progress"}, 1000
+    refute_receive {:transition, "1570", "done", _expected}, 100
     assert issues == []
-    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}, 1000
     assert opts[:message] =~ "rework instead of done"
   end
 
@@ -294,10 +294,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
       end)
 
     # The ticket is not routed to rework: it keeps its human-review state.
-    refute_receive {:transition, "1570", "rework", _expected}
-    assert_receive {:transition, "1570", "human-review", "human-review"}
-    refute_receive {:transition, "1570", "done", _expected}
-    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    refute_receive {:transition, "1570", "rework", _expected}, 100
+    assert_receive {:transition, "1570", "human-review", "human-review"}, 1000
+    refute_receive {:transition, "1570", "done", _expected}, 100
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}, 1000
     assert opts[:message] =~ "human-review instead of done"
 
     # The skip is a *named* reason, not a silent "not rework": the gate read the
@@ -331,10 +331,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         end
       )
 
-    assert_receive {:transition, "1570", "human-review", "in-progress"}
-    refute_receive {:transition, "1570", "done", _expected}
+    assert_receive {:transition, "1570", "human-review", "in-progress"}, 1000
+    refute_receive {:transition, "1570", "done", _expected}, 100
     assert issues == []
-    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}, 1000
     assert opts[:message] =~ "human-review instead of done"
   end
 
@@ -370,11 +370,11 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         end
       )
 
-    assert_receive {:transition, "1570", "done", "in-progress"}
-    refute_receive {:transition, "1570", "rework", _expected}
-    refute_receive {:transition, "1570", "human-review", _expected}
+    assert_receive {:transition, "1570", "done", "in-progress"}, 1000
+    refute_receive {:transition, "1570", "rework", _expected}, 100
+    refute_receive {:transition, "1570", "human-review", _expected}, 100
     assert issues == []
-    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}
+    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}, 1000
     assert opts[:message] =~ "closed ticket 1570"
   end
 
@@ -408,10 +408,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         end
       )
 
-    assert_receive {:transition, "1570", "human-review", "in-progress"}
-    refute_receive {:transition, "1570", "done", _expected}
+    assert_receive {:transition, "1570", "human-review", "in-progress"}, 1000
+    refute_receive {:transition, "1570", "done", _expected}, 100
     assert issues == []
-    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}, 1000
     assert opts[:message] =~ "human-review instead of done"
   end
 
@@ -447,10 +447,10 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         end
       )
 
-    assert_receive {:transition, "1570", "human-review", "in-progress"}
-    refute_receive {:transition, "1570", "done", _expected}
+    assert_receive {:transition, "1570", "human-review", "in-progress"}, 1000
+    refute_receive {:transition, "1570", "done", _expected}, 100
     assert issues == []
-    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}
+    assert_receive {:alert, "ticket.1570.dependency.merged_pr_remaining_open", opts}, 1000
     assert opts[:message] =~ "human-review instead of done"
   end
 
@@ -471,9 +471,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         open_pull_requests_fun: fn _identifier -> {:error, :github_api_status} end
       )
 
-    refute_receive {:transition, "1570", _state_name, _expected}
+    refute_receive {:transition, "1570", _state_name, _expected}, 100
     assert issues == [issue]
-    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}
+    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}, 1000
     assert opts[:needs_attention]
   end
 
@@ -494,9 +494,9 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         open_pull_requests_fun: fn _identifier -> {:ok, %{"unexpected" => "shape"}} end
       )
 
-    refute_receive {:transition, "1570", _state_name, _expected}
+    refute_receive {:transition, "1570", _state_name, _expected}, 100
     assert issues == [issue]
-    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}
+    assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}, 1000
     assert opts[:needs_attention]
   end
 

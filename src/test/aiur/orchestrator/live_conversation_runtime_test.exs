@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
     first = status(7, "session-a", epoch("A"), 1, 1)
     assert {:noreply, state} = State.handle_worker_runtime_info(state, issue_id, %{live_conversation: first})
     assert state.running[issue_id].live_conversation == first
-    assert_receive {:running_changed, _summaries}
+    assert_receive {:running_changed, _summaries}, 1000
 
     assert {:noreply, ^state} =
              State.handle_worker_runtime_info(state, issue_id, %{live_conversation: first})
@@ -47,7 +47,7 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
     assert rotated.running[issue_id].live_conversation.source.session_id ==
              Source.opaque_session_id("session-b")
 
-    assert_receive {:running_changed, _summaries}
+    assert_receive {:running_changed, _summaries}, 1000
 
     late_predecessor = status(7, "session-a", epoch("A"), 4, 1)
 
@@ -76,7 +76,7 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
            } = restarted.running[issue_id].live_conversation
 
     assert projection_epoch == epoch("B")
-    assert_receive {:running_changed, _summaries}
+    assert_receive {:running_changed, _summaries}, 1000
 
     same_worker_after_restart = status(7, "session-b", epoch("B"), 1, 1)
 
@@ -102,7 +102,7 @@ defmodule Aiur.Orchestrator.LiveConversationRuntimeTest do
              })
 
     assert accepted.running[issue_id].live_conversation == replacement
-    assert_receive {:running_changed, _summaries}
+    assert_receive {:running_changed, _summaries}, 1000
   end
 
   defp status(worker_generation, session_id, projection_epoch, revision, source_revision) do

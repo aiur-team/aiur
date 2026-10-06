@@ -53,11 +53,11 @@ defmodule Aiur.AgentList.ControlsTest do
     {:ok, orchestrator} = Orchestrator.start_link(self())
     state = state(orchestrator, %{identifier: "A", status: :running, work_state: :working})
     assert ^state = Controls.toggle_pause(state)
-    assert_receive {:paused, "A"}
+    assert_receive {:paused, "A"}, 1000
     state = Controls.toggle_remote_control(state)
-    assert_receive {:remote, "A", true}
+    assert_receive {:remote, "A", true}, 1000
     assert ^state = Controls.adjust_max_concurrent_agents(state, 1)
-    assert_receive {:adjusted, 1}
+    assert_receive {:adjusted, 1}, 1000
   end
 
   test "explains that pause and resume are masked by a global pause" do

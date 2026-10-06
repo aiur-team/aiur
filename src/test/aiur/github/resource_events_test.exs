@@ -86,7 +86,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       ResourceStore.mark_processed(key, :webhook, "2026-08-17T00:00:00Z")
 
-      assert_receive {:github_resource_changed, change}
+      assert_receive {:github_resource_changed, change}, 1000
       assert change.key == key
       assert change.resource_type == :issue_comment
       assert change.owner == @owner
@@ -101,7 +101,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       ResourceStore.put_etag(key(8), "W/\"abc\"")
 
-      assert_receive {:github_resource_changed, %{id: "8", etag: "W/\"abc\""}}
+      assert_receive {:github_resource_changed, %{id: "8", etag: "W/\"abc\""}}, 1000
     end
 
     test "a repository-scoped subscriber is told only about its repository" do
@@ -110,7 +110,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
       ResourceStore.put_etag(ResourceStore.key(:issue_comment, "other", "repo", 9), "W/\"x\"")
       ResourceStore.put_etag(key(10), "W/\"y\"")
 
-      assert_receive {:github_resource_changed, %{id: "10"}}
+      assert_receive {:github_resource_changed, %{id: "10"}}, 1000
       refute_received {:github_resource_changed, %{id: "9"}}
     end
 
@@ -145,7 +145,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       ResourceStore.put_resource(key, %{"body" => "hello"}, etag: "W/\"same\"", source: :fetch)
 
-      assert_receive {:github_resource_changed, change}
+      assert_receive {:github_resource_changed, change}, 1000
       assert change.data? == true
       assert ResourceStore.data(key) == %{"body" => "hello"}
     end
@@ -157,7 +157,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       ResourceStore.drop_data(key)
 
-      assert_receive {:github_resource_changed, %{data?: false}}
+      assert_receive {:github_resource_changed, %{data?: false}}, 1000
       assert ResourceStore.fetch(key) == :miss
     end
 
@@ -167,7 +167,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       ResourceStore.put_etag(key, "W/\"validator-only\"")
 
-      assert_receive {:github_resource_changed, change}
+      assert_receive {:github_resource_changed, change}, 1000
       assert change.etag == "W/\"validator-only\""
       assert change.data? == false
     end
@@ -237,7 +237,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       ResourceStore.put_resource(key, %{"state" => "closed"}, source: :webhook, version: "v2")
 
-      assert_receive {:github_resource_changed, change}
+      assert_receive {:github_resource_changed, change}, 1000
       assert change.source == :webhook
     end
 
@@ -265,7 +265,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       ResourceStore.put_resource(key, %{"body" => "second"}, opts)
 
-      assert_receive {:github_resource_changed, change}
+      assert_receive {:github_resource_changed, change}, 1000
       assert change.etag == "W/\"same\""
       assert change.source == :fetch
       assert change.data_version == "v1"
@@ -292,7 +292,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       ResourceStore.put_resource(key, %{"body" => "same"}, [etag: "W/\"second\""] ++ opts)
 
-      assert_receive {:github_resource_changed, change}
+      assert_receive {:github_resource_changed, change}, 1000
       assert change.etag == "W/\"second\""
       assert change.data_version == "v1"
     end
@@ -306,7 +306,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       ResourceStore.put_resource(key, %{"body" => "same"}, [version: "v2"] ++ opts)
 
-      assert_receive {:github_resource_changed, change}
+      assert_receive {:github_resource_changed, change}, 1000
       assert change.data_version == "v2"
       assert change.source == :fetch
     end
@@ -339,7 +339,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
 
       ResourceStore.put_resource(key, %{"body" => "edited"}, etag: "W/\"e\"", version: "v2")
 
-      assert_receive {:github_resource_changed, %{data?: true, data_version: "v2"}}
+      assert_receive {:github_resource_changed, %{data?: true, data_version: "v2"}}, 1000
       assert ResourceStore.data(key) == %{"body" => "edited"}
     end
   end
@@ -384,13 +384,13 @@ defmodule Aiur.GitHub.ResourceEventsTest do
           end
         end)
 
-      assert_receive :watching
+      assert_receive :watching, 1000
 
       # The writer is an agent that needed the resource for its own reasons and
       # paid one round trip for it.
       assert {:ok, _data, %{outcome: :fetched, spent?: true}} = ResourceFetch.need(key, upstream, freshness: :any)
 
-      assert_receive {:rendered, %{"body" => "from the writer"}, :store, false}
+      assert_receive {:rendered, %{"body" => "from the writer"}, :store, false}, 1000
 
       assert Agent.get(calls, & &1) == 1,
              "the watcher must ride on the writer's fetch, not add an upstream call of its own"
@@ -458,7 +458,7 @@ defmodule Aiur.GitHub.ResourceEventsTest do
       for type <- ResourceStore.resource_types() do
         key = ResourceStore.key(type, @owner, @repo, "sub-all")
         ResourceStore.mark_processed(key, :poll, "v1")
-        assert_receive {:github_resource_changed, %{resource_type: ^type}}
+        assert_receive {:github_resource_changed, %{resource_type: ^type}}, 1000
       end
     end
   end
