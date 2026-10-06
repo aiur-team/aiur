@@ -56,36 +56,49 @@ defmodule Aiur.AppServer.Interrupts do
 
   @doc false
   @spec handle_no_active_turn_error(map(), term()) ::
-          {:ok, :turn_completed} | {:paused, map()} | {:ok, :turn_interrupted_for_operator_message} | {:error, term()}
+          {:ok, :turn_completed}
+          | {:paused, map()}
+          | {:ok, :turn_interrupted_for_operator_message}
+          | {:error, term()}
   def handle_no_active_turn_error(state, error) do
-    cond do
-      completed_turn_already_retired?(state) and state.interrupt_action == :pause ->
-        {:paused,
-         TurnState.pause_result_payload(
-           state.pause_request_id,
-           state.current_turn_id,
-           %{"error" => error, "status" => "interrupted"}
-         )}
+    if completed_turn_already_retired?(state) do
+      TurnState.fail_pending_operator_requests(
+        Map.get(state, :pending_operator_requests, %{}),
+        {:turn_interrupted, %{"error" => error, "status" => "interrupted"}}
+      )
 
-      completed_turn_already_retired?(state) and state.interrupt_action == :operator_message ->
-        {:ok, :turn_interrupted_for_operator_message}
+      handle_retired_turn_interrupt(state, error)
+    else
+      cond do
+        state.interrupt_action in [:pause, :operator_message] ->
+          TurnState.continue_after_turn_interrupted(
+            %{state | pending_interrupt_request_id: nil},
+            %{"error" => error, "status" => "interrupted"},
+            :preserve
+          )
 
-      completed_turn_already_retired?(state) ->
-        TurnState.maybe_finish_after_pending_response(%{state | pending_interrupt_request_id: nil})
-
-      state.interrupt_action in [:pause, :operator_message] ->
-        TurnState.continue_after_turn_interrupted(
-          %{state | pending_interrupt_request_id: nil},
-          %{"error" => error, "status" => "interrupted"},
-          :preserve
-        )
-
-      true ->
-        state
-        |> Map.put(:pending_interrupt_request_id, nil)
-        |> TurnState.complete_all_provider_turns()
+        true ->
+          state
+          |> Map.put(:pending_interrupt_request_id, nil)
+          |> TurnState.complete_all_provider_turns()
+      end
     end
   end
+
+  defp handle_retired_turn_interrupt(%{interrupt_action: :pause} = state, error) do
+    {:paused,
+     TurnState.pause_result_payload(
+       state.pause_request_id,
+       state.current_turn_id,
+       %{"error" => error, "status" => "interrupted"}
+     )}
+  end
+
+  defp handle_retired_turn_interrupt(%{interrupt_action: :operator_message}, _error),
+    do: {:ok, :turn_interrupted_for_operator_message}
+
+  defp handle_retired_turn_interrupt(state, _error),
+    do: TurnState.maybe_finish_after_pending_response(%{state | pending_interrupt_request_id: nil})
 
   @spec interrupt_turn(module(), map(), String.t()) :: {:ok, integer()} | {:error, term()}
   def interrupt_turn(backend, %{port: port, thread_id: thread_id}, turn_id)

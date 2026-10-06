@@ -61,6 +61,30 @@ defmodule Aiur.AppServer.InterruptsTest do
              )
   end
 
+  test "a retired-turn interrupt fails pending operator requests before returning its boundary" do
+    parent = self()
+    error = %{"code" => -32_004, "message" => "No active turn to interrupt."}
+
+    state =
+      state(%{
+        active_turn_ids: MapSet.new(),
+        retired_turn_ids: MapSet.new(["turn-1"]),
+        pending_interrupt_request_id: 12,
+        interrupt_action: :operator_message,
+        pending_operator_requests: %{
+          99 => %{
+            on_success: fn _ -> :ok end,
+            on_failure: fn reason -> send(parent, {:operator_request_failed, reason}) end
+          }
+        }
+      })
+
+    assert Interrupts.handle_no_active_turn_error(state, error) ==
+             {:ok, :turn_interrupted_for_operator_message}
+
+    assert_receive {:operator_request_failed, {:turn_interrupted, %{"error" => ^error, "status" => "interrupted"}}}
+  end
+
   defp session do
     port =
       Port.open({:spawn_executable, String.to_charlist(System.find_executable("cat"))}, [
