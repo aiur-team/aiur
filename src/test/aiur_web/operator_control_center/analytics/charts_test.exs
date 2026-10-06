@@ -309,7 +309,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     end
   end
 
-  test "complexity chart scales its tallest bar below the rounded axis ceiling" do
+  test "complexity chart scales the tallest bar to the rounded axis ceiling" do
     tiers = for tier <- 1..5, do: %{tier: tier, count: if(tier == 1, do: 41, else: 0), average_wall_clock_ms: nil}
     ticks = Presenter.complexity_count_ticks(tiers)
     document = Charts.complexity_breakdown(%{complexity_breakdown: tiers, complexity_count_ticks: ticks}) |> Floki.parse_fragment!()
@@ -329,6 +329,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
       |> Float.parse()
       |> elem(0)
 
-    assert tallest_bar_y >= top_grid_y
+    assert top_grid_y == 20.0
+    assert_in_delta tallest_bar_y, 20 + 168 * (1 - 41 / 50), 0.01
   end
 end
