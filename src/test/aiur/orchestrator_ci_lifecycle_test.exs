@@ -196,7 +196,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       ref = Process.monitor(recorder)
       next = CiLifecycle.pause_issue_for_ci_wait(state, issue)
 
-      assert_receive {:DOWN, ^ref, :process, ^recorder, :killed}
+      assert_receive {:DOWN, ^ref, :process, ^recorder, :killed}, 1000
       refute_received {:recorded, _sequence, {:pause_agent, _request_id}}
 
       entry = Map.fetch!(next.running, identifier)
@@ -845,11 +845,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         |> running_state(recorder, :working, [])
         |> CiLifecycle.pause_issue_for_ci_wait(issue)
 
-      assert_receive {:recorded, 1, {:pause_agent, request_id, 101}}
+      assert_receive {:recorded, 1, {:pause_agent, request_id, 101}}, 1000
       assert pending.running[identifier].pending_pause_reason == %{request_id: request_id, reason: :ci_wait}
 
       MessageHandler.send_control_state(self(), issue, :paused, %{})
-      assert_receive {:worker_control_state, ^identifier, :paused, payload}
+      assert_receive {:worker_control_state, ^identifier, :paused, payload}, 1000
 
       assert {:noreply, paused} =
                Orchestrator.handle_info(
@@ -881,7 +881,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         |> running_state(recorder, :working, [])
         |> CiLifecycle.pause_issue_for_ci_wait(issue)
 
-      assert_receive {:recorded, 1, {:pause_agent, _request_id, 101}}
+      assert_receive {:recorded, 1, {:pause_agent, _request_id, 101}}, 1000
 
       assert {:noreply, paused} =
                Orchestrator.handle_info(

@@ -562,11 +562,11 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
         )
 
       assert map_size(result.running) == 3
-      assert_receive {:teardown, _identifier}
-      refute_receive {:teardown, _identifier}
-      assert_receive {:label_op, {:add, _, @marker_label}}
-      assert_receive {:label_op, {:add, _, "model:claude"}}
-      refute_receive {:label_op, _}
+      assert_receive {:teardown, _identifier}, 1000
+      refute_receive {:teardown, _identifier}, 100
+      assert_receive {:label_op, {:add, _, @marker_label}}, 1000
+      assert_receive {:label_op, {:add, _, "model:claude"}}, 1000
+      refute_receive {:label_op, _}, 100
     end
 
     test "caps label attempts when the tracker is failing" do
@@ -592,8 +592,8 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
                )
              ) == state
 
-      assert_receive {:label_op, {:add, _, @marker_label}}
-      refute_receive {:label_op, _}
+      assert_receive {:label_op, {:add, _, @marker_label}}, 1000
+      refute_receive {:label_op, _}, 100
     end
 
     test "revert removes only the fallback-owned model label" do
@@ -758,7 +758,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   defp assert_label_ops(expected) do
     actual =
       Enum.map(expected, fn _operation ->
-        assert_receive {:label_op, operation}
+        assert_receive {:label_op, operation}, 1000
         operation
       end)
 

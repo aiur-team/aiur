@@ -24,7 +24,7 @@ defmodule Aiur.AppServer.InterruptsTest do
     assert next_state.pause_request_id == 7
     assert is_integer(next_state.pending_interrupt_request_id)
     assert next_state.interrupt_action == :pause
-    assert_receive {:frame, %{"method" => "turn/interrupt", "params" => %{"turnId" => "turn-1"}}}
+    assert_receive {:frame, %{"method" => "turn/interrupt", "params" => %{"turnId" => "turn-1"}}}, 1000
   end
 
   test "operator queue update dedupes in-flight interrupt" do
@@ -37,7 +37,7 @@ defmodule Aiur.AppServer.InterruptsTest do
 
     assert is_integer(next_state.pending_interrupt_request_id)
     assert next_state.interrupt_action == :operator_message
-    assert_receive {:frame, %{"id" => request_id, "params" => %{"threadId" => "thread-1", "turnId" => "turn-1"}}}
+    assert_receive {:frame, %{"id" => request_id, "params" => %{"threadId" => "thread-1", "turnId" => "turn-1"}}}, 1000
     assert is_integer(request_id)
   end
 

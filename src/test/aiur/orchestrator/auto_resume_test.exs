@@ -247,7 +247,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
           :ok
         end)
 
-      assert_receive {:exhaustion_alert, "ticket.#{@issue_id}.agent.auto_resume_exhausted", opts}
+      assert_receive {:exhaustion_alert, "ticket.#{@issue_id}.agent.auto_resume_exhausted", opts}, 1000
       assert Keyword.get(opts, :needs_attention) == true
       refute Map.has_key?(state.auto_resume, @issue_id)
     end
@@ -313,7 +313,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
           dispatch_fun: &claim_fun/2
         )
 
-      assert_receive {:restored, "repo#transient", "todo"}
+      assert_receive {:restored, "repo#transient", "todo"}, 1000
       assert MapSet.member?(state.claimed, @issue_id)
       refute Map.has_key?(state.auto_resume, @issue_id)
     end

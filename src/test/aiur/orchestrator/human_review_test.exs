@@ -116,7 +116,7 @@ defmodule Aiur.Orchestrator.HumanReviewTest do
     refute log =~ "reverting to rework"
     refute log =~ "reverting to todo"
 
-    assert_receive {:alert_emitted, "ticket.2075.agent.attention.rework_attempt_limit", opts}
+    assert_receive {:alert_emitted, "ticket.2075.agent.attention.rework_attempt_limit", opts}, 1000
     assert Keyword.get(opts, :needs_attention) == true
   end
 

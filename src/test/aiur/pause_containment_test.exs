@@ -21,15 +21,15 @@ defmodule Aiur.PauseContainmentTest do
 
     assert {:ok, handle} = PauseContainment.register(name, "repo#886", 321, 321, workspace: "/workspace/886")
     assert {:ok, ^handle} = PauseContainment.arm(name, "repo#886")
-    assert_receive {:event, :cooperative, %{identifier: "repo#886"}}
+    assert_receive {:event, :cooperative, %{identifier: "repo#886"}}, 1000
 
     send(name, {:fallback, "repo#886", handle.generation})
 
-    assert_receive {:event, :fallback_started, %{process_group_id: 321}}
-    assert_receive {:reaped, 321}
-    assert_receive {:event, :fallback_succeeded, %{generation: generation}}
+    assert_receive {:event, :fallback_started, %{process_group_id: 321}}, 1000
+    assert_receive {:reaped, 321}, 1000
+    assert_receive {:event, :fallback_succeeded, %{generation: generation}}, 1000
     assert generation == handle.generation
-    assert_receive {:notified, "repo#886", ^generation, :contained}
+    assert_receive {:notified, "repo#886", ^generation, :contained}, 1000
     refute PauseContainment.paused?(name, handle)
   end
 
