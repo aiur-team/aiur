@@ -65,9 +65,7 @@ defmodule Aiur.Init.GitHub do
       {:ok, readiness} ->
         case persist_operator_assessment(readiness, tracker) do
           :ok ->
-            io.puts.("CI readiness setup error: " <> CiReadiness.format(readiness))
-            maybe_scaffold_ci(io, deps, readiness)
-            {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
+            report_unready_ci(io, deps, readiness)
 
           {:error, reason} ->
             {:error, "Repository CI readiness could not be saved for the daemon: #{inspect(reason)}"}
@@ -89,6 +87,24 @@ defmodule Aiur.Init.GitHub do
   end
 
   def ensure_ci_readiness(_io, _deps, _tracker), do: :ok
+
+  defp report_unready_ci(io, deps, readiness) do
+    purpose =
+      "Aiur waits for required CI checks before merging agent work, so this setup checks whether the repository provides those checks."
+
+    if :base_branch_missing in readiness.issues do
+      message =
+        "Configured tracker.base_branch `#{readiness.base_branch}` does not exist. " <>
+          "Update `tracker.base_branch` in `.aiur/config` to a branch that exists on GitHub, then run `aiur init` again."
+
+      io.puts.(purpose <> "\n" <> message)
+      {:error, message}
+    else
+      io.puts.(purpose <> "\n" <> CiReadiness.format(readiness))
+      maybe_scaffold_ci(io, deps, readiness)
+      {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
+    end
+  end
 
   defp resolve_repo_for_readiness(%{repo: repo} = tracker, _deps) when is_binary(repo), do: tracker
   defp resolve_repo_for_readiness(tracker, deps), do: Map.put(tracker, :repo, deps.detect_repo.())
