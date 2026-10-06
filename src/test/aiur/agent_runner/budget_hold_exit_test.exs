@@ -6,7 +6,7 @@ defmodule Aiur.AgentRunner.BudgetHoldExitTest do
 
   test "held preflight through run schedules a reset_at retry without consuming an attempt" do
     root = Aiur.TestSupport.tmp_root!("runner-budget-hold")
-    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", workspace_root: root)
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", workspace_root: root, hook_after_create: "git -C \"$PWD\" init -q")
     hold = %{reason: :actor_budget, resource: "core", reset_at: DateTime.add(DateTime.utc_now(), 30, :second)}
     diagnostic = {:github_auth_preflight_failed, %{classification: :local_hold, detail: %{hold: hold}}}
     parent = self()
