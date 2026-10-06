@@ -152,11 +152,15 @@ defmodule Aiur.Workspace.Remove do
         {:ok, workspace} -> workspace |> remove(worker_host, Keyword.put_new(opts, :ticket, identifier)) |> summarize()
         {:error, _reason} -> :ok
       end
+    else
+      :ok
     end
   end
 
   def remove_issue_workspaces(identifier, nil, opts) when is_binary(identifier) do
-    if TestTicketScope.allowed_identifier?(identifier), do: remove_issue_workspaces_from_config(identifier, opts)
+    if TestTicketScope.allowed_identifier?(identifier),
+      do: remove_issue_workspaces_from_config(identifier, opts),
+      else: :ok
   end
 
   def remove_issue_workspaces(_identifier, _worker_host, _opts) do
