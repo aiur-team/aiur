@@ -5,18 +5,19 @@ defmodule Aiur.AccountsTest do
 
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.Claude
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.Issue
 
   setup do
-    Aiur.Accounts.UsageReadings.reset()
+    UsageReadings.reset()
     home = Path.join(System.tmp_dir!(), "aiur-accounts-#{System.unique_integer([:positive])}")
     File.mkdir_p!(home)
     previous = System.get_env("HOME")
     System.put_env("HOME", home)
 
     on_exit(fn ->
-      Aiur.Accounts.UsageReadings.reset()
+      UsageReadings.reset()
       if previous, do: System.put_env("HOME", previous), else: System.delete_env("HOME")
       File.rm_rf!(home)
     end)
@@ -122,7 +123,7 @@ defmodule Aiur.AccountsTest do
   test "dispatch reuses the latest polled reading instead of issuing another usage request", %{home: home} do
     :ok = Accounts.register("claude", "max", nil)
 
-    Aiur.Accounts.UsageReadings.record(
+    UsageReadings.record(
       "claude",
       "max",
       {:ok,
@@ -204,10 +205,10 @@ defmodule Aiur.AccountsTest do
 
   test "usage readings are isolated by harness and account" do
     observed_at = DateTime.utc_now()
-    Aiur.Accounts.UsageReadings.record("claude", "default", {:error, :no_oauth_token}, observed_at)
-    Aiur.Accounts.UsageReadings.record("other", "default", {:ok, %{windows: []}}, observed_at)
+    UsageReadings.record("claude", "default", {:error, :no_oauth_token}, observed_at)
+    UsageReadings.record("other", "default", {:ok, %{windows: []}}, observed_at)
 
     assert %{"default" => %{freshness: :unavailable, reason: :no_oauth_token}} =
-             Aiur.Accounts.UsageReadings.snapshot("claude", ["default"])
+             UsageReadings.snapshot("claude", ["default"])
   end
 end

@@ -5,6 +5,9 @@ defmodule Aiur.ProviderMeterProbeTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.Accounts.Shims.Claude, as: ClaudeAccounts
+  alias Aiur.Accounts.UsageReadings
+  alias Aiur.Claude.UsageApi
   alias Aiur.OpenAICompat.BalanceBaseline
   alias Aiur.OpenAICompat.ProviderMeterProbe, as: OpenAICompatProbe
   alias Aiur.ProviderMeterProbe
@@ -154,8 +157,8 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   setup do
-    Aiur.Accounts.UsageReadings.reset()
-    on_exit(&Aiur.Accounts.UsageReadings.reset/0)
+    UsageReadings.reset()
+    on_exit(&UsageReadings.reset/0)
     projection = :"probe_proj_#{System.unique_integer([:positive])}"
     {:ok, pid} = start_supervised({ProviderMeterProjection, [name: projection, subscribe?: false]})
 
@@ -301,7 +304,7 @@ defmodule Aiur.ProviderMeterProbeTest do
              ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: CachedUsageApi))
 
     assert %{"default" => %{freshness: :cached, observed_at: ~U[2026-10-01 00:00:00Z]}} =
-             Aiur.Accounts.UsageReadings.snapshot("claude", ["default"])
+             UsageReadings.snapshot("claude", ["default"])
   end
 
   test "per-account polling uses a separate credentials path and reading for each account", ctx do
@@ -317,12 +320,12 @@ defmodule Aiur.ProviderMeterProbeTest do
 
     assert_receive {:account_credentials, default_credentials, default_cache_key}, 1000
     assert_receive {:account_credentials, "/profiles/max/.credentials.json", max_cache_key}, 1000
-    assert default_credentials == Aiur.Claude.UsageApi.default_credentials_path()
-    assert default_cache_key == Aiur.Accounts.Shims.Claude.usage_cache_key(nil)
-    assert max_cache_key == Aiur.Accounts.Shims.Claude.usage_cache_key("/profiles/max")
+    assert default_credentials == UsageApi.default_credentials_path()
+    assert default_cache_key == ClaudeAccounts.usage_cache_key(nil)
+    assert max_cache_key == ClaudeAccounts.usage_cache_key("/profiles/max")
 
     assert %{"default" => %{freshness: :fresh}, "max" => %{freshness: :fresh}} =
-             Aiur.Accounts.UsageReadings.snapshot("claude", ["default", "max"])
+             UsageReadings.snapshot("claude", ["default", "max"])
   end
 
   test "probing :all covers every registry provider", ctx do
