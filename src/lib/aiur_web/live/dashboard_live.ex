@@ -5,6 +5,8 @@ defmodule AiurWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.Accounts
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.Agent.UsageSnapshotService
   alias Aiur.AgentChat
 
@@ -891,9 +893,9 @@ defmodule AiurWeb.DashboardLive do
           ProviderMetersPresenter.present(
             financial_data_capability(&1),
             %{},
-            Aiur.Accounts.UsageReadings.snapshot(
+            UsageReadings.snapshot(
               "claude",
-              case Aiur.Accounts.configured_names() do
+              case Accounts.configured_names() do
                 [] -> ["default"]
                 names -> names
               end
@@ -1813,9 +1815,9 @@ defmodule AiurWeb.DashboardLive do
       ProviderMetersPresenter.present(
         capability,
         socket.assigns.provider_meter_snapshots,
-        Aiur.Accounts.UsageReadings.snapshot(
+        UsageReadings.snapshot(
           "claude",
-          case Aiur.Accounts.configured_names() do
+          case Accounts.configured_names() do
             [] -> ["default"]
             names -> names
           end

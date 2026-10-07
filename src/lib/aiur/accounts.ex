@@ -5,6 +5,7 @@ defmodule Aiur.Accounts do
 
   @type account :: %{name: String.t(), harness: String.t(), profile_dir: Path.t() | nil}
   @type usage :: %{optional(String.t()) => number() | nil}
+  @type registry_entry :: %{optional(String.t()) => String.t() | nil}
 
   @spec list(String.t() | nil) :: [account()]
   def list(harness \\ nil) do
@@ -82,9 +83,8 @@ defmodule Aiur.Accounts do
         {:error, :unknown_account}
 
       {entry, rest} ->
-        with :ok <- write_registry(rest),
-             :ok <- maybe_purge(entry, purge) do
-          :ok
+        with :ok <- write_registry(rest) do
+          maybe_purge(entry, purge)
         end
     end
   end
@@ -134,6 +134,7 @@ defmodule Aiur.Accounts do
   defp below_limit?(_unknown), do: true
   defp at_limit?(reading), do: not below_limit?(reading)
 
+  @spec registry() :: %{optional(String.t()) => registry_entry()}
   defp registry do
     case File.read(machine_path()) do
       {:ok, contents} ->
@@ -211,9 +212,8 @@ defmodule Aiur.Accounts do
     if Enum.any?(never, &(&1 == relative or String.starts_with?(relative, String.trim_trailing(&1, "*")))) do
       :ok
     else
-      with :ok <- File.mkdir_p(Path.dirname(to)),
-           :ok <- create_link(from, to) do
-        :ok
+      with :ok <- File.mkdir_p(Path.dirname(to)) do
+        create_link(from, to)
       end
     end
   end
@@ -227,7 +227,12 @@ defmodule Aiur.Accounts do
   end
 
   defp valid_name?(name), do: is_binary(name) and Regex.match?(~r/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/, name) and name != "default"
-  defp maybe_purge(%{"profile_dir" => dir}, true) when is_binary(dir), do: File.rm_rf!(dir) && :ok
+
+  defp maybe_purge(%{"profile_dir" => dir}, true) do
+    _removed = File.rm_rf!(IO.iodata_to_binary(dir))
+    :ok
+  end
+
   defp maybe_purge(_entry, _purge), do: :ok
 
   defp write_entry(name, entry), do: write_registry(Map.put(registry(), name, entry))

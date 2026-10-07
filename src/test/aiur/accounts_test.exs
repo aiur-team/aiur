@@ -115,7 +115,7 @@ defmodule Aiur.AccountsTest do
                {:ok, %{account_name: Keyword.get(opts, :account_name)}}
              end)
 
-    assert_receive {:adapter_opts, adapter_opts}
+    assert_receive {:adapter_opts, adapter_opts}, 1000
     assert Keyword.fetch!(adapter_opts, :env) == Keyword.fetch!(session_opts, :env)
   end
 

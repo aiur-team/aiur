@@ -26,6 +26,8 @@ defmodule Aiur.ProviderMeterProbe do
   """
 
   alias Aiur.Claude.UsageApi
+  alias Aiur.Accounts
+  alias Aiur.Accounts.Shims.Claude, as: ClaudeAccounts
   alias Aiur.{CodingAgent, Config}
   alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeters.{Events, ProbeCrash}
@@ -229,7 +231,7 @@ defmodule Aiur.ProviderMeterProbe do
           end
 
         {usage_result, account_observed_at, freshness} = result
-        Aiur.Accounts.UsageReadings.record("claude", name, usage_result, account_observed_at, freshness)
+        Accounts.UsageReadings.record("claude", name, usage_result, account_observed_at, freshness)
         {name, usage_result}
       end)
 
@@ -260,24 +262,24 @@ defmodule Aiur.ProviderMeterProbe do
   end
 
   defp account_credentials_path("default", _opts),
-    do: {:ok, UsageApi.default_credentials_path(), Aiur.Accounts.Shims.Claude.usage_cache_key(nil)}
+    do: {:ok, UsageApi.default_credentials_path(), ClaudeAccounts.usage_cache_key(nil)}
 
   defp account_credentials_path(name, opts) do
     case Map.get(Keyword.get(opts, :claude_profiles, %{}), name) do
-      dir when is_binary(dir) -> {:ok, Path.join(dir, ".credentials.json"), Aiur.Accounts.Shims.Claude.usage_cache_key(dir)}
+      dir when is_binary(dir) -> {:ok, Path.join(dir, ".credentials.json"), ClaudeAccounts.usage_cache_key(dir)}
       _unset -> registered_account_credentials_path(name)
     end
   end
 
   defp registered_account_credentials_path(name) do
-    case Enum.find(Aiur.Accounts.list("claude"), &(&1.name == name)) do
-      %{profile_dir: dir} when is_binary(dir) -> {:ok, Path.join(dir, ".credentials.json"), Aiur.Accounts.Shims.Claude.usage_cache_key(dir)}
+    case Enum.find(Accounts.list("claude"), &(&1.name == name)) do
+      %{profile_dir: dir} when is_binary(dir) -> {:ok, Path.join(dir, ".credentials.json"), ClaudeAccounts.usage_cache_key(dir)}
       _unknown -> :error
     end
   end
 
   defp configured_claude_accounts(opts) do
-    case Keyword.get(opts, :claude_accounts, Aiur.Accounts.configured_names()) do
+    case Keyword.get(opts, :claude_accounts, Accounts.configured_names()) do
       [] -> ["default"]
       names -> names
     end

@@ -1,6 +1,8 @@
 defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
+  alias Aiur.Accounts
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, Tracker}
   alias Aiur.AgentRunner.{CodexUpdateRelay, MessageHandler, ModelLabelRefresh, SessionResume, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
@@ -694,48 +696,58 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
   defp maybe_put_claude_account(session_opts, backend, opts) when backend in ["claude", "claude-repl"] do
     config = Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
-    names = Map.get(config.accounts || %{}, "claude", [])
+    candidates = configured_claude_candidates(config)
 
-    if names == [] do
+    if candidates == [] do
       session_opts
     else
-      registered = MapSet.new(Aiur.Accounts.list("claude"), & &1.name)
-      candidates = Enum.filter(names, &MapSet.member?(registered, &1))
-      polled = Aiur.Accounts.UsageReadings.snapshot("claude", candidates)
-      usage_fetcher = Keyword.get(opts, :account_usage_fetcher, &account_usage/1)
-
-      usages =
-        Map.new(candidates, fn name ->
-          case Map.fetch(polled, name) do
-            {:ok, %{reading: %{windows: windows}}} -> {name, usage_map(windows)}
-            {:ok, _unavailable} -> {name, nil}
-            :error -> {name, usage_fetcher.(name)}
-          end
-        end)
-
-      case Aiur.Accounts.select("claude", candidates, config.account_selection || "balance", usages) do
-        {:ok, name} ->
-          reason =
-            if is_map(usages[name]) and is_number(usages[name]["seven_day"]),
-              do: nil,
-              else: "usage unavailable"
-
-          Keyword.merge(session_opts,
-            account_name: name,
-            account_selection_reason: reason,
-            env: Aiur.Accounts.profile_env("claude", name)
-          )
-
-        {:error, reason} ->
-          Keyword.put(session_opts, :account_selection_error, reason)
-      end
+      usages = claude_account_usages(candidates, opts)
+      attach_selected_claude_account(session_opts, candidates, config, usages)
     end
   end
 
   defp maybe_put_claude_account(session_opts, _backend, _opts), do: session_opts
 
+  defp configured_claude_candidates(config) do
+    names = Map.get(config.accounts || %{}, "claude", [])
+    registered = MapSet.new(Accounts.list("claude"), & &1.name)
+    Enum.filter(names, &MapSet.member?(registered, &1))
+  end
+
+  defp claude_account_usages(candidates, opts) do
+    polled = UsageReadings.snapshot("claude", candidates)
+    fetch_usage = Keyword.get(opts, :account_usage_fetcher, &account_usage/1)
+    Map.new(candidates, &{&1, claude_account_usage(&1, polled, fetch_usage)})
+  end
+
+  defp claude_account_usage(name, polled, fetch_usage) do
+    case Map.fetch(polled, name) do
+      {:ok, %{reading: %{windows: windows}}} -> usage_map(windows)
+      {:ok, _unavailable} -> nil
+      :error -> fetch_usage.(name)
+    end
+  end
+
+  defp attach_selected_claude_account(session_opts, candidates, config, usages) do
+    mode = config.account_selection || "balance"
+
+    case Accounts.select("claude", candidates, mode, usages) do
+      {:ok, name} ->
+        reason = if is_map(usages[name]) and is_number(usages[name]["seven_day"]), do: nil, else: "usage unavailable"
+
+        Keyword.merge(session_opts,
+          account_name: name,
+          account_selection_reason: reason,
+          env: Accounts.profile_env("claude", name)
+        )
+
+      {:error, reason} ->
+        Keyword.put(session_opts, :account_selection_error, reason)
+    end
+  end
+
   defp account_usage(name) do
-    case Aiur.Accounts.usage("claude", name) do
+    case Accounts.usage("claude", name) do
       {:ok, %{windows: windows}, _metadata} ->
         usage_map(windows)
 

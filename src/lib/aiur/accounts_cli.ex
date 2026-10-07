@@ -1,9 +1,12 @@
 defmodule Aiur.AccountsCLI do
   @moduledoc false
 
+  alias Aiur.Accounts
+  alias Aiur.Accounts.Shims.Claude, as: ClaudeAccounts
+
   @spec accounts(boolean()) :: :ok | {:error, term()}
   def accounts(json) do
-    rows = Enum.map(Aiur.Accounts.list("claude"), &account_row/1)
+    rows = Enum.map(Accounts.list("claude"), &account_row/1)
     if json, do: IO.puts(Jason.encode!(rows)), else: Enum.each(rows, &print_row/1)
     :ok
   end
@@ -11,7 +14,7 @@ defmodule Aiur.AccountsCLI do
   @spec login(String.t(), String.t() | nil) :: :ok | {:error, term()}
   def login(name, dir) do
     with {:ok, _profile_dir} <- prepare_login(name, dir),
-         {command, args} <- Aiur.Accounts.login_command("claude", name),
+         {command, args} <- Accounts.login_command("claude", name),
          {_output, status} <- System.cmd(command, args, into: IO.stream(:stdio, :line)) do
       if status == 0, do: :ok, else: {:error, :login_failed}
     end
@@ -20,8 +23,8 @@ defmodule Aiur.AccountsCLI do
   @spec prepare_login(String.t(), String.t() | nil) :: {:ok, Path.t()} | {:error, term()}
   def prepare_login(name, dir) do
     with :ok <- validate_dir(dir),
-         :ok <- Aiur.Accounts.register("claude", name, dir),
-         %{profile_dir: profile_dir} <- Enum.find(Aiur.Accounts.list("claude"), &(&1.name == name)),
+         :ok <- Accounts.register("claude", name, dir),
+         %{profile_dir: profile_dir} <- Enum.find(Accounts.list("claude"), &(&1.name == name)),
          true <- is_binary(profile_dir) do
       {:ok, profile_dir}
     else
@@ -32,7 +35,7 @@ defmodule Aiur.AccountsCLI do
   end
 
   @spec logout(String.t(), boolean()) :: :ok | {:error, term()}
-  def logout(name, purge), do: Aiur.Accounts.logout(name, purge)
+  def logout(name, purge), do: Accounts.logout(name, purge)
 
   defp validate_dir(nil), do: :ok
 
@@ -41,9 +44,9 @@ defmodule Aiur.AccountsCLI do
   end
 
   defp account_row(%{name: name, harness: harness, profile_dir: dir}) do
-    identity = Aiur.Accounts.Shims.Claude.identity(dir)
+    identity = ClaudeAccounts.identity(dir)
 
-    case Aiur.Accounts.usage(harness, name) do
+    case Accounts.usage(harness, name) do
       {:ok, reading, metadata} ->
         %{
           name: name,

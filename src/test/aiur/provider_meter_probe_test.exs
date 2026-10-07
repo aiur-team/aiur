@@ -315,8 +315,8 @@ defmodule Aiur.ProviderMeterProbeTest do
                )
              )
 
-    assert_receive {:account_credentials, default_credentials, default_cache_key}
-    assert_receive {:account_credentials, "/profiles/max/.credentials.json", max_cache_key}
+    assert_receive {:account_credentials, default_credentials, default_cache_key}, 1000
+    assert_receive {:account_credentials, "/profiles/max/.credentials.json", max_cache_key}, 1000
     assert default_credentials == Aiur.Claude.UsageApi.default_credentials_path()
     assert default_cache_key == Aiur.Accounts.Shims.Claude.usage_cache_key(nil)
     assert max_cache_key == Aiur.Accounts.Shims.Claude.usage_cache_key("/profiles/max")

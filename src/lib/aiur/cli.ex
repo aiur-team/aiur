@@ -77,9 +77,11 @@ defmodule Aiur.CLI do
 
   defp dispatch({:error, message}), do: shutdown_with_error(message)
 
+  @spec command_result(:ok | {:error, term()}) :: no_return()
   defp command_result(:ok), do: System.halt(0)
   defp command_result({:error, reason}), do: shutdown_with_error("aiur: " <> to_string(reason))
 
+  @spec prepare_account_login(String.t(), String.t() | nil) :: no_return()
   defp prepare_account_login(name, dir) do
     case Aiur.AccountsCLI.prepare_login(name, dir) do
       {:ok, profile_dir} ->
@@ -175,6 +177,10 @@ defmodule Aiur.CLI do
           | {:findings, %{record: String.t(), repo: String.t()}}
           | {:findings, %{digest: true, scope: String.t() | nil}}
           | {:asks, Aiur.AsksCLI.command()}
+          | {:accounts, boolean()}
+          | {:account_login, String.t(), String.t() | nil}
+          | {:account_login_prepare, String.t(), String.t() | nil}
+          | {:account_logout, String.t(), boolean()}
           | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do

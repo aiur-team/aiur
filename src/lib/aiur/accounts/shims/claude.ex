@@ -2,6 +2,8 @@ defmodule Aiur.Accounts.Shims.Claude do
   @moduledoc "Claude Code profile adapter."
   @behaviour Aiur.Accounts.Shim
 
+  alias Aiur.Claude.UsageApi
+
   @impl true
   def profile_env(dir), do: [{"CLAUDE_CONFIG_DIR", dir}]
 
@@ -35,8 +37,8 @@ defmodule Aiur.Accounts.Shims.Claude do
 
   @impl true
   def usage(dir) do
-    credentials = if is_nil(dir), do: Aiur.Claude.UsageApi.default_credentials_path(), else: Path.join(dir, ".credentials.json")
-    Aiur.Claude.UsageApi.fetch_with_metadata(credentials_path: credentials, cache_key: usage_cache_key(dir))
+    credentials = if is_nil(dir), do: UsageApi.default_credentials_path(), else: Path.join(dir, ".credentials.json")
+    UsageApi.fetch_with_metadata(credentials_path: credentials, cache_key: usage_cache_key(dir))
   end
 
   @doc false
