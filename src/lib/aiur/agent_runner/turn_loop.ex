@@ -475,11 +475,13 @@ defmodule Aiur.AgentRunner.TurnLoop do
   end
 
   defp rework_handoff(issue, workspace, worker_host, opts) do
-    with "rework" <- DispatchPolicy.normalize_issue_state(issue.state) do
-      fetcher = Keyword.get(opts, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
-      handoff_for_pr_result(fetcher.(issue.identifier), Keyword.get(opts, :rework_head_sha), workspace, worker_host, opts)
-    else
-      _ -> :none
+    case DispatchPolicy.normalize_issue_state(issue.state) do
+      "rework" ->
+        fetcher = Keyword.get(opts, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
+        handoff_for_pr_result(fetcher.(issue.identifier), Keyword.get(opts, :rework_head_sha), workspace, worker_host, opts)
+
+      _ ->
+        :none
     end
   end
 

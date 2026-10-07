@@ -2521,18 +2521,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
     supplied_rework_head_sha = Keyword.get(opts, :rework_head_sha)
     rework_head_sha = if rework?, do: supplied_rework_head_sha || :pending, else: nil
 
-    case start_runner_task(
-           issue,
-           runner,
-           recipient,
-           attempt,
-           worker_host,
-           worker_generation,
-           lifecycle_attempt_id,
-           opts,
-           rework?,
-           rework_head_sha
-         ) do
+    runner_context = %{
+      attempt: attempt,
+      worker_host: worker_host,
+      worker_generation: worker_generation,
+      lifecycle_attempt_id: lifecycle_attempt_id,
+      rework?: rework?,
+      rework_head_sha: rework_head_sha
+    }
+
+    case start_runner_task(issue, runner, recipient, runner_context, opts) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
 
@@ -2600,18 +2598,18 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
-  defp start_runner_task(issue, runner, recipient, attempt, worker_host, worker_generation, lifecycle_attempt_id, opts, rework?, initial_head) do
+  defp start_runner_task(issue, runner, recipient, context, opts) do
     Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
-      rework_head_sha = capture_rework_head(issue, rework?, initial_head, opts)
-      maybe_report_rework_head(recipient, issue, rework?, rework_head_sha)
+      rework_head_sha = capture_rework_head(issue, context.rework?, context.rework_head_sha, opts)
+      maybe_report_rework_head(recipient, issue, context.rework?, rework_head_sha)
 
       runner.(issue, recipient,
-        attempt: attempt,
+        attempt: context.attempt,
         prior_work: Keyword.get(opts, :prior_work, false),
-        telemetry_attempt_id: lifecycle_attempt_id,
-        worker_host: worker_host,
+        telemetry_attempt_id: context.lifecycle_attempt_id,
+        worker_host: context.worker_host,
         orchestrator: recipient,
-        worker_generation: worker_generation,
+        worker_generation: context.worker_generation,
         rework_head_sha: rework_head_sha
       )
     end)
