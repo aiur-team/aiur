@@ -1063,6 +1063,115 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       # A genuine agent failure is exactly where `agent:error` belongs.
       assert_receive {:memory_tracker_state_update, ^identifier, "error"}, 200
     end
+
+    test "an advanced open PR head hands exhaustion to human review" do
+      memory_tracker_for_retry()
+      identifier = "MT-REWORK-EXHAUSTED"
+
+      RetryEngine.schedule_issue_retry(%State{}, "issue-rework-exhausted", Config.max_retry_attempts() + 1, %{
+        identifier: identifier,
+        error: "agent exited: no-op continuation",
+        rework_head_sha: "old-head",
+        open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "new-head"}}} end,
+        commit_ci_status_fetcher: fn _ ->
+          {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}}
+        end,
+        delay_type: :failure
+      })
+
+      assert_receive {:memory_tracker_state_update, ^identifier, "human-review"}, 200
+      refute_receive {:memory_tracker_state_update, ^identifier, "error"}, 100
+    end
+
+    test "an advanced PR with pending checks hands exhaustion to ci-wait" do
+      memory_tracker_for_retry()
+      identifier = "MT-REWORK-CI-WAIT"
+
+      RetryEngine.schedule_issue_retry(%State{}, "issue-rework-ci-wait", Config.max_retry_attempts() + 1, %{
+        identifier: identifier,
+        error: "agent exited: no-op continuation",
+        rework_head_sha: "old-head",
+        open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "new-head"}}} end,
+        commit_ci_status_fetcher: fn _ ->
+          {:ok, %{check_runs: [%{"status" => "queued", "conclusion" => nil}], commit_status: %{"state" => "pending"}}}
+        end,
+        delay_type: :failure
+      })
+
+      assert_receive {:memory_tracker_state_update, ^identifier, "ci-wait"}, 200
+      refute_receive {:memory_tracker_state_update, ^identifier, "error"}, 100
+    end
+
+    test "a failed PR head lookup hands exhaustion to human review" do
+      memory_tracker_for_retry()
+      identifier = "MT-REWORK-PR-READ-FAILED"
+
+      RetryEngine.schedule_issue_retry(%State{}, "issue-rework-pr-read-failed", Config.max_retry_attempts() + 1, %{
+        identifier: identifier,
+        error: "agent exited: no-op continuation",
+        rework_head_sha: "old-head",
+        open_pr_fetcher: fn _ -> {:error, :rate_limited} end,
+        delay_type: :failure
+      })
+
+      assert_receive {:memory_tracker_state_update, ^identifier, "human-review"}, 200
+      refute_receive {:memory_tracker_state_update, ^identifier, "error"}, 100
+    end
+
+    test "unknown CI status keeps exhausted pushed work in ci-wait" do
+      memory_tracker_for_retry()
+      identifier = "MT-REWORK-CI-READ-FAILED"
+
+      RetryEngine.schedule_issue_retry(%State{}, "issue-rework-ci-read-failed", Config.max_retry_attempts() + 1, %{
+        identifier: identifier,
+        error: "agent exited: no-op continuation",
+        rework_head_sha: "old-head",
+        open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "new-head"}}} end,
+        commit_ci_status_fetcher: fn _ -> {:error, :rate_limited} end,
+        delay_type: :failure
+      })
+
+      assert_receive {:memory_tracker_state_update, ^identifier, "ci-wait"}, 200
+      refute_receive {:memory_tracker_state_update, ^identifier, "error"}, 100
+    end
+
+    test "an unknown initial baseline conservatively hands exhausted rework to review" do
+      memory_tracker_for_retry()
+      identifier = "MT-REWORK-BASELINE-UNKNOWN"
+
+      RetryEngine.schedule_issue_retry(%State{}, "issue-rework-baseline-unknown", Config.max_retry_attempts() + 1, %{
+        identifier: identifier,
+        error: "agent exited: no-op continuation",
+        rework_head_sha: :lookup_failed,
+        open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "same-head"}}} end,
+        commit_ci_status_fetcher: fn _ ->
+          {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}}
+        end,
+        delay_type: :failure
+      })
+
+      assert_receive {:memory_tracker_state_update, ^identifier, "human-review"}, 200
+      refute_receive {:memory_tracker_state_update, ^identifier, "error"}, 100
+    end
+
+    test "an unchanged or missing PR head keeps exhaustion in error" do
+      memory_tracker_for_retry()
+
+      for {identifier, fetcher} <- [
+            {"MT-REWORK-UNCHANGED", fn _ -> {:ok, %{"head" => %{"sha" => "same-head"}}} end},
+            {"MT-REWORK-MISSING", fn _ -> {:ok, nil} end}
+          ] do
+        RetryEngine.schedule_issue_retry(%State{}, identifier, Config.max_retry_attempts() + 1, %{
+          identifier: identifier,
+          error: "agent exited: no-op continuation",
+          rework_head_sha: "same-head",
+          open_pr_fetcher: fetcher,
+          delay_type: :failure
+        })
+
+        assert_receive {:memory_tracker_state_update, ^identifier, "error"}, 200
+      end
+    end
   end
 
   describe "orphaned shell reaping" do
@@ -1613,6 +1722,120 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   end
 
   describe "handle_retry_issue_lookup/6" do
+    test "preserves the running rework head through queued retry dispatch" do
+      parent = self()
+      issue = %Issue{id: "issue-rework-retry", identifier: "MT-REWORK-RETRY", title: "Rework retry", state: "rework"}
+
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework"],
+        opencode_command: System.find_executable("true")
+      )
+
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+      ref = make_ref()
+
+      initial_state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        claimed: MapSet.new([issue.id]),
+        running: %{
+          issue.id => %{
+            ref: ref,
+            pid: parent,
+            issue: issue,
+            identifier: issue.identifier,
+            started_at: DateTime.utc_now(),
+            retry_attempt: 0,
+            rework_head_sha: "head-before-run",
+            control: %{status: :working}
+          }
+        }
+      }
+
+      assert {:noreply, queued_state} = RetryEngine.handle_agent_down(initial_state, ref, :normal)
+      retry = queued_state.retry_attempts[issue.id]
+      assert retry.rework_head_sha == "head-before-run"
+
+      assert {:ok, attempt, metadata, popped_state} =
+               RetryEngine.pop_retry_attempt_state(queued_state, issue.id, retry.retry_token)
+
+      assert metadata.rework_head_sha == "head-before-run"
+
+      assert {:noreply, _dispatched_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 issue,
+                 popped_state,
+                 issue.id,
+                 attempt,
+                 metadata,
+                 terminal_states: MapSet.new(["done"]),
+                 dispatch_fun: fn state, _issue, _attempt, _worker_host, dispatch_opts ->
+                   send(parent, {:rework_retry_baseline, dispatch_opts[:rework_head_sha]})
+                   put_in(state.running[issue.id], %{pid: parent})
+                 end
+               )
+
+      assert_receive {:rework_retry_baseline, "head-before-run"}, 1000
+    end
+
+    test "preserves the running rework head through failure retry dispatch" do
+      parent = self()
+      issue = %Issue{id: "issue-rework-failure-retry", identifier: "MT-REWORK-FAILURE-RETRY", title: "Rework retry", state: "rework"}
+
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "rework"],
+        opencode_command: System.find_executable("true")
+      )
+
+      Application.put_env(:aiur, :memory_tracker_recipient, self())
+      ref = make_ref()
+
+      initial_state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        claimed: MapSet.new([issue.id]),
+        running: %{
+          issue.id => %{
+            ref: ref,
+            pid: parent,
+            issue: issue,
+            identifier: issue.identifier,
+            started_at: DateTime.utc_now(),
+            retry_attempt: 0,
+            rework_head_sha: "head-before-failure",
+            control: %{status: :working}
+          }
+        }
+      }
+
+      assert {:noreply, queued_state} = RetryEngine.handle_agent_down(initial_state, ref, :killed)
+      retry = queued_state.retry_attempts[issue.id]
+      assert retry.rework_head_sha == "head-before-failure"
+
+      assert {:ok, attempt, metadata, popped_state} =
+               RetryEngine.pop_retry_attempt_state(queued_state, issue.id, retry.retry_token)
+
+      assert metadata.rework_head_sha == "head-before-failure"
+
+      assert {:noreply, _dispatched_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 issue,
+                 popped_state,
+                 issue.id,
+                 attempt,
+                 metadata,
+                 terminal_states: MapSet.new(["done"]),
+                 dispatch_fun: fn state, _issue, _attempt, _worker_host, dispatch_opts ->
+                   send(parent, {:rework_failure_retry_baseline, dispatch_opts[:rework_head_sha]})
+                   put_in(state.running[issue.id], %{pid: parent})
+                 end
+               )
+
+      assert_receive {:rework_failure_retry_baseline, "head-before-failure"}, 1000
+    end
+
     test "preserves prior-work continuation through an active retry dispatch" do
       issue = %Issue{id: "issue-active", identifier: "27", title: "Active retry", state: "In Progress"}
       state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
@@ -1624,7 +1847,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
                  state,
                  issue.id,
                  2,
-                 %{worker_host: nil, prior_work: true},
+                 %{worker_host: nil, prior_work: true, rework_head_sha: "head-before-first-attempt"},
                  terminal_states: MapSet.new(["done"]),
                  dispatch_fun: fn current_state, ^issue, 2, nil, dispatch_opts ->
                    send(parent, {:retry_dispatch_opts, dispatch_opts})
@@ -1638,6 +1861,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
       assert_receive {:retry_dispatch_opts, dispatch_opts}, 1000
       assert dispatch_opts[:prior_work] == true
+      assert dispatch_opts[:rework_head_sha] == "head-before-first-attempt"
       assert get_in(next_state.running, [issue.id, :pid]) == parent
     end
 

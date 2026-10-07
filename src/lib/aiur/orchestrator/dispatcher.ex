@@ -46,6 +46,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackerHealth
   }
 
+  alias Aiur.Orchestrator.ReworkGate
+
   alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
@@ -2515,14 +2517,36 @@ defmodule Aiur.Orchestrator.Dispatcher do
       })
     end
 
+    rework? = DispatchPolicy.normalize_issue_state(issue.state) == "rework"
+    supplied_rework_head_sha = Keyword.get(opts, :rework_head_sha)
+    rework_head_sha = if rework?, do: supplied_rework_head_sha || :pending, else: nil
+
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+           rework_head_sha =
+             if rework? and rework_head_sha == :pending do
+               fetcher = Keyword.get(opts, :rework_head_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
+
+               case fetcher.(issue.identifier) do
+                 {:ok, %{} = pr} -> ReworkGate.head_sha(pr) || :lookup_failed
+                 {:error, _reason} -> :lookup_failed
+                 _ -> nil
+               end
+             else
+               rework_head_sha
+             end
+
+           if rework? do
+             send(recipient, {:worker_runtime_info, issue.id, %{rework_head_sha: rework_head_sha}})
+           end
+
            runner.(issue, recipient,
              attempt: attempt,
              prior_work: Keyword.get(opts, :prior_work, false),
              telemetry_attempt_id: lifecycle_attempt_id,
              worker_host: worker_host,
              orchestrator: recipient,
-             worker_generation: worker_generation
+             worker_generation: worker_generation,
+             rework_head_sha: rework_head_sha
            )
          end) do
       {:ok, pid} ->
@@ -2561,6 +2585,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
             telemetry_attempt_id: lifecycle_attempt_id,
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
             prior_work: Keyword.get(opts, :prior_work, false),
+            rework_head_sha: rework_head_sha,
             started_at: DateTime.utc_now()
           }
           |> inherit_redispatch_safety(Map.get(state.running, issue.id))

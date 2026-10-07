@@ -9,6 +9,9 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Issue
+  alias Aiur.Tracker
+  alias Aiur.Orchestrator.DispatchPolicy
+  alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Workspace
   alias Aiur.Workspace.WipPreservation
@@ -353,7 +356,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
 
         Logger.info("Reached agent.max_turns for #{Aiur.AgentRunner.issue_context(refreshed_issue)} with issue still active; returning control to orchestrator")
 
-        return_completed(turn_context, refreshed_issue)
+        stop_on_turn_limit(turn_context, refreshed_issue)
 
       {:done, refreshed_issue} ->
         Logger.info("aiur_autonomous_loop phase=done elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} reason=issue_inactive")
@@ -411,9 +414,8 @@ defmodule Aiur.AgentRunner.TurnLoop do
   # the ticket-scoped needs-attention alert lands in the alert ledger and the
   # central `alerts.ndjson`, naming the ticket, the count, and the state label
   # that kept the loop alive. The loop then takes the SAME exit as
-  # `agent.max_turns` — control returns to the orchestrator with the ticket
-  # untouched, so nothing is stranded: the labels an operator (or the tracker)
-  # can act on are exactly as the agent left them.
+  # `agent.max_turns` — control returns to the orchestrator. A rework run that
+  # pushed gets a review handoff; a run that did not push is a real failure.
   defp stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap) do
     %{workspace: workspace, worker_host: worker_host, turn_number: turn_number, max_turns: max_turns} =
       turn_context
@@ -422,15 +424,98 @@ defmodule Aiur.AgentRunner.TurnLoop do
       "aiur_autonomous_loop phase=noop_bound_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns_display(max_turns)} noop_turns=#{progress.consecutive_noops} cap=#{cap}"
     )
 
-    TurnAlerts.emit_noop_turn_bound_alert(refreshed_issue, workspace, worker_host, %{
-      consecutive_noops: progress.consecutive_noops,
-      cap: cap,
-      turn_number: turn_number,
-      unchanged: TurnProgress.unchanged_witnesses(witness)
-    })
+    case transition_rework_handoff(turn_context, refreshed_issue) do
+      {:handoff, result} ->
+        result
 
-    return_completed(turn_context, refreshed_issue)
+      :none ->
+        case Tracker.update_issue_state(refreshed_issue.identifier, "error") do
+          :ok ->
+            failed_issue = %{refreshed_issue | state: "error"}
+
+            TurnAlerts.emit_noop_turn_bound_alert(failed_issue, workspace, worker_host, %{
+              consecutive_noops: progress.consecutive_noops,
+              cap: cap,
+              turn_number: turn_number,
+              unchanged: TurnProgress.unchanged_witnesses(witness)
+            })
+
+            return_completed(turn_context, failed_issue)
+
+          {:error, reason} ->
+            {:error, {:noop_bound_state_write_failed, reason}}
+        end
+    end
   end
+
+  defp stop_on_turn_limit(turn_context, refreshed_issue) do
+    case transition_rework_handoff(turn_context, refreshed_issue) do
+      {:handoff, result} -> result
+      :none -> return_completed(turn_context, refreshed_issue)
+    end
+  end
+
+  defp transition_rework_handoff(turn_context, refreshed_issue) do
+    %{workspace: workspace, worker_host: worker_host, opts: opts} = turn_context
+
+    case rework_handoff(refreshed_issue, workspace, worker_host, opts) do
+      {:handoff, state} ->
+        case Tracker.update_issue_state(refreshed_issue.identifier, state) do
+          :ok ->
+            TurnAlerts.emit_rework_handoff_alert(refreshed_issue, workspace, worker_host, state)
+            {:handoff, return_completed(turn_context, %{refreshed_issue | state: state})}
+
+          {:error, reason} ->
+            {:error, {:rework_handoff_state_write_failed, reason}}
+        end
+
+      :none ->
+        :none
+    end
+  end
+
+  defp rework_handoff(issue, workspace, worker_host, opts) do
+    original_head = Keyword.get(opts, :rework_head_sha)
+
+    if DispatchPolicy.normalize_issue_state(issue.state) != "rework" do
+      :none
+    else
+      case Keyword.get(opts, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1).(issue.identifier) do
+        {:ok, %{"head" => %{"sha" => current_head}}}
+        when is_binary(current_head) and current_head != "" ->
+          if is_binary(original_head) and original_head != "" and current_head == original_head do
+            :none
+          else
+            {:handoff, ci_handoff_state(current_head, workspace, worker_host, opts)}
+          end
+
+        {:error, _reason} ->
+          # A failed GitHub read cannot prove that the agent pushed nothing.
+          # Keep completed rework out of `error`; a reviewer can verify the PR.
+          {:handoff, "human-review"}
+
+        _ ->
+          :none
+      end
+    end
+  end
+
+  defp ci_handoff_state(head_sha, _workspace, _worker_host, opts) do
+    status_fetcher = Keyword.get(opts, :commit_ci_status_fetcher, &default_commit_ci_status/1)
+
+    case status_fetcher.(head_sha) do
+      {:ok, %{check_runs: runs, commit_status: status}} ->
+        pending_runs? = Enum.any?(runs, &(&1["status"] in ["in_progress", "queued"]))
+        if pending_runs? or get_in(status, ["state"]) == "pending", do: "ci-wait", else: "human-review"
+
+      _ ->
+        # Unknown CI state is not evidence that checks finished. Let the
+        # tracker/CI poll wake the ticket once GitHub is reachable again.
+        "ci-wait"
+    end
+  end
+
+  defp default_commit_ci_status(sha), do: GitHubClient.fetch_commit_ci_status(sha)
 
   # Widen the interval before each further no-op turn so an unbounded-looking
   # spin costs tens of seconds instead of a turn every seven seconds.
