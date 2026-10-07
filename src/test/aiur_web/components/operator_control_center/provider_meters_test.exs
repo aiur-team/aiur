@@ -195,6 +195,10 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     assert html =~ "stale"
     assert html =~ "30s old"
     assert html =~ "role=\"img\""
+    assert html =~ ~s(class="provider-meter-account-bar")
+    assert length(Regex.scan(~r/class="provider-meter-account-segment /, html)) == 2
+    assert html =~ "account-color-0"
+    assert html =~ "account-color-1"
     assert length(Regex.scan(~r/class="provider-meter-bar"/, html)) == 1
     refute html =~ "Weekly"
   end
