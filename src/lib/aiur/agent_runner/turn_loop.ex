@@ -8,11 +8,11 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Config
-  alias Aiur.Issue
-  alias Aiur.Tracker
-  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.RunTelemetry.Lifecycle
+  alias Aiur.Tracker
   alias Aiur.Workspace
   alias Aiur.Workspace.WipPreservation
 
@@ -475,30 +475,30 @@ defmodule Aiur.AgentRunner.TurnLoop do
   end
 
   defp rework_handoff(issue, workspace, worker_host, opts) do
-    original_head = Keyword.get(opts, :rework_head_sha)
-
-    if DispatchPolicy.normalize_issue_state(issue.state) != "rework" do
-      :none
+    with "rework" <- DispatchPolicy.normalize_issue_state(issue.state) do
+      fetcher = Keyword.get(opts, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1)
+      handoff_for_pr_result(fetcher.(issue.identifier), Keyword.get(opts, :rework_head_sha), workspace, worker_host, opts)
     else
-      case Keyword.get(opts, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1).(issue.identifier) do
-        {:ok, %{"head" => %{"sha" => current_head}}}
-        when is_binary(current_head) and current_head != "" ->
-          if is_binary(original_head) and original_head != "" and current_head == original_head do
-            :none
-          else
-            {:handoff, ci_handoff_state(current_head, workspace, worker_host, opts)}
-          end
-
-        {:error, _reason} ->
-          # A failed GitHub read cannot prove that the agent pushed nothing.
-          # Keep completed rework out of `error`; a reviewer can verify the PR.
-          {:handoff, "human-review"}
-
-        _ ->
-          :none
-      end
+      _ -> :none
     end
   end
+
+  defp handoff_for_pr_result({:ok, %{"head" => %{"sha" => current_head}}}, original_head, workspace, worker_host, opts)
+       when is_binary(current_head) and current_head != "" do
+    if is_binary(original_head) and original_head != "" and current_head == original_head do
+      :none
+    else
+      {:handoff, ci_handoff_state(current_head, workspace, worker_host, opts)}
+    end
+  end
+
+  defp handoff_for_pr_result({:error, _reason}, _original_head, _workspace, _worker_host, _opts) do
+    # A failed GitHub read cannot prove that the agent pushed nothing. Keep
+    # completed rework out of `error`; a reviewer can verify the PR.
+    {:handoff, "human-review"}
+  end
+
+  defp handoff_for_pr_result(_result, _original_head, _workspace, _worker_host, _opts), do: :none
 
   defp ci_handoff_state(head_sha, _workspace, _worker_host, opts) do
     status_fetcher = Keyword.get(opts, :commit_ci_status_fetcher, &default_commit_ci_status/1)

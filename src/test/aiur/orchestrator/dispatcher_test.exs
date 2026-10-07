@@ -2974,7 +2974,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert Keyword.fetch!(runner_opts, :rework_head_sha) == "captured-head"
 
       assert {:noreply, captured_state} =
-               Aiur.Orchestrator.State.handle_worker_runtime_info(
+               State.handle_worker_runtime_info(
                  next_state,
                  issue.id,
                  %{rework_head_sha: "captured-head"}

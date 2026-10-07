@@ -79,7 +79,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end
                )
 
-      assert_receive {:memory_tracker_state_update, identifier, "human-review"}
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
       assert identifier == issue.identifier
     end
 
@@ -119,7 +119,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  end
                )
 
-      assert_receive {:memory_tracker_state_update, identifier, "human-review"}
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
       assert identifier == issue.identifier
     end
 
@@ -147,7 +147,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  end
                )
 
-      assert_receive {:memory_tracker_state_update, identifier, "ci-wait"}
+      assert_receive {:memory_tracker_state_update, identifier, "ci-wait"}, 1000
       assert identifier == issue.identifier
     end
 
@@ -166,7 +166,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  open_pr_fetcher: fn _ -> {:error, :rate_limited} end
                )
 
-      assert_receive {:memory_tracker_state_update, identifier, "human-review"}
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
       assert identifier == issue.identifier
     end
 
@@ -186,7 +186,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  commit_ci_status_fetcher: fn _ -> {:error, :rate_limited} end
                )
 
-      assert_receive {:memory_tracker_state_update, identifier, "ci-wait"}
+      assert_receive {:memory_tracker_state_update, identifier, "ci-wait"}, 1000
       assert identifier == issue.identifier
     end
 
@@ -206,7 +206,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end
                )
 
-      assert_receive {:memory_tracker_state_update, identifier, "human-review"}
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
       assert identifier == issue.identifier
     end
 
@@ -231,7 +231,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  open_pr_fetcher: fn _ -> {:ok, %{"head" => %{"sha" => "same-head"}}} end
                )
 
-      assert_receive {:memory_tracker_state_update, identifier, "error"}
+      assert_receive {:memory_tracker_state_update, identifier, "error"}, 1000
       assert identifier == issue.identifier
     end
 
@@ -257,7 +257,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  end
                )
 
-      assert_receive {:memory_tracker_state_update, identifier, "human-review"}
+      assert_receive {:memory_tracker_state_update, identifier, "human-review"}, 1000
       assert identifier == issue.identifier
     end
 

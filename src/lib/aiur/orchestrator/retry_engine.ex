@@ -531,21 +531,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       exhaustion_reason = effective_exhaustion_reason(transient_reason, error)
 
       error_alert_emitted? =
-        case rework_handoff_state(identifier, rework_head_sha, metadata) do
-          {:ok, state_name} ->
-            case Tracker.update_issue_state(identifier, state_name) do
-              :ok ->
-                emit_rework_handoff_attention(identifier, state_name)
-                false
-
-              {:error, reason} ->
-                Logger.warning("Rework handoff state write failed for #{identifier}: #{inspect(reason)}")
-                move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason) == :alert_emitted
-            end
-
-          :none ->
-            move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason) == :alert_emitted
-        end
+        finalize_exhausted_issue(issue_id, identifier, rework_head_sha, metadata, exhaustion_reason)
 
       # Release the claim so a later label-driven re-dispatch (Executor moves the
       # ticket from `error` back to an active state) is picked up without a full
@@ -642,6 +628,24 @@ defmodule Aiur.Orchestrator.RetryEngine do
               commit_ci_status_fetcher: metadata[:commit_ci_status_fetcher]
             })
       }
+    end
+  end
+
+  defp finalize_exhausted_issue(issue_id, identifier, rework_head_sha, metadata, exhaustion_reason) do
+    case rework_handoff_state(identifier, rework_head_sha, metadata) do
+      {:ok, state_name} ->
+        case Tracker.update_issue_state(identifier, state_name) do
+          :ok ->
+            emit_rework_handoff_attention(identifier, state_name)
+            false
+
+          {:error, reason} ->
+            Logger.warning("Rework handoff state write failed for #{identifier}: #{inspect(reason)}")
+            move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason) == :alert_emitted
+        end
+
+      :none ->
+        move_exhausted_issue_to_error_state(issue_id, identifier, exhaustion_reason) == :alert_emitted
     end
   end
 
