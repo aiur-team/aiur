@@ -25,9 +25,9 @@ defmodule Aiur.ProviderMeterProbe do
   displaying with its true age, and the outcome names why.
   """
 
-  alias Aiur.Claude.UsageApi
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.Claude, as: ClaudeAccounts
+  alias Aiur.Claude.UsageApi
   alias Aiur.{CodingAgent, Config}
   alias Aiur.ProviderMeterProjection
   alias Aiur.ProviderMeters.{Events, ProbeCrash}
