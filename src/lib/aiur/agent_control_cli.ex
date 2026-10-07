@@ -1341,26 +1341,28 @@ defmodule Aiur.AgentControlCLI do
       result = if ticket_key, do: Ownership.release_if_held_with_exit_proof(ticket_key, generation), else: {:error, :invalid_ticket_identifier}
       status = %{identifier: ticket, issue_id: ticket}
 
-      case result do
-        :ok ->
-          IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
-
-        :not_found ->
-          print_failure(:workspace_recover, status, :not_found)
-
-        :not_held_for_reaping ->
-          print_failure(:workspace_recover, status, :not_held_for_reaping)
-
-        {:error, {:audit_write_failed, reason}} ->
-          IO.puts("__AIUR_CONTROL_ERROR__:aiur: workspace recovery was not performed because its durable audit write failed (#{inspect(reason)})")
-
-        {:error, reason} ->
-          print_failure(:workspace_recover, status, reason)
-      end
-
-      exit_marker(if result == :ok, do: 0, else: 1)
+      report_workspace_recovery(result, ticket, generation, status)
     end)
   end
+
+  defp report_workspace_recovery(:ok, ticket, generation, _status) do
+    IO.puts("aiur: released workspace hold for #{ticket} generation #{generation}")
+    exit_marker(0)
+  end
+
+  defp report_workspace_recovery({:error, {:audit_write_failed, reason}}, _ticket, _generation, _status) do
+    IO.puts("__AIUR_CONTROL_ERROR__:aiur: workspace recovery was not performed because its durable audit write failed (#{inspect(reason)})")
+    exit_marker(1)
+  end
+
+  defp report_workspace_recovery(result, _ticket, _generation, status) do
+    reason = if result == :not_found, do: :not_found, else: recovery_failure_reason(result)
+    print_failure(:workspace_recover, status, reason)
+    exit_marker(1)
+  end
+
+  defp recovery_failure_reason(:not_held_for_reaping), do: :not_held_for_reaping
+  defp recovery_failure_reason({:error, reason}), do: reason
 
   defp workspace_recovery_ticket_key(ticket) do
     case Regex.run(~r/^(?:[^#]+\/[^#]+)?#?(\d+)$/, ticket) do
