@@ -275,6 +275,25 @@ defmodule Aiur.Claude.UsageApiTest do
       assert :counters.get(counter, 1) == 1
     end
 
+    test "account-specific cache keys keep usage readings isolated", %{credentials_path: path} do
+      counter = :counters.new(1, [])
+
+      request_fun = fn _token ->
+        :counters.add(counter, 1, 1)
+        value = :counters.get(counter, 1) + 10
+        {:ok, %{status: 200, body: %{"seven_day" => %{"utilization" => value}}}}
+      end
+
+      base = [credentials_path: path, request_fun: request_fun, ttl_ms: 60_000, now_ms: 1_000]
+      assert {:ok, %{used_percent: 11}} = UsageApi.fetch(Keyword.put(base, :cache_key, {:claude, "one"}))
+      assert {:ok, %{used_percent: 12}} = UsageApi.fetch(Keyword.put(base, :cache_key, {:claude, "two"}))
+      assert {:ok, %{used_percent: 11}} = UsageApi.fetch(Keyword.put(base, :cache_key, {:claude, "one"}))
+      assert :counters.get(counter, 1) == 2
+
+      UsageApi.reset_cache({:claude, "one"})
+      UsageApi.reset_cache({:claude, "two"})
+    end
+
     test "the cache expires after its TTL and re-requests", %{credentials_path: path} do
       counter = :counters.new(1, [])
 
@@ -353,6 +372,25 @@ defmodule Aiur.Claude.UsageApiTest do
       assert :ok = UsageApi.reset_cache()
       assert {:ok, _} = UsageApi.fetch(opts)
       assert :counters.get(counter, 1) == 2
+    end
+  end
+
+  describe "fetch_with_metadata/1" do
+    @tag :tmp_dir
+    test "distinguishes a cache hit from a new observation", %{tmp_dir: dir} do
+      path = write_credentials(dir, oauth_json(%{"accessToken" => "sk-test"}))
+      key = {:metadata, make_ref()}
+      on_exit(fn -> UsageApi.reset_cache(key) end)
+
+      opts = [
+        credentials_path: path,
+        cache_key: key,
+        request_fun: fn _token -> {:ok, %{status: 200, body: %{"five_hour" => %{"utilization" => 12}}}} end,
+        now_ms: 1_800_000_000_000
+      ]
+
+      assert {:ok, _reading, %{freshness: :fresh}} = UsageApi.fetch_with_metadata(opts)
+      assert {:ok, _reading, %{freshness: :cached, observed_at: %DateTime{}}} = UsageApi.fetch_with_metadata(opts)
     end
   end
 end

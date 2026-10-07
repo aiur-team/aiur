@@ -39,7 +39,9 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
        %{
          backend: session_backend_label(session),
          requested_model: Map.get(session, :model),
-         effort: Map.get(session, :effort)
+         effort: Map.get(session, :effort),
+         account: Map.get(session, :account_name),
+         account_selection_reason: Map.get(session, :account_selection_reason)
        }}
     )
 
@@ -684,10 +686,65 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         attempt_id: Keyword.get(opts, :telemetry_attempt_id)
       ]
       |> maybe_put_rc_name(rc?, issue)
+      |> maybe_put_claude_account(session_backend, opts)
       |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
     {session_backend, rc?, session_opts}
   end
+
+  defp maybe_put_claude_account(session_opts, backend, opts) when backend in ["claude", "claude-repl"] do
+    config = Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
+    names = Map.get(config.accounts || %{}, "claude", [])
+
+    if names == [] do
+      session_opts
+    else
+      registered = MapSet.new(Aiur.Accounts.list("claude"), & &1.name)
+      candidates = Enum.filter(names, &MapSet.member?(registered, &1))
+      polled = Aiur.Accounts.UsageReadings.snapshot("claude", candidates)
+      usage_fetcher = Keyword.get(opts, :account_usage_fetcher, &account_usage/1)
+
+      usages =
+        Map.new(candidates, fn name ->
+          case Map.fetch(polled, name) do
+            {:ok, %{reading: %{windows: windows}}} -> {name, usage_map(windows)}
+            {:ok, _unavailable} -> {name, nil}
+            :error -> {name, usage_fetcher.(name)}
+          end
+        end)
+
+      case Aiur.Accounts.select("claude", candidates, config.account_selection || "balance", usages) do
+        {:ok, name} ->
+          reason =
+            if is_map(usages[name]) and is_number(usages[name]["seven_day"]),
+              do: nil,
+              else: "usage unavailable"
+
+          Keyword.merge(session_opts,
+            account_name: name,
+            account_selection_reason: reason,
+            env: Aiur.Accounts.profile_env("claude", name)
+          )
+
+        {:error, reason} ->
+          Keyword.put(session_opts, :account_selection_error, reason)
+      end
+    end
+  end
+
+  defp maybe_put_claude_account(session_opts, _backend, _opts), do: session_opts
+
+  defp account_usage(name) do
+    case Aiur.Accounts.usage("claude", name) do
+      {:ok, %{windows: windows}, _metadata} ->
+        usage_map(windows)
+
+      _unavailable ->
+        nil
+    end
+  end
+
+  defp usage_map(windows), do: Map.new(windows, fn window -> {window.window, window.used_percent} end)
 
   # Mirror the full claude transcript into the opencode pane for an RC claude-repl
   # agent, so the pane and Remote Control channel are two views of one conversation.
@@ -942,6 +999,13 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     backend = Keyword.fetch!(opts, :backend)
     adapter_opts = Keyword.delete(opts, :attempt_id)
 
+    case Keyword.fetch(opts, :account_selection_error) do
+      {:ok, reason} -> {:error, {:account_selection, reason}}
+      :error -> start_selected_session(workspace, opts, adapter_opts, backend, start_fun)
+    end
+  end
+
+  defp start_selected_session(workspace, opts, adapter_opts, backend, start_fun) do
     case start_fun.(workspace, adapter_opts) do
       {:ok, session} ->
         {:ok, tag_session(session, backend, opts)}

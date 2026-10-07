@@ -450,6 +450,9 @@ usage() {
 Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]
        aiur run [--bg] [--no-dashboard] [--executor] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiur/config (interactive setup wizard)
+       aiur login claude <name> [--dir <path>]  sign in to a Claude account profile
+       aiur accounts [--json]  list registered Claude accounts and usage
+       aiur logout claude <name> [--purge]  remove a Claude account
        aiur --bg [--no-dashboard] [--executor] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
        aiur restart [--no-build] [run flags]  stop, refresh the build, start again (detached)
@@ -520,6 +523,27 @@ run_init() {
   write_argv "$@"
   export AIUR_ARGV_FILE="$argv_file"
   exec "${release_cmd[@]}"
+}
+
+run_local_cli() {
+  resolve_release
+  build_init_cmd
+  init_argv_file
+  write_argv "$@"
+  export AIUR_ARGV_FILE="$argv_file"
+  exec "${release_cmd[@]}"
+}
+
+run_claude_login() {
+  resolve_release
+  local profile_dir
+  build_init_cmd
+  init_argv_file
+  write_argv "__login_prepare" "${@:2}"
+  export AIUR_ARGV_FILE="$argv_file"
+  profile_dir="$("${release_cmd[@]}")" || return $?
+  [ -n "$profile_dir" ] || { echo "aiur: account profile directory is unavailable" >&2; return 1; }
+  exec env "CLAUDE_CONFIG_DIR=$profile_dir" claude
 }
 
 # --- one-shot: --todo (control RPC; requires a running daemon) ----------------
@@ -4093,6 +4117,17 @@ aiur_engine_main() {
       ;;
     init)
       run_init "$@"
+      ;;
+    login)
+      if [ "${2:-}" = "claude" ]; then
+        run_claude_login "$@"
+      else
+        echo "aiur: supported login harness: claude" >&2
+        exit 64
+      fi
+      ;;
+    accounts | logout)
+      run_local_cli "$@"
       ;;
     findings)
       run_findings "$@"

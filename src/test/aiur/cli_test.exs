@@ -122,6 +122,16 @@ defmodule Aiur.CLITest do
     assert usage =~ "aiur findings"
   end
 
+  test "parses shared account commands and rejects unrelated flags" do
+    assert {:accounts, true} = CLI.evaluate(["accounts", "--json"], deps())
+
+    assert {:account_login, "work", "/tmp/claude-profile"} =
+             CLI.evaluate(["login", "claude", "work", "--dir", "/tmp/claude-profile"], deps())
+
+    assert {:account_logout, "work", true} = CLI.evaluate(["logout", "claude", "work", "--purge"], deps())
+    assert {:error, _} = CLI.evaluate(["accounts", "--purge"], deps())
+  end
+
   test "parses validated findings writes and digest generation" do
     record = Jason.encode!(%{"slug" => "dispatch-pressure"})
 

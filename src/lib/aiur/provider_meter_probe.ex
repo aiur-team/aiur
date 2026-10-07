@@ -190,6 +190,18 @@ defmodule Aiur.ProviderMeterProbe do
   @doc false
   @spec probe_usage_api(atom(), String.t(), keyword()) :: outcome()
   def probe_usage_api(provider, _backend, opts) do
+    if provider == :claude do
+      probe_claude_accounts(provider, opts)
+    else
+      probe_single_usage_account(provider, opts)
+    end
+  rescue
+    error -> outcome(provider, false, ProbeCrash.log(provider, :error, error, __STACKTRACE__))
+  catch
+    kind, reason -> outcome(provider, false, ProbeCrash.log(provider, kind, reason, __STACKTRACE__))
+  end
+
+  defp probe_single_usage_account(provider, opts) do
     case Keyword.get(opts, :usage_api, UsageApi).fetch(usage_api_opts(opts)) do
       {:ok, reading} ->
         publish_usage_api_reading(provider, reading, opts)
@@ -198,10 +210,79 @@ defmodule Aiur.ProviderMeterProbe do
       {:error, reason} ->
         outcome(provider, false, reason)
     end
+  end
+
+  defp probe_claude_accounts(provider, opts) do
+    observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now())
+    names = configured_claude_accounts(opts)
+    api = Keyword.get(opts, :usage_api, UsageApi)
+
+    results =
+      Enum.map(names, fn name ->
+        result =
+          case account_credentials_path(name, opts) do
+            {:ok, credentials, cache_key} ->
+              account_usage_result(api, Keyword.merge(usage_api_opts(opts), credentials_path: credentials, cache_key: cache_key), observed_at)
+
+            :error ->
+              {{:error, :unknown_account}, observed_at, :unavailable}
+          end
+
+        {usage_result, account_observed_at, freshness} = result
+        Aiur.Accounts.UsageReadings.record("claude", name, usage_result, account_observed_at, freshness)
+        {name, usage_result}
+      end)
+
+    case List.keyfind(results, "default", 0) || Enum.find(results, fn {_name, result} -> match?({:ok, _}, result) end) do
+      {_name, {:ok, reading}} -> publish_usage_api_reading(provider, reading, opts)
+      _ -> :ok
+    end
+
+    case Enum.find(results, fn {_name, result} -> match?({:ok, _}, result) end) do
+      {_name, {:ok, _reading}} ->
+        outcome(provider, true, nil)
+
+      nil ->
+        {_name, {:error, reason}} = List.first(results)
+        outcome(provider, false, reason)
+    end
+  end
+
+  defp account_usage_result(api, api_opts, observed_at) do
+    if Code.ensure_loaded?(api) and function_exported?(api, :fetch_with_metadata, 1) do
+      case api.fetch_with_metadata(api_opts) do
+        {:ok, reading, metadata} -> {{:ok, reading}, metadata.observed_at, metadata.freshness}
+        {:error, reason} -> {{:error, reason}, observed_at, :unavailable}
+      end
+    else
+      {api.fetch(api_opts), observed_at, :fresh}
+    end
+  end
+
+  defp account_credentials_path("default", _opts),
+    do: {:ok, UsageApi.default_credentials_path(), Aiur.Accounts.Shims.Claude.usage_cache_key(nil)}
+
+  defp account_credentials_path(name, opts) do
+    case Map.get(Keyword.get(opts, :claude_profiles, %{}), name) do
+      dir when is_binary(dir) -> {:ok, Path.join(dir, ".credentials.json"), Aiur.Accounts.Shims.Claude.usage_cache_key(dir)}
+      _unset -> registered_account_credentials_path(name)
+    end
+  end
+
+  defp registered_account_credentials_path(name) do
+    case Enum.find(Aiur.Accounts.list("claude"), &(&1.name == name)) do
+      %{profile_dir: dir} when is_binary(dir) -> {:ok, Path.join(dir, ".credentials.json"), Aiur.Accounts.Shims.Claude.usage_cache_key(dir)}
+      _unknown -> :error
+    end
+  end
+
+  defp configured_claude_accounts(opts) do
+    case Keyword.get(opts, :claude_accounts, Aiur.Accounts.configured_names()) do
+      [] -> ["default"]
+      names -> names
+    end
   rescue
-    error -> outcome(provider, false, ProbeCrash.log(provider, :error, error, __STACKTRACE__))
-  catch
-    kind, reason -> outcome(provider, false, ProbeCrash.log(provider, kind, reason, __STACKTRACE__))
+    _error -> ["default"]
   end
 
   # Published on the same fan-out the store broadcasts on, so the projection

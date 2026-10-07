@@ -80,6 +80,27 @@ defmodule Aiur.ProviderMeterProbeTest do
     end
   end
 
+  defmodule CachedUsageApi do
+    @moduledoc false
+    def fetch(_opts), do: raise("metadata-aware usage fetching is required")
+
+    def fetch_with_metadata(_opts) do
+      {:ok, reading} = MultiWindowUsageApi.fetch([])
+      {:ok, reading, %{freshness: :cached, observed_at: ~U[2026-10-01 00:00:00Z]}}
+    end
+  end
+
+  defmodule MultiAccountUsageApi do
+    @moduledoc false
+    def fetch(_opts), do: raise("metadata-aware usage fetching is required")
+
+    def fetch_with_metadata(opts) do
+      send(Process.get(:probe_test_pid), {:account_credentials, opts[:credentials_path], opts[:cache_key]})
+      {:ok, reading} = MultiWindowUsageApi.fetch([])
+      {:ok, reading, %{freshness: :fresh, observed_at: ~U[2026-10-01 00:00:00Z]}}
+    end
+  end
+
   defmodule ObservingFakeAgent do
     @moduledoc false
 
@@ -133,6 +154,8 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   setup do
+    Aiur.Accounts.UsageReadings.reset()
+    on_exit(&Aiur.Accounts.UsageReadings.reset/0)
     projection = :"probe_proj_#{System.unique_integer([:positive])}"
     {:ok, pid} = start_supervised({ProviderMeterProjection, [name: projection, subscribe?: false]})
 
@@ -271,6 +294,35 @@ defmodule Aiur.ProviderMeterProbeTest do
 
     assert windows["five_hour"].used_percent == 21
     assert windows["five_hour"].priority == 3
+  end
+
+  test "per-account polling preserves cache freshness and original observation time", ctx do
+    assert [%{provider: :claude, observed?: true}] =
+             ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: CachedUsageApi))
+
+    assert %{"default" => %{freshness: :cached, observed_at: ~U[2026-10-01 00:00:00Z]}} =
+             Aiur.Accounts.UsageReadings.snapshot("claude", ["default"])
+  end
+
+  test "per-account polling uses a separate credentials path and reading for each account", ctx do
+    assert [%{provider: :claude, observed?: true}] =
+             ProviderMeterProbe.observe(
+               :claude,
+               opts(ctx,
+                 usage_api: MultiAccountUsageApi,
+                 claude_accounts: ["default", "max"],
+                 claude_profiles: %{"max" => "/profiles/max"}
+               )
+             )
+
+    assert_receive {:account_credentials, default_credentials, default_cache_key}
+    assert_receive {:account_credentials, "/profiles/max/.credentials.json", max_cache_key}
+    assert default_credentials == Aiur.Claude.UsageApi.default_credentials_path()
+    assert default_cache_key == Aiur.Accounts.Shims.Claude.usage_cache_key(nil)
+    assert max_cache_key == Aiur.Accounts.Shims.Claude.usage_cache_key("/profiles/max")
+
+    assert %{"default" => %{freshness: :fresh}, "max" => %{freshness: :fresh}} =
+             Aiur.Accounts.UsageReadings.snapshot("claude", ["default", "max"])
   end
 
   test "probing :all covers every registry provider", ctx do

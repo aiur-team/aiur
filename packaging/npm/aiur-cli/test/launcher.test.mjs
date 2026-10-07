@@ -385,6 +385,7 @@ function setupRealLauncher() {
       'echo "DEEPSEEK_API_KEY:${DEEPSEEK_API_KEY:-}" >>"$AIUR_TEST_OUT"',
       'echo "OPENROUTER_API_KEY:${OPENROUTER_API_KEY:-}" >>"$AIUR_TEST_OUT"',
       'echo "MOONSHOT_API_KEY:${MOONSHOT_API_KEY:-}" >>"$AIUR_TEST_OUT"',
+      'if [ -n "${AIUR_TEST_PROFILE:-}" ]; then printf "%s" "$AIUR_TEST_PROFILE"; fi',
       "exit 0",
       "",
     ].join("\n"),
@@ -393,6 +394,33 @@ function setupRealLauncher() {
 
   return { launcher, releaseDir };
 }
+
+test("Claude login prepares a profile and hands its exact path to the interactive command", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const fakeBin = path.join(root, "login-bin");
+  const profileDir = path.join(root, "accounts", "max");
+  const receivedEnv = path.join(root, "claude-config-dir");
+  mkdirSync(fakeBin, { recursive: true });
+  const claude = path.join(fakeBin, "claude");
+  writeFileSync(claude, '#!/usr/bin/env bash\nprintf "%s" "$CLAUDE_CONFIG_DIR" > "$AIUR_LOGIN_ENV_CAPTURE"\n');
+  chmodSync(claude, 0o755);
+
+  const result = spawnSync("bash", [launcher, "login", "claude", "max", "--dir", profileDir], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      AIUR_TEST_PROFILE: profileDir,
+      AIUR_LOGIN_ENV_CAPTURE: receivedEnv,
+      PATH: `${fakeBin}:${process.env.PATH}`,
+    },
+  });
+
+  expect(result.status).toBe(0);
+  expect(readFileSync(receivedEnv, "utf8")).toBe(profileDir);
+  expect(readFileSync(captureFile, "utf8")).toContain(`__login_prepare\nmax\n--dir\n${profileDir}`);
+});
 
 function setupBackgroundLauncher() {
   const { launcher, releaseDir } = setupRealLauncher();

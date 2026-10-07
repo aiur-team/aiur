@@ -460,6 +460,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
           :requested_model,
           :resolved_model,
           :effort,
+          :account,
           :complexity,
           :build_lane,
           :reasons,

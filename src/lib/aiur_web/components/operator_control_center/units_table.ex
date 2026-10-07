@@ -78,6 +78,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               <td data-label="Unit" data-sort-value={unit_sort_value(row)} class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-pill-row">
                   <span :if={present?(agent_label(row))} class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>{agent_label(row)}</span>
+                  <span :if={present?(row.account)} class="u-pill u-account">{row.account}</span>
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
                 </div>
                 <div class="ut-pill-row">
