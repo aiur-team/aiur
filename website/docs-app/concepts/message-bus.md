@@ -74,7 +74,7 @@ Automatic own-ticket, blocker, CI, review, and base-branch subscriptions are tru
 Queue attentions add two default Executor bindings: `ticket.*.queue.attention.#`
 (`attention:auto`) and `system.queue.attention.#` (`dispatch:auto`). Both include
 the `.resolved` events that clear an attention. Queue latches survive restarts;
-failed durable emissions are retried on reconciliation. Queue bus payloads carry
+the attention API retains failed durable emissions for retry by reconciliation. Queue bus payloads carry
 allowlisted references and attributes; human-readable copy stays in the local alert feed.
 
 | Step | Contract |
