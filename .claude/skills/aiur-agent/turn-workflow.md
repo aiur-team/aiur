@@ -1,5 +1,9 @@
 # Running a turn
 
+When a repository runs only a fast gate on drafts, mark completed, self-reviewed
+work ready **before** entering `agent:ci-wait`, so the full suite can start.
+A draft fast-gate pass is never a full CI pass.
+
 ## Label lifecycle
 
 GitHub issue state is label-based:

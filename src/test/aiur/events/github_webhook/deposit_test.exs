@@ -481,6 +481,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
           "status" => "completed",
           "conclusion" => "success",
           "head_sha" => "deadbeef",
+          "app" => %{"id" => 15368},
           "started_at" => "2026-06-24T12:00:00Z",
           "completed_at" => "2026-06-24T12:01:00Z",
           "output" => %{},
@@ -490,7 +491,7 @@ defmodule Aiur.Events.GithubWebhook.DepositTest do
 
       assert [PollSnapshots.ci_contexts_key(@repo, 42)] == GithubWebhook.Deposit.deposit("check_run", delivery, @repo)
 
-      assert {:ok, %{"check_runs" => [%{"id" => 5501, "status" => "completed"}]}} =
+      assert {:ok, %{"check_runs" => [%{"id" => 5501, "status" => "completed", "app" => %{"id" => 15368}}]}} =
                PollSnapshots.ci_contexts(@repo, 42)
     end
 

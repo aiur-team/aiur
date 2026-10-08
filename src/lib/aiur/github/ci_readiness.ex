@@ -55,6 +55,22 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
+  @doc "Reads the current required checks without inspecting workflow contents."
+  @spec fetch_required_checks(keyword()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_required_checks(opts \\ []) do
+    with {:ok, {owner, repo}} <- resolve_repo(Keyword.get(opts, :repo)),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      base_url = "#{Transport.base_url()}/repos/#{owner}/#{repo}"
+      branch = encode_path_component(Config.base_branch(opts))
+
+      with {:ok, rules} <- Transport.fetch_json_list(request_fun, token, "#{base_url}/rules/branches/#{branch}", caller: "ci_required_checks"),
+           {:ok, protection} <- fetch_protection_checks(request_fun, token, "#{base_url}/branches/#{branch}/protection", "ci_required_checks") do
+        {:ok, Enum.uniq(protection ++ Enum.flat_map(rules, &required_checks_from/1))}
+      end
+    end
+  end
+
   @doc false
   @spec operator_token_env() :: String.t()
   def operator_token_env, do: @operator_token_env
@@ -695,8 +711,8 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp fetch_protection_checks(request_fun, token, protection_url) do
-    case request(request_fun, %{method: :get, url: protection_url, token: token, caller: "ci_readiness"}) do
+  defp fetch_protection_checks(request_fun, token, protection_url, caller \\ "ci_readiness") do
+    case request(request_fun, %{method: :get, url: protection_url, token: token, caller: caller}) do
       {:ok, %{status: 200, body: protection}} -> {:ok, required_checks_from(protection)}
       {:ok, %{status: 404}} -> {:ok, []}
       {:ok, %{status: _} = response} -> {:error, required_check_error(response)}
@@ -1086,7 +1102,10 @@ defmodule Aiur.GitHub.CiReadiness do
       |> String.replace_suffix("}}", "")
       |> String.trim()
 
-    condition in ["always()", "!cancelled()"] or
+    ready_gate = "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+    ready_conditions = [ready_gate, "always() && (#{ready_gate})", "!cancelled() && (#{ready_gate})"]
+
+    condition in ["always()", "!cancelled()" | ready_conditions] or
       Regex.match?(~r/^github\.event_name\s*==\s*['\"]pull_request['\"]$/, condition)
   end
 

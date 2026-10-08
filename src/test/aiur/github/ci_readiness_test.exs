@@ -16,6 +16,47 @@ defmodule Aiur.GitHub.CiReadinessTest do
         - run: true
   """
 
+  test "reads live ruleset and classic required check identities" do
+    request_fun = fn %{url: url, caller: caller} ->
+      assert caller == "ci_required_checks"
+
+      if String.contains?(url, "/rules/branches/release%2Fnext") do
+        {:ok, %{status: 200, body: [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "full", "integration_id" => 15368}]}}]}}
+      else
+        assert String.ends_with?(url, "/branches/release%2Fnext/protection")
+        {:ok, %{status: 200, body: %{"required_status_checks" => %{"contexts" => ["legacy"]}}}}
+      end
+    end
+
+    assert {:ok, checks} = CiReadiness.fetch_required_checks(repo: "owner/repo", base_branch: "release/next", request_fun: request_fun)
+    assert Enum.sort_by(checks, & &1.name) == [%{name: "full", app_id: 15368}, %{name: "legacy", app_id: nil}]
+    assert {:error, _reason} = CiReadiness.fetch_required_checks(repo: "owner/repo", request_fun: fn _ -> {:ok, %{status: 403, body: %{}}} end)
+  end
+
+  test "draft workflow runs three fast jobs and produces every required check when ready" do
+    root = Path.expand("../../../..", __DIR__)
+    workflow = File.read!(Path.join(root, ".github/workflows/ci.yml"))
+    parsed = YamlElixir.read_from_string!(workflow)
+    assert parsed["on"]["pull_request"]["types"] == ~w(opened synchronize reopened ready_for_review)
+    assert Map.has_key?(parsed["on"], "merge_group")
+    assert "main" in parsed["on"]["push"]["branches"]
+    gate = "github.event_name != 'pull_request' || !github.event.pull_request.draft"
+
+    for {id, job} <- parsed["jobs"] do
+      if id in ~w(changes lint build) do
+        refute String.contains?(Map.get(job, "if", ""), "pull_request.draft")
+      else
+        assert job["if"] in ["${{ #{gate} }}", "${{ always() && (#{gate}) }}", "${{ !cancelled() && (#{gate}) }}"]
+      end
+    end
+
+    declaration = root |> Path.join("docs/security/human-only-merge-ruleset.json") |> File.read!() |> Jason.decode!()
+    checks = declaration["rules"] |> Enum.find(&(&1["type"] == "required_status_checks")) |> get_in(["parameters", "required_status_checks"])
+    readiness = CiReadiness.evaluate("main", [{".github/workflows/ci.yml", workflow}], checks)
+    assert readiness.ready?
+    assert length(readiness.required_checks) == 13
+  end
+
   test "reports a repository without a pull request workflow" do
     readiness = CiReadiness.evaluate("develop", [{".github/workflows/push.yml", "on:\n  push:\n"}], ["ci / required"])
 

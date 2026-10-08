@@ -1,5 +1,9 @@
 # Dev loop
 
+When a repository runs only a fast gate on drafts, mark completed, self-reviewed
+work ready **before** entering `agent:ci-wait`, so the full suite can start.
+A draft fast-gate pass is never a full CI pass.
+
 ## Branch
 
 The branch already exists when your workspace boots. Read it with `git -C "$workspace" branch --show-current` and push or open the PR against that exact ref. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Do not rename it or reconstruct one from the issue number. The numeric `ticket.<N>.branch.push` event key remains stable even when the actual branch has a suffix.
