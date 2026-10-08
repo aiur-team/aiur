@@ -311,7 +311,7 @@ defmodule Aiur.Init.AgentCliTest do
     Map.merge(
       %{
         claude_version: fn -> :missing end,
-        claude_registry_version: fn -> {:ok, "1.1.0"} end,
+        claude_registry_version: fn -> {:ok, "1.2.0"} end,
         install_claude_app_server: fn spec ->
           send(parent, {:install, spec})
           :ok
