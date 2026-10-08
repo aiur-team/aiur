@@ -15,12 +15,25 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   test "successful validation clears a previous decline in both execution modes" do
     parent = self()
     candidate = %{issue("decline-cleared") | selected_backend: "codex"}
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+    resolution = "ticket.#{candidate.id}.agent.attention.dispatch-declined.resolved"
 
     for owner <- [nil, self()] do
-      state = %State{snapshot_key: owner, max_concurrent_agents: 4, effective_concurrent_agents: 4, dispatch_declines: %{candidate.id => :tracker_revalidation_failed}}
+      state = %State{snapshot_key: owner, max_concurrent_agents: 4, effective_concurrent_agents: 4}
+
+      declined =
+        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+          issue_fetcher: fn _ -> {:error, :controlled_failure} end,
+          blocked_by_hydrator: fn value -> {:ok, value} end
+        )
+
+      declined = apply_test_dispatch_result(declined, owner)
+      assert declined.dispatch_declines[candidate.id] == :tracker_revalidation_failed
+      attention = String.replace_suffix(resolution, ".resolved", "")
+      receive_barrier({:alert, %{name: ^attention, needs_attention: true}})
 
       pending =
-        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+        Dispatcher.dispatch_issue(declined, candidate, nil, nil,
           issue_fetcher: fn _ -> {:ok, [candidate]} end,
           blocked_by_hydrator: fn value -> {:ok, value} end,
           runner: fn dispatched, _, _ ->
@@ -29,20 +42,22 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           end
         )
 
-      applied =
-        if owner do
-          receive_barrier({ref, result})
-          {:handled, applied} = TrackerTasks.result(pending, ref, result)
-          applied
-        else
-          pending
-        end
+      applied = apply_test_dispatch_result(pending, owner)
 
       receive_barrier({:started, id})
       assert id == candidate.id
       assert Map.has_key?(applied.running, candidate.id)
       refute Map.has_key?(applied.dispatch_declines, candidate.id)
+      receive_barrier({:alert, %{name: ^resolution, needs_attention: false}})
     end
+  end
+
+  defp apply_test_dispatch_result(pending, nil), do: pending
+
+  defp apply_test_dispatch_result(pending, _owner) do
+    receive_barrier({ref, result})
+    {:handled, applied} = TrackerTasks.result(pending, ref, result)
+    applied
   end
 
   test "a held candidate validation chain prevents another poll cycle" do

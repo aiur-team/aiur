@@ -103,9 +103,7 @@ defmodule Aiur.Orchestrator.HumanReview do
   defp verify_human_review_ready(_issue), do: :ok
 
   defp defer_human_review_transition(%State{} = state, %Issue{} = issue, reason) do
-    Logger.warning(
-      "human-review transition verification deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}"
-    )
+    Logger.warning("human-review transition verification deferred: #{State.issue_context(issue)} reason=#{inspect(reason)}")
 
     state
   end
@@ -161,16 +159,12 @@ defmodule Aiur.Orchestrator.HumanReview do
         revert_to_rework_with_bound(state, issue, issue_key, pr, rework_opts)
 
       {:skip, :no_open_pr} ->
-        Logger.warning(
-          "human-review transition rejected for a ticket with no open PR; reverting to todo: #{State.issue_context(issue)} reason=#{inspect(reason)}"
-        )
+        Logger.warning("human-review transition rejected for a ticket with no open PR; reverting to todo: #{State.issue_context(issue)} reason=#{inspect(reason)}")
 
         revert_human_review_state(state, issue, issue_key, "todo", "reverting to todo")
 
       {:error, pr_reason} ->
-        Logger.warning(
-          "human-review rework revert deferred; open-PR check failed: #{State.issue_context(issue)} reason=#{inspect(pr_reason)}"
-        )
+        Logger.warning("human-review rework revert deferred; open-PR check failed: #{State.issue_context(issue)} reason=#{inspect(pr_reason)}")
 
         state
     end
@@ -202,9 +196,7 @@ defmodule Aiur.Orchestrator.HumanReview do
         )
 
       {:skip, bound_reason, state} ->
-        Logger.warning(
-          "human-review rework revert stopped by rework-attempt bound: #{State.issue_context(issue)} reason=#{inspect(bound_reason)}"
-        )
+        Logger.warning("human-review rework revert stopped by rework-attempt bound: #{State.issue_context(issue)} reason=#{inspect(bound_reason)}")
 
         state
     end
@@ -225,9 +217,7 @@ defmodule Aiur.Orchestrator.HumanReview do
          log_label,
          on_success \\ nil
        ) do
-    Logger.warning(
-      "human-review transition rejected; #{log_label}: #{State.issue_context(issue)}"
-    )
+    Logger.warning("human-review transition rejected; #{log_label}: #{State.issue_context(issue)}")
 
     entry = Map.get(state.running, issue.id)
 
@@ -277,9 +267,7 @@ defmodule Aiur.Orchestrator.HumanReview do
          {:error, update_reason},
          {_entry, issue, log_label, _on_success, _target_state}
        ) do
-    Logger.warning(
-      "human-review #{log_label} failed: #{State.issue_context(issue)} reason=#{inspect(update_reason)}"
-    )
+    Logger.warning("human-review #{log_label} failed: #{State.issue_context(issue)} reason=#{inspect(update_reason)}")
 
     current
   end
