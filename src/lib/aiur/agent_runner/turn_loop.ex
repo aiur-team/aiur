@@ -8,6 +8,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Config
+  alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchPolicy, ReworkGate}
   alias Aiur.RunTelemetry.Lifecycle
@@ -420,8 +421,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   # `agent.max_turns` — control returns to the orchestrator. A rework run that
   # pushed gets a review handoff; a run that did not push is a real failure.
   defp stop_on_noop_bound(turn_context, refreshed_issue, progress, witness, cap) do
-    %{workspace: workspace, worker_host: worker_host, turn_number: turn_number, max_turns: max_turns} =
-      turn_context
+    %{turn_number: turn_number, max_turns: max_turns} = turn_context
 
     Logger.warning(
       "aiur_autonomous_loop phase=noop_bound_reached elapsed_ms=#{Aiur.Boot.elapsed_ms()} identifier=#{refreshed_issue.identifier} turn=#{turn_number}/#{max_turns_display(max_turns)} noop_turns=#{progress.consecutive_noops} cap=#{cap}"
@@ -432,36 +432,38 @@ defmodule Aiur.AgentRunner.TurnLoop do
         result
 
       :none ->
-        case noop_failure_state(refreshed_issue) do
-          nil ->
-            TurnAlerts.emit_noop_turn_bound_alert(refreshed_issue, workspace, worker_host, %{
-              consecutive_noops: progress.consecutive_noops,
-              cap: cap,
-              turn_number: turn_number,
-              unchanged: TurnProgress.unchanged_witnesses(witness)
-            })
+        complete_noop_bound_without_handoff(turn_context, refreshed_issue, progress, witness, cap)
+    end
+  end
 
-            return_completed(turn_context, refreshed_issue)
+  defp complete_noop_bound_without_handoff(turn_context, issue, progress, witness, cap) do
+    %{workspace: workspace, worker_host: worker_host, turn_number: turn_number} = turn_context
 
-          state_name ->
-            case Tracker.update_issue_state(refreshed_issue.identifier, state_name) do
-              :ok ->
-                failed_issue = %{refreshed_issue | state: state_name}
+    case noop_failure_state(issue) do
+      nil ->
+        emit_noop_bound_alert(issue, workspace, worker_host, progress, witness, cap, turn_number)
+        return_completed(turn_context, issue)
 
-                TurnAlerts.emit_noop_turn_bound_alert(failed_issue, workspace, worker_host, %{
-                  consecutive_noops: progress.consecutive_noops,
-                  cap: cap,
-                  turn_number: turn_number,
-                  unchanged: TurnProgress.unchanged_witnesses(witness)
-                })
+      state_name ->
+        case Tracker.update_issue_state(issue.identifier, state_name) do
+          :ok ->
+            failed_issue = %{issue | state: state_name}
+            emit_noop_bound_alert(failed_issue, workspace, worker_host, progress, witness, cap, turn_number)
+            return_completed(turn_context, failed_issue)
 
-                return_completed(turn_context, failed_issue)
-
-              {:error, reason} ->
-                {:error, {:noop_bound_state_write_failed, reason}}
-            end
+          {:error, reason} ->
+            {:error, {:noop_bound_state_write_failed, reason}}
         end
     end
+  end
+
+  defp emit_noop_bound_alert(issue, workspace, worker_host, progress, witness, cap, turn_number) do
+    TurnAlerts.emit_noop_turn_bound_alert(issue, workspace, worker_host, %{
+      consecutive_noops: progress.consecutive_noops,
+      cap: cap,
+      turn_number: turn_number,
+      unchanged: TurnProgress.unchanged_witnesses(witness)
+    })
   end
 
   defp stop_on_turn_limit(turn_context, refreshed_issue) do
@@ -493,7 +495,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
   defp stopped_agent_handoff(issue, workspace, worker_host, opts) do
     ReworkGate.stopped_agent_handoff(issue.identifier, Keyword.get(opts, :rework_head_sha),
       open_pr_fetcher: Keyword.get(opts, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1),
-      commit_ci_status_fetcher: Keyword.get(opts, :commit_ci_status_fetcher, &Aiur.GitHub.Client.fetch_commit_ci_status/1),
+      commit_ci_status_fetcher: Keyword.get(opts, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1),
       workspace: workspace,
       worker_host: worker_host
     )

@@ -78,12 +78,13 @@ through the review half of the lifecycle. (`shared-agent-instructions.md` is
 | `done` | orchestrator on merge — only when the merged PR's body carries a closing keyword for the ticket *and* no blocking open PR remains | `merged_ticket_reconciler.ex:92-129`; `comment_wake.ex:46` |
 | `error` | orchestrator: lifetime-thrash latch, retry exhaustion | `dispatcher.ex:2165,2208`; `retry_engine.ex:762` |
 
-When the consecutive no-op turn bound or the normal turn limit stops an agent,
-a newly opened or moved PR is handed to `ci-wait` while check runs are waiting,
-requested, pending, queued, or in progress (or CI cannot be read); otherwise it
-goes to `human-review`. At the no-op bound, verified rework with no new PR head
-becomes `error`; other no-op-bound tickets keep their existing state and receive
-an alert. A normal turn limit leaves the state unchanged when no PR head moved.
+When the no-op turn bound or normal turn limit stops an agent, a newly opened or
+moved PR goes to `ci-wait` while checks are pending or unavailable. Once CI
+finishes, the ticket goes to `human-review`.
+
+At the no-op bound, verified rework with no new PR head becomes `error`. Other
+no-op-bound tickets keep their state and receive an alert. A normal turn limit
+leaves the state unchanged when no PR head moved.
 
 State writes are optimistic-concurrency guarded: they carry an `expected_state:`
 that returns `{:error, {:stale_issue_state, ...}}` when the issue has moved

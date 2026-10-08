@@ -2630,8 +2630,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp maybe_report_rework_head(recipient, issue, rework_head_sha) when is_pid(recipient),
     do: send(recipient, {:worker_runtime_info, issue.id, %{rework_head_sha: rework_head_sha}})
 
-  defp maybe_report_rework_head(_recipient, _issue, _rework_head_sha), do: :ok
-
   # An agent that files a blocking Command ends its run, so the answer usually
   # arrives when no worker runs the ticket and its delivery fails (#2713). The
   # answer stays durable in the DecisionStore; this new worker is where it must

@@ -935,7 +935,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   defp rework_handoff_state(identifier, original_head, metadata) do
     opts = [
       open_pr_fetcher: Map.get(metadata, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1),
-      commit_ci_status_fetcher: Map.get(metadata, :commit_ci_status_fetcher, &Aiur.GitHub.Client.fetch_commit_ci_status/1)
+      commit_ci_status_fetcher: Map.get(metadata, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1)
     ]
 
     case ReworkGate.stopped_agent_handoff(identifier, original_head, opts) do
