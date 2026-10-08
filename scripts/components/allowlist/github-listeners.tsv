@@ -11,6 +11,7 @@ R-declared	Aiur.Orchestrator.CommentPolling.TargetSelection	baseline 4aba33f8aae
 R-declared	Aiur.Orchestrator.ReadyForReviewTransitions	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.State	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.Orchestrator.TrackerHealth	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.Orchestrator.TrackerTasks	baseline fb18893b5; upstream #3221 predates reference-checker rollout
 R-declared	Aiur.PeriodicWorker	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RecentMerge	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
 R-declared	Aiur.RecentMergeStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
