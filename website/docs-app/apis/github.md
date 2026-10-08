@@ -706,8 +706,9 @@ every request a determined agent could make.
 | The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
 
 Human-review state writes compare the open PR with the configured base. Stale
-heads also require a fresh GraphQL `mergeable` verdict. The
-configured `tracker.base_branch` and exact PR head are pinned to SHAs for the
+heads also require a fresh GraphQL `mergeable` verdict.
+
+The configured `tracker.base_branch` and exact PR head are pinned to SHAs for the
 assessment. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check
 changes in both directions; rename checks include old and new paths.
 
