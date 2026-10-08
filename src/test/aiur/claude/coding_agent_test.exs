@@ -3,8 +3,10 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
 
   alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts}
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
+  alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
+  alias Aiur.Events.Exchange
   alias Aiur.Issue
   alias Aiur.ModelAvailability
   alias Aiur.Orchestrator
@@ -100,8 +102,15 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   test "headless Claude resumes the requested session id before continuing its turn" do
     root = Aiur.TestSupport.tmp_root!("aiur_claude_resume")
     workspace = Path.join(root, "agent-1")
+    profile = Path.join(root, "accounts/default")
     File.mkdir_p!(workspace)
     frames = Path.join(workspace, "frames.jsonl")
+
+    transcript =
+      RemoteControl.session_transcript_path(workspace, "session-3040", projects_dir: Path.join(profile, "projects"))
+
+    File.mkdir_p!(Path.dirname(transcript))
+    File.write!(transcript, "{}\n")
     on_exit(fn -> File.rm_rf(root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(),
@@ -112,7 +121,12 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
 
     issue = %{id: 1, identifier: "test:resume", title: "resume"}
 
-    assert {:ok, session} = ClaudeAgent.start_session(workspace, resume_thread_id: "session-3040")
+    assert {:ok, session} =
+             ClaudeAgent.start_session(workspace,
+               env: [{"CLAUDE_CONFIG_DIR", profile}],
+               resume_thread_id: "session-3040"
+             )
+
     assert session.thread_id == "session-3040"
     assert session.resumed
     assert {:ok, result} = ClaudeAgent.run_turn(session, "continue", issue)
@@ -125,6 +139,88 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert resume["params"]["threadId"] == "session-3040"
     assert turn["params"]["threadId"] == "session-3040"
     refute Enum.any?(frames, &(&1["method"] == "thread/start"))
+  end
+
+  test "headless Claude starts clean when the selected account has no transcript" do
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_missing_resume")
+    workspace = Path.join(root, "agent-1")
+    profile = Path.join(root, "accounts/work")
+    identifier = "test:missing-resume-#{System.unique_integer([:positive])}"
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    topic = "ticket.#{identifier}.agent.attention.claude-resume-degraded"
+    assert :ok = Exchange.subscribe(topic)
+    on_exit(fn -> Exchange.unsubscribe(topic) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_echoing_app_server(frames, "session-missing")
+    )
+
+    assert {:ok, session} =
+             ClaudeAgent.start_session(workspace,
+               identifier: identifier,
+               account_name: "work",
+               env: [{"CLAUDE_CONFIG_DIR", profile}],
+               resume_thread_id: "session-missing"
+             )
+
+    refute session.resumed
+    assert session.thread_id == "t1"
+    ClaudeAgent.stop_session(session)
+
+    frames = frames |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+    assert Enum.any?(frames, &(&1["method"] == "thread/start"))
+    refute Enum.any?(frames, &(&1["method"] == "thread/resume"))
+  end
+
+  test "headless Claude alerts when the selected adapter cannot resume an existing transcript" do
+    root = Aiur.TestSupport.tmp_root!("aiur_claude_resume_degraded")
+    workspace = Path.join(root, "agent-1")
+    profile = Path.join(root, "accounts/work")
+    identifier = "test:resume-degraded-#{System.unique_integer([:positive])}"
+    frames = Path.join(workspace, "frames.jsonl")
+    session_id = "session-3040"
+    transcript = RemoteControl.session_transcript_path(workspace, session_id, projects_dir: Path.join(profile, "projects"))
+    File.mkdir_p!(Path.dirname(transcript))
+    File.mkdir_p!(workspace)
+    File.write!(transcript, "{}\n")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    topic = "ticket.#{identifier}.agent.attention.claude-resume-degraded"
+    assert :ok = Exchange.subscribe(topic)
+    on_exit(fn -> Exchange.unsubscribe(topic) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_rejecting_resume_app_server(frames)
+    )
+
+    assert {:ok, session} =
+             ClaudeAgent.start_session(workspace,
+               identifier: identifier,
+               account_name: "work",
+               env: [{"CLAUDE_CONFIG_DIR", profile}],
+               resume_thread_id: session_id
+             )
+
+    refute session.resumed
+    assert session.thread_id == "t1"
+    ClaudeAgent.stop_session(session)
+
+    frames = frames |> File.read!() |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+    assert Enum.any?(frames, &(&1["method"] == "thread/resume"))
+    assert Enum.any?(frames, &(&1["method"] == "thread/start"))
+
+    assert_receive {:event, event}, 1_000
+    assert event.topic == topic
+    assert event["needs_attention"]
+    assert event["reason"] =~ "could not resume session #{session_id}"
+    assert event["reason"] =~ "previous transcript may be orphaned"
   end
 
   test "rate-limit notifications ingest through the Claude meter adapter and log only a redacted marker" do
@@ -675,6 +771,39 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       "case \"$line\" in " <>
       "*'\"initialize\"'*) echo '#{init}' ;; " <>
       "*'\"thread/resume\"'*) echo '#{thread}' ;; " <>
+      "*'\"turn/start\"'*) echo '#{turn}'; echo '#{completed}' ;; " <>
+      "esac; done"
+  end
+
+  defp fake_echoing_app_server(frames, session_id) do
+    # This models 1.2.0's thread/resume response, which echoes an id without checking disk.
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    resume = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"#{session_id}"}}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+    completed = ~s({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed"}}})
+
+    "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+      "case \"$line\" in " <>
+      "*'\"initialize\"'*) echo '#{init}' ;; " <>
+      "*'\"thread/resume\"'*) echo '#{resume}' ;; " <>
+      "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
+      "*'\"turn/start\"'*) echo '#{turn}'; echo '#{completed}' ;; " <>
+      "esac; done"
+  end
+
+  defp fake_rejecting_resume_app_server(frames) do
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    resume = ~s({"jsonrpc":"2.0","id":2,"error":{"code":-32601,"message":"resume unsupported"}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+    completed = ~s({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed"}}})
+
+    "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+      "case \"$line\" in " <>
+      "*'\"initialize\"'*) echo '#{init}' ;; " <>
+      "*'\"thread/resume\"'*) echo '#{resume}' ;; " <>
+      "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
       "*'\"turn/start\"'*) echo '#{turn}'; echo '#{completed}' ;; " <>
       "esac; done"
   end
