@@ -699,7 +699,7 @@ defmodule Aiur.AiurAgentSkillTest do
     refute pull_skill =~ "merge origin/main"
   end
 
-  test "agent workflow hands final PR CI to ci-wait without a polling turn" do
+  test "agent workflow marks completed PRs ready before waiting for full current-head CI" do
     dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/dev-loop.md")))
     turn_workflow = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-agent/turn-workflow.md")))
     monitor = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md")))
@@ -711,10 +711,30 @@ defmodule Aiur.AiurAgentSkillTest do
       assert source =~ "Do not loop"
     end
 
-    assert dev_loop =~ "keep the PR as a draft"
+    skill = one_line(File.read!(Path.join(@claude_skill, "SKILL.md")))
+    shared_prompt = one_line(File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md")))
+
+    for source <- [skill, dev_loop, turn_workflow, shared_prompt, repo_prompt, example_prompt] do
+      assert source =~ ~r/mark[^.]*ready[^.]*before[^.]*agent:ci-wait/i
+      assert source =~ "Drafts never pass CI"
+      assert source =~ "full required-check set"
+      assert source =~ "current head SHA"
+      assert source =~ "agent:human-review"
+      refute source =~ "keep the PR as a draft"
+      refute source =~ "On pass, mark the draft ready"
+      refute source =~ "after the delivered pass result, mark the PR ready"
+      refute source =~ "resume turn after the delivered CI pass"
+    end
+
+    for source <- [dev_loop, turn_workflow, shared_prompt, repo_prompt, example_prompt] do
+      assert source =~ "green or skipped"
+      assert source =~ "aggregate"
+      assert source =~ "not a full pass" or source =~ "not proof"
+    end
+
     assert dev_loop =~ "trust the delivered result without re-polling"
     assert dev_loop =~ "delivered failed-check names and excerpt"
-    assert dev_loop =~ "run `gh pr checks` exactly once"
+    assert dev_loop =~ "On a CI re-wake timeout, check CI exactly once"
     assert dev_loop =~ "emit the required 100% progress sample"
     assert monitor =~ "Aiur.Events.GithubCiPoller"
     assert monitor =~ "expected, non-actionable idle state"
