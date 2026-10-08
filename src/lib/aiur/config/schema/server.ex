@@ -11,12 +11,13 @@ defmodule Aiur.Config.Schema.Server do
     # explicit port to expose the dashboard at a fixed address.
     field(:port, :integer, default: 0)
     field(:host, :string, default: "127.0.0.1")
+    field(:tailscale_funnel, :boolean, default: false)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:port, :host], empty_values: [])
+    |> cast(attrs, [:port, :host, :tailscale_funnel], empty_values: [])
     |> validate_number(:port, greater_than_or_equal_to: 0)
   end
 end
