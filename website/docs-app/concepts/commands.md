@@ -78,7 +78,9 @@ Deferred Commands remain visible in the Open and Blocking dashboard counts until
 See [Message Bus decisions](/concepts/message-bus#commands-and-decisions) for the event path.
 
 The Decision journal remains authoritative if `decisions.json` cannot be rewritten.
-Accepted events remain readable and new journal writes continue. `aiur status`
+Accepted events remain readable and new journal writes continue.
+
+`aiur status`
 and retained Command reads report the stale projection with its timestamp and age
 (or “age unknown” when the timestamp is unavailable). Projection repair retries
 once per second, with one alert on entering stale health.
@@ -86,6 +88,8 @@ once per second, with one alert on entering stale health.
 Request, enrichment and lifecycle notifications wait for a successful projection
 write, then replay in journal order. The projection retains `last_event_id` and
 `pending_notification_ids` so restart recovers withheld sends. Successful replay
-clears those IDs. A crash during sending can repeat an event ID; consumers must
+clears those IDs.
+
+A crash during sending can repeat an event ID; consumers must
 deduplicate it. Existing projections without these fields are upgraded without
 replaying historical notifications. Journal corruption still makes writes read-only.
