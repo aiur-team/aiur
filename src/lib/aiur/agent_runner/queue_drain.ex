@@ -17,7 +17,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
   alias Aiur.{AgentPubSub, Alerts, DecisionStore, Issue, PauseContainment}
   alias Aiur.AgentRunner.{EventsDigest, MessageHandler, SessionLifecycle, TurnCallbacks}
-  alias Aiur.AgentRunner.{ToolExecutor, TurnAlerts, TurnLoop, TurnStreams}
+  alias Aiur.AgentRunner.{ToolExecutor, TurnLoop, TurnStreams}
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Workspace
@@ -39,6 +39,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
       ) do
     receive do
       {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+        TurnLoop.confirm_pause_containment(app_session)
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
 
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
@@ -57,6 +58,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         )
 
       {:pause_agent, request_id} when is_integer(request_id) ->
+        TurnLoop.confirm_pause_containment(app_session)
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
 
@@ -128,6 +130,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         )
 
       {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+        TurnLoop.confirm_pause_containment(app_session)
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
 
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused, %{
@@ -146,6 +149,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         )
 
       {:pause_agent, request_id} when is_integer(request_id) ->
+        TurnLoop.confirm_pause_containment(app_session)
         Logger.info("Agent already paused for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
         MessageHandler.send_control_state(codex_update_recipient, issue, :paused)
 
@@ -601,7 +605,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
       {:error, outcome} ->
         Logger.warning("Settling uncorrelated queue delivery for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{item.id} outcome=#{inspect(outcome)}")
 
-        :ok = settle_operator_delivery_failure(orchestrator, item, outcome)
+        TurnLoop.best_effort_queue_bookkeeping(settle_operator_delivery_failure(orchestrator, item, outcome), :settle, issue)
         :ok
     end
   end
@@ -693,16 +697,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
 
     case result do
       {:ok, _turn_session} ->
-        maybe_observe_accepted_operator_delivery(
-          issue,
-          item,
-          backend,
-          callbacks.live_opts
-        )
-
-        :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
-
-        maybe_broadcast_turn_completed(turn_id, issue)
+        complete_queue_item_turn(orchestrator, issue, item, backend, callbacks.live_opts, turn_id)
 
         drain_operator_messages(
           app_session,
@@ -714,42 +709,14 @@ defmodule Aiur.AgentRunner.QueueDrain do
         )
 
       {:paused, pause_payload} ->
-        PauseContainment.confirm(Map.get(app_session, :containment))
+        context = %{issue: issue, workspace: workspace, worker_host: worker_host, orchestrator: orchestrator, codex_update_recipient: codex_update_recipient, opts: opts}
 
-        TurnAlerts.maybe_emit_usage_limit_alert(
-          issue,
-          SessionLifecycle.session_workspace(app_session),
-          SessionLifecycle.session_worker_host(app_session),
-          Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session))
-        )
-
-        if pause_payload[:native_terminal] == :completed do
-          maybe_observe_accepted_operator_delivery(issue, item, backend, callbacks.live_opts)
-          :ok = Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier)
-          maybe_broadcast_turn_completed(turn_id, issue)
-        else
-          :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
-        end
-
-        Aiur.AgentRunner.write_pause_log(
-          SessionLifecycle.session_workspace(app_session),
-          SessionLifecycle.session_worker_host(app_session)
-        )
-
-        MessageHandler.send_control_state(
-          codex_update_recipient,
-          issue,
-          :paused,
-          Map.merge(pause_payload, %{
-            session_id: Map.get(app_session, :thread_id),
-            account_name: Map.get(app_session, :account_name),
-            cwd: SessionLifecycle.session_workspace(app_session)
-          })
-        )
-
-        wait_for_operator_message(app_session, issue, message_handler, orchestrator, codex_update_recipient, opts)
+        TurnLoop.settle_paused_turn(context, app_session, pause_payload, message_handler, fn ->
+          complete_queue_item_turn(orchestrator, issue, item, backend, callbacks.live_opts, turn_id)
+        end)
 
       {:error, {:turn_start_failed, reason}} when reason in [:response_timeout, :turn_timeout] ->
+        # Reporting a successful requeue without a durable restore would strand the claimed message.
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
 
         Logger.info(
@@ -760,6 +727,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
         :ok
 
       {:error, {:turn_start_failed, {:response_error, %{"code" => -32_003}}}} ->
+        # Reporting a successful requeue without a durable restore would strand the claimed message.
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)
 
         Logger.info(
@@ -772,6 +740,12 @@ defmodule Aiur.AgentRunner.QueueDrain do
       {:error, reason} ->
         settle_failed_queue_item_turn(orchestrator, issue, turn_id, backend, reason, opts)
     end
+  end
+
+  defp complete_queue_item_turn(orchestrator, issue, item, backend, opts, turn_id) do
+    maybe_observe_accepted_operator_delivery(issue, item, backend, opts)
+    TurnLoop.best_effort_queue_bookkeeping(Aiur.Orchestrator.consume_delivered_queue_items(orchestrator, issue.identifier), :consume, issue)
+    maybe_broadcast_turn_completed(turn_id, issue)
   end
 
   # A provider-classified recoverable session failure routes through the one confirmed restore-and-replace
@@ -791,7 +765,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
   end
 
   defp fail_queue_item_turn(orchestrator, issue, turn_id, reason) do
-    :ok = Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason)
+    TurnLoop.best_effort_queue_bookkeeping(Aiur.Orchestrator.fail_delivered_queue_items(orchestrator, issue.identifier, reason), :fail, issue)
 
     if is_binary(turn_id) do
       AgentPubSub.broadcast_turn_event(issue.identifier, :turn_failed, %{
