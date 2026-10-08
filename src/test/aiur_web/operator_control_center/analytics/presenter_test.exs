@@ -278,6 +278,32 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.PresenterTest do
     assert Enum.find(breakdown, &(&1.tier == 2)) == %{tier: 2, count: 0, average_wall_clock_ms: nil}
   end
 
+  test "complexity count axis uses integer ticks for small, medium, and larger maxima" do
+    assert model().complexity_count_ticks == [0, 1]
+
+    ticks = fn maximum ->
+      Presenter.complexity_count_ticks([%{count: maximum} | Enum.map(1..5, &%{count: if(&1 == 1, do: maximum, else: 0)})])
+    end
+
+    assert ticks.(1) == [0, 1]
+    assert ticks.(2) == [0, 1, 2]
+    assert ticks.(7) == [0, 2, 4, 6, 8]
+    assert ticks.(40) == [0, 10, 20, 30, 40]
+    assert ticks.(21) == [0, 5, 10, 15, 20, 25]
+    assert ticks.(41) == [0, 10, 20, 30, 40, 50]
+
+    for maximum <- 1..100 do
+      labels = ticks.(maximum)
+      assert length(labels) == length(Enum.uniq(labels))
+      assert Enum.all?(labels, &is_integer/1)
+      assert List.last(labels) >= maximum
+      assert length(labels) <= 6
+
+      intervals = labels |> Enum.chunk_every(2, 1, :discard) |> Enum.map(fn [a, b] -> b - a end)
+      assert length(Enum.uniq(intervals)) == 1
+    end
+  end
+
   test "wasted capacity accumulates idle slot-hours under the cap" do
     m = model()
     assert m.kpis.wasted_slot_hours > 0
