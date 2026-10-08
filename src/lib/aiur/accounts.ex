@@ -269,12 +269,12 @@ defmodule Aiur.Accounts do
     end
   end
 
-  defp ensure_profile(_harness, _name, _dir, _shim), do: {:error, :unsupported_account_backend}
-
   defp ensure_profile(harness, name, nil, _shim) do
     dir = Path.join([accounts_root(), harness, name])
     with :ok <- File.mkdir_p(dir), do: {:ok, dir}
   end
+
+  defp ensure_profile(_harness, _name, _dir, _shim), do: {:error, :unsupported_account_backend}
 
   defp account_entry(_harness, name, nil, %{kind: :api_key, api_key_env: base_env}) do
     env_name = base_env <> "__" <> String.upcase(name)
