@@ -132,11 +132,12 @@ def public_case(name, change, components=None, code=2, messages=()):
 
 public_case('missing_public_field_fails', lambda m: m['components'][0].pop('summary'),
             messages=('a:', '/summary: required property'))
-public_case('planned_with_paths_fails', lambda m: m['components'][1].update(paths=['src/lib/a.ex']),
+public_case('planned_with_paths_fails', lambda m: (m['components'][0]['paths'].remove('src/lib/a.ex'),
+                                                m['components'][1].update(paths=['src/lib/a.ex'])),
             messages=('future:', '/paths: too many items'))
 public_case('planned_without_added_by_fails', lambda m: m['components'][1].pop('added_by'),
             messages=('/added_by: required property',))
-public_case('feature_adds_non_planned_fails', lambda m: m['features'][0].update(adds=['a']),
+public_case('feature_adds_non_planned_fails', lambda m: m['features'][0]['adds'].append('a'),
             messages=('adds a must be planned',))
 public_case('planned_feature_component_unlisted_fails', lambda m: m['features'][0].update(adds=[]),
             messages=('future: missing from MP-N2 adds',))
