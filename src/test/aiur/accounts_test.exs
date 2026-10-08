@@ -203,6 +203,71 @@ defmodule Aiur.AccountsTest do
     refute output =~ "oauthToken"
   end
 
+  test "accounts json renders daemon snapshot percentages without requesting usage", %{home: home} do
+    File.mkdir_p!(Path.join(home, ".claude"))
+    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
+    observed_at = DateTime.utc_now()
+
+    snapshot_fun = fn ["default"] ->
+      %{
+        "default" => %{
+          reading: %{
+            windows: [
+              %{window: "seven_day", used_percent: 41},
+              %{window: "five_hour", used_percent: 18}
+            ]
+          },
+          observed_at: observed_at,
+          freshness: :cached
+        }
+      }
+    end
+
+    parent = self()
+
+    output =
+      capture_io(fn ->
+        assert :ok =
+                 Aiur.AccountsCLI.accounts(true, fn names ->
+                   assert names == ["default"]
+                   send(parent, {:snapshot_requested, names})
+                   snapshot_fun.(names)
+                 end)
+      end)
+
+    assert_received {:snapshot_requested, ["default"]}
+    assert output =~ ~s("weekly_percent":41)
+    assert output =~ ~s("five_hour_percent":18)
+    assert output =~ ~s("freshness":"cached")
+    assert output =~ DateTime.to_iso8601(observed_at)
+    assert output =~ ~s("age_ms":)
+  end
+
+  test "accounts json reports daemon not running while retaining identity", %{home: home} do
+    File.mkdir_p!(Path.join(home, ".claude"))
+    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
+
+    output = capture_io(fn -> assert :ok = Aiur.AccountsCLI.accounts(true, fn _names -> %{} end) end)
+    assert output =~ "dev@example.com"
+    assert output =~ ~s("freshness":"daemon_not_running")
+    assert output =~ ~s("weekly_percent":null)
+  end
+
+  test "accounts json preserves the daemon usage error reason", %{home: home} do
+    File.mkdir_p!(Path.join(home, ".claude"))
+    File.write!(Path.join(home, ".claude.json"), ~s({"oauthAccount":{"emailAddress":"dev@example.com"}}))
+    observed_at = DateTime.utc_now()
+
+    output =
+      capture_io(fn ->
+        Aiur.AccountsCLI.accounts(true, fn _names ->
+          %{"default" => %{reading: nil, observed_at: observed_at, freshness: :unavailable, reason: :no_oauth_token}}
+        end)
+      end)
+
+    assert output =~ ~s("freshness":"no_oauth_token")
+  end
+
   test "usage readings are isolated by harness and account" do
     observed_at = DateTime.utc_now()
     UsageReadings.record("claude", "default", {:error, :no_oauth_token}, observed_at)

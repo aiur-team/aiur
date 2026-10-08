@@ -3,10 +3,21 @@ defmodule Aiur.AccountsCLI do
 
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.Claude, as: ClaudeAccounts
+  alias Aiur.Accounts.UsageReadings
 
-  @spec accounts(boolean()) :: :ok | {:error, term()}
-  def accounts(json) do
-    rows = Enum.map(Accounts.list("claude"), &account_row/1)
+  @daemon_node_env "AIUR_RELEASE_NODE"
+
+  @spec accounts(boolean()) :: :ok
+  def accounts(json), do: accounts(json, &daemon_snapshot/1)
+
+  @doc false
+  @spec accounts(boolean(), ([String.t()] -> map())) :: :ok
+  def accounts(json, snapshot_fun) when is_function(snapshot_fun, 1) do
+    accounts = Accounts.list("claude") |> Enum.filter(&(&1.harness == "claude"))
+    names = Enum.map(accounts, & &1.name)
+    snapshots = if names == [], do: %{}, else: snapshot_fun.(names)
+    rows = Enum.map(accounts, &account_row(&1, snapshots))
+
     if json, do: IO.puts(Jason.encode!(rows)), else: Enum.each(rows, &print_row/1)
     :ok
   end
@@ -43,11 +54,11 @@ defmodule Aiur.AccountsCLI do
     if String.ends_with?(dir, "/"), do: {:error, :trailing_slash_in_dir}, else: :ok
   end
 
-  defp account_row(%{name: name, harness: harness, profile_dir: dir}) do
+  defp account_row(%{name: name, harness: harness, profile_dir: dir}, snapshots) do
     identity = ClaudeAccounts.identity(dir)
 
-    case Accounts.usage(harness, name) do
-      {:ok, reading, metadata} ->
+    case snapshots do
+      %{^name => %{reading: reading, observed_at: observed_at, freshness: freshness}} when is_map(reading) ->
         %{
           name: name,
           harness: harness,
@@ -56,25 +67,72 @@ defmodule Aiur.AccountsCLI do
           seat_tier: identity["seatTier"] || identity["subscriptionType"],
           weekly_percent: percent(reading.windows, "seven_day"),
           five_hour_percent: percent(reading.windows, "five_hour"),
-          freshness: Atom.to_string(metadata.freshness),
-          observed_at: DateTime.to_iso8601(metadata.observed_at),
-          age_ms: max(DateTime.diff(DateTime.utc_now(), metadata.observed_at, :millisecond), 0)
+          freshness: Atom.to_string(freshness),
+          observed_at: DateTime.to_iso8601(observed_at),
+          age_ms: max(DateTime.diff(DateTime.utc_now(), observed_at, :millisecond), 0)
         }
 
-      {:error, reason} ->
-        %{
-          name: name,
-          harness: harness,
-          email: identity["email"],
-          org: identity["organization"] || identity["orgName"],
-          seat_tier: identity["seatTier"] || identity["subscriptionType"],
-          weekly_percent: nil,
-          five_hour_percent: nil,
-          freshness: Atom.to_string(reason),
-          observed_at: nil,
-          age_ms: nil
-        }
+      %{^name => %{freshness: :unavailable, reason: reason}} ->
+        usage_unavailable_row(name, harness, identity, Atom.to_string(reason))
+
+      _unavailable ->
+        usage_unavailable_row(name, harness, identity, "daemon_not_running")
     end
+  end
+
+  defp usage_unavailable_row(name, harness, identity, freshness) do
+    %{
+      name: name,
+      harness: harness,
+      email: identity["email"],
+      org: identity["organization"] || identity["orgName"],
+      seat_tier: identity["seatTier"] || identity["subscriptionType"],
+      weekly_percent: nil,
+      five_hour_percent: nil,
+      freshness: freshness,
+      observed_at: nil,
+      age_ms: nil
+    }
+  end
+
+  defp daemon_snapshot(names) do
+    case System.get_env(@daemon_node_env) do
+      nil ->
+        %{}
+
+      node_name ->
+        case existing_node(node_name) do
+          {:ok, node} ->
+            fetch_snapshot(node, names)
+
+          :error ->
+            %{}
+        end
+    end
+  rescue
+    _error -> %{}
+  catch
+    :exit, _reason -> %{}
+  end
+
+  defp fetch_snapshot(node, names) do
+    if Node.connect(node) do
+      case :rpc.call(node, UsageReadings, :snapshot, ["claude", names], 5_000) do
+        result when is_map(result) -> result
+        _unavailable -> %{}
+      end
+    else
+      %{}
+    end
+  end
+
+  defp existing_node(node_name) do
+    case :erlang.binary_to_existing_atom(node_name, :utf8) do
+      node ->
+        if node_name == Atom.to_string(node), do: {:ok, node}, else: :error
+    end
+  rescue
+    ArgumentError -> :error
   end
 
   defp percent(windows, id) do
