@@ -75,15 +75,13 @@ defmodule Aiur.GitHubAuthPreflightTest do
     {event, log} =
       with_log(fn ->
         send(pid, :run_poll_cycle)
-        # Barrier: the preflight runs in a tracker task off the Orchestrator
-        # (#3213), so a `:sys.get_state/1` barrier returns before its result is
-        # applied. The Orchestrator logs the preflight error and then publishes
-        # this alert while it applies that result, so the alert is the barrier.
+        # Barrier: the preflight runs in a tracker task (#3213), so `:sys.get_state/1`
+        # returns too early. The owner logs the error, then publishes this alert.
         assert_receive {:event, %{topic: "system.tracker.auth_preflight_failed"} = event}, 5_000
         event
       end)
 
-    assert log =~ "GitHub auth preflight failed for GITHUB_TOKEN"
+    assert log =~ "[error] GitHub auth preflight failed for GITHUB_TOKEN"
     assert log =~ "takes precedence over `gh` keyring auth"
     refute log =~ "test-gh-token"
     refute_received :candidate_fetch_called
