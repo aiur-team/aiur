@@ -42,6 +42,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Request do
     }
   end
 
+  defp observe_failure(state, %{body: body} = response), do: %{state | rate_limit: Map.merge(observed_rate_limit(state, response), query_cost(body, state.rate_limit))}
   defp observe_failure(state, response), do: %{state | rate_limit: observed_rate_limit(state, response)}
   defp observed_rate_limit(state, response), do: Map.merge(state.rate_limit, Errors.rate_limit_observation(response))
 

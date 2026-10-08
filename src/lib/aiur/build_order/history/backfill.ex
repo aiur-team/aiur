@@ -40,6 +40,7 @@ defmodule Aiur.BuildOrder.History.Backfill do
       checkpoint: nil,
       rate_limit: %{},
       spending: [],
+      points: 0,
       retries: 0,
       due: nil
     }
@@ -90,20 +91,25 @@ defmodule Aiur.BuildOrder.History.Backfill do
     end
   end
 
-  defp load_checkpoint(state, health) do
+  defp load_checkpoint(state, _health) do
     case History.checkpoint(:backfill, state.history) do
       {:ok, %{"query_version" => @query_version, "status" => "complete"} = cp} ->
-        if health.complete?, do: %{state | checkpoint: cp, status: {:complete, detail(cp)}}, else: finish(%{state | checkpoint: cp})
+        finish(restore(state, cp))
 
       {:ok, %{"query_version" => @query_version} = cp} ->
-        next_request(%{state | checkpoint: cp})
+        next_request(restore(state, cp))
 
       {:ok, _old} ->
-        next_request(%{state | checkpoint: fresh_checkpoint(state.now_fun.())})
+        next_request(restore(state, fresh_checkpoint(state.now_fun.())))
 
       {:error, failure} ->
         schedule(state, @history_retry_ms, :waiting_for_history, %{reason: failure})
     end
+  end
+
+  defp restore(state, cp) do
+    spending = for %{"at" => at, "cost" => cost} <- Map.get(cp, "spending", []), {:ok, observed} <- [IssueNode.datetime(at)], is_integer(cost) and cost >= 0, do: {observed, cost}
+    %{state | checkpoint: cp, spending: spending, points: cp["points"]}
   end
 
   defp fresh_checkpoint(now) do
@@ -156,7 +162,8 @@ defmodule Aiur.BuildOrder.History.Backfill do
     request = %{request_fun: state.request_fun, calls: 0, pages: 0, page_budget: 1, call_budget: 1, rate_limit: %{}}
 
     case Request.page(request, state.token, query, variables) do
-      {:ok, body, %{rate_limit: rl}} -> receive_page(record_spend(state, rl), body)
+      {:ok, body, %{rate_limit: %{cost: cost} = rl}} when is_integer(cost) and cost >= 0 -> receive_page(record_spend(state, rl), body)
+      {:ok, _body, _request} -> fail(state, :missing_reported_cost)
       {:error, reason, %{rate_limit: rl}} -> handle_error(record_spend(state, rl), reason)
     end
   end
@@ -178,7 +185,7 @@ defmodule Aiur.BuildOrder.History.Backfill do
         _unknown -> state.spending
       end
 
-    %{state | spending: spending, rate_limit: Map.merge(Map.delete(state.rate_limit, :cost), rl)}
+    %{state | spending: spending, points: state.points + Map.get(rl, :cost, 0), rate_limit: Map.merge(Map.delete(state.rate_limit, :cost), rl)}
   end
 
   defp receive_page(state, body) do
@@ -232,7 +239,7 @@ defmodule Aiur.BuildOrder.History.Backfill do
   defp graphql_ref(ref), do: %{"number" => ref.number, "repository" => %{"name" => ref.repository, "owner" => %{"login" => ref.owner}}}
 
   defp persist_page(state, events, cp) do
-    cp = Map.put(cp, "points", cp["points"] + Map.get(state.rate_limit, :cost, 0))
+    cp = Map.merge(cp, %{"points" => state.points, "spending" => Enum.map(state.spending, fn {at, cost} -> %{"at" => DateTime.to_iso8601(at), "cost" => cost} end)})
     done? = cp["root_done"] and cp["pending_blockers"] == []
     cp = if done?, do: Map.merge(cp, %{"status" => "complete", "completed_at" => DateTime.to_iso8601(state.now_fun.())}), else: cp
 
