@@ -13,11 +13,9 @@ defmodule Aiur.Orchestrator.BuildQueueClaimProbe do
   @doc false
   @spec status(GenServer.server(), [String.t()]) :: ClaimProbe.result()
   def status(server, ids) when is_list(ids) do
-    try do
-      GenServer.call(server, {:build_queue_claim_status, ids}, 1_000)
-    catch
-      :exit, _ -> :unavailable
-    end
+    GenServer.call(server, {:build_queue_claim_status, ids}, 1_000)
+  catch
+    :exit, _ -> :unavailable
   end
 
   @impl true
