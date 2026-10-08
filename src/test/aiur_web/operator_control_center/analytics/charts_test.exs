@@ -267,14 +267,15 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
   end
 
   test "complexity breakdown renders counts, average wall-clock, and em dashes" do
-    m =
-      Map.put(model(), :complexity_breakdown, [
-        %{tier: 1, count: 2, average_wall_clock_ms: 90_000},
-        %{tier: 2, count: 0, average_wall_clock_ms: nil},
-        %{tier: 3, count: 1, average_wall_clock_ms: 3_600_000},
-        %{tier: 4, count: 0, average_wall_clock_ms: nil},
-        %{tier: 5, count: 0, average_wall_clock_ms: nil}
-      ])
+    tiers = [
+      %{tier: 1, count: 2, average_wall_clock_ms: 90_000},
+      %{tier: 2, count: 0, average_wall_clock_ms: nil},
+      %{tier: 3, count: 1, average_wall_clock_ms: 3_600_000},
+      %{tier: 4, count: 0, average_wall_clock_ms: nil},
+      %{tier: 5, count: 0, average_wall_clock_ms: nil}
+    ]
+
+    m = model() |> Map.put(:complexity_breakdown, tiers) |> Map.put(:complexity_count_ticks, Presenter.complexity_count_ticks(tiers))
 
     svg = Charts.complexity_breakdown(m)
     assert svg =~ "Complexity breakdown"
@@ -283,5 +284,52 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.ChartsTest do
     assert svg =~ "—"
     assert svg =~ "var(--an-s1)"
     refute svg =~ "#3987e5"
+  end
+
+  test "complexity breakdown renders each integer axis label through its ceiling" do
+    for {maximum, expected} <- [
+          {1, ["0", "1"]},
+          {2, ["0", "1", "2"]},
+          {7, ["0", "2", "4", "6", "8"]},
+          {21, ["0", "5", "10", "15", "20", "25"]},
+          {40, ["0", "10", "20", "30", "40"]},
+          {41, ["0", "10", "20", "30", "40", "50"]}
+        ] do
+      tiers = for tier <- 1..5, do: %{tier: tier, count: if(tier == 1, do: maximum, else: 0), average_wall_clock_ms: nil}
+      ticks = Presenter.complexity_count_ticks(tiers)
+      svg = Charts.complexity_breakdown(%{complexity_breakdown: tiers, complexity_count_ticks: ticks})
+      document = Floki.parse_fragment!(svg)
+
+      labels =
+        document
+        |> Floki.find(~s|text[x="33"]|)
+        |> Enum.map(&Floki.text/1)
+
+      assert labels == expected
+    end
+  end
+
+  test "complexity chart scales the tallest bar to the rounded axis ceiling" do
+    tiers = for tier <- 1..5, do: %{tier: tier, count: if(tier == 1, do: 41, else: 0), average_wall_clock_ms: nil}
+    ticks = Presenter.complexity_count_ticks(tiers)
+    document = Charts.complexity_breakdown(%{complexity_breakdown: tiers, complexity_count_ticks: ticks}) |> Floki.parse_fragment!()
+
+    top_grid_y =
+      document
+      |> Floki.find(~s|line[x1="40"]|)
+      |> Enum.map(&(Floki.attribute(&1, "y1") |> hd() |> Float.parse() |> elem(0)))
+      |> Enum.min()
+
+    tallest_bar_y =
+      document
+      |> Floki.find(~s|rect[fill="var(--an-s1)"]|)
+      |> hd()
+      |> Floki.attribute("y")
+      |> hd()
+      |> Float.parse()
+      |> elem(0)
+
+    assert top_grid_y == 20.0
+    assert_in_delta tallest_bar_y, 20 + 168 * (1 - 41 / 50), 0.01
   end
 end
