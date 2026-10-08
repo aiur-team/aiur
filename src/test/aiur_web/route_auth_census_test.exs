@@ -8,6 +8,7 @@ defmodule AiurWeb.RouteAuthCensusTest do
 
   import Phoenix.ChannelTest, only: [socket: 3]
 
+  @endpoint AiurWeb.Endpoint
   @authenticators [:dashboard_auth, :dashboard_auth_required, :supervisor_auth, :github_webhook]
   @audited_sockets %{
     "/live" => Phoenix.LiveView.Socket,
