@@ -14,7 +14,10 @@ defmodule Aiur.Orchestrator.StateOwnersTest do
 
   test "every State field has exactly one owner" do
     owned_fields = Enum.flat_map(@owner_ids, &Owners.fields_of/1)
-    assert Enum.sort(owned_fields) == Enum.sort(@fields)
+
+    assert Enum.sort(owned_fields) == Enum.sort(@fields),
+           "unowned fields: #{inspect(@fields -- owned_fields)}; stale fields: #{inspect(owned_fields -- @fields)}"
+
     assert length(owned_fields) == length(Enum.uniq(owned_fields))
     assert Enum.all?(@fields, &(Owners.owner(&1) in @owner_ids))
   end
