@@ -460,7 +460,7 @@ defmodule Aiur.AgentControlCLITest do
 
   setup do
     pid = Process.whereis(Orchestrator)
-    original_state = :sys.get_state(pid)
+    original_state = orchestrator_state!(pid)
     original_health_status_fun = Application.get_env(:aiur, :supervision_health_status_fun)
     original_loadavg = Application.get_env(:aiur, :loadavg_source_override)
 
@@ -521,8 +521,7 @@ defmodule Aiur.AgentControlCLITest do
       if Process.alive?(pid) do
         # Drop anything this case published, then hand the Orchestrator its
         # prior state under the generation that is now active.
-        snapshot_generation = fence_snapshot_read_model()
-        :sys.replace_state(pid, fn _state -> %{original_state | snapshot_generation: snapshot_generation} end)
+        restore_orchestrator_state(pid, original_state)
       end
 
       if original_health_status_fun do
@@ -539,6 +538,84 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     {:ok, orchestrator: pid}
+  end
+
+  defp orchestrator_state!(pid, timeout \\ 5_000) do
+    :sys.get_state(pid, timeout)
+  catch
+    :exit, reason ->
+      info = Process.info(pid, [:current_function, :current_stacktrace, :message_queue_len, :messages, :status])
+      flunk("Orchestrator fixture state read failed: #{inspect(reason)}; process=#{inspect(info)}")
+  end
+
+  defp restore_orchestrator_state(pid, original_state) do
+    snapshot_generation = fence_snapshot_read_model()
+
+    :sys.replace_state(pid, fn state ->
+      if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+      # Keep the shared test singleton dormant between cases, including
+      # untagged poll work already queued by a resume during the case (#3007).
+      %{original_state | snapshot_generation: snapshot_generation, poll_frozen: true, tick_timer_ref: nil, tick_token: make_ref(), next_poll_due_at_ms: nil, poll_check_in_progress: false}
+    end)
+  end
+
+  test "fixture restoration fences queued ticks and poll cycles between cases (#3007)", %{orchestrator: pid} do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    original_state = %{orchestrator_state!(pid) | poll_frozen: false}
+    :sys.suspend(pid)
+
+    try do
+      state = :sys.replace_state(pid, &Aiur.Orchestrator.Lifecycle.schedule_tick(&1, 60_000))
+      timer = state.tick_timer_ref
+      send(pid, {:tick, state.tick_token})
+      send(pid, :run_poll_cycle)
+
+      restore_orchestrator_state(pid, original_state)
+      assert Process.read_timer(timer) == false
+      :sys.resume(pid)
+
+      # Suspension widens the window across restoration; this system call
+      # is a mailbox barrier after both queued messages, not a timing guess.
+      restored = orchestrator_state!(pid)
+      assert restored.poll_cycles_completed == original_state.poll_cycles_completed
+      assert restored.poll_check_in_progress == false
+      assert restored.next_poll_due_at_ms == nil
+      assert restored.running == original_state.running
+    after
+      :sys.resume(pid)
+    end
+  end
+
+  test "fixture state timeout captures the blocked function and mailbox (#3007)", %{orchestrator: pid} do
+    parent = self()
+    barrier = make_ref()
+
+    blocker =
+      Task.async(fn ->
+        :sys.replace_state(pid, fn state ->
+          send(parent, {:fixture_blocked, barrier})
+
+          receive do
+            ^barrier -> state
+          end
+        end)
+      end)
+
+    receive_barrier({:fixture_blocked, ^barrier})
+    send(pid, {:fixture_mailbox_evidence, barrier})
+
+    try do
+      error = assert_raise ExUnit.AssertionError, fn -> orchestrator_state!(pid, 1) end
+      assert error.message =~ "current_function: {Aiur.AgentControlCLITest,"
+      assert error.message =~ "fixture state timeout captures the blocked function and mailbox"
+      assert error.message =~ "current_stacktrace:"
+      assert error.message =~ "fixture_mailbox_evidence"
+      assert error.message =~ "message_queue_len:"
+    after
+      send(pid, barrier)
+      Task.await(blocker)
+    end
   end
 
   describe "todo/2" do
