@@ -4,6 +4,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.ProviderMeters.CLI
 
   alias Aiur.{
+    AccountsCLI,
     AgentChat,
     AlertFeed,
     AnalyticsCLI,
@@ -2323,6 +2324,15 @@ defmodule Aiur.AgentControlCLI do
       |> Keyword.get_lazy(:delivery_modes, fn -> ModePresenter.rows() end)
       |> print_delivery_modes()
 
+      exit_marker(0)
+    end)
+  end
+
+  @doc false
+  @spec accounts(boolean()) :: :ok
+  def accounts(json) do
+    guarded("accounts", fn ->
+      AccountsCLI.accounts(json, &Aiur.Accounts.UsageReadings.snapshot("claude", &1))
       exit_marker(0)
     end)
   end

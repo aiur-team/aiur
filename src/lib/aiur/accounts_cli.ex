@@ -3,12 +3,8 @@ defmodule Aiur.AccountsCLI do
 
   alias Aiur.Accounts
   alias Aiur.Accounts.Shims.Claude, as: ClaudeAccounts
-  alias Aiur.Accounts.UsageReadings
-
-  @daemon_node_env "AIUR_RELEASE_NODE"
-
   @spec accounts(boolean()) :: :ok
-  def accounts(json), do: accounts(json, &daemon_snapshot/1)
+  def accounts(json), do: accounts(json, fn _names -> %{} end)
 
   @doc false
   @spec accounts(boolean(), ([String.t()] -> map())) :: :ok
@@ -93,46 +89,6 @@ defmodule Aiur.AccountsCLI do
       observed_at: nil,
       age_ms: nil
     }
-  end
-
-  defp daemon_snapshot(names) do
-    case System.get_env(@daemon_node_env) do
-      nil ->
-        %{}
-
-      node_name ->
-        case existing_node(node_name) do
-          {:ok, node} ->
-            fetch_snapshot(node, names)
-
-          :error ->
-            %{}
-        end
-    end
-  rescue
-    _error -> %{}
-  catch
-    :exit, _reason -> %{}
-  end
-
-  defp fetch_snapshot(node, names) do
-    if Node.connect(node) do
-      case :rpc.call(node, UsageReadings, :snapshot, ["claude", names], 5_000) do
-        result when is_map(result) -> result
-        _unavailable -> %{}
-      end
-    else
-      %{}
-    end
-  end
-
-  defp existing_node(node_name) do
-    case :erlang.binary_to_existing_atom(node_name, :utf8) do
-      node ->
-        if node_name == Atom.to_string(node), do: {:ok, node}, else: :error
-    end
-  rescue
-    ArgumentError -> :error
   end
 
   defp percent(windows, id) do
