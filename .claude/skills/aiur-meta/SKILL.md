@@ -11,7 +11,7 @@ a durable log. Run hourly during a run, on the timer `aiur-run` sets up.
 ## This check is a backstop, not the discovery path
 
 **The meta-check is the quiet-state safety floor.** Work is discovered on the
-event stream — the Executor listener's 27 bindings, drained by `executor-wait` or
+event stream — the Executor listener's 28 bindings, drained by `executor-wait` or
 a persistent wake monitor, which `aiur-run` requires as a launch step. This check
 catches what the stream missed; it is not how you find out that a PR is ready.
 
