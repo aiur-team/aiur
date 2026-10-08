@@ -435,7 +435,8 @@ defmodule Aiur.GitHub.Issues do
   # only when every page was read, so `issues` names every open issue. That is
   # the close signal the dispatch gate's blocker states use (#2714).
   defp record_open_issues(owner, repo, issues) do
-    OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id))
+    labels_by_id = Map.new(issues, &{&1.id, %{labels: &1.labels, updated_at: &1.updated_at}})
+    OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id), labels_by_id)
     # Second producer for allowed-contributor intake (#2957).
     AllowedContributors.offer_open_issues(issues)
   end
