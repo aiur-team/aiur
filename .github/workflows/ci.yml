@@ -18,11 +18,11 @@ on:
   # (#2397). Checks attach to the head commit either way.
   workflow_dispatch:
 
-# Initial PR runs share a stable group; reruns and every non-PR event get a
-# unique group so they cannot replace another pending or in-progress run.
+# Initial main pushes share a group so newer commits supersede older main runs.
+# Initial PR runs share a group; other events and all reruns stay independent.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id }}-${{ github.run_attempt }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && 'main' || format('{0}-{1}', github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main' && github.run_attempt == 1) || (github.event_name == 'pull_request' && github.run_attempt == 1) }}
 
 # Job timeouts (#2461).
 #
@@ -176,6 +176,8 @@ jobs:
         run: bash scripts/test-report-known-flaky-tests.sh
       - name: Test CI run-attempt disclosure
         run: bash scripts/test-report-ci-run-attempt.sh
+      - name: Test CI concurrency
+        run: node scripts/test-ci-concurrency.mjs
       - name: Test rename preflight
         run: make test-rename-preflight
       - name: Test config documentation guard
