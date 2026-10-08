@@ -2,7 +2,7 @@
 
 Implementation SHA: `d7db05bee6ef712100340c2fd1b3c57d82d79621`, fetched from `origin/main` on 2026-10-08. PR integration base: `main`. This pin remains fixed if main moves.
 
-Gate status: **pending Executor sign-off**. This record does not yet authorize downstream code work. U0-T02 is complete; U0-T03 remains its separate size gate.
+Gate status: **Executor signed off** at the implementation SHA. U0-T02 is complete; U0-T03 remains its separate size gate. This review does not waive other dependencies or required PR checks.
 
 ## Release and source identity
 
@@ -83,4 +83,6 @@ The executed scratch validator also resolved every anchor at the pin and rejecte
 
 ## Sign-off
 
-Pending Executor review of this record and overlay. The completion line will be recorded only after the Executor signs off at the implementation SHA.
+Executor sign-off: [2026-10-08 approval](https://github.com/aiur-team/aiur/issues/3255#issuecomment-6065858720), confirmed by the selected `signoff` answer to `dec_6e160f5dce7a0d1b`. The Executor independently checked the corpus hash, mappings, dispositions, changed-path membership, repair ancestry and ten code spot checks. The issue text's `agents-01..03` IDs are absent from the canonical corpus; that ticket-text error does not add findings or change the preserved source mapping.
+
+U0 review complete at `d7db05bee6ef712100340c2fd1b3c57d82d79621`
