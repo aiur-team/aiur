@@ -12,12 +12,7 @@ defmodule Aiur.DecisionJournalOutcomeTest do
     def write(fd, line) do
       event = Jason.decode!(line)
 
-      fault =
-        Agent.get_and_update(__MODULE__, fn state ->
-          fault = if state.type == event["event_type"] and state.remaining > 0, do: state.mode, else: :none
-          remaining = if fault == :none, do: state.remaining, else: state.remaining - 1
-          {fault, %{state | remaining: remaining, last: fault, writes: state.writes ++ [event]}}
-        end)
+      fault = reserve_fault(event)
 
       case fault do
         :write_error ->
@@ -52,6 +47,14 @@ defmodule Aiur.DecisionJournalOutcomeTest do
         _other ->
           :file.write(fd, line)
       end
+    end
+
+    defp reserve_fault(event) do
+      Agent.get_and_update(__MODULE__, fn state ->
+        fault = if state.type == event["event_type"] and state.remaining > 0, do: state.mode, else: :none
+        remaining = if fault == :none, do: state.remaining, else: state.remaining - 1
+        {fault, %{state | remaining: remaining, last: fault, writes: state.writes ++ [event]}}
+      end)
     end
 
     def sync(fd) do

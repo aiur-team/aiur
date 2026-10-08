@@ -2553,14 +2553,16 @@ defmodule Aiur.DecisionStore do
   end
 
   defp reconcile_append(state, event) do
-    with :ok <- verify_journal(state) do
-      case DecisionLog.reconcile_ambiguous(state.ndjson_path, event.event_id, &DecisionProjection.decode_record/1) do
-        :accepted -> :ok
-        :failed -> retry_missing_append(state, event)
-        {:ambiguous, reason} -> {:error, {:journal_ambiguous, event, reason}}
-      end
-    else
-      {:error, reason} -> {:error, {:journal_ambiguous, event, reason}}
+    case verify_journal(state) do
+      :ok ->
+        case DecisionLog.reconcile_ambiguous(state.ndjson_path, event.event_id, &DecisionProjection.decode_record/1) do
+          :accepted -> :ok
+          :failed -> retry_missing_append(state, event)
+          {:ambiguous, reason} -> {:error, {:journal_ambiguous, event, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:journal_ambiguous, event, reason}}
     end
   end
 
