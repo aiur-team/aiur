@@ -13,6 +13,8 @@ defmodule Aiur.BuildOrder.History.Backfill do
   @history_retry_ms 60_000
   @reserve_fraction 0.2
   @hourly_point_cap 300
+  # ponytail: stop above the ticket's cost model; revise only after a live census.
+  @max_page_cost 5
   @max_retries 3
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -93,6 +95,9 @@ defmodule Aiur.BuildOrder.History.Backfill do
 
   defp load_checkpoint(state, _health) do
     case History.checkpoint(:backfill, state.history) do
+      {:ok, %{"query_version" => @query_version, "page_cost_exceeded" => cost} = cp} ->
+        fail(restore(state, cp), {:page_cost_exceeded, cost})
+
       {:ok, %{"query_version" => @query_version, "status" => "complete"} = cp} ->
         finish(restore(state, cp))
 
@@ -164,6 +169,7 @@ defmodule Aiur.BuildOrder.History.Backfill do
     case Request.page(request, state.token, query, variables) do
       {:ok, body, %{rate_limit: %{cost: cost} = rl}} when is_integer(cost) and cost >= 0 -> receive_page(record_spend(state, rl), body)
       {:ok, _body, _request} -> fail(state, :missing_reported_cost)
+      {:error, _reason, %{rate_limit: %{cost: cost} = rl}} when is_integer(cost) and cost > @max_page_cost -> persist_page(record_spend(state, rl), [], state.checkpoint)
       {:error, reason, %{rate_limit: rl}} -> handle_error(record_spend(state, rl), reason)
     end
   end
@@ -241,15 +247,39 @@ defmodule Aiur.BuildOrder.History.Backfill do
   defp persist_page(state, events, cp) do
     cp = Map.merge(cp, %{"points" => state.points, "spending" => Enum.map(state.spending, fn {at, cost} -> %{"at" => DateTime.to_iso8601(at), "cost" => cost} end)})
     done? = cp["root_done"] and cp["pending_blockers"] == []
-    cp = if done?, do: Map.merge(cp, %{"status" => "complete", "completed_at" => DateTime.to_iso8601(state.now_fun.())}), else: cp
+    cost = Map.get(state.rate_limit, :cost, 0)
+
+    cp =
+      cond do
+        cost > @max_page_cost -> Map.merge(cp, %{"status" => "failed", "page_cost_exceeded" => cost})
+        done? -> Map.merge(cp, %{"status" => "complete", "completed_at" => DateTime.to_iso8601(state.now_fun.())})
+        true -> cp
+      end
 
     case History.apply(events, state.history ++ [checkpoint: {:backfill, cp}]) do
       {:ok, _result} ->
         state = %{state | checkpoint: cp, retries: 0}
-        if done?, do: finish(state), else: pace(state)
+
+        cond do
+          cost > @max_page_cost ->
+            stop_overpriced_page(state, cost)
+
+          done? ->
+            finish(state)
+
+          true ->
+            pace(state)
+        end
 
       {:error, reason} ->
         fail(state, reason)
+    end
+  end
+
+  defp stop_overpriced_page(state, cost) do
+    case History.flush(state.history) do
+      :ok -> fail(state, {:page_cost_exceeded, cost})
+      {:error, reason} -> fail(state, reason)
     end
   end
 

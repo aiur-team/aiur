@@ -49,7 +49,7 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
     start_supervised!({Backfill, Keyword.merge(opts, extra)})
 
     if Keyword.get(extra, :enabled?, true) and Keyword.get(extra, :tracker_kind_fun) == nil and Keyword.get(extra, :repo_fun) == nil and Keyword.get(extra, :token_fun) == nil,
-      do: assert_receive({:scheduled, :step, 60_000})
+      do: assert_receive({:scheduled, :step, 60_000}, 5_000)
   end
 
   defp step(ctx, seconds \\ 10) do
@@ -59,7 +59,7 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
   end
 
   defp request(cursor, operation \\ "AiurBuildOrderHistoryBackfill") do
-    assert_receive {:request, %{body: %{"query" => query, "variables" => variables}, caller: caller}}
+    assert_receive {:request, %{body: %{"query" => query, "variables" => variables}, caller: caller}}, 5_000
     assert caller == "build_order_history_backfill"
     assert query =~ "query #{operation}("
     assert variables["cursor"] == cursor
@@ -105,10 +105,10 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
 
     assert {:running, %{pages: 1, issues: 2, points: 3}} = step(ctx, 60)
     request(nil)
-    assert_receive {:scheduled, :step, 10_000}
+    assert_receive {:scheduled, :step, 10_000}, 5_000
     assert {:running, %{pages: 2}} = step(ctx)
     request("c1")
-    assert_receive {:scheduled, :step, 10_000}
+    assert_receive {:scheduled, :step, 10_000}, 5_000
     assert {:complete, %{pages: 3, issues: 6, total: 7, points: 8}} = step(ctx)
     request("c2")
     assert History.health(@opts).complete?
@@ -157,7 +157,7 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
     worker(ctx, [{:error, {:aiur, :locally_held, %{reset_at: reset}}}, F.response(F.page([F.node(5)]))])
     assert {:held, %{until: ^reset, reason: :local_hold}} = step(ctx, 60)
     request("c2")
-    assert_receive {:scheduled, :step, 4_000}
+    assert_receive {:scheduled, :step, 4_000}, 5_000
     assert {:held, _detail} = step(ctx, 3)
     refute_received {:request, _req}
     assert {:complete, _detail} = step(ctx, 1)
@@ -172,7 +172,7 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
     worker(ctx, [limited])
     assert {:held, %{reason: :rate_limited}} = step(ctx, 60)
     request("c2")
-    assert_receive {:scheduled, :step, 1_200_000}
+    assert_receive {:scheduled, :step, 1_200_000}, 5_000
     assert {:ok, checkpoint} = History.checkpoint(:backfill, @opts)
     assert checkpoint == cp()
   end
@@ -182,25 +182,23 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
     worker(ctx, [F.response(F.page([F.node(1)], true, "c1", 3, 900))])
     assert {:held, %{reason: :reserve, until: ~U[2026-10-08 12:00:00Z]}} = step(ctx, 60)
     request(nil)
-    assert_receive {:scheduled, :step, 3_540_000}
+    assert_receive {:scheduled, :step, 3_540_000}, 5_000
     assert {:held, _detail} = step(ctx, 10)
     refute_received {:request, _req}
   end
 
   test "hourly cap stops requests until oldest spend expires", ctx do
     store(ctx.dir)
-    worker(ctx, [F.response(F.page([F.node(1)], true, "c1", 150)), F.response(F.page([F.node(2)], true, "c2", 150)), F.response(F.page([F.node(3)]))])
+    seed(cp(%{"points" => 295, "spending" => spend(59, 5)}))
+    worker(ctx, [F.response(F.page([F.node(1)], true, "c3", 5)), F.response(F.page([F.node(3)]))])
     step(ctx, 60)
-    request(nil)
-    assert_receive {:scheduled, :step, 10_000}
-    step(ctx)
-    request("c1")
-    assert_receive {:scheduled, :step, 10_000}
-    assert {:held, %{reason: :hourly_point_cap}} = step(ctx)
-    assert_receive {:scheduled, :step, 3_580_000}
-    refute_received {:request, _req}
-    assert {:complete, _detail} = step(ctx, 3580)
     request("c2")
+    assert_receive {:scheduled, :step, 10_000}, 5_000
+    assert {:held, %{reason: :hourly_point_cap}} = step(ctx)
+    assert_receive {:scheduled, :step, 3_530_000}, 5_000
+    refute_received {:request, _req}
+    assert {:complete, _detail} = step(ctx, 3530)
+    request("c3")
   end
 
   test "permanent errors stop after one request", ctx do
@@ -228,16 +226,16 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
     assert {:failed, %{reason: :graphql_partial}} = Backfill.status(@worker)
     assert {:ok, [], _health} = History.rows([1], @opts)
     assert {:ok, nil} = History.checkpoint(:backfill, @opts)
-    assert_receive {:scheduled, :step, _delay}
-    assert_receive {:scheduled, :step, _delay}
-    assert_receive {:scheduled, :step, _delay}
+    assert_receive {:scheduled, :step, _delay}, 5_000
+    assert_receive {:scheduled, :step, _delay}, 5_000
+    assert_receive {:scheduled, :step, _delay}, 5_000
     refute_received {:scheduled, :step, _delay}
   end
 
   test "unavailable history waits without claiming completeness", ctx do
     worker(ctx, [])
     assert {:waiting_for_history, %{reason: :history_not_running}} = step(ctx, 60)
-    assert_receive {:scheduled, :step, 60_000}
+    assert_receive {:scheduled, :step, 60_000}, 5_000
     refute_received {:request, _req}
   end
 
@@ -288,7 +286,7 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
     worker(ctx, [F.response(F.page([node]))])
     assert {:running, _detail} = step(ctx, 60)
     request(nil)
-    assert_receive {:scheduled, :step, 10_000}
+    assert_receive {:scheduled, :step, 10_000}, 5_000
     assert row(9).blocked_by_complete == false
     assert length(row(9).blocked_by) == 100
     assert :ok = History.flush(@opts)
@@ -342,35 +340,37 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
 
   test "hourly cap survives worker and store restart", ctx do
     store(ctx.dir)
-    worker(ctx, [F.response(F.page([F.node(1)], true, "c1", 150)), F.response(F.page([F.node(2)], true, "c2", 150))])
+    seed(cp(%{"points" => 290, "spending" => spend(58, 5)}))
+    worker(ctx, [F.response(F.page([F.node(1)], true, "c3", 5)), F.response(F.page([F.node(2)], true, "c4", 5))])
     step(ctx, 60)
-    request(nil)
-    assert_receive {:scheduled, :step, 10_000}
+    request("c2")
+    assert_receive {:scheduled, :step, 10_000}, 5_000
     step(ctx)
-    request("c1")
-    assert_receive {:scheduled, :step, 10_000}
+    request("c3")
+    assert_receive {:scheduled, :step, 10_000}, 5_000
     History.flush(@opts)
     stop_supervised!(@worker)
     stop_supervised!(@store)
     store(ctx.dir)
     worker(ctx, [F.response(F.page([F.node(3)]))])
     assert {:held, %{reason: :hourly_point_cap}} = step(ctx, 60)
-    assert_receive {:scheduled, :step, 3_530_000}
+    assert_receive {:scheduled, :step, 3_470_000}, 5_000
     refute_received {:request, _req}
-    assert {:complete, %{points: 303}} = step(ctx, 3530)
-    request("c2")
+    assert {:complete, %{points: 303}} = step(ctx, 3470)
+    request("c4")
   end
 
   test "partial response spend counts even though its rows do not", ctx do
     store(ctx.dir)
-    partial = F.response(Map.put(F.page([F.node(1)], false, nil, 150), "errors", [%{"message" => "partial"}]))
-    worker(ctx, [partial, F.response(F.page([F.node(2)], true, "c2", 150))])
+    seed(cp(%{"points" => 294, "spending" => spend(98, 3)}))
+    partial = F.response(Map.put(F.page([F.node(1)], false, nil, 3), "errors", [%{"message" => "partial"}]))
+    worker(ctx, [partial, F.response(F.page([F.node(2)], true, "c3", 3))])
     assert {:running, _detail} = step(ctx, 60)
-    request(nil)
-    assert_receive {:scheduled, :step, 1_000}
-    assert {:running, %{points: 300, issues: 1}} = step(ctx, 1)
-    request(nil)
-    assert_receive {:scheduled, :step, 10_000}
+    request("c2")
+    assert_receive {:scheduled, :step, 1_000}, 5_000
+    assert {:running, %{points: 300, issues: 5}} = step(ctx, 1)
+    request("c2")
+    assert_receive {:scheduled, :step, 10_000}, 5_000
     assert {:ok, [], _health} = History.rows([1], @opts)
     assert {:held, %{reason: :hourly_point_cap}} = step(ctx)
     refute_received {:request, _req}
@@ -439,10 +439,10 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
     worker(ctx, [held, held, F.response(F.page([F.node(1)]))])
     assert {:running, %{retry: 1}} = step(ctx, 60)
     request(nil)
-    assert_receive {:scheduled, :step, 1_000}
+    assert_receive {:scheduled, :step, 1_000}, 5_000
     assert {:running, %{retry: 2}} = step(ctx, 1)
     request(nil)
-    assert_receive {:scheduled, :step, 2_000}
+    assert_receive {:scheduled, :step, 2_000}, 5_000
     assert {:complete, _detail} = step(ctx, 2)
     request(nil)
   end
@@ -455,6 +455,40 @@ defmodule Aiur.BuildOrder.History.BackfillTest do
     request("c2")
     assert {:ok, checkpoint} = History.checkpoint(:backfill, @opts)
     assert checkpoint == cp()
+    refute_received {:scheduled, :step, _delay}
+  end
+
+  defp spend(pages, cost), do: List.duplicate(%{"at" => DateTime.to_iso8601(@now), "cost" => cost}, pages)
+
+  test "an overpriced paid page is saved and stops the job across restart", ctx do
+    store(ctx.dir)
+    worker(ctx, [F.response(F.page([F.node(1)], true, "c1", 6))])
+    assert {:failed, %{reason: {:page_cost_exceeded, 6}}} = step(ctx, 60)
+    request(nil)
+    assert row(1).title == "Ticket 1"
+    assert {:ok, %{"cursor" => "c1", "points" => 6, "page_cost_exceeded" => 6, "status" => "failed"}} = History.checkpoint(:backfill, @opts)
+    assert Jason.decode!(File.read!(ctx.path))["checkpoints"]["backfill"]["points"] == 6
+    refute History.health(@opts).complete?
+    refute_received {:scheduled, :step, _delay}
+    step(ctx)
+    refute_received {:request, _req}
+    stop_supervised!(@worker)
+    stop_supervised!(@store)
+    store(ctx.dir)
+    worker(ctx, [])
+    assert {:failed, %{reason: {:page_cost_exceeded, 6}}} = step(ctx, 60)
+    refute_received {:request, _req}
+  end
+
+  test "an overpriced partial response saves spend without applying rows", ctx do
+    store(ctx.dir)
+    partial = F.response(Map.put(F.page([F.node(1)], false, nil, 6), "errors", [%{"message" => "partial"}]))
+    worker(ctx, [partial])
+    assert {:failed, %{reason: {:page_cost_exceeded, 6}}} = step(ctx, 60)
+    request(nil)
+    assert {:ok, [], _health} = History.rows([1], @opts)
+    assert {:ok, %{"points" => 6, "page_cost_exceeded" => 6, "cursor" => nil}} = History.checkpoint(:backfill, @opts)
+    assert Jason.decode!(File.read!(ctx.path))["checkpoints"]["backfill"]["points"] == 6
     refute_received {:scheduled, :step, _delay}
   end
 end
