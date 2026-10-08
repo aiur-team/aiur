@@ -266,9 +266,10 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     do: %{
       "error" => %{
         "message" =>
-          "Human-review refused: PR ##{detail.pr_number} does not contain current origin/#{detail.base_branch}. " <>
-            "Fetch and merge the configured base, resolve conflicts, validate and push, then return to ci-wait. " <>
-            "Wait for CI on the new head before marking the PR ready or requesting human-review again.",
+          "Human-review refused: PR ##{detail.pr_number} conflicts with or overlaps changes in current origin/#{detail.base_branch}. " <>
+            "Integrate the configured base at most once per handoff, resolve conflicts, validate and push. " <>
+            "Keep the PR ready before returning to ci-wait; wait for CI on the new head before requesting human-review. " <>
+            "If another unsafe base change appears after that integration, alert the Executor instead of repeating the merge/CI cycle.",
         "reason" => "stale_review_base",
         "detail" => Response.jsonable(detail)
       }

@@ -705,17 +705,25 @@ every request a determined agent could make.
 | Any direct-HTTP client — `curl`, `Req`, a Python script, a Node fetch | No — unauthenticated from an agent workspace. |
 | The daemon's own GitHub traffic | No — it runs as the daemon's own credential (the App installation token under App auth), a separate budget pool. |
 
-Human-review state writes read the open PR and compare the configured
-`tracker.base_branch` to its exact head SHA with `GET /repos/{owner}/{repo}/compare/{base}...{head}`.
-This ancestry verdict always contacts GitHub: a branch can move without a change
-to the PR.
+Human-review state writes compare the open PR with the configured base. Stale
+heads also require a fresh GraphQL `mergeable` verdict. The
+configured `tracker.base_branch` and exact PR head are pinned to SHAs for the
+assessment. Fresh `GET /repos/{owner}/{repo}/compare/{base}...{head}` reads check
+changes in both directions; rename checks include old and new paths.
 
-Only `ahead` or `identical` permits the write; `behind` or `diverged`
-returns `stale_review_base` with instructions to update and await new-head CI.
-Missing or unreadable ancestry also blocks the write.
+A stale head passes when it has no conflicts and no changed-file overlap with
+the base since their merge base. Conflicts or overlap return `stale_review_base`.
+Unknown mergeability, mismatched SHAs, unreadable comparisons or a file list
+reaching GitHub's 300-file cap block the write rather than assume safety.
 
-The comparison is attributed
-to `human_review_base_ancestry`; it adds a read and claims no quota saving.
+Comparisons are attributed to `human_review_base_ancestry` and always contact
+GitHub: base movement can change the verdict without changing the PR. These
+reads add cost; this change claims no quota saving.
+
+For the next 10 handoffs after rollout, record the tested PR head, observed base
+SHA and overlap/conflict verdict. Count unsafe handoffs reaching review,
+separately from harmless stale heads; the earlier 3-of-8 stale-base count is
+context, not an equivalent baseline for this narrower measure.
 
 ## Changes Aiur makes itself
 

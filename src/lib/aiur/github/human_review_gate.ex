@@ -3,11 +3,11 @@ defmodule Aiur.GitHub.HumanReviewGate do
   Human-review readiness checks for GitHub issues.
 
   This module blocks a transition to human review while the canonical open
-  pull request has unaddressed review-thread comments or does not contain the
-  configured integration base at the state-write boundary. Subsequent observer
+  pull request has unaddressed review-thread comments, conflicts with its base,
+  or overlaps files changed upstream at the state-write boundary. Subsequent observer
   checks verify review threads only, so base movement during review does not
   withdraw an accepted handoff. It composes pull request discovery, bot identity
-  resolution, review-thread classification and ancestry without mutating GitHub state.
+  resolution, review-thread classification and base compatibility without mutating GitHub state.
   """
 
   alias Aiur.Config
@@ -68,15 +68,13 @@ defmodule Aiur.GitHub.HumanReviewGate do
   defp verify_base_ancestry(context, %{"head" => %{"sha" => head_sha}, "number" => pr_number}, true)
        when is_binary(head_sha) and head_sha != "" do
     base = Config.base_branch(context.opts)
-    comparison = "#{URI.encode(base, &URI.char_unreserved?/1)}...#{URI.encode(head_sha, &URI.char_unreserved?/1)}"
-    url = "#{Transport.base_url()}/repos/#{repo_full_name()}/compare/#{comparison}?per_page=1"
-    # A branch name moves independently of this PR; ancestry decisions always read upstream.
-    case Transport.fetch_json_map(context.request_fun, context.token, url, caller: "human_review_base_ancestry") do
+
+    case compare(context, base, head_sha) do
       {:ok, %{"status" => status}} when status in ["ahead", "identical"] ->
         :ok
 
-      {:ok, %{"status" => status}} when status in ["behind", "diverged"] ->
-        {:error, {:stale_review_base, %{pr_number: pr_number, base_branch: base, head_sha: head_sha}}}
+      {:ok, %{"status" => status} = comparison} when status in ["behind", "diverged"] ->
+        verify_stale_base(context, pr_number, base, head_sha, comparison)
 
       {:ok, _body} ->
         {:error, :review_base_ancestry_unavailable}
@@ -87,6 +85,76 @@ defmodule Aiur.GitHub.HumanReviewGate do
   end
 
   defp verify_base_ancestry(_context, _pr, true), do: {:error, :review_base_ancestry_unavailable}
+
+  defp compare(context, base, head) do
+    comparison = "#{URI.encode(base, &URI.char_unreserved?/1)}...#{URI.encode(head, &URI.char_unreserved?/1)}"
+    url = "#{Transport.base_url()}/repos/#{repo_full_name()}/compare/#{comparison}?per_page=1"
+    # Branch movement cannot reuse a previous compatibility verdict.
+    Transport.fetch_json_map(context.request_fun, context.token, url, caller: "human_review_base_ancestry")
+  end
+
+  defp verify_stale_base(context, pr_number, base, head, comparison) do
+    with {:ok, base_sha} <- comparison_base(comparison),
+         {:ok, pr_files} <- changed_paths(comparison),
+         {:ok, upstream} <- compare(context, head, base_sha),
+         {:ok, upstream_files} <- upstream_paths(upstream),
+         {:ok, mergeable?} <- current_mergeability(context, pr_number, base, base_sha, head) do
+      if mergeable? and MapSet.disjoint?(pr_files, upstream_files) do
+        :ok
+      else
+        {:error, {:stale_review_base, %{pr_number: pr_number, base_branch: base, head_sha: head}}}
+      end
+    end
+  end
+
+  defp comparison_base(%{"base_commit" => %{"sha" => sha}}) when is_binary(sha) and sha != "", do: {:ok, sha}
+  defp comparison_base(_comparison), do: {:error, :review_base_ancestry_unavailable}
+
+  defp upstream_paths(%{"status" => status} = comparison) when status in ["ahead", "diverged"], do: changed_paths(comparison)
+  defp upstream_paths(_comparison), do: {:error, :review_base_ancestry_unavailable}
+
+  defp changed_paths(%{"files" => files}) when is_list(files) and length(files) < 300 do
+    Enum.reduce_while(files, {:ok, MapSet.new()}, &add_changed_path/2)
+  end
+
+  defp changed_paths(_comparison), do: {:error, :review_base_ancestry_unavailable}
+
+  defp add_changed_path(%{"filename" => filename} = file, {:ok, paths}) when is_binary(filename) and filename != "" do
+    case {Map.get(file, "previous_filename"), Map.get(file, "status")} do
+      {nil, status} when status != "renamed" -> {:cont, {:ok, MapSet.put(paths, filename)}}
+      {previous, _status} when is_binary(previous) and previous != "" -> {:cont, {:ok, paths |> MapSet.put(filename) |> MapSet.put(previous)}}
+      _invalid -> {:halt, {:error, :review_base_ancestry_unavailable}}
+    end
+  end
+
+  defp add_changed_path(_file, _paths), do: {:halt, {:error, :review_base_ancestry_unavailable}}
+
+  defp current_mergeability(context, pr_number, base, base_sha, head) do
+    query = """
+    query AiurHumanReviewMergeability($owner: String!, $name: String!, $number: Int!) {
+      repository(owner: $owner, name: $name) {
+        pullRequest(number: $number) { headRefOid baseRefOid baseRefName mergeable }
+      }
+    }
+    """
+
+    {:ok, {owner, name}} = Transport.parse_repo()
+    variables = %{"owner" => owner, "name" => name, "number" => pr_number}
+
+    case Transport.github_graphql(context.request_fun, context.token, query, variables, caller: "human_review_base_ancestry") do
+      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefOid" => ^base_sha, "baseRefName" => ^base, "mergeable" => "MERGEABLE"}}}}} ->
+        {:ok, true}
+
+      {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"headRefOid" => ^head, "baseRefOid" => ^base_sha, "baseRefName" => ^base, "mergeable" => "CONFLICTING"}}}}} ->
+        {:ok, false}
+
+      {:ok, _body} ->
+        {:error, :review_base_ancestry_unavailable}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
 
   @doc false
   @spec verify_pr_review_threads_clear(map(), integer(), String.t()) :: :ok | {:error, term()}
