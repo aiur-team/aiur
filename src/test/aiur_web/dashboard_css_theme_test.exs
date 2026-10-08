@@ -209,10 +209,15 @@ defmodule AiurWeb.DashboardCssThemeTest do
   @aa_non_text 3.0
 
   test "the contrast-critical token pairs still clear WCAG AA" do
-    dark = declarations(css_rule(":root"))
-    light = declarations(css_rule(~s(html[data-theme="light"])))
+    for theme <- ["dark", "light"], palette <- ["aiur", "gruvbox"] do
+      selectors =
+        [":root"] ++
+          if(theme == "light", do: [~s(html[data-theme="light"])], else: []) ++
+          if(palette == "gruvbox", do: [~s(html[data-palette="gruvbox"])], else: []) ++
+          if(palette == "gruvbox" and theme == "light", do: [~s(html[data-palette="gruvbox"][data-theme="light"])], else: [])
 
-    for {theme, tokens} <- [dark: dark, light: light] do
+      tokens = Enum.reduce(selectors, %{}, fn selector, acc -> Map.merge(acc, declarations(css_rule(selector))) end)
+      theme = "#{theme}/#{palette}"
       surface = tokens["--surface"]
       panel = blend(tokens["--super-soft"], surface)
 
@@ -236,6 +241,22 @@ defmodule AiurWeb.DashboardCssThemeTest do
                "#{theme} #{label}: #{show(fg)} on #{show(bg)} is " <>
                  "#{Float.round(ratio, 2)}:1, needs #{minimum}:1"
       end
+    end
+  end
+
+  test "design aliases resolve to the product families" do
+    tokens = declarations(css_rule(":root"))
+
+    for {alias_name, canonical} <- [{"attn", "attention"}, {"block", "blocking"}], suffix <- ["", "-ink", "-soft", "-line"] do
+      assert tokens["--#{alias_name}#{suffix}"] == "var(--#{canonical}#{suffix})"
+    end
+  end
+
+  test "future regression guard: gruvbox never overrides the progress contract" do
+    for selector <- [~s(html[data-palette="gruvbox"]), ~s(html[data-palette="gruvbox"][data-theme="light"])] do
+      tokens = declarations(css_rule(selector))
+      refute Map.has_key?(tokens, "--progress-fill")
+      refute Map.has_key?(tokens, "--progress-complete-fill")
     end
   end
 

@@ -146,3 +146,5 @@ The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_T
 An exported value wins, then the global file, then the repository file. The token must be at least 32 bytes, bearer-safe, and free of surrounding whitespace. A present non-empty invalid value aborts startup, while an absent or empty value leaves the API disabled.
 
 Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
+
+The theme follows your operating system until you toggle it. The palette button beside the theme button switches between Gruvbox (the default) and the aiur palette. Both choices stay in this browser; another tab keeps its current palette until reload. Fonts are served by the dashboard, including offline.

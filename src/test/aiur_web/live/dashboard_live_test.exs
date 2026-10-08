@@ -710,7 +710,9 @@ defmodule AiurWeb.DashboardLiveTest do
       # instance independently.
       assert length(Floki.find(doc, "[phx-hook=\"ThemeToggle\"]")) == 1
 
-      for id <- ~w(global-pause-toggle global-pause-toggle-mobile theme-toggle) do
+      assert length(Floki.find(doc, ".topbar-controls [phx-hook=\"PaletteToggle\"][aria-pressed=\"true\"]")) == 1
+
+      for id <- ~w(global-pause-toggle global-pause-toggle-mobile theme-toggle palette-toggle) do
         assert length(Floki.find(doc, "##{id}")) == 1, "duplicate DOM id: #{id}"
       end
     end

@@ -6,7 +6,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
   def app(assigns) do
     ~H"""
     <!DOCTYPE html>
-    <html lang="en" data-theme="dark">
+    <html lang="en" data-theme="dark" data-palette="gruvbox">
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -80,6 +80,26 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
               }
             };
 
+            // Production-layout probe tests constrain this fixture copy.
+            window.BrowserHarnessHooks.PaletteToggle = {
+              mounted: function () {
+                this.sync();
+                this.onClick = () => {
+                  var next = document.documentElement.dataset.palette === "gruvbox" ? "aiur" : "gruvbox";
+                  document.documentElement.dataset.palette = next;
+                  try { window.localStorage.setItem("aiur-palette", next); } catch (_error) {}
+                  this.sync();
+                };
+                this.el.addEventListener("click", this.onClick);
+              },
+              updated: function () { this.sync(); },
+              destroyed: function () { this.el.removeEventListener("click", this.onClick); },
+              sync: function () {
+                var state = this.el.getAttribute("role") === "menuitemcheckbox" ? "aria-checked" : "aria-pressed";
+                this.el.setAttribute(state, String(document.documentElement.dataset.palette === "gruvbox"));
+              }
+            };
+
             if (window.AiurTicketContextDialogHook) {
               window.BrowserHarnessHooks.TicketContextDialog = window.AiurTicketContextDialogHook;
             }
@@ -116,6 +136,29 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         {@inner_content}
       </body>
     </html>
+    """
+  end
+end
+
+defmodule Aiur.BrowserHarness.PaletteProbeLive do
+  use Phoenix.LiveView, layout: false
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
+
+  def mount(_params, _session, socket) do
+    {:ok, NavState.assign_nav(socket)}
+  end
+
+  def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
+
+  def render(assigns) do
+    ~H"""
+    <main class="app-shell">
+      <DashboardShell.dashboard_shell route={RouteRegistry.current_route(:index)} routes={RouteRegistry.routes(%{})}
+        tracker_kind="fixture" agent_kind="fixture" nav_collapsed={@nav_collapsed}>
+        <button id="probe-palette-item" type="button" role="menuitemcheckbox" aria-checked="true" phx-hook="PaletteToggle">Gruvbox palette</button>
+      </DashboardShell.dashboard_shell>
+    </main>
     """
   end
 end
@@ -2272,6 +2315,10 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
 
   scope "/" do
     pipe_through([:browser, :fixture_access])
+
+    live_session :production_root, root_layout: {AiurWeb.Layouts, :root} do
+      live("/palette-probe", Aiur.BrowserHarness.PaletteProbeLive, :index)
+    end
 
     live("/fixture", Aiur.BrowserHarness.FixtureLive, :index)
     live("/ticket-context", Aiur.BrowserHarness.TicketContextLive, :index)

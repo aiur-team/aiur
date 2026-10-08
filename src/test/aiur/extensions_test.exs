@@ -1057,6 +1057,10 @@ defmodule Aiur.ExtensionsTest do
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
 
     html = html_response(get(build_conn(), "/"), 200)
+    assert html =~ ~s(data-palette="gruvbox")
+    assert {restore_at, _} = :binary.match(html, ~s|getItem("aiur-palette")|)
+    assert {stylesheet_at, _} = :binary.match(html, "/dashboard.css")
+    assert restore_at < stylesheet_at
     assert html =~ "/dashboard.css"
     assert html =~ "/build-home/loader.js"
     assert html =~ "Hooks.BuildHome = window.AiurBuildHome.createLiveViewHook()"
@@ -1186,9 +1190,23 @@ defmodule Aiur.ExtensionsTest do
     assert response(github_mark, 200) =~ "<svg"
     assert Plug.Conn.get_resp_header(github_mark, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    bungee = get(build_conn(), "/bungee.woff2")
-    assert response(bungee, 200) != ""
-    assert Plug.Conn.get_resp_header(bungee, "content-type") == ["font/woff2"]
+    font_urls = Regex.scan(~r{url\(/fonts/([^)]+)\)}, response(get(build_conn(), "/dashboard.css"), 200))
+    assert length(font_urls) == 39
+
+    for [_full, name] <- Enum.uniq(font_urls) do
+      conn = get(build_conn(), "/fonts/#{name}")
+      assert binary_part(response(conn, 200), 0, 4) == "wOF2"
+      assert Plug.Conn.get_resp_header(conn, "content-type") == ["font/woff2"]
+      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["public, max-age=31536000"]
+    end
+
+    assert response(get(build_conn(), "/fonts/nope.woff2"), 404) != ""
+
+    for path <- ["/fonts/..%2Fdashboard.css", "/fonts/%2E%2E/dashboard.css"] do
+      assert_error_sent(400, fn -> get(build_conn(), path) end)
+    end
+
+    assert AiurWeb.StaticAssets.served_path?(["fonts", "space-grotesk-v22-latin.woff2"])
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"
@@ -1598,7 +1616,8 @@ defmodule Aiur.ExtensionsTest do
           "/provider-assets/codex-color.svg",
           "/build-home/loader.js",
           "/build-home/logos/kimi-logo.png",
-          "/build-home/nope.js"
+          "/build-home/nope.js",
+          "/fonts/space-grotesk-v22-latin.woff2"
         ] do
       unauthenticated_asset = Req.get!("http://127.0.0.1:#{port}#{asset_path}")
       assert unauthenticated_asset.status == 401

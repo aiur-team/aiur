@@ -26,7 +26,7 @@ defmodule AiurWeb.StaticAssets do
     time-brush-hook.js
     voice-capture-worklet.js
   )
-  @long_lived_static_paths ~w(aiur-logo.png bungee.woff2)
+  @long_lived_static_paths ~w(aiur-logo.png fonts)
 
   @layout_asset_definitions %{
     engine: %{name: "engine", revision: "elk-0.11.1", file: "elk-worker.min.js"},
@@ -51,8 +51,7 @@ defmodule AiurWeb.StaticAssets do
     "/sortable-table-hook.js" => {"application/javascript", "priv/static/sortable-table-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},
     "/elevenlabs-symbol.svg" => {"image/svg+xml", "priv/static/elevenlabs-symbol.svg"},
-    "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"},
-    "/bungee.woff2" => {"font/woff2", "priv/static/bungee.woff2"}
+    "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"}
   }
 
   @external_resource @dashboard_css_path
