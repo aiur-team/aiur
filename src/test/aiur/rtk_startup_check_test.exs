@@ -39,16 +39,49 @@ defmodule Aiur.RtkStartupCheckTest do
   end
 
   test "does not alert when gh is excluded" do
+    test_pid = self()
     runner = fn rtk, ["hook", "check", "gh pr view 1"] when rtk == @rtk -> {"No rewrite for: gh pr view 1\n", 1} end
 
-    assert :ok = RtkStartupCheck.run(rtk_path: @rtk, runner: runner, emit: fn _, _ -> flunk("unexpected alert") end)
+    assert :ok =
+             RtkStartupCheck.run(
+               rtk_path: @rtk,
+               runner: runner,
+               emit: fn topic, opts -> send(test_pid, {:alert, topic, opts}) end
+             )
+
     refute_received {:alert, _, _}
   end
 
   test "does not probe or alert when rtk is absent" do
-    runner = fn _, _ -> flunk("unexpected rtk probe") end
+    test_pid = self()
 
-    assert :ok = RtkStartupCheck.run(rtk_path: nil, runner: runner, emit: fn _, _ -> flunk("unexpected alert") end)
+    runner = fn _, _ ->
+      send(test_pid, :probed)
+      {"", 1}
+    end
+
+    assert :ok =
+             RtkStartupCheck.run(
+               rtk_path: nil,
+               runner: runner,
+               emit: fn topic, opts -> send(test_pid, {:alert, topic, opts}) end
+             )
+
+    refute_received :probed
+    refute_received {:alert, _, _}
+  end
+
+  test "does not alert when rtk reports no hook despite printing a rewrite preview" do
+    test_pid = self()
+    runner = fn _rtk, ["hook", "check", "gh pr view 1"] -> {"[rtk] /!\\ No hook installed\nrtk gh pr view 1\n", 0} end
+
+    assert :ok =
+             RtkStartupCheck.run(
+               rtk_path: @rtk,
+               runner: runner,
+               emit: fn topic, opts -> send(test_pid, {:alert, topic, opts}) end
+             )
+
     refute_received {:alert, _, _}
   end
 end

@@ -1,41 +1,10 @@
 defmodule Aiur.Rtk do
   @moduledoc """
-  Admission gate and savings reader for `rtk`, the CLI output-compression proxy.
-
-  rtk wraps a shell command and filters its output before an agent reads it
-  (`git status` -> `rtk git status`). It is an optimization, never a
-  correctness fix, so it is opt-in behind `agent.rtk.enabled` and off by
-  default.
-
-  ## Why an admission gate rather than a plain flag
-
-  rtk ships a Claude Code `PreToolUse` hook that rewrites *every* bash command
-  an agent runs, `gh` included. `gh` in an agent workspace is not the real
-  `gh`: it is `priv/github_quota_guard.sh`, the wrapper that meters GitHub
-  spend, stamps agent comment markers, and validates that a filed ticket
-  carries a dispatch disposition. Anything that reshapes an agent's `gh` calls
-  is therefore reshaping the governance path, so this module refuses to enable
-  rtk at all unless the host's rtk configuration excludes `gh` from rewriting
-  (`[hooks] exclude_commands = ["gh"]`).
-
-  The check is a behavioural probe, not a config-file parse: `rtk hook check`
-  is rtk's own dry-run of its rewriter, so it answers the question actually at
-  stake ("would this invocation be rewritten?") rather than a proxy for it. A
-  future rtk that changes where or how exclusions are spelled still gets
-  classified correctly.
-
-  Refusing is the deliberate behaviour. Silently enabling rtk with `gh`
-  rewriting live would put an unaudited transform in front of the budget
-  guard, and a compression saving is never worth an ungoverned credential
-  path.
-
-  ## What this module does not do
-
-  It never puts `rtk` on an agent's `PATH` and never installs the hook. On a
-  host where rtk is installed it is already reachable — the agent `PATH` is
-  the daemon's with only release ERTS entries removed — so availability is not
-  the gap. It also carries no credential: nothing here reads or forwards
-  `GITHUB_TOKEN` (#2356).
+  Reports rtk output-compression savings and probes whether an installed host
+  hook rewrites agent `gh` calls. The `agent.rtk.enabled` setting controls
+  analytics reporting; it does not install a hook or gate agent commands.
+  Startup diagnostics are independent of that setting because host hooks apply
+  to agents regardless of Aiur configuration.
   """
 
   require Logger
@@ -46,8 +15,10 @@ defmodule Aiur.Rtk do
   @gh_probe "gh pr view 1"
 
   # rtk prints the rewritten command when it would rewrite, and a line starting
-  # with this when it would not.
+  # with this when it would not. A no-hook warning also precedes the rewrite
+  # preview, so it must be classified first.
   @no_rewrite_marker "No rewrite for:"
+  @no_hook_marker "No hook installed"
 
   @probe_timeout_ms 5_000
 
@@ -164,6 +135,7 @@ defmodule Aiur.Rtk do
     case run(rtk, ["hook", "check", @gh_probe], opts, [0, 1]) do
       {:ok, output} ->
         cond do
+          String.contains?(output, @no_hook_marker) -> :excluded
           String.contains?(output, @no_rewrite_marker) -> :excluded
           String.contains?(output, "rtk #{@gh_probe}") -> :rewritten
           true -> {:error, {:unrecognized_probe_output, String.slice(output, 0, 200)}}

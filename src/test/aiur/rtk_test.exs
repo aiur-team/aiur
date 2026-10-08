@@ -17,6 +17,7 @@ defmodule Aiur.RtkTest do
   # Verbatim shapes from rtk 0.47.0 on the host this was developed against.
   defp gh_rewritten, do: {"rtk gh pr view 1\n", 0}
   defp gh_excluded, do: {"No rewrite for: gh pr view 1\n", 1}
+  defp no_hook, do: {"[rtk] /!\\ No hook installed\nrtk gh pr view 1\n", 0}
 
   defp gain(summary), do: {Jason.encode!(%{"summary" => summary}), 0}
 
@@ -70,6 +71,12 @@ defmodule Aiur.RtkTest do
 
     test "accepts a host hook that excludes gh" do
       responses = %{["hook", "check", "gh pr view 1"] => gh_excluded()}
+
+      assert Rtk.check_host_hook(rtk_path: @rtk, runner: runner(responses)) == :ok
+    end
+
+    test "does not treat a rewrite preview as a registered hook" do
+      responses = %{["hook", "check", "gh pr view 1"] => no_hook()}
 
       assert Rtk.check_host_hook(rtk_path: @rtk, runner: runner(responses)) == :ok
     end
