@@ -610,8 +610,11 @@ additionally bind beyond this fixed set.
 The agent is subscribed to its own issue comments and PR review comments and
 unpauses to implement findings; a CI failure routes the ticket to `agent:rework`
 (`src/lib/aiur/orchestrator/comment_wake.ex`, `auto_resume.ex`,
-`pause_resume.ex`, `push_routing.ex`). Trusted feedback becomes a rework run;
-an operator comment directs the same agent.
+`pause_resume.ex`, `push_routing.ex`). Trusted `CHANGES_REQUESTED` and non-blank `COMMENTED` reviews route both
+`agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
+reviews without inline threads. Failed CI in `agent:human-review` also routes
+to rework on the same reviewed head. The existing one-poll retry for test-only
+failures still applies. An operator comment directs the same agent.
 
 One precondition is worth naming: **`agent:rework` is gated.**
 `ReworkGate.verify_open_pr/2` (`src/lib/aiur/orchestrator/rework_gate.ex:23-34`)

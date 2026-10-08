@@ -77,6 +77,13 @@ in the workpad rather than falling back to raw label edits.
 
 ## PR review feedback loop
 
+Trusted `CHANGES_REQUESTED` and non-blank `COMMENTED` review submissions on an
+open PR route tickets from `agent:human-review` or `agent:ci-wait` to
+`agent:rework`, including body-only reviews with no inline threads. Trust and
+review freshness checks still apply. Failed CI in `agent:human-review` also
+routes to `agent:rework`, even on the reviewed head; the existing one-poll retry
+for a test-only failure still applies.
+
 Most comments do not ask for code. A question, a clarification request, a
 discussion point, or an approval wants a *reply*, not a commit. Differentiate
 intuitively and only make and push a code change when the comment clearly intends

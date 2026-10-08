@@ -280,7 +280,8 @@ Alerts persist across daemon restarts and tokens (#1231), so the actionable list
 keeps naming long-merged tickets. Check alert timestamps and trust the live
 state table over the alert list.
 
-A `CHANGES_REQUESTED` review on an open PR moves its ticket to `agent:rework`
+A trusted `CHANGES_REQUESTED` or non-blank `COMMENTED` review on an open PR moves
+its ticket from `agent:human-review` or `agent:ci-wait` to `agent:rework`
 automatically — the `pull_request_review` webhook and the review-submission
 poll route through `CommentWake`, so the manual `agent:human-review` to
 `agent:rework` relabel is no longer required. After posting a review, verify

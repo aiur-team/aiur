@@ -804,12 +804,14 @@ them log anything. Work this ladder before any per-agent triage:
    than ramping. Do not measure capacity within minutes of a restart.
 
 A `CHANGES_REQUESTED` (or non-blank `COMMENTED`) review on an open PR moves its
-ticket to `agent:rework` automatically — the `pull_request_review` webhook and
-the review-submission poll both publish `ticket.<id>.pr.review_comment`, which
+ticket to `agent:rework` from `agent:human-review` or `agent:ci-wait` when the
+reviewer is trusted (configured account or CODEOWNER). A CI failure also moves a
+`human-review` ticket to `rework`, including a failure on the same reviewed head.
+The `pull_request_review` webhook and the review-submission poll both publish `ticket.<id>.pr.review_comment`, which
 routes through `CommentWake` to the rework transition. No manual relabel is
 required. After posting a review, verify the ticket actually left
-`agent:human-review` (posted is not verified); only touch the label by hand if
-the automatic transition did not fire, and then check the delivery — review
+`agent:human-review` or `agent:ci-wait` (posted is not verified); only touch the
+label by hand if the automatic transition did not fire, and then check the delivery — review
 state, trusted author, open PR — before relabelling.
 
 Alerts persist across daemon restarts and tokens (full-history scan, #1231), so

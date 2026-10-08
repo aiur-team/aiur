@@ -1269,25 +1269,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # Human review is a terminal operator disposition for the head under review,
-  # including inherited CI failures the operator explicitly dismissed before the
-  # handoff. A CI poll may retain a ci-wait issue snapshot captured before the
-  # human-review label is written, so the persisted approved head is also
-  # authoritative when the tracker projection is stale. Only a failure on a head
-  # review has not seen supersedes that disposition.
+  # A stale ci-wait snapshot cannot override a completed handoff. A failure
+  # observed in human-review itself is new repair work, even on the same head.
   defp human_review_ci_replay?(%State{} = state, %Issue{} = issue, result) do
-    ci_head_approved?(state, issue, result) or
-      (HumanReview.human_review_state?(effective_ci_state(issue)) and not ci_head_superseded?(state, issue, result))
-  end
-
-  defp ci_head_superseded?(%State{} = state, %Issue{} = issue, result) do
-    case {Map.get(state.ci_lifecycle.approved_heads, ci_target_for_issue(issue)), Map.get(result, :head_sha)} do
-      {reviewed_head, observed_head} when is_binary(reviewed_head) and is_binary(observed_head) ->
-        reviewed_head != observed_head
-
-      _ ->
-        false
-    end
+    not HumanReview.human_review_state?(effective_ci_state(issue)) and
+      ci_head_approved?(state, issue, result)
   end
 
   # Held failures are never silently swallowed: the reviewed head and the failing

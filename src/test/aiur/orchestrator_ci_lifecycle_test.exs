@@ -638,9 +638,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert event.message =~ "CI failed: lint, coverage"
     end
 
-    test "a replayed CI failure for the reviewed head keeps the ticket in human review" do
-      identifier = unique_identifier("ci-replay-human-review")
-      recorder = start_recorder()
+    test "a CI failure on the approved head moves human-review to rework and delivers the failure" do
+      identifier = unique_identifier("ci-failed-human-review")
+      topic = "ticket.#{identifier}.ci.failed"
+      recorder = start_recorder(topic)
       issue = issue(identifier, "human-review")
 
       state =
@@ -648,21 +649,24 @@ defmodule Aiur.OrchestratorCILifecycleTest do
         |> running_state(recorder, :paused, paused_reason: :ci_wait)
         |> with_approved_head(identifier, "reviewed-head")
 
-      failure = %{
-        decision: :failed,
-        head_sha: "reviewed-head",
-        pr_number: 99,
-        failures: [%{name: "lint", result: "failure", excerpt: "inherited lint failure"}]
-      }
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "reviewed-head",
+          pr_number: 99,
+          failures: [%{name: "lint", result: "failure", excerpt: "lint failed after handoff"}]
+        })
 
-      # Each Aiur restart re-delivers the same historical result for the same
-      # head; none of them may override the operator-approved handoff.
-      next = Enum.reduce(1..3, state, fn _replay, acc -> poll_ci(acc, issue, failure) end)
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
-      assert next.running[identifier].issue.state == "human-review"
-      assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "human-review"]}}
+      assert_received {:recorded, 2, {:event, %{topic: ^topic}}}
+      assert_received {:recorded, 3, {:agent_queue_updated, ^identifier, _item_id, false}}
+      assert_received {:recorded, 4, {:resume_agent, _request_id, 101}}
+      assert next.running[identifier].issue.state == "rework"
+      assert next.ci_lifecycle.approved_heads == %{}
+      assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
+      assert event.failure_excerpt == "lint failed after handoff"
     end
 
     test "a stale ci-wait projection cannot rework the persisted approved head" do
@@ -719,7 +723,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.ci_lifecycle.approved_heads == %{}
     end
 
-    test "a CI failure observed after a dismissed-failure handoff anchors the reviewed head" do
+    test "a CI failure in human-review without an approved head routes to rework" do
       identifier = unique_identifier("ci-dismissed-human-review")
       recorder = start_recorder()
       issue = issue(identifier, "human-review")
@@ -738,10 +742,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       sync_recorder(recorder)
 
-      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
-      assert next.running[identifier].issue.state == "human-review"
-      assert next.ci_lifecycle.approved_heads == %{identifier => "dismissed-head"}
-      assert CIApprovalStore.load().approved_heads == %{identifier => "dismissed-head"}
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "human-review"]}}
+      assert next.running[identifier].issue.state == "rework"
+      assert next.ci_lifecycle.approved_heads == %{}
+      assert CIApprovalStore.load().approved_heads == %{}
     end
 
     test "a CI failure on a head review has not seen still moves the ticket to rework" do

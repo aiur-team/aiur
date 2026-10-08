@@ -1322,12 +1322,12 @@ defmodule Aiur.Orchestrator.CommentWake do
         # back and an Executor had to send `aiurdev message` by hand (#2601).
         #
         # Scope, precisely — this branch is NOT the #2601 review path. A
-        # body-only `CHANGES_REQUESTED` review carries
-        # `changes_requested_review?: true` into the gate, which answers
+        # body-only blocking review submission carries
+        # `blocking_review_submission?: true` into the gate, which answers
         # `{:ok, :rework}` via #2473's `no_thread_verdict/1` and takes the
         # ordinary write-then-reactivate branch above. What lands here is every
-        # *other* trusted comment on a rework ticket whose threads are clear: a
-        # PR conversation comment, or a `COMMENTED` review with a body. Waking
+        # *other* trusted comment on a rework ticket whose threads are clear:
+        # a PR conversation comment. Waking
         # on those is the intent (#2601's third acceptance criterion), so N
         # distinct trusted comments produce N wakes by design — an operator
         # asking for something twice should be heard twice. What stops that
@@ -1462,10 +1462,10 @@ defmodule Aiur.Orchestrator.CommentWake do
     event
     |> rework_open_pr_opts()
     |> maybe_put_threads_fetcher(event)
-    |> Keyword.put(:changes_requested_review?, changes_requested_review?(event))
+    |> Keyword.put(:blocking_review_submission?, blocking_review_submission?(event))
   end
 
-  # A `CHANGES_REQUESTED` review submitted with a body and no inline comments
+  # A `CHANGES_REQUESTED` or non-blank `COMMENTED` review with no inline comments
   # opens no review thread, so #2422's unresolved-thread read reports nothing
   # and the ticket never leaves `agent:human-review` (#2473). The review
   # submission *is* the outstanding finding, so it is handed to the gate as an
@@ -1492,6 +1492,17 @@ defmodule Aiur.Orchestrator.CommentWake do
   # pipes the event through `rework_open_pr_opts/1` first, which reads it with
   # `Map.get/2`, so a non-map event raises there before reaching this function —
   # the same reason the two sibling helpers below carry no such clause either.
+  defp blocking_review_submission?(event) do
+    case {comment_review_state(event), comment_body(event)} do
+      {state, body} when is_binary(state) ->
+        String.upcase(state) == "CHANGES_REQUESTED" or
+          (String.upcase(state) == "COMMENTED" and is_binary(body) and String.trim(body) != "")
+
+      _other ->
+        false
+    end
+  end
+
   defp changes_requested_review?(event) do
     case comment_review_state(event) do
       state when is_binary(state) -> String.upcase(state) == "CHANGES_REQUESTED"

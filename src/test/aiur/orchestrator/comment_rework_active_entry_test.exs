@@ -128,6 +128,41 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     :ok
   end
 
+  test "an idle ci-wait ticket is discovered and a changes-requested review routes it to rework" do
+    issue = %{human_review_issue() | state: "ci-wait", labels: ["agent:ci-wait"]}
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+    state = base_state(%{})
+
+    {:ok, targets, _review_targets, _watch_targets} =
+      Aiur.Orchestrator.CommentPolling.TargetSelection.github_comment_poll_targets(state,
+        review_issue_fetcher: fn states -> {:ok, Enum.filter([issue], &(&1.state in states))} end,
+        review_pull_request_fetcher: fn _identifier -> {:ok, %{"number" => 337}} end
+      )
+
+    event = changes_requested_review_event(issue, %{unresolved_threads_fetcher: fn _pr -> {:ok, []} end})
+
+    for target <- targets do
+      CommentWake.maybe_reactivate_on_comment(state, target, :pr_review, event)
+    end
+
+    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}
+  end
+
+  test "a trusted non-blank COMMENTED review in human-review routes to rework without inline threads" do
+    issue = human_review_issue()
+
+    event =
+      changes_requested_review_event(issue, %{
+        comment: %{"state" => "COMMENTED", "body" => "Update the stale base before merge", "submitted_at" => "2026-09-26T04:09:44Z"},
+        pull_request: %{"review_decision" => "REVIEW_REQUIRED", "head_committed_at" => "2026-09-26T03:59:38Z"},
+        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+      })
+
+    CommentWake.maybe_reactivate_on_comment(base_state(completed_running_entry()), @issue_number, :pr_review, event)
+
+    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}
+  end
+
   test "a transient gate failure on a completed running entry is retried, not dropped" do
     issue = human_review_issue()
 
