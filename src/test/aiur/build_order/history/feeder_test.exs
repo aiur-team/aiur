@@ -385,6 +385,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
   test "rebuilding store accepts live bodies while catch-up stays unavailable", ctx do
     File.write!(Path.join(ctx.dir, "history.json"), "corrupt")
     store(ctx)
+    History.apply([], ctx.opts ++ [checkpoint: {:backfill, %{"started_at" => DateTime.to_iso8601(@t)}}])
     feeder(ctx)
     deposit(ctx, body())
 
