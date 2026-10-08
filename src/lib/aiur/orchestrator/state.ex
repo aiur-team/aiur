@@ -65,6 +65,7 @@ defmodule Aiur.Orchestrator.State do
           startup_claim_reconciliation_failures: map(),
           queue_store: term(),
           last_polled_issues: map(),
+          human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             approved_heads: map(),
             passed_heads: map(),
@@ -235,6 +236,7 @@ defmodule Aiur.Orchestrator.State do
     dispatch_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
+    human_review_observed_ids: nil,
     ci_lifecycle: %{
       approved_heads: %{},
       passed_heads: %{},
