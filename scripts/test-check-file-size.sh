@@ -140,4 +140,14 @@ with tempfile.TemporaryDirectory(prefix='file-size-', dir=os.environ.get('TMPDIR
     subprocess.run(['git', '-C', str(root), 'clone', '-q', '--depth=1', f'file://{repo}', str(shallow)], check=True)
     run(shallow, 1, 'base not available; fetch origin/main', '--base', base)
     print('PASS: shallow checkout fails closed')
+
+    write(repo, {'file': lines(480)})
+    base = commit(repo)
+    write(repo, {'website/docs-app/oversized.md': lines(501)})
+    head = commit(repo)
+    assert git(repo, 'diff', '--name-only', base, head) == 'website/docs-app/oversized.md'
+    result = subprocess.run(['bash', '-eu', '-o', 'pipefail', '-c', script], cwd=repo,
+                            env=dict(env, EVENT_NAME='pull_request', PR_BASE=base), capture_output=True, text=True)
+    assert result.returncode == 1 and 'website/docs-app/oversized.md: base 0 -> head 501' in result.stdout, result
+    print('PASS: website-only PR fixture runs the workflow gate')
 PY
