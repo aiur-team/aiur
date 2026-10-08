@@ -159,6 +159,71 @@ defmodule Aiur.Init.Scaffold do
     |> Enum.any?(fn {key, _value} -> key == @github_token_key end)
   end
 
+  @doc """
+  Stores a token the operator pasted into the wizard: rewrites the
+  `GITHUB_TOKEN=` line in the repo `.env` (appending one when absent) and puts
+  the value into this process's environment so the same init run can provision
+  labels with it. The value is never printed.
+  """
+  @spec persist_github_token(String.t()) :: :ok | {:error, term()}
+  def persist_github_token(token) when is_binary(token) do
+    env_path = Path.join(File.cwd!(), @env_file_name)
+    existing = if File.regular?(env_path), do: File.read!(env_path), else: ""
+
+    case write_private_file(env_path, put_github_token_line(existing, token)) do
+      :ok ->
+        System.put_env(@github_token_key, token)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec write_private_file(Path.t(), iodata(), (Path.t(), non_neg_integer() -> :ok | {:error, term()})) :: :ok | {:error, term()}
+  def write_private_file(path, content, chmod_fun \\ &File.chmod/2) do
+    temporary = Path.join(Path.dirname(path), ".#{Path.basename(path)}.#{System.unique_integer([:positive])}.tmp")
+
+    result =
+      with {:ok, device} <- File.open(temporary, [:write, :exclusive]),
+           :ok <- File.close(device),
+           :ok <- chmod_fun.(temporary, 0o600),
+           {:ok, %File.Stat{mode: mode}} <- File.stat(temporary),
+           true <- rem(mode, 0o1000) == 0o600 || {:error, :insecure_permissions},
+           :ok <- File.write(temporary, content) do
+        File.rename(temporary, path)
+      end
+
+    File.rm(temporary)
+    result
+  end
+
+  @doc false
+  @spec put_github_token_line(String.t(), String.t()) :: String.t()
+  def put_github_token_line(content, token) do
+    line = @github_token_key <> "=" <> token
+    lines = String.split(content, "\n")
+
+    if Enum.any?(lines, &github_token_line?/1) do
+      Enum.map_join(lines, "\n", &replace_github_token_line(&1, line))
+    else
+      separator = if content == "" or String.ends_with?(content, "\n"), do: "", else: "\n"
+      content <> separator <> line <> "\n"
+    end
+  end
+
+  defp replace_github_token_line(existing, line) do
+    if github_token_line?(existing), do: line, else: existing
+  end
+
+  defp github_token_line?(line) do
+    case String.split(String.trim(line), "=", parts: 2) do
+      [key, _value] -> String.trim(key) == @github_token_key
+      _ -> false
+    end
+  end
+
   @doc false
   @spec same_path?(Path.t(), Path.t()) :: boolean()
   def same_path?(left, right), do: Path.expand(left) == Path.expand(right)

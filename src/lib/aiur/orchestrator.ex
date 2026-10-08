@@ -74,6 +74,12 @@ defmodule Aiur.Orchestrator do
     {:noreply, state}
   end
 
+  def handle_info({:state_label_preflight_result, token, result}, state) when is_reference(token) do
+    state = Dispatcher.handle_state_label_result(state, token, result)
+    StatusReport.notify_dashboard(state)
+    {:noreply, state}
+  end
+
   def handle_info({:prewarm_phase, {:error, {:repo_base_dispatch_hold_stalled, _phase}} = stalled}, state) do
     {:noreply, Dispatcher.clear_prewarm_blocked_alert(state, stalled)}
   end

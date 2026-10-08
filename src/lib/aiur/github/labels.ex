@@ -118,6 +118,18 @@ defmodule Aiur.GitHub.Labels do
   @spec complexity_labels() :: [String.t()]
   def complexity_labels, do: Enum.map(1..5, &"complexity:#{&1}")
 
+  @doc """
+  A copy-paste `gh label create` command for one label, shared by the wizard's
+  permission fallback and the daemon's state-label preflight so both print the
+  same recovery step.
+  """
+  @spec gh_create_command(String.t(), String.t()) :: String.t()
+  def gh_create_command(label, repo) do
+    "gh label create #{shell_arg(label)} --repo #{repo} --description #{shell_arg(describe(label))} --force"
+  end
+
+  defp shell_arg(value), do: "'" <> String.replace(to_string(value), "'", "'\\''") <> "'"
+
   @doc "A short human description for any label in `label_set/2`."
   @spec describe(String.t()) :: String.t()
   def describe("complexity:" <> n), do: "story-point complexity #{n}"

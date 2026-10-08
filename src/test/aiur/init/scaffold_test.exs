@@ -85,6 +85,42 @@ defmodule Aiur.Init.ScaffoldTest do
     end)
   end
 
+  test "put_github_token_line replaces the placeholder line and appends when absent" do
+    assert Scaffold.put_github_token_line("GITHUB_TOKEN=\n", "ghp_x") == "GITHUB_TOKEN=ghp_x\n"
+    assert Scaffold.put_github_token_line("A=1\nGITHUB_TOKEN=old\nB=2\n", "ghp_x") == "A=1\nGITHUB_TOKEN=ghp_x\nB=2\n"
+    assert Scaffold.put_github_token_line("A=1", "ghp_x") == "A=1\nGITHUB_TOKEN=ghp_x\n"
+    assert Scaffold.put_github_token_line("", "ghp_x") == "GITHUB_TOKEN=ghp_x\n"
+  end
+
+  test "write_private_file does not persist the token when permission setup fails", %{dir: dir} do
+    path = Path.join(dir, ".env")
+
+    assert {:error, :chmod_failed} = Scaffold.write_private_file(path, "GITHUB_TOKEN=secret\n", fn _path, _mode -> {:error, :chmod_failed} end)
+    refute File.exists?(path)
+  end
+
+  @tag :not_async
+  test "persist_github_token writes .env and exposes the token to the running wizard", %{dir: dir} do
+    previous = System.get_env("GITHUB_TOKEN")
+    System.delete_env("GITHUB_TOKEN")
+
+    on_exit(fn ->
+      case previous do
+        nil -> System.delete_env("GITHUB_TOKEN")
+        value -> System.put_env("GITHUB_TOKEN", value)
+      end
+    end)
+
+    File.cd!(dir, fn ->
+      File.write!(Path.join(dir, ".env"), "GITHUB_TOKEN=\n")
+      assert :ok = Scaffold.persist_github_token("ghp_persisted")
+      assert File.read!(Path.join(dir, ".env")) == "GITHUB_TOKEN=ghp_persisted\n"
+      assert System.get_env("GITHUB_TOKEN") == "ghp_persisted"
+      # Owner-only once it holds a live credential.
+      assert rem(File.stat!(Path.join(dir, ".env")).mode, 0o1000) == 0o600
+    end)
+  end
+
   test "append_config_section appends after blank line", %{target: target} do
     File.write!(target, "tracker:\n  kind: github\n")
 
