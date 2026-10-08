@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.History.Row do
   @moduledoc "Validated history facts; unknown and known absence remain distinct."
-  alias Aiur.BuildOrder.Lifecycle
   alias Aiur.BuildOrder.History.{Codec, Merge}
+  alias Aiur.BuildOrder.Lifecycle
 
   @sources ~w(backfill resource_store webhook poll write resync open_listing recent_merge telemetry catch_up derive)a
   @dates ~w(created_at updated_at closed_at last_closed_at close_observed_at reopened_at merged_at in_progress_at dispatched_at start end)a

@@ -54,12 +54,14 @@ defmodule Aiur.BuildOrder.History.Persistence do
   defp decode(_record, _repository), do: {:error, :history_corrupt}
 
   defp decode_rows(rows) do
-    Enum.reduce_while(rows, {:ok, %{}}, fn json, {:ok, acc} ->
-      case Row.from_json(json) do
-        {:ok, row} -> if Map.has_key?(acc, row.number), do: {:halt, {:error, :duplicate_row}}, else: {:cont, {:ok, Map.put(acc, row.number, row)}}
-        error -> {:halt, error}
-      end
-    end)
+    Enum.reduce_while(rows, {:ok, %{}}, &decode_row/2)
+  end
+
+  defp decode_row(json, {:ok, acc}) do
+    case Row.from_json(json) do
+      {:ok, row} -> if Map.has_key?(acc, row.number), do: {:halt, {:error, :duplicate_row}}, else: {:cont, {:ok, Map.put(acc, row.number, row)}}
+      error -> {:halt, error}
+    end
   end
 
   defp valid_checkpoints?(%{"backfill" => backfill, "closed_since" => closed} = checkpoints),

@@ -4,6 +4,7 @@ defmodule Aiur.BuildOrder.History do
   require Logger
   alias Aiur.BuildOrder.History.{Persistence, Row}
   alias Aiur.BuildOrder.ProviderHealth
+  alias Aiur.Config.Paths
   @topic "build-order-history:changed"
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -22,12 +23,16 @@ defmodule Aiur.BuildOrder.History do
   def health(opts \\ []), do: read(opts, fn table -> :ets.lookup_element(table, :__health__, 2) end)
   @spec rows([pos_integer()], keyword()) :: {:ok, [Row.t()], ProviderHealth.t()} | {:error, ProviderHealth.t()}
   def rows(numbers, opts \\ []) do
-    read(opts, fn table ->
-      health = :ets.lookup_element(table, :__health__, 2)
-      if health.state == :healthy, do: {:ok, Enum.flat_map(numbers, fn n -> for {^n, row} <- :ets.lookup(table, n), do: row end), health}, else: {:error, health}
-    end)
+    read(opts, &read_rows(&1, numbers))
     |> read_result()
   end
+
+  defp read_rows(table, numbers) do
+    health = :ets.lookup_element(table, :__health__, 2)
+    if health.state == :healthy, do: {:ok, Enum.flat_map(numbers, &lookup_row(table, &1)), health}, else: {:error, health}
+  end
+
+  defp lookup_row(table, number), do: for({^number, row} <- :ets.lookup(table, number), do: row)
 
   @spec checkpoint(atom(), keyword()) :: {:ok, map() | nil} | {:error, term()}
   def checkpoint(key, opts \\ [])
@@ -246,7 +251,7 @@ defmodule Aiur.BuildOrder.History do
     :exit, _reason -> {:error, missing()}
   end
 
-  defp state_dir(opts), do: if(Keyword.has_key?(opts, :state_dir), do: {:ok, Keyword.fetch!(opts, :state_dir)}, else: Aiur.Config.Paths.build_history_state_dir())
+  defp state_dir(opts), do: if(Keyword.has_key?(opts, :state_dir), do: {:ok, Keyword.fetch!(opts, :state_dir)}, else: Paths.build_history_state_dir())
   defp github_repository?(value), do: is_binary(value) and String.valid?(value) and Regex.match?(~r/\A[^\/\s]+\/[^\/\s]+\z/u, value)
 
   defp repository do
