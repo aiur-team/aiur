@@ -1,8 +1,8 @@
 defmodule Aiur.Orchestrator.DispatchPolicyTest do
   use Aiur.TestSupport
 
-  alias Aiur.{Issue, ModelAvailability, Workflow}
   alias Aiur.BuildQueue.Hints
+  alias Aiur.{Issue, ModelAvailability, Workflow}
   alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
 
   describe "load_gate/3" do

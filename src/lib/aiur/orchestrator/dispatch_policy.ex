@@ -881,14 +881,19 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     end
   end
 
-  defp dispatch_state_decision(
+  defp dispatch_state_decision(issue, state, terminal_states, blocked_ticket_ids) do
+    if Hints.held?(issue.id),
+      do: {:skip, :build_queue_hold},
+      else: dispatch_unheld_state_decision(issue, state, terminal_states, blocked_ticket_ids)
+  end
+
+  defp dispatch_unheld_state_decision(
          %Issue{} = issue,
          %State{} = state,
          terminal_states,
          blocked_ticket_ids
        ) do
     cond do
-      Hints.held?(issue.id) -> {:skip, :build_queue_hold}
       blocked_on_decision?(issue, blocked_ticket_ids) -> {:skip, :blocked_on_decision}
       todo_issue_blocked_by_non_terminal?(issue, terminal_states) -> {:skip, :dependency}
       Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
