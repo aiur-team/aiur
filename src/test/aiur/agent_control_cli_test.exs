@@ -1712,7 +1712,10 @@ defmodule Aiur.AgentControlCLITest do
     # re-derived gate used to print "binding: load" here — a fleet-level cause
     # the daemon never decided (#1610).
     Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{local_load} 1.0 1.0 1/1 1"} end)
-    :sys.replace_state(pid, fn _state -> %{sampled | capacity_hold: nil} end)
+
+    :sys.replace_state(pid, fn _state ->
+      %{sampled | capacity_hold: nil, last_dispatch_poll_at_ms: System.monotonic_time(:millisecond)}
+    end)
 
     fallback_output = capture_io(fn -> AgentControlCLI.status() end)
 
