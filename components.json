@@ -27,7 +27,7 @@
     },
     {
       "id": "identity", "name": "Identity and capabilities (MP-R1)", "layer": 1, "kind": "required",
-      "paths": [],
+      "paths": ["src/lib/aiur/identity/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "web-kit"], "optional": [],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -155,7 +155,7 @@
     },
     {
       "id": "conversations", "name": "Transcript access and event-to-conversation anchors (MP-E4 owns the contract)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur_web/streamdeck_logs.ex"],
+      "paths": ["src/lib/aiur/agent_event_feed.ex", "src/lib/aiur/live_conversation.ex", "src/lib/aiur/live_conversation/**", "src/lib/aiur_web/streamdeck_logs.ex", "src/lib/aiur/conversation/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["event-bus", "agent-runner", "identity"], "optional": ["executor-attention"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
