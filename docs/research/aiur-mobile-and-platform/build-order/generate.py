@@ -51,6 +51,9 @@ EPIC_IDS = [e[0] for e in EPICS]
 # against the member id with a trailing "-" boundary.
 EPIC_MAP = {
     "MP-E1": "queue", "MP-E8": "home",
+    # MP-E8-C14 swaps the home modal onto other features' contracts.
+    "MP-E8-C14-T01": "conversations", "MP-E8-C14-T02": "listener",
+    "MP-E8-C14-T03": "conversations", "MP-E8-C14-T04": "command-delivery",
     "MP-R1": "kernel", "MP-R1-C7": "tracker", "MP-R1-C9": "tracker", "MP-R1-C8": "command-delivery",
     "MP-R2": "event-bus", "MP-R3": "kernel", "MP-R4": "kernel",
     "MP-R5": "voice", "MP-R6": "kernel", "MP-R6-C1": "conversations", "MP-R7": "harness",
@@ -469,7 +472,7 @@ def main(argv):
     tickets, findings = load_tickets()
     raw_edges, gates, gate_kind, refs = resolve(tickets, findings)
     title = {tid: t["title"] for tid, t in tickets.items()}
-    docs = {tid: t["text"] for tid, t in tickets.items()}
+    docs = {tid: fit_doc(t["text"]) for tid, t in tickets.items()}
     feature = {tid: t["feature"] for tid, t in tickets.items()}
     phase = {tid: WAVE_TO_PHASE[wave_of(t, findings)] for tid, t in tickets.items()}
 
@@ -625,6 +628,19 @@ def main(argv):
     if install:
         print("installed to %s" % state)
     return 0 if not missing_docs else 1
+
+
+def fit_doc(text):
+    """Drop a trailing "## Review log" when the doc is over DOC_LIMIT.
+
+    The review log is history, not the ticket contract; the source file keeps it.
+    """
+    if len(text.encode("utf-8")) <= DOC_LIMIT:
+        return text
+    i = text.find("\n## Review log")
+    if i < 0:
+        return text
+    return text[:i].rstrip() + "\n\n(Review log omitted from the issue body; see the research pack file.)\n"
 
 
 def write_if_changed(path, content):

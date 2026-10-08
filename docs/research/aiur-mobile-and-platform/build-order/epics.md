@@ -19,17 +19,17 @@ where one chunk mixes contracts (`EPIC_MAP` in generate.py).
 | Epic (lane) | Title | Purpose | Members | Features |
 |---|---|---|---|---|
 | `queue` | Build queue and progress | Keep the agent queue full without the Executor promoting each ticket. | 41 | MP-E1 (41) |
-| `home` | Home page and build history | Replace the dashboard home with the continuous build-history view (MP-E8). | 0 |  |
-| `refactor-units` | Prior refactor units | Land the older U0-U7/U9 units; U0 is the review gate for all refactor work. | 22 | U0 (3), U1 (3), U2 (5), U3 (3), U4 (3), U5 (5) |
+| `home` | Home page and build history | Replace the dashboard home with the continuous build-history view (MP-E8). | 72 | MP-E8 (72) |
+| `refactor-units` | Prior refactor units | Land the older U0-U7/U9 units; U0 is the review gate for all refactor work. | 31 | U0 (3), U1 (3), U2 (5), U3 (3), U4 (3), U5 (4), U6 (5), U7 (2), U9 (3) |
 | `size-reduction` | Size reduction | Split the oversized files named by the U8 size ledger. | 74 | U8 (74) |
 | `kernel` | Component map and kernel | Component manifest, identity, capabilities, config, journal, routes and docs. | 43 | MP-R1 (38), MP-R3 (2), MP-R4 (1), MP-R6 (2) |
 | `tracker` | Tracker ports and GitHub listeners | Split the tracker contract and move GitHub polling into listeners. | 22 | MP-R1 (22) |
 | `event-bus` | Event bus and export | One event contract with durable consumers, a topic catalog and an export API. | 38 | MP-R2 (38) |
 | `harness` | Harness adapters | Per-harness delivery primitives, native steer and the adapter package. | 25 | MP-E7 (4), MP-R7 (21) |
-| `command-delivery` | Command delivery and answering | Commands reach the right responder and can be answered on every surface. | 63 | GH-3032 (1), MP-E2 (36), MP-E3 (1), MP-E4 (3), MP-N6 (13), MP-R1 (9) |
+| `command-delivery` | Command delivery and answering | Commands reach the right responder and can be answered on every surface. | 64 | GH-3032 (1), MP-E2 (36), MP-E3 (1), MP-E4 (3), MP-E8 (1), MP-N6 (13), MP-R1 (9) |
 | `executor` | Executor session and view | Attach the Executor's own session and show its state in the dashboard. | 18 | MP-E3 (18) |
-| `conversations` | Conversation journal and view | Durable conversation journal, anchors and the conversation view. | 17 | MP-E4 (16), MP-R6 (1) |
-| `listener` | Listener modes and send path | Steer, sync and async listener modes and one send path for every client. | 32 | GH-3033 (1), MP-E3 (1), MP-E4 (1), MP-E7 (29) |
+| `conversations` | Conversation journal and view | Durable conversation journal, anchors and the conversation view. | 19 | MP-E4 (16), MP-E8 (2), MP-R6 (1) |
+| `listener` | Listener modes and send path | Steer, sync and async listener modes and one send path for every client. | 33 | GH-3033 (1), MP-E3 (1), MP-E4 (1), MP-E7 (29), MP-E8 (1) |
 | `voice` | Voice input and dictation | The voice port and dictation on dashboard, phone and watch. | 37 | MP-E5 (19), MP-N6 (4), MP-N7 (5), MP-R5 (9) |
 | `voice-assistant` | Conversational voice assistant | Converse with a voice assistant that drafts instructions for agents. | 31 | MP-E6 (31) |
 | `pairing` | Device pairing and gateway | Machine store, gateway, pairing, device tokens and device management. | 39 | MP-N2 (39) |
@@ -37,7 +37,7 @@ where one chunk mixes contracts (`EPIC_MAP` in generate.py).
 | `mobile-app` | Phone app shell and meta-dashboard | The Expo app, native cores, WebView host and multi-machine summary. | 47 | MP-N1 (31), MP-N3 (16) |
 | `watch` | Watch apps | watchOS and Wear OS apps, watch push and Command cards. | 26 | MP-N4 (3), MP-N6 (3), MP-N7 (20) |
 | `operator-cli` | Operator CLI and accounts | Small operator CLI fixes outside the program waves. | 1 | CLI-LOGIN-T01 (1) |
-| `acceptance` | Feature acceptance QA | One end-to-end QA member per feature, owned by the Executor. | 23 | MP-E1 (1), MP-E2 (1), MP-E3 (1), MP-E4 (1), MP-E5 (1), MP-E6 (1), MP-E7 (1), MP-N1 (1), MP-N2 (1), MP-N3 (1), MP-N4 (1), MP-N5 (1), MP-N6 (1), MP-N7 (1), MP-R1 (1), MP-R2 (1), MP-R3 (1), MP-R4 (1), MP-R5 (1), MP-R6 (1), MP-R7 (1), U8 (1), U-units (1) |
+| `acceptance` | Feature acceptance QA | One end-to-end QA member per feature, owned by the Executor. | 24 | MP-E1 (1), MP-E2 (1), MP-E3 (1), MP-E4 (1), MP-E5 (1), MP-E6 (1), MP-E7 (1), MP-E8 (1), MP-N1 (1), MP-N2 (1), MP-N3 (1), MP-N4 (1), MP-N5 (1), MP-N6 (1), MP-N7 (1), MP-R1 (1), MP-R2 (1), MP-R3 (1), MP-R4 (1), MP-R5 (1), MP-R6 (1), MP-R7 (1), U8 (1), U-units (1) |
 
 ## Mapping rules
 
@@ -60,6 +60,10 @@ where one chunk mixes contracts (`EPIC_MAP` in generate.py).
 | `MP-E7` | `listener` |
 | `MP-E7-C4` | `harness` |
 | `MP-E8` | `home` |
+| `MP-E8-C14-T01` | `conversations` |
+| `MP-E8-C14-T02` | `listener` |
+| `MP-E8-C14-T03` | `conversations` |
+| `MP-E8-C14-T04` | `command-delivery` |
 | `MP-N1` | `mobile-app` |
 | `MP-N2` | `pairing` |
 | `MP-N3` | `mobile-app` |
@@ -95,10 +99,10 @@ next feature can start while the previous one finishes.
 | Phase | Wave | Members |
 |---|---|---|
 | 0 | wave 0: MP-E1 build queue | 43 |
-| 1 | wave 0b: MP-E8 home page | 0 |
-| 2 | wave 1: refactor (U-units, MP-R1..R7, U8) | 235 |
+| 1 | wave 0b: MP-E8 home page | 72 |
+| 2 | wave 1: refactor (U-units, MP-R1..R7, U8) | 244 |
 | 3 | wave 2: MP-E2 Commands | 37 |
-| 4 | wave 3: E7-C1..C3, E3, E4 | 57 |
+| 4 | wave 3: E7-C1..C3, E3, E4 | 62 |
 | 5 | wave 4: R2-C5, E5, E6, E7 rest | 71 |
 | 6 | wave 5: mobile and watch | 204 |
 

@@ -182,7 +182,7 @@
    "title": "DESIGN-E2 — Kevin: design and approve Command request, response and escalation UX",
    "owner": "Kevin (owner)",
    "resolution_criteria": "Owner approves DESIGN-E2 in owner-design-tasks/DESIGN-E2.md.",
-   "blocks": 46
+   "blocks": 47
   },
   {
    "id": "DESIGN-E3",
@@ -198,7 +198,7 @@
    "title": "DESIGN-E4 — Kevin: design and approve the conversation view and event navigation",
    "owner": "Kevin (owner)",
    "resolution_criteria": "Owner approves DESIGN-E4 in owner-design-tasks/DESIGN-E4.md.",
-   "blocks": 22
+   "blocks": 23
   },
   {
    "id": "DESIGN-E5",
@@ -223,6 +223,14 @@
    "owner": "Kevin (owner)",
    "resolution_criteria": "Owner approves DESIGN-E7 in owner-design-tasks/DESIGN-E7.md.",
    "blocks": 35
+  },
+  {
+   "id": "DESIGN-E8",
+   "kind": "design",
+   "title": "DESIGN-E8: Kevin designs and approves the continuous build history page",
+   "owner": "Kevin (owner)",
+   "resolution_criteria": "Owner approves DESIGN-E8 in owner-design-tasks/DESIGN-E8.md.",
+   "blocks": 76
   },
   {
    "id": "DESIGN-N1",
@@ -505,6 +513,22 @@
    "blocks": 1
   },
   {
+   "id": "OQ-E8-5",
+   "kind": "owner",
+   "title": "OQ-E8-5",
+   "owner": "Kevin (owner)",
+   "resolution_criteria": "Resolved as recorded in the research pack.",
+   "blocks": 1
+  },
+  {
+   "id": "OQ-E8-9",
+   "kind": "owner",
+   "title": "OQ-E8-9",
+   "owner": "Kevin (owner)",
+   "resolution_criteria": "Resolved as recorded in the research pack.",
+   "blocks": 1
+  },
+  {
    "id": "OQ-N1-1",
    "kind": "owner",
    "title": "OQ-N1-1",
@@ -601,6 +625,14 @@
    "blocks": 1
   },
   {
+   "id": "OWNER: Kevin approves the Linear cut",
+   "kind": "unparsed",
+   "title": "OWNER: Kevin approves the Linear cut",
+   "owner": "Feature Planner / Executor",
+   "resolution_criteria": "Resolved as recorded in the research pack.",
+   "blocks": 1
+  },
+  {
    "id": "RQ-E3-5",
    "kind": "research",
    "title": "RQ-E3-5",
@@ -687,22 +719,6 @@
    "owner": "Feature Planner / Executor",
    "resolution_criteria": "Resolved as recorded in the research pack.",
    "blocks": 1
-  },
-  {
-   "id": "U6",
-   "kind": "prior-unit",
-   "title": "U6",
-   "owner": "Feature Planner / Executor",
-   "resolution_criteria": "Resolved as recorded in the research pack.",
-   "blocks": 3
-  },
-  {
-   "id": "U7",
-   "kind": "prior-unit",
-   "title": "U7",
-   "owner": "Feature Planner / Executor",
-   "resolution_criteria": "Resolved as recorded in the research pack.",
-   "blocks": 2
   },
   {
    "id": "owner authorization",
@@ -1473,6 +1489,1213 @@
    ]
   },
   {
+   "id": "MP-E8-C1-T01",
+   "title": "Design fixture exporter",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C1-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C1-T02",
+   "title": "Side-by-side screenshot parity runner",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C1-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C1-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C1-T03",
+   "title": "Motion and interaction parity scripts",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C1-T02"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C1-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C2-T01",
+   "title": "Tokens, Gruvbox palette, body wash, self-hosted fonts",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C1-T02"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C2-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C2-T02",
+   "title": "App shell restyle (top bar, cog menu, sidenav)",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C2-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C2-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C2-T03",
+   "title": "Static assets and the four-place hook registration",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C1-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C2-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C2-T04",
+   "title": "Consolidated home stylesheet from build.css",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C2-T01",
+    "MP-E8-C2-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C2-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C3-T01",
+   "title": "BuildLive, DataSource behaviour, fixture source, seam scan",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C1-T02",
+    "MP-E8-C2-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C3-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C3-T02",
+   "title": "Payload schema v1, diff and resync protocol",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C3-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C3-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C3-T03",
+   "title": "Server-owned URL state and legacy URL presets",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C3-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C3-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C4-T01",
+   "title": "Aiur.BuildOrder.History store",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C4-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C4-T02",
+   "title": "One-time history backfill (about 42-45 GraphQL points)",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C4-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C4-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C4-T03",
+   "title": "Steady-state history feed and boot catch-up",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C4-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C4-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C4-T04",
+   "title": "Start and end times for Gantt",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C4-T02",
+    "MP-E8-C4-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C4-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C4-T05",
+   "title": "Historic edges, children index, order violations",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C4-T04"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C4-T05.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C5-T01",
+   "title": "Epics config section and docs",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C5-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C5-T02",
+   "title": "Epic resolver",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C5-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C5-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C5-T03",
+   "title": "Epic override registry and batch CLI",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C5-T02"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C5-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C5-T04",
+   "title": "Skill and prompt guidance for categories and estimates",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C6-T04",
+    "MP-E8-C7-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C5-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C6-T01",
+   "title": "Feature registry and membership journal",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C5-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C6-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C6-T02",
+   "title": "feature label projection and reconciliation",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E1-C3-T04",
+    "MP-E8-C4-T03",
+    "MP-E8-C6-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C6-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C6-T03",
+   "title": "Build Order roots imported as features",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C4-T02",
+    "MP-E8-C6-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C6-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C6-T04",
+   "title": "aiur feature CLI and the agent aiur_feature tool",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C6-T02"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C6-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C6-T05",
+   "title": "Feature statistics",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C1-T01",
+    "MP-E8-C4-T01",
+    "MP-E8-C6-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C6-T05.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C7-T01",
+   "title": "Planned rows, waves and cues from the build queue",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E1-C5-T02",
+    "MP-E1-C6-T01",
+    "MP-E1-C7-T02",
+    "MP-E8-C4-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C7-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C7-T02",
+   "title": "Unfiled planning-pack items as planned rows",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C8-T04",
+    "MP-E8-C11-T02"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C7-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C7-T03",
+   "title": "Estimates, overrides, CLI and ETA",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C8-T04",
+    "MP-E8-C9-T08",
+    "MP-E8-C9-T09",
+    "MP-E8-C9-T12",
+    "MP-E8-C11-T02"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C7-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C7-T04",
+   "title": "Not-queued rows",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E1-C6-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C7-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C8-T01",
+   "title": "Now-band rows and agent-state mapping",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C3-T02"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C8-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C8-T02",
+   "title": "Usage strip data",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C3-T02"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C8-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C8-T03",
+   "title": "Daemon, freshness and offline signals",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C9-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C8-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C8-T04",
+   "title": "Ticket index assembler, live diffs, history by day",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C4-T05",
+    "MP-E8-C5-T03",
+    "MP-E8-C6-T05",
+    "MP-E8-C7-T01",
+    "MP-E8-C7-T04",
+    "MP-E8-C8-T01",
+    "MP-E8-C8-T02",
+    "MP-E8-C8-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C8-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T01",
+   "title": "Hook shell, scrollbar, payload intake, URL bridge",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C2-T04",
+    "MP-E8-C3-T02",
+    "MP-E8-C3-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T02",
+   "title": "Timeline layout and density tiers",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C9-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T03",
+   "title": "Virtualised rendering and history paging",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C9-T02"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T04",
+   "title": "Dynamic epic columns",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C1-T03",
+    "MP-E8-C9-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T05",
+   "title": "Ticket cards in four tiers",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C9-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T05.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T06",
+   "title": "Agent indicators (logo, glow, stuck, idle)",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C8-T01",
+    "MP-E8-C9-T05"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T06.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T07",
+   "title": "Dependency edges",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C9-T04",
+    "MP-E8-C9-T05"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T07.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T08",
+   "title": "Now band, live snap and jump to live",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C9-T07"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T08.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T09",
+   "title": "Gantt mode",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C4-T04",
+    "MP-E8-C9-T07"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T09.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T10",
+   "title": "Span, zoom and calendar controls",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C9-T03",
+    "MP-E8-C10-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T10.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T11",
+   "title": "Dependency chains, lock tab, whole-tree view",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C8-T01",
+    "MP-E8-C9-T07",
+    "MP-E8-C9-T10"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T11.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T12",
+   "title": "List view",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C8-T01",
+    "MP-E8-C9-T13"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T12.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C9-T13",
+   "title": "Loading, empty and stale board states",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C8-T03",
+    "MP-E8-C9-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C9-T13.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C10-T01",
+   "title": "Toolbar and status line",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C8-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C10-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C10-T02",
+   "title": "Filters, popovers and the not_planned default",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C8-T04",
+    "MP-E8-C9-T06",
+    "MP-E8-C10-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C10-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C10-T03",
+   "title": "Feature header, focus and compact modes",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C9-T09",
+    "MP-E8-C10-T02"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C10-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C10-T04",
+   "title": "Usage strip",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C8-T02",
+    "MP-E8-C10-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C10-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C11-T01",
+   "title": "Modal frame, ?ticket= deep link, navigation",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C9-T06"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C11-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C11-T02",
+   "title": "Issue view for tickets without an agent",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E1-C6-T02",
+    "MP-E8-C7-T01",
+    "MP-E8-C11-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C11-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C11-T03",
+   "title": "Conversation read seam and wave-0b adapter",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C11-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C11-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C11-T04",
+   "title": "Event rows in the conversation",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C11-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C11-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C11-T05",
+   "title": "Minimap preview sidebar, live tail, typing",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C8-T03",
+    "MP-E8-C11-T04"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C11-T05.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C11-T06",
+   "title": "Composer: send to the agent",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C11-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C11-T06.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C11-T07",
+   "title": "Pause, resume and \"Open in Conversations",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C8-T04",
+    "MP-E8-C11-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C11-T07.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C11-T08",
+   "title": "Command answer card",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C11-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C11-T08.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C11-T09",
+   "title": "Dictation button",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C11-T06"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C11-T09.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C11-T10",
+   "title": "Units fields in the modal (only if OQ-E8-5 says yes)",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C11-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C11-T10.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8",
+    "OQ-E8-5"
+   ]
+  },
+  {
+   "id": "MP-E8-C12-T01",
+   "title": "Cutover: / is home, Units retired, rollback route",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 4,
+   "depends_on": [
+    "MP-E8-C7-T02",
+    "MP-E8-C7-T03",
+    "MP-E8-C9-T11",
+    "MP-E8-C10-T03",
+    "MP-E8-C10-T04",
+    "MP-E8-C11-T05",
+    "MP-E8-C11-T06",
+    "MP-E8-C11-T07",
+    "MP-E8-C11-T08"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C12-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C12-T02",
+   "title": "Build Order routes retire to feature focus",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C6-T03",
+    "MP-E8-C12-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C12-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8",
+    "OQ-E8-9"
+   ]
+  },
+  {
+   "id": "MP-E8-C12-T03",
+   "title": "Dead-code deletion after the home-page cutover",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C11-T09",
+    "MP-E8-C12-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C12-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C12-T04",
+   "title": "Phone width and WebView",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C12-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C12-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C12-T05",
+   "title": "Accessibility pass (keyboard, screen reader, live region, forced colours, axe)",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C12-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C12-T05.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C12-T06",
+   "title": "Performance budget and measurement",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C12-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C12-T06.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C12-T07",
+   "title": "Documentation: the Build home page, the build-history concept page, and the docs screenshots",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C6-T04",
+    "MP-E8-C12-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C12-T07.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C12-T08",
+   "title": "DESIGN-E8 sign-off package",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C12-T03",
+    "MP-E8-C12-T04",
+    "MP-E8-C12-T05",
+    "MP-E8-C12-T06"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C12-T08.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C13-T00",
+   "title": "Measure the history classification cost before the backfill runs (instrumentation)",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C13-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C13-T00.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C13-T01",
+   "title": "aiur history export for classification",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C12-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C13-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C13-T02",
+   "title": "Optional paced label writes for classifications",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C13-T04"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C13-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C13-T03",
+   "title": "Unconfirmed classification display and confirm",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C12-T08",
+    "MP-E8-C13-T04"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C13-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C13-T04",
+   "title": "Backfill runbook and the agent run",
+   "lane": "home",
+   "phase": 1,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E8-C12-T07",
+    "MP-E8-C13-T00"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C13-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
    "id": "MP-E1-ACC",
    "title": "MP-E1 acceptance QA",
    "lane": "acceptance",
@@ -1894,15 +3117,18 @@
    "phase": 2,
    "complexity": 2,
    "depends_on": [
-    "MP-R1-C1-T02"
+    "MP-R1-C1-T02",
+    "U6-T02",
+    "U6-T03",
+    "U6-T04",
+    "U6-T05"
    ],
    "ticket": null,
    "doc": "tickets/MP-R1-C5-T01.md",
    "feature": "MP-R1",
    "complexity_estimated": true,
    "external_gates": [
-    "DESIGN-R1",
-    "U6"
+    "DESIGN-R1"
    ]
   },
   {
@@ -2127,7 +3353,7 @@
    "depends_on": [
     "MP-R1-C7-T03",
     "U5-T02",
-    "U5-T05"
+    "U5-T04"
    ],
    "ticket": null,
    "doc": "tickets/MP-R1-C7-T04.md",
@@ -2165,7 +3391,7 @@
     "MP-R1-C1-T05",
     "MP-R1-C5-T03",
     "U5-T02",
-    "U5-T05"
+    "U5-T04"
    ],
    "ticket": null,
    "doc": "tickets/MP-R1-C7-T06.md",
@@ -2237,15 +3463,18 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "MP-R1-C8-T01"
+    "MP-R1-C8-T01",
+    "U6-T02",
+    "U6-T03",
+    "U6-T04",
+    "U6-T05"
    ],
    "ticket": null,
    "doc": "tickets/MP-R1-C8-T02.md",
    "feature": "MP-R1",
    "complexity_estimated": true,
    "external_gates": [
-    "DESIGN-R1",
-    "U6"
+    "DESIGN-R1"
    ]
   },
   {
@@ -2328,7 +3557,7 @@
    "depends_on": [
     "MP-R1-C1-T05",
     "U5-T02",
-    "U5-T05"
+    "U5-T04"
    ],
    "ticket": null,
    "doc": "tickets/MP-R1-C8-T07.md",
@@ -2636,7 +3865,11 @@
    "phase": 2,
    "complexity": 2,
    "depends_on": [
-    "MP-R1-C9-T13"
+    "MP-R1-C9-T13",
+    "U6-T02",
+    "U6-T03",
+    "U6-T04",
+    "U6-T05"
    ],
    "ticket": null,
    "doc": "tickets/MP-R1-C9-T14.md",
@@ -2644,8 +3877,7 @@
    "complexity_estimated": true,
    "external_gates": [
     "DESIGN-R1",
-    "RQ-U6-STATUS-MODEL",
-    "U6"
+    "RQ-U6-STATUS-MODEL"
    ]
   },
   {
@@ -2921,7 +4153,7 @@
    "depends_on": [
     "MP-R2-C1-T06",
     "U5-T02",
-    "U5-T05"
+    "U5-T04"
    ],
    "ticket": null,
    "doc": "tickets/MP-R2-C2-T02.md",
@@ -4009,7 +5241,7 @@
    "title": "One ticket-transition owner - every lifecycle label write goes through Aiur.Orchestrator.TicketTransition",
    "lane": "refactor-units",
    "phase": 2,
-   "complexity": 3,
+   "complexity": 4,
    "depends_on": [
     "MP-E1-C1-T02",
     "MP-E1-C1-T03",
@@ -4099,7 +5331,7 @@
    "title": "Executor claims - an expired owner cannot renew after a successor claims",
    "lane": "refactor-units",
    "phase": 2,
-   "complexity": 1,
+   "complexity": 2,
    "depends_on": [
     "U0-T01"
    ],
@@ -4210,7 +5442,7 @@
   },
   {
    "id": "U5-T04",
-   "title": "Typed complete / held / unknown outcomes at the existing GitHub access entry points, with membership-contract witnesses",
+   "title": "Typed complete / held / unknown outcomes at the GitHub access entry points, membership witnesses, and reconcile-before-retry for review replies",
    "lane": "refactor-units",
    "phase": 2,
    "complexity": 2,
@@ -4223,18 +5455,106 @@
    "complexity_estimated": true
   },
   {
-   "id": "U5-T05",
-   "title": "Review-thread reply - reconcile an ambiguous post before retrying",
+   "id": "U6-T01",
+   "title": "Decision journal outcome matrix (KTD10) - failed, ambiguous and accepted appends are told apart",
+   "lane": "refactor-units",
+   "phase": 2,
+   "complexity": 2,
+   "depends_on": [
+    "U0-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/U6-T01.md",
+   "feature": "U6",
+   "complexity_estimated": true
+  },
+  {
+   "id": "U6-T02",
+   "title": "Decision projection failure keeps accepted events, shows stale health, and replays withheld notifications once",
+   "lane": "refactor-units",
+   "phase": 2,
+   "complexity": 2,
+   "depends_on": [
+    "U6-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/U6-T02.md",
+   "feature": "U6",
+   "complexity_estimated": true
+  },
+  {
+   "id": "U6-T03",
+   "title": "Usage aggregate re-subscribes after the usage ledger restarts",
    "lane": "refactor-units",
    "phase": 2,
    "complexity": 1,
    "depends_on": [
-    "U5-T04"
+    "U0-T01"
    ],
    "ticket": null,
-   "doc": "tickets/U5-T05.md",
-   "feature": "U5",
+   "doc": "tickets/U6-T03.md",
+   "feature": "U6",
    "complexity_estimated": true
+  },
+  {
+   "id": "U6-T04",
+   "title": "One status read model for CLI and dashboard - complete fields, per-field observed age",
+   "lane": "refactor-units",
+   "phase": 2,
+   "complexity": 2,
+   "depends_on": [
+    "U2-T04"
+   ],
+   "ticket": null,
+   "doc": "tickets/U6-T04.md",
+   "feature": "U6",
+   "complexity_estimated": true
+  },
+  {
+   "id": "U6-T05",
+   "title": "Dashboard read path - cache loader off the GenServer call, and an unknown cap renders as unknown",
+   "lane": "refactor-units",
+   "phase": 2,
+   "complexity": 1,
+   "depends_on": [
+    "U0-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/U6-T05.md",
+   "feature": "U6",
+   "complexity_estimated": true
+  },
+  {
+   "id": "U7-T01",
+   "title": "Usage census and cut decisions for the four live candidates; close the three already-cut ledger entries",
+   "lane": "refactor-units",
+   "phase": 2,
+   "complexity": 2,
+   "depends_on": [
+    "U0-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/U7-T01.md",
+   "feature": "U7",
+   "complexity_estimated": true
+  },
+  {
+   "id": "U7-T02",
+   "title": "Cut the Linear tracker (only if the owner approves after the U7-T01 census)",
+   "lane": "refactor-units",
+   "phase": 2,
+   "complexity": 1,
+   "depends_on": [
+    "U5-T04",
+    "U7-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/U7-T02.md",
+   "feature": "U7",
+   "complexity_estimated": true,
+   "external_gates": [
+    "OWNER: Kevin approves the Linear cut"
+   ]
   },
   {
    "id": "U8-ACC",
@@ -4256,7 +5576,8 @@
    "phase": 2,
    "complexity": 2,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P00-T01.md",
@@ -4350,7 +5671,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P01-T01.md",
@@ -4366,7 +5688,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P01-T02.md",
@@ -4382,7 +5705,9 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U4-T01",
+    "U4-T02"
    ],
    "ticket": null,
    "doc": "tickets/U8-P02-T01.md",
@@ -4398,7 +5723,9 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U4-T01",
+    "U4-T02"
    ],
    "ticket": null,
    "doc": "tickets/U8-P02-T02.md",
@@ -4414,7 +5741,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P03-T01.md",
@@ -4427,7 +5755,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P04-T01.md",
@@ -4446,7 +5775,8 @@
    "phase": 2,
    "complexity": 2,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P05-T01.md",
@@ -4462,7 +5792,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P06-T01.md",
@@ -4494,7 +5825,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P07-T01.md",
@@ -4511,7 +5843,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P07-T02.md",
@@ -4528,7 +5861,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P07-T03.md",
@@ -4545,7 +5879,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P08-T01.md",
@@ -4561,7 +5896,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P08-T02.md",
@@ -4577,7 +5913,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P09-T01.md",
@@ -4590,7 +5927,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P10-T01.md",
@@ -4606,7 +5944,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U1-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P11-T01.md",
@@ -4622,7 +5961,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U4-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P12-T01.md",
@@ -4638,16 +5978,14 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P12-T02.md",
    "feature": "U8",
    "serializes_with": [
     "U8-P12-T01"
-   ],
-   "external_gates": [
-    "U7"
    ]
   },
   {
@@ -4657,7 +5995,9 @@
    "phase": 2,
    "complexity": 5,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U1-T02",
+    "U1-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P13-T01.md",
@@ -4690,7 +6030,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P14-T01.md",
@@ -4705,7 +6046,8 @@
    "depends_on": [
     "MP-R1-C4-T01",
     "MP-R1-C4-T02",
-    "MP-R1-C4-T03"
+    "MP-R1-C4-T03",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P15-T01.md",
@@ -4721,7 +6063,8 @@
    "phase": 2,
    "complexity": 2,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P15-T02.md",
@@ -4737,7 +6080,8 @@
    "phase": 2,
    "complexity": 5,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U6-T02"
    ],
    "ticket": null,
    "doc": "tickets/U8-P16-T01.md",
@@ -4772,7 +6116,8 @@
    "phase": 2,
    "complexity": 2,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P17-T01.md",
@@ -4788,7 +6133,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P18-T01.md",
@@ -4804,7 +6150,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P19-T01.md",
@@ -4823,7 +6170,8 @@
    "phase": 2,
    "complexity": 2,
    "depends_on": [
-    "MP-R6-C1-T01"
+    "MP-R6-C1-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P19-T02.md",
@@ -4840,7 +6188,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P20-T01.md",
@@ -4880,7 +6229,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U5-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P21-T01.md",
@@ -4897,7 +6247,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P21-T02.md",
@@ -4915,7 +6266,9 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U3-T01",
+    "U3-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P21-T03.md",
@@ -4939,7 +6292,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U5-T04"
    ],
    "ticket": null,
    "doc": "tickets/U8-P22-T01.md",
@@ -4957,7 +6311,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U5-T04"
    ],
    "ticket": null,
    "doc": "tickets/U8-P22-T02.md",
@@ -4975,7 +6330,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U5-T01"
    ],
    "ticket": null,
    "doc": "tickets/U8-P22-T03.md",
@@ -4994,7 +6350,9 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U5-T01",
+    "U5-T04"
    ],
    "ticket": null,
    "doc": "tickets/U8-P22-T04.md",
@@ -5012,7 +6370,8 @@
    "phase": 2,
    "complexity": 5,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P23-T01.md",
@@ -5028,7 +6387,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P23-T02.md",
@@ -5048,7 +6408,9 @@
     "MP-E1-C1-T03",
     "MP-E1-C1-T04",
     "MP-E1-C1-T05",
-    "U0-T01"
+    "U0-T03",
+    "U5-T02",
+    "U5-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P24-T01.md",
@@ -5061,7 +6423,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P25-T01.md",
@@ -5096,7 +6459,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P27-T01.md",
@@ -5111,7 +6475,8 @@
    "depends_on": [
     "MP-E1-C1-T05",
     "MP-E1-C1-T06",
-    "U0-T01"
+    "U0-T03",
+    "U2-T01"
    ],
    "ticket": null,
    "doc": "tickets/U8-P28-T01.md",
@@ -5134,10 +6499,11 @@
    "phase": 2,
    "complexity": 5,
    "depends_on": [
-    "MP-E1-C1-T02",
     "MP-E1-C1-T05",
     "MP-E1-C1-T06",
-    "U0-T01"
+    "U0-T03",
+    "U2-T01",
+    "U2-T02"
    ],
    "ticket": null,
    "doc": "tickets/U8-P28-T02.md",
@@ -5158,7 +6524,10 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U2-T02",
+    "U2-T03",
+    "U6-T04"
    ],
    "ticket": null,
    "doc": "tickets/U8-P28-T03.md",
@@ -5178,7 +6547,10 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "MP-R1-C9-T03"
+    "MP-R1-C9-T03",
+    "U0-T03",
+    "U2-T01",
+    "U2-T02"
    ],
    "ticket": null,
    "doc": "tickets/U8-P28-T04.md",
@@ -5200,7 +6572,8 @@
    "complexity": 4,
    "depends_on": [
     "MP-E1-C1-T05",
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P28-T05.md",
@@ -5221,7 +6594,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "MP-R1-C9-T09"
+    "MP-R1-C9-T09",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P28-T06.md",
@@ -5241,7 +6615,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P29-T01.md",
@@ -5261,7 +6636,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U6-T04"
    ],
    "ticket": null,
    "doc": "tickets/U8-P29-T02.md",
@@ -5284,7 +6660,8 @@
    "complexity": 5,
    "depends_on": [
     "MP-E1-C1-T05",
-    "U0-T01"
+    "U0-T03",
+    "U4-T01"
    ],
    "ticket": null,
    "doc": "tickets/U8-P29-T03.md",
@@ -5306,7 +6683,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U2-T02"
    ],
    "ticket": null,
    "doc": "tickets/U8-P29-T04.md",
@@ -5329,7 +6707,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U6-T04"
    ],
    "ticket": null,
    "doc": "tickets/U8-P29-T05.md",
@@ -5349,7 +6728,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U2-T01"
    ],
    "ticket": null,
    "doc": "tickets/U8-P29-T06.md",
@@ -5370,14 +6750,12 @@
    "phase": 2,
    "complexity": 2,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U7-T01"
    ],
    "ticket": null,
    "doc": "tickets/U8-P30-T01.md",
-   "feature": "U8",
-   "external_gates": [
-    "U7"
-   ]
+   "feature": "U8"
   },
   {
    "id": "U8-P31-T01",
@@ -5386,7 +6764,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P31-T01.md",
@@ -5402,7 +6781,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P31-T02.md",
@@ -5418,7 +6798,8 @@
    "phase": 2,
    "complexity": 2,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P32-T01.md",
@@ -5444,7 +6825,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P34-T01.md",
@@ -5460,7 +6842,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P34-T02.md",
@@ -5476,7 +6859,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U2-T01"
    ],
    "ticket": null,
    "doc": "tickets/U8-P35-T01.md",
@@ -5508,7 +6892,8 @@
    "phase": 2,
    "complexity": 5,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P36-T01.md",
@@ -5530,7 +6915,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U6-T04"
    ],
    "ticket": null,
    "doc": "tickets/U8-P36-T02.md",
@@ -5548,7 +6934,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U6-T05"
    ],
    "ticket": null,
    "doc": "tickets/U8-P36-T03.md",
@@ -5565,7 +6952,8 @@
    "phase": 2,
    "complexity": 3,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P37-T01.md",
@@ -5584,7 +6972,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T01",
+    "U0-T03"
    ],
    "ticket": null,
    "doc": "tickets/U8-P37-T02.md",
@@ -5602,7 +6991,8 @@
    "phase": 2,
    "complexity": 4,
    "depends_on": [
-    "U0-T01"
+    "U0-T03",
+    "U2-T05"
    ],
    "ticket": null,
    "doc": "tickets/U8-P37-T03.md",
@@ -5614,22 +7004,56 @@
    ]
   },
   {
+   "id": "U9-T01",
+   "title": "Net tracked-text LOC census between two commits, by area, with moves excluded",
+   "lane": "refactor-units",
+   "phase": 2,
+   "complexity": 1,
+   "depends_on": [
+    "U0-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/U9-T01.md",
+   "feature": "U9",
+   "complexity_estimated": true
+  },
+  {
+   "id": "U9-T02",
+   "title": "Integrated release acceptance for the U-unit program on latest main, with the before/after census",
+   "lane": "refactor-units",
+   "phase": 2,
+   "complexity": 2,
+   "depends_on": [
+    "U7-T02",
+    "U8-P00-T02",
+    "U9-T01",
+    "U9-T03"
+   ],
+   "ticket": null,
+   "doc": "tickets/U9-T02.md",
+   "feature": "U9",
+   "complexity_estimated": true
+  },
+  {
+   "id": "U9-T03",
+   "title": "Run the npm launcher tests (bun test in packaging/npm/aiur-cli) in CI",
+   "lane": "refactor-units",
+   "phase": 2,
+   "complexity": 1,
+   "depends_on": [],
+   "ticket": null,
+   "doc": "tickets/U9-T03.md",
+   "feature": "U9",
+   "complexity_estimated": true
+  },
+  {
    "id": "U-units-ACC",
    "title": "U-units acceptance QA",
    "lane": "acceptance",
    "phase": 2,
    "complexity": 2,
    "depends_on": [
-    "U0-T03",
-    "U2-T02",
-    "U2-T03",
-    "U2-T05",
-    "U3-T03",
-    "U4-T01",
-    "U4-T02",
-    "U4-T03",
-    "U5-T02",
-    "U5-T05"
+    "U9-T02"
    ],
    "ticket": null,
    "doc": "tickets/U-units-ACC.md",
@@ -7281,6 +8705,101 @@
    "complexity_estimated": true,
    "external_gates": [
     "DESIGN-E7"
+   ]
+  },
+  {
+   "id": "MP-E8-ACC",
+   "title": "MP-E8 acceptance QA",
+   "lane": "acceptance",
+   "phase": 4,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E8-C2-T02",
+    "MP-E8-C5-T04",
+    "MP-E8-C11-T10",
+    "MP-E8-C12-T02",
+    "MP-E8-C13-T02",
+    "MP-E8-C13-T03",
+    "MP-E8-C14-T02",
+    "MP-E8-C14-T03",
+    "MP-E8-C14-T04"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-ACC.md",
+   "feature": "MP-E8"
+  },
+  {
+   "id": "MP-E8-C14-T01",
+   "title": "Conversation reads from the MP-E4 journal",
+   "lane": "conversations",
+   "phase": 4,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E4-C4-T01",
+    "MP-E4-C8-T01",
+    "MP-E8-C11-T05",
+    "MP-E8-C11-T06"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C14-T01.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E4",
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C14-T02",
+   "title": "Delivery receipts in the composer",
+   "lane": "listener",
+   "phase": 4,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E4-C6-T01",
+    "MP-E8-C14-T01"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C14-T02.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C14-T03",
+   "title": "\"Open in Conversations\" to the full view",
+   "lane": "conversations",
+   "phase": 4,
+   "complexity": 2,
+   "depends_on": [
+    "MP-E4-C2-T02",
+    "MP-E4-C5-T03",
+    "MP-E8-C12-T07"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C14-T03.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E8"
+   ]
+  },
+  {
+   "id": "MP-E8-C14-T04",
+   "title": "Command answers through the MP-E2 contract",
+   "lane": "command-delivery",
+   "phase": 4,
+   "complexity": 3,
+   "depends_on": [
+    "MP-E2-C1-T01",
+    "MP-E2-C3-T03",
+    "MP-E8-C11-T08"
+   ],
+   "ticket": null,
+   "doc": "tickets/MP-E8-C14-T04.md",
+   "feature": "MP-E8",
+   "external_gates": [
+    "DESIGN-E2",
+    "DESIGN-E8"
    ]
   },
   {
