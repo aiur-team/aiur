@@ -105,6 +105,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
       :ok
     end
 
+    def update_issue_state(issue_id, state_name, opts) do
+      "human-review" = Keyword.fetch!(opts, :expected_state)
+      update_issue_state(issue_id, state_name)
+    end
+
     defp recipient, do: Application.get_env(:aiur, :human_review_guard_recipient)
   end
 

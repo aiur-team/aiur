@@ -2,10 +2,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
   @moduledoc """
   GitHub firehose and comments poll drivers.
 
-  The firehose poll runs inside the orchestrator GenServer process. The comments
-  poll does not: it fans out over every watched target, and the Orchestrator
-  awaiting that fan-out inline is what left it unreadable on an idle host
-  (#1837). `start_async/2` issues it and `apply_async/3` folds the answer in.
+  Firehose and comment polls run in supervised tasks. Their results update
+  only the corresponding cursors and caches in the current owner state.
+  `start_async/2` issues the comment poll and `apply_async/3` folds the answer in.
   `poll_github_comments/2` still does both in one step for callers that want the
   synchronous shape.
   """
@@ -17,7 +16,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
-  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth}
+  alias Aiur.Orchestrator.{ReadyForReviewTransitions, State, TrackerHealth, TrackerTasks}
 
   @recent_merge_persistence_retry_limit 3
 
@@ -39,7 +38,20 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> Keyword.put_new(:etag, state.events_etag)
       |> Keyword.put_new(:last_event_id, state.events_last_id)
 
-    case GithubFirehose.poll(poll_opts) do
+    apply_firehose_result(state, GithubFirehose.poll(poll_opts), opts)
+  end
+
+  @spec start_firehose(State.t(), (State.t() -> State.t())) :: State.t()
+  def start_firehose(state, continue) do
+    poll_opts = [etag: state.events_etag, last_event_id: state.events_last_id]
+
+    TrackerTasks.start(state, :dispatch_poll, fn -> GithubFirehose.poll(poll_opts) end, fn current, result ->
+      current |> apply_firehose_result(result, []) |> continue.()
+    end)
+  end
+
+  defp apply_firehose_result(state, result, opts) do
+    case result do
       {:ok, %{etag: etag, last_event_id: last_event_id} = result} ->
         state =
           state
