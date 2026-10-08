@@ -4,12 +4,15 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   alias Aiur.{AgentQueueStore, CIApprovalStore, Orchestrator, PollCadence, TrackerIdentity}
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.Orchestrator.{CiLifecycle, State}
+  alias Aiur.Orchestrator.{CiLifecycle, IssueSync, State}
 
   defmodule RecordingGitHubClient do
     @recipient_key {__MODULE__, :recipient}
     @update_result_key {__MODULE__, :update_result}
     @issues_key {__MODULE__, :issues}
+    @request_key {__MODULE__, :request}
+
+    def request_with(fun), do: Process.put(@request_key, fun)
 
     def record_to(pid), do: Process.put(@recipient_key, pid)
     def return(result), do: Process.put(@update_result_key, result)
@@ -34,7 +37,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       case recipient() do
         recipient when is_pid(recipient) ->
           send(recipient, {:label_removed, issue_id, label})
-          Process.get(@update_result_key, :ok)
+
+          case Process.get(@request_key) do
+            nil -> Process.get(@update_result_key, :ok)
+            request_fun -> Aiur.GitHub.IssueState.remove_label(issue_id, label, request_fun: request_fun)
+          end
 
         _other ->
           {:error, :unscoped_test_call}
@@ -45,7 +52,11 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       case recipient() do
         recipient when is_pid(recipient) ->
           send(recipient, {:tracker_update, issue_id, state_name, opts})
-          Process.get(@update_result_key, :ok)
+
+          case Process.get(@request_key) do
+            nil -> Process.get(@update_result_key, :ok)
+            request_fun -> Aiur.GitHub.IssueState.update_issue_state(issue_id, state_name, Keyword.put(opts, :request_fun, request_fun))
+          end
 
         _other ->
           {:error, :unscoped_test_call}
@@ -361,10 +372,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       sync_recorder(recorder)
 
       # The pair resolves to human-review, so the review disposition is kept and
-      # the stale `ci-wait` marker is removed directly — the ticket must end with
+      # the shared state owner reasserts review and clears ci-wait, leaving
       # exactly one state label (#2366).
       refute_received {:recorded, _position, {:tracker_update, ^identifier, "in-progress", _opts}}
-      assert_received {:recorded, _position, {:label_removed, ^identifier, "agent:ci-wait"}}
+      assert_received {:recorded, _position, {:tracker_update, ^identifier, "human-review", [expected_state: "human-review"]}}
       assert next.running[identifier].issue.state == "human-review"
     end
 
@@ -665,10 +676,86 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
     end
 
+    test "red CI on a draft in ci-wait without a worker leaves exactly rework" do
+      identifier = to_string(System.unique_integer([:positive]))
+      issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
+      start_recorder()
+      Aiur.GitHub.ResourceStore.reset()
+      on_exit(&Aiur.GitHub.ResourceStore.reset/0)
+      previous_token = :persistent_term.get({Aiur.GitHub.Config, :resolved_token}, :unset)
+      :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, "test-token")
+
+      on_exit(fn ->
+        if previous_token == :unset,
+          do: :persistent_term.erase({Aiur.GitHub.Config, :resolved_token}),
+          else: :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, previous_token)
+      end)
+
+      labels = :ets.new(:ci_labels, [:set, :private])
+      :ets.insert(labels, {:labels, ["agent:ci-wait"]})
+
+      RecordingGitHubClient.request_with(fn request ->
+        [{:labels, current}] = :ets.lookup(labels, :labels)
+
+        next =
+          case request.method do
+            :get -> current
+            :post -> Enum.uniq(current ++ request.body["labels"])
+            :delete -> List.delete(current, request.url |> String.split("/") |> List.last() |> URI.decode())
+          end
+
+        :ets.insert(labels, {:labels, next})
+        if request.method != :get, do: assert(next != [], "state writes must never leave zero labels")
+        body = Enum.map(next, &%{"name" => &1})
+        {:ok, %{status: 200, body: if(request.method == :get, do: %{"state" => "open", "labels" => body}, else: body)}}
+      end)
+
+      state = with_approved_head(%State{}, identifier, "reviewed-head")
+      assert state.running == %{}
+      next = poll_ci(state, issue, %{decision: :failed, draft?: true, head_sha: "reviewed-head", pr_number: 3095, failures: [%{name: "lint", result: "failure"}]})
+
+      assert :ets.lookup(labels, :labels) == [{:labels, ["agent:rework"]}]
+      assert next.ci_lifecycle.approved_heads == %{}
+    end
+
+    test "the next poll heals a zero-label idle CI ticket using retained CI evidence" do
+      identifier = unique_identifier("ci-zero-label")
+      waiting = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
+      observed = poll_ci(%State{}, waiting, %{decision: :pending, head_sha: "head", pr_number: 3095})
+      parent = self()
+
+      idle =
+        IssueSync.sync_polled_issue_state(
+          observed,
+          [],
+          fn _ids -> {:ok, [waiting]} end,
+          fn _identity, _lifecycle -> :ok end,
+          MapSet.new(["done"]),
+          fn status ->
+            send(parent, {:reconciled, status})
+            :ok
+          end,
+          fn _, _ -> :ok end
+        )
+
+      refute_received {:reconciled, :unavailable}
+      assert idle.running == %{}
+      missing = %{waiting | state: nil, state_labels: []}
+
+      {_, [healed]} =
+        IssueSync.reconcile_contradictory_state_labels(idle, [missing], fn id, target ->
+          send(parent, {:heal, id, target})
+          :ok
+        end)
+
+      assert_received {:heal, ^identifier, "ci-wait"}
+      assert healed.state_labels == ["ci-wait"]
+    end
+
     test "a stale ci-wait projection cannot rework the persisted approved head" do
       identifier = unique_identifier("ci-stale-approved-head")
       recorder = start_recorder()
-      issue = issue(identifier, "ci-wait")
+      issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
 
       :ok = CIApprovalStore.save(%{identifier => "reviewed-head"}, %{})
 
@@ -690,6 +777,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       sync_recorder(recorder)
 
       refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
+      refute_received {:recorded, _position, {:label_removed, ^identifier, "agent:ci-wait"}}
       assert next.running[identifier].issue.state == "ci-wait"
       assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
     end

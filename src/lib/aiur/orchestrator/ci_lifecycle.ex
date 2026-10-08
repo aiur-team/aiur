@@ -382,6 +382,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     case fetch_ci_issues(state, opts) do
       {:ok, issues, state} ->
         state
+        |> remember_ci_issue_states(issues)
         |> prune_ci_lifecycle_state(issues, opts)
         |> poll_github_ci_targets(issues, poller, opts)
 
@@ -389,6 +390,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
         TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
     end
+  end
+
+  # Idle CI tickets are absent from the dispatch candidates; retain their label evidence for the next-poll heal.
+  defp remember_ci_issue_states(state, issues) do
+    observed = Map.new(issues, &{&1.id, &1})
+    %{state | last_polled_issues: Map.merge(state.last_polled_issues, observed)}
   end
 
   defp fetch_ci_issues(%State{} = state, opts) do
@@ -1276,8 +1283,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   # authoritative when the tracker projection is stale. Only a failure on a head
   # review has not seen supersedes that disposition.
   defp human_review_ci_replay?(%State{} = state, %Issue{} = issue, result) do
-    ci_head_approved?(state, issue, result) or
-      (HumanReview.human_review_state?(effective_ci_state(issue)) and not ci_head_superseded?(state, issue, result))
+    # Returning a PR to draft withdraws the review handoff, even when its head is unchanged.
+    Map.get(result, :draft?) != true and
+      (ci_head_approved?(state, issue, result) or
+         (HumanReview.human_review_state?(effective_ci_state(issue)) and not ci_head_superseded?(state, issue, result)))
   end
 
   defp ci_head_superseded?(%State{} = state, %Issue{} = issue, result) do
@@ -1318,24 +1327,15 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp remember_ci_approved_head(state, _issue, _result), do: state
 
-  # A `ci-wait` label that co-owns a ticket with a real disposition (human-review,
-  # rework, …) is a stale leftover: CI finished and the ticket moved on, but the
-  # waiting marker was never cleared. The human-review branches keep the ticket in
-  # its review disposition without a state swap, so they must explicitly drop the
-  # stale `ci-wait` to leave GitHub carrying exactly one state label and keep the
-  # ticket dispatchable (#2366). Best-effort: a failed removal logs and leaves the
-  # state untouched; the next terminal observation retries.
+  # Reassert the surviving disposition through the add-first owner; an approved head alone is not a label.
   defp clear_stale_ci_wait(%State{} = state, %Issue{} = issue) do
-    if @ci_wait_state in List.wrap(issue.state_labels) do
-      label = "#{Aiur.GitHub.Config.label_prefix()}:#{@ci_wait_state}"
-
-      case Tracker.remove_label(to_string(issue.id || issue.identifier), label) do
+    if @ci_wait_state in List.wrap(issue.state_labels) and HumanReview.human_review_state?(effective_ci_state(issue)) do
+      case Tracker.update_issue_state(to_string(issue.id || issue.identifier), @human_review_state, expected_state_opts(issue)) do
         :ok ->
           state
 
         {:error, reason} ->
-          Logger.warning("Stale ci-wait removal failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
-
+          Logger.warning("Stale ci-wait cleanup failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
           state
       end
     else
