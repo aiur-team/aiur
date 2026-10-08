@@ -128,11 +128,7 @@ defmodule Aiur.Rtk do
       path ->
         case hook_registration(path, opts) do
           :registered ->
-            case gh_rewrite_state(path, opts) do
-              :rewritten -> {:rewrites_gh, path}
-              :excluded -> :ok
-              {:error, reason} -> {:probe_failed, reason}
-            end
+            check_registered_hook(path, opts)
 
           :no_hook ->
             :no_hook
@@ -140,6 +136,14 @@ defmodule Aiur.Rtk do
           {:error, reason} ->
             {:probe_failed, reason}
         end
+    end
+  end
+
+  defp check_registered_hook(path, opts) do
+    case gh_rewrite_state(path, opts) do
+      :rewritten -> {:rewrites_gh, path}
+      :excluded -> :ok
+      {:error, reason} -> {:probe_failed, reason}
     end
   end
 
