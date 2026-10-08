@@ -1069,6 +1069,21 @@ defmodule Aiur.GitHub.IssuesTest do
       assert issue.state == "in-progress"
     end
 
+    test "queued marker is not a state label" do
+      for prefix <- ["agent", "aiur"] do
+        gh = %{"number" => 19, "title" => "Queued", "state" => "open", "labels" => [%{"name" => "#{prefix}:todo"}, %{"name" => " #{String.upcase(prefix)}:QUEUED "}]}
+        issue = Issues.normalize_issue(gh, "owner", "repo", prefix)
+        assert issue.state_labels == ["todo"]
+        assert issue.state == "todo"
+        assert issue.queued == true
+        assert Aiur.Issue.queued?(issue)
+        refute Issues.normalize_issue(%{gh | "labels" => [%{"name" => "other:queued"}]}, "owner", "repo", prefix).queued
+      end
+
+      refute Aiur.Issue.queued?(%Aiur.Issue{})
+      refute Aiur.Issue.queued?(nil)
+    end
+
     test "marks parked issues and keeps the marker out of workflow state selection" do
       # #1971: `agent:parked` is an explicit operator-held marker. Even when a
       # real state label is present, the ticket must read as parked (so dispatch

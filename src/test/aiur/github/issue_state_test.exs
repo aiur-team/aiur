@@ -33,6 +33,30 @@ defmodule Aiur.GitHub.IssueStateTest do
   end
 
   describe "update_issue_state/3" do
+    test "swap keeps the queued marker" do
+      test_pid = self()
+
+      request_fun = fn request ->
+        send(test_pid, {:queue_request, request})
+
+        case request.method do
+          :get ->
+            {:ok, %{status: 200, body: %{"state" => "open", "labels" => [%{"name" => "sym:todo"}, %{"name" => "sym:queued"}]}}}
+
+          :post ->
+            assert request.body == %{"labels" => ["sym:in-progress"]}
+            {:ok, %{status: 200}}
+
+          :delete ->
+            {:ok, %{status: 200}}
+        end
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "in-progress", request_fun: request_fun)
+      assert_received {:queue_request, %{method: :delete, url: "https://api.github.com/repos/owner/repo/issues/42/labels/sym:todo"}}
+      refute_received {:queue_request, %{method: :delete}}
+    end
+
     # Acceptance #2326: a state transition issues a conditional request. When the
     # store holds the issue body and its validator, the transition's own issue
     # read sends `If-None-Match` — a free `304` when nothing changed, instead of
@@ -403,6 +427,70 @@ defmodule Aiur.GitHub.IssueStateTest do
       assert_receive {:request, %{method: :get}}, 1000
       assert_receive {:request, %{method: :delete}}, 1000
       refute_receive {:request, %{method: :post}}, 100
+    end
+
+    test "expected_state :none writes todo on a marker-only issue" do
+      test_pid = self()
+      body = %{"state" => "open", "labels" => [%{"name" => "sym:watch"}]}
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+        {:ok, %{status: 200, body: body}}
+      end
+
+      assert :ok = IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
+      assert_received {:request, %{method: :get}}
+      assert_received {:request, %{method: :get}}
+      assert_received {:request, %{method: :get}}
+      assert_received {:request, %{method: :post, body: %{"labels" => ["sym:todo"]}}}
+      refute_received {:request, %{method: :delete}}
+    end
+
+    test "expected_state :none refuses a state appearing before revalidation" do
+      test_pid = self()
+      gets = :ets.new(:gets, [:set, :private])
+
+      request_fun = fn request ->
+        send(test_pid, {:request, request})
+        assert request.method == :get
+        count = :ets.update_counter(gets, :count, 1, {:count, 0})
+        labels = if count == 1, do: ["sym:watch"], else: ["sym:watch", "sym:in-progress"]
+        {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(labels, &%{"name" => &1})}}}
+      end
+
+      assert {:error, {:stale_issue_state, :none, "in-progress"}} =
+               IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
+
+      assert_received {:request, %{method: :get}}
+      assert_received {:request, %{method: :get}}
+      refute_received {:request, _}
+    end
+
+    test "expected_state :none refuses existing single or multiple state labels" do
+      for states <- [["in-progress"], ["todo", "in-progress"]] do
+        request_fun = fn request ->
+          assert request.method == :get
+          {:ok, %{status: 200, body: %{"state" => "open", "labels" => Enum.map(states, &%{"name" => "sym:#{&1}"})}}}
+        end
+
+        assert {:error, {:stale_issue_state, :none, actual}} =
+                 IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
+
+        assert actual in states
+        ResourceStore.reset()
+      end
+    end
+
+    test "regression guard: expected_state :none refuses a closed issue" do
+      body = %{"state" => "closed", "labels" => [%{"name" => "sym:watch"}]}
+
+      request_fun = fn request ->
+        assert request.method == :get
+        {:ok, %{status: 200, body: body}}
+      end
+
+      assert {:error, {:no_state_label_written, ^body}} =
+               IssueState.update_issue_state("42", "todo", expected_state: :none, request_fun: request_fun)
     end
 
     test "rejects a stale expected state before mutating labels" do
