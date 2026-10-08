@@ -23,6 +23,8 @@ defmodule Aiur.ExecutorBindings do
     {"ticket.*.branch.push", "rework:auto"},
     {"ticket.*.pr.merged", "pr:auto"},
     {"ticket.*.agent.attention.*", "attention:auto"},
+    {"ticket.*.queue.attention.#", "attention:auto"},
+    {"system.queue.attention.#", "dispatch:auto"},
     {"ticket.*.agent.paused", "attention:auto"},
     {"ticket.*.agent.error.tokens_exhausted", "attention:auto"},
     {"ticket.*.agent.retry_exhausted", "attention:auto"},
