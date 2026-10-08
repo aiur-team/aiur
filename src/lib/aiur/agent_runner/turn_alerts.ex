@@ -96,8 +96,8 @@ defmodule Aiur.AgentRunner.TurnAlerts do
   eleven wasted turns went unnoticed on khala #198, and #2797 is open on
   exactly the `Logger.info`-only pattern. The alert is ticket-scoped and
   needs-attention, so it lands in the alert ledger and the central
-  `alerts.ndjson` and shows on the Executor's alert feed, naming the ticket,
-  the state label that kept the loop alive, and what was unchanged.
+  `alerts.ndjson` and shows on the Executor's alert feed. A run that reached
+  no-op bound keeps its current state except verified rework with no push.
   """
   @spec emit_noop_turn_bound_alert(Issue.t(), Path.t() | nil, String.t() | nil, map()) :: :ok
   def emit_noop_turn_bound_alert(%Issue{} = issue, workspace, worker_host, details) do
@@ -109,10 +109,8 @@ defmodule Aiur.AgentRunner.TurnAlerts do
     message =
       "Stopped the agent continuation loop on #{issue.identifier} after #{consecutive} consecutive turn(s) " <>
         "that changed nothing (cap #{cap}, last turn ##{turn_number}). Unchanged across those turns: #{unchanged}. " <>
-        "The ticket is still in state #{inspect(issue.state)}, which `tracker.active_states` treats as active, " <>
-        "so the loop would otherwise have kept re-prompting an agent with nothing to do. " <>
-        "Check the state label: if the work is finished, move the ticket out of the active states " <>
-        "(e.g. to human-review); if work remains, say what is left in a comment and redispatch."
+        "No new PR head was detected. Current state: agent:#{issue.state}. " <>
+        "Review the agent's result before redispatching."
 
     Alerts.emit_system(
       "ticket.#{issue.identifier}.agent.noop_turns_bounded",
@@ -122,7 +120,27 @@ defmodule Aiur.AgentRunner.TurnAlerts do
       message: message,
       reason: message,
       needs_attention: true,
-      severity: "warning"
+      severity: "info"
+    )
+
+    :ok
+  end
+
+  @doc false
+  @spec emit_rework_handoff_alert(Issue.t(), Path.t() | nil, String.t() | nil, String.t()) :: :ok
+  def emit_rework_handoff_alert(%Issue{} = issue, workspace, worker_host, state) do
+    message =
+      "Agent stopped after pushing work for #{issue.identifier}; moved the ticket to agent:#{state}."
+
+    Alerts.emit_system(
+      "ticket.#{issue.identifier}.agent.rework_handoff",
+      issue: issue,
+      workspace: workspace,
+      worker_host: worker_host,
+      message: message,
+      reason: message,
+      needs_attention: true,
+      severity: "info"
     )
 
     :ok

@@ -13,6 +13,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.GitHub.Errors
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Orchestrator.ReworkGate
   alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
@@ -188,7 +189,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
       delay_type: :continuation,
       prior_work: prior_work_for_retry?(running_entry),
       worker_host: Map.get(running_entry, :worker_host),
-      workspace_path: Map.get(running_entry, :workspace_path)
+      workspace_path: Map.get(running_entry, :workspace_path),
+      rework_head_sha: Map.get(running_entry, :rework_head_sha)
     }
   end
 
@@ -207,7 +209,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
       transient_reason: reason,
       prior_work: prior_work_for_retry?(running_entry),
       worker_host: Map.get(running_entry, :worker_host),
-      workspace_path: Map.get(running_entry, :workspace_path)
+      workspace_path: Map.get(running_entry, :workspace_path),
+      rework_head_sha: Map.get(running_entry, :rework_head_sha)
     }
   end
 
@@ -502,6 +505,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
     priority = pick_retry_priority(previous_retry, metadata)
     issue_state = pick_retry_issue_state(previous_retry, metadata)
+    rework_head_sha = Map.get(metadata, :rework_head_sha, Map.get(previous_retry, :rework_head_sha))
     last_failure_at = pick_retry_last_failure_at(previous_retry, metadata)
     prior_work? = pick_retry_prior_work(previous_retry, metadata)
     old_timer = Map.get(previous_retry, :timer_ref)
@@ -569,7 +573,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       released
       |> Map.put(:retry_attempts, Map.delete(released.retry_attempts, issue_id))
-      |> start_exhausted_state_write(issue_id, identifier, exhaustion_reason)
+      |> start_exhausted_state_write(issue_id, identifier, exhaustion_reason, Map.put(metadata, :rework_head_sha, rework_head_sha))
     else
       delay_ms = retry_delay(next_attempt, metadata)
       retry_token = make_ref()
@@ -606,6 +610,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               tracker_identity: tracker_identity,
               priority: priority,
               issue_state: issue_state,
+              rework_head_sha: rework_head_sha,
               terminal_membership_pending?: metadata[:terminal_membership_pending?] == true,
               # Persisted so the non-consuming classification is observable and
               # asserted directly: a `:local_budget_hold` retry is bounded by
@@ -617,6 +622,24 @@ defmodule Aiur.Orchestrator.RetryEngine do
               local_budget_hold: metadata[:local_budget_hold]
             })
       }
+    end
+  end
+
+  defp finalize_exhausted_issue(issue_id, identifier, metadata, exhaustion_reason, opts) do
+    case rework_handoff_state(identifier, metadata[:rework_head_sha], metadata) do
+      {:ok, state_name} ->
+        case Tracker.update_issue_state(identifier, state_name, opts) do
+          :ok ->
+            emit_rework_handoff_attention(identifier, state_name)
+            :ok
+
+          {:error, reason} ->
+            Logger.warning("Rework handoff state write failed for #{identifier}: #{inspect(reason)}")
+            write_exhausted_issue_state(issue_id, identifier, exhaustion_reason, opts)
+        end
+
+      :none ->
+        write_exhausted_issue_state(issue_id, identifier, exhaustion_reason, opts)
     end
   end
 
@@ -650,7 +673,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
           tracker_identity: Map.get(retry_entry, :tracker_identity),
           priority: Map.get(retry_entry, :priority),
           issue_state: Map.get(retry_entry, :issue_state),
-          terminal_membership_pending?: Map.get(retry_entry, :terminal_membership_pending?, false)
+          terminal_membership_pending?: Map.get(retry_entry, :terminal_membership_pending?, false),
+          rework_head_sha: Map.get(retry_entry, :rework_head_sha)
         }
 
         {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
@@ -660,11 +684,12 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  defp start_exhausted_state_write(state, issue_id, identifier, reason) do
+  defp start_exhausted_state_write(state, issue_id, identifier, reason, metadata) do
     release = Map.get(state.released_claims, issue_id)
     opts = exhausted_write_options(state, issue_id)
+    handoff = Map.take(metadata, [:rework_head_sha, :open_pr_fetcher, :commit_ci_status_fetcher])
 
-    TrackerTasks.run(state, {:retry_exhausted, issue_id}, fn -> write_exhausted_issue_state(issue_id, identifier, reason, opts) end, fn current, result ->
+    TrackerTasks.run(state, {:retry_exhausted, issue_id}, fn -> finalize_exhausted_issue(issue_id, identifier, handoff, reason, opts) end, fn current, result ->
       apply_exhausted_state_write(current, issue_id, release, result)
     end)
   end
@@ -953,6 +978,29 @@ defmodule Aiur.Orchestrator.RetryEngine do
           {:error, {:no_state_label_written, identifier}}
       end
     end
+  end
+
+  defp rework_handoff_state(identifier, original_head, metadata) do
+    opts = [
+      open_pr_fetcher: Map.get(metadata, :open_pr_fetcher, &Tracker.fetch_open_pull_request_for_branch/1),
+      commit_ci_status_fetcher: Map.get(metadata, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1)
+    ]
+
+    case ReworkGate.stopped_agent_handoff(identifier, original_head, opts) do
+      {:handoff, state_name} -> {:ok, state_name}
+      :none -> :none
+    end
+  end
+
+  defp emit_rework_handoff_attention(identifier, state_name) do
+    message = "Agent exhausted retries without handing off after pushing rework for #{identifier}; moved the ticket to agent:#{state_name}."
+
+    Alerts.emit_custom("ticket.#{identifier}.agent.rework_handoff", message,
+      issue: identifier,
+      reason: message,
+      needs_attention: true,
+      severity: "info"
+    )
   end
 
   defp maybe_mark_observed_error_alert(state, issue_id, true) do
@@ -1420,7 +1468,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
       prior_work? = Keyword.get(opts, :prior_work?, metadata[:prior_work] == true)
 
       next_state =
-        dispatch.(state, issue, attempt, metadata[:worker_host], prior_work: prior_work?)
+        dispatch.(state, issue, attempt, metadata[:worker_host],
+          prior_work: prior_work?,
+          rework_head_sha: metadata[:rework_head_sha]
+        )
 
       {:noreply, ensure_active_retry_started(next_state, issue, attempt, metadata, opts)}
     else
@@ -1466,7 +1517,8 @@ defmodule Aiur.Orchestrator.RetryEngine do
         delay_type: delay_type,
         prior_work: metadata[:prior_work] == true,
         worker_host: metadata[:worker_host],
-        workspace_path: metadata[:workspace_path]
+        workspace_path: metadata[:workspace_path],
+        rework_head_sha: metadata[:rework_head_sha]
       })
     end
   end

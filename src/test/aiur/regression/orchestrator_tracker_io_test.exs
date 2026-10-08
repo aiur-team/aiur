@@ -3,7 +3,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
   alias Aiur.{AgentQueueStore, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.GitHub.{Config, ReadCache, Transport}
-  alias Aiur.Orchestrator.{Dispatcher, OperatorMessages, PauseResume, PriorityControl, SnapshotStore, StatusReport}
+  alias Aiur.Orchestrator.{Dispatcher, OperatorMessages, PauseResume, PriorityControl, RetryEngine, SnapshotStore, StatusReport}
 
   defmodule SlowTracker do
     def fetch_candidate_issues do
@@ -116,6 +116,38 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       Enum.each(patterns, fn {module, function, _arity} ->
         refute_received {:trace, ^server, :call, {^module, ^function, _args}}, "an orchestrator handler performed remote work"
       end)
+    end
+  end
+
+  test "exhausted rework reads stay outside the owner", %{server: server, issue: issue, token: token} do
+    parent = self()
+
+    scheduling =
+      Task.async(fn ->
+        :sys.replace_state(server, fn state ->
+          RetryEngine.schedule_issue_retry(state, issue.id, Aiur.Config.max_retry_attempts() + 1, %{
+            identifier: issue.identifier,
+            error: "agent exited after pushing rework",
+            rework_head_sha: "old-head",
+            open_pr_fetcher: fn _ ->
+              send(parent, {:handoff_started, token, self()})
+              receive do: ({:release_handoff, ^token} -> {:ok, %{"head" => %{"sha" => "new-head"}}})
+            end,
+            commit_ci_status_fetcher: fn _ -> {:ok, %{check_runs: [], commit_status: %{"state" => "success"}}} end,
+            delay_type: :failure
+          })
+        end)
+      end)
+
+    receive_barrier({:handoff_started, ^token, tracker_pid})
+
+    try do
+      refute tracker_pid == server
+      assert {:ok, _snapshot, _freshness} = Orchestrator.fleet_view(server, 200, fleet_rows?: true)
+    after
+      send(tracker_pid, {:release_handoff, token})
+      Task.await(scheduling)
+      await_orchestrator_state(server, &(map_size(&1.tracker_tasks) == 0))
     end
   end
 
