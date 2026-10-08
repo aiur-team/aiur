@@ -2,6 +2,7 @@ defmodule Aiur.CoreTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Schema
+  alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, LifecycleFence, OperatorMessages, Reconciler, Slots}
 
   defmodule RetryPollFailingGitHubClient do
@@ -3051,11 +3052,11 @@ defmodule Aiur.CoreTest do
       assert {:ok, :consumed} = OperatorMessages.operator_message_status(orchestrator_name, request_id)
       assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, "MT-250")
 
-      assert Aiur.Events.Exchange.bindings_for(orchestrator_pid) != []
+      assert Exchange.bindings_for(orchestrator_pid) != []
       assert :ok = stop_supervised(Orchestrator)
       assert Process.whereis(orchestrator_name) == nil
-      :sys.get_state(Aiur.Events.Exchange)
-      assert Aiur.Events.Exchange.bindings_for(orchestrator_pid) == []
+      :sys.get_state(Exchange)
+      assert Exchange.bindings_for(orchestrator_pid) == []
     after
       System.delete_env("SYMP_TEST_CODEX_TRACE")
       File.rm_rf(test_root)
