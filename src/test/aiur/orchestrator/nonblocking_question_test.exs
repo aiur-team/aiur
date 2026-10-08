@@ -22,7 +22,7 @@ defmodule Aiur.Orchestrator.NonblockingQuestionTest do
     decision = request!(issue, false)
     :ok = SubscriptionStore.add_attention(issue.identifier, "optional-question")
 
-    for event <- [%{}, %{payload: %{reason: "operator_decision", question: decision.question}}] do
+    for event <- [%{}, %{payload: %{reason: "optional_question", question: decision.question}}] do
       result = PushRouting.maybe_pause_on_request(state, issue.identifier, event)
       assert result == state
       assert result.running[issue.id].control.status == :working
@@ -60,6 +60,55 @@ defmodule Aiur.Orchestrator.NonblockingQuestionTest do
     assert previously_paused.waiting_reason == :paused
     assert {:ok, ids} = DecisionStore.blocked_ticket_ids()
     refute MapSet.member?(ids, issue.identifier)
+  end
+
+  test "bare coordination and upstream-merge pauses work without a Command", %{issue: issue, state: state} do
+    for event <- [%{}, %{payload: %{reason: "upstream_merge"}}] do
+      paused = PushRouting.maybe_pause_on_request(state, issue.identifier, event)
+      assert paused.running[issue.id].control.status == :paused
+      assert paused.running[issue.id].paused_reason == :agent_pause_request
+    end
+  end
+
+  test "legacy operator-decision attention still pauses without a blocking Command", %{issue: issue, state: state} do
+    question = "Which acceptance boundary must the worker use?"
+
+    assert {:ok, %{decision: legacy}} =
+             DecisionStore.project_attention(
+               %{"question" => question, "blocking" => false, "kind" => "legacy_attention", "source_id" => "legacy:#{issue.id}"},
+               ticket: %{identifier: issue.identifier},
+               source: %{agent_id: "worker", session_id: "session", event_id: nil},
+               legacy_attention: %{slug: "operator-decision", topic: "ticket.#{issue.id}.agent.attention.operator-decision"}
+             )
+
+    assert legacy.blocking == false
+    bare = PushRouting.maybe_pause_on_request(state, issue.identifier)
+    assert bare.running[issue.id].control.status == :paused
+    request!(issue, false)
+    assert {:ok, []} = DecisionStore.open_blocking_decision_ids([issue.identifier])
+    paused = PushRouting.maybe_pause_on_request(state, issue.identifier, %{payload: %{reason: "operator_decision", question: question}})
+    assert paused.running[issue.id].control.status == :paused
+  end
+
+  test "a blocking Command takes precedence over an optional question", %{issue: issue, state: state} do
+    # Future regression guard: the blocking Command already took precedence before this correction.
+    request!(issue, false)
+    request!(issue, true)
+    paused = PushRouting.maybe_pause_on_request(state, issue.identifier)
+    assert paused.running[issue.id].control.status == :paused
+  end
+
+  test "an expired optional question does not suppress a coordination pause", %{issue: issue, state: state} do
+    decision = request!(issue, false)
+    assert {:ok, _} = DecisionStore.expire(decision.decision_id, "agent_not_running")
+    paused = PushRouting.maybe_pause_on_request(state, issue.identifier)
+    assert paused.running[issue.id].control.status == :paused
+  end
+
+  test "an explicit upstream-merge pause survives an unrelated optional question", %{issue: issue, state: state} do
+    request!(issue, false)
+    paused = PushRouting.maybe_pause_on_request(state, issue.identifier, %{payload: %{reason: "upstream_merge"}})
+    assert paused.running[issue.id].control.status == :paused
   end
 
   defp request!(issue, blocking) do

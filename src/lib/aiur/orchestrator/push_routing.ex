@@ -55,7 +55,7 @@ defmodule Aiur.Orchestrator.PushRouting do
           true ->
             {running_entry, pause_reason} = prepare_agent_pause(running_entry, event)
 
-            if nonblocking_question_pause?(identifier, pause_reason) do
+            if nonblocking_question_pause?(identifier, pause_reason, event) do
               state
             else
               {_reply, state} =
@@ -75,11 +75,15 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
-  defp nonblocking_question_pause?(identifier, :agent_pause_request) do
-    DecisionStore.open_blocking_decision_ids([to_string(identifier)]) == {:ok, []}
+  defp nonblocking_question_pause?(identifier, :agent_pause_request, event) do
+    payload = event_payload(event)
+    reason = Map.get(payload, :reason) || Map.get(payload, "reason")
+
+    reason not in ["operator_decision", :operator_decision, "upstream_merge", :upstream_merge] and
+      DecisionStore.nonblocking_question_pause?(to_string(identifier)) == {:ok, true}
   end
 
-  defp nonblocking_question_pause?(_identifier, _pause_reason), do: false
+  defp nonblocking_question_pause?(_identifier, _pause_reason, _event), do: false
 
   @doc false
   @spec recover_github_budget_pauses(State.t(), integer()) :: State.t()

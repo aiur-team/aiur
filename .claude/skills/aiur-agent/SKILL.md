@@ -77,8 +77,10 @@ shared [dictated-input note](dictated-input.md).
 - **Non-blocking questions keep work moving.** Set `blocking: false` when an
   answer is optional, record the question and raise its attention, then keep
   working. Never emit `pause.request` or stop your turn for that question.
-  Only an open blocking Command can justify a question-related self-pause;
-  expired or moot Commands cannot hold the worker waiting for human input.
+  Bare coordination pauses (such as waiting for an upstream PR to merge) and
+  explicit `operator_decision` pauses remain valid, including the legacy
+  `attention.operator-decision` path. Expired or moot
+  Commands cannot hold the worker waiting for human input.
 
 ## What stays in the per-turn prompt (not here)
 
