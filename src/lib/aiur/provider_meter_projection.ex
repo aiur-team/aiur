@@ -231,6 +231,8 @@ defmodule Aiur.ProviderMeterProjection do
     if DateTime.compare(snapshot.ingested_at || snapshot.observed_at, previous.ingested_at || previous.observed_at) == :lt, do: observations, else: Map.put(observations, :claude, snapshot)
   end
 
+  defp put_if_newer(observations, :claude, _previous, %{source: :usage_api} = snapshot, _observed_at), do: Map.put(observations, :claude, snapshot)
+
   defp put_if_newer(observations, provider, previous, snapshot, observed_at) do
     case previous.observed_at do
       nil ->
