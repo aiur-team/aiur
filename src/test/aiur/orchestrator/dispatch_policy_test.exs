@@ -760,12 +760,12 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       }
 
       seeded = DispatchPolicy.update_load_envelope(state, 0.0, 1.0, 16, 1_000, baseline, true)
-      assert seeded.effective_concurrent_agents == 2
+      assert seeded.effective_concurrent_agents == 1
       assert seeded.load_envelope_state.last_decrease_ms == nil
       assert seeded.load_envelope_state.bootstrap_complete?
 
       ramped = DispatchPolicy.update_load_envelope(seeded, 0.0, 1.0, 16, 2_000, current, true)
-      assert ramped.effective_concurrent_agents == 3
+      assert ramped.effective_concurrent_agents == 2
       assert ramped.load_envelope_state.last_decrease_ms == nil
       assert ramped.load_envelope_state.bootstrap_complete?
     end

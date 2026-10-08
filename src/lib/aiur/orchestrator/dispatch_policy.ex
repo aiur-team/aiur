@@ -415,6 +415,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     {next, last_decrease_ms, options.bootstrap_complete?}
   end
 
+  defp load_envelope_state(1, nil, load, %{bootstrap_complete?: false}) when is_number(load),
+    do: {1, nil, true}
+
   defp load_envelope_state(effective, last_decrease_ms, load, %{static_limit: static_limit} = options)
        when is_number(load) do
     effective = normalize_load_envelope_limit(effective, static_limit)
@@ -501,8 +504,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          %{target: target, schedulers: schedulers} = options
        )
        when load <= target * schedulers do
-    ramp_step = if options.bootstrap_complete?, do: options.ramp_step, else: 1
-    {min(effective + ramp_step, options.static_limit), last_decrease_ms}
+    {min(effective + options.ramp_step, options.static_limit), last_decrease_ms}
   end
 
   defp adjust_load_envelope_without_headroom(effective, last_decrease_ms, _load, options) do

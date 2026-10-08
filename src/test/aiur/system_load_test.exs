@@ -59,7 +59,7 @@ defmodule Aiur.SystemLoadTest do
             :never_sent -> %{load: 0.5}
           end
         end,
-        100
+        1_000
       )
 
     assert_received {:reader, reader}

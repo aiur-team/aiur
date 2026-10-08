@@ -1600,11 +1600,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           Dispatcher.maybe_choose_under_load(state, ready, &consume_available_slots/2, admission_probes_fun: fn -> probes end, now_ms: now)
         end)
 
-      assert map_size(result.running) == 2
-      assert result.effective_concurrent_agents == 2
+      assert map_size(result.running) == 1
+      assert result.effective_concurrent_agents == 1
 
       refreshed = Dispatcher.maybe_choose_under_load(result, ready, &consume_available_slots/2, admission_probes_fun: fn -> %{probes | sampled_at_ms: 11_000} end, now_ms: 11_000)
-      assert map_size(refreshed.running) == 3
+      assert map_size(refreshed.running) == 2
     end
 
     test "a sample already older than one period cannot widen the boot envelope" do
