@@ -4,6 +4,8 @@ Open `/streamdeck` in the [GUI](/guide/gui) to use the browser emulator, or inst
 
 <img src="/images/dashboard/streamdeck-dark.png" alt="Desktop Stream Deck emulator showing synthetic agent keys">
 
+The Claude provider meter names the selected account and shows “worst of N accounts” when every account was read. Partial readings show the observed account count. See [Claude accounts](/guide/claude-accounts) for the selection rule and individual dashboard bars.
+
 ## Drive the four modes
 
 | Mode | Enter it | Keys | Touch strip | Dials A to D |
