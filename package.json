@@ -1,6 +1,6 @@
 {
   "name": "aiur-claude",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A JSON-RPC 2.0 Claude Code App Server conforming to the OpenAI Codex app-server protocol spec.",
   "license": "MIT",
   "type": "commonjs",

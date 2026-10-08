@@ -50,6 +50,33 @@ test("thread/start without dynamicTools keeps the legacy claude invocation", asy
   ]);
 });
 
+test("thread/resume restores an on-disk session in a fresh app-server process", async () => {
+  const { server, conn } = await initializedServer();
+  const sessionId = "resume-session-3040";
+  const resumed = await server.handleMessage(
+    { jsonrpc: "2.0", id: 7, method: "thread/resume", params: { threadId: sessionId, cwd: "/repo", permissionMode: "bypassPermissions" } },
+    conn,
+  );
+
+  assert.equal(resumed.result.thread.id, sessionId);
+  const thread = server.getThread(sessionId);
+  assert.equal(thread.cliSessionId, sessionId);
+  assert.equal(thread.cwd, "/repo");
+  assert.deepEqual(server.buildClaudeArgs(thread), [
+    "--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+    "--permission-mode", "bypassPermissions", "--resume", sessionId,
+  ]);
+});
+
+test("thread/resume rejects a missing session id", async () => {
+  const { server, conn } = await initializedServer();
+  const resumed = await server.handleMessage(
+    { jsonrpc: "2.0", id: 8, method: "thread/resume", params: { cwd: "/repo" } },
+    conn,
+  );
+  assert.equal(resumed.error.code, -32602);
+});
+
 test("thread/start with dynamicTools wires the MCP bridge into claude args", async (t) => {
   const { server, conn } = await initializedServer();
   const resp = await startThread(server, conn, {

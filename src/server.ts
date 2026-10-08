@@ -171,7 +171,7 @@ export function sanitizeRateLimit(
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const SERVER_NAME    = "aiur-claude";
-const SERVER_VERSION = "1.1.0";
+const SERVER_VERSION = "1.2.0";
 
 const AVAILABLE_MODELS = [
   { id: "claude-opus-4-6",   name: "Claude Opus 4.6",   aliases: ["opus"] },
@@ -279,7 +279,7 @@ export class ClaudeAppServer {
     switch (method) {
       case "initialize":       return this.initialize(params, conn);
       case "thread/start":     return this.threadStart(params, conn);
-      case "thread/resume":    return this.threadResume(params);
+      case "thread/resume":    return this.threadResume(params, conn);
       case "thread/fork":      return this.threadFork(params);
       case "turn/start":       return this.turnStart(params, conn);
       case "turn/steer":       return this.turnSteer(params);
@@ -396,19 +396,58 @@ export class ClaudeAppServer {
 
   // ── thread/resume ──────────────────────────────────────────────────────────
 
-  private threadResume(params: unknown): unknown {
-    const p = params as { thread_id?: string; threadId?: string };
-    const thread = this.getThread(p.threadId ?? p.thread_id ?? "");
-    return {
-      thread: {
-        id:              thread.id,
-        created_at:      thread.created_at,
-        cwd:             thread.cwd,
-        permission_mode: thread.permission_mode,
-        cli_session_id:  thread.cliSessionId,
-        turns:           thread.turns.map(serializeTurn),
-      },
+  private threadResume(params: unknown, conn: ConnectionState): unknown {
+    const { threadId: sessionId, cwd, permissionMode, dynamicTools } = this.resumeThreadParams(params);
+    if (!sessionId) throw new RpcException(E.InvalidParams, "thread_id or threadId is required");
+    const existing = this.threads.get(sessionId);
+    if (existing) {
+      existing.toolBridge?.close();
+      existing.dynamicTools = dynamicTools.length > 0 ? dynamicTools : undefined;
+      existing.toolBridge = dynamicTools.length > 0 ? this.createBridge(dynamicTools, conn) : undefined;
+      return this.serializeResumedThread(existing);
+    }
+
+    // The thread map is process-local. Rebuild the wrapper from the durable
+    // CLI session id so a new app-server process (and CLAUDE_CONFIG_DIR) can
+    // resume the transcript with `claude --resume <id>` on the next turn.
+    const thread = createThread(cwd, permissionMode);
+    thread.id = sessionId;
+    thread.cliSessionId = sessionId;
+    if (dynamicTools.length > 0) {
+      thread.dynamicTools = dynamicTools;
+      thread.toolBridge = this.createBridge(dynamicTools, conn);
+    }
+    this.threads.set(thread.id, thread);
+    return this.serializeResumedThread(thread);
+  }
+
+  private resumeThreadParams(params: unknown): {
+    threadId: string; cwd: string; permissionMode: PermissionMode; dynamicTools: DynamicToolSpec[];
+  } {
+    const p = params as {
+      thread_id?: string; threadId?: string; cwd?: string;
+      permission_mode?: PermissionMode; permissionMode?: PermissionMode;
+      dynamicTools?: unknown; dynamic_tools?: unknown;
     };
+    const threadId = p.threadId ?? p.thread_id ?? "";
+    if (!threadId) throw new RpcException(E.InvalidParams, "thread_id or threadId is required");
+    let cwd = p.cwd ?? process.cwd();
+    if (cwd === "~") cwd = os.homedir();
+    else if (cwd.startsWith("~/")) cwd = os.homedir() + cwd.slice(1);
+    const permissionMode = p.permissionMode ?? p.permission_mode ?? "default";
+    const dynamicTools = parseDynamicTools(p.dynamicTools ?? p.dynamic_tools);
+    return { threadId, cwd, permissionMode, dynamicTools };
+  }
+
+  private serializeResumedThread(thread: Thread) {
+    return { thread: {
+      id:              thread.id,
+      created_at:      thread.created_at,
+      cwd:             thread.cwd,
+      permission_mode: thread.permission_mode,
+      cli_session_id:  thread.cliSessionId,
+      turns:           thread.turns.map(serializeTurn),
+    } };
   }
 
   // ── thread/fork ────────────────────────────────────────────────────────────

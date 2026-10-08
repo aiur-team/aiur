@@ -98,7 +98,7 @@ Messages are newline-delimited JSON, following [JSON-RPC 2.0](https://www.jsonrp
 
 // Server → Client (response)
 { "jsonrpc": "2.0", "result": {
-    "server": { "name": "aiur-claude", "version": "1.1.0" },
+    "server": { "name": "aiur-claude", "version": "1.2.0" },
     "capabilities": { ... }
   }, "id": 1 }
 
