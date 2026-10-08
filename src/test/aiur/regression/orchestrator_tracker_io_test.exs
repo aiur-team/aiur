@@ -3,7 +3,7 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
   alias Aiur.{AgentQueueStore, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.GitHub.{Config, ReadCache, Transport}
-  alias Aiur.Orchestrator.{Dispatcher, OperatorMessages, PauseResume, PriorityControl, RetryEngine, SnapshotStore, StatusReport}
+  alias Aiur.Orchestrator.{Dispatcher, GlobalPause, OperatorMessages, PauseResume, PriorityControl, RetryEngine, SnapshotStore, StatusReport}
 
   defmodule SlowTracker do
     def fetch_candidate_issues do
@@ -17,11 +17,18 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
     def add_label(_id, _label) do
       {owner, token} = Application.fetch_env!(:aiur, :tracker_io_test_barrier)
-      send(owner, {:label_write_started, token, self()})
-      receive do: ({:release_write, ^token} -> :ok)
+
+      if Application.get_env(:aiur, :tracker_io_test_fast_writes, false) do
+        :ok
+      else
+        send(owner, {:label_write_started, token, self()})
+        receive do: ({:release_write, ^token} -> :ok)
+      end
     end
 
     def remove_label(_id, _label), do: :ok
+
+    def update_issue_state(_id, _state), do: :ok
 
     def fetch_issue_states_by_ids(_ids) do
       case Application.get_env(:aiur, :tracker_io_test_validation_barrier) do
@@ -208,6 +215,49 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       assert %{body: %{text: "sent during poll"}, status: :pending} = AgentQueueStore.get(state.queue_store, sent_id)
     after
       Enum.each(tasks, fn {_name, task} -> Task.shutdown(task, :brutal_kill) end)
+      send(tracker_pid, {:release_poll, token})
+      assert_no_handler_io(server, patterns)
+    end
+  end
+
+  test "every operator control handler answers without tracker I/O in the owner while the poll is held",
+       %{server: server, issue: issue, token: token} do
+    put_test_env(:tracker_io_test_fast_writes, true)
+    patterns = trace_handler_io(server)
+    send(server, :run_poll_cycle)
+    receive_barrier({:poll_started, ^token, tracker_pid})
+    id = issue.identifier
+
+    controls = [
+      set_max_agents: fn -> Orchestrator.set_max_concurrent_agents(server, 3) end,
+      adjust_max_agents: fn -> Orchestrator.adjust_max_concurrent_agents(server, 1) end,
+      max_agents: fn -> Orchestrator.max_concurrent_agents(server) end,
+      global_pause_status: fn -> GlobalPause.global_pause_status(server, 1_000) end,
+      global_pause: fn -> GlobalPause.set_global_pause(server, true, "tracker-io-test") end,
+      global_resume: fn -> GlobalPause.set_global_pause(server, false, "tracker-io-test") end,
+      pause: fn -> PauseResume.pause_agent(server, id) end,
+      resume: fn -> PauseResume.resume_agent(server, id) end,
+      resume_with_receipt: fn -> PauseResume.resume_agent_with_receipt(server, id) end,
+      request_control: fn -> PauseResume.request_control(server, id, :pause, 1) end,
+      control_lifecycle: fn -> PauseResume.control_lifecycle(server, id) end,
+      control_capabilities: fn -> Orchestrator.control_capabilities(server, id) end,
+      prioritize: fn -> PriorityControl.prioritize_agent(server, id) end,
+      deprioritize: fn -> PriorityControl.deprioritize_agent(server, id) end,
+      remote_control: fn -> Orchestrator.set_remote_control(server, id, false) end,
+      reset_budget: fn -> PauseResume.reset_dispatch_budget(server, id) end,
+      reset_unknown: fn -> PauseResume.reset_dispatch_budget(server, "UNPOLLED-3213") end,
+      refresh: fn -> Orchestrator.request_refresh(server) end
+    ]
+
+    try do
+      # Sequential calls: each control's own caller-side tracker step finishes before the next control starts.
+      Enum.each(controls, fn {name, fun} ->
+        task = Task.async(fun)
+        reply = Task.yield(task, 1_000) || Task.shutdown(task, :brutal_kill)
+        assert {:ok, result} = reply, "#{name} did not answer while the poll was held"
+        refute result == {:error, :timeout}, "#{name} timed out while the poll was held"
+      end)
+    after
       send(tracker_pid, {:release_poll, token})
       assert_no_handler_io(server, patterns)
     end
