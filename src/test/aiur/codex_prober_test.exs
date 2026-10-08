@@ -51,6 +51,24 @@ defmodule Aiur.CodexProberTest do
     refute File.exists?(workspace)
   end
 
+  test "profile probe supplies the selected Codex home only to the child environment" do
+    selected_home = Path.join(System.tmp_dir!(), "codex-profile-home")
+
+    assert {:ok, %{"primary" => %{"usedPercent" => 8}}} =
+             CodexProber.fetch_limits("codex",
+               codex_home: selected_home,
+               start_port_fun: fn _workspace, nil, nil, nil, env ->
+                 assert env == [{"CODEX_HOME", selected_home}]
+                 {:ok, :fake_port}
+               end,
+               initialize_fun: fn :fake_port -> :ok end,
+               read_rate_limits_fun: fn :fake_port ->
+                 {:ok, %{"rateLimits" => %{"primary" => %{"usedPercent" => 8}}}}
+               end,
+               stop_port_fun: fn :fake_port -> :ok end
+             )
+  end
+
   test "probe_async executes the provider probe and persists its reading" do
     path = Aiur.TestSupport.tmp_root!("aiur-codex-async-probe") <> ".json"
     on_exit(fn -> File.rm(path) end)

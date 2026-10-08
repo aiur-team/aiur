@@ -1825,6 +1825,38 @@ aiur_engine_main executor-fast-forward 2832 --as agent-a|,
     assert out =~ "usage does not accept arguments"
   end
 
+  test "accounts uses daemon control RPC when the daemon is reachable" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|resolve_release() { :; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf up; }; run_control_rpc() { printf 'RPC:%s\n' "$1"; }; run_local_cli() { printf 'LOCAL:%s\n' "$*"; }; cmd_accounts --json|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.accounts(true)"
+    refute out =~ "LOCAL:"
+  end
+
+  test "accounts falls back to local identity rendering when the daemon is down" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|resolve_release() { :; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; run_control_rpc() { printf 'RPC:%s\n' "$1"; }; run_local_cli() { printf 'LOCAL:%s\n' "$*"; }; cmd_accounts --json|,
+        []
+      )
+
+    assert out =~ "LOCAL:accounts --json"
+    refute out =~ "RPC:"
+  end
+
+  test "accounts preserves the requested harness through daemon control RPC" do
+    {out, 0} =
+      run_sourced_engine(
+        ~S|resolve_release() { :; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf up; }; run_control_rpc() { printf 'RPC:%s\n' "$1"; }; cmd_accounts codex --json|,
+        []
+      )
+
+    assert out =~ ~s|RPC:Aiur.AgentControlCLI.accounts(true, Base.decode64!("Y29kZXg="))|
+  end
+
   test "status RPCs the status expression" do
     rel = fake_release()
     {out, _} = run_engine_real(["status"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])

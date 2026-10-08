@@ -136,7 +136,7 @@ defmodule Aiur.Claude.Repl.Launcher do
       ctx.tmux,
       ctx.window_name,
       command,
-      telemetry_env ++ AgentEnvironment.shell_startup_env()
+      telemetry_env ++ Keyword.get(ctx.opts, :env, []) ++ AgentEnvironment.shell_startup_env()
     )
   end
 
@@ -299,6 +299,8 @@ defmodule Aiur.Claude.Repl.Launcher do
       started_at: ctx.started_at,
       projects_dir: Keyword.get(ctx.opts, :projects_dir),
       model: ctx.model,
+      account_name: Keyword.get(ctx.opts, :account_name),
+      account_selection_reason: Keyword.get(ctx.opts, :account_selection_reason),
       remote_control: ctx.rc?,
       rc_name: ctx.rc_name,
       session_url: session_url,
