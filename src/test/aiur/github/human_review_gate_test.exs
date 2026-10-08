@@ -2,8 +2,8 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
   use Aiur.TestSupport
 
   alias Aiur.AgentRunner.ToolExecutor
-  alias Aiur.GitHub.ReadCache.Policy
   alias Aiur.GitHub.{Client, HumanReviewGate, ResourceStore}
+  alias Aiur.GitHub.ReadCache.Policy
   alias Aiur.Issue
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -418,7 +418,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       case response do
         {:ok, body} ->
           assert req.caller == "human_review_base_ancestry"
-          if mergeability_request?(req), do: assert({:no_cache, :unsafe_kind} == Policy.classify(req))
+          verify_uncached_mergeability(req)
           {:ok, %{status: 200, body: body}}
 
         :error ->
@@ -426,6 +426,10 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
           fallback.(req)
       end
     end
+  end
+
+  defp verify_uncached_mergeability(req) do
+    if mergeability_request?(req), do: assert({:no_cache, :unsafe_kind} == Policy.classify(req))
   end
 
   defp verify_label_write(%{method: method, url: url}, allow?, parent) when method in [:post, :delete] and url != "https://api.github.com/graphql" do
