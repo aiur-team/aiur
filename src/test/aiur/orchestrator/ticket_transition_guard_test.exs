@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.TicketTransitionGuardTest do
 
   test "compiled lifecycle writes belong only to the transition owner and adapters" do
     # Xref inspection is deprecated, but provides the compiled, alias-resolved calls this guard needs.
+    # credo:disable-for-next-line Credo.Check.Refactor.Apply
     calls = apply(Xref, :calls, [])
     assert Enum.any?(calls, &(&1.callee == {Aiur.Tracker, :update_issue_state, 3})), "xref must collect real compiled calls"
 
