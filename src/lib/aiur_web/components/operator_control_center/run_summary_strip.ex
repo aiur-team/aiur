@@ -240,6 +240,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <span :if={get_in(@card, [:identity, :state]) == :unverified} class="rs-limit-meta">Account unverified</span>
         <span :if={get_in(@card, [:health, :age_label])} class="rs-limit-meta">{@card.health.age_label}</span>
       </div>
+      <p :if={@card[:summary_label]} class="rs-limit-meta">{@card.summary_label}</p>
       <div class="rs-provider-body">
         <div class="rs-limits">
           <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
@@ -252,6 +253,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <span class="rs-limit-label">Limits</span>
             <div class="rs-meter" aria-label="Usage not observed"></div>
             <span :if={@card.provider == :muse} class="rs-limit-meta">Not observed</span>
+          </div>
+          <div :for={account <- (get_in(@card, [:account_usage, :accounts]) || [])} class="rs-limit" data-account={account.name}>
+            <span class="rs-limit-label">{account.name}</span>
+            <div class="rs-meter" role="progressbar" aria-label={"#{account.name} weekly usage"} aria-valuenow={account.percent} aria-valuemin="0" aria-valuemax="100">
+              <i :if={is_number(account.percent)} class={meter_class(account.percent, 80, 90)} style={"width:#{min(max(account.percent, 0), 100)}%"}></i>
+            </div>
+            <span class="rs-limit-meta">{if is_number(account.percent), do: "#{account.percent}%", else: "unknown"} · {account.freshness}<span :if={is_integer(account.age_seconds)}> · {account.age_seconds}s old</span></span>
           </div>
           <div :for={window <- @windows} class="rs-limit">
             <span class="rs-limit-label">{window_label(window, @windows)}</span>

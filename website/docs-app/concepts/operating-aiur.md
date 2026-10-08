@@ -68,7 +68,7 @@ Aiur keeps unknown and partial pricing explicit instead of turning missing evide
 | Provider family | Meter meaning |
 | --- | --- |
 | Codex and Claude | Percentage used in renewing allotment windows. |
-| Muse | Current and weekly allowance percentages from the active native host, with reset times and observation age; account identity is unverified. |
+| Muse | Current and weekly allowance percentages from the most-constrained active native host, with reset times and observation age; account identity is unverified. |
 | DeepSeek and OpenRouter | Prepaid dollar or credit balance. |
 | DeepSeek percentage | Spend against a durable prepaid-balance baseline, not a provider quota. |
 | DeepSeek concurrency | Process-local; shown in live CLI and TUI status, omitted from retained provider cards. |
@@ -76,7 +76,7 @@ Aiur keeps unknown and partial pricing explicit instead of turning missing evide
 | GitHub | Core REST and GraphQL percentage used. |
 | ElevenLabs | Account credit quota as percentage used. |
 
-Dashboard provider meters render the values as last read.
+Dashboard provider meters render the values as last read. Claude shows a named weekly bar per account. Its CLI and Stream Deck summary uses the account with the highest weekly percentage used (or highest reported window when weekly usage is absent), labelled “worst of N accounts”. If an account could not be read, the summary names the selected account and the observed account count instead; missing readings remain unknown. Observation ages remain attached to the actual readings.
 
 Use `aiur usage` for session-observed model headroom; see [GitHub](/apis/github) and [ElevenLabs](/apis/elevenlabs) for non-model API meaning.
 

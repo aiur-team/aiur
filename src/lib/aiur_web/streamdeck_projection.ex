@@ -211,6 +211,8 @@ defmodule AiurWeb.StreamdeckProjection do
 
   defp provider_meter(snapshot) do
     %{
+      summary_label: snapshot.summary_label,
+      ingested_at: snapshot.ingested_at,
       provider: snapshot.provider,
       state: if(is_nil(snapshot.observed_at), do: :unknown, else: :observed),
       observed_at: snapshot.observed_at,
@@ -240,6 +242,8 @@ defmodule AiurWeb.StreamdeckProjection do
     normalized =
       %{
         provider: provider,
+        summary_label: field(meter, :summary_label),
+        ingested_at: field(meter, :ingested_at),
         state: state,
         observed_at: observed_at,
         age_seconds: age_seconds(observed_at, now),
@@ -469,6 +473,14 @@ defmodule AiurWeb.StreamdeckProjection do
     end
   end
 
+  defp newer_provider_observation?(%ProviderMeterSnapshot{provider: :claude, source: :usage_api, summary_label: label} = snapshot, current) when is_binary(label) do
+    case {snapshot.ingested_at, current && datetime(field(current, :ingested_at))} do
+      {%DateTime{} = incoming, %DateTime{} = prior} -> DateTime.compare(incoming, prior) != :lt
+      _ -> true
+    end
+  end
+
+  defp newer_provider_observation?(%ProviderMeterSnapshot{provider: :claude}, %{"summary_label" => label}) when is_binary(label), do: false
   defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: nil}, _current), do: false
   defp newer_provider_observation?(%ProviderMeterSnapshot{}, nil), do: true
   defp newer_provider_observation?(%ProviderMeterSnapshot{}, %{"observed_at" => nil}), do: true

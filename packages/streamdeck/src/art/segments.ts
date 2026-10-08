@@ -290,6 +290,10 @@ const drawProvider = (context: SKRSContext2D, width: number, row: ProviderPanelR
   context.font = TITLE_FONT;
   context.fillStyle = TEXT;
   context.fillText(providerTitle(row.label), PAD + mark + 8, TITLE_BASELINE);
+  if (row.summaryLabel) {
+    context.font = "700 12px sans-serif";
+    context.fillText(fit(context, row.summaryLabel, width - PAD * 2), PAD, TITLE_BASELINE + 17);
+  }
 
   const reading = sessionReading(row, now);
   context.font = "700 13px sans-serif";
@@ -405,7 +409,8 @@ const drawProviders = (context: SKRSContext2D, width: number, content: SegmentCo
 
     const reading = sessionReading(row, now);
     context.font = `700 ${PROVIDER_ROW_FONT}px sans-serif`;
-    const readingWidth = rightText(context, reading.text, right, baseline, reading.fraction === null ? LABEL : MUTED);
+    const summary = row.summaryLabel ? ` · ${row.summaryLabel.replace(" accounts", "")}` : "";
+    const readingWidth = rightText(context, `${reading.text}${summary}`, right, baseline, reading.fraction === null ? LABEL : MUTED);
     context.fillStyle = TEXT;
     context.fillText(fit(context, providerTitle(row.label), right - textX - readingWidth - 8), textX, baseline);
 

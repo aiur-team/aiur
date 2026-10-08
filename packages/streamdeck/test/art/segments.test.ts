@@ -553,6 +553,12 @@ describe("provider panel (two providers)", () => {
     expect(drew(ink, "86% · 22m")).toBeDefined();
   });
 
+  it("paints the account summary subject alongside its reading", () => {
+    const { ink } = render({ kind: "provider", row: { ...providerRow("claude", session(94)), summaryLabel: "worst of 2 accounts" } });
+    expect(drew(ink, "worst of 2 accounts")).toBeDefined();
+    expect(drew(ink, "94%")).toBeDefined();
+  });
+
   it("shows the percent alone when the window reported no reset", () => {
     expect(drew(render(provider(session(86))).ink, "86%")).toBeDefined();
   });

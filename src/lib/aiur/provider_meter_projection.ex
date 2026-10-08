@@ -224,6 +224,13 @@ defmodule Aiur.ProviderMeterProjection do
     end
   end
 
+  # Session standings cannot change the subject of the account-wide usage summary.
+  defp put_if_newer(observations, :claude, %{source: :usage_api}, %{source: source}, _observed_at) when source != :usage_api, do: observations
+
+  defp put_if_newer(observations, :claude, %{source: :usage_api} = previous, %{source: :usage_api} = snapshot, _observed_at) do
+    if DateTime.compare(snapshot.ingested_at || snapshot.observed_at, previous.ingested_at || previous.observed_at) == :lt, do: observations, else: Map.put(observations, :claude, snapshot)
+  end
+
   defp put_if_newer(observations, provider, previous, snapshot, observed_at) do
     case previous.observed_at do
       nil ->
@@ -263,7 +270,9 @@ defmodule Aiur.ProviderMeterProjection do
         plan: snapshot.plan,
         freshness: snapshot.freshness,
         health: snapshot.health,
-        windows: snapshot.windows
+        windows: snapshot.windows,
+        summary_label: snapshot.summary_label,
+        ingested_at: snapshot.ingested_at
       },
       snapshot,
       provider,

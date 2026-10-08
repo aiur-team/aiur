@@ -127,11 +127,12 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       observed_at: observed_at(snapshot),
       ingested_at: ingested_at(snapshot),
       windows: windows(snapshot, known?),
+      summary_label: if(snapshot, do: snapshot.summary_label),
       account_usage: account_usage(account_readings)
     }
   end
 
-  defp account_usage(readings) when map_size(readings) <= 1, do: nil
+  defp account_usage(readings) when map_size(readings) == 0, do: nil
 
   defp account_usage(readings) do
     accounts =
@@ -145,7 +146,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       end)
 
     percentages = Enum.map(accounts, & &1.percent)
-    total = if Enum.all?(percentages, &is_number/1), do: Enum.sum(percentages) / length(percentages), else: nil
+    total = if Enum.all?(percentages, &is_number/1), do: Enum.max(percentages), else: nil
     title = Enum.map_join(accounts, "; ", &account_usage_label/1)
 
     %{count: length(accounts), total_percent: total, title: title, accounts: accounts}
