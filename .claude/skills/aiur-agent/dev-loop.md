@@ -318,19 +318,41 @@ focused test runner, test-tree paths and CI gate at each step.
    unchanged; if it differs, PATCH only the PR's `base` through GitHub's pull
    request REST endpoint, then re-fetch and verify `baseRefName`. Stop with the
    observed branch, expected branch, and repair error if verification fails.
-9. **Own branch freshness before review:** fetch the PR's configured base and
-   verify its current remote head is an ancestor of your exact branch head. If
-   it is not, integrate or re-cut against it, resolve both textual conflicts
-   and semantic drift, rerun the scoped gate, and push. Do not hand stale code
-   to the Executor or reviewers to update.
+9. **Own integration safety before review:** a stale branch can proceed when
+   it has no conflicts and no changed-file overlap with the configured base.
+   Use the checklist in step 13; integrate only for overlap or conflicts,
+   rather than repeatedly chasing unrelated base commits.
 10. **Self-review the draft PR with `ce-code-review`** against the diff you just
     pushed. A missing doc that the threshold above required is a review finding —
     fix it here, not in a follow-up ticket.
 11. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
 12. Re-run the scoped local pre-PR verification gate after review fixes if any
     code, tests, prompt, skill, or config files changed.
-13. Recheck current-base ancestry after fixes. If the base moved, integrate it,
-    rerun the scoped gate, and push before continuing.
+13. **Integration checklist (before `gh pr ready` or `human-review`):**
+    verify the PR's `baseRefName` equals `AIUR_BASE_BRANCH` and its
+    `headRefOid` equals your local `HEAD`. Fetch the configured base once for
+    this assessment: `git -C "$workspace" fetch origin "$AIUR_BASE_BRANCH"`.
+    Record that base SHA as `base_sha` and exact PR head as `head_sha`. If
+    `git -C "$workspace" merge-base --is-ancestor "$base_sha" "$head_sha"`
+    succeeds, no integration is needed. Otherwise find their `merge_base` and
+    inspect `git -C "$workspace" diff --name-status -M "$merge_base" "$head_sha"`
+    and `git -C "$workspace" diff --name-status -M "$merge_base" "$base_sha"`.
+    Compare changed paths on **both** sides, including both old and new paths
+    for renames. Check for textual conflicts with
+    `git -C "$workspace" merge-tree --write-tree "$head_sha" "$base_sha"`.
+    No shared changed paths and no conflicts permits handoff despite staleness.
+    A fetch/probe error or incomplete path list does not permit handoff.
+
+    If paths overlap or the merge conflicts, integrate **at most once per
+    handoff**, recording the pre-merge head and creating a rescue ref first.
+    Preserve feature scope and push the rescue ref before resolving nontrivial
+    conflicts. Resolve semantic drift, validate and push; keep the PR ready
+    before returning to `ci-wait` for CI on the new head. Record the observed
+    SHAs, overlap/conflict verdict and integration attempt in the workpad so
+    the attempt survives CI waits and restarts. The GitHub state writer also
+    blocks unsafe or unavailable verdicts. If another unsafe base change
+    appears after that one integration, alert the Executor instead of starting
+    another merge/CI cycle.
 14. If you still believe the work is complete and correct and only CI remains,
     mark the PR ready (`gh pr ready`) and verify it is no longer a draft, then
     move the ticket with `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do
@@ -338,18 +360,20 @@ focused test runner, test-tree paths and CI gate at each step.
     returns the dispatch slot while this runner is paused.
 15. On a delivered terminal CI event:
     - **Passed:** require the full required-check set to have passed on the
-      current head SHA and verify the PR is ready. Fetch the configured base once.
-      If its current remote head is still an ancestor of the tested PR head,
-      trust the delivered result without re-polling, emit the required 100%
-      progress sample, and
+      current head SHA and verify the PR is ready. Assess integration safety
+      with step 13 again, retaining its one-integration limit. When the tested
+      head has no overlap or conflicts with the observed base, trust the
+      delivered result without re-polling, emit the required
+      100% progress sample, and
       move the ticket with `aiur_set_ticket_state({ "state": "human-review" })`.
       Use that tool, never `gh issue edit --remove-label agent:ci-wait
       --add-label agent:human-review`: the daemon's CI-pass handoff already
       swapped `agent:ci-wait` for `agent:in-progress` before it woke you, so the
       removal is a no-op and the ticket ends up carrying both state labels —
-      undispatchable, and healed by a guess (#2805). If the base moved,
-      integrate it yourself, validate, push, and return to `agent:ci-wait` for
-      fresh exact-head CI.
+      undispatchable, and healed by a guess (#2805). Harmless base movement
+      needs no merge or CI rerun. For overlap/conflicts, integrate once and
+      await fresh exact-head CI; if already integrated for this handoff, alert
+      the Executor rather than repeating the cycle.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
       the ticket in `agent:rework` (`aiur_set_ticket_state`), and begin the
       repair loop.

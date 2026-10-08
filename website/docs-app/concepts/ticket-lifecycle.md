@@ -119,6 +119,22 @@ The tool takes only the target state and makes it the sole `agent:*` state
 label, from the issue Aiur re-reads at write time
 (`GitHub.IssueState.swap_labels/4`).
 
+For `human-review`, the GitHub writer checks the exact PR head against current
+`tracker.base_branch`, in addition to clearing review threads. A stale head
+passes when it has no conflicts and no changed-file overlap with base changes
+since the merge base. Rename checks include old and new paths.
+
+Conflicts or overlap leave labels unchanged and return an update instruction.
+Disjoint paths pass even while GitHub reports `UNKNOWN` mergeability or a lagging
+PR base SHA. Mismatched heads or base branches, malformed observations and
+incomplete comparison data block the write. Harmless base movement needs no
+merge or CI rerun.
+
+Workers assess integration safety before marking the PR ready and after CI.
+They integrate at most once per handoff, validate and push, keep the PR ready,
+then await new-head CI in `ci-wait`. Another unsafe base change after that
+integration requires an Executor alert rather than another merge/CI cycle.
+
 When a pair does form, the heal prefers the label that arrived *since* the
 orchestrator's own claim over the claim itself — whenever the orchestrator can
 identify its claim, from its running entry or the previous poll.
@@ -633,8 +649,22 @@ daemon is down cannot produce a transition wake.
 The agent is subscribed to its own issue comments and PR review comments and
 unpauses to implement findings; a CI failure routes the ticket to `agent:rework`
 (`src/lib/aiur/orchestrator/comment_wake.ex`, `auto_resume.ex`,
-`pause_resume.ex`, `push_routing.ex`). Trusted feedback becomes a rework run;
-an operator comment directs the same agent.
+`pause_resume.ex`, `push_routing.ex`).
+
+Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route both
+`agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
+reviews without inline threads.
+
+Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
+`Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
+fix requested “before merge”. Clean summaries such as “No blockers; waiting on
+CI” or “All blockers resolved” do not route to rework.
+
+Failed CI in `agent:human-review` routes to rework when that head already passed
+CI or the head changed. An inherited failure on a dismissed head remains held;
+the existing test-only one-poll retry still applies.
+
+An operator comment directs the same agent.
 
 One precondition is worth naming: **`agent:rework` is gated.**
 `ReworkGate.verify_open_pr/2` (`src/lib/aiur/orchestrator/rework_gate.ex:23-34`)
