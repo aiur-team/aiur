@@ -47,6 +47,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter.View do
           identifier: String.t() | nil,
           title: String.t(),
           description: String.t() | nil,
+          description_truncated?: boolean(),
           lifecycle: %{state: atom(), reason: atom()},
           detail: map(),
           history: map(),
@@ -87,6 +88,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter.View do
     :latest_evidence,
     :logs,
     capabilities: [],
+    description_truncated?: false,
     dependencies: %{blocked_by: [], blocking: []}
   ]
 end
@@ -164,6 +166,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
       identifier: identifier(identity),
       title: detail.title,
       description: detail.description,
+      description_truncated?: detail.description_truncated?,
       lifecycle: detail.lifecycle,
       detail: Map.take(detail, [:state, :observed_at, :last_success_at, :last_attempt_at]),
       history: history_view(history, history_matches?),
@@ -194,6 +197,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
       state: state_name,
       title: snapshot_title(snapshot, identity),
       description: snapshot_description(snapshot),
+      description_truncated?: snapshot_description_truncated?(snapshot),
       lifecycle: snapshot_lifecycle(snapshot),
       observed_at: snapshot_observed_at(snapshot),
       last_success_at: datetime(state.last_success_at),
@@ -210,8 +214,11 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp snapshot_title(%Snapshot{title: title}, identity), do: safe_title(title, identity)
   defp snapshot_title(_snapshot, identity), do: fallback_title(identity)
 
-  defp snapshot_description(%Snapshot{description: description}), do: safe_description(description)
+  defp snapshot_description(%Snapshot{description: description}), do: description
   defp snapshot_description(_snapshot), do: nil
+
+  defp snapshot_description_truncated?(%Snapshot{description: description}), do: description_truncated?(description)
+  defp snapshot_description_truncated?(_snapshot), do: false
 
   defp snapshot_lifecycle(%Snapshot{lifecycle: %Lifecycle{} = lifecycle}) do
     %{state: lifecycle_state(lifecycle.state), reason: lifecycle_reason(lifecycle.state_reason)}
@@ -386,6 +393,7 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
       identifier: identifier(identity),
       title: safe_title(view.title, identity),
       description: safe_description(view.description),
+      description_truncated?: view.description_truncated? == true or description_truncated?(view.description),
       lifecycle: normalized_lifecycle(view.lifecycle),
       detail: normalized_detail(view.detail),
       history: normalized_history(view.history),
@@ -599,16 +607,21 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
     with {:ok, href} <- Bounded.commands_route(href), do: {:ok, href, false}
   end
 
-  # Planning-doc link (pre-ticket): any bounded https://github.com URL, opened
-  # externally.
-  defp available_href(:document, _variant, href, _identity, _capability) do
+  defp available_href(:document, _variant, href, identity, _capability) do
+    case Bounded.planning_document_route_for(href, identity) do
+      {:ok, route} -> {:ok, route, false}
+      :error -> external_document_href(href)
+    end
+  end
+
+  defp available_href(_kind, _variant, _href, _identity, _capability), do: :error
+
+  defp external_document_href(href) do
     case document_href(href) do
       {:ok, href} -> {:ok, href, true}
       :error -> :error
     end
   end
-
-  defp available_href(_kind, _variant, _href, _identity, _capability), do: :error
 
   defp document_href(value) when is_binary(value) and byte_size(value) in 1..512 do
     case URI.parse(value) do
@@ -737,10 +750,25 @@ defmodule AiurWeb.BuildOrder.TicketContextPresenter do
   defp safe_description(nil), do: nil
 
   defp safe_description(value) do
-    case safe_text(value, @max_description_bytes) do
-      {:ok, ""} -> nil
-      {:ok, description} -> description
-      :error -> nil
+    case safe_text(value, 64_000) do
+      {:ok, ""} ->
+        nil
+
+      {:ok, description} when byte_size(description) > @max_description_bytes ->
+        description |> binary_part(0, @max_description_bytes) |> String.replace_invalid("")
+
+      {:ok, description} ->
+        description
+
+      :error ->
+        nil
+    end
+  end
+
+  defp description_truncated?(value) do
+    case safe_text(value, 64_000) do
+      {:ok, description} -> byte_size(description) > @max_description_bytes
+      :error -> false
     end
   end
 

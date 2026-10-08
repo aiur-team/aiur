@@ -148,6 +148,12 @@ defmodule AiurWeb.Router do
     end
   end
 
+  scope "/", AiurWeb do
+    pipe_through([:dashboard_auth, :secure_document])
+
+    get("/build-order-documents/:owner/:repository/:root_number/:member_number", PlanningDocumentController, :show)
+  end
+
   # Agent-write endpoints driven from the browser/API. Writes are enabled by
   # default; set `observability.dashboard_writable: false` to make them read-only.
   scope "/", AiurWeb do
