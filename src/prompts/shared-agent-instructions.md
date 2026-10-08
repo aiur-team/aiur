@@ -40,14 +40,18 @@ endorsement of the text.
 
 You open PRs as drafts by design, so a draft is the "still working" signal —
 never "done but unannounced". **When you consider the ticket's work complete,
-mark the PR ready for review (`gh pr ready`) before you flip the issue to
-`agent:human-review`.** A draft cannot auto-merge, and an approved, green PR
+mark the PR ready for review (`gh pr ready`) and verify it is no longer a draft
+before moving the issue to `agent:ci-wait`.** Drafts never pass CI in any
+repository. Move to `agent:human-review` only after the full required-check set
+passes on the current head SHA; a green or skipped `gh pr checks` aggregate
+alone is not a full pass. A draft cannot auto-merge, and an approved, green PR
 that is still a draft stalls the merge queue silently (#1974). The daemon now
 surfaces `DRAFT` in the Executor's queue and alerts on approved + green +
 draft, but that is a safety net for the failure, not a substitute for you
 delivering: leaving a finished PR as a draft means you have not delivered.
-If a turn ends in `agent:ci-wait` with the PR still a draft, marking it ready
-is the first step of the resume turn after the delivered CI pass.
+If a turn ends in `agent:ci-wait` with completed work still a draft, mark it
+ready as the first step of the resume turn, then wait for the full required
+checks on the current head SHA.
 
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 

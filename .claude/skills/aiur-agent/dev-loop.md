@@ -1,5 +1,10 @@
 # Dev loop
 
+In every repository, mark completed, self-reviewed work ready **before**
+entering `agent:ci-wait`. Drafts never pass CI, including a draft fast-gate pass.
+Only the full required-check set passing on the current head SHA permits
+`agent:human-review`. A green or skipped `gh pr checks` aggregate is not proof.
+
 ## Branch
 
 The branch already exists when your workspace boots. Read it with `git -C "$workspace" branch --show-current` and push or open the PR against that exact ref. New tickets use the generated readable Aiur branch; existing legacy and PR-anchored heads remain unchanged. Do not rename it or reconstruct one from the issue number. The numeric `ticket.<N>.branch.push` event key remains stable even when the actual branch has a suffix.
@@ -319,29 +324,29 @@ focused test runner, test-tree paths and CI gate at each step.
 11. Implement any issues `ce-code-review` surfaces (commit + push the fixes).
 12. Re-run the scoped local pre-PR verification gate after review fixes if any
     code, tests, prompt, skill, or config files changed.
-13. Recheck current-base ancestry after fixes. If the base moved, integrate it,
-    rerun the scoped gate, and push before continuing.
+13. **Freshness checklist (before `gh pr ready` or `human-review`):**
+    verify the PR's `baseRefName` equals `AIUR_BASE_BRANCH` and its
+    `headRefOid` equals your local `HEAD`. Run
+    `git -C "$workspace" fetch origin "$AIUR_BASE_BRANCH"`, then
+    `git -C "$workspace" merge-base --is-ancestor "origin/$AIUR_BASE_BRANCH" HEAD`.
+    A fetch/probe error is not permission to hand off. On exit 1, record the
+    pre-merge head and create a rescue ref, merge the configured base,
+    validate and push; return to `ci-wait` for CI on the new head. Preserve
+    feature scope and push the rescue ref before resolving nontrivial conflicts.
+    Record the observed base SHA, exact PR head and ancestry result in the
+    workpad. The GitHub state writer also refuses a stale head and returns
+    one update instruction in the tool response; follow it before retrying.
 14. If you still believe the work is complete and correct and only CI remains,
-    keep the PR as a draft, move the ticket with
-    `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do
+    mark the PR ready (`gh pr ready`) and verify it is no longer a draft, then
+    move the ticket with `aiur_set_ticket_state({ "state": "ci-wait" })`, and end the turn. Do
     not loop on `gh pr checks` + sleep: the daemon polls CI centrally and
     returns the dispatch slot while this runner is paused.
 15. On a delivered terminal CI event:
-    - **Freshness checklist (before `gh pr ready` or `human-review`):**
-      verify the PR's `baseRefName` equals `AIUR_BASE_BRANCH` and its
-      `headRefOid` equals your local `HEAD`. Run
-      `git -C "$workspace" fetch origin "$AIUR_BASE_BRANCH"`, then
-      `git -C "$workspace" merge-base --is-ancestor "origin/$AIUR_BASE_BRANCH" HEAD`.
-      A fetch/probe error is not permission to hand off. On exit 1, record the
-      pre-merge head and create a rescue ref, merge the configured base,
-      validate and push; return to `ci-wait` for CI on the new head. Preserve
-      feature scope and push the rescue ref before resolving nontrivial conflicts.
-      Record the observed base SHA, exact PR head and ancestry result in the
-      workpad. The GitHub state writer also refuses a stale head and returns
-      one update instruction in the tool response; follow it before retrying.
-    - **Passed:** run the freshness checklist above. If the observed base head is
-      an ancestor of the tested PR head, trust the delivered result without re-polling,
-      mark the PR ready for review, emit the required 100% progress sample, and
+    - **Passed:** require the full required-check set to have passed on the
+      current head SHA and verify the PR is ready. Run the freshness checklist
+      in step 13 again. If the observed base head is an ancestor of the tested
+      PR head, trust the delivered result without re-polling, emit the required
+      100% progress sample, and
       move the ticket with `aiur_set_ticket_state({ "state": "human-review" })`.
       Use that tool, never `gh issue edit --remove-label agent:ci-wait
       --add-label agent:human-review`: the daemon's CI-pass handoff already
@@ -353,10 +358,12 @@ focused test runner, test-tree paths and CI gate at each step.
     - **Failed:** use the delivered failed-check names and excerpt, keep or move
       the ticket in `agent:rework` (`aiur_set_ticket_state`), and begin the
       repair loop.
-16. On a CI re-wake timeout, run `gh pr checks` exactly once. If CI is terminal,
-    follow the pass or failure path; if it is still pending, return to
-    `agent:ci-wait` (`aiur_set_ticket_state`) and end the turn without polling
-    again.
+16. On a CI re-wake timeout, check CI exactly once. Drafts never pass: mark
+    completed, self-reviewed work ready before waiting again. A green or skipped
+    `gh pr checks` aggregate alone is not a full pass; verify the full
+    required-check set passed on the current head SHA before following the pass
+    path. Follow the failure path for failures; otherwise return to
+    `agent:ci-wait` (`aiur_set_ticket_state`) and end the turn without polling again.
 
 Do **not** self-merge. Always await user review after marking the PR ready.
 
