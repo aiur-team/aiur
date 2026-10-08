@@ -20,6 +20,8 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   `empty_supported`), standing, freshness, and reset distinct.
   """
 
+  alias AiurWeb.OperatorControlCenter.AccountUsagePresenter
+
   alias Aiur.CodingAgent
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.FinancialDataAccess
@@ -128,7 +130,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       ingested_at: ingested_at(snapshot),
       windows: windows(snapshot, known?),
       summary_label: if(snapshot, do: snapshot.summary_label),
-      account_usage: AiurWeb.OperatorControlCenter.AccountUsagePresenter.present(account_readings)
+      account_usage: AccountUsagePresenter.present(account_readings)
     }
   end
 
