@@ -113,6 +113,35 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     :ok = Exchange.unsubscribe(topic)
   end
 
+  test "a hanging idle verifier timeout counts as one attempt and ignores duplicate timeout delivery" do
+    issue = %Issue{id: "hung-read", identifier: "hung-read", state: "in-progress"}
+    parent = self()
+
+    pending =
+      IssueSync.sync_polled_issue_state(
+        owned_state(last_polled_issues: %{issue.id => issue}),
+        [],
+        fn [_] ->
+          wait_for_release(parent)
+          {:ok, []}
+        end,
+        fn _, _ -> flunk("a hanging verifier cannot observe membership") end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _, _ -> :ok end
+      )
+
+    receive_barrier({:io_waiting, worker})
+    [ref] = Map.keys(pending.tracker_tasks)
+    assert pending.terminal_verification_attempts == %{issue.id => 0}
+    assert {:noreply, timed_out} = Aiur.Orchestrator.handle_info({:tracker_task_timeout, ref}, pending)
+    refute Process.alive?(worker)
+    assert timed_out.tracker_tasks == %{}
+    assert timed_out.last_polled_issues == %{issue.id => issue}
+    assert timed_out.terminal_verification_attempts == %{issue.id => 1}
+    assert {:noreply, ^timed_out} = Aiur.Orchestrator.handle_info({:tracker_task_timeout, ref}, timed_out)
+  end
+
   test "overlapping polls count one completed idle verification read only once" do
     issue = %Issue{id: "held-read", identifier: "held-read", state: "in-progress"}
     parent = self()
