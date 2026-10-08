@@ -209,6 +209,7 @@ alerts:
 # server: { port: 4000 }                # host omitted = 127.0.0.1 (or AIUR_DEFAULT_DASHBOARD_HOST); set host explicitly for remote access
 # Tailscale Funnel is not detected automatically; opt in only if this Aiur
 # dashboard owns Funnel HTTPS 443 and should alert on a stale target.
+# server: { tailscale_funnel: true }     # reconcile an operator-enabled Funnel on HTTPS 443 to this dashboard's current bound port
 # observability: { build_order_funnel_health_check: true }
 # worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
 # events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
