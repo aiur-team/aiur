@@ -401,11 +401,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
         case queued_issue_resumability(state, issue) do
           :ok ->
-            if Issue.paused?(issue) do
-              tracker_io(state, action, identifier, {:queued_cleared, issue}, :remove_label, [issue.identifier, pause_override_label()])
-            else
-              tracker_io(state, action, identifier, {:queued_refreshed, issue}, :fetch_issue_states_by_ids, [[issue.id]])
-            end
+            refresh_queued_resume(state, action, identifier, issue)
 
           {:error, reason} ->
             {:reply, {:error, maybe_stale_tracker_reason(reason, cached, issue)}, state}
@@ -443,6 +439,14 @@ defmodule Aiur.Orchestrator.PauseResume do
       other ->
         state = if other == {:ok, []} and state.last_polled_issues[cleared.id] == cleared, do: %{state | last_polled_issues: Map.delete(state.last_polled_issues, cleared.id)}, else: state
         {:reply, {:error, tracker_refresh_error(other, :tracker_issue_not_found)}, state}
+    end
+  end
+
+  defp refresh_queued_resume(state, action, identifier, issue) do
+    if Issue.paused?(issue) do
+      tracker_io(state, action, identifier, {:queued_cleared, issue}, :remove_label, [issue.identifier, pause_override_label()])
+    else
+      tracker_io(state, action, identifier, {:queued_refreshed, issue}, :fetch_issue_states_by_ids, [[issue.id]])
     end
   end
 
@@ -2677,15 +2681,7 @@ defmodule Aiur.Orchestrator.PauseResume do
     timeout_ms = Application.get_env(:aiur, :control_api_call_timeout_ms, 5_000)
 
     if GenServer.whereis(server) do
-      case GenServer.call(server, request, timeout_ms) do
-        {:tracker_io, {action, identifier, stage}, function, args} ->
-          with {:ok, result} <- control_caller_work(action, identifier, fn -> perform_tracker_io(function, args) end) do
-            control_api_call(server, {:tracker_control_result, action, identifier, stage, result})
-          end
-
-        reply ->
-          reply
-      end
+      finish_control_api_call(server, GenServer.call(server, request, timeout_ms))
     else
       {:error, :unavailable}
     end
@@ -2700,6 +2696,14 @@ defmodule Aiur.Orchestrator.PauseResume do
     :exit, {{:nodedown, _node}, _} -> {:error, :unavailable}
     :exit, reason -> {:error, {:orchestrator_call_failed, reason}}
   end
+
+  defp finish_control_api_call(server, {:tracker_io, {action, identifier, stage}, function, args}) do
+    with {:ok, result} <- control_caller_work(action, identifier, fn -> perform_tracker_io(function, args) end) do
+      control_api_call(server, {:tracker_control_result, action, identifier, stage, result})
+    end
+  end
+
+  defp finish_control_api_call(_server, reply), do: reply
 
   @doc false
   @spec put_running_control_status(State.t(), String.t(), :paused | :working) :: State.t()

@@ -176,11 +176,12 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       previous = Application.get_env(:aiur, key)
       Application.put_env(:aiur, key, value)
 
-      on_exit(fn ->
-        if is_nil(previous), do: Application.delete_env(:aiur, key), else: Application.put_env(:aiur, key, previous)
-      end)
+      on_exit(fn -> restore_application_env(key, previous) end)
     end
   end
+
+  defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_application_env(key, previous), do: Application.put_env(:aiur, key, previous)
 
   defp assert_tracker_does_not_hold_control(task, orchestrator) do
     # Hold the real tracker call beyond the control budget, then exercise the
