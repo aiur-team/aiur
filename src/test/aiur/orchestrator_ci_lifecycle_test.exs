@@ -82,6 +82,37 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   end
 
   describe "CI lifecycle coordination" do
+    test "draft fast gate never promotes ci-wait; ready full checks do" do
+      identifier = unique_identifier("draft-fast-gate")
+      RecordingGitHubClient.record_to(self())
+      ticket = issue(identifier, "ci-wait")
+      required = [%{name: "lint", app_id: nil}, %{name: "test", app_id: nil}]
+      check = %{"name" => "lint", "status" => "completed", "conclusion" => "success"}
+      pr = %{"number" => 71, "head" => %{"sha" => "head-71"}, "base" => %{"ref" => "main"}, "draft" => true}
+
+      opts = [
+        ci_issue_fetcher: fn _ -> {:ok, [ticket]} end,
+        required_check_fetcher: fn _ -> {:ok, required} end,
+        draft_stall_alert_loader: fn -> MapSet.new() end,
+        parked_ready_alert_loader: fn -> MapSet.new() end
+      ]
+
+      batch = %{identifier => %{pull_request: pr, check_runs: [check], commit_status: %{"statuses" => []}}}
+      next = CiLifecycle.poll_github_ci(%State{}, Keyword.put(opts, :ci_batch_fetcher, fn _, _ -> {:ok, batch} end))
+      refute_received {:tracker_update, ^identifier, _, _}
+      assert next.ci_lifecycle.approved_heads == %{}
+
+      batch = put_in(batch, [identifier, :pull_request, "draft"], false)
+      next = CiLifecycle.poll_github_ci(%{next | last_ci_poll_started_at_ms: nil}, Keyword.put(opts, :ci_batch_fetcher, fn _, _ -> {:ok, batch} end))
+      refute_received {:tracker_update, ^identifier, _, _}
+      assert next.ci_lifecycle.approved_heads == %{}
+
+      batch = put_in(batch, [identifier, :check_runs], [check, %{check | "name" => "test"}])
+      next = CiLifecycle.poll_github_ci(%{next | last_ci_poll_started_at_ms: nil}, Keyword.put(opts, :ci_batch_fetcher, fn _, _ -> {:ok, batch} end))
+      assert_received {:tracker_update, ^identifier, "in-progress", _}
+      assert next.ci_lifecycle.approved_heads[identifier] == "head-71"
+    end
+
     test "a delivered (displaced) result is inert: no transition, no cache projection" do
       identifier = unique_identifier("ci-delivered-inert")
       issue = issue(identifier, "ci-wait")
@@ -155,6 +186,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
           ci_batch_fetcher: fn [_target], _opts -> {:error, {:github, :rate_limited, %{status: 429}}} end,
           request_fun: request_fun,
+          required_check_fetcher: fn _ -> {:ok, []} end,
           token: "test-gh-token",
           parked_ready_alert_loader: fn -> MapSet.new() end,
           draft_stall_alert_loader: fn -> MapSet.new() end
@@ -928,6 +960,10 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert event.topic == "ticket.#{identifier}.ci.rewake"
       assert event.source == :system
       assert event.message =~ "Check CI once"
+      assert event.message =~ "Drafts never pass CI in any repository"
+      assert event.message =~ "mark completed, self-reviewed work ready before waiting"
+      assert event.message =~ "Before agent:human-review, require the full required-check set to pass on the current head SHA"
+      assert event.message =~ "green or skipped gh pr checks aggregate alone is not a full pass"
       assert event.message =~ "return to agent:ci-wait"
     end
 

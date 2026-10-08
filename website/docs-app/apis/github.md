@@ -28,6 +28,19 @@ Polling remains the complete fallback because it reads current GitHub state even
 
 The development `scripts/aiurdev --test` and `--test3` harnesses still read GitHub's issue lists, but pass only their pinned sandbox tickets to dispatch authorization, startup workspace cleanup, and tracker reconciliation. Ordinary runs retain full issue discovery.
 
+Each CI poll reads the configured base branch's active rules and classic branch
+protection once for the batch, then requires every required check on the current
+PR head from its configured integration.
+
+A failed required-check lookup keeps a
+green aggregate pending; missing and skipped required checks cannot pass.
+The two reads are attributed to `ci_required_checks` and bypass the shared read
+cache because they govern a CI verdict.
+
+Draft PRs remain pending even when
+their fast gate is green. Completed work must be marked ready before CI wait so
+`ready_for_review` can start the full suite.
+
 The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails.
 
 Review submissions are polled during `agent:ci-wait` as well as `agent:human-review`, so trusted `CHANGES_REQUESTED` and non-blank `COMMENTED` reviews can route either state to `agent:rework` without waiting for CI to finish, including body-only reviews without inline threads.
