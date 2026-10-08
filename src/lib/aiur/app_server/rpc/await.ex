@@ -33,6 +33,10 @@ defmodule Aiur.AppServer.Rpc.Await do
       {^port, {:exit_status, status}} ->
         unless sensitive_response? or pending_line == "", do: StreamDiagnostics.record(port, pending_line)
         {:error, {:port_exit, status}}
+
+      {:EXIT, ^port, reason} ->
+        unless sensitive_response? or pending_line == "", do: StreamDiagnostics.record(port, pending_line)
+        {:error, {:port_exit, reason}}
     after
       timeout_ms ->
         retain_timeout(port, request_id, pending_line, sensitive_response?)
