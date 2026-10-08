@@ -395,8 +395,10 @@ functionality is confirmed working in the CLI.
 Manual CLI verification is in addition to the scoped local pre-PR verification
 gate above, not a replacement for it. A PR is not ready for human review until
 the target repository's required local checks pass. In Aiur's Elixir core,
-use compile, format and affected tests with the four-case cap; Credo belongs
-to CI as specified above. Use the target repository's full CI gate, which is
+use compile, format and affected tests with the four-case cap, plus
+`mise exec -- mix lint` from `src/` and
+`python3 scripts/check-bare-assert-receive.py` from the repository root.
+Use the target repository's full CI gate, which is
 `make ci` for Aiur's Elixir core; do not loop locally on unrelated suite flakes.
 
 ## Closing keyword in the PR description

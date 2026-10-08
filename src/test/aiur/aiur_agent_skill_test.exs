@@ -647,6 +647,7 @@ defmodule Aiur.AiurAgentSkillTest do
     assert source =~ "mise exec -- mix lint"
     assert source =~ "python3 scripts/check-bare-assert-receive.py"
     refute source =~ "Do not run Credo locally"
+    refute source =~ "Credo belongs to CI"
     assert source =~ "`make ci` is the authoritative full lint and full-suite gate"
     refute source =~ "mix dialyzer"
 
