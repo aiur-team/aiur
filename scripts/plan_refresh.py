@@ -245,7 +245,7 @@ def report(repo, before, after, documents, ledger):
     table('Stale citations by ticket', ['Ticket / document', 'Source', 'Citation', 'Status'], sorted(citations))
     table('Size owners by ticket', ['Ticket', 'Path', 'Lines', 'Declared owner', 'Status'], sizes)
     table('Contract versions (metadata only)', ['Contract', 'Status', 'Base main SHA', 'Date'], contracts)
-    return '\n'.join(output)
+    return '\n'.join(output).rstrip()
 
 
 def main():
