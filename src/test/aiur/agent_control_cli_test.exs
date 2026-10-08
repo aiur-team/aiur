@@ -458,9 +458,10 @@ defmodule Aiur.AgentControlCLITest do
     |> Map.put(:last_codex_message, Keyword.get(opts, :last_codex_message))
   end
 
-  setup do
+  setup context do
     pid = Process.whereis(Orchestrator)
     original_state = orchestrator_state!(pid)
+
     original_health_status_fun = Application.get_env(:aiur, :supervision_health_status_fun)
     original_loadavg = Application.get_env(:aiur, :loadavg_source_override)
 
@@ -479,6 +480,11 @@ defmodule Aiur.AgentControlCLITest do
 
     :sys.replace_state(pid, fn state ->
       if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+      state =
+        if context[:stale_dispatch_poll],
+          do: %{state | last_dispatch_poll_at_ms: System.monotonic_time(:millisecond) - 3_600_000},
+          else: state
 
       %{
         state
@@ -500,6 +506,8 @@ defmodule Aiur.AgentControlCLITest do
           poll_check_in_progress: false,
           poll_frozen: true,
           candidate_snapshot_fresh?: true,
+          # Frozen polling cannot refresh an inherited timestamp during a long suite.
+          last_dispatch_poll_at_ms: System.monotonic_time(:millisecond),
           snapshot_ready?: false,
           # Pin the pre-reconciliation baseline. The "orphaned claim" case below
           # asserts the `[waiting=orphaned_claim]` classification, which only
@@ -1967,6 +1975,29 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "COMMENT TRUST source=file trusted=[@its-applekid, @its-everdred] path=.github/CODEOWNERS"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
     assert Process.alive?(pid)
+  end
+
+  @tag stale_dispatch_poll: true
+  test "status fixture refreshes an inherited stale dispatch poll", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{state | last_polled_issues: %{"issue-queued" => queued_issue()}, max_concurrent_agents: 10}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+    assert output =~ "AGENTS 0/10 (binding: awaiting dispatch; ceiling: config max_concurrent_agents)"
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_dispatch_poll_at_ms: System.monotonic_time(:millisecond) - 100_000,
+          poll_interval_ms: 1_000,
+          effective_poll_interval_ms: 1_000
+      }
+    end)
+
+    stale_output = capture_io(fn -> AgentControlCLI.status() end)
+    assert stale_output =~ ~r/AGENTS 0\/10 \(binding: dispatch poll stale \(\d+s ago\)\)/
+    refute stale_output =~ "binding: awaiting dispatch"
   end
 
   test "status reports active build-gate contention", %{orchestrator: pid} do
