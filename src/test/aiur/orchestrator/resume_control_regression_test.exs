@@ -29,7 +29,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       receive do
         {:tracker_reply, result} -> result
       after
-        5_000 -> {:error, :test_tracker_timeout}
+        30_000 -> {:error, :test_tracker_timeout}
       end
     end
   end
@@ -52,6 +52,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
         | snapshot_generation: snapshot_generation,
           running: %{},
           last_polled_issues: %{},
+          retry_attempts: %{},
           claimed: MapSet.new(),
           blocked_ticket_ids: nil,
           control_lifecycle: %ControlLifecycle{},
@@ -187,8 +188,10 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
     # Hold the real tracker call beyond the control budget, then exercise the
     # mailbox rather than accepting a cached status projection as responsiveness.
     assert Task.yield(task, 200) == nil
-    assert is_map(:sys.get_state(orchestrator, 1_000))
-    assert is_list(Orchestrator.status(Orchestrator, 1_000))
+    # Coverage instrumentation may delay scheduling; the tracker barrier stays
+    # held for longer than either probe, so a blocking handler still fails.
+    assert is_map(:sys.get_state(orchestrator, 5_000))
+    assert is_list(Orchestrator.status(Orchestrator, 5_000))
   end
 
   describe "slow tracker control commands" do
@@ -204,6 +207,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       command = Task.async(fn -> capture_io(fn -> AgentControlCLI.reset_budget([issue.identifier]) end) end)
       receive_barrier({:tracker_waiting, caller, :fetch, ["3033"]})
       on_exit(fn -> send(caller, {:tracker_reply, {:error, :test_cleanup}}) end)
+      assert caller == command.pid
       assert_tracker_does_not_hold_control(command, pid)
       assert {:ok, 10} = DispatchBudgetStore.lifetime(issue.id)
       send(caller, {:tracker_reply, {:ok, [issue]}})
@@ -233,6 +237,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       command = Task.async(fn -> with_resume_confirm_timeout(3_000, fn -> capture_io(fn -> AgentControlCLI.resume(["44"]) end) end) end)
       receive_barrier({:tracker_waiting, caller, :remove, ["44", "agent:paused"]})
       on_exit(fn -> send(caller, {:tracker_reply, {:error, :test_cleanup}}) end)
+      assert caller == command.pid
       assert_tracker_does_not_hold_control(command, pid)
       send(caller, {:tracker_reply, :ok})
 
@@ -251,6 +256,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       command = Task.async(fn -> PauseResume.resume_agent(pid, issue.identifier) end)
       receive_barrier({:tracker_waiting, caller, :fetch, ["3101"]})
       on_exit(fn -> send(caller, {:tracker_reply, {:error, :test_cleanup}}) end)
+      assert caller == command.pid
       assert_tracker_does_not_hold_control(command, pid)
       send(caller, {:tracker_reply, {:ok, [issue]}})
 
@@ -277,6 +283,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       command = Task.async(fn -> PauseResume.resume_agent(pid, "44") end)
       receive_barrier({:tracker_waiting, caller, :fetch, ["44"]})
       on_exit(fn -> send(caller, {:tracker_reply, {:error, :test_cleanup}}) end)
+      assert caller == command.pid
       assert_tracker_does_not_hold_control(command, pid)
       send(caller, {:tracker_reply, {:ok, [%{entry.issue | state: "done", labels: ["agent:done"]}]}})
 
@@ -293,6 +300,7 @@ defmodule Aiur.Orchestrator.ResumeControlRegressionTest do
       command = Task.async(fn -> PauseResume.resume_agent(pid, issue.identifier) end)
       receive_barrier({:tracker_waiting, caller, :fetch, ["3101"]})
       on_exit(fn -> send(caller, {:tracker_reply, {:error, :test_cleanup}}) end)
+      assert caller == command.pid
       assert_tracker_does_not_hold_control(command, pid)
       :sys.replace_state(pid, fn state -> %{state | globally_paused: true} end)
       send(caller, {:tracker_reply, {:ok, [issue]}})
