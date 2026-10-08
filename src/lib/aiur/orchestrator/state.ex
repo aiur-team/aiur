@@ -63,11 +63,11 @@ defmodule Aiur.Orchestrator.State do
           tick_token: reference() | nil,
           initial_dispatch_cycle: boolean() | nil,
           startup_claim_reconciliation_complete?: boolean(),
-          # Per-ticket startup-claim release failures within this boot:
-          # `%{identifier => %{reason: term(), attempts: pos_integer()}}`.
+          # Per-ticket startup-claim release failures: reason and attempt count.
           startup_claim_reconciliation_failures: map(),
           queue_store: term(),
           last_polled_issues: map(),
+          tracker_observations: %{optional(String.t()) => DateTime.t()},
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             approved_heads: map(),
@@ -239,6 +239,7 @@ defmodule Aiur.Orchestrator.State do
     dispatch_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
+    tracker_observations: %{},
     human_review_observed_ids: nil,
     ci_lifecycle: %{
       approved_heads: %{},
@@ -340,8 +341,7 @@ defmodule Aiur.Orchestrator.State do
     rework_attempt_alerted: MapSet.new(),
     snapshot_ready?: false,
     candidate_snapshot_fresh?: true,
-    # Full poll cycles completed since this daemon started. The idle poll
-    # backoff is only permitted once at least one cycle has run, so a freshly
+    # Idle backoff requires a completed cycle, so a freshly
     # restarted daemon — which has observed no idleness yet — polls at the base
     # interval first instead of starting already backed off (#2138).
     poll_cycles_completed: 0,

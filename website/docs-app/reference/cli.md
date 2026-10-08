@@ -146,6 +146,10 @@ Waiting rows in `aiur agents`, `aiur status` and `aiur watch` append the reason,
 
 An unrecorded start reads `since unknown`, never zero. Dependency and lifetime-latch waits always read `since unknown`: a blocker edge has no recorded start, and the latch stores only a dispatch count.
 
+`status`, `agents`, and `watch` always show the fleet snapshot age, including fresh snapshots. The shared read model includes `observations` for fleet, capacity, per-ticket tracker data, retries, and the dispatch sample; each has `observed_at` and `age_ms`. Rows carry their own observation age. Capacity slot counts use the captured state time; cached load fields use `capacity.dispatch_observation` and the dispatch sample age. Missing observations render `age unavailable`, never zero. For example: `FLEET SNAPSHOT 2s old`, `CAPACITY OBSERVATION 2s old`.
+
+Retry failures retain their last failure observation and are labelled `since daemon start <UTC time>`. Retry state resets on daemon restart; durable launch evidence lives in the run log directory's `<repo>.<ticket>.startup-failures.ndjson`.
+
 The status JSON payload adds `waiting: {reason, owner, cause, since, age_ms}` to running, retry and idle rows. Unknown causes use `unknown`; unknown timestamps and ages are `null`. Ages describe the snapshot's observation. Existing `waiting_reason` atoms remain unchanged; a pending lifecycle fence changes only the owner, cause and since.
 
 Per-ticket `aiur resume` and `aiur reset-budget` perform tracker reads and label writes outside the orchestrator process, so slow tracker requests do not hold up its control calls. Budget changes and resume eligibility checks remain serialized in the orchestrator.

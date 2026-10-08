@@ -102,6 +102,8 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       |> assign(:all_active, MapSet.equal?(assigns.filters, MapSet.new(FleetFilters.all())))
 
     ~H"""
+    <p class="muted">Fleet snapshot {Aiur.Orchestrator.StatusObservation.label(@fleet[:snapshot_freshness])}</p>
+    <p :for={{group, observation} <- @fleet[:observations] || %{}} class="muted">{group}: {Aiur.Orchestrator.StatusObservation.label(observation)}</p>
     <section class="overview-strip" aria-label="Fleet filters">
       <button
         :for={{key, label, tone} <- @stats}

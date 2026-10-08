@@ -49,7 +49,7 @@ defmodule AiurWeb.OperatorControlCenter.CapacityPresenter do
       max_label: number_label(max),
       source_label: source_label(session_override?, configured),
       state_label: state_label(draining?, max),
-      summary: summary(active, max, draining?, session_override?)
+      summary: summary(active, max, draining?, session_override?) <> " " <> Aiur.Orchestrator.StatusObservation.label(capacity)
     }
   end
 

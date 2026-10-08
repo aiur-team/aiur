@@ -79,8 +79,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
-  # Only reachable before the first publish of a generation — the short window
-  # after a restart, where the read model genuinely has nothing and a bounded
+  # Before the first publish, the read model has nothing and a bounded
   # call is the honest way to get an answer rather than telling the operator to
   # retry. It is never the steady-state path, so it cannot reintroduce the
   # head-of-line block: an Orchestrator that has been running long enough to be
@@ -203,6 +202,12 @@ defmodule Aiur.Orchestrator.StatusReport do
   def snapshot_input(%State{} = state) do
     state
     |> Map.take([
+      :orphaned_agent_reap_count,
+      :startup_claim_reconciliation_complete?,
+      :dispatch_capacity_sample,
+      :claimed,
+      :model_fallback_waiting,
+      :blocked_ticket_ids,
       :agent_rate_limits,
       :agent_totals,
       :capacity_hold,
@@ -210,14 +215,12 @@ defmodule Aiur.Orchestrator.StatusReport do
       :dispatch_declines,
       :dispatch_hold,
       :dispatch_selection_hold,
-      # `agent_statuses/1` reads the codex thrash budget to explain why an idle
-      # ticket is not dispatching. Projecting without it would fall back to the
-      # struct default and render a confident wrong *reason* on every idle row.
       :dispatch_recovery,
       :effective_concurrent_agents,
       :global_pause,
       :globally_paused,
       :last_polled_issues,
+      :tracker_observations,
       :last_dispatch_poll_at_ms,
       :load_envelope_state,
       :max_concurrent_agents,
@@ -237,6 +240,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
     |> Map.put(:control_lifecycle, snapshot_control_lifecycle(state))
     |> Map.put(:queue_store, snapshot_queue_store(state))
+    |> Map.put(:status_observed_at, DateTime.utc_now())
   end
 
   # The asynchronous projection needs only the cached result for rows it can
@@ -370,7 +374,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   """
   @spec fleet_view_call(State.t()) :: {:reply, map(), State.t()}
   def fleet_view_call(%State{} = state),
-    do: {:reply, Map.put(snapshot_payload(state), :statuses, agent_statuses(state)), state}
+    do: {:reply, Aiur.Orchestrator.StatusObservation.refresh(Map.put(snapshot_payload(state), :statuses, agent_statuses(state))), state}
 
   @doc false
   @spec snapshot_payload(State.t()) :: map()
@@ -395,12 +399,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       running: running,
       retrying: retrying,
       idle: idle,
-      # The `status`/`watch` rows are deliberately *not* built here. This runs on
-      # every state change, and `agent_statuses/1` reads `dispatch-budgets.json`
-      # and calls `RepoBase`; paying that continuously to save it on a command an
-      # operator types occasionally is a bad trade on a box that also runs the
-      # fleet. `SnapshotStore.read/3` builds them from the retained projection,
-      # on the reader's process, when someone asks (#1837).
+      # Build CLI rows on demand on the reader, not on every publish (#1837).
       agent_totals: state.agent_totals,
       capacity: Slots.max_concurrent_agent_status(state),
       capacity_hold: capacity_hold_payload(state, now_ms),
@@ -424,6 +423,7 @@ defmodule Aiur.Orchestrator.StatusReport do
         class_intervals: PollCadence.effective_intervals()
       }
     }
+    |> Aiur.Orchestrator.StatusObservation.attach(state, now)
   end
 
   defp dispatch_poll_age_ms(last_ms, now_ms) when is_integer(last_ms), do: max(now_ms - last_ms, 0)
