@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
   use Aiur.TestSupport
 
   alias Aiur.{DispatchBudgetStore, Issue, Workflow}
-  alias Aiur.Orchestrator.{AutoResume, Dispatcher, RetryEngine, State}
+  alias Aiur.Orchestrator.{AutoResume, Dispatcher, RetryEngine, State, TrackerTasks}
 
   @issue_id "issue-transient"
   @enabled """
@@ -290,6 +290,74 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
   end
 
   describe "maybe_resume/3" do
+    test "slow state restore runs outside owner and respects a newer pause" do
+      name = {__MODULE__, make_ref()}
+      :yes = :global.register_name(name, self())
+      on_exit(fn -> :global.unregister_name(name) end)
+      state = %{due_state(issue()) | snapshot_key: {:global, name}}
+      parent = self()
+
+      next =
+        AutoResume.maybe_resume(state, System.monotonic_time(:millisecond),
+          admission_fun: admit(),
+          update_state_fun: fn _identifier, "todo" ->
+            send(parent, {:restore_started, self()})
+
+            receive do
+              :finish_restore -> :ok
+            end
+          end,
+          dispatch_fun: fn _current, _issue -> flunk("newer pause must suppress restore dispatch") end
+        )
+
+      receive_barrier({:restore_started, worker})
+      assert worker != self()
+      ref = next.tracker_tasks |> Map.keys() |> hd()
+      paused = issue(%{paused: true, labels: ["agent:paused"]})
+      current = %{next | last_polled_issues: %{@issue_id => paused}, claimed: MapSet.new(["other-ticket"])}
+      send(worker, :finish_restore)
+      receive_barrier({^ref, result})
+      assert {:handled, applied} = TrackerTasks.result(current, ref, result)
+      assert applied.last_polled_issues[@issue_id] == paused
+      assert applied.claimed == MapSet.new(["other-ticket"])
+      assert applied.auto_resume[@issue_id].attempt == 1
+    end
+
+    test "pending dispatch validation does not spend an auto-resume attempt" do
+      parent = self()
+      state = due_state(issue(%{state: "rework"}))
+      entry = state.auto_resume[@issue_id]
+
+      next =
+        AutoResume.maybe_resume(state, System.monotonic_time(:millisecond),
+          admission_fun: admit(),
+          dispatch_fun: fn current, ticket ->
+            TrackerTasks.start(
+              current,
+              {:dispatch, ticket.id},
+              fn ->
+                send(parent, {:dispatch_validation_started, self()})
+
+                receive do
+                  :finish_validation -> :ok
+                end
+              end,
+              fn current, :ok -> claim_fun(current, ticket) end
+            )
+          end
+        )
+
+      receive_barrier({:dispatch_validation_started, worker})
+      assert next.auto_resume[@issue_id] == entry
+      again = AutoResume.maybe_resume(next, System.monotonic_time(:millisecond), dispatch_fun: fn _, _ -> flunk("validation already pending") end)
+      assert again.auto_resume[@issue_id] == entry
+      ref = next.tracker_tasks |> Map.keys() |> hd()
+      send(worker, :finish_validation)
+      receive_barrier({^ref, result})
+      assert {:handled, applied} = TrackerTasks.result(again, ref, result)
+      assert MapSet.member?(applied.claimed, @issue_id)
+    end
+
     @tag config: @enabled
     test "re-dispatches a due agent:error ticket after restoring it to todo, never rework" do
       # #2075 criterion 3: restoring an `agent:error` ticket to a dispatchable
@@ -472,6 +540,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       state =
         AutoResume.maybe_resume(state, now_ms,
           admission_fun: admit(),
+          update_state_fun: fn _identifier, "todo" -> :ok end,
           dispatch_fun: &claim_fun/2
         )
 

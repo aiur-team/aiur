@@ -1,10 +1,12 @@
 defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.{AgentPubSub, AlertFeed, Config, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.PauseResume
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.Workflow
 
   @issue_id "issue-lifetime"
@@ -619,6 +621,36 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     assert Dispatcher.persist_lifetime_trip(state, issue, fn _, _ ->
              flunk("durable latch must not be applied twice")
            end) == state
+  end
+
+  @tag config: @enabled
+  test "async lifetime writes retain current alert fields and ignore a reset budget" do
+    issue = %Issue{id: @issue_id, identifier: "repo#async-lifetime"}
+    state = dispatch_n(%Orchestrator.State{snapshot_key: self()}, 10)
+    assert {:trip, state} = run(state, 11 * (@window_ms + 1))
+    parent = self()
+
+    write = fn _, _ ->
+      send(parent, {:latch_writer, self()})
+      receive do: (:release -> :ok)
+    end
+
+    pending = Dispatcher.persist_lifetime_trip(state, issue, write)
+    receive_barrier({:latch_writer, worker})
+    send(worker, :release)
+    receive_barrier({ref, result})
+    current = update_in(pending.dispatch_recovery.codex_thrash_budget[@issue_id], &Map.put(&1, :alert_emitted, true))
+    {:handled, next} = TrackerTasks.result(current, ref, result)
+    assert thrash_budget(next)[@issue_id].durable_latch_applied
+    assert thrash_budget(next)[@issue_id].alert_emitted
+
+    pending = Dispatcher.persist_lifetime_trip(state, issue, write)
+    receive_barrier({:latch_writer, worker})
+    send(worker, :release)
+    receive_barrier({ref, result})
+    reset = with_thrash_budget(pending, %{@issue_id => %{lifetime: 0}})
+    {:handled, next} = TrackerTasks.result(reset, ref, result)
+    assert thrash_budget(next)[@issue_id] == %{lifetime: 0}
   end
 
   @tag config: @enabled
