@@ -133,6 +133,11 @@ defmodule Aiur.Linear.Tracker do
     end
   end
 
+  @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
+  def open_issue_labels(_max_age_ms) do
+    {:error, :unsupported}
+  end
+
   # The `model:remote` promote/demote toggle is a GitHub-label concept;
   # Linear has no equivalent label op wired here.
   @spec add_label(String.t(), String.t()) :: {:error, term()}
