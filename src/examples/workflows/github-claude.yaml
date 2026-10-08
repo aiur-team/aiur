@@ -69,6 +69,12 @@ build_order:
   ticket_history_limit: 50
   ticket_history_max_identities: 100
   ticket_history_stale_after_ms: 60000
+  # General epic columns; order matters; omit for these defaults, [] for none.
+  # general_epics:
+  #   - { key: bugs, label: Bugs, labels: [bug], hue: 38, icon: bug }
+  #   - { key: design, label: Design, labels: [design], hue: 312, icon: pen }
+  #   - { key: infra, label: Infra, labels: [refactor, chore], hue: 200, icon: server }
+  #   - { key: docs, label: Docs, labels: [documentation], hue: 100, icon: docs }
 observability:
   # Opt in only when this run owns the Tailscale Funnel HTTPS 443 target.
   # build_order_funnel_health_check: true

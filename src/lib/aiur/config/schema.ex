@@ -142,6 +142,9 @@ defmodule Aiur.Config.Schema do
   defp effective_turn_sandbox_policy(%Codex{turn_sandbox_policy: policy}), do: policy
 
   defp changeset(attrs) do
+    # Run the section changeset even when absent, so epic defaults are applied.
+    attrs = Map.put_new(attrs, "build_order", %{})
+
     %__MODULE__{}
     |> cast(
       attrs,
