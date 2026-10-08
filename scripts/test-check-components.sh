@@ -165,7 +165,14 @@ for value, name, message in [
     ('Missing punctuation', 'summary_without_sentence_fails', 'invalid string'),
     ('Two\nlines.', 'summary_newline_fails', 'invalid string')]:
     public_case(name, lambda m, v=value: m['components'][0].update(summary=v), messages=(message,))
+public_case('summary_final_newline_fails', lambda m: m['components'][0].update(summary='Provides behavior.\n'),
+            messages=('invalid string',))
+public_case('name_final_newline_fails', lambda m: m['components'][0].update(name='Name\n'), messages=('invalid string',))
+public_case('summary_uppercase_secret_fails', lambda m: m['components'][0].update(summary='Stores a PASSWORD.'),
+            messages=('forbidden public copy',))
 public_case('env_value_fails', lambda m: m['components'][0].update(env=['GITHUB_TOKEN=abc']),
+            messages=('/env/0: invalid string',))
+public_case('env_final_newline_fails', lambda m: m['components'][0].update(env=['GITHUB_TOKEN\n']),
             messages=('/env/0: invalid string',))
 public_case('env_names_and_wildcard_pass', lambda m: m['components'][0].update(env=['GITHUB_TOKEN', 'GITHUB_APP_*']), code=0)
 public_case('feature_bucket1_id_fails', lambda m: m['features'][0].update(id='MP-R3'), messages=('/id: invalid string',))
