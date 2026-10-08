@@ -35,7 +35,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           key: term(),
           identity: term() | nil,
           lane: String.t(),
-          phase: pos_integer() | :unphased,
+          phase: non_neg_integer() | :unphased,
           complexity: pos_integer() | nil,
           title: String.t(),
           completion: completion(),
@@ -424,7 +424,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp lane(lane) when is_binary(lane) and lane != "", do: lane
   defp lane(_lane), do: "unassigned"
 
-  defp phase(phase) when is_integer(phase) and phase > 0, do: phase
+  defp phase(phase) when is_integer(phase) and phase >= 0, do: phase
   defp phase(_phase), do: :unphased
 
   defp identifier(%{identifier: identifier}) when is_binary(identifier) and identifier != "",
