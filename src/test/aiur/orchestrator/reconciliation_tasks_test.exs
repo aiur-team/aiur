@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.ReconciliationTasksTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.Exchange
   alias Aiur.{Issue, RecentMerge}
   alias Aiur.Orchestrator.{IssueSync, MergedTicketReconciler, Reconciler, StartupClaimReconciler, State, TrackerTasks, WorkspaceCleanup}
 
@@ -80,6 +81,86 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     assert next.last_polled_issues[issue.id] == issue
     assert next.released_claims[issue.id] == %{reason: :retry}
     assert next.running[issue.id] == entry
+    assert Map.get(next.terminal_verification_attempts, issue.id, 0) == 0
+  end
+
+  test "asynchronous idle verification abandons an unresolved id after five completed reads" do
+    issue = %Issue{id: "async-abandoned", identifier: "async-#{System.unique_integer([:positive])}", state: "in-progress"}
+    topic = "ticket.#{issue.identifier}.terminal_verification_abandoned"
+    :ok = Exchange.subscribe(topic)
+
+    final =
+      Enum.reduce(1..5, owned_state(last_polled_issues: %{issue.id => issue}), fn count, state ->
+        pending = IssueSync.sync_polled_issue_state(state, [], fn [_] -> {:ok, []} end, fn _, _ -> flunk("absent ticket") end, MapSet.new(["done"]), fn _ -> :ok end, fn _, _ -> :ok end)
+        assert pending.terminal_verification_attempts == %{issue.id => Map.get(state.terminal_verification_attempts, issue.id, 0)}
+        assert pending.last_polled_issues == %{issue.id => issue}
+        next = finish_task(pending)
+
+        if count < 5 do
+          assert next.last_polled_issues == %{issue.id => issue}
+          assert next.terminal_verification_attempts == %{issue.id => count}
+          refute_received {:event, %{topic: ^topic}}
+        end
+
+        next
+      end)
+
+    assert final.last_polled_issues == %{}
+    assert final.terminal_verification_attempts == %{}
+    receive_barrier({:event, %{topic: ^topic} = alert})
+    assert alert["reason"] =~ "unresolved after 5 attempts"
+    refute_received {:event, %{topic: ^topic}}
+    :ok = Exchange.unsubscribe(topic)
+  end
+
+  test "overlapping polls count one completed idle verification read only once" do
+    issue = %Issue{id: "held-read", identifier: "held-read", state: "in-progress"}
+    parent = self()
+
+    fetch = fn [_] ->
+      wait_for_release(parent)
+      {:ok, []}
+    end
+
+    poll = fn state, issues ->
+      IssueSync.sync_polled_issue_state(state, issues, fetch, fn _, _ -> :ok end, MapSet.new(["done"]), fn _ -> :ok end, fn _, _ -> :ok end)
+    end
+
+    pending = poll.(owned_state(last_polled_issues: %{issue.id => issue}), [])
+    receive_barrier({:io_waiting, worker})
+
+    overlapping =
+      Enum.reduce(1..5, pending, fn n, state ->
+        poll.(state, [%Issue{id: "new-#{n}", identifier: "new-#{n}", state: "todo"}])
+      end)
+
+    send(worker, :release)
+    completed = finish_task(overlapping)
+    assert completed.last_polled_issues[issue.id] == issue
+    assert completed.terminal_verification_attempts == %{issue.id => 1}
+  end
+
+  test "a returned active ticket fences an in-flight idle verification attempt" do
+    issue = %Issue{id: "returned-pending", identifier: "returned-pending", state: "in-progress"}
+    parent = self()
+
+    poll = fn state, issues, fetch ->
+      IssueSync.sync_polled_issue_state(state, issues, fetch, fn _, _ -> :ok end, MapSet.new(["done"]), fn _ -> :ok end, fn _, _ -> :ok end)
+    end
+
+    pending =
+      poll.(owned_state(last_polled_issues: %{issue.id => issue}), [], fn [_] ->
+        wait_for_release(parent)
+        {:ok, []}
+      end)
+
+    receive_barrier({:io_waiting, worker})
+    returned = poll.(pending, [issue], fn _ -> flunk("active return needs no refresh") end)
+    assert returned.terminal_verification_attempts == %{}
+    send(worker, :release)
+    completed = finish_task(returned)
+    assert completed.last_polled_issues == %{issue.id => issue}
+    assert completed.terminal_verification_attempts == %{}
   end
 
   test "label repair withholds its candidate until the write succeeds and preserves current state" do
@@ -126,6 +207,7 @@ defmodule Aiur.Orchestrator.ReconciliationTasksTest do
     send(worker, :release)
     next = finish_task(current)
     assert next.running[issue.id] == entry
+    assert Map.get(next.terminal_verification_attempts, issue.id, 0) == 0
     refute Map.has_key?(next.last_polled_issues, issue.id)
   end
 

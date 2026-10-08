@@ -19,7 +19,6 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.RecentMerge
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
-  alias Aiur.TrackerIdentity
 
   @comment_rework_retry_delay_ms 2_000
   @comment_rework_max_attempts 5
@@ -414,12 +413,12 @@ defmodule Aiur.Orchestrator.CommentWake do
          mark_reconciled_fun,
          set_terminal_verification_pending_fun
        ) do
-    case safely_set_terminal_verification_pending(
+    case CurrentRunMembership.set_terminal_verification_pending(
            set_terminal_verification_pending_fun,
            issue.tracker_identity,
            false
          ) do
-      :ok ->
+      result when result in [:ok, :skipped] ->
         clear_session_handle_fun.(identifier)
         terminate_running_issue_fun.(state, issue.id, true)
 
@@ -454,7 +453,7 @@ defmodule Aiur.Orchestrator.CommentWake do
          identity
        ) do
     _ =
-      safely_set_terminal_verification_pending(
+      CurrentRunMembership.set_terminal_verification_pending(
         set_terminal_verification_pending_fun,
         identity,
         true
@@ -466,44 +465,6 @@ defmodule Aiur.Orchestrator.CommentWake do
     _error -> :ok
   catch
     _kind, _reason -> :ok
-  end
-
-  defp safely_set_terminal_verification_pending(
-         set_terminal_verification_pending_fun,
-         %TrackerIdentity{} = identity,
-         pending?
-       ) do
-    if TrackerIdentity.joinable?(identity) do
-      invoke_terminal_verification_marker(
-        set_terminal_verification_pending_fun,
-        identity,
-        pending?
-      )
-    else
-      :ok
-    end
-  end
-
-  defp safely_set_terminal_verification_pending(
-         _set_terminal_verification_pending_fun,
-         _identity,
-         _pending?
-       ),
-       do: :ok
-
-  defp invoke_terminal_verification_marker(
-         set_terminal_verification_pending_fun,
-         identity,
-         pending?
-       ) do
-    case set_terminal_verification_pending_fun.(identity, pending?) do
-      :ok -> :ok
-      _ -> :error
-    end
-  rescue
-    _error -> :error
-  catch
-    _kind, _reason -> :error
   end
 
   @doc false

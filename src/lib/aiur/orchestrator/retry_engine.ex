@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.{AgentPubSub, AgentQueueStore, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, AgentQueueStore, Alerts, Config, CurrentRunMembership, Issue, Tracker}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Errors
@@ -1427,12 +1427,12 @@ defmodule Aiur.Orchestrator.RetryEngine do
          cleanup_terminal_issue_artifacts_fun,
          set_terminal_verification_pending_fun
        ) do
-    case safely_set_terminal_verification_pending(
+    case CurrentRunMembership.set_terminal_verification_pending(
            set_terminal_verification_pending_fun,
            issue.tracker_identity,
            false
          ) do
-      :ok ->
+      result when result in [:ok, :skipped] ->
         cleanup_terminal_issue_artifacts_fun.(issue.identifier, metadata[:worker_host])
         {:noreply, release_issue_claim(state, issue_id)}
 
@@ -1542,28 +1542,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   defp safely_mark_membership_unavailable(mark_reconciled_fun, set_terminal_verification_pending_fun, identity) do
-    _ = safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, true)
+    _ = CurrentRunMembership.set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, true)
     _ = mark_reconciled_fun.(:unavailable)
     :ok
   rescue
     _error -> :ok
   catch
     _kind, _reason -> :ok
-  end
-
-  defp safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, pending?) do
-    if match?(%TrackerIdentity{}, identity) and TrackerIdentity.joinable?(identity) do
-      case set_terminal_verification_pending_fun.(identity, pending?) do
-        :ok -> :ok
-        _ -> :error
-      end
-    else
-      :ok
-    end
-  rescue
-    _error -> :error
-  catch
-    _kind, _reason -> :error
   end
 
   defp normalize_retry_poll_failures(failures) when is_integer(failures) and failures > 0,

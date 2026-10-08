@@ -68,6 +68,7 @@ defmodule Aiur.Orchestrator.State do
           startup_claim_reconciliation_failures: map(),
           queue_store: term(),
           last_polled_issues: map(),
+          terminal_verification_attempts: %{String.t() => non_neg_integer()},
           human_review_observed_ids: MapSet.t(String.t()) | nil,
           ci_lifecycle: %{
             approved_heads: map(),
@@ -239,6 +240,7 @@ defmodule Aiur.Orchestrator.State do
     dispatch_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
+    terminal_verification_attempts: %{},
     human_review_observed_ids: nil,
     ci_lifecycle: %{
       approved_heads: %{},
