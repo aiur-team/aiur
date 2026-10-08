@@ -2104,7 +2104,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 2
       }
 
-      assert {:reply, {:ok, :resumed}, next} = Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
+      assert {:reply, {:tracker_io, {action, ^identifier, stage}, :remove_label, args}, prepared} =
+               Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
+
+      result = apply(Aiur.Tracker, :remove_label, args)
+      assert {:reply, {:ok, :resumed}, next} = Orchestrator.handle_call({:tracker_control_result, action, identifier, stage, result}, self(), prepared)
       receive_barrier({:memory_tracker_remove_label, ^identifier, "agent:paused"})
       receive_barrier({:resume_agent, request_id, 101})
       resumed = next.running[issue_id]
@@ -2171,8 +2175,13 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 2
       }
 
-      assert {:reply, {:error, {:pause_override_clear_failed, :unavailable}}, next} =
+      assert {:reply, {:tracker_io, {action, ^identifier, stage}, :remove_label, args}, prepared} =
                Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
+
+      result = apply(Aiur.Tracker, :remove_label, args)
+
+      assert {:reply, {:error, {:pause_override_clear_failed, :unavailable}}, next} =
+               Orchestrator.handle_call({:tracker_control_result, action, identifier, stage, result}, self(), prepared)
 
       receive_barrier({:pause_override_remove_label, ^identifier, "agent:paused"})
       # handle_call/3 returns after the failed override-clear path.
