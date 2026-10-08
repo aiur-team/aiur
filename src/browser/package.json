@@ -7,7 +7,7 @@
     "check:elk": "node scripts/check-vendored-elk.mjs",
     "fixture:preflight": "cd .. && mise exec -- mix compile --warnings-as-errors",
     "fixture:server": "node scripts/start-fixture.mjs",
-    "test": "npm run check:elk && npm run check:build-home-fixtures && npm run fixture:preflight && npm run test:harness && npm run test:smoke && npm run test:shell && npm run test:shell-width && npm run test:command-history && npm run test:build-order && npm run test:interaction && npm run test:time-brush && npm run test:performance && npm run test:responsive && npm run test:layout && npm run test:ticket-context && npm run test:units && npm run test:provider-meters && npm run test:meter-row && npm run test:quota-panel && npm run test:parity && npm run test:streamdeck && npm run test:streamdeck-flow",
+    "test": "npm run check:elk && npm run check:build-home-fixtures && npm run fixture:preflight && npm run test:harness && npm run test:smoke && npm run test:shell && npm run test:shell-width && npm run test:command-history && npm run test:build-order && npm run test:interaction && npm run test:time-brush && npm run test:performance && npm run test:responsive && npm run test:layout && npm run test:ticket-context && npm run test:units && npm run test:provider-meters && npm run test:meter-row && npm run test:quota-panel && npm run test:parity && npm run test:streamdeck && npm run test:streamdeck-flow && npm run test:design-parity",
     "test:smoke": "node scripts/run-browser-tests.mjs tests/liveview-smoke.spec.mjs",
     "test:shell": "node scripts/run-browser-tests.mjs tests/route-shell.browser.spec.mjs",
     "test:shell-width": "node scripts/run-browser-tests.mjs tests/shell-content-width.browser.spec.mjs",
@@ -33,7 +33,9 @@
     "vendor:elk": "node scripts/vendor-elk.mjs",
     "test:visual:docker": "npm run fixture:preflight && node support/visual.mjs --docker",
     "fixtures:build-home": "TZ=America/Los_Angeles node scripts/export-build-home-fixtures.mjs",
-    "check:build-home-fixtures": "TZ=America/Los_Angeles node scripts/export-build-home-fixtures.mjs --check && TZ=America/Los_Angeles node --test scripts/export-build-home-fixtures.test.mjs"
+    "check:build-home-fixtures": "TZ=America/Los_Angeles node scripts/export-build-home-fixtures.mjs --check && TZ=America/Los_Angeles node --test scripts/export-build-home-fixtures.test.mjs",
+    "test:design-parity": "node scripts/run-browser-tests.mjs tests/design-parity-harness.browser.spec.mjs --config playwright.design-parity.config.mjs",
+    "parity:matrix": "AIUR_BROWSER_KEEP_ARTIFACTS=1 node scripts/run-browser-tests.mjs tests/design-parity-matrix.browser.spec.mjs --config playwright.design-parity.config.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "4.11.3",

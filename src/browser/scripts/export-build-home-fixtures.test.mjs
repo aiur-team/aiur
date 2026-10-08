@@ -127,6 +127,16 @@ test('deterministic', t => {
   const a = exportTo(t), b = exportTo(t);
   for (const f of readdirSync(a)) assert.equal(readFileSync(join(a, f), 'utf8'), readFileSync(join(b, f), 'utf8'));
 });
+test('check rejects changed non-JS design assets', t => {
+  const dir = exportTo(t);
+  const copy = join(dir, 'design-source');
+  cpSync(designDir, copy, { recursive: true });
+  assert.equal(run(['--out', dir, '--check']).status, 0);
+  appendFileSync(join(copy, 'assets/aiur-logo.png'), 'drift');
+  const result = run(['--out', dir, '--check']);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /design file assets\/aiur-logo.png changed/);
+});
 test('no DST inside the fixtures (future re-import guard)', () => {
   assert.deepEqual(JSON.parse(files['manifest.json']).utc_offsets_min, [-420]);
 });
