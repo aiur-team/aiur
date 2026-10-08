@@ -1,9 +1,10 @@
 defmodule Aiur.CodexProberTest do
   use Aiur.TestSupport
 
+  alias Aiur.AppServer.Adapter
+  alias Aiur.Claude.RemoteControl
   alias Aiur.Codex.AppServerPort
   alias Aiur.Codex.Handshake
-  alias Aiur.Claude.RemoteControl
   alias Aiur.{CodexProber, Config, ModelAvailability}
 
   test "normalizes rate windows nested in the rateLimits response" do
@@ -81,7 +82,7 @@ defmodule Aiur.CodexProberTest do
                workspace: workspace,
                start_port_fun: fn dir, nil, nil, nil ->
                  {:ok, port} =
-                   Aiur.AppServer.Adapter.start_port(
+                   Adapter.start_port(
                      dir,
                      """
                      exec python3 -u -c '
