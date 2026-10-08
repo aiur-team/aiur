@@ -64,6 +64,19 @@ defmodule Aiur.BuildProgressTest do
     assert_received {:event, %{milestone: 50}}
   end
 
+  test "unknown percent never latches milestones with resolved or partial resolution", context do
+    server = start_store(context.path)
+
+    for {resolution, generation} <- [resolved: 1, partial: 2] do
+      unknown = put(server, context.scope, nil, resolution: resolution, generation: generation)
+      assert unknown.freshness == :current
+      assert BuildProgress.facts(context.scope, server) == [unknown]
+      refute_received {:event, %{topic: _}}
+      put(server, context.scope, 25, resolution: resolution, generation: generation)
+      assert_received {:event, %{milestone: 25, generation: ^generation}}
+    end
+  end
+
   test "new generation after 100 starts at 25 without resetting an older generation", context do
     server = start_store(context.path)
     put(server, context.scope, 100)
