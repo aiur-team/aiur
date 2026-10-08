@@ -105,6 +105,47 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
     assert next_state.claimed == MapSet.new([issue.id])
   end
 
+  test "a late remote-control label write replies without replacing a new runner" do
+    parent = self()
+    reply_ref = make_ref()
+    issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:codex"]}
+    entry = running_entry(issue) |> Map.put(:session_id, "original")
+    state = %Aiur.Orchestrator.State{running: %{issue.id => entry}}
+
+    assert {:noreply, pending} =
+             RemoteControlMode.set_remote_control_call(state, issue.identifier, true,
+               from: {parent, reply_ref},
+               dashboard_url_fun: fn -> "http://localhost:4000" end,
+               dispatch_ready_fun: fn current, _, _ -> {:ok, current} end,
+               trust_fun: fn _, _ -> :ok end,
+               add_label_fun: fn _, _ ->
+                 send(parent, {:rc_writer, self()})
+
+                 receive do
+                   :release -> :ok
+                 after
+                   1_000 -> {:error, :blocked}
+                 end
+               end,
+               teardown_fun: fn _, _ -> flunk("replacement runner was torn down") end
+             )
+
+    assert_receive {:rc_writer, worker}, 1_000
+
+    assert {:reply, {:error, :remote_control_change_in_progress}, ^pending} =
+             RemoteControlMode.set_remote_control_call(pending, issue.identifier, false, from: {parent, make_ref()})
+
+    refute worker == self()
+    refute_receive {^reply_ref, _}, 20
+    replacement = %{entry | session_id: "replacement"}
+    current = %{pending | running: %{issue.id => replacement}}
+    send(worker, :release)
+    assert_receive {task_ref, result}, 1_000
+    {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(current, task_ref, result)
+    assert_receive {^reply_ref, {:error, :stale_runner}}, 1_000
+    assert applied.running[issue.id] == replacement
+  end
+
   defp running_entry(issue) do
     %{
       identifier: issue.identifier,

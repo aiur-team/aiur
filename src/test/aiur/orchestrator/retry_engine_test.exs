@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.Claude.RemoteControl
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.Orchestrator.{Dispatcher, RateLimitFallback, RetryEngine, Slots, SnapshotStore, State}
+  alias Aiur.Orchestrator.{Dispatcher, RateLimitFallback, RetryEngine, Slots, SnapshotStore, State, TrackerTasks}
   alias Aiur.Workspace.Ownership
 
   # Deterministic GitHub-client stubs for the retry-exhaustion error-state write
@@ -19,6 +19,39 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   defmodule SucceedingGitHubClient do
     def update_issue_state(_issue_id, _state_name), do: :ok
     def update_issue_state(_issue_id, _state_name, _opts), do: :ok
+  end
+
+  test "slow retry poll runs outside owner and a released claim rejects its late result" do
+    name = {__MODULE__, make_ref()}
+    :yes = :global.register_name(name, self())
+    on_exit(fn -> :global.unregister_name(name) end)
+    issue = %Issue{id: "slow-retry", identifier: "MT-SLOW", state: "in-progress", title: "Slow retry"}
+    state = %State{snapshot_key: {:global, name}, claimed: MapSet.new([issue.id]), max_concurrent_agents: 16, effective_concurrent_agents: 16}
+    parent = self()
+
+    assert {:noreply, next} =
+             RetryEngine.handle_retry_issue(state, issue.id, 1, %{identifier: issue.identifier},
+               ensure_tracker_preflight_fun: fn current -> {:ok, current} end,
+               fetch_candidate_issues_fun: fn ->
+                 send(parent, {:retry_fetch_started, self()})
+
+                 receive do
+                   :finish_retry_fetch -> {:ok, [issue]}
+                 end
+               end,
+               dispatch_fun: fn _, _, _, _, _ -> flunk("released claim must not dispatch") end
+             )
+
+    assert_receive {:retry_fetch_started, worker}
+    assert worker != self()
+    ref = next.tracker_tasks |> Map.keys() |> hd()
+    current = %{next | claimed: MapSet.new(["other-ticket"])}
+    send(worker, :finish_retry_fetch)
+    assert_receive {^ref, result}
+    assert {:handled, applied} = TrackerTasks.result(current, ref, result)
+    assert applied.claimed == MapSet.new(["other-ticket"])
+    assert applied.running == %{}
+    assert applied.retry_attempts == %{}
   end
 
   describe "failure_retry?/1" do

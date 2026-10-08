@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
   alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, WorkspaceCleanup}
 
   alias Aiur.Orchestrator.OperatorMessages, as: OM
@@ -82,11 +83,21 @@ defmodule Aiur.Orchestrator do
   def handle_info({:prewarm_phase, _phase}, state), do: {:noreply, state}
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    case CommentPolling.apply_async_down(state, ref) do
+    case TrackerTasks.down(state, ref, reason) do
       {:handled, next_state} -> {:noreply, next_state}
-      :unhandled -> RetryEngine.handle_agent_down(state, ref, reason)
+      :unhandled -> handle_other_down(state, ref, reason)
     end
   end
+
+  def handle_info({ref, result}, state) when is_reference(ref) do
+    case TrackerTasks.result(state, ref, result) do
+      {:handled, next_state} -> {:noreply, next_state}
+      :unhandled -> {:noreply, state}
+    end
+  end
+
+  def handle_info({:tracker_task_timeout, ref}, state),
+    do: {:noreply, TrackerTasks.timeout(state, ref)}
 
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, state)
       when is_binary(issue_id) and is_map(runtime_info),
@@ -246,6 +257,13 @@ defmodule Aiur.Orchestrator do
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
+  end
+
+  defp handle_other_down(state, ref, reason) do
+    case CommentPolling.apply_async_down(state, ref) do
+      {:handled, next_state} -> {:noreply, next_state}
+      :unhandled -> RetryEngine.handle_agent_down(state, ref, reason)
+    end
   end
 
   # A wake that collapsed a widened timer changes the countdown `aiur status`
@@ -803,14 +821,14 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
-  def handle_call({:prioritize_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
-    do: PriorityControl.prioritize_agent_call(state, issue_identifier)
+  def handle_call({:prioritize_agent, issue_identifier}, from, state) when is_binary(issue_identifier),
+    do: PriorityControl.prioritize_agent_call(state, issue_identifier, from: from)
 
   def handle_call({:prioritize_agent, _issue_identifier}, _from, state),
     do: {:reply, {:error, :invalid_identifier}, state}
 
-  def handle_call({:deprioritize_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
-    do: PriorityControl.deprioritize_agent_call(state, issue_identifier)
+  def handle_call({:deprioritize_agent, issue_identifier}, from, state) when is_binary(issue_identifier),
+    do: PriorityControl.deprioritize_agent_call(state, issue_identifier, from: from)
 
   def handle_call({:deprioritize_agent, _issue_identifier}, _from, state),
     do: {:reply, {:error, :invalid_identifier}, state}
@@ -831,17 +849,17 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
-  def handle_call({:set_remote_control, issue_identifier, on?}, _from, state)
+  def handle_call({:set_remote_control, issue_identifier, on?}, from, state)
       when is_binary(issue_identifier) and is_boolean(on?),
-      do: RC.set_remote_control_call(state, issue_identifier, on?)
+      do: RC.set_remote_control_call(state, issue_identifier, on?, from: from)
 
   def handle_call({:set_remote_control, _issue_identifier, _on?}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
-  def handle_call({:ensure_remote_control_trust, workspace}, _from, state)
+  def handle_call({:ensure_remote_control_trust, workspace}, from, state)
       when is_binary(workspace),
-      do: RC.ensure_remote_control_trust_call(state, workspace)
+      do: RC.ensure_remote_control_trust_call(state, workspace, from)
 
   def handle_call(:max_concurrent_agents, _from, state),
     do: Slots.max_concurrent_agents_call(state)

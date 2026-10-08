@@ -825,6 +825,47 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
     end
   end
 
+  test "pending fallback label writes leave owner responsive and cannot tear down a replaced runner" do
+    parent = self()
+    owner = {__MODULE__, make_ref()}
+    :yes = :global.register_name(owner, parent)
+    on_exit(fn -> :global.unregister_name(owner) end)
+    state = fallback_state([], "codex")
+    state = %{state | snapshot_key: {:global, owner}}
+
+    pending =
+      RateLimitFallback.reconcile(
+        state,
+        reconcile_opts(
+          state: %{"backends" => %{}},
+          add_label_fun: fn _, label ->
+            if label == @marker_label do
+              send(parent, {:fallback_writer, self()})
+
+              receive do
+                :release -> :ok
+              after
+                1_000 -> {:error, :blocked}
+              end
+            else
+              :ok
+            end
+          end,
+          teardown_fun: fn _, _, _ -> flunk("replacement runner was torn down") end
+        )
+      )
+
+    assert_receive {:fallback_writer, worker}, 1_000
+    refute worker == self()
+    replacement = Map.put(state.running["1"], :session_id, "replacement")
+    current = %{pending | running: %{"1" => replacement}, globally_paused: true}
+    send(worker, :release)
+    assert_receive {task_ref, result}, 1_000
+    {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(current, task_ref, result)
+    assert applied.running["1"] == replacement
+    assert applied.globally_paused
+  end
+
   defp fallback_state(labels, selected_backend \\ nil, status \\ :paused) do
     issue = %Issue{id: "1", identifier: "repo#1", labels: labels, selected_backend: selected_backend}
 

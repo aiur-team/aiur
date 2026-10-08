@@ -65,6 +65,22 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
   end
 
   test "candidate tracker work runs outside the orchestrator", %{server: server, token: token} do
+    patterns = [
+      {Aiur.Tracker, :fetch_candidate_issues, :_},
+      {Aiur.Tracker, :fetch_issues_by_states, :_},
+      {Aiur.Tracker, :fetch_issue_states_by_ids, :_},
+      {Aiur.Tracker, :fetch_issue_states_by_ids_conditional, :_},
+      {Aiur.Tracker, :update_issue_state, :_},
+      {Aiur.Tracker, :add_label, :_},
+      {Aiur.Tracker, :remove_label, :_},
+      {Aiur.GitHub.Tracker, :fetch_candidate_issues_conditional, :_},
+      {Aiur.GitHub.Tracker, :hydrate_blocked_by, :_},
+      {Aiur.Events.GithubFirehose, :poll, :_},
+      {Aiur.Events.GithubCIPoller, :poll, :_}
+    ]
+
+    Enum.each(patterns, &:erlang.trace_pattern(&1, true, [:local]))
+    :erlang.trace(server, true, [:call, {:tracer, self()}])
     send(server, :run_poll_cycle)
     assert_receive {:poll_started, ^token, tracker_pid}, 2_000
 
@@ -72,7 +88,12 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       refute tracker_pid == server, "the tracker is executing in the orchestrator handler"
     after
       send(tracker_pid, {:release_poll, token})
-      :sys.get_state(server)
+      await_poll_finished(server)
+      delivery = :erlang.trace_delivered(server)
+      assert_receive {:trace_delivered, ^server, ^delivery}, 1_000
+      :erlang.trace(server, false, [:call])
+      Enum.each(patterns, &:erlang.trace_pattern(&1, false, [:local]))
+      refute_receive {:trace, ^server, :call, _remote_call}, 0, "an orchestrator handler performed remote work"
     end
   end
 
@@ -107,18 +128,32 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
       assert replies.resume == {:ok, {:ok, :already_running}}
       assert replies.reset == {:ok, {:ok, :reset}}
       assert {:ok, {:ok, sent_id}} = replies.message
-      assert {:ok, {:ok, %{id: ^seeded_id, text: "seeded before poll"}}} = replies.claim
+      assert {:ok, {:ok, %{id: ^seeded_id, body: %{text: "seeded before poll"}}}} = replies.claim
       assert DispatchBudgetStore.lifetime(issue.id) == {:ok, 0}
 
       # Completion must not replace the queue with the state captured before these calls.
       send(tracker_pid, {:release_poll, token})
-      state = :sys.get_state(server)
+      state = await_poll_finished(server)
       assert AgentQueueStore.get(state.queue_store, seeded_id).status == :delivered
-      assert %{text: "sent during poll", status: :pending} = AgentQueueStore.get(state.queue_store, sent_id)
+      assert %{body: %{text: "sent during poll"}, status: :pending} = AgentQueueStore.get(state.queue_store, sent_id)
     after
       Enum.each(tasks, fn {_name, task} -> Task.shutdown(task, :brutal_kill) end)
       send(tracker_pid, {:release_poll, token})
-      :sys.get_state(server)
+      await_poll_finished(server)
+    end
+  end
+
+  defp await_poll_finished(server, attempts \\ 200)
+  defp await_poll_finished(_server, 0), do: flunk("poll did not finish")
+
+  defp await_poll_finished(server, attempts) do
+    state = :sys.get_state(server)
+
+    if state.poll_cycles_completed > 0 and state.tracker_tasks == %{} do
+      state
+    else
+      Process.sleep(10)
+      await_poll_finished(server, attempts - 1)
     end
   end
 

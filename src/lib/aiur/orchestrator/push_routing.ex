@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, GithubBudgetPause, IssueSync, PauseResume, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, GithubBudgetPause, IssueSync, PauseResume, State, TrackerTasks}
 
   @spec mark_sleeping(String.t()) :: :ok
   def mark_sleeping(issue_identifier), do: mark_sleeping(Aiur.Orchestrator, issue_identifier)
@@ -106,26 +106,31 @@ defmodule Aiur.Orchestrator.PushRouting do
       )
       when is_map(blockee) and is_map(blocker) and clearance in [:terminal, :removed] and
              is_function(blocked_by_hydrator, 1) do
-    # The caller on this path already holds the freshly polled blockee, so the
-    # blocker set read by `cleared_dependency_match/3` is current — once the
-    # blockee's `blocked_by` has been hydrated. GitHub polls never populate it,
-    # and `other_open_blockers?/2` below decides whether a second blocker keeps
-    # the agent parked, so without hydration every GitHub blockee looks
-    # unblocked and gets auto-resumed while a second blocker is still open
-    # (#1631).
-    case hydrate_blockee_blocked_by(blockee, blocked_by_hydrator) do
-      {:ok, %Issue{} = hydrated_blockee} ->
-        case cleared_dependency_match(state, hydrated_blockee, blocker) do
-          {:ok, match} ->
-            resume_cleared_dependency_blockee(state, match, hydrated_blockee, blocker, clearance)
+    expected = Map.get(state.running, blockee.id)
 
-          :error ->
-            state
+    TrackerTasks.run(
+      state,
+      {:dependency_hydration, blockee.id},
+      fn ->
+        hydrate_blockee_blocked_by(blockee, blocked_by_hydrator)
+      end,
+      fn current, result ->
+        if Map.get(current.running, blockee.id) == expected do
+          case result do
+            {:ok, %Issue{} = hydrated} ->
+              case cleared_dependency_match(current, hydrated, blocker) do
+                {:ok, match} -> resume_cleared_dependency_blockee(current, match, hydrated, blocker, clearance)
+                :error -> current
+              end
+
+            _ ->
+              current
+          end
+        else
+          current
         end
-
-      :unavailable ->
-        state
-    end
+      end
+    )
   end
 
   def maybe_resume_blockee_on_cleared_dependency(%State{} = state, _blockee, _blocker, _clearance, _hydrator),
@@ -153,18 +158,41 @@ defmodule Aiur.Orchestrator.PushRouting do
       )
       when is_function(fetch_issue_states_fun, 1) and is_list(polled_issues) and
              is_function(blocked_by_hydrator, 1) do
-    with [_ | _] = blocker_identifiers <- paused_blocker_identifiers(state),
-         {:ok, blockers} when is_list(blockers) <- fetch_issue_states_fun.(blocker_identifiers) do
-      # This path exists for blockers absent from the active poll, so the
-      # blockee snapshot stored in the running entry is exactly the one most
-      # likely to be stale. Resolve the freshest blockee issue up front and
-      # fail closed when none is obtainable, rather than waking an agent on a
-      # stale `blocked_by`.
-      blockee_issues = fresh_blockee_issues(state, polled_issues, fetch_issue_states_fun)
+    case paused_blocker_identifiers(state) do
+      [] ->
+        state
 
-      Enum.reduce(blockers, state, &resume_blockees_for_terminal_blocker(&1, &2, blockee_issues, blocked_by_hydrator))
-    else
-      _ -> state
+      blocker_identifiers ->
+        expected = state.running
+
+        TrackerTasks.run(
+          state,
+          :dependency_recheck,
+          fn ->
+            with {:ok, blockers} when is_list(blockers) <- fetch_issue_states_fun.(blocker_identifiers) do
+              blockees = fresh_blockee_issues(state, polled_issues, fetch_issue_states_fun)
+              hydrated = Map.new(blockees, fn {id, issue} -> {id, hydrate_blockee_blocked_by(issue, blocked_by_hydrator)} end)
+              {:ok, blockers, hydrated}
+            end
+          end,
+          fn
+            current, {:ok, blockers, hydrated} ->
+              blockees =
+                Enum.reduce(hydrated, %{}, fn
+                  {id, {:ok, %Issue{} = issue}}, acc ->
+                    key = State.find_running_key_by_identifier(current.running, id)
+                    if Map.get(current.running, key) == Map.get(expected, key), do: Map.put(acc, id, issue), else: acc
+
+                  _, acc ->
+                    acc
+                end)
+
+              Enum.reduce(blockers, current, &resume_blockees_for_terminal_blocker(&1, &2, blockees, fn issue -> {:ok, issue} end))
+
+            current, _ ->
+              current
+          end
+        )
     end
   end
 

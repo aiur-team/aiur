@@ -12,6 +12,77 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
+  test "async candidate validation keeps dispatch priority order across slow reads" do
+    owner = self()
+    high = %Aiur.Issue{id: "async-high", identifier: "ASYNC-HIGH", title: "high", state: "Todo", priority: 1}
+    low = %Aiur.Issue{id: "async-low", identifier: "ASYNC-LOW", title: "low", state: "Todo", priority: 3}
+
+    pending =
+      Dispatcher.choose_issues(%State{snapshot_key: self(), effective_concurrent_agents: 4}, [low, high],
+        issue_fetcher: fn [id] ->
+          send(owner, {:validation_started, id, self()})
+          receive do: (:release -> {:error, :controlled_failure})
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end
+      )
+
+    assert_receive {:validation_started, "async-high", high_worker}
+    assert Aiur.Orchestrator.TrackerTasks.running?(pending, {:dispatch, high.id})
+    refute Aiur.Orchestrator.TrackerTasks.running?(pending, {:dispatch, low.id})
+    send(high_worker, :release)
+    assert_receive {ref, result}
+    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
+    assert_receive {:validation_started, "async-low", low_worker}
+    send(low_worker, :release)
+    assert_receive {ref, result}
+    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(next, ref, result)
+    assert next.tracker_tasks == %{}
+  end
+
+  test "a delayed dispatch revalidation respects a newly applied global pause" do
+    owner = self()
+    issue = %Aiur.Issue{id: "async-pause", identifier: "ASYNC-PAUSE", title: "pause", state: "Todo"}
+
+    pending =
+      Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, nil, nil,
+        issue_fetcher: fn _ ->
+          send(owner, {:validation_started, self()})
+          receive do: (:release -> {:ok, [issue]})
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end,
+        runner: fn _, _, _ -> flunk("dispatch started during global pause") end
+      )
+
+    assert_receive {:validation_started, worker}
+    send(worker, :release)
+    assert_receive {ref, result}
+    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(%{pending | globally_paused: true}, ref, result)
+    assert next.running == %{}
+    assert next.globally_paused
+    assert next.tracker_tasks == %{}
+  end
+
+  test "failed async dispatch invokes the retry completion after removing its job" do
+    owner = self()
+    issue = %Aiur.Issue{id: "async-failure", identifier: "ASYNC-FAILURE", title: "failure", state: "Todo"}
+
+    pending =
+      Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, 2, nil,
+        issue_fetcher: fn _ -> {:error, :controlled_failure} end,
+        blocked_by_hydrator: fn value -> {:ok, value} end,
+        dispatch_result_fun: fn current ->
+          refute Aiur.Orchestrator.TrackerTasks.issue_pending?(current, issue.id)
+          send(owner, :completion_applied)
+          %{current | globally_paused: true}
+        end
+      )
+
+    assert_receive {ref, result}
+    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
+    assert_receive :completion_applied
+    assert next.globally_paused
+  end
+
   defmodule CandidateFetchFailureLinearClient do
     def fetch_candidate_issues, do: {:error, :candidate_fetch_failed}
   end

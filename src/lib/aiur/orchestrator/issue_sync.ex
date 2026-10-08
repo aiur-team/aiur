@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.IssueSync do
   @moduledoc """
   Synchronizes polled issues into orchestrator state and derived events.
-  All functions execute inside the orchestrator GenServer process.
+  Remote reconciliation work runs outside the orchestrator process.
   """
 
   require Logger
@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.StatePolicy
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, Lifecycle, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State, TrackerTasks}
   alias Aiur.PollCadence
 
   @idle_terminal_verification_batch_size 25
@@ -62,7 +62,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   """
   @spec reconcile_contradictory_state_labels(State.t(), list()) :: {State.t(), list()}
   def reconcile_contradictory_state_labels(%State{} = state, issues) when is_list(issues) do
-    reconcile_contradictory_state_labels(state, issues, &Tracker.update_issue_state/2)
+    reconcile_contradictory_state_labels(state, issues, guarded_update_fun(issues))
   end
 
   @doc false
@@ -80,7 +80,7 @@ defmodule Aiur.Orchestrator.IssueSync do
             {healed_issue, state_acc} =
               heal_contradictory_state(issue, winner_for(state_labels, issue, state_acc), state_acc, update_state_fun)
 
-            {[healed_issue | acc], state_acc}
+            {retain_healed_issue(acc, healed_issue), state_acc}
 
           # `state_labels == []` is the GitHub normalizer's zero-label signal
           # (state is nil alongside it); `state_labels == nil` with no state is
@@ -91,7 +91,7 @@ defmodule Aiur.Orchestrator.IssueSync do
           %Issue{state_labels: state_labels, state: state} = issue
           when (state_labels == [] or (state_labels == nil and is_nil(state))) and state != "Closed" ->
             {healed_issue, state_acc} = heal_or_leave_missing_state_label(issue, state_acc, update_state_fun)
-            {[healed_issue | acc], state_acc}
+            {retain_healed_issue(acc, healed_issue), state_acc}
 
           _issue ->
             {[issue | acc], state_acc}
@@ -138,7 +138,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   """
   @spec sync_stranded_ticket_reconciliation(State.t(), list()) :: State.t()
   def sync_stranded_ticket_reconciliation(%State{} = state, issues) when is_list(issues) do
-    sync_stranded_ticket_reconciliation(state, issues, &Tracker.update_issue_state/2)
+    sync_stranded_ticket_reconciliation(state, issues, guarded_update_fun(issues))
   end
 
   @doc false
@@ -191,7 +191,8 @@ defmodule Aiur.Orchestrator.IssueSync do
     Map.has_key?(state.running, issue_id) or
       MapSet.member?(state.claimed, issue_id) or
       Map.has_key?(state.retry_attempts, issue_id) or
-      Map.has_key?(state.auto_resume, issue_id)
+      Map.has_key?(state.auto_resume, issue_id) or
+      TrackerTasks.issue_pending?(state, issue_id)
   end
 
   # States where an open ticket is deliberately unowned need no claim: an
@@ -230,8 +231,19 @@ defmodule Aiur.Orchestrator.IssueSync do
   # released-claim record so the strand stays visible to the operator.
   defp requeue_stranded_ticket(%State{} = state, %Issue{} = issue, update_state_fun) do
     restored = restore_state_for(issue, state)
+    input = Reconciler.issue_input(state, issue.id)
 
-    case update_state_fun.(issue.identifier, restored) do
+    TrackerTasks.run(state, {:stranded_repair, issue.id}, fn -> update_state_fun.(issue.identifier, restored) end, fn current, result ->
+      if Reconciler.issue_input(current, issue.id) == input and stranded_ticket?(current, issue) do
+        apply_stranded_repair(current, issue, restored, result)
+      else
+        Lifecycle.wake_tick(current)
+      end
+    end)
+  end
+
+  defp apply_stranded_repair(state, issue, restored, result) do
+    case result do
       :ok ->
         alert_stranded_ticket_requeued(state, issue, restored)
 
@@ -412,6 +424,14 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp heal_missing_state_label(%Issue{} = issue, state, update_state_fun) do
+    if TrackerTasks.owner?(state) do
+      schedule_label_heal(state, issue, restore_target_for(issue, state) || "todo", update_state_fun, &heal_missing_state_label_sync/3)
+    else
+      heal_missing_state_label_sync(issue, state, update_state_fun)
+    end
+  end
+
+  defp heal_missing_state_label_sync(%Issue{} = issue, state, update_state_fun) do
     restored = restore_target_for(issue, state) || "todo"
     healed_issue = %{issue | state: restored, state_labels: [restored]}
 
@@ -610,6 +630,43 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp heal_contradictory_state(%Issue{} = issue, winner, state, update_state_fun) do
+    if TrackerTasks.owner?(state) do
+      schedule_label_heal(state, issue, winner, update_state_fun, fn issue, current, update ->
+        heal_contradictory_state_sync(issue, winner, current, update)
+      end)
+    else
+      heal_contradictory_state_sync(issue, winner, state, update_state_fun)
+    end
+  end
+
+  defp schedule_label_heal(state, issue, target, update_state_fun, apply_heal) do
+    input = Reconciler.issue_input(state, issue.id)
+
+    state =
+      TrackerTasks.run(state, {:label_heal, issue.id}, fn -> update_state_fun.(issue.identifier, target) end, fn current, result ->
+        if Reconciler.issue_input(current, issue.id) == input do
+          {_issue, current} = apply_heal.(issue, current, fn _identifier, _target -> result end)
+          Lifecycle.wake_tick(current)
+        else
+          Lifecycle.wake_tick(current)
+        end
+      end)
+
+    # Until the guarded write finishes, dispatch has no authoritative healed issue.
+    {nil, state}
+  end
+
+  defp retain_healed_issue(acc, nil), do: acc
+  defp retain_healed_issue(acc, issue), do: [issue | acc]
+
+  defp guarded_update_fun(issues) do
+    fn identifier, target ->
+      issue = Enum.find(issues, &(&1.identifier == identifier))
+      Tracker.update_issue_state(identifier, target, expected_state: issue.state)
+    end
+  end
+
+  defp heal_contradictory_state_sync(%Issue{} = issue, winner, state, update_state_fun) do
     healed_issue = %{issue | state: winner, state_labels: [winner]}
 
     case update_state_fun.(issue.identifier, winner) do
@@ -726,9 +783,9 @@ defmodule Aiur.Orchestrator.IssueSync do
     state = %{state | active_attention_topics: active_attention_topics()}
     state = Reconciler.resolve_orphaned_divergence_attentions(state)
     previous_issues = state.last_polled_issues
-    current_issues = issues_by_id(issues)
+    current_issues = Map.merge(Map.filter(previous_issues, fn {id, _issue} -> TrackerTasks.issue_pending?(state, id) end), issues_by_id(issues))
 
-    retained_issues =
+    {state, retained_issues} =
       record_disappearing_idle_terminals(
         state,
         previous_issues,
@@ -815,6 +872,57 @@ defmodule Aiur.Orchestrator.IssueSync do
       end)
       |> Enum.sort()
 
+    if TrackerTasks.owner?(state) and disappearing_idle_issue_ids != [] do
+      inputs = Map.new(disappearing_idle_issue_ids, &{&1, Reconciler.issue_input(state, &1)})
+      verification_ids = Enum.take(disappearing_idle_issue_ids, @idle_terminal_verification_batch_size)
+
+      state =
+        TrackerTasks.run(state, :idle_terminal_verification, fn -> fetch_issue_states_fun.(verification_ids) end, fn current, result ->
+          eligible_ids = Enum.filter(verification_ids, &(Reconciler.issue_input(current, &1) == inputs[&1]))
+
+          pending_ids =
+            record_refreshed_terminal_membership(
+              eligible_ids,
+              fn _ids -> filter_terminal_result(result, eligible_ids) end,
+              observe_membership_fun,
+              terminal_states,
+              set_terminal_verification_pending_fun
+            )
+
+          retain_pending_terminal_verification(pending_ids, mark_reconciled_fun, set_terminal_verification_pending_fun)
+          resolved_ids = eligible_ids -- pending_ids
+          %{current | last_polled_issues: Map.drop(current.last_polled_issues, resolved_ids), released_claims: Map.drop(current.released_claims, resolved_ids)}
+        end)
+
+      {state, Map.merge(current_issues, Map.take(previous_issues, disappearing_idle_issue_ids))}
+    else
+      {state,
+       record_disappearing_idle_terminals_sync(
+         previous_issues,
+         current_issues,
+         disappearing_idle_issue_ids,
+         fetch_issue_states_fun,
+         observe_membership_fun,
+         terminal_states,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       )}
+    end
+  end
+
+  defp filter_terminal_result({:ok, issues}, ids) when is_list(issues), do: {:ok, Enum.filter(issues, &(&1.id in ids))}
+  defp filter_terminal_result(result, _ids), do: result
+
+  defp record_disappearing_idle_terminals_sync(
+         previous_issues,
+         current_issues,
+         disappearing_idle_issue_ids,
+         fetch_issue_states_fun,
+         observe_membership_fun,
+         terminal_states,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
     pending_issue_ids =
       record_refreshed_terminal_membership(
         disappearing_idle_issue_ids,

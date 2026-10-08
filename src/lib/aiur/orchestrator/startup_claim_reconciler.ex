@@ -19,7 +19,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   require Logger
 
   alias Aiur.{Alerts, Config, Issue, Tracker}
-  alias Aiur.Orchestrator.{DispatchPolicy, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, Lifecycle, Reconciler, State, TrackerTasks}
   alias Aiur.Orchestrator.StartupClaimReconciler.BootMarker
 
   @max_release_attempts 3
@@ -29,7 +29,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
   def reconcile(%State{startup_claim_reconciliation_complete?: true} = state, issues, _opts)
       when is_list(issues) do
-    {state, issues}
+    {state, reject_pending_releases(state, issues)}
   end
 
   def reconcile(%State{} = state, issues, opts) when is_list(issues) and is_list(opts) do
@@ -65,6 +65,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
         {state, issues}
     end
+    |> then(fn {current, issues} -> {current, reject_pending_releases(current, issues)} end)
   end
 
   defp run_pass(%State{} = state, issues, boot_id, opts) do
@@ -103,7 +104,7 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
     # The pass completes once every candidate is settled — protected by a live
     # runtime, successfully released, or latched after exhausting its retries.
     # A permanently failing release must not keep the whole pass re-running.
-    {%{state | startup_claim_reconciliation_complete?: not unsettled?}, issues}
+    {%{state | startup_claim_reconciliation_complete?: not unsettled?}, Enum.reject(issues, &is_nil/1)}
   end
 
   defp reconcile_issue(%State{} = state, %Issue{identifier: identifier} = issue, live_identifiers, opts)
@@ -114,6 +115,9 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
 
       MapSet.member?(live_identifiers, identifier) ->
         {:ok, resolve_release_failure(state, issue, opts), issue}
+
+      TrackerTasks.issue_pending?(state, issue.id) ->
+        {:retry, state, nil}
 
       retry_exhausted?(state, issue) ->
         # Already latched this boot: leave the claim in place and never
@@ -147,6 +151,36 @@ defmodule Aiur.Orchestrator.StartupClaimReconciler do
   defp current_generation_claim?(_entry), do: false
 
   defp release_orphaned_claim(%State{} = state, %Issue{} = issue, opts) do
+    if TrackerTasks.owner?(state) do
+      input = Reconciler.issue_input(state, issue.id)
+      todo_state = lifecycle_state_name(opts, "todo", "todo")
+
+      update =
+        Keyword.get(opts, :update_issue_state_fun, fn identifier, target, expected ->
+          Tracker.update_issue_state(identifier, target, expected_state: expected)
+        end)
+
+      current =
+        TrackerTasks.run(state, {:startup_release, issue.id}, fn -> update.(issue.identifier, todo_state, issue.state) end, fn current, result ->
+          if Reconciler.issue_input(current, issue.id) == input and not MapSet.member?(live_runtime_identifiers(current.running), issue.identifier) do
+            {status, current, refreshed} = release_orphaned_claim_sync(current, issue, Keyword.put(opts, :update_issue_state_fun, fn _id, _target, _expected -> result end))
+            current = if result == :ok, do: %{current | last_polled_issues: Map.put(current.last_polled_issues, issue.id, refreshed)}, else: current
+            current = if status == :retry, do: %{current | startup_claim_reconciliation_complete?: false}, else: current
+            Lifecycle.wake_tick(current)
+          else
+            Lifecycle.wake_tick(current)
+          end
+        end)
+
+      {:retry, current, nil}
+    else
+      release_orphaned_claim_sync(state, issue, opts)
+    end
+  end
+
+  defp reject_pending_releases(state, issues), do: Enum.reject(issues, &TrackerTasks.running?(state, {:startup_release, &1.id}))
+
+  defp release_orphaned_claim_sync(%State{} = state, %Issue{} = issue, opts) do
     todo_state = lifecycle_state_name(opts, "todo", "todo")
 
     update_issue_state_fun =

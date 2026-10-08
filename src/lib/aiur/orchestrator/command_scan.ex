@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.CommandScan do
   @moduledoc """
   Repo-wide one-off PR command scan (/aiur, @bot) with cursor-based deduplication.
-  All functions execute inside the orchestrator GenServer process.
+  Remote scan work executes outside the orchestrator GenServer process.
 
   ## The validators are the repository's, not this scan's
 
@@ -34,7 +34,7 @@ defmodule Aiur.Orchestrator.CommandScan do
   alias Aiur.Events.{GithubKeys, PrCommandScanner, Publisher, Sanitizer}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.ResourceStore
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{State, TrackerTasks}
 
   @command_scan_pull_requests_per_poll 25
 
@@ -46,7 +46,18 @@ defmodule Aiur.Orchestrator.CommandScan do
   @spec scan_pr_commands(State.t(), keyword()) :: State.t()
   def scan_pr_commands(%State{} = state, opts \\ []) do
     if Config.tracker_kind() == "github" and Aiur.GitHub.Config.pr_watch_enabled?() do
-      do_scan_pr_commands(state, opts)
+      TrackerTasks.run(
+        state,
+        :command_scan,
+        fn ->
+          scanned = do_scan_pr_commands(state, opts)
+          {scanned.github_command_scan_since, Map.take(scanned.github_comment_etags, [:command_scan_review, :command_scan_issue])}
+        end,
+        fn
+          current, {since, etags} -> %{current | github_command_scan_since: since, github_comment_etags: Map.merge(current.github_comment_etags, etags)}
+          current, _failure -> current
+        end
+      )
     else
       state
     end

@@ -120,6 +120,45 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
              PriorityControl.prioritize_agent_call(state, "missing", add_label_fun: fn _, _ -> flunk("unexpected tracker call") end)
   end
 
+  test "a pending priority write replies after completion and preserves current issue fields" do
+    parent = self()
+    reply_ref = make_ref()
+    initial = issue(labels: ["agent:todo"], priority: nil)
+    state = state_for(initial)
+
+    assert {:noreply, pending} =
+             PriorityControl.prioritize_agent_call(state, "1577",
+               from: {parent, reply_ref},
+               add_label_fun: fn _, _ ->
+                 send(parent, {:priority_writer, self()})
+
+                 receive do
+                   :release -> :ok
+                 after
+                   1_000 -> {:error, :blocked}
+                 end
+               end,
+               notify_dashboard_fun: fn _ -> :ok end
+             )
+
+    assert_receive {:priority_writer, worker}, 1_000
+
+    assert {:reply, {:error, :priority_change_in_progress}, ^pending} =
+             PriorityControl.deprioritize_agent_call(pending, "1577", from: {parent, make_ref()})
+
+    refute worker == self()
+    refute_receive {^reply_ref, _}, 20
+    refreshed = %{initial | title: "Updated title", state: "rework", labels: ["agent:rework", "model:claude"]}
+    current = %{pending | last_polled_issues: %{initial.id => refreshed}, running: %{initial.id => %{identifier: initial.identifier, issue: refreshed}}}
+    send(worker, :release)
+    assert_receive {task_ref, result}, 1_000
+    {:handled, applied} = Aiur.Orchestrator.TrackerTasks.result(current, task_ref, result)
+    assert_receive {^reply_ref, {:ok, :prioritized}}, 1_000
+    assert applied.last_polled_issues[initial.id].title == "Updated title"
+    assert applied.last_polled_issues[initial.id].state == "rework"
+    assert applied.running[initial.id].issue.labels == ["agent:rework", "model:claude", "priority:1"]
+  end
+
   defp state_for(issue) do
     %State{
       last_polled_issues: %{issue.id => issue},

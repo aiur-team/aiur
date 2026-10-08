@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReport
+  alias Aiur.Orchestrator.TrackerTasks
   alias Aiur.Orchestrator.TrackedSet
   alias Aiur.RunTelemetry.Lifecycle
   require Logger
@@ -118,6 +119,18 @@ defmodule Aiur.Orchestrator.PauseResume do
   @doc false
   @spec reset_dispatch_budget_call(State.t(), String.t()) :: {:reply, {:ok, :reset} | {:error, term()}, State.t()}
   def reset_dispatch_budget_call(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+    if TrackerTasks.owner?(state) do
+      run_control_effect(state, :reset_budget, issue_identifier)
+    else
+      reset_dispatch_budget_sync(state, issue_identifier)
+    end
+  end
+
+  def reset_dispatch_budget_call(%State{} = state, _issue_identifier) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  defp reset_dispatch_budget_sync(state, issue_identifier) do
     case resolve_reset_issue(state, issue_identifier) do
       {:ok, issue, state} ->
         issue_id = issue.id
@@ -130,10 +143,6 @@ defmodule Aiur.Orchestrator.PauseResume do
         emit_reset_failure_alert(reset_alert_issue_id(state, issue_identifier), issue_identifier, reason)
         {:reply, {:error, reason}, state}
     end
-  end
-
-  def reset_dispatch_budget_call(%State{} = state, _issue_identifier) do
-    {:reply, {:error, :invalid_identifier}, state}
   end
 
   @doc false
@@ -763,7 +772,30 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec resume_issue(State.t(), String.t()) ::
           {{:ok, :resumed | :started | :reactivated | :already_running | :sleeping} | {:error, term()}, State.t()}
-  def resume_issue(%State{} = state, issue_identifier), do: resume_issue_with_opts(state, issue_identifier, [])
+  def resume_issue(%State{} = state, issue_identifier) do
+    if TrackerTasks.owner?(state) do
+      {:reply, reply, next} = run_control_effect(state, :resume, issue_identifier)
+      {reply, next}
+    else
+      resume_issue_with_opts(state, issue_identifier, [])
+    end
+  end
+
+  defp run_control_effect(state, action, identifier, stage \\ :start, result \\ nil) do
+    case tracker_control_call(state, action, identifier, stage, result) do
+      {:reply, {:tracker_io, {action, identifier, next_stage}, function, args}, next} ->
+        next =
+          TrackerTasks.start(next, {:control_effect, identifier}, fn -> perform_tracker_io(function, args) end, fn current, response ->
+            {:reply, _reply, current} = run_control_effect(current, action, identifier, next_stage, response)
+            current
+          end)
+
+        {:reply, {:ok, :pending}, next}
+
+      reply ->
+        reply
+    end
+  end
 
   defp resume_issue_with_opts(%State{} = state, issue_identifier, opts) do
     if Keyword.get(opts, :probe_provider_limits?, true) do
@@ -781,15 +813,50 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp resume_running_issue(%State{} = state, running_entry) do
-    case clear_tracker_pause_override(state, running_entry) do
-      {:ok, state, running_entry} ->
-        do_resume_running_issue(state, running_entry)
+    issue = Map.get(running_entry, :issue)
 
-      {:error, reason} ->
-        Logger.warning("Pause override clear failed: #{pause_log_context(running_entry)} reason=#{inspect(reason)}")
-        {{:error, {:pause_override_clear_failed, reason}}, state}
+    if is_struct(issue, Issue) and Issue.paused?(issue) do
+      run_running_effect(state, running_entry, :clear_pause, fn -> clear_pause_override(running_entry) end, fn current, entry, result ->
+        case result do
+          {:ok, cleared_entry} ->
+            cleared_entry = Map.put(entry, :issue, Map.fetch!(cleared_entry, :issue))
+            current = put_running_entry(current, issue.id, cleared_entry)
+            do_resume_running_issue(current, cleared_entry)
+
+          {:error, reason} ->
+            Logger.warning("Pause override clear failed: #{pause_log_context(entry)} reason=#{inspect(reason)}")
+            {{:error, {:pause_override_clear_failed, reason}}, current}
+        end
+      end)
+    else
+      do_resume_running_issue(state, running_entry)
     end
   end
+
+  defp run_running_effect(state, running_entry, key, fetch, apply_result) do
+    issue_id = get_in(running_entry, [:issue, Access.key(:id)])
+    generation = running_generation(running_entry)
+
+    if TrackerTasks.owner?(state) do
+      next =
+        TrackerTasks.start(state, {key, issue_id}, fetch, fn current, result ->
+          entry = Map.get(current.running, issue_id)
+
+          if is_map(entry) and running_generation(entry) == generation do
+            {_reply, next} = apply_result.(current, entry, result)
+            next
+          else
+            current
+          end
+        end)
+
+      {{:ok, :pending}, next}
+    else
+      apply_result.(state, running_entry, fetch.())
+    end
+  end
+
+  defp running_generation(entry), do: Map.take(entry, [:pid, :ref, :control, :paused_reason])
 
   defp do_resume_running_issue(state, running_entry) do
     cond do
@@ -1509,25 +1576,28 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp revalidate_completed_replacement(state, running_entry, issue) do
-    case Dispatcher.revalidate_issue_for_dispatch(
-           issue,
-           &Tracker.fetch_issue_states_by_ids/1,
-           DispatchPolicy.terminal_state_set()
-         ) do
-      {:ok, refreshed_issue} ->
-        dispatch_completed_replacement(state, running_entry, refreshed_issue)
+    {_reply, next} =
+      run_running_effect(state, running_entry, :completed_revalidation, fn -> perform_tracker_io(:revalidate_completed, [issue]) end, fn current, entry, result ->
+        next =
+          case result do
+            {:ok, refreshed_issue} ->
+              dispatch_completed_replacement(current, entry, refreshed_issue)
 
-      {:skip, %Issue{} = refreshed_issue} ->
-        Reconciler.refresh_running_entry_issue(state, refreshed_issue, running_entry)
+            {:skip, %Issue{} = refreshed_issue} ->
+              Reconciler.refresh_running_entry_issue(current, refreshed_issue, entry)
 
-      {:skip, :missing} ->
-        state
+            {:skip, :missing} ->
+              current
 
-      {:error, reason} ->
-        Logger.warning("Completed runner replacement skipped; issue refresh failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+            {:error, reason} ->
+              Logger.warning("Completed runner replacement skipped; issue refresh failed: #{State.issue_context(issue)} reason=#{inspect(reason)}")
+              current
+          end
 
-        state
-    end
+        {{:ok, :pending}, next}
+      end)
+
+    next
   end
 
   @doc false
@@ -1573,9 +1643,11 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp classify_completed_replacement({result, %State{} = state}, _issue), do: {result, state}
 
   defp classify_completed_replacement(%State{} = state, issue) do
-    if live_replacement?(state, issue.id),
-      do: {{:ok, :started}, state},
-      else: {{:error, {:redispatch_deferred, redispatch_start_failure_reason(state, issue)}}, state}
+    cond do
+      live_replacement?(state, issue.id) -> {{:ok, :started}, state}
+      TrackerTasks.issue_pending?(state, issue.id) -> {{:ok, :pending}, state}
+      true -> {{:error, {:redispatch_deferred, redispatch_start_failure_reason(state, issue)}}, state}
+    end
   end
 
   defp redispatch_start_failure_reason(state, issue) do
@@ -1643,11 +1715,16 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> AgentTeardown.terminate_running_issue(issue_id, false)
       |> dispatch_fun.(issue, nil, worker_host)
 
-    if live_replacement?(next_state, issue_id) do
-      {{:ok, :started}, next_state}
-    else
-      reason = redispatch_start_failure_reason(next_state, issue)
-      {{:error, {:redispatch_deferred, reason}}, restore_completed_entry(next_state, running_entry, issue)}
+    cond do
+      live_replacement?(next_state, issue_id) ->
+        {{:ok, :started}, next_state}
+
+      TrackerTasks.issue_pending?(next_state, issue_id) ->
+        {{:ok, :pending}, next_state}
+
+      true ->
+        reason = redispatch_start_failure_reason(next_state, issue)
+        {{:error, {:redispatch_deferred, reason}}, restore_completed_entry(next_state, running_entry, issue)}
     end
   end
 
@@ -1683,9 +1760,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp restart_completed_issue(state, running_entry) do
     issue = Map.fetch!(running_entry, :issue)
-
-    result = Dispatcher.revalidate_issue_for_dispatch(issue, &Tracker.fetch_issue_states_by_ids/1, DispatchPolicy.terminal_state_set())
-    restart_revalidated_completed_issue(state, running_entry, result)
+    run_running_effect(state, running_entry, :completed_restart, fn -> perform_tracker_io(:revalidate_completed, [issue]) end, &restart_revalidated_completed_issue/3)
   end
 
   defp restart_revalidated_completed_issue(state, running_entry, result) do
@@ -2565,6 +2640,9 @@ defmodule Aiur.Orchestrator.PauseResume do
         cond do
           MapSet.member?(next_state.claimed, issue.id) ->
             {{:ok, :started}, next_state}
+
+          TrackerTasks.issue_pending?(next_state, issue.id) ->
+            {{:ok, :pending}, next_state}
 
           match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
             {{:error, :lifetime_dispatch_latch}, next_state}

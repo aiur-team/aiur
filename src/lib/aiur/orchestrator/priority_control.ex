@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.PriorityControl do
   """
 
   alias Aiur.{Issue, Tracker}
-  alias Aiur.Orchestrator.{State, StatusReport}
+  alias Aiur.Orchestrator.{State, StatusReport, TrackerTasks}
 
   @prioritized_label "priority:1"
 
@@ -40,15 +40,80 @@ defmodule Aiur.Orchestrator.PriorityControl do
   end
 
   defp change_priority(state, identifier, target, opts) do
-    with {:ok, %Issue{} = issue} <- issue_by_identifier(state, identifier),
-         {:ok, result, updated_issue} <- persist_priority(issue, target, opts) do
-      state = replace_issue(state, updated_issue)
-      notify_dashboard = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1)
-      :ok = notify_dashboard.(state)
-      {:reply, {:ok, result}, state}
-    else
-      {:error, _reason} = error -> {:reply, error, state}
+    case issue_by_identifier(state, identifier) do
+      {:ok, issue} ->
+        case Keyword.get(opts, :from) do
+          nil ->
+            case persist_priority(issue, target, opts) do
+              {:ok, result, updated_issue} ->
+                state = replace_issue(state, updated_issue)
+                :ok = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1).(state)
+                {:reply, {:ok, result}, state}
+
+              {:error, _} = error ->
+                {:reply, error, state}
+            end
+
+          from ->
+            if TrackerTasks.running?(state, {:priority, issue.id}) do
+              {:reply, {:error, :priority_change_in_progress}, state}
+            else
+              next =
+                TrackerTasks.start(
+                  state,
+                  {:priority, issue.id},
+                  fn ->
+                    case persist_priority(issue, target, opts) do
+                      {:ok, result, changed} -> {:ok, result, changed.priority}
+                      error -> error
+                    end
+                  end,
+                  fn current, outcome ->
+                    {reply, current} =
+                      case outcome do
+                        {:ok, result, priority} ->
+                          current = apply_priority(current, issue.id, priority)
+                          :ok = Keyword.get(opts, :notify_dashboard_fun, &StatusReport.notify_dashboard/1).(current)
+                          {{:ok, result}, current}
+
+                        {:error, _} = error ->
+                          {error, current}
+                      end
+
+                    GenServer.reply(from, reply)
+                    current
+                  end
+                )
+
+              {:noreply, next}
+            end
+        end
+
+      {:error, _} = error ->
+        {:reply, error, state}
     end
+  end
+
+  defp apply_priority(state, issue_id, priority) do
+    update = fn issue ->
+      if priority == 1, do: with_priority(issue, @prioritized_label), else: without_priority(issue)
+    end
+
+    polled = Map.update(state.last_polled_issues, issue_id, nil, fn issue -> update.(issue) end) |> Map.reject(fn {_id, issue} -> is_nil(issue) end)
+
+    running =
+      case Map.get(state.running, issue_id) do
+        %{issue: %Issue{} = issue} = entry -> Map.put(state.running, issue_id, %{entry | issue: update.(issue)})
+        _ -> state.running
+      end
+
+    retry =
+      case Map.get(state.retry_attempts, issue_id) do
+        entry when is_map(entry) -> Map.put(state.retry_attempts, issue_id, Map.put(entry, :priority, priority))
+        _ -> state.retry_attempts
+      end
+
+    %{state | last_polled_issues: polled, running: running, retry_attempts: retry}
   end
 
   defp issue_by_identifier(%State{} = state, identifier) do

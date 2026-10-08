@@ -25,7 +25,7 @@ defmodule Aiur.Orchestrator.AutoResume do
 
   alias Aiur.{Alerts, Issue, Tracker}
   alias Aiur.GitHub.Errors
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State, TrackerTasks}
 
   @backoff_ms [120_000, 300_000, 900_000]
   @max_attempts 3
@@ -264,10 +264,10 @@ defmodule Aiur.Orchestrator.AutoResume do
   defp resume_one(%State{} = state, issue_id, entry, opts) do
     case Map.get(state.last_polled_issues, issue_id) do
       %Issue{} = issue ->
-        if resumable?(state, issue) do
-          do_resume(state, issue_id, issue, entry, opts)
-        else
-          drop_after_refusal(state, issue_id, issue)
+        cond do
+          TrackerTasks.issue_pending?(state, issue_id) -> state
+          resumable?(state, issue) -> do_resume(state, issue_id, issue, entry, opts)
+          true -> drop_after_refusal(state, issue_id, issue)
         end
 
       nil ->
@@ -299,15 +299,40 @@ defmodule Aiur.Orchestrator.AutoResume do
   end
 
   defp do_resume(%State{} = state, issue_id, %Issue{} = issue, entry, opts) do
-    active_states = DispatchPolicy.active_state_set()
+    if DispatchPolicy.active_issue_state?(issue.state, DispatchPolicy.active_state_set()) do
+      dispatch_resume(state, issue_id, issue, entry, opts)
+    else
+      admission_fun = Keyword.get(opts, :admission_fun, &Dispatcher.auto_resume_admission/1)
 
-    state =
-      if DispatchPolicy.active_issue_state?(issue.state, active_states) do
-        state
-      else
-        restore_state(state, issue, opts)
+      case admission_fun.(state) do
+        {:hold, reason} -> defer_for_admission(state, issue_id, entry, reason)
+        :dispatch -> restore_for_resume(state, issue_id, issue, entry, opts)
       end
+    end
+  end
 
+  defp restore_for_resume(state, issue_id, issue, entry, opts) do
+    update_fun = Keyword.get(opts, :update_state_fun, fn identifier, next_state -> Tracker.update_issue_state(identifier, next_state, expected_state: issue.state) end)
+
+    TrackerTasks.run(state, {:auto_restore, issue_id}, fn -> update_fun.(issue.identifier, "todo") end, fn current, result ->
+      if Map.get(current.auto_resume, issue_id) == entry and Map.get(current.last_polled_issues, issue_id) == issue and resumable?(current, issue) do
+        case result do
+          :ok ->
+            refreshed = %{issue | state: "todo"}
+            current = %{current | last_polled_issues: Map.put(current.last_polled_issues, issue.id, refreshed)}
+            dispatch_resume(current, issue_id, refreshed, entry, opts)
+
+          {:error, reason} ->
+            Logger.warning("Transient auto-resume state restore failed for #{State.issue_context(issue)}: #{inspect(reason)}")
+            schedule(current, issue_id, entry.cause)
+        end
+      else
+        current
+      end
+    end)
+  end
+
+  defp dispatch_resume(state, issue_id, issue, entry, opts) do
     admission_fun = Keyword.get(opts, :admission_fun, &Dispatcher.auto_resume_admission/1)
 
     case admission_fun.(state) do
@@ -320,19 +345,34 @@ defmodule Aiur.Orchestrator.AutoResume do
         defer_for_admission(state, issue_id, entry, reason)
 
       :dispatch ->
-        dispatch_fun = Keyword.get(opts, :dispatch_fun, &Dispatcher.dispatch_issue/2)
-        next_state = dispatch_fun.(state, issue)
+        dispatch_fun =
+          Keyword.get(opts, :dispatch_fun, fn current, ticket ->
+            Dispatcher.dispatch_issue(current, ticket, nil, nil, dispatch_result_fun: fn current -> finish_dispatch(current, ticket, entry) end)
+          end)
 
-        if MapSet.member?(next_state.claimed, issue.id) or Map.has_key?(next_state.running, issue.id) do
-          Logger.info("Transient auto-resume dispatched #{State.issue_context(issue)}")
-          %{next_state | auto_resume: Map.delete(next_state.auto_resume, issue.id), released_claims: Map.delete(next_state.released_claims, issue.id)}
-        else
-          # Admission passed but the dispatch itself refused (thrash window,
-          # backend usage limit, worker-capacity race, spawn failure) — a real
-          # re-dispatch attempt, so advance the bounded backoff.
-          Logger.info("Transient auto-resume deferred for #{State.issue_context(issue)} cause=#{entry.cause}")
-          schedule(next_state, issue_id, entry.cause)
-        end
+        state |> dispatch_fun.(issue) |> finish_dispatch(issue, entry)
+    end
+  end
+
+  @doc false
+  def finish_dispatch(state, issue, entry) do
+    cond do
+      Map.get(state.auto_resume, issue.id) != entry ->
+        state
+
+      state.globally_paused ->
+        state
+
+      TrackerTasks.issue_pending?(state, issue.id) ->
+        state
+
+      MapSet.member?(state.claimed, issue.id) or Map.has_key?(state.running, issue.id) ->
+        Logger.info("Transient auto-resume dispatched #{State.issue_context(issue)}")
+        %{state | auto_resume: Map.delete(state.auto_resume, issue.id), released_claims: Map.delete(state.released_claims, issue.id)}
+
+      true ->
+        Logger.info("Transient auto-resume deferred for #{State.issue_context(issue)} cause=#{entry.cause}")
+        schedule(state, issue.id, entry.cause)
     end
   end
 
@@ -343,29 +383,6 @@ defmodule Aiur.Orchestrator.AutoResume do
     Logger.info("Transient auto-resume admission deferred for issue_id=#{issue_id} reason=#{inspect(reason)}")
 
     %{state | auto_resume: Map.put(state.auto_resume, issue_id, entry)}
-  end
-
-  # An `agent:error` ticket (from retry exhaustion on a transient cause) must
-  # be restored to a dispatchable state before it can be re-dispatched.
-  #
-  # The restore writes `todo`, never `rework`: nothing here rejected the work.
-  # `rework` means "work exists and was rejected" (a reviewer's verdict); a
-  # transient infra fault only needs "make this dispatchable again", which is
-  # exactly what `todo` says. Writing `rework` also let a no-PR ticket be
-  # stamped with a review verdict it never received, stranding the ticket in a
-  # state nothing would select (#2075).
-  defp restore_state(state, %Issue{} = issue, opts) do
-    update_fun = Keyword.get(opts, :update_state_fun, &Tracker.update_issue_state/2)
-
-    case update_fun.(issue.identifier, "todo") do
-      :ok ->
-        refreshed = %{issue | state: "todo"}
-        %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, refreshed)}
-
-      {:error, reason} ->
-        Logger.warning("Transient auto-resume state restore failed for #{State.issue_context(issue)}: #{inspect(reason)}")
-        state
-    end
   end
 
   defp recovery_due_at_ms(opts, now_ms) do

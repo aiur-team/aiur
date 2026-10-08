@@ -622,6 +622,36 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
+  test "async lifetime writes retain current alert fields and ignore a reset budget" do
+    issue = %Issue{id: @issue_id, identifier: "repo#async-lifetime"}
+    state = dispatch_n(%Orchestrator.State{snapshot_key: self()}, 10)
+    assert {:trip, state} = run(state, 11 * (@window_ms + 1))
+    parent = self()
+
+    write = fn _, _ ->
+      send(parent, {:latch_writer, self()})
+      receive do: (:release -> :ok)
+    end
+
+    pending = Dispatcher.persist_lifetime_trip(state, issue, write)
+    assert_receive {:latch_writer, worker}
+    send(worker, :release)
+    assert_receive {ref, result}
+    current = update_in(pending.dispatch_recovery.codex_thrash_budget[@issue_id], &Map.put(&1, :alert_emitted, true))
+    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(current, ref, result)
+    assert thrash_budget(next)[@issue_id].durable_latch_applied
+    assert thrash_budget(next)[@issue_id].alert_emitted
+
+    pending = Dispatcher.persist_lifetime_trip(state, issue, write)
+    assert_receive {:latch_writer, worker}
+    send(worker, :release)
+    assert_receive {ref, result}
+    reset = with_thrash_budget(pending, %{@issue_id => %{lifetime: 0}})
+    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(reset, ref, result)
+    assert thrash_budget(next)[@issue_id] == %{lifetime: 0}
+  end
+
+  @tag config: @enabled
   test "the lifetime latch attention reaches the central alert feed" do
     # IssueSync rebuilds the persisted error cause after a restart from the
     # central feed alone (`AlertFeed.list(roots: [], log_roots: [...])`). A
