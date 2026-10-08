@@ -184,6 +184,8 @@ jobs:
         run: make test-rename-preflight
       - name: Test config documentation guard
         run: bash scripts/test-check-config-docs.sh
+      - name: Test component manifest guard
+        run: bash scripts/test-check-components.sh
       - name: Test env example drift guard
         run: bash scripts/test-check-env-example.sh
       - name: Test coverage-shard parity guard
@@ -270,6 +272,10 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-config-docs.py
+      - name: Every source file belongs to one component
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        working-directory: .
+        run: python3 scripts/check-components.py
       # Same rationale as check-config-docs: a drift gate nobody has to
       # satisfy guards nothing, so the env example guard lives in the required
       # lint job and runs on every PR. .env.example is generated from the env
