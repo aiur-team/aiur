@@ -272,6 +272,20 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-config-docs.py
+      - name: Cache component checker toolchain
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: scripts/components/node_modules
+          key: components-${{ runner.os }}-${{ hashFiles('scripts/components/package-lock.json') }}
+      - name: Install component checker toolchain
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        working-directory: .
+        run: npm ci --prefix scripts/components --ignore-scripts
+      - name: Test component import boundaries
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        working-directory: .
+        run: bash scripts/test-check-components.sh --with-node
       - name: Every source file belongs to one component
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .

@@ -11,7 +11,8 @@ import sys
 import tempfile
 
 repo = Path(sys.argv[1])
-selected = set(sys.argv[2:])
+with_node = '--with-node' in sys.argv[2:]
+selected = set(sys.argv[2:]) - {'--with-node'}
 checker = repo / 'scripts/check-components.py'
 ran = set()
 
@@ -22,7 +23,7 @@ def component(cid, paths):
                 requires=[], optional=[], owns={k: [] for k in ('config', 'env', 'state', 'capabilities')}, prior=[])
 
 
-def check(name, components, files, code=0, messages=(), change=None, git=False, format=False):
+def check(name, components, files, code=0, messages=(), change=None, git=False, format=False, rules='ownership', links=None):
     if selected and name not in selected:
         return
     ran.add(name)
@@ -36,14 +37,18 @@ def check(name, components, files, code=0, messages=(), change=None, git=False, 
         for file in files:
             path = root / file
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.touch()
+            path.write_text(files[file] if isinstance(files, dict) else '')
+        for link, target in (links or {}).items():
+            path = root / link
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.symlink_to(root / target, target_is_directory=True)
         if git:
             subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
             subprocess.run(['git', '-C', str(root), 'add', '--', *files], check=True)
             (root / 'src/lib/untracked.ex').touch()
         import os
         env = dict(os.environ, AIUR_COMPONENTS_ROOT=str(root))
-        args = [sys.executable, str(checker), '--rules', 'ownership']
+        args = [sys.executable, str(checker), '--rules', rules]
         if format:
             args.append('--format')
         result = subprocess.run(args, env=env, text=True, capture_output=True)
@@ -106,6 +111,64 @@ check('required_property_fails', [component('a', [])], [], 2, ('/components/0/na
 check('empty_name_fails', [dict(component('a', []), name='')], [], 2, ('/components/0/name: empty string',))
 check('duplicate_paths_fail', [component('a', ['src/lib/a.ex', 'src/lib/a.ex'])], ['src/lib/a.ex'], 2,
       ('/components/0/paths: duplicate items',))
+if with_node:
+    def imports(name, source, code=0, messages=(), dependencies=None, extra=None, links=None):
+        files = {'packages/a/package.json': json.dumps(dict(name='a', dependencies=dependencies or {})),
+                 'packages/a/src/x.ts': source}
+        files.update(extra or {})
+        components = [dict(component('clients', ['packages/**']), layer=5)]
+        if any(file.startswith('src/lib/') for file in files):
+            components.append(component('daemon', ['src/lib/**']))
+        check(name, components, files, code, messages, rules='all', links=links)
+
+    imports('relative_inside_package_passes', 'import "./y.js";', extra={'packages/a/src/y.ts': ''})
+    imports('import_into_src_fails', 'import "../../../src/lib/foo.js";', 1,
+            ('R-client', 'src/lib/foo.js'))
+    imports('sibling_package_fails', 'import "../../b/src/z.js";', 1, ('R-client', 'packages/b/src/z.js'),
+            extra={'packages/b/package.json': '{"name":"b"}', 'packages/b/src/z.js': ''})
+    imports('undeclared_npm_dep_fails', 'import "left-pad";', 1, ('undeclared npm dependency left-pad',))
+    imports('computed_import_fails', 'import(`./${name}.js`);', 1, ('unanalyzable',))
+    imports('computed_require_fails', 'require(name);', 1, ('unanalyzable',))
+    imports('comment_mention_ignored', '// from "to top"\nconst text = `from "zero usage"`;')
+    imports('contracts_import_allowed', 'import "../../aiur-contracts/src/z.js";',
+            dependencies={'@aiur/contracts': '*'},
+            extra={'packages/aiur-contracts/package.json': '{"name":"@aiur/contracts"}',
+                   'packages/aiur-contracts/src/z.js': ''})
+    imports('contracts_must_be_declared', 'import "../../aiur-contracts/src/z.js";', 1,
+            ('aiur-contracts must be declared',),
+            extra={'packages/aiur-contracts/package.json': '{"name":"@aiur/contracts"}',
+                   'packages/aiur-contracts/src/z.js': ''})
+    imports('declared_npm_and_builtins_pass', 'import "@scope/dep/subpath"; import "node:fs"; require("fs/promises");',
+            dependencies={'@scope/dep': '*'})
+    imports('unknown_node_builtin_fails', 'import "node:made-up";', 1, ('undeclared npm dependency',))
+    for name, source in {
+        'export_into_src_fails': 'export * from "../../../src/lib/foo.js";',
+        'import_equals_into_src_fails': 'import x = require("../../../src/lib/foo.js");',
+        'import_type_into_src_fails': 'type X = import("../../../src/lib/foo.js").X;',
+        'literal_dynamic_into_src_fails': 'import("../../../src/lib/foo.js");',
+        'literal_require_into_src_fails': 'require("../../../src/lib/foo.js");',
+    }.items():
+        imports(name, source, 1, ('R-client', 'src/lib/foo.js'))
+    imports('test_outside_src_fails', '', 1, ('R-client', 'src/lib/foo.js'),
+            extra={'packages/a/test/x.test.mts': 'import "../../../src/lib/foo.js";'})
+    imports('symlinked_npm_into_src_fails', 'import "leak";', 1, ('R-client', 'src/lib/leak/index.js'),
+            dependencies={'leak': '*'}, extra={'src/lib/leak/index.js': ''},
+            links={'packages/a/node_modules/leak': 'src/lib/leak'})
+    imports('relative_symlink_into_src_fails', 'import "./leak/index.js";', 1, ('R-client', 'src/lib/leak/index.js'),
+            extra={'src/lib/leak/index.js': ''}, links={'packages/a/src/leak': 'src/lib/leak'})
+    imports('missing_package_json_exits_2', '', 2, ('package.json',), extra={'packages/b/src/x.ts': ''})
+    imports('external_resource_into_packages_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@external_resource "../../packages/a/x.json"'})
+    imports('external_resource_attribute_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@resource Path.expand("../../packages/a/x.json", __DIR__)\n@external_resource @resource'})
+    imports('external_resource_allowlisted', '', messages=('allowlisted', 'MP-R6 owns'),
+            extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
+                   '@contract_path Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)\n@external_resource @contract_path',
+                   'packages/streamdeck/package.json': '{"name":"streamdeck"}'})
+    imports('allowlist_is_path_specific', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
+                   '@external_resource "../../../packages/a/other.json"'})
+
 if not selected or 'malformed_json_exits_2' in selected:
     ran.add('malformed_json_exits_2')
     with tempfile.TemporaryDirectory() as directory:

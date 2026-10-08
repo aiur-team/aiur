@@ -8,6 +8,9 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parent / 'components'))
+from import_rules import client_imports, reverse_resources
+
 ROOTS = ('src/lib', 'packages', 'packaging')
 EXCLUDED = {'node_modules', '_build', 'deps', 'dist'}
 
@@ -197,7 +200,7 @@ def format_manifest(manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--rules', choices=['ownership'], default='ownership')
+    parser.add_argument('--rules', choices=['ownership', 'all'], default='all')
     parser.add_argument('--format', action='store_true')
     args = parser.parse_args()
     root = Path(os.environ.get('AIUR_COMPONENTS_ROOT', Path(__file__).resolve().parent.parent)).resolve()
@@ -207,6 +210,8 @@ def main():
         if args.format:
             (root / 'components.json').write_text(format_manifest(manifest))
         problems, counts = ownership(manifest, files)
+        if args.rules == 'all' and not args.format:
+            problems += client_imports(root) + reverse_resources(root, files)
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         print(f'components: components.json: {error}', file=sys.stderr)
         return 2
