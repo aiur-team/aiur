@@ -3264,25 +3264,33 @@ cmd_listen() {
   [ -n "$topic" ] || { echo "aiur: listen requires a topic" >&2; exit 64; }
   local encoded
   encoded="$(printf '%s' "$topic" | base64 | tr -d '\n')"
-  local ticket_opt=""
-  if [ -n "$ticket" ]; then ticket_opt=", ticket: \"$ticket\""; fi
   run_control_rpc "Aiur.AgentControlCLI.executor_listen_validate(Base.decode64!(\"$encoded\"))" || return $?
-  local attempt=0 status
-  while [ "$attempt" -lt 5 ]; do
-    attempt=$((attempt + 1))
+  # A stream that stayed up 30s had a live connection, so losing it starts a
+  # new outage. Each outage gets a bounded backoff totalling ~10 minutes, long
+  # enough to outlast a normal `aiur restart`.
+  local waited=0 delay=2 started status
+  while :; do
+    started=$SECONDS
     status=0
-    run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\")${ticket_opt})" || status=$?
+    run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\"))" || status=$?
     [ "$status" -eq 0 ] && return 0
     if [ "$status" -ne 1 ] || [ "${AIUR_LISTEN_RECONNECT:-1}" -ne 1 ]; then
       echo "aiur: listen stopped after streaming control RPC failure (exit ${status}); restart the command after correcting the daemon error" >&2
       return "$status"
     fi
-    [ "$attempt" -eq 5 ] && break
-    echo "aiur: listen lost the daemon stream (exit ${status}); reconnecting in 2 seconds" >&2
-    sleep 2
+    if [ $((SECONDS - started)) -ge 30 ]; then
+      waited=0
+      delay=2
+    fi
+    if [ "$waited" -ge 600 ]; then
+      echo "aiur: listen could not reconnect within ${waited} seconds; daemon may be unavailable" >&2
+      return 1
+    fi
+    echo "aiur: listen lost the daemon stream (exit ${status}); reconnecting in ${delay} seconds" >&2
+    sleep "$delay"
+    waited=$((waited + delay))
+    delay=$((delay * 2 > 60 ? 60 : delay * 2))
   done
-  echo "aiur: listen could not reconnect after 5 attempts; daemon may be unavailable" >&2
-  return 1
 }
 
 cmd_executor_wait() {

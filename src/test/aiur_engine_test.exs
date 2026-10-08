@@ -1588,7 +1588,7 @@ aiur_engine_main listen --ticket 3028|,
       )
 
     assert ticket =~ ~s|executor_listen_validate(Base.decode64!("dGlja2V0LjMwMjguIw=="))|
-    assert ticket =~ ~s|executor_listen(topic: Base.decode64!("dGlja2V0LjMwMjguIw=="), ticket: "3028")|
+    assert ticket =~ ~s|executor_listen(topic: Base.decode64!("dGlja2V0LjMwMjguIw=="))|
 
     {alias_output, 0} =
       run_sourced_engine(
@@ -1613,19 +1613,53 @@ aiur_engine_main listen --topic 'ticket.*.#'|,
     refute widened =~ "SHOULD_NOT_STREAM"
   end
 
-  test "listen stops after five daemon reconnect failures" do
+  test "listen backs off for about ten minutes of one outage, then stops" do
     {out, 1} =
       run_sourced_engine(
         ~s|run_control_rpc() { return 0; }
-stream_count=0
-run_control_stream() { stream_count=$((stream_count + 1)); echo "ATTEMPT:$stream_count"; return 1; }
-sleep() { :; }
+run_control_stream() { echo ATTEMPT; return 1; }
+sleep() { echo "SLEEP:$1"; }
 aiur_engine_main listen --ticket 3028|,
         []
       )
 
-    assert length(Regex.scan(~r/ATTEMPT:/, out)) == 5, out
-    assert out =~ "could not reconnect after 5 attempts"
+    delays = ~r/SLEEP:(\d+)/ |> Regex.scan(out) |> Enum.map(fn [_, d] -> String.to_integer(d) end)
+    assert Enum.take(delays, 7) == [2, 4, 8, 16, 32, 60, 60], out
+    assert Enum.sum(delays) in 600..660, out
+    assert out =~ "could not reconnect within"
+  end
+
+  test "listen resets its outage budget after a stream that stayed connected" do
+    # Each stream lasts 40s before the daemon drops it; 30 such drops far exceed
+    # one outage budget, so only a per-connection reset reaches the clean exit.
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { return 0; }
+stream_count=0
+run_control_stream() { stream_count=$((stream_count + 1)); SECONDS=$((SECONDS + 40)); [ "$stream_count" -ge 30 ] && return 0; return 1; }
+sleep() { echo "SLEEP:$1"; }
+aiur_engine_main listen --ticket 3028|,
+        []
+      )
+
+    delays = ~r/SLEEP:(\d+)/ |> Regex.scan(out) |> Enum.map(fn [_, d] -> String.to_integer(d) end)
+    assert delays == List.duplicate(2, 29), out
+    refute out =~ "could not reconnect"
+  end
+
+  test "listen stops without retrying on a stream exit status other than 1" do
+    {out, 2} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { return 0; }
+run_control_stream() { echo ATTEMPT; return 2; }
+sleep() { echo SLEPT; }
+aiur_engine_main listen --ticket 3028|,
+        []
+      )
+
+    assert length(Regex.scan(~r/ATTEMPT/, out)) == 1, out
+    refute out =~ "SLEPT"
+    assert out =~ "listen stopped after streaming control RPC failure (exit 2)"
   end
 
   test "executor-wait dispatches a bounded RPC and validates timeout usage" do

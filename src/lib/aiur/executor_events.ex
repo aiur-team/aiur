@@ -120,7 +120,6 @@ defmodule Aiur.ExecutorEvents do
   @spec listen(keyword()) :: no_return()
   def listen(opts \\ []) do
     topic = Keyword.get(opts, :topic, @default_topic)
-    ticket = Keyword.get(opts, :ticket)
     patterns = [topic]
     :ok = subscribe(topic)
     cursor = if String.starts_with?(topic, "executor."), do: last_seen_event_id() || 0, else: subscription_cursor(topic)
@@ -130,8 +129,8 @@ defmodule Aiur.ExecutorEvents do
 
       case replay(patterns, cursor) do
         {:ok, events} ->
-          Enum.each(events, &deliver(&1, ticket, topic))
-          receive_events(patterns, ticket, topic)
+          Enum.each(events, &deliver(&1, topic))
+          receive_events(patterns, topic)
 
         {:error, reason} ->
           raise "Executor event journal is unavailable: #{inspect(reason)}"
@@ -155,28 +154,28 @@ defmodule Aiur.ExecutorEvents do
     end
   end
 
-  defp receive_events(patterns, ticket, cursor_topic) do
+  defp receive_events(patterns, cursor_topic) do
     receive do
       {:event, event} ->
         topic = Map.get(event, :topic) || Map.get(event, "topic")
 
         if matches_any?(patterns, topic) do
           if not is_integer(event_id(event)) or event_id(event) > listener_cursor(cursor_topic) do
-            deliver(event, ticket, cursor_topic)
+            deliver(event, cursor_topic)
           end
         end
 
-        receive_events(patterns, ticket, cursor_topic)
+        receive_events(patterns, cursor_topic)
     end
   end
 
-  defp deliver(event, ticket, cursor_topic) do
+  defp deliver(event, cursor_topic) do
     topic = Map.get(event, :topic) || Map.get(event, "topic")
 
     if is_binary(topic) and String.starts_with?(topic, "executor.") do
       deliver_executor_event(event)
     else
-      deliver_wake_event(event, ticket, cursor_topic)
+      deliver_wake_event(event, cursor_topic)
     end
   end
 
@@ -189,18 +188,9 @@ defmodule Aiur.ExecutorEvents do
     end
   end
 
-  defp deliver_wake_event(event, requested_ticket, cursor_topic) do
+  defp deliver_wake_event(event, cursor_topic) do
     case ExecutorWakeProjection.project(event) do
       {:ok, record} ->
-        record = Map.put(record, "wake_id", record["wake_id"] || record["event_id"])
-
-        record =
-          if requested_ticket && record["ticket"] == nil do
-            Map.put(record, "ticket", requested_ticket)
-          else
-            record
-          end
-
         IO.puts(Jason.encode!(record))
         advance_subscription_cursor(cursor_topic, record["wake_id"])
 

@@ -67,6 +67,7 @@ defmodule Aiur.ExecutorEventsTest do
     state_path = StatePaths.subscriptions_path()
     first_id = 701
     second_id = 702
+    third_id = 703
     File.write!(path, Jason.encode!(%{"id" => first_id, "topic" => "ticket.3028.agent.paused"}) <> "\n")
     File.write!(path, Jason.encode!(%{"id" => second_id, "topic" => "ticket.3029.agent.paused"}) <> "\n", [:append])
 
@@ -80,18 +81,21 @@ defmodule Aiur.ExecutorEventsTest do
     on_exit(fn -> if Process.alive?(listener), do: Process.exit(listener, :kill) end)
 
     assert eventually(fn -> "ticket.3028.#" in Exchange.bindings_for(listener) end)
-    assert eventually(fn -> String.contains?(elem(StringIO.contents(output), 1), ~s("wake_id":#{first_id})) end)
-    assert Enum.any?(ExecutorEvents.subscription_entries(), &(&1["topic"] == "ticket.3028.#" and &1["last_seen_event_id"] == first_id))
+    # The line is printed before the cursor is saved, so wait on the saved cursor itself.
+    assert eventually(fn -> Enum.any?(ExecutorEvents.subscription_entries(), &(&1["topic"] == "ticket.3028.#" and &1["last_seen_event_id"] == first_id)) end)
+    assert String.contains?(elem(StringIO.contents(output), 1), ~s("wake_id":#{first_id}))
+    ref = Process.monitor(listener)
     Process.exit(listener, :kill)
-    Process.sleep(10)
+    assert_receive {:DOWN, ^ref, :process, _, :killed}
 
+    # A later matching event marks the end of the reconnected replay: replay is
+    # ordered by id, so once 703 is printed, 701 would already have been.
+    File.write!(path, Jason.encode!(%{"id" => third_id, "topic" => "ticket.3028.agent.resumed"}) <> "\n", [:append])
     {:ok, reconnected_output} = StringIO.open("")
     reconnected = spawn_listener(reconnected_output)
     on_exit(fn -> if Process.alive?(reconnected), do: Process.exit(reconnected, :kill) end)
-    assert eventually(fn -> "ticket.3028.#" in Exchange.bindings_for(reconnected) end)
-    Process.sleep(30)
+    assert eventually(fn -> String.contains?(elem(StringIO.contents(reconnected_output), 1), ~s("wake_id":#{third_id})) end)
     refute String.contains?(elem(StringIO.contents(reconnected_output), 1), ~s("wake_id":#{first_id}))
-    refute second_id == first_id
   end
 
   defp spawn_listener(output) do

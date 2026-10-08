@@ -514,8 +514,10 @@ Use `aiur listen --ticket N` in a persistent shell or monitor when you need an
 immediate stream for one ticket. It emits one JSON line per wake with
 `wake_id`, `topic`, `ticket`, and `pr_number`; it reconnects after a daemon
 restart and resumes from its durable cursor. `aiur listen --topic '<pattern>'`
-also accepts patterns contained by the reviewed Executor bindings, such as
-`ticket.3028.#`; widening patterns are refused. After an operator pause is
+accepts patterns contained by one reviewed Executor binding, such as
+`ticket.3028.agent.attention.*`, and always accepts `ticket.<id>.#`, which
+matches every topic for that ticket, including topics outside the reviewed
+bindings; other widening patterns are refused. After an operator pause is
 answered and the run resumes, **re-arm the listener** with the same
 `aiur listen --ticket N` command so monitoring is active for the resumed work.
 `aiur executor-listen` remains a deprecated one-release alias. Created-command
