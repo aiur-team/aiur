@@ -1,7 +1,9 @@
 defmodule Aiur.GitHub.HumanReviewGateTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.{HumanReviewGate, ResourceStore}
+  alias Aiur.AgentRunner.ToolExecutor
+  alias Aiur.GitHub.{Client, HumanReviewGate, ResourceStore}
+  alias Aiur.Issue
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
 
@@ -223,10 +225,10 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
         end
 
         executor =
-          Aiur.AgentRunner.ToolExecutor.build(%Aiur.Issue{id: "42", identifier: "42"}, nil, nil, %{},
+          ToolExecutor.build(%Issue{id: "42", identifier: "42"}, nil, nil, %{},
             coordination_runner: fn _key, operation, _opts -> operation.() end,
             ticket_state_writer: fn id, state ->
-              Aiur.GitHub.Client.update_issue_state(id, state, request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
+              Client.update_issue_state(id, state, request_fun: request_fun, bot_account: "aiur-bot", base_branch: "release/next")
             end
           )
 
@@ -256,11 +258,11 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       end
 
       opts = [request_fun: request_fun, bot_account: "aiur-bot"]
-      assert :ok = Aiur.GitHub.Client.update_issue_state("42", "human-review", opts)
-      assert :ok = Aiur.GitHub.Client.update_issue_state("42", "human-review", opts)
+      assert :ok = Client.update_issue_state("42", "human-review", opts)
+      assert :ok = Client.update_issue_state("42", "human-review", opts)
 
       assert {:error, {:stale_review_base, %{base_branch: "main", head_sha: "tested-head"}}} =
-               Aiur.GitHub.Client.update_issue_state("42", "human-review", opts)
+               Client.update_issue_state("42", "human-review", opts)
 
       assert Agent.get(statuses, & &1) == []
     end
@@ -285,7 +287,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
           end
         end
 
-        assert Aiur.GitHub.Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot") == expected
+        assert Client.update_issue_state("42", "human-review", request_fun: request_fun, bot_account: "aiur-bot") == expected
       end
 
       missing_head = fn req ->
@@ -298,7 +300,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
       end
 
       assert {:error, :review_base_ancestry_unavailable} =
-               Aiur.GitHub.Client.update_issue_state("42", "human-review", request_fun: missing_head, bot_account: "aiur-bot")
+               Client.update_issue_state("42", "human-review", request_fun: missing_head, bot_account: "aiur-bot")
     end
 
     test "returns :ok when no open PR exists (FI-GH-033)" do
