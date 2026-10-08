@@ -263,8 +263,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp ticket_identity(pack, %{number: nil, id: id}) do
     digest = :crypto.hash(:sha256, :erlang.term_to_binary({pack.build_order_id, id}))
-    # Provisional locators exceed GitHub's integer range, including T00 drafts.
-    number = :binary.decode_unsigned(<<1, digest::binary>>)
+    # Reserve bounded 19-digit locators so drafts can open the ticket context.
+    number = 1_000_000_000_000_000_000 + rem(:binary.decode_unsigned(digest), 8_223_372_036_854_775_807)
     identity!(pack.repository, number, "PLAN_" <> Base.encode16(digest, case: :lower))
   end
 
@@ -639,8 +639,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         }
 
       root_identity(pack)
-      Enum.each(tickets, &ticket_identity(pack, &1))
-      {:ok, pack}
+      identifiers = Enum.map(tickets, &ticket_identity(pack, &1).identifier)
+
+      if length(Enum.uniq(identifiers)) == length(identifiers),
+        do: {:ok, pack},
+        else: pack_error(absolute, :duplicate_member_identifier)
     else
       error -> pack_error(absolute, error)
     end

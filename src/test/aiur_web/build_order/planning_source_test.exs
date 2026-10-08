@@ -8,7 +8,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{BuildOrdersCLI, RepoBase, TrackerIdentity}
   alias Aiur.GitHub.Config
-  alias AiurWeb.BuildOrder.{PlanningSource, RouteState}
+  alias AiurWeb.BuildOrder.{PlanningSource, RouteState, TicketContextAdapter, TicketContextPresenter}
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
   alias AiurWeb.OperatorControlCenter.BuildOrderSelected
@@ -104,7 +104,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     identities = Enum.map(snapshot.data.members, & &1.identity)
     assert length(Enum.uniq_by(identities, &TrackerIdentity.github_key/1)) == 3
     assert length(Enum.uniq_by(identities, & &1.identifier)) == 3
-    assert Enum.all?(identities, &(String.to_integer(&1.identifier) > 18_446_744_073_709_551_615))
+    assert Enum.all?(identities, &(String.to_integer(&1.identifier) in 1_000_000_000_000_000_000..9_223_372_036_854_775_806))
     {:ok, repeated} = PlanningSource.demand(root.identity)
     assert Enum.map(repeated.data.members, & &1.identity) == identities
   end
@@ -133,6 +133,42 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     assert log =~ invalid
     assert log =~ "invalid_display_identifier"
+  end
+
+  test "draft ticket context retains its title, body and relationships" do
+    directory = Aiur.TestSupport.tmp_root!("planning-source-draft-context")
+    path = Path.join(directory, "build-order.json")
+    File.mkdir_p!(Path.join(directory, "tickets"))
+    File.write!(path, @pack)
+    File.write!(Path.join(directory, "tickets/T-2.md"), "# Draft body\n\nContext remains readable.")
+    Application.put_env(:aiur, :build_order_planning_pack, path)
+    on_exit(fn -> File.rm_rf(directory) end)
+
+    [root] = PlanningSource.catalog().data.entries
+    {:ok, snapshot} = PlanningSource.demand(root.identity)
+    model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
+    draft = Enum.find(model.nodes, &(&1.document_path == "tickets/T-2.md"))
+    base = %{TicketContextPresenter.normalize_view(nil) | identity: draft.identity, title: draft.title, description: draft.draft_body}
+    context = TicketContextAdapter.present(model, draft.identity, base, %{})
+
+    assert context.status == :available
+    assert context.base.identity == draft.identity
+    assert context.base.title == "Build on it"
+    assert context.base.description == "# Draft body\n\nContext remains readable."
+    assert [blocker] = context.blocked_by
+    assert blocker.label == "Foundation"
+    assert blocker.selectable?
+  end
+
+  test "duplicate member identifiers reject the pack with a specific cause" do
+    path = Application.fetch_env!(:aiur, :build_order_planning_pack)
+    pack = Jason.decode!(@pack)
+    [first, second] = pack["tickets"]
+    File.write!(path, Jason.encode!(%{pack | "tickets" => [first, Map.put(second, "id", first["id"])]}))
+
+    log = capture_log(fn -> assert PlanningSource.catalog().data.entries == [] end)
+    assert log =~ path
+    assert log =~ "duplicate_member_identifier"
   end
 
   test "catalog exposes one selectable planning root" do
