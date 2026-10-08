@@ -144,7 +144,9 @@ defmodule Aiur.Identity.MachineTest do
 
   test "healthy identity emits no attention", %{dir: dir} do
     assert {:ok, _identity} = Machine.ensure(dir: dir)
-    assert :ok = Machine.announce_degraded(emit_fun: fn _, _ -> flunk("unexpected attention") end)
+    parent = self()
+    assert :ok = Machine.announce_degraded(emit_fun: fn name, opts -> send(parent, {:alert, name, opts}) end)
+    refute_received {:alert, _name, _opts}
   end
 
   test "hostname controls are stripped and unicode label stays within 63 bytes", %{dir: dir} do
