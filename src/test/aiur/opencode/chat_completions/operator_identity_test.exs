@@ -3,6 +3,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
 
   import Plug.Conn
   import Plug.Test
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.{Issue, Orchestrator}
   alias Aiur.Opencode.{ChatCompletions, TokenRegistry}
@@ -138,6 +139,43 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
 
     assert ChatCompletions.handle(body, connection("invalid-token")).status == 401
     assert :empty = claim()
+  end
+
+  # Legacy input lacks InputIdentity's second auth check, so this guards the early authorization repair (#2827).
+  test "unauthorized coalesced batch sends nothing; authorized control sends once", %{token: token} do
+    Code.ensure_loaded!(Aiur.AgentChat)
+    :erlang.trace_pattern({Aiur.AgentChat, :send, 3}, true, [:local])
+    on_exit(fn -> :erlang.trace_pattern({Aiur.AgentChat, :send, 3}, false, [:local]) end)
+
+    body = %{
+      "model" => "issue-#{@identifier}",
+      "messages" => [
+        %{"role" => "user", "content" => "continue"},
+        %{"role" => "user", "content" => "__aiur_turn__:absent"}
+      ]
+    }
+
+    response = traced_request(body, "invalid-token")
+    refute_received {:trace, _pid, :call, {Aiur.AgentChat, :send, _args}}
+    assert response.status == 401
+    assert :empty = claim()
+
+    assert traced_request(body, token).status == 200
+    assert_received {:trace, _pid, :call, {Aiur.AgentChat, :send, [@identifier, "continue", opts]}}
+    assert opts[:delivery_policy] == :auto
+    refute_received {:trace, _pid, :call, {Aiur.AgentChat, :send, _args}}
+    assert {:ok, %{body: %{text: "continue"}}} = claim()
+    assert :empty = claim()
+  end
+
+  defp traced_request(body, token) do
+    task = Task.async(fn -> receive do: (:request -> ChatCompletions.handle(body, delete_req_header(connection(token), "x-aiur-input-version"))) end)
+    :erlang.trace(task.pid, true, [:call, {:tracer, self()}])
+    send(task.pid, :request)
+    response = Task.await(task)
+    delivery = :erlang.trace_delivered(:all)
+    receive_barrier({:trace_delivered, :all, ^delivery})
+    response
   end
 
   defp claim, do: OperatorMessages.claim_next_queue_item(Orchestrator, @identifier)
