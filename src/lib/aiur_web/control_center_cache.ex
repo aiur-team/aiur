@@ -12,7 +12,7 @@ defmodule AiurWeb.ControlCenterCache do
   @max_entries 8
   @event_coalesce_ms 1_000
   @call_timeout_ms 5_000
-  @load_timeout_ms 4_900
+  @load_timeout_ms 4_000
 
   @type loader :: (-> map())
 
