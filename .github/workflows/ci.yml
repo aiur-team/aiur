@@ -249,21 +249,17 @@ jobs:
       - name: Credo + specs
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         run: make lint
-      # Lives in the required `lint` job rather than a job of its own: a new job
-      # would not be merge-blocking until the human-only merge ruleset is
-      # re-applied, and a docs guard nobody has to satisfy guards nothing.
+      # Keep this guard in required lint so it remains merge-blocking.
       - name: Every config key has a documentation entry
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-config-docs.py
-      - name: Component ownership and Elixir reference ratchet
+      - name: Component ownership, Elixir ratchet and fixtures
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: python3 scripts/check-components.py --require-elixir
-      - name: Component ownership and Elixir reference fixtures
-        if: ${{ needs.changes.outputs.docs_only != 'true' }}
-        working-directory: .
-        run: bash scripts/test-check-components.sh --with-elixir
+        run: |
+          python3 scripts/check-components.py --require-elixir
+          bash scripts/test-check-components.sh --with-elixir
       # Same rationale as check-config-docs: a drift gate nobody has to
       # satisfy guards nothing, so the env example guard lives in the required
       # lint job and runs on every PR. .env.example is generated from the env
