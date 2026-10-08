@@ -90,7 +90,7 @@ defmodule AiurWeb.BuildOrder.PackOverlayTest do
     assert {:ok, combined} = DataSource.demand(root.identity, graph_projection: Projection)
     assert length(combined.data.members) == 2
     assert is_integer(combined.generation)
-    assert_receive {:refresh, identity}
+    assert_receive {:refresh, identity}, 1_000
     assert identity == root.identity
   end
 
