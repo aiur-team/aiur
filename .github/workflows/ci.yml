@@ -272,10 +272,14 @@ jobs:
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
         run: python3 scripts/check-config-docs.py
-      - name: Every source file belongs to one component
+      - name: Component ownership and Elixir reference ratchet
         if: ${{ needs.changes.outputs.docs_only != 'true' }}
         working-directory: .
-        run: python3 scripts/check-components.py
+        run: python3 scripts/check-components.py --require-elixir
+      - name: Component ownership and Elixir reference fixtures
+        if: ${{ needs.changes.outputs.docs_only != 'true' }}
+        working-directory: .
+        run: bash scripts/test-check-components.sh --with-elixir
       # Same rationale as check-config-docs: a drift gate nobody has to
       # satisfy guards nothing, so the env example guard lives in the required
       # lint job and runs on every PR. .env.example is generated from the env
