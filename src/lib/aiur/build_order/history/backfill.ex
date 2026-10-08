@@ -260,19 +260,18 @@ defmodule Aiur.BuildOrder.History.Backfill do
       {:ok, _result} ->
         state = %{state | checkpoint: cp, retries: 0}
 
-        cond do
-          cost > @max_page_cost ->
-            stop_overpriced_page(state, cost)
-
-          done? ->
-            finish(state)
-
-          true ->
-            pace(state)
-        end
+        schedule_page(state, cost, done?)
 
       {:error, reason} ->
         fail(state, reason)
+    end
+  end
+
+  defp schedule_page(state, cost, done?) do
+    cond do
+      cost > @max_page_cost -> stop_overpriced_page(state, cost)
+      done? -> finish(state)
+      true -> pace(state)
     end
   end
 
