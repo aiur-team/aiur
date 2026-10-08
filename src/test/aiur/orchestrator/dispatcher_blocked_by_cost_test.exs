@@ -21,6 +21,11 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
   setup do
     {:ok, _started} = Application.ensure_all_started(:req)
 
+    # Keep the cache alive independently of the shared application's supervisor.
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
+    start_supervised!({ResourceStore, path: nil})
+    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, ResourceStore) end)
+
     previous_options = Application.get_env(:aiur, :github_transport_test_options)
     previous_quota = Application.get_env(:aiur, :github_quota_server)
     previous_budget_enabled = Application.get_env(:aiur, :github_budget_enabled?)
@@ -263,16 +268,18 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
     assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
     assert blocked_by_reads() == ["14"]
 
-    Process.sleep(150)
+    blocker_key = ResourceStore.key(:issue, "owner", "repo", "#{@blocker}")
+    [{^blocker_key, entry}] = :ets.lookup(ResourceStore.Table, blocker_key)
+    old_body_at_ms = entry.full_body_at_ms - 1_000
+    :ets.insert(ResourceStore.Table, {blocker_key, %{entry | full_body_at_ms: old_body_at_ms}})
 
-    # Aiur relabels #53 and refreshes the edges: both entries have a new
-    # `fetched_at_ms`, but #53's `"state"` is still 150 ms old.
+    # Only the state is aged; the label and edge writes must not renew it.
     WriteThrough.issue_labels(@blocker, [%{"name" => "sym:rework"}])
     edges_key = ResourceStore.key(:issue_blocked_by, "owner", "repo", "14")
     ResourceStore.put_resource(edges_key, ResourceStore.data(edges_key), source: :webhook)
 
-    assert %{"labels" => [%{"name" => "sym:rework"}]} =
-             ResourceStore.data(ResourceStore.key(:issue, "owner", "repo", "#{@blocker}"))
+    assert {:ok, %{data: %{"labels" => [%{"name" => "sym:rework"}]}, full_body_at_ms: ^old_body_at_ms}} =
+             ResourceStore.fetch(blocker_key)
 
     assert run_pass(candidate("14")).dispatch_declines["14"] == :dependency
     assert blocked_by_reads() == ["14"]
