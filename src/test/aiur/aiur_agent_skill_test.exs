@@ -659,6 +659,19 @@ defmodule Aiur.AiurAgentSkillTest do
              "When any Markdown file under `website/docs-app/` changes (including nested pages), run `node scripts/check-docs-prose.mjs` from the repository root before pushing."
   end
 
+  test "unrelated CI flakes never become ticket dependencies" do
+    for path <- [".claude/skills/aiur-agent/dev-loop.md", "src/prompts/shared-agent-instructions.md"] do
+      source = one_line(File.read!(Path.join(@repo_root, path)))
+
+      assert source =~ "file the flake as its own ticket with the CI run id"
+      assert source =~ "NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket."
+      assert source =~ "State in the PR that the only failure is the known flake"
+      assert source =~ "link the flake ticket and CI run"
+      assert source =~ "hand back to the Executor without declaring a dependency or pausing for the flake fix"
+      assert source =~ "Keep the full required-check gate for human review"
+    end
+  end
+
   test "agent prompt delegates Credo to CI after inspecting lint settings" do
     repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
 
