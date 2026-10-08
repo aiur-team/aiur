@@ -7,22 +7,21 @@ defmodule Aiur.Opencode.TokenRegistry do
   receives a chat-completion request, it reads the bearer token off the
   request and asks this registry whether the token is currently valid.
 
-  Token entries are keyed by token alone — NOT by identifier. The
-  bridge routes the request to an agent identifier via the request
-  body's `model` field (`identifier_from_model/1`), so this registry's
-  only job is "is this bearer a live workspace?".
+  Each token authorizes only the identifiers assigned to its slot
+  at issuance or through trusted slot attachment. Routing still comes from the request body's `model` field,
+  but the bridge must check that identifier against the token's scope.
 
   ## Generation counter (slot serve restart overlap)
 
-  Each token entry carries `{slot_index, generation}`. The generation
-  increments every time a slot restarts its opencode-serve. The strict
+  Each token entry carries its slot, generation and allowed identifiers.
+  The generation increments every time a slot restarts its opencode-serve. The strict
   overlap order avoids any empty-registry window during restart:
 
-      slot.bump_generation()              # gen N -> N+1
-      put(new_token, slot, N+1)           # new token now valid
-      Server.start_link(...)              # new serve boots
+      slot.bump_generation()                 # gen N -> N+1
+      put(new_token, slot, N+1, identifiers)  # new token now valid
+      Server.start_link(...)                 # new serve boots
       ...wait for attach ready...
-      delete_stale(slot, N+1)             # sweep gen < N+1
+      delete_stale(slot, N+1)                 # sweep gen < N+1
 
   Between the `put` and `delete_stale` calls both old and new tokens
   validate, so a chat-completion request arriving mid-restart never
@@ -40,16 +39,31 @@ defmodule Aiur.Opencode.TokenRegistry do
   def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc """
-  Mark `token` valid. Stores `{slot_index, generation, inserted_at}`
+  Mark `token` valid. Stores `{slot_index, generation, inserted_at, identifiers}`
   so `delete_stale/2` can sweep older generations after a slot serve
   restart.
   """
-  @spec put(String.t(), slot_index(), generation()) :: :ok
-  def put(token, slot_index, generation)
-      when is_binary(token) and is_integer(slot_index) and is_integer(generation) do
+  @spec put(String.t(), slot_index(), generation(), [String.t()]) :: :ok
+  def put(token, slot_index, generation, identifiers)
+      when is_binary(token) and is_integer(slot_index) and is_integer(generation) and is_list(identifiers) do
     ensure_table()
-    :ets.insert(@table, {token, {slot_index, generation, System.monotonic_time(:millisecond)}})
+    :ets.insert(@table, {token, {slot_index, generation, System.monotonic_time(:millisecond), identifiers}})
     :ok
+  end
+
+  @doc "Grant a ticket to a live token before the slot creates its session. Called only by the slot owner."
+  @spec allow_identifier(String.t(), String.t()) :: :ok | {:error, :unknown_token}
+  def allow_identifier(token, identifier) when is_binary(token) and is_binary(identifier) do
+    ensure_table()
+
+    case :ets.lookup(@table, token) do
+      [{^token, {slot, generation, inserted_at, identifiers}}] ->
+        :ets.insert(@table, {token, {slot, generation, inserted_at, Enum.uniq([identifier | identifiers])}})
+        :ok
+
+      _ ->
+        {:error, :unknown_token}
+    end
   end
 
   @doc """
@@ -76,7 +90,7 @@ defmodule Aiur.Opencode.TokenRegistry do
 
     :ets.foldl(
       fn
-        {token, {^slot_index, gen, _ts}}, _acc when gen < current_generation ->
+        {token, {^slot_index, gen, _ts, _identifiers}}, _acc when gen < current_generation ->
           :ets.delete(@table, token)
           :ok
 
@@ -92,14 +106,23 @@ defmodule Aiur.Opencode.TokenRegistry do
 
   @doc """
   Returns true if `token` is currently registered (any slot, any
-  generation). The caller is responsible for extracting the agent
-  identifier from the request body separately — token validity alone
-  authorizes; routing is independent.
+  generation). Use `valid?/2` to authorize a target identifier.
   """
   @spec valid?(String.t()) :: boolean()
   def valid?(token) when is_binary(token) do
     ensure_table()
     :ets.member(@table, token)
+  end
+
+  @doc "Returns true if the live token authorizes the target identifier."
+  @spec valid?(String.t(), String.t()) :: boolean()
+  def valid?(token, identifier) when is_binary(token) and is_binary(identifier) do
+    ensure_table()
+
+    case :ets.lookup(@table, token) do
+      [{^token, {_slot, _gen, _ts, identifiers}}] -> identifier in identifiers
+      _ -> false
+    end
   end
 
   @doc """
@@ -112,7 +135,7 @@ defmodule Aiur.Opencode.TokenRegistry do
     ensure_table()
 
     case :ets.lookup(@table, token) do
-      [{^token, {slot_index, _gen, _ts}}] -> {:ok, slot_index}
+      [{^token, {slot_index, _gen, _ts, _identifiers}}] -> {:ok, slot_index}
       _ -> :not_found
     end
   end

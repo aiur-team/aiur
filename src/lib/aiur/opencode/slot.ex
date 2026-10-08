@@ -52,7 +52,7 @@ defmodule Aiur.Opencode.Slot do
   require Logger
 
   alias Aiur.Boot
-  alias Aiur.Opencode.{Protocol, SlotRegistry}
+  alias Aiur.Opencode.{Protocol, SlotRegistry, TokenRegistry}
   alias Aiur.Opencode.Slot.{AttachPane, Events, ServeLifecycle, Sessions, State}
 
   @default_poll_interval_ms 500
@@ -431,22 +431,22 @@ defmodule Aiur.Opencode.Slot do
   defp do_attach_known(identifier, state) do
     span = Aiur.Perf.span_begin(:slot_do_attach, slot: state.slot_index, identifier: identifier)
 
-    case Sessions.ensure(identifier, state.base_url) do
-      {:ok, session_id} ->
-        Aiur.Perf.span_end(span, slot: state.slot_index, identifier: identifier, session_id: session_id)
-        new_state = %{state | attached_identifiers: MapSet.put(state.attached_identifiers, identifier)}
-        # Note: leadoff render (`respawn_attach_with_session` to bind
-        # the slot's attach pane to a session) is NOT done here. It's
-        # driven explicitly by `AttachPool.kickoff_fan_out` calling
-        # `Slot.set_visible/2` on the slot's intended leadoff
-        # identifier — deterministic per slot. Doing it as a side effect
-        # of whichever attach finished first under parallel boot caused
-        # multiple slots to leadoff the same agent (race), leaving
-        # other agents 🔘 (no painted pane) instead of ⚪.
-        Aiur.Perf.event(:slot_attach_added, slot: state.slot_index, identifier: identifier, session_id: session_id)
-        Logger.info("opencode_slot phase=attach slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}")
-        {:ok, session_id, new_state}
-
+    with :ok <- TokenRegistry.allow_identifier(state.token, identifier),
+         {:ok, session_id} <- Sessions.ensure(identifier, state.base_url) do
+      Aiur.Perf.span_end(span, slot: state.slot_index, identifier: identifier, session_id: session_id)
+      new_state = %{state | attached_identifiers: MapSet.put(state.attached_identifiers, identifier)}
+      # Note: leadoff render (`respawn_attach_with_session` to bind
+      # the slot's attach pane to a session) is NOT done here. It's
+      # driven explicitly by `AttachPool.kickoff_fan_out` calling
+      # `Slot.set_visible/2` on the slot's intended leadoff
+      # identifier — deterministic per slot. Doing it as a side effect
+      # of whichever attach finished first under parallel boot caused
+      # multiple slots to leadoff the same agent (race), leaving
+      # other agents 🔘 (no painted pane) instead of ⚪.
+      Aiur.Perf.event(:slot_attach_added, slot: state.slot_index, identifier: identifier, session_id: session_id)
+      Logger.info("opencode_slot phase=attach slot=#{state.slot_index} identifier=#{identifier} session_id=#{session_id}")
+      {:ok, session_id, new_state}
+    else
       {:error, reason} = err ->
         Aiur.Perf.span_end(span, result: :failed, slot: state.slot_index, identifier: identifier, reason: reason)
         err
@@ -495,7 +495,14 @@ defmodule Aiur.Opencode.Slot do
   defp do_select(identifier, state) do
     do_select_span = Aiur.Perf.span_begin(:slot_do_select, slot: state.slot_index, identifier: identifier)
 
-    case Sessions.ensure_with_replay_span(identifier, state.base_url, state.slot_index) do
+    result =
+      with :ok <- TokenRegistry.allow_identifier(state.token, identifier) do
+        Sessions.ensure_with_replay_span(identifier, state.base_url, state.slot_index)
+      else
+        {:error, _} = err -> {:writer_failed, err}
+      end
+
+    case result do
       {:ok, session_id} ->
         select_with_respawn(state, identifier, session_id, do_select_span)
 
