@@ -49,7 +49,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
         with {:ok, agent_login} <-
                BotIdentity.bot_account(context.opts, context.request_fun, context.token),
              :ok <- verify_pr_review_threads_clear(context, pr_number, agent_login) do
-          if check_base?, do: verify_base_ancestry(context, pr), else: :ok
+          verify_base_ancestry(context, pr, check_base?)
         end
 
       {:ok, nil} ->
@@ -63,7 +63,9 @@ defmodule Aiur.GitHub.HumanReviewGate do
     end
   end
 
-  defp verify_base_ancestry(context, %{"head" => %{"sha" => head_sha}, "number" => pr_number})
+  defp verify_base_ancestry(_context, _pr, false), do: :ok
+
+  defp verify_base_ancestry(context, %{"head" => %{"sha" => head_sha}, "number" => pr_number}, true)
        when is_binary(head_sha) and head_sha != "" do
     base = Config.base_branch(context.opts)
     comparison = "#{URI.encode(base, &URI.char_unreserved?/1)}...#{URI.encode(head_sha, &URI.char_unreserved?/1)}"
@@ -84,7 +86,7 @@ defmodule Aiur.GitHub.HumanReviewGate do
     end
   end
 
-  defp verify_base_ancestry(_context, _pr), do: {:error, :review_base_ancestry_unavailable}
+  defp verify_base_ancestry(_context, _pr, true), do: {:error, :review_base_ancestry_unavailable}
 
   @doc false
   @spec verify_pr_review_threads_clear(map(), integer(), String.t()) :: :ok | {:error, term()}

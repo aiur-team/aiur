@@ -201,7 +201,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
     test "stale heads refuse the label write and return one actionable worker packet" do
       for status <- ["behind", "diverged"] do
         parent = self()
-        fallback = blocking_thread_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
+        fallback = handoff_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
 
         request_fun = fn req ->
           cond do
@@ -244,7 +244,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
 
     test "ancestry checks observe a base that moves after a successful handoff check" do
       {:ok, statuses} = Agent.start_link(fn -> ["ahead", "identical", "diverged"] end)
-      fallback = blocking_thread_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
+      fallback = handoff_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
 
       request_fun = fn req ->
         if req.method == :get and req.url =~ "/compare/main...tested-head" do
@@ -266,7 +266,7 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
     end
 
     test "unavailable ancestry never becomes permission to hand off" do
-      fallback = blocking_thread_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
+      fallback = handoff_request_fun([review("its-everdred", "APPROVED", "2026-10-08T00:00:00Z")])
 
       cases = [
         {{:ok, %{status: 200, body: %{}}}, {:error, :review_base_ancestry_unavailable}},
@@ -317,9 +317,9 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
     end
   end
 
-  # PR 77 with one unresolved thread from a code owner, plus whatever review
-  # submissions the caller wants standing on it.
-  defp blocking_thread_request_fun(reviews) do
+  defp handoff_request_fun(reviews) do
+    fallback = blocking_thread_request_fun(reviews)
+
     fn req ->
       cond do
         req.method == :get and req.url =~ "/issues/42" ->
@@ -331,6 +331,17 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
         req.method == :get and req.url =~ "/compare/" ->
           {:ok, %{status: 200, body: %{"status" => "ahead"}}}
 
+        true ->
+          fallback.(req)
+      end
+    end
+  end
+
+  # PR 77 with one unresolved thread from a code owner, plus whatever review
+  # submissions the caller wants standing on it.
+  defp blocking_thread_request_fun(reviews) do
+    fn req ->
+      cond do
         req.method == :get and req.url =~ "/pulls/77/reviews" ->
           {:ok, %{status: 200, body: reviews}}
 
