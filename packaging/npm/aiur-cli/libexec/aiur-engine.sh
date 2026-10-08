@@ -2665,6 +2665,44 @@ cmd_usage() {
   run_control_rpc "Aiur.AgentControlCLI.usage()"
 }
 
+cmd_accounts() {
+  local json_arg=false harness="" arg encoded expression
+  for arg in "$@"; do
+    case "$arg" in
+      --json)
+        [ "$json_arg" = false ] || die "accounts accepts --json only once"
+        json_arg=true
+        ;;
+      --all)
+        ;;
+      -*)
+        die "accounts accepts an optional harness and --json"
+        ;;
+      *)
+        [ -z "$harness" ] || die "accounts accepts only one harness"
+        harness="$arg"
+        ;;
+    esac
+  done
+
+  resolve_release || return $?
+  prepare_distribution || die "distribution setup failed; cannot contact aiur"
+  resolve_control_identity_from_records
+  if [ "$(probe_node_liveness)" = "down" ]; then
+    # The local one-shot CLI renders the identity and marks usage unavailable.
+    # It never makes a provider request.
+    run_local_cli accounts "$@"
+  else
+    if [ -n "$harness" ]; then
+      encoded="$(printf '%s' "$harness" | base64 | tr -d '\n')"
+      expression="Aiur.AgentControlCLI.accounts($json_arg, Base.decode64!(\"$encoded\"))"
+    else
+      expression="Aiur.AgentControlCLI.accounts($json_arg)"
+    fi
+    run_control_rpc "$expression"
+  fi
+}
+
 cmd_pause_resume() {
   local command="$1"
   shift
@@ -4141,7 +4179,11 @@ aiur_engine_main() {
     login)
       run_account_login "$@"
       ;;
-    accounts | logout)
+    accounts)
+      shift
+      cmd_accounts "$@"
+      ;;
+    logout)
       run_local_cli "$@"
       ;;
     findings)

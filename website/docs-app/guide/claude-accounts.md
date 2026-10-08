@@ -47,6 +47,10 @@ aiur accounts
 aiur accounts codex --json
 ```
 
+Usage percentages and freshness come from the daemon's last poll. If Aiur is
+not running, the command still shows account identity and reports usage as
+unavailable; it does not make a separate usage request.
+
 ## Enable accounts for dispatch
 
 Add account names to the repository's `.aiur/config`. Names in the list are
