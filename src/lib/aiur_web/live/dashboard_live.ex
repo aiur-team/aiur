@@ -5,6 +5,8 @@ defmodule AiurWeb.DashboardLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
+  alias Aiur.Accounts
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.Agent.UsageSnapshotService
   alias Aiur.AgentChat
 
@@ -884,7 +886,23 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:usage_summary_announcement, nil)
       |> Map.put_new(:usage_summary_drill, nil)
       |> Map.put_new(:usage_summary_drill_trigger, nil)
-      |> then(&Map.put_new(&1, :provider_meters_view, ProviderMetersPresenter.present(financial_data_capability(&1))))
+      |> then(
+        &Map.put_new(
+          &1,
+          :provider_meters_view,
+          ProviderMetersPresenter.present(
+            financial_data_capability(&1),
+            %{},
+            UsageReadings.snapshot(
+              "claude",
+              case Accounts.configured_names() do
+                [] -> ["default"]
+                names -> names
+              end
+            )
+          )
+        )
+      )
       |> Map.put_new(:provider_meters_announcement, nil)
       |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
       |> Map.put_new(:elevenlabs_quota, %{state: :unconfigured, window: nil, failure: nil, observed_at: nil})
@@ -1792,7 +1810,19 @@ defmodule AiurWeb.DashboardLive do
 
   defp apply_provider_meters(socket) do
     capability = financial_data_capability(socket.assigns)
-    view = ProviderMetersPresenter.present(capability, socket.assigns.provider_meter_snapshots)
+
+    view =
+      ProviderMetersPresenter.present(
+        capability,
+        socket.assigns.provider_meter_snapshots,
+        UsageReadings.snapshot(
+          "claude",
+          case Accounts.configured_names() do
+            [] -> ["default"]
+            names -> names
+          end
+        )
+      )
 
     socket
     |> assign(:provider_meters_view, view)

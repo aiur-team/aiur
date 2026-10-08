@@ -58,17 +58,22 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   content-free locked view.
   """
   @spec present(map(), snapshots()) :: view()
-  def present(capability, snapshots \\ %{})
+  def present(capability, snapshots \\ %{}), do: present(capability, snapshots, %{})
 
-  def present(%{state: :authorized}, snapshots) when is_map(snapshots) do
+  @spec present(map(), snapshots(), map()) :: view()
+  def present(%{state: :authorized}, snapshots, account_readings)
+      when is_map(snapshots) and is_map(account_readings) do
     %{
       state: :authorized,
       locked: nil,
-      cards: Enum.map(CodingAgent.provider_families(), &card(&1, Map.get(snapshots, &1)))
+      cards:
+        Enum.map(CodingAgent.provider_families(), fn provider ->
+          card(provider, Map.get(snapshots, provider), if(provider == :claude, do: account_readings, else: %{}))
+        end)
     }
   end
 
-  def present(capability, _snapshots) do
+  def present(capability, _snapshots, _account_readings) do
     %{state: :locked, locked: locked(capability), cards: []}
   end
 
@@ -104,7 +109,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   # --- per-provider card ---------------------------------------------------
 
-  defp card(provider, snapshot) do
+  defp card(provider, snapshot, account_readings) do
     state = card_state(snapshot)
     known? = known_identity?(state)
 
@@ -121,8 +126,47 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       freshness: freshness(snapshot),
       observed_at: observed_at(snapshot),
       ingested_at: ingested_at(snapshot),
-      windows: windows(snapshot, known?)
+      windows: windows(snapshot, known?),
+      account_usage: account_usage(account_readings)
     }
+  end
+
+  defp account_usage(readings) when map_size(readings) <= 1, do: nil
+
+  defp account_usage(readings) do
+    accounts =
+      readings
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.with_index()
+      |> Enum.map(fn {{name, reading}, index} ->
+        percent = weekly_percent(reading)
+        age_seconds = age_seconds(reading.observed_at)
+        %{name: name, index: index, percent: percent, freshness: reading.freshness, age_seconds: age_seconds}
+      end)
+
+    percentages = Enum.map(accounts, & &1.percent)
+    total = if Enum.all?(percentages, &is_number/1), do: Enum.sum(percentages) / length(percentages), else: nil
+    title = Enum.map_join(accounts, "; ", &account_usage_label/1)
+
+    %{count: length(accounts), total_percent: total, title: title, accounts: accounts}
+  end
+
+  defp weekly_percent(%{reading: %{windows: windows}}) when is_list(windows) do
+    case Enum.find(windows, &(&1.window == "seven_day")) do
+      %{used_percent: percent} when is_number(percent) -> percent
+      _missing -> nil
+    end
+  end
+
+  defp weekly_percent(_reading), do: nil
+
+  defp age_seconds(%DateTime{} = observed_at), do: max(DateTime.diff(DateTime.utc_now(), observed_at, :second), 0)
+  defp age_seconds(_observed_at), do: nil
+
+  defp account_usage_label(%{name: name, percent: percent, freshness: freshness, age_seconds: age}) do
+    usage = if is_number(percent), do: "#{percent}%", else: "unknown"
+    age_text = if is_integer(age), do: "#{age}s old", else: "age unknown"
+    "#{name}: #{usage}, #{freshness} (#{age_text})"
   end
 
   # A card names quota/tier facts only for identities with an exact known

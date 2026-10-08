@@ -457,7 +457,9 @@ defmodule Aiur.Orchestrator.State do
           backend: backend,
           requested_model: optional_runtime_string(info[:requested_model]),
           resolved_model: nil,
-          effort: optional_runtime_string(info[:effort])
+          effort: optional_runtime_string(info[:effort]),
+          account: optional_runtime_string(info[:account]),
+          account_selection_reason: optional_runtime_string(info[:account_selection_reason])
         }
 
         {:noreply, put_session_execution(state, issue_id, running_entry, session_execution)}

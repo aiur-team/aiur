@@ -1,6 +1,8 @@
 defmodule Aiur.AgentRunner.SessionLifecycle do
   @moduledoc false
   require Logger
+  alias Aiur.Accounts
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, ModelDiscovery, Tracker}
   alias Aiur.AgentRunner.{CodexUpdateRelay, MessageHandler, ModelLabelRefresh, SessionResume, TurnLoop}
   alias Aiur.Claude.{DisplayTailer, RemoteControl, Telemetry}
@@ -39,7 +41,9 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
        %{
          backend: session_backend_label(session),
          requested_model: Map.get(session, :model),
-         effort: Map.get(session, :effort)
+         effort: Map.get(session, :effort),
+         account: Map.get(session, :account_name),
+         account_selection_reason: Map.get(session, :account_selection_reason)
        }}
     )
 
@@ -684,10 +688,75 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
         attempt_id: Keyword.get(opts, :telemetry_attempt_id)
       ]
       |> maybe_put_rc_name(rc?, issue)
+      |> maybe_put_claude_account(session_backend, opts)
       |> SessionResume.maybe_put_resume_thread_id(resume_thread_id)
 
     {session_backend, rc?, session_opts}
   end
+
+  defp maybe_put_claude_account(session_opts, backend, opts) when backend in ["claude", "claude-repl"] do
+    config = Keyword.get_lazy(opts, :account_config, fn -> Config.settings!().agent end)
+    candidates = configured_claude_candidates(config)
+
+    if candidates == [] do
+      session_opts
+    else
+      usages = claude_account_usages(candidates, opts)
+      attach_selected_claude_account(session_opts, candidates, config, usages)
+    end
+  end
+
+  defp maybe_put_claude_account(session_opts, _backend, _opts), do: session_opts
+
+  defp configured_claude_candidates(config) do
+    names = Map.get(config.accounts || %{}, "claude", [])
+    registered = MapSet.new(Accounts.list("claude"), & &1.name)
+    Enum.filter(names, &MapSet.member?(registered, &1))
+  end
+
+  defp claude_account_usages(candidates, opts) do
+    polled = UsageReadings.snapshot("claude", candidates)
+    fetch_usage = Keyword.get(opts, :account_usage_fetcher, &account_usage/1)
+    Map.new(candidates, &{&1, claude_account_usage(&1, polled, fetch_usage)})
+  end
+
+  defp claude_account_usage(name, polled, fetch_usage) do
+    case Map.fetch(polled, name) do
+      {:ok, %{reading: %{windows: windows}}} -> usage_map(windows)
+      {:ok, _unavailable} -> nil
+      :error -> fetch_usage.(name)
+    end
+  end
+
+  defp attach_selected_claude_account(session_opts, candidates, config, usages) do
+    mode = config.account_selection || "balance"
+
+    case Accounts.select("claude", candidates, mode, usages) do
+      {:ok, name} ->
+        reason = if is_map(usages[name]) and is_number(usages[name]["seven_day"]), do: nil, else: "usage unavailable"
+
+        Keyword.merge(session_opts,
+          account_name: name,
+          account_selection_reason: reason,
+          env: Accounts.profile_env("claude", name)
+        )
+
+      {:error, reason} ->
+        Keyword.put(session_opts, :account_selection_error, reason)
+    end
+  end
+
+  defp account_usage(name) do
+    case Accounts.usage("claude", name) do
+      {:ok, %{windows: windows}, _metadata} ->
+        usage_map(windows)
+
+      _unavailable ->
+        nil
+    end
+  end
+
+  defp usage_map(windows), do: Map.new(windows, fn window -> {window.window, window.used_percent} end)
 
   # Mirror the full claude transcript into the opencode pane for an RC claude-repl
   # agent, so the pane and Remote Control channel are two views of one conversation.
@@ -942,6 +1011,13 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     backend = Keyword.fetch!(opts, :backend)
     adapter_opts = Keyword.delete(opts, :attempt_id)
 
+    case Keyword.fetch(opts, :account_selection_error) do
+      {:ok, reason} -> {:error, {:account_selection, reason}}
+      :error -> start_selected_session(workspace, opts, adapter_opts, backend, start_fun)
+    end
+  end
+
+  defp start_selected_session(workspace, opts, adapter_opts, backend, start_fun) do
     case start_fun.(workspace, adapter_opts) do
       {:ok, session} ->
         {:ok, tag_session(session, backend, opts)}
