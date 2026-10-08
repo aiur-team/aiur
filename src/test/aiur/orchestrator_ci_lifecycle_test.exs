@@ -136,6 +136,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       _second = CiLifecycle.poll_github_ci(%{first | last_ci_poll_started_at_ms: nil}, opts)
       assert_received :ci_issue_fetch
+      Process.sleep(50)
       assert [^wake] = ExecutorWakeInbox.pending()
     end
 
