@@ -318,6 +318,8 @@ system runs only when a page opens or a degradation needs a re-list.
 | Pack status | Reconciled by one slow sweep, `polling.view_state_sweep_seconds` (default 900). The pack-status writer puts `status.json` on disk, resolving promoted members by issue number across roots. Successful batches are retained across budget-limited cycles; unfetched members keep their previous state and source health stays incomplete. Moving it to the event stream is a separate change. |
 | Comments, reviews and CI | Delivered free by webhook; the tracker poll recovers what a delivery loses. |
 
+Build-history catch-up has a local admission upper bound of **131 points/page** (13,100 connection nodes: 100 issues, 3,000 labels, and 10,000 blockers). Each boot or backfill-completion run reads **1–5 pages** when eligible, or zero while backfill is incomplete; signal recovery allows at most **5 pages/hour**. That is at most **655 locally estimated points/run or recovery hour**, with no periodic catch-up. [GitHub’s connection formula](https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api#predicting-the-point-value-of-a-query) predicts about **2 actual points/page** for this shape (one issues connection plus 100 label and 100 blocker connections: round(201/100)); this is a prediction, not a live receipt. The transport bills the returned `rateLimit.cost` to `build_history_catch_up`; actual first-boot pages and cost still require running-daemon evidence.
+
 The ticket backlog, Ad Hoc overlay and Build Order catalog reach the page the
 moment a delivery deposits the changed issue; the sweep's only other
 steady-state cost is the single divergence-watermark head page on its own

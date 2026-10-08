@@ -1,6 +1,7 @@
 defmodule Aiur.BuildOrder.History.CatchUpTest do
   use ExUnit.Case, async: true
   alias Aiur.BuildOrder.History.{CatchUp, CatchUpQuery}
+  alias Aiur.GitHub.GraphQLCost
   @t ~U[2026-10-01 12:00:00Z]
 
   defp issue_node do
@@ -14,8 +15,8 @@ defmodule Aiur.BuildOrder.History.CatchUpTest do
       "closedAt" => DateTime.to_iso8601(@t),
       "updatedAt" => DateTime.to_iso8601(@t),
       "parent" => nil,
-      "labels" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [%{"name" => "Agent:Done"}]},
-      "blockedBy" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [%{"number" => 2}]}
+      "labels" => %{"totalCount" => 1, "nodes" => [%{"name" => "Agent:Done"}]},
+      "blockedBy" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [%{"number" => 2, "repository" => %{"name" => "widgets", "owner" => %{"login" => "acme"}}}]}
     }
   end
 
@@ -26,6 +27,7 @@ defmodule Aiur.BuildOrder.History.CatchUpTest do
     assert CatchUp.floor(%{"watermark" => DateTime.to_iso8601(@t)}, nil) == DateTime.add(@t, -600)
     assert CatchUp.floor(nil, %{"started_at" => DateTime.to_iso8601(@t)}) == @t
     assert CatchUp.floor(nil, nil) == :unknown
+    assert GraphQLCost.estimate(CatchUpQuery.document()) == %{nodes: 13_100, points: 131, priceable?: true}
 
     fun = fn _request, "fake", query, vars, options ->
       assert query =~ "states:[CLOSED]"
@@ -41,10 +43,13 @@ defmodule Aiur.BuildOrder.History.CatchUpTest do
   end
 
   test "truncated connections are omitted and malformed nodes refuse the run" do
-    node = %{issue_node() | "labels" => %{"pageInfo" => %{"hasNextPage" => true}}, "blockedBy" => %{"pageInfo" => %{"hasNextPage" => true}}}
+    node = %{issue_node() | "labels" => %{"totalCount" => 31, "nodes" => []}, "blockedBy" => %{"pageInfo" => %{"hasNextPage" => true, "endCursor" => "next"}, "nodes" => []}}
     assert {:ok, event} = CatchUpQuery.node_to_event(node, repository: "acme/widgets", observed_at: @t)
     refute Map.has_key?(event.fields, :labels)
     refute Map.has_key?(event.fields, :blocked_by)
+    assert {:ok, unknown} = CatchUpQuery.node_to_event(%{node | "closedAt" => nil, "stateReason" => nil}, observed_at: @t)
+    assert unknown.fields.closed_at == :unknown
+    assert unknown.fields.lifecycle.state_reason == :unknown
     assert CatchUp.run("acme/widgets", @t, opts(fn _, _, _, _, _ -> page([%{node | "updatedAt" => "bad"}]) end)).status == :failed
   end
 

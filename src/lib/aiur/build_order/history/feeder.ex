@@ -3,8 +3,10 @@ defmodule Aiur.BuildOrder.History.Feeder do
   use GenServer
   require Logger
   alias Aiur.BuildOrder.History
-  alias Aiur.BuildOrder.History.{Row, Feed, CatchUp, TelemetryScan}
-  alias Aiur.GitHub.{ResourceStore, ResourceEvents, Transport, ViewStateSweep}
+  alias Aiur.BuildOrder.History.{CatchUp, Feed, Row, TelemetryScan}
+  alias Aiur.GitHub.{ResourceEvents, ResourceStore, Transport, ViewStateSweep}
+  alias Aiur.Webhooks.ModeRegistry
+  alias AiurWeb.ObservabilityPubSub
   @types [:issue, :issue_labels, :issue_dependency, :sub_issue]
   # ponytail: hourly recovery and one-second merge debounce; tune only after measuring.
   @signal_window_ms 3_600_000
@@ -31,8 +33,8 @@ defmodule Aiur.BuildOrder.History.Feeder do
     if repo do
       Enum.each(@types, &ResourceEvents.subscribe(&1, repo))
       History.subscribe()
-      AiurWeb.ObservabilityPubSub.subscribe()
-      Aiur.Webhooks.ModeRegistry.subscribe_recovered()
+      ObservabilityPubSub.subscribe()
+      ModeRegistry.subscribe_recovered()
       ViewStateSweep.subscribe_diverged()
     end
 

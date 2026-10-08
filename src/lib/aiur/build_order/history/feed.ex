@@ -1,6 +1,6 @@
 defmodule Aiur.BuildOrder.History.Feed do
   @moduledoc "Turns existing daemon observations into raw history facts."
-  alias Aiur.BuildOrder.{Lifecycle, History.Row}
+  alias Aiur.BuildOrder.{History.Row, Lifecycle}
 
   @spec date(term()) :: DateTime.t() | :unknown
   def date(%DateTime{} = value), do: value
@@ -108,25 +108,28 @@ defmodule Aiur.BuildOrder.History.Feed do
           _unknown -> now
         end
 
-      sub_issue_events(body["present"], held, parent_ref, sub, parent, repo, now, joined_at, version, source)
+      sub_issue_events(body["present"], held, %{parent_ref: parent_ref, sub: sub, parent: parent, repo: repo, now: now, joined_at: joined_at, version: version, source: source})
     else
       _other -> []
     end
   end
 
-  defp sub_issue_events(true, held, parent_ref, sub, parent, repo, now, joined_at, version, source) do
+  defp sub_issue_events(true, held, edge) do
+    %{parent_ref: parent_ref, sub: sub, parent: parent, repo: repo, now: now, joined_at: joined_at, version: version, source: source} = edge
     late = held && older_edge?(full_version(held, :parent_version), version)
     child = if late, do: [], else: [event(sub, %{parent: parent_ref, parent_version: DateTime.to_iso8601(version)}, now, source)]
     child ++ [event(parent, %{sub_issues_added: [%{ref: ref(repo, sub), at: joined_at}]}, now, source)]
   end
 
-  defp sub_issue_events(false, held, parent_ref, sub, _parent, _repo, now, _joined_at, version, source) do
+  defp sub_issue_events(false, held, edge) do
+    %{parent_ref: parent_ref, sub: sub, now: now, version: version, source: source} = edge
+
     if held && held.parent == parent_ref && not older_edge?(full_version(held, :parent_version), version),
       do: [event(sub, %{parent: :none, parent_version: DateTime.to_iso8601(version)}, now, source)],
       else: []
   end
 
-  defp sub_issue_events(_present, _held, _parent_ref, _sub, _parent, _repo, _now, _joined_at, _version, _source), do: []
+  defp sub_issue_events(_present, _held, _edge), do: []
 
   defp cutoff_string(%DateTime{} = at), do: DateTime.to_iso8601(at)
   defp cutoff_string(value), do: value

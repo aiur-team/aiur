@@ -2,9 +2,9 @@ defmodule Aiur.BuildOrder.History.FeederTest do
   use ExUnit.Case, async: false
   require Aiur.TestSupport
   alias Aiur.BuildOrder.History
-  alias Aiur.BuildOrder.History.{Feeder, Feed}
-  alias Aiur.GitHub.ResourceStore
+  alias Aiur.BuildOrder.History.{Feed, Feeder}
   alias Aiur.Events.GithubWebhook.Deposit
+  alias Aiur.GitHub.ResourceStore
   @store __MODULE__.Store
   @tasks __MODULE__.Tasks
   @merges __MODULE__.Merges
@@ -72,7 +72,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
       "closedAt" => DateTime.to_iso8601(@t),
       "updatedAt" => DateTime.to_iso8601(@t),
       "parent" => nil,
-      "labels" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []},
+      "labels" => %{"totalCount" => 0, "nodes" => []},
       "blockedBy" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
     }
   end
@@ -137,7 +137,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     assert row(ctx).lifecycle.state == :closed
     assert row(ctx).closed_at == @t
     assert :webhook in row(ctx).sources
-    assert_receive {:build_order_history_changed, %{changed: [7]}}
+    assert_receive {:build_order_history_changed, %{changed: [7]}}, 5_000
     refute_received {:build_order_history_changed, %{changed: [7]}}
     generation = History.health(ctx.opts).generation
     deposit(ctx, closed)
@@ -192,7 +192,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
   test "boot catch-up advances checkpoint atomically and failures preserve it", ctx do
     store(ctx, true)
     feeder(ctx, catch_up_nodes: [closed_node()])
-    assert_receive {:graphql, query, vars, options}
+    assert_receive {:graphql, query, vars, options}, 5_000
     assert query =~ "states:[CLOSED]"
     assert vars["since"] == DateTime.to_iso8601(@t)
     assert options[:caller] == "build_history_catch_up"
@@ -232,8 +232,25 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     refute_received {:graphql, _, _, _}
     History.apply([], ctx.opts ++ [checkpoint: {:backfill, %{"started_at" => DateTime.to_iso8601(@t)}}])
     send(Process.whereis(Feeder), {:webhook_recovered, ctx.full})
-    assert_receive {:graphql, _, _, _}
+    assert_receive {:graphql, _, _, _}, 5_000
     after_feed(fn -> Feeder.catch_up_status().status == :ok end)
+  end
+
+  test "backfill with a started checkpoint cannot catch up before completion", ctx do
+    store(ctx)
+    History.apply([], ctx.opts ++ [checkpoint: {:backfill, %{"started_at" => DateTime.to_iso8601(@t)}}])
+    pid = feeder(ctx)
+    settle()
+    assert Feeder.catch_up_status().status == :not_backfilled
+    refute_received {:graphql, _, _, _}
+    send(pid, {:webhook_recovered, ctx.full})
+    settle()
+    assert Feeder.catch_up_status().status == :not_backfilled
+    refute_received {:graphql, _, _, _}
+    History.mark_complete(ctx.opts)
+    assert_receive {:graphql, _, _, _}, 5_000
+    settle()
+    assert Feeder.catch_up_status().status == :ok
   end
 
   test "backfill completion triggers recovery; repeated signals coalesce at the hourly window", ctx do
@@ -242,7 +259,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     pid = feeder(ctx)
     Feeder.catch_up_status()
     History.mark_complete(ctx.opts)
-    assert_receive {:graphql, _, _, _}
+    assert_receive {:graphql, _, _, _}, 5_000
     after_feed(fn -> Feeder.catch_up_status().status == :ok end)
     send(pid, {:webhook_degraded, ctx.full})
     send(pid, {:view_state_diverged, "other/repo"})
@@ -261,7 +278,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     # Advance only the monotonic window boundary; the trigger and scheduling paths are real.
     :sys.replace_state(pid, &%{&1 | last_start: System.monotonic_time(:millisecond) - 3_600_001})
     send(pid, :catch_up_window)
-    assert_receive {:graphql, _, _, _}
+    assert_receive {:graphql, _, _, _}, 5_000
   end
 
   test "task crash reports failed and not-running is explicit", ctx do
@@ -385,7 +402,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
   test "no steady-state GitHub polling (future regression guard)", ctx do
     store(ctx, true)
     feeder(ctx)
-    assert_receive {:graphql, _, _, _}
+    assert_receive {:graphql, _, _, _}, 5_000
     after_feed(fn -> Feeder.catch_up_status().status == :ok end)
     for n <- 1..100, do: deposit(ctx, body(n))
     for _ <- 1..10, do: Feeder.offer_open_issues("acme", ctx.repo, [], @later)

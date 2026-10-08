@@ -5,6 +5,7 @@ defmodule Aiur.GitHub.Issues do
 
   require Logger
   alias Aiur.AllowedContributors
+  alias Aiur.BuildOrder.History.Feeder
   alias Aiur.{BuildOrder.Bounded, Config, GitHub, Issue, TestTicketScope, TrackerIdentity}
 
   alias Aiur.GitHub.{
@@ -443,7 +444,7 @@ defmodule Aiur.GitHub.Issues do
     OpenIssueSnapshot.put(owner, repo, Enum.map(issues, & &1.id), labels_by_id)
     # Second producer for allowed-contributor intake (#2957).
     AllowedContributors.offer_open_issues(issues)
-    Aiur.BuildOrder.History.Feeder.offer_open_issues(owner, repo, issues, listed_from)
+    Feeder.offer_open_issues(owner, repo, issues, listed_from)
   end
 
   # GitHub reports `performed_via_github_app` (null when not App-created) on

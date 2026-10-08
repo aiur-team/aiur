@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.History.CatchUp do
   @moduledoc "Bounded closed-issue catch-up; no writes until a run succeeds."
   alias Aiur.BuildOrder.History.{CatchUpQuery, Feed}
-  alias Aiur.GitHub.{Transport, Errors, LocalHold}
+  alias Aiur.GitHub.{Errors, LocalHold, Transport}
   # ponytail: five pages and ten-minute overlap; tune only after measuring missed history.
   @max_pages 5
 
@@ -35,14 +35,14 @@ defmodule Aiur.BuildOrder.History.CatchUp do
     opts = Keyword.put(opts, :scan_started_at, started)
     variables = %{"owner" => owner, "name" => name, "since" => DateTime.to_iso8601(since), "after" => continuation["after"]}
 
-    with {:ok, token} <- Keyword.get(opts, :token_fun, &Transport.require_token/0).() do
-      pages(repo, variables, token, opts, now, [], 0, MapSet.new())
-    else
+    case Keyword.get(opts, :token_fun, &Transport.require_token/0).() do
+      {:ok, token} -> pages(%{repo: repo, variables: variables, token: token, opts: opts, started: now, events: [], count: 0, cursors: MapSet.new()})
       {:error, reason} -> result(:failed, now, reason, 0, nil, [])
     end
   end
 
-  defp pages(repo, variables, token, opts, started, events, count, cursors) do
+  defp pages(context) do
+    %{variables: variables, token: token, opts: opts, started: started, count: count} = context
     graphql = Keyword.get(opts, :graphql_fun, &Transport.github_graphql/5)
     request = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
@@ -56,7 +56,7 @@ defmodule Aiur.BuildOrder.History.CatchUp do
 
     case LocalHold.run(attempt, LocalHold.caller_opts(opts)) do
       {:ok, %{"data" => %{"repository" => %{"issues" => connection}}}} ->
-        apply_page(connection, repo, variables, token, opts, started, events, count + 1, cursors)
+        apply_page(connection, %{context | count: count + 1})
 
       {:error, {:github, :local_hold, _detail} = reason} ->
         result(:held, started, reason, count, nil, [])
@@ -69,8 +69,9 @@ defmodule Aiur.BuildOrder.History.CatchUp do
     end
   end
 
-  defp apply_page(%{"nodes" => nodes, "pageInfo" => %{"hasNextPage" => more, "endCursor" => cursor}}, repo, variables, token, opts, started, events, count, cursors)
+  defp apply_page(%{"nodes" => nodes, "pageInfo" => %{"hasNextPage" => more, "endCursor" => cursor}}, context)
        when is_list(nodes) and is_boolean(more) do
+    %{repo: repo, started: started, events: events, count: count, cursors: cursors} = context
     normalized = Enum.map(nodes, &CatchUpQuery.node_to_event(&1, repository: repo, observed_at: started))
 
     cond do
@@ -83,21 +84,21 @@ defmodule Aiur.BuildOrder.History.CatchUp do
       true ->
         events = events ++ Enum.map(normalized, &elem(&1, 1))
 
-        next_page(more, repo, variables, token, opts, started, events, count, cursor, cursors)
+        next_page(more, cursor, %{context | events: events})
     end
   end
 
-  defp apply_page(_page, _repo, _variables, _token, _opts, started, _events, count, _cursors), do: result(:failed, started, :invalid_catch_up_page, count, nil, [])
+  defp apply_page(_page, context), do: result(:failed, context.started, :invalid_catch_up_page, context.count, nil, [])
 
-  defp next_page(false, _repo, _variables, _token, opts, started, events, count, _cursor, _cursors), do: result(:ok, started, nil, count, opts[:scan_started_at], events)
+  defp next_page(false, _cursor, context), do: result(:ok, context.started, nil, context.count, context.opts[:scan_started_at], context.events)
 
-  defp next_page(true, _repo, variables, _token, opts, started, events, @max_pages, cursor, _cursors) do
-    result(:partial, started, nil, @max_pages, List.last(events).fields.updated_at, events)
-    |> Map.put(:continuation, %{"after" => cursor, "since" => variables["since"], "started_at" => DateTime.to_iso8601(opts[:scan_started_at])})
+  defp next_page(true, cursor, %{count: @max_pages} = context) do
+    result(:partial, context.started, nil, @max_pages, List.last(context.events).fields.updated_at, context.events)
+    |> Map.put(:continuation, %{"after" => cursor, "since" => context.variables["since"], "started_at" => DateTime.to_iso8601(context.opts[:scan_started_at])})
   end
 
-  defp next_page(true, repo, variables, token, opts, started, events, count, cursor, cursors),
-    do: pages(repo, %{variables | "after" => cursor}, token, opts, started, events, count, MapSet.put(cursors, cursor))
+  defp next_page(true, cursor, context),
+    do: pages(%{context | variables: %{context.variables | "after" => cursor}, cursors: MapSet.put(context.cursors, cursor)})
 
   defp result(status, at, reason, pages, watermark, events), do: %{status: status, at: at, reason: reason, pages: pages, watermark: watermark, events: events}
 end

@@ -281,8 +281,8 @@ defmodule Aiur.GitHub.IssuesTest do
 
   describe "fetch_candidate_issues/1" do
     test "complete paginated polls record all labels with no extra requests" do
-      alias Aiur.GitHub.OpenIssueSnapshot
       alias Aiur.BuildOrder.History.Feeder
+      alias Aiur.GitHub.OpenIssueSnapshot
       Supervisor.terminate_child(Aiur.Supervisor, Feeder)
       Process.register(self(), Feeder)
       on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, Feeder) end)
