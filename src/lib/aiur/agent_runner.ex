@@ -382,6 +382,7 @@ defmodule Aiur.AgentRunner do
   end
 
   @doc false
+  @spec pause_for_account_usage_wait(Issue.t(), pid() | nil, String.t()) :: :resume_after_before_run_pause
   def pause_for_account_usage_wait(issue, codex_update_recipient, reset_at) do
     Logger.info("Waiting for a configured Claude account usage reset for #{issue_context(issue)} reset_at=#{reset_at}")
 

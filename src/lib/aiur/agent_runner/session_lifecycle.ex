@@ -143,7 +143,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
   @doc false
   @spec run_session(Path.t(), Issue.t(), pid() | nil, keyword(), worker_host()) ::
-          :ok | {:completed, Issue.t()} | {:error, term()}
+          :ok | {:completed, Issue.t()} | {:error, term()} | {:account_selection_wait, String.t()}
   def run_session(workspace, issue, codex_update_recipient, opts, worker_host) do
     max_turns = Keyword.get(opts, :max_turns, Config.agent_max_turns_for(issue))
     issue_state_fetcher = Keyword.get(opts, :issue_state_fetcher, &Tracker.fetch_issue_states_by_ids/1)
@@ -786,24 +786,36 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
 
     case Accounts.select(backend, candidates, mode, usages) do
       {:ok, name} ->
-        reason = if is_map(usages[name]) and is_number(usages[name]["seven_day"]), do: nil, else: "usage unavailable"
-
-        selected_env = if backend in ["claude", "codex"], do: Accounts.profile_env(backend, name), else: []
-        selected_env = if backend == "claude-repl", do: Accounts.profile_env("claude", name), else: selected_env
-        account_opts = if backend in ["kimi", "deepseek", "openrouter"], do: [account_name: name], else: []
-
         session_opts
-        |> Keyword.merge(account_opts)
-        |> Keyword.merge(account_name: name, account_selection_reason: reason, env: selected_env)
+        |> put_selected_account(backend, name, usages)
 
       {:error, reason} ->
-        if backend == "claude" and reason == :no_available_account and is_struct(reset_at, DateTime) do
-          Keyword.put(session_opts, :account_selection_wait, DateTime.to_iso8601(reset_at))
-        else
-          Keyword.put(session_opts, :account_selection_error, reason)
-        end
+        put_account_selection_error(session_opts, backend, reason, reset_at)
     end
   end
+
+  defp put_selected_account(session_opts, backend, name, usages) do
+    reason = account_selection_reason(usages[name])
+
+    Keyword.merge(session_opts,
+      account_name: name,
+      account_selection_reason: reason,
+      env: selected_account_env(backend, name)
+    )
+  end
+
+  defp account_selection_reason(%{"seven_day" => weekly_usage}) when is_number(weekly_usage), do: nil
+  defp account_selection_reason(_usage), do: "usage unavailable"
+
+  defp selected_account_env("claude-repl", name), do: Accounts.profile_env("claude", name)
+  defp selected_account_env(backend, name) when backend in ["claude", "codex"], do: Accounts.profile_env(backend, name)
+  defp selected_account_env(_backend, _name), do: []
+
+  defp put_account_selection_error(session_opts, "claude", :no_available_account, %DateTime{} = reset_at),
+    do: Keyword.put(session_opts, :account_selection_wait, DateTime.to_iso8601(reset_at))
+
+  defp put_account_selection_error(session_opts, _backend, reason, _reset_at),
+    do: Keyword.put(session_opts, :account_selection_error, reason)
 
   defp account_usage(name) do
     case Accounts.usage("claude", name) do

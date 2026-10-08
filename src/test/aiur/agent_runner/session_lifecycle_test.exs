@@ -1,6 +1,7 @@
 defmodule Aiur.AgentRunner.SessionLifecycleTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Accounts.UsageReadings
   alias Aiur.{AgentEvents, AgentPubSub, AgentRunner, CodingAgent, Issue, LiveConversation, TrackerIdentity}
   alias Aiur.AgentRunner.{MessageHandler, SessionLifecycle}
   alias Aiur.Claude.{DisplayTailer, HookEvents}
@@ -81,12 +82,12 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   describe "Claude account selection wait" do
     test "waits until the earliest exhausted account reset when no account is available" do
       reset_at = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.truncate(:second)
-      Aiur.Accounts.UsageReadings.reset()
+      UsageReadings.reset()
 
-      on_exit(fn -> Aiur.Accounts.UsageReadings.reset() end)
+      on_exit(fn -> UsageReadings.reset() end)
 
       :ok =
-        Aiur.Accounts.UsageReadings.record(
+        UsageReadings.record(
           "claude",
           "default",
           {:ok,
