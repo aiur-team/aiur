@@ -309,7 +309,7 @@ defmodule Aiur.AgentRunner do
   defp emit_ownership_conflict_alert(issue, {:ok, %{phase: :reaping}} = owner) do
     case HoldStatus.for_ticket(issue.identifier) do
       %{generation: generation, proof: proof} when proof != :tracked_provider ->
-        detail = StatusReason.render({:workspace_ownership_waiting, generation, proof})
+        detail = StatusReason.render({:workspace_ownership_waiting, issue.identifier, generation, proof})
 
         Alerts.emit_custom(
           "ticket.#{issue.identifier}.workspace.ownership_hold",
