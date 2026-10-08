@@ -15,7 +15,9 @@ import { DESIGN_ROOT, DESIGN_ORIGIN, FIXTURE_META, verifyDesignSource, routeDesi
 import { loadAllowlist, applyAllowlist } from './design-parity-allowlist.mjs'
 export { DESIGN_ROOT, FIXTURE_META, verifyDesignSource, routeDesign, guardNetwork, seedRandom, waitParityReady, assertCellState, checkPage, loadAllowlist, applyAllowlist }
 
-export const PARITY_FLOOR = 0
+// 2026-10-08, Chromium 149.0.7827.55: three calibration maxima 60, 77, 176.
+// Residual differences are antialiased glyph/border edges; +1px mutations remain red.
+export const PARITY_FLOOR = 176
 export const PARITY_VIEWPORTS = [
   { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 },
   { viewport: { width: 1024, height: 768 }, deviceScaleFactor: 1 },
