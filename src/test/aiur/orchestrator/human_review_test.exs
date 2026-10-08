@@ -6,8 +6,7 @@ defmodule Aiur.Orchestrator.HumanReviewTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.Issue
-  alias Aiur.{AgentQueueStore}
+  alias Aiur.{AgentQueueStore, Issue}
   alias Aiur.Orchestrator.{HumanReview, LifecycleFence, OperatorMessages, State, TrackerTasks}
 
   test "a message queued during ready verification preserves its running provider" do
