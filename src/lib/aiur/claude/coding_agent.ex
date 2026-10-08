@@ -41,7 +41,13 @@ defmodule Aiur.Claude.CodingAgent do
     account_generation_server = Keyword.get(opts, :account_generation_server, Aiur.ProviderAccountGeneration)
 
     with :ok <- validate_workspace_cwd(workspace),
-         {:ok, port} <- start_port(workspace, on_provider_started, Keyword.get(opts, :telemetry_launch)) do
+         {:ok, port} <-
+           start_port(
+             workspace,
+             on_provider_started,
+             Keyword.get(opts, :telemetry_launch),
+             Keyword.get(opts, :env, [])
+           ) do
       metadata = port_metadata(port)
 
       Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:claude_app_server_pid]},
@@ -63,6 +69,8 @@ defmodule Aiur.Claude.CodingAgent do
         account_generation_context: account_generation.context,
         account_generation_topic: account_generation.topic,
         account_generation_server: account_generation_server,
+        account_name: Keyword.get(opts, :account_name),
+        account_selection_reason: Keyword.get(opts, :account_selection_reason),
         provider_meter_ingester: Keyword.get(opts, :provider_meter_ingester, &Aiur.ProviderMeters.ingest/1),
         provider_meter_failure_recorder: Keyword.get(opts, :provider_meter_failure_recorder, &Aiur.ProviderMeters.record_failure/1)
       }
@@ -158,20 +166,21 @@ defmodule Aiur.Claude.CodingAgent do
     end
   end
 
-  defp start_port(workspace, on_provider_started, %{env: telemetry_env}) when is_list(telemetry_env) do
+  defp start_port(workspace, on_provider_started, %{env: telemetry_env}, env) when is_list(telemetry_env) do
     Adapter.start_port(
       workspace,
       Aiur.Claude.Config.command(),
       fn port -> on_provider_started.(provider_metadata(port)) end,
-      env: telemetry_env
+      env: telemetry_env ++ env
     )
   end
 
-  defp start_port(workspace, on_provider_started, _telemetry_launch) do
+  defp start_port(workspace, on_provider_started, _telemetry_launch, env) do
     Adapter.start_port(
       workspace,
       Aiur.Claude.Config.command(),
-      fn port -> on_provider_started.(provider_metadata(port)) end
+      fn port -> on_provider_started.(provider_metadata(port)) end,
+      env: env
     )
   end
 

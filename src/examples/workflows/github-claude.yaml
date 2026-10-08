@@ -103,6 +103,8 @@ hooks:
     git checkout -b "aiur/${issue_id}" "origin/$THIS_BASE_BRANCH"
 agent:
   priority: [claude]
+  # accounts: {claude: [default, work]}   # machine-local profiles; omit for legacy single-account behavior
+  # account_selection: balance            # or priority, following the accounts list order
   max_concurrent_agents: 5
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}

@@ -113,6 +113,8 @@ hooks:
   before_remove: |
     git status --short
 agent:
+  # accounts: {claude: [default, work]}   # applies when a ticket routes to Claude
+  # account_selection: balance
   # Ordered dispatch preference: presence enables a backend, the first
   # available entry is the default, and aiur falls back to the next one when a
   # token/usage limit hits.

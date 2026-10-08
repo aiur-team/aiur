@@ -53,6 +53,8 @@ hooks:
     git status --short
 agent:
   priority: [codex]
+  # accounts: {claude: [default, work]}   # applies when a ticket routes to Claude
+  # account_selection: balance
   max_concurrent_agents: 10
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}

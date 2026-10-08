@@ -7368,6 +7368,68 @@ html[data-theme="light"] .rs-elevenlabs-mark {
   transition: width 0.3s ease;
 }
 
+.provider-meter-account-usage {
+  margin-top: 0.75rem;
+}
+
+.provider-meter-account-usage-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.provider-meter-account-count {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.provider-meter-account-bar {
+  display: flex;
+  width: 100%;
+  height: var(--progress-bar-height);
+  margin-top: 0.4rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+
+.provider-meter-account-segment {
+  display: block;
+  flex: 0 0 auto;
+  height: 100%;
+  border-right: 1px solid var(--surface-1);
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-3));
+}
+
+.provider-meter-account-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.provider-meter-account-segment.account-color-1 .provider-meter-account-fill { background: var(--good); }
+.provider-meter-account-segment.account-color-2 .provider-meter-account-fill { background: var(--attention); }
+.provider-meter-account-segment.account-color-3 .provider-meter-account-fill { background: #b08cff; }
+.provider-meter-account-segment.account-color-4 .provider-meter-account-fill { background: #f28b62; }
+.provider-meter-account-segment.account-color-5 .provider-meter-account-fill { background: #55c4c8; }
+
+.provider-meter-account-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.9rem;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.provider-meter-account-labels b {
+  color: var(--text);
+}
+
 .provider-meter-value {
   display: block;
   margin: 0.35rem 0 0;

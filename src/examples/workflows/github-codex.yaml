@@ -116,6 +116,8 @@ agent:
   # available entry is the default, and aiur falls back to the next one when a
   # token/usage limit hits.
   priority: [codex]
+  # accounts: {claude: [default, work]}   # applies when a ticket routes to Claude
+  # account_selection: balance
   max_concurrent_agents: 2
   max_turns: 12
   # Cold backend switches continue from workspace context; provider transcripts
