@@ -53,6 +53,16 @@ If a turn ends in `agent:ci-wait` with completed work still a draft, mark it
 ready as the first step of the resume turn, then wait for the full required
 checks on the current head SHA.
 
+### Unrelated CI flakes
+
+If the only failure is a flaky test unrelated to your change, file the
+flake as its own ticket with the CI run id (or link its existing ticket).
+NEVER add an unrelated CI flake ticket as `blocked_by` of your ticket.
+A flaky test blocks CI, not the ticket's implementation. State in the PR
+that the only failure is the known flake, link the flake ticket and CI run,
+then hand back to the Executor without declaring a dependency or pausing
+for the flake fix. Keep the full required-check gate for human review.
+
 ### Moving the ticket's state (`aiur_set_ticket_state`)
 
 Change your ticket's `agent:*` state **only** with
