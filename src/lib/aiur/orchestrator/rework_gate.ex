@@ -118,7 +118,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
     end
   end
 
-  # A `CHANGES_REQUESTED` or non-blank `COMMENTED` review with no inline comments
+  # A `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review with no inline comments
   # opens no review thread at all, so the thread read below reports zero
   # unresolved threads and #2422's rule alone refuses a verdict a reviewer very
   # much did make (#2473). Where the caller is routing *that review submission*
@@ -195,7 +195,7 @@ defmodule Aiur.Orchestrator.ReworkGate do
       decide whether to retry or park.
 
   Pass `blocking_review_submission?: true` when the caller is routing a trusted
-  live `CHANGES_REQUESTED` or non-blank `COMMENTED` review submission. A body-only
+  live `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review submission. A body-only
   review opens no review thread, so the thread read cannot see it (#2473); the submission is itself
   the outstanding finding and stands in for an unresolved thread.
   """

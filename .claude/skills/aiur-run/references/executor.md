@@ -280,7 +280,7 @@ Alerts persist across daemon restarts and tokens (#1231), so the actionable list
 keeps naming long-merged tickets. Check alert timestamps and trust the live
 state table over the alert list.
 
-A trusted `CHANGES_REQUESTED` or non-blank `COMMENTED` review on an open PR moves
+A trusted `CHANGES_REQUESTED` or explicitly blocking `COMMENTED` review on an open PR moves
 its ticket from `agent:human-review` or `agent:ci-wait` to `agent:rework`
 automatically — the `pull_request_review` webhook and the review-submission
 poll route through `CommentWake`, so the manual `agent:human-review` to
@@ -288,6 +288,15 @@ poll route through `CommentWake`, so the manual `agent:human-review` to
 the ticket left `agent:human-review`; only relabel by hand when the automatic
 transition did not fire, and check the delivery (review state, trusted author,
 open PR) before doing so.
+
+Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
+`Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
+fix requested “before merge”. Clean summaries such as “No blockers; waiting on
+CI” or “All blockers resolved” do not route to rework.
+
+Failed CI in `agent:human-review` routes to rework when that head already passed
+CI or the head changed. An inherited failure on a dismissed head remains held;
+the existing test-only one-poll retry still applies.
 
 For an agent with stale activity, ignored feedback, repeated retries, or a
 ticket it will not pick up:

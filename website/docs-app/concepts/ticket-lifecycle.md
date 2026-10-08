@@ -616,13 +616,20 @@ unpauses to implement findings; a CI failure routes the ticket to `agent:rework`
 (`src/lib/aiur/orchestrator/comment_wake.ex`, `auto_resume.ex`,
 `pause_resume.ex`, `push_routing.ex`).
 
-Trusted `CHANGES_REQUESTED` and non-blank `COMMENTED` reviews route both
+Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews route both
 `agent:human-review` and `agent:ci-wait` to `agent:rework`, including body-only
 reviews without inline threads.
 
-Failed CI in `agent:human-review` also routes
-to rework on the same reviewed head. The existing one-poll retry for test-only
-failures still applies. An operator comment directs the same agent.
+Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
+`Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
+fix requested “before merge”. Clean summaries such as “No blockers; waiting on
+CI” or “All blockers resolved” do not route to rework.
+
+Failed CI in `agent:human-review` routes to rework when that head already passed
+CI or the head changed. An inherited failure on a dismissed head remains held;
+the existing test-only one-poll retry still applies.
+
+An operator comment directs the same agent.
 
 One precondition is worth naming: **`agent:rework` is gated.**
 `ReworkGate.verify_open_pr/2` (`src/lib/aiur/orchestrator/rework_gate.ex:23-34`)

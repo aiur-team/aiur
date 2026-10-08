@@ -487,6 +487,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert CIApprovalStore.load() == %{
                approved_heads: %{},
+               passed_heads: %{},
                test_failure_heads: %{},
                base_repair_invalidations: %{}
              }
@@ -930,6 +931,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert CIApprovalStore.load() == %{
                approved_heads: %{},
+               passed_heads: %{},
                test_failure_heads: %{},
                base_repair_invalidations: %{}
              }

@@ -310,7 +310,10 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
         persist_ci_lifecycle_state(%{
           state
-          | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}
+          | ci_lifecycle:
+              state.ci_lifecycle
+              |> Map.put(:approved_heads, approved_heads)
+              |> Map.update(:passed_heads, %{}, &Map.delete(&1, target))
         })
 
       _ ->
@@ -325,7 +328,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       CIApprovalStore.save(
         state.ci_lifecycle.approved_heads,
         state.ci_lifecycle.test_failure_heads,
-        Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
+        Map.get(state.ci_lifecycle, :base_repair_invalidations, %{}),
+        Map.get(state.ci_lifecycle, :passed_heads, %{})
       )
 
     state
@@ -1269,11 +1273,21 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  # A stale ci-wait snapshot cannot override a completed handoff. A failure
-  # observed in human-review itself is new repair work, even on the same head.
+  # Legacy anchors also include operator-dismissed failures. Only a recorded CI
+  # pass proves that a same-head failure in human-review is new repair work.
   defp human_review_ci_replay?(%State{} = state, %Issue{} = issue, result) do
-    not HumanReview.human_review_state?(effective_ci_state(issue)) and
+    target = ci_target_for_issue(issue)
+    approved_head = Map.get(state.ci_lifecycle.approved_heads, target)
+    passed_head = state.ci_lifecycle |> Map.get(:passed_heads, %{}) |> Map.get(target)
+    observed_head = Map.get(result, :head_sha)
+
+    if HumanReview.human_review_state?(effective_ci_state(issue)) do
+      is_nil(approved_head) or
+        (ci_head_approved?(state, issue, result) and
+           (is_nil(passed_head) or passed_head != observed_head))
+    else
       ci_head_approved?(state, issue, result)
+    end
   end
 
   # Held failures are never silently swallowed: the reviewed head and the failing
@@ -1290,12 +1304,21 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     )
   end
 
-  defp remember_ci_approved_head(%State{} = state, %Issue{} = issue, %{head_sha: head_sha})
+  defp remember_ci_approved_head(%State{} = state, %Issue{} = issue, %{head_sha: head_sha} = result)
        when is_binary(head_sha) and head_sha != "" do
     case ci_target_for_issue(issue) do
       target when is_binary(target) ->
         approved_heads = Map.put(state.ci_lifecycle.approved_heads, target, head_sha)
-        persist_ci_lifecycle_state(%{state | ci_lifecycle: %{state.ci_lifecycle | approved_heads: approved_heads}})
+        ci_lifecycle = Map.put(state.ci_lifecycle, :approved_heads, approved_heads)
+
+        ci_lifecycle =
+          if Map.get(result, :decision) == :passed do
+            Map.update(ci_lifecycle, :passed_heads, %{target => head_sha}, &Map.put(&1, target, head_sha))
+          else
+            ci_lifecycle
+          end
+
+        persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
 
       _ ->
         state
@@ -1360,6 +1383,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       |> Enum.filter(&is_binary/1)
 
     approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
+    passed_heads = state.ci_lifecycle |> Map.get(:passed_heads, %{}) |> Map.take(targets)
     test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
     existing_poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
 
@@ -1379,6 +1403,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       |> resolve_departed_parked_ready_alerts(targets, opts)
 
     if approved_heads == state.ci_lifecycle.approved_heads and
+         passed_heads == Map.get(state.ci_lifecycle, :passed_heads, %{}) and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and
          poll_cache == existing_poll_cache do
       state
@@ -1386,6 +1411,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       ci_lifecycle =
         state.ci_lifecycle
         |> Map.put(:approved_heads, approved_heads)
+        |> Map.put(:passed_heads, passed_heads)
         |> Map.put(:test_failure_heads, test_failure_heads)
         |> Map.put(:poll_cache, poll_cache)
 

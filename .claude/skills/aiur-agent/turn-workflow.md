@@ -83,12 +83,19 @@ in the workpad rather than falling back to raw label edits.
 
 ## PR review feedback loop
 
-Trusted `CHANGES_REQUESTED` and non-blank `COMMENTED` review submissions on an
+Trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` review submissions on an
 open PR route tickets from `agent:human-review` or `agent:ci-wait` to
 `agent:rework`, including body-only reviews with no inline threads. Trust and
-review freshness checks still apply. Failed CI in `agent:human-review` also
-routes to `agent:rework`, even on the reviewed head; the existing one-poll retry
-for a test-only failure still applies.
+review freshness checks still apply.
+
+Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
+`Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
+fix requested “before merge”. Clean summaries such as “No blockers; waiting on
+CI” or “All blockers resolved” do not route to rework.
+
+Failed CI in `agent:human-review` routes to rework when that head already passed
+CI or the head changed. An inherited failure on a dismissed head remains held;
+the existing test-only one-poll retry still applies.
 
 Most comments do not ask for code. A question, a clarification request, a
 discussion point, or an approval wants a *reply*, not a commit. Differentiate

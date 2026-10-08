@@ -148,19 +148,42 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
   end
 
-  test "a trusted non-blank COMMENTED review in human-review routes to rework without inline threads" do
-    issue = human_review_issue()
+  for body <- ["Update the stale base before merge", "## Blocking: stale base must be updated"] do
+    test "a trusted blocking COMMENTED review #{inspect(body)} in human-review routes without inline threads" do
+      issue = human_review_issue()
 
-    event =
-      changes_requested_review_event(issue, %{
-        comment: %{"state" => "COMMENTED", "body" => "Update the stale base before merge", "submitted_at" => "2026-09-26T04:09:44Z"},
-        pull_request: %{"review_decision" => "REVIEW_REQUIRED", "head_committed_at" => "2026-09-26T03:59:38Z"},
-        unresolved_threads_fetcher: fn _pr -> {:ok, []} end
-      })
+      event =
+        changes_requested_review_event(issue, %{
+          comment: %{"state" => "COMMENTED", "body" => unquote(body), "submitted_at" => "2026-09-26T04:09:44Z"},
+          pull_request: %{"review_decision" => "REVIEW_REQUIRED", "head_committed_at" => "2026-09-26T03:59:38Z"},
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        })
 
-    CommentWake.maybe_reactivate_on_comment(base_state(completed_running_entry()), @issue_number, :pr_review, event)
+      CommentWake.maybe_reactivate_on_comment(base_state(completed_running_entry()), @issue_number, :pr_review, event)
 
-    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+      assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
+    end
+  end
+
+  for ticket_state <- ["human-review", "ci-wait"],
+      body <- ["No blockers; waiting on CI", "Looks good; no blockers", "All blockers resolved"] do
+    test "a trusted clean COMMENTED review #{inspect(body)} in #{ticket_state} does not route to rework" do
+      issue = %{human_review_issue() | state: unquote(ticket_state), labels: ["agent:" <> unquote(ticket_state)]}
+      Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+      event =
+        changes_requested_review_event(issue, %{
+          comment: %{"state" => "COMMENTED", "body" => unquote(body), "submitted_at" => "2026-09-26T04:09:44Z"},
+          pull_request: %{"review_decision" => "REVIEW_REQUIRED", "head_committed_at" => "2026-09-26T03:59:38Z"},
+          unresolved_threads_fetcher: fn _pr -> {:ok, []} end
+        })
+
+      CommentWake.maybe_reactivate_on_comment(base_state(%{}), @issue_number, :pr_review, event)
+
+      refute_received {:memory_tracker_state_update, @issue_number, "rework"}
+      assert {:ok, [%Issue{state: state}]} = Aiur.Tracker.fetch_issue_states_by_ids([@issue_number])
+      assert state == unquote(ticket_state)
+    end
   end
 
   test "a transient gate failure on a completed running entry is retried, not dropped" do

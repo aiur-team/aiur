@@ -43,7 +43,16 @@ their fast gate is green. Completed work must be marked ready before CI wait so
 
 The PR review poll keeps its own per-ticket cursor, seeded from that ticket's first polling cutoff. Issue comments cannot advance it. Aiur retains that cursor while review reads are disabled for a ticket state or a review read fails.
 
-Review submissions are polled during `agent:ci-wait` as well as `agent:human-review`, so trusted `CHANGES_REQUESTED` and non-blank `COMMENTED` reviews can route either state to `agent:rework` without waiting for CI to finish, including body-only reviews without inline threads.
+Review submissions are polled during `agent:ci-wait` as well as `agent:human-review`, so trusted `CHANGES_REQUESTED` and explicitly blocking `COMMENTED` reviews can route either state to `agent:rework` without waiting for CI to finish, including body-only reviews without inline threads.
+
+Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
+`Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
+fix requested “before merge”. Clean summaries such as “No blockers; waiting on
+CI” or “All blockers resolved” do not route to rework.
+
+Failed CI in `agent:human-review` routes to rework when that head already passed
+CI or the head changed. An inherited failure on a dismissed head remains held;
+the existing test-only one-poll retry still applies.
 
 This does not recover reviews that an older daemon already skipped before this cursor existed.
 

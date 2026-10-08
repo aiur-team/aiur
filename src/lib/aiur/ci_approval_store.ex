@@ -1,7 +1,7 @@
 defmodule Aiur.CIApprovalStore do
   @moduledoc """
   Durable record of CI lifecycle facts per ticket PR: the head CI approved for
-  human review, the head whose `test` failure was already deferred once, and the
+  human review, the head observed passing CI, the head whose `test` failure was already deferred once, and the
   base-repair journal.
 
   The facts must survive a daemon restart (#2716). The file therefore lives in
@@ -31,6 +31,7 @@ defmodule Aiur.CIApprovalStore do
   @type base_repair_invalidations :: %{optional(String.t()) => base_repair_invalidation()}
   @type persisted_state :: %{
           approved_heads: heads(),
+          passed_heads: heads(),
           test_failure_heads: heads(),
           base_repair_invalidations: base_repair_invalidations()
         }
@@ -50,6 +51,7 @@ defmodule Aiur.CIApprovalStore do
 
         %{
           approved_heads: normalize(Map.get(persisted, "approved_heads", %{})),
+          passed_heads: normalize(Map.get(persisted, "passed_heads", %{})),
           test_failure_heads: normalize(Map.get(persisted, "test_failure_heads", %{})),
           base_repair_invalidations: base_repair_invalidations
         }
@@ -69,13 +71,14 @@ defmodule Aiur.CIApprovalStore do
   Persistence is best-effort so an I/O failure never interrupts a completed CI
   lifecycle transition.
   """
-  @spec save(heads(), heads(), base_repair_invalidations()) :: :ok
-  def save(approved_heads, test_failure_heads, base_repair_invalidations \\ %{})
+  @spec save(heads(), heads(), base_repair_invalidations(), heads()) :: :ok
+  def save(approved_heads, test_failure_heads, base_repair_invalidations \\ %{}, passed_heads \\ %{})
 
-  def save(approved_heads, test_failure_heads, base_repair_invalidations)
-      when is_map(approved_heads) and is_map(test_failure_heads) and is_map(base_repair_invalidations) do
+  def save(approved_heads, test_failure_heads, base_repair_invalidations, passed_heads)
+      when is_map(approved_heads) and is_map(test_failure_heads) and is_map(base_repair_invalidations) and is_map(passed_heads) do
     JsonStore.write!(path_for(), %{
       "approved_heads" => normalize(approved_heads),
+      "passed_heads" => normalize(passed_heads),
       "test_failure_heads" => normalize(test_failure_heads),
       "base_repair_invalidations" => normalize_base_repair_invalidations(base_repair_invalidations)
     })
@@ -90,7 +93,7 @@ defmodule Aiur.CIApprovalStore do
   @doc """
   Durably records one pull-request base repair boundary.
 
-  Unlike the lifecycle-wide best-effort `save/3`, this operation is strict:
+  Unlike the lifecycle-wide best-effort `save/4`, this operation is strict:
   the caller must not mutate GitHub unless the `:repairing` marker is on disk.
   A per-path global lock keeps concurrent CI target tasks from overwriting one
   another while this read-modify-write operation preserves the other lifecycle
@@ -116,6 +119,7 @@ defmodule Aiur.CIApprovalStore do
             persisted.approved_heads,
             persisted.test_failure_heads,
             invalidations,
+            persisted.passed_heads,
             opts
           )
         end
@@ -248,7 +252,7 @@ defmodule Aiur.CIApprovalStore do
   end
 
   defp empty_payload,
-    do: %{"approved_heads" => %{}, "test_failure_heads" => %{}, "base_repair_invalidations" => %{}}
+    do: %{"approved_heads" => %{}, "passed_heads" => %{}, "test_failure_heads" => %{}, "base_repair_invalidations" => %{}}
 
   defp normalize(heads) when is_map(heads) do
     Enum.reduce(heads, %{}, fn
@@ -313,6 +317,7 @@ defmodule Aiur.CIApprovalStore do
         {:ok,
          %{
            approved_heads: normalize(Map.get(persisted, "approved_heads", %{})),
+           passed_heads: normalize(Map.get(persisted, "passed_heads", %{})),
            test_failure_heads: normalize(Map.get(persisted, "test_failure_heads", %{})),
            base_repair_invalidations: normalize_base_repair_invalidations(Map.get(persisted, "base_repair_invalidations", %{}))
          }}
@@ -325,11 +330,12 @@ defmodule Aiur.CIApprovalStore do
     end
   end
 
-  defp write_strict(path, approved_heads, test_failure_heads, invalidations, opts) do
+  defp write_strict(path, approved_heads, test_failure_heads, invalidations, passed_heads, opts) do
     writer = Keyword.get(opts, :write_fun, &JsonStore.write!/2)
 
     payload = %{
       "approved_heads" => normalize(approved_heads),
+      "passed_heads" => normalize(passed_heads),
       "test_failure_heads" => normalize(test_failure_heads),
       "base_repair_invalidations" => normalize_base_repair_invalidations(invalidations)
     }
@@ -345,5 +351,5 @@ defmodule Aiur.CIApprovalStore do
   end
 
   defp empty_state,
-    do: %{approved_heads: %{}, test_failure_heads: %{}, base_repair_invalidations: %{}}
+    do: %{approved_heads: %{}, passed_heads: %{}, test_failure_heads: %{}, base_repair_invalidations: %{}}
 end
