@@ -128,7 +128,20 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
     assert :empty = claim()
   end
 
-  # Future regression guard for the already-merged authorization repair (#2827).
+  test "an unauthenticated envelope cannot enqueue a shadowed message" do
+    body = %{
+      "model" => "issue-#{@identifier}",
+      "messages" => [
+        %{"role" => "user", "content" => envelope("ses_one", "msg_one", "continue")},
+        %{"role" => "user", "content" => envelope("ses_one", "msg_marker", "__aiur_turn__:absent")}
+      ]
+    }
+
+    assert ChatCompletions.handle(body, connection("invalid-token")).status == 401
+    assert :empty = claim()
+  end
+
+  # Legacy input lacks InputIdentity's second auth check, so this guards the early authorization repair (#2827).
   test "unauthorized coalesced batch sends nothing; authorized control sends once", %{token: token} do
     Code.ensure_loaded!(Aiur.AgentChat)
     :erlang.trace_pattern({Aiur.AgentChat, :send, 3}, true, [:local])
@@ -137,8 +150,8 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
     body = %{
       "model" => "issue-#{@identifier}",
       "messages" => [
-        %{"role" => "user", "content" => envelope("ses_one", "msg_one", "continue")},
-        %{"role" => "user", "content" => envelope("ses_one", "msg_marker", "__aiur_turn__:absent")}
+        %{"role" => "user", "content" => "continue"},
+        %{"role" => "user", "content" => "__aiur_turn__:absent"}
       ]
     }
 
@@ -156,7 +169,7 @@ defmodule Aiur.Opencode.ChatCompletions.OperatorIdentityTest do
   end
 
   defp traced_request(body, token) do
-    task = Task.async(fn -> receive do: (:request -> ChatCompletions.handle(body, connection(token))) end)
+    task = Task.async(fn -> receive do: (:request -> ChatCompletions.handle(body, delete_req_header(connection(token), "x-aiur-input-version"))) end)
     :erlang.trace(task.pid, true, [:call, {:tracer, self()}])
     send(task.pid, :request)
     response = Task.await(task)
