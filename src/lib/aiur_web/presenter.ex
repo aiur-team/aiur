@@ -1,12 +1,9 @@
 defmodule AiurWeb.Presenter do
-  @moduledoc """
-  Shared projections for the observability API and dashboard.
-  """
+  @moduledoc "Shared projections for the observability API and dashboard."
 
   alias Aiur.{Config, DecisionHistory, Orchestrator, RecentMerge, RecentMergeStore, RunTelemetry}
-
+  alias Aiur.Orchestrator.WaitingReason
   @recent_merge_limit 50
-
   @spec state_payload(GenServer.name(), timeout(), keyword()) :: map()
   def state_payload(orchestrator, snapshot_timeout_ms, opts \\ []) do
     generated_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
@@ -325,6 +322,7 @@ defmodule AiurWeb.Presenter do
       last_event_at: iso8601(entry.last_codex_timestamp),
       stale_for_seconds: Map.get(entry, :stale_for_seconds),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
+      waiting: WaitingReason.public_wait(entry),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
       open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),
@@ -340,6 +338,7 @@ defmodule AiurWeb.Presenter do
       issue_identifier: entry.identifier,
       attempt: entry.attempt,
       due_at: due_at_iso8601(entry.due_in_ms),
+      waiting: WaitingReason.public_wait(entry),
       error: entry.error,
       last_failure_at: iso8601(Map.get(entry, :last_failure_at)),
       worker_host: Map.get(entry, :worker_host),
@@ -374,6 +373,7 @@ defmodule AiurWeb.Presenter do
       tracker_paused: Map.get(entry, :tracker_paused, false),
       queue_depth: Map.get(entry, :queue_depth, 0),
       waiting_reason: Map.get(entry, :waiting_reason, :active),
+      waiting: WaitingReason.public_wait(entry),
       open_decision_count: Map.get(entry, :open_decision_count, 0),
       open_decision_count_health: Map.get(entry, :open_decision_count_health, :unknown),
       ci: ci_payload(Map.get(entry, :ci_result)),

@@ -152,6 +152,36 @@ defmodule Aiur.AgentControlCLITest do
     assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending()
   end
 
+  for prior_role <- ["owner", "observer"] do
+    test "renewer switches a displaced #{prior_role} wait to observer without acknowledging" do
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+      waiter = Task.async(fn -> capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 5_000, json: true, as: "old-owner") end) end)
+      await_executor_wait(waiter.pid)
+      {:ok, old} = Claims.owner()
+      {:ok, _} = Claims.revoke("old-owner")
+      {:ok, successor} = Claims.claim("successor")
+      expired = old |> Map.put("lease_expires_at", "2000-01-01T00:00:00Z") |> Map.put("role", unquote(prior_role))
+      Aiur.JsonStore.write!(StatePaths.claims_path(), %{"consumers" => %{"old-owner" => expired, "successor" => successor}})
+      {:links, links} = Process.info(waiter.pid, :links)
+      renewer = Enum.find(links, &(&1 != self()))
+      :erlang.trace_pattern({AgentControlCLI, :renew_lease_forever, 3}, true, [:local])
+      :erlang.trace(renewer, true, [:send, :call])
+      on_exit(fn -> :erlang.trace_pattern({AgentControlCLI, :renew_lease_forever, 3}, false, [:local]) end)
+      send(renewer, :renew)
+      receive_barrier({:trace, ^renewer, :call, {AgentControlCLI, :renew_lease_forever, _args}})
+      assert_received {:trace, ^renewer, :send, {:executor_ownership_lost, ^renewer}, _destination}
+      :erlang.trace(renewer, false, [:send, :call])
+
+      :ok = ExecutorWakeInbox.enqueue(wake_record(1, "3412", "ticket.3412.pr.opened", "ticket.pr.opened"))
+      output = Task.await(waiter)
+      assert output =~ "not the live owner"
+      assert output =~ ~s("role":"observer")
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert ExecutorWakeInbox.cursor() == 0
+      assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending()
+    end
+  end
+
   test "executor-wait separates a store failure from contention with exit 1 (#2600)" do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
     # An unreadable ledger is a daemon/store failure, not something a caller can
@@ -164,6 +194,12 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ ~s("stage":"wait")
     assert output =~ "executor wake inbox unavailable"
     refute output =~ "__AIUR_CONTROL_EXIT__:69"
+  end
+
+  defp await_executor_wait(pid) do
+    if Enum.any?(:sys.get_state(ExecutorWakeInbox).waiters, fn {{waiter, _tag}, _} -> waiter == pid end),
+      do: :ok,
+      else: await_executor_wait(pid)
   end
 
   defp await_consumer(id, attempts \\ 200) do
@@ -2373,6 +2409,46 @@ defmodule Aiur.AgentControlCLITest do
     end
   end
 
+  test "busy handle_info leaves reset-budget and resume outcomes unknown", %{orchestrator: original} do
+    issue = %Issue{id: "issue-49", identifier: "repo#49", state: "in-progress", title: "Budget reset"}
+    :ok = DispatchBudgetStore.put_lifetime(issue.id, 40)
+    state = :sys.get_state(original)
+    state = %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}, last_polled_issues: %{issue.id => issue}}
+    state = put_in(state.dispatch_recovery.codex_thrash_budget[issue.id], %{lifetime: 40, count: 0})
+    previous_timeout = Application.get_env(:aiur, :control_api_call_timeout_ms)
+    Application.put_env(:aiur, :control_api_call_timeout_ms, 20)
+    Process.unregister(Orchestrator)
+    busy = start_supervised!({__MODULE__.BusyOrchestrator, state})
+
+    try do
+      :ok = SnapshotStore.publish(Orchestrator, StatusReport.snapshot_payload(state), state)
+      send(busy, {:block, self()})
+      receive_barrier(:blocked)
+
+      for {command, description} <- [
+            {fn -> AgentControlCLI.reset_budget(["49", "49"]) end, "reset lifetime dispatch budget for #49"},
+            {fn -> AgentControlCLI.resume(["44"]) end, "resume #44"}
+          ] do
+        output = capture_io(command)
+        assert output =~ "outcome unknown for #{description}"
+        assert output =~ "may still apply"
+        assert output =~ "__AIUR_CONTROL_EXIT__:124"
+        refute output =~ "failed to"
+      end
+
+      assert {:ok, 40} = DispatchBudgetStore.lifetime(issue.id)
+      send(busy, :release)
+      :sys.get_state(busy)
+      assert {:ok, 0} = DispatchBudgetStore.lifetime(issue.id)
+    after
+      send(busy, :release)
+      stop_supervised!(__MODULE__.BusyOrchestrator)
+      Process.register(original, Orchestrator)
+      SnapshotStore.forget(Orchestrator)
+      if previous_timeout, do: Application.put_env(:aiur, :control_api_call_timeout_ms, previous_timeout), else: Application.delete_env(:aiur, :control_api_call_timeout_ms)
+    end
+  end
+
   describe "global pause switch" do
     test "pause_global halts the daemon and resume_global lifts it", %{orchestrator: pid} do
       :sys.replace_state(pid, fn state -> %{state | globally_paused: false} end)
@@ -2532,7 +2608,8 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
 
-    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: failed to resume #44 (orchestrator timed out)"
+    assert output =~ "outcome unknown for resume #44"
+    refute output =~ "failed to resume"
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
 
@@ -4470,4 +4547,21 @@ defmodule Aiur.AgentControlCLITest do
       refute output =~ "#46 ci-wait · needs review/merge"
     end
   end
+end
+
+defmodule Aiur.AgentControlCLITest.BusyOrchestrator do
+  use GenServer
+
+  def start_link(state), do: GenServer.start_link(__MODULE__, state, name: Aiur.Orchestrator)
+  @impl true
+  def init(state), do: {:ok, state}
+  @impl true
+  def handle_info({:block, parent}, state) do
+    send(parent, :blocked)
+    receive do: (:release -> {:noreply, state})
+  end
+
+  def handle_info(message, state), do: Aiur.Orchestrator.handle_info(message, state)
+  @impl true
+  def handle_call(request, from, state), do: Aiur.Orchestrator.handle_call(request, from, state)
 end

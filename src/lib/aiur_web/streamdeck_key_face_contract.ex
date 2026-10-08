@@ -11,7 +11,7 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
   @external_resource @contract_path
   @contract @contract_path |> File.read!() |> Jason.decode!()
   @expected_states ~w(alert stuck running paused queued)
-  @expected_badges ~w(EMIT CONSUME AGENT SYSTEM INFO)
+  @expected_badges Aiur.AgentEventFeed.directions()
 
   for {map, expected, label} <- [
         {@contract["states"], @expected_states, "states"},

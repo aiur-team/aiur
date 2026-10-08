@@ -11,6 +11,28 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   alias Aiur.Orchestrator.{RateLimitFallback, State}
   alias Aiur.Workflow
 
+  test "stop kills the child tree before closing the port" do
+    port =
+      Port.open(
+        {:spawn_executable, String.to_charlist(System.find_executable("bash"))},
+        [:binary, :exit_status, :stderr_to_stdout, args: [~c"-c", ~c"sleep 600 & printf '%s\n' $!; wait"], line: 64_000]
+      )
+
+    assert_receive {^port, {:data, {:eol, child}}}, 2_000
+    child_pid = String.to_integer(child)
+    {:os_pid, root_pid} = Port.info(port, :os_pid)
+
+    on_exit(fn ->
+      for pid <- [child_pid, root_pid], do: System.cmd("kill", ["-KILL", to_string(pid)], stderr_to_stdout: true)
+    end)
+
+    assert {_, 0} = System.cmd("kill", ["-0", child], stderr_to_stdout: true)
+    assert :ok = ClaudeAgent.stop_session(%{port: port})
+    assert Port.info(port) == nil
+    assert {_, status} = System.cmd("kill", ["-0", child], stderr_to_stdout: true)
+    assert status != 0
+  end
+
   test "spawned claude shell receives workspace, configured base, and launch vars" do
     root = Aiur.TestSupport.tmp_root!("aiur_claude_env")
     workspace = Path.join(root, "agent-1")
