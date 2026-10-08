@@ -3,9 +3,9 @@ ticket_id: MP-E6-C1-T01
 feature_id: MP-E6
 chunk_id: MP-E6-C1
 bucket: 2-platform
-title: PAID spike — validate ElevenLabs Agents as the conversational voice provider (RQ-E6-1..6)
+title: PAID spike — two-provider bake-off, OpenAI GPT-Live 1 vs ElevenLabs Agents, over a status card (RQ-E6-1..6, RQ-E6-9..12)
 status: blocked
-blocked_by: [E6-OQ9, DESIGN-E6]
+blocked_by: [E6-OQ9, E6-OQ13, DESIGN-E6]
 prior_units: []
 prior_boundaries: [VOX]
 prior_features: [integrations-51]
@@ -164,3 +164,34 @@ DESIGN-E6 next to E6-OQ9. No automated tests (experiment).
 - [ ] Findings note, fixtures, provider-research and contract updates.
 - [ ] Test agent and conversations deleted; final spend recorded.
 - **Dependents unblocked on pass:** MP-E6-C2-T03, MP-E6-C3-T02, MP-E6-C3-T03, MP-E6-C7-T04.
+
+## Amendment 2026-10-08 — two-provider bake-off (supersedes the ElevenLabs-only scope)
+
+Source: [../realtime-convo-research.md](../realtime-convo-research.md). Kevin wants a mode
+"very close" to ChatGPT's newest voice mode. OpenAI's **GPT-Live 1** (the ChatGPT Voice model,
+GA in the API 2026-09-10, $0.05/min, native delegation) did not exist when this ticket was
+written. The non-goal "evaluating providers other than ElevenLabs Agents" is removed.
+
+- **Arms:** (A) ElevenLabs Agents, steps 1–10 above unchanged; (B) GPT-Live 1 over a daemon-side
+  WebSocket, Responses delegation with the aiur tool set as function tools, and one run with
+  client delegation. Same role prompt, same synthetic **status card** (~1,500 tokens, as
+  MP-E6-C10-T02 will build), same 12 scripted questions covering paths A–E of research §5.3.
+- **Extra questions:**
+  - RQ-E6-9 time to first spoken word per path (A answer-from-card, B quick look-up, D consult
+    with a 60 s simulated agent) — median and p95 over 5 runs per arm.
+  - RQ-E6-10 can aiur make the voice speak a late result at the next pause (ElevenLabs:
+    user-message trigger vs Async tool; GPT-Live: `session.commentary.append`)? Does either arm
+    invent a result before it arrives?
+  - RQ-E6-11 GPT-Live privacy: retention with `store: false`, ZDR eligibility, maximum session
+    length (not published), delegation timeout.
+  - RQ-E6-12 subjective feel: Kevin runs 5 minutes per arm and scores turn-taking, barge-in and
+    voice (1–5).
+- **Budget (proposed for E6-OQ9):** USD 25 total and 90 conversation minutes across both arms;
+  hard stop at USD 20 / 75 min. Price basis: GPT-Live $0.05/min + backend tokens
+  (<https://developers.openai.com/api/docs/models/gpt-live-1>, accessed 2026-10-08);
+  ElevenLabs $0.08/min overage + LLM (<https://elevenlabs.io/pricing/agents>, accessed
+  2026-10-08). Arm B needs an OpenAI **API** key (not a ChatGPT or Codex subscription), exported
+  only in the spike shell.
+- **Verdict:** the findings note recommends one provider for E6-OQ13 by measured RQ-E6-9 and
+  RQ-E6-12, subject to RQ-E6-3/RQ-E6-11 privacy passing. If GPT-Live wins, MP-E6-C2-T02/T03 are
+  re-planned for that adapter before implementation (the behaviour, C2-T01, stays neutral).

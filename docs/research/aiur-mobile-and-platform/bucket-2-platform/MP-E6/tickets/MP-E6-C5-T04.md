@@ -95,3 +95,22 @@ Run in an implementation worktree with `GITHUB_TOKEN`/`GH_TOKEN` unset and hash-
 
 - [ ] Consult per E6-OQ2; docs (concepts page "relationship to the agent") in C9-T01.
 - **Dependents:** C7-T02 (`consulting` state), MP-E4 rendering of `origin` entries.
+
+## Amendment 2026-10-08 — fast voice over a slow agent
+
+Source: [../realtime-convo-research.md](../realtime-convo-research.md) (Kevin's request of
+2026-10-08: voice with high-effort agents is "extremely slow and broken up"). Context-handoff
+requirement: the voice assistant must be able to answer from a current briefing in about one
+second, without stopping or waiting for the coding agent.
+
+- Rename the tool to `ask_agent(question)` (keep `consult` as the transcript record kind).
+  It is **non-blocking**: the tool result returns at once ("Asked. I'll tell you when it
+  answers."), the assistant keeps talking from the card, and the answer is spoken at the next
+  pause (C4-T05 amendment). No tool call stays open (RQ-E6-2 no longer matters for consults).
+- **Delivery is `:checkpoint` by default**, never the `AgentChat.send/3` default
+  `:interrupt` (`agent_chat.ex:27`). Steer/interrupt only when the operator says the
+  question is urgent and the listener mode allows it.
+- Routing: questions about the agent's reasoning or history go to the side-query path when it
+  exists (MP-E6-C10-T05); questions that need fresh work go to the queued consult.
+- While waiting, a progress line every 60 s at most, only if the operator is silent ("Still
+  waiting; the agent is in a long test run."), taken from the status card.

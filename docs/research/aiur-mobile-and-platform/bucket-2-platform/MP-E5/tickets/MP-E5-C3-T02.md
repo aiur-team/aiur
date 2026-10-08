@@ -105,3 +105,12 @@ agent" and "forged target" tests fail.
 - [ ] Converse opens the panel for the same target; no capture on click.
 - [ ] Docs updated in the same PR.
 - **Dependents:** MP-E6-C7-T02 (consumes the event), MP-E5-C5-T02 (Executor surface).
+
+## Amendment 2026-10-08 — context handoff requirement
+
+Source: [../../MP-E6/realtime-convo-research.md](../../MP-E6/realtime-convo-research.md).
+The event carries the target reference only. It must not ask the coding agent for a summary,
+pause it, or wait for any context build: the MP-E6 session reads the status card
+(MP-E6-C10-T02) when it starts. Acceptance target for the whole path (press Converse →
+panel listening): under 1 s on the dashboard; first spoken word of the assistant's greeting
+under 1.5 s after the operator's Start.

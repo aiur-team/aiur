@@ -93,3 +93,15 @@ error copy: the §8.1 table test fails.
 
 - [ ] Panel with all states; docs in PR.
 - **Dependents:** C7-T03, C7-T04, C8-T02.
+
+## Amendment 2026-10-08 — fast voice over a slow agent
+
+Source: [../realtime-convo-research.md](../realtime-convo-research.md) (Kevin's request of
+2026-10-08: voice with high-effort agents is "extremely slow and broken up"). Context-handoff
+requirement: the voice assistant must be able to answer from a current briefing in about one
+second, without stopping or waiting for the coding agent.
+
+- The panel opens **listening at once** (no "building context" wait beyond the card read).
+- Show the status card head (doing / waiting on / asks, with ages) and a "Refresh" and
+  "Pause and brief me" control per MP-E6-C10-T04 and DESIGN-E6 E6-OQ12.
+- `consulting` state shows that the conversation continues while the agent is asked.

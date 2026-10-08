@@ -96,3 +96,18 @@ Replace the gap line with an empty list when a port is nil: the gap test fails.
 
 - [ ] Builder with redaction and budget.
 - **Dependents:** C4-T01 start sequence, C4-T06, C8-T02.
+
+## Amendment 2026-10-08 — fast voice over a slow agent
+
+Source: [../realtime-convo-research.md](../realtime-convo-research.md) (Kevin's request of
+2026-10-08: voice with high-effort agents is "extremely slow and broken up"). Context-handoff
+requirement: the voice assistant must be able to answer from a current briefing in about one
+second, without stopping or waiting for the coding agent.
+
+- The **status card** (MP-E6-C10-T02) is the first block and the main source of answers.
+  The default start budget drops from 8,000 to **4,000 tokens** (card ~1,500 + Commands +
+  prior session tail). The raw "last 20 messages" block moves out of start context and is
+  served on request by `get_details(section: "conversation")` (MP-E6-C5-T01). Reason:
+  start-context size adds directly to time to first audio (research §7 latency table).
+- Added predecessor once C10-T02 lands: the builder calls `StatusCard.build/2`; until then
+  the old `work` block stays (no ordering change to this ticket's own tests).

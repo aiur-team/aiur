@@ -91,3 +91,17 @@ test fails.
 
 - [ ] Live updates with coalescing and stale marking.
 - **Dependents:** C5-T02, C5-T05.
+
+## Amendment 2026-10-08 — fast voice over a slow agent
+
+Source: [../realtime-convo-research.md](../realtime-convo-research.md) (Kevin's request of
+2026-10-08: voice with high-effort agents is "extremely slow and broken up"). Context-handoff
+requirement: the voice assistant must be able to answer from a current briefing in about one
+second, without stopping or waiting for the coding agent.
+
+- Also subscribe to `ticket.<id>.agent.progress.status` (MP-E6-C10-T01). Each relevant event
+  recomputes the status card (MP-E6-C10-T02) and sends only the **changed lines** as the
+  `contextual_update`.
+- A consult answer, a side-query answer or a refreshed note is **announce-worthy**: the
+  session asks the provider to speak it at the next pause (provider event "say when idle",
+  MP-E6-C2-T01 amendment), not only to hold it silently in context.

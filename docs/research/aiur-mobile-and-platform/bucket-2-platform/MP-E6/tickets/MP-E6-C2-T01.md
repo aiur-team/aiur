@@ -131,3 +131,18 @@ fails. (The structure tests are regression guards, not coverage of new behaviour
 - [ ] Behaviour, structs and fake; tests green; `make lint` clean.
 - [ ] Docs: none (internal).
 - **Dependents:** MP-E6-C2-T02, MP-E6-C2-T03, MP-E6-C4-T01, every later E6 test.
+
+## Amendment 2026-10-08 — fast voice over a slow agent
+
+Source: [../realtime-convo-research.md](../realtime-convo-research.md) (Kevin's request of
+2026-10-08: voice with high-effort agents is "extremely slow and broken up"). Context-handoff
+requirement: the voice assistant must be able to answer from a current briefing in about one
+second, without stopping or waiting for the coding agent.
+
+- The `ConversationProvider` behaviour gains one optional callback, `announce(session, text,
+  when: :idle | :now)`: speak an aiur-originated line at the next pause (or now). ElevenLabs
+  maps it to a `user_message`-style trigger or a client-tool result; OpenAI Realtime maps it to
+  `conversation.item.create` + `response.create`; Gemini Live to a NON_BLOCKING function
+  response with `scheduling: WHEN_IDLE`. The spike (MP-E6-C1-T01) confirms the mapping.
+- Keep the behaviour provider-neutral: MP-E6-C1-T01 now compares ElevenLabs Agents and OpenAI
+  Realtime, and the winner may be either.

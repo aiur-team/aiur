@@ -47,8 +47,15 @@ the ticket (≤ 60 agent-minutes, ≤ USD 15, hard stop at USD 12 / 50 min).
 | [MP-E6-C8-T02](MP-E6-C8-T02.md) | Continue with carried drafts | blocked | **DESIGN-E6**, C8-T01, C4-T03, C5-T02 | 4h |
 | [MP-E6-C8-T03](MP-E6-C8-T03.md) | Link delivered drafts to E4 anchors | blocked | **DESIGN-E6, DESIGN-E4**, C8-T01, MP-E4-C3, MP-E7-C3 | 4h |
 | [MP-E6-C9-T01](MP-E6-C9-T01.md) | Docs + end-to-end verification | blocked | **DESIGN-E6, E6-OQ7**, user-visible E6 tickets | 4i |
+| [MP-E6-C10-T01](MP-E6-C10-T01.md) | Agent status note | ready | MP-R2-C5-T01 | 4a |
+| [MP-E6-C10-T02](MP-E6-C10-T02.md) | Status card + deltas | ready | C10-T01, C4-T03, C4-T05 | 4e |
+| [MP-E6-C10-T03](MP-E6-C10-T03.md) | Side-query spike (fork) | ready | — | 4a |
+| [MP-E6-C10-T04](MP-E6-C10-T04.md) | Briefing on demand (refresh / pause) | blocked | **DESIGN-E6, E6-OQ12**, C10-T01, C10-T02, C5-T03 | 4f |
+| [MP-E6-C10-T05](MP-E6-C10-T05.md) | Side-query path for `ask_agent` | blocked | **C10-T03 (spike), E6-OQ15**, C5-T04 | 4g |
 
-Totals: 31 tickets — 14 ready, 17 blocked.
+Totals: 36 tickets — 17 ready, 19 blocked (C10 added 2026-10-08 from
+[../realtime-convo-research.md](../realtime-convo-research.md); several older tickets carry a
+2026-10-08 amendment section).
 
 ## Dependency order
 

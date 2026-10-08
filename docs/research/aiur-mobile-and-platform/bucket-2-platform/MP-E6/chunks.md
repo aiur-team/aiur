@@ -160,3 +160,25 @@ Ticket docs: [tickets/README.md](tickets/README.md) (31 tickets, 14 ready, 17 bl
   option: `:internal` for provider context, `{:device, id}` for anything shown on a device).
 - Config namespace fixed by RC-13: `voice.conversation.*`; `elevenlabs.*` unchanged.
 - C7-T01 serves `voice:converse` on both the dashboard socket and the MP-E5-C8 device socket.
+
+## MP-E6-C10 — Fast path over a slow agent (added 2026-10-08)
+
+- **Outcome:** the voice assistant answers most questions in about one second from a
+  continuously maintained **status card**, keeps talking while the coding agent is asked, and
+  never stops the coding agent unless the operator asks. Research and Kevin's request:
+  [realtime-convo-research.md](realtime-convo-research.md).
+- **Tickets:**
+  - MP-E6-C10-T01 Agent status note (`emit_event progress.status`) at every checkpoint.
+  - MP-E6-C10-T02 Status card builder + delta updates (first context block).
+  - MP-E6-C10-T03 Side-query spike (forked read-only harness session).
+  - MP-E6-C10-T04 Briefing on demand: Refresh (checkpoint) and opt-in "Pause and brief me".
+  - MP-E6-C10-T05 Side-query path for `ask_agent` (after the spike).
+- **Amended:** C1-T01 (two-provider bake-off), C2-T01 (`announce/3`), C4-T03 (card first,
+  4,000-token start budget), C4-T05 (card deltas, announce), C5-T01 (`get_details`), C5-T04
+  (`ask_agent`, non-blocking, checkpoint delivery), C7-T02 (listening at once, card head).
+
+```text
+MP-R2-C5-T01 ─► C10-T01 ─► C10-T02 ◄── C4-T03, C4-T05
+C10-T02 + C5-T03 ─► C10-T04 (E6-OQ12)
+C10-T03 (spike, no deps) ─► C10-T05 ◄── C5-T04 (E6-OQ15)
+```

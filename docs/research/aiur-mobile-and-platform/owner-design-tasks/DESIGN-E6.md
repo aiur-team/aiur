@@ -53,6 +53,18 @@ proceed (C2-T03 also waits on the paid spike).
 | E6-OQ10 | Label for voice-originated messages in the agent's transcript (Phase D, E6 R-1/R-2): entries with `origin: voice_assistant` (consults and confirmed instructions) are rendered with which label? | A short "via voice assistant" tag beside the operator label. Until approved they render as plain operator messages. |
 | E6-OQ11 | Should a Command answer produced through a voice conversation show its `via: voice_assistant` audit tag anywhere besides the Command timeline (E6 R-3)? | Timeline only. |
 
+### 3.1 Added 2026-10-08 — fast conversation over a slow agent
+
+Source: [../bucket-2-platform/MP-E6/realtime-convo-research.md](../bucket-2-platform/MP-E6/realtime-convo-research.md)
+(your request of 2026-10-08, quoted there verbatim).
+
+| ID | Decision | Engineering recommendation |
+| --- | --- | --- |
+| E6-OQ12 | When you press Converse, does the coding agent stop? | **No by default.** The assistant answers from the always-current status card; it asks the agent to refresh its note at the next checkpoint without stopping. "Pause and brief me" is an explicit button (your 5-step flow, opt-in). |
+| E6-OQ13 | Provider after the bake-off: ElevenLabs Agents or OpenAI Realtime (speech-to-speech, closest to ChatGPT voice)? | Decide from the measured spike (MP-E6-C1-T01, now a two-provider comparison). Research leans to OpenAI Realtime for feel and to ElevenLabs for reuse of your key and voice. |
+| E6-OQ14 | May the assistant speak first when the agent answers, CI changes or a Command opens? | Yes, at the next pause, for agent answers and new Commands only; never mid-sentence. |
+| E6-OQ15 | Side queries: may the assistant fork the agent's session (read-only) to answer "why" questions fast, at extra model cost per question? | Yes if the side-query spike (MP-E6-C10-T03) passes isolation; show the cost in the transcript. |
+
 ## 4. States to design
 
 | State | Must show |
@@ -83,7 +95,7 @@ aiur; provider deletion after each session; Zero Retention only on Enterprise pl
 ## 6. Acceptance conditions
 
 - Every surface in §2 and state in §4 designed; every decision in §3 answered
-  (E6-OQ1…OQ11, including OQ10 and OQ11).
+  (E6-OQ1…OQ15, including OQ10–OQ15).
 - The design makes it impossible to mistake discussion for an instruction: a draft is visibly
   different from a spoken turn, and nothing is sent without your Confirm (per E6-OQ1).
 - The full transcript is reviewable; no design element replaces it with a summary.

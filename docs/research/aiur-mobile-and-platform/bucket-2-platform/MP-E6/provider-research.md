@@ -141,3 +141,13 @@ are made about them.
 | RQ-E6-4 | Is the override prompt size limited? Latency with an 8k-token start context? | Measure time to first audio |
 | RQ-E6-5 | Browser echo cancellation with speakers during barge-in | Manual desktop and phone test |
 | RQ-E6-6 | Do `user_transcript` events give final text only, or partials too? | Observe the stream |
+
+## 7. Update 2026-10-08 — GPT-Live 1 changes the comparison
+
+OpenAI released **GPT-Live 1** (`gpt-live-1`, GA 2026-09-10), reported to be the model behind
+ChatGPT Voice, with native delegation to a backend while the voice keeps talking, at
+$0.05/min. That is the experience Kevin asked for on 2026-10-08. The §5 recommendation is no
+longer final: the paid spike (MP-E6-C1-T01) is now a GPT-Live vs ElevenLabs bake-off, and the
+owner chooses by measured feel (E6-OQ13). Full findings, latency budget and sources:
+[realtime-convo-research.md](realtime-convo-research.md). The §3.1 row "fails P9" still holds
+for GPT-Live (new key and vendor).

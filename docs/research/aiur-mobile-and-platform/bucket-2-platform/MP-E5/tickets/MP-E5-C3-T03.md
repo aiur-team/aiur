@@ -93,3 +93,19 @@ voice:conversation topic is routed" fails.
 - [ ] The E5-OQ2 answer is recorded in DESIGN-E5 and applied; docs updated in the same PR.
 - **Dependents:** MP-E6-C9-T01 (docs mention of the replacement), contract §1 note on
   `voice:conversation`.
+
+## Amendment 2026-10-08 — why the legacy mode is slow
+
+Source: [../../MP-E6/realtime-convo-research.md](../../MP-E6/realtime-convo-research.md) §1–§2.
+Kevin reported that voice with heavier, higher-effort agents is "extremely slow and broken
+up". The legacy mode is the cause by construction: each spoken turn is submitted to the
+**worker** (`conversation-voice-controller.js:354-366`), and the reply is read aloud only after
+the worker's whole turn completes (`:379-396`). With a high-effort model that turn takes
+tens of seconds to minutes, and the default send policy is `:interrupt`
+(`src/lib/aiur/agent_chat.ex:27`), so each spoken turn can also cut the agent's work.
+
+- The recommended option (a) stands. If (b) is chosen, the label must say the mode talks to
+  the agent directly and waits for its full reply (DESIGN-E5 copy).
+- Option (a) or (b): until MP-E6 ships, the legacy send should use `:checkpoint`, not
+  `:interrupt`, so a spoken turn does not cut a running turn. This is a one-line change in the
+  controller's send path; record the owner's choice in DESIGN-E5.

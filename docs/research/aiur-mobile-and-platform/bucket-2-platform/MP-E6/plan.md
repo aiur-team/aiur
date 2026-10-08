@@ -246,3 +246,38 @@ RQ-E6-7 the Phoenix channel frame budget for bidirectional PCM (400,000-byte max
 - **m5:** the adapter synthesizes `user_transcript.final` (C2-T03); `thinking` may be brief.
 - **Security m4:** confirmation only from the client socket (V8, C5-T02); "via voice" tag.
 - **X-26:** C5-T05 answers through `Aiur.Commands.Answering`.
+
+## 16. Realtime conversation over a slow agent (2026-10-08)
+
+Kevin, 2026-10-08 (verbatim, also at the top of the research file): "when i use voice mode with
+heavier, higher effort agents, the convo is extremely slow and broken up. i love how chat
+GPT's newest convo mode works … my fear is that if we separate the voice conversation agent
+from the real aiur coding agent, it may only add additional latency while the convo agent asks
+the coding agent and acts as a dumb relay." He proposed: click Converse → the coding agent
+halts and dumps a full summary → the summary goes to the voice agent → the operator talks →
+the voice agent answers from it and relays to the coding agent when needed.
+
+Research: [realtime-convo-research.md](realtime-convo-research.md).
+
+**New requirement (context handoff).** When Converse opens, the voice assistant must already
+hold a current, agent-authored briefing of the target — what the agent is doing and why, next
+steps, what it waits on, what it asks the operator, PR/CI/review state, open Commands, recent
+milestones — so that it answers most questions in about one second **without stopping or
+waiting for the coding agent**. The briefing is the **status card** (MP-E6-C10-T02) built from
+the agent's **status note** (MP-E6-C10-T01) plus data aiur holds, and it is kept current by
+deltas during the conversation. Halting the agent for a full briefing is available only as an
+explicit "Pause and brief me" (MP-E6-C10-T04, E6-OQ12).
+
+Changes:
+
+- §3 provider: no longer final. The spike is a two-provider bake-off, **OpenAI GPT-Live 1**
+  (ChatGPT Voice model, native delegation) vs ElevenLabs Agents (MP-E6-C1-T01 amendment,
+  E6-OQ13).
+- §5 context: the status card is the first block; start budget 4,000 tokens; raw message tail
+  becomes `get_details` (C4-T03, C5-T01 amendments).
+- §6 consult: `ask_agent`, non-blocking, delivered at the agent's checkpoint, spoken when it
+  lands; a forked read-only side query answers "why" questions without disturbing the agent
+  (C5-T04 amendment, C10-T03 spike, C10-T05).
+- New chunk C10 (5 tickets); latency targets in research §7: answer-from-card ≤ 0.8 s median,
+  Converse → listening ≤ 1 s.
+- New owner questions E6-OQ12..OQ15 in DESIGN-E6 §3.1.

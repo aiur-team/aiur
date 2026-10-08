@@ -88,3 +88,16 @@ list: the first test fails.
 
 - [ ] Router + read tools.
 - **Dependents:** C5-T02..T05, C3-T02 (tool specs uploaded to the agent).
+
+## Amendment 2026-10-08 — fast voice over a slow agent
+
+Source: [../realtime-convo-research.md](../realtime-convo-research.md) (Kevin's request of
+2026-10-08: voice with high-effort agents is "extremely slow and broken up"). Context-handoff
+requirement: the voice assistant must be able to answer from a current briefing in about one
+second, without stopping or waiting for the coding agent.
+
+- `get_status` answers from the status card (MP-E6-C10-T02), with field ages.
+- Add `get_details(section)` with sections `conversation` (replaces
+  `read_recent_conversation`; same `n` param), `pr` (title, diff stat, review state),
+  `ci` (failing job names and the last 40 redacted log lines), `plan` (the workpad excerpt).
+  All local reads; target ≤ 300 ms per call so the assistant answers without filler.

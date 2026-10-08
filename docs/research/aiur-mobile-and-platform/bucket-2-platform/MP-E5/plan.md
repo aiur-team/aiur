@@ -177,3 +177,19 @@ replaces; E5-OQ4 no-key presentation; E5-OQ5 keyboard shortcut or hold-to-talk o
   wave 1.
 - RC-29 (Phase D): chunk C8 (device voice path) ships in **wave 5**, after MP-N2-C6, because it
   needs N2 device tokens. C1-C7 stay in wave 4. RC-30: MP-E6-C7-T01 no longer waits for C8.
+
+## Amendment 2026-10-08 — conversation latency and the context handoff
+
+Kevin (2026-10-08): voice with heavier, higher-effort agents is "extremely slow and broken up";
+he wants a conversation mode close to ChatGPT's newest voice mode. Research and the recommended
+flow: [../MP-E6/realtime-convo-research.md](../MP-E6/realtime-convo-research.md).
+
+What this changes for MP-E5:
+
+- **Converse hand-off (MP-E5-C3-T02) carries the target only.** The session reads the status
+  card (MP-E6-C10-T02) itself; the mic choice must not wait for any context build or for the
+  coding agent. Requirement: from the Converse press to "listening" in under 1 s.
+- **Legacy interactive voice chat (MP-E5-C3-T03)** is the cause of today's slowness: every
+  spoken turn goes to the worker and waits for its full turn. See the amendment in that ticket.
+- **Dictation is unchanged.** Dictate stays a transcription into a field that the operator
+  reviews; it does not touch the conversation provider.
