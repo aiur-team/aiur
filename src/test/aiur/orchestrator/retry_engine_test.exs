@@ -364,6 +364,8 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   describe "schedule_issue_retry/4" do
     test "stores identity supplied for a newly scheduled retry" do
       identity = tracker_identity("repo#new")
+      open_pr_fetcher = fn _ -> {:ok, %{head: %{sha: "new-head"}}} end
+      commit_ci_status_fetcher = fn _ -> {:ok, %{check_runs: [], commit_status: %{state: "success"}}} end
 
       next =
         RetryEngine.schedule_issue_retry(%State{}, "issue-new", 1, %{
@@ -371,6 +373,8 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
           tracker_identity: identity,
           priority: 1,
           issue_state: "in-progress",
+          open_pr_fetcher: open_pr_fetcher,
+          commit_ci_status_fetcher: commit_ci_status_fetcher,
           delay_type: :continuation
         })
 

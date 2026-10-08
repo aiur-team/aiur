@@ -57,11 +57,12 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
   end
 
   describe "a run of consecutive no-op turns" do
-    test "hands a first-run active ticket with an open PR to human review", ctx do
+    test "hands a first-run in-progress ticket with an open PR to human review", ctx do
       use_memory_tracker!(self())
+      issue = %{ctx.issue | state: "in-progress", labels: ["agent:in-progress"]}
 
       assert {:completed, %{state: "human-review"}} =
-               run_loop(ctx,
+               run_loop(%{ctx | issue: issue},
                  run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-first-pr"}} end,
                  max_turns: nil,
                  workspace_probe: unchanging_probe(),
@@ -116,9 +117,10 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
 
     test "leaves a non-rework ticket label unchanged when no PR is open", ctx do
       use_memory_tracker!(self())
+      issue = %{ctx.issue | state: "in-progress", labels: ["agent:in-progress"]}
 
       assert {:completed, %{state: state}} =
-               run_loop(ctx,
+               run_loop(%{ctx | issue: issue},
                  run_turn: fn _s, _p, _i, _o -> {:ok, %{session_id: "noop-no-pr"}} end,
                  max_turns: nil,
                  workspace_probe: unchanging_probe(),
@@ -127,7 +129,7 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
                  open_pr_fetcher: fn _ -> {:ok, nil} end
                )
 
-      assert state == ctx.issue.state
+      assert state == issue.state
       refute_receive {:memory_tracker_state_update, _, _}, 100
     end
 
@@ -385,6 +387,8 @@ defmodule Aiur.AgentRunner.TurnLoopNoopBoundTest do
       assert log =~ "ticket.#{ctx.issue.identifier}.agent.noop_turns_bounded"
       assert log =~ "\"needs_attention\":true"
       assert log =~ "consecutive turn(s) that changed nothing"
+      assert log =~ "No new PR head was detected."
+      refute log =~ "because this run had no pushed PR head"
       # The record says what to do about it, so the stop is actionable rather
       # than just observable.
       assert log =~ "Review the agent's result before redispatching"
