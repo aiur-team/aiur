@@ -1,3 +1,3 @@
 # rule	target_module	reason
-R-declared	Aiur.Alerts	baseline b5ef24e7f8e29ba78a196208742ed59e6fa1b95a
-R-declared	Aiur.JsonStore	baseline b5ef24e7f8e29ba78a196208742ed59e6fa1b95a
+R-declared	Aiur.Alerts	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
+R-declared	Aiur.JsonStore	baseline 4aba33f8aae03cdaec432d6614e70a57c9ade839
