@@ -74,13 +74,15 @@ defmodule Aiur.BuildProgress do
        }) do
     kind in [:queue, :build_order] and valid_identity?(id) and valid_identity?(generation) and
       valid_counts?(completed, resolved, total) and
-      (is_nil(percent) or (is_number(percent) and percent >= 0 and percent <= 100)) and
+      valid_percent?(percent) and
       resolution in [:resolved, :partial, :unresolved, :unknown] and freshness in [:current, :stale, :unknown] and
       match?(%DateTime{}, observed_at)
   end
 
   defp valid_fact?(_fact), do: false
   defp valid_identity?(value), do: (is_binary(value) and value != "") or (is_integer(value) and value > 0)
+  defp valid_percent?(nil), do: true
+  defp valid_percent?(percent), do: is_number(percent) and percent >= 0 and percent <= 100
 
   defp valid_counts?(completed, resolved, total) do
     Enum.all?([completed, resolved, total], &(is_nil(&1) or (is_integer(&1) and &1 >= 0))) and
