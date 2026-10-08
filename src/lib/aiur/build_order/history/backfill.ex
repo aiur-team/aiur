@@ -249,31 +249,31 @@ defmodule Aiur.BuildOrder.History.Backfill do
     done? = cp["root_done"] and cp["pending_blockers"] == []
     cost = Map.get(state.rate_limit, :cost, 0)
 
-    cp = checkpoint_status(cp, cost, done?, state.now_fun)
+    cp =
+      cond do
+        cost > @max_page_cost -> Map.merge(cp, %{"status" => "failed", "page_cost_exceeded" => cost})
+        done? -> Map.merge(cp, %{"status" => "complete", "completed_at" => DateTime.to_iso8601(state.now_fun.())})
+        true -> cp
+      end
 
     case History.apply(events, state.history ++ [checkpoint: {:backfill, cp}]) do
       {:ok, _result} ->
         state = %{state | checkpoint: cp, retries: 0}
 
-        cond do
-          cost > @max_page_cost ->
-            stop_overpriced_page(state, cost)
-
-          done? ->
-            finish(state)
-
-          true ->
-            pace(state)
-        end
+        schedule_page(state, cost, done?)
 
       {:error, reason} ->
         fail(state, reason)
     end
   end
 
-  defp checkpoint_status(cp, cost, _done?, _now_fun) when cost > @max_page_cost, do: Map.merge(cp, %{"status" => "failed", "page_cost_exceeded" => cost})
-  defp checkpoint_status(cp, _cost, true, now_fun), do: Map.merge(cp, %{"status" => "complete", "completed_at" => DateTime.to_iso8601(now_fun.())})
-  defp checkpoint_status(cp, _cost, _done?, _now_fun), do: cp
+  defp schedule_page(state, cost, done?) do
+    cond do
+      cost > @max_page_cost -> stop_overpriced_page(state, cost)
+      done? -> finish(state)
+      true -> pace(state)
+    end
+  end
 
   defp stop_overpriced_page(state, cost) do
     case History.flush(state.history) do
