@@ -576,6 +576,7 @@ defmodule Aiur.DecisionStore do
       Map.merge(state, %{
         file_ops: Keyword.get(opts, :file_ops, :file),
         follow_up_append_retries: %{},
+        held_journal_work: [],
         dispatcher: Keyword.get(opts, :dispatcher, &DecisionDispatch.dispatch/2),
         decision_dispatch_tasks: Keyword.get(opts, :decision_dispatch_tasks, DecisionDispatchTasks),
         decision_dispatch_monitor_pid: nil,
@@ -1438,7 +1439,7 @@ defmodule Aiur.DecisionStore do
         {:reply, {:ok, follow_up_result(:accepted, updated, handled)}, next_state}
 
       {:error, reason} ->
-        {:reply, {:error, reason}, journal_failure_state(state, reason)}
+        {:reply, {:error, reason}, retry_follow_up_append(state, decision, :follow_up_handled, data, reason)}
     end
   end
 
@@ -2552,10 +2553,30 @@ defmodule Aiur.DecisionStore do
   end
 
   defp reconcile_append(state, event) do
-    case DecisionLog.reconcile_ambiguous(state.ndjson_path, event.event_id, &DecisionProjection.decode_record/1) do
-      :accepted -> :ok
-      :failed -> retry_missing_append(state, event)
-      {:ambiguous, reason} -> {:error, {:journal_ambiguous, event, reason}}
+    with :ok <- verify_journal(state) do
+      case DecisionLog.reconcile_ambiguous(state.ndjson_path, event.event_id, &DecisionProjection.decode_record/1) do
+        :accepted -> :ok
+        :failed -> retry_missing_append(state, event)
+        {:ambiguous, reason} -> {:error, {:journal_ambiguous, event, reason}}
+      end
+    else
+      {:error, reason} -> {:error, {:journal_ambiguous, event, reason}}
+    end
+  end
+
+  defp verify_journal(state) do
+    case DecisionLog.replay(state.ndjson_path, &DecisionProjection.decode_record/1) do
+      {:ok, records, nil} ->
+        case DecisionProjection.reduce_checked(records) do
+          {_projection, nil} -> :ok
+          {_projection, corruption} -> {:error, corruption}
+        end
+
+      {:ok, _records, corruption} ->
+        {:error, corruption}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -3534,6 +3555,20 @@ defmodule Aiur.DecisionStore do
     {:noreply, state}
   end
 
+  def handle_info(message, %{writable?: false} = state)
+      when is_tuple(message) and
+             elem(message, 0) in [
+               :dispatch_action,
+               :reconcile_queue_action,
+               :reconcile_lifecycle_append,
+               :reconcile_dispatches,
+               :dispatch_result,
+               :project_revision_follow_up,
+               :resolve_revision_follow_up
+             ] do
+    {:noreply, %{state | held_journal_work: [message | state.held_journal_work]}}
+  end
+
   def handle_info({:reconcile_dispatches, fences}, state) do
     {next_state, dispatched} =
       Enum.reduce(fences, {state, []}, &reconcile_scheduled_decision/2)
@@ -4476,18 +4511,8 @@ defmodule Aiur.DecisionStore do
   end
 
   defp append_pending_follow_up(state, decision, pending) do
-    case DecisionLog.replay(state.ndjson_path, &DecisionProjection.decode_record/1) do
-      {:ok, records, nil} ->
-        case DecisionProjection.reduce_checked(records) do
-          {_projection, nil} -> append_verified_follow_up(state, decision, pending)
-          {_projection, corruption} -> {:error, {:replay_failed, corruption}}
-        end
-
-      {:ok, _records, corruption} ->
-        {:error, {:replay_failed, corruption}}
-
-      {:error, reason} ->
-        {:error, {:replay_failed, reason}}
+    with :ok <- verify_journal(state) do
+      append_verified_follow_up(state, decision, pending)
     end
   end
 
@@ -4504,16 +4529,26 @@ defmodule Aiur.DecisionStore do
     state = if recovered?, do: %{state | writable?: true, health: :writable}, else: state
     state = repair_and_notify_lifecycle(state, [{decision, event}])
 
-    case pending.type do
-      :follow_up_required ->
-        maybe_schedule_revision_follow_up_projection(state, decision, pending.data.action_id)
+    state =
+      case pending.type do
+        :follow_up_required ->
+          maybe_schedule_revision_follow_up_projection(state, decision, pending.data.action_id)
 
-      :follow_up_handled ->
-        state
-        |> maybe_schedule_revision_follow_up_resolution(decision, pending.data.action_id)
-        |> maybe_schedule_after_answer(decision, false)
-    end
+        :follow_up_handled ->
+          state
+          |> maybe_schedule_revision_follow_up_resolution(decision, pending.data.action_id)
+          |> maybe_schedule_after_answer(decision, false)
+      end
+
+    release_journal_work(state)
   end
+
+  defp release_journal_work(%{writable?: true} = state) do
+    state.held_journal_work |> Enum.reverse() |> Enum.each(&send(self(), &1))
+    %{state | held_journal_work: []}
+  end
+
+  defp release_journal_work(state), do: state
 
   defp maybe_retry_transient(state, decision, action_id, reason_class) do
     if decision.active_action_id == action_id and transient_failure?(decision, reason_class) do

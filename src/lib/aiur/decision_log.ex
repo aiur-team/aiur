@@ -147,15 +147,29 @@ defmodule Aiur.DecisionLog do
   end
 
   defp append_record(fd, path, event, file_ops) do
-    with :ok <- file_ops.write(fd, Jason.encode!(event) <> "\n") do
-      with :ok <- file_ops.sync(fd),
-           :ok <- File.chmod(path, 0o600) do
-        :accepted
-      else
-        {:error, reason} -> {:ambiguous, reason}
+    with {:ok, offset} <- :file.position(fd, :eof) do
+      case file_ops.write(fd, Jason.encode!(event) <> "\n") do
+        :ok -> sync_appended_record(fd, path, file_ops)
+        {:error, reason} -> classify_write_error(fd, offset, reason)
       end
     else
       {:error, reason} -> {:failed, reason}
+    end
+  end
+
+  defp sync_appended_record(fd, path, file_ops) do
+    with :ok <- file_ops.sync(fd),
+         :ok <- File.chmod(path, 0o600) do
+      :accepted
+    else
+      {:error, reason} -> {:ambiguous, reason}
+    end
+  end
+
+  defp classify_write_error(fd, offset, reason) do
+    case :file.position(fd, :eof) do
+      {:ok, ^offset} -> {:failed, reason}
+      _changed_or_unknown -> {:ambiguous, reason}
     end
   end
 
