@@ -22,8 +22,18 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
 
     def remove_label(_id, _label), do: :ok
 
-    def fetch_issue_states_by_ids(_ids),
-      do: {:ok, [Application.fetch_env!(:aiur, :tracker_io_test_issue)]}
+    def fetch_issue_states_by_ids(_ids) do
+      case Application.get_env(:aiur, :tracker_io_test_validation_barrier) do
+        {owner, token} ->
+          send(owner, {:validation_started, token, self()})
+          receive do: ({:release_validation, ^token} -> :ok)
+
+        nil ->
+          :ok
+      end
+
+      {:ok, [Application.fetch_env!(:aiur, :tracker_io_test_issue)]}
+    end
 
     def fetch_issues_by_states(_states, _opts), do: {:ok, []}
   end
@@ -245,6 +255,46 @@ defmodule Aiur.Regression.OrchestratorTrackerIoTest do
     delivery = :erlang.trace_delivered(server)
     receive_barrier({:trace_delivered, ^server, ^delivery})
     refute_received {:trace, ^server, :call, {Aiur.Tracker, :add_label, _args}}
+  end
+
+  test "successful dispatch results apply through the real handler without tracker I/O", %{server: server, token: token} do
+    candidate = %Issue{id: "new-3213", identifier: "NEW-3213", title: "new", state: "Todo"}
+    put_test_env(:tracker_io_test_issue, candidate)
+    put_test_env(:tracker_io_test_validation_barrier, {self(), token})
+    owner = self()
+    pattern = {Aiur.Tracker, :fetch_issue_states_by_ids, :_}
+    :erlang.trace_pattern(pattern, true, [:local])
+    :erlang.trace(server, true, [:call, {:tracer, self()}])
+    on_exit(fn -> :erlang.trace_pattern(pattern, false, [:local]) end)
+
+    :sys.replace_state(server, fn state ->
+      Aiur.Orchestrator.Dispatcher.dispatch_issue(%{state | effective_concurrent_agents: 4}, candidate, nil, nil,
+        dispatch_result_fun: fn current ->
+          send(owner, {:dispatch_complete, current.dispatch_declines})
+          current
+        end,
+        runner: fn dispatched, _, _ ->
+          send(owner, {:new_runner_started, dispatched.id, self()})
+          receive do: (:stop -> :ok)
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end
+      )
+    end)
+
+    receive_barrier({:validation_started, ^token, validator})
+    refute validator == server
+    assert {:ok, _id} = OperatorMessages.send_operator_message(server, "IO-3213", %{kind: :text, body: "during successful validation"})
+    send(validator, {:release_validation, token})
+    receive_barrier({:dispatch_complete, declines})
+    assert declines == %{}
+    receive_barrier({:new_runner_started, "new-3213", runner})
+    on_exit(fn -> send(runner, :stop) end)
+    state = :sys.get_state(server)
+    assert state.running[candidate.id].pid == runner
+    assert MapSet.member?(state.claimed, candidate.id)
+    delivery = :erlang.trace_delivered(server)
+    receive_barrier({:trace_delivered, ^server, ^delivery})
+    refute_received {:trace, ^server, :call, {Aiur.Tracker, :fetch_issue_states_by_ids, _args}}
   end
 
   defp await_poll_finished(server) do

@@ -86,16 +86,18 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   test "async revalidation records ordinary skips without tracker error attention" do
     issue = %Aiur.Issue{id: "async-missing", identifier: "ASYNC-MISSING", title: "missing", state: "Todo"}
 
-    pending =
-      Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, nil, nil,
-        issue_fetcher: fn _ -> {:ok, []} end,
-        blocked_by_hydrator: fn value -> {:ok, value} end
-      )
+    for {response, reason} <- [{[], :missing_after_revalidation}, {[%{issue | paused: true}], {:stale_after_revalidation, :paused}}] do
+      pending =
+        Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, nil, nil,
+          issue_fetcher: fn _ -> {:ok, response} end,
+          blocked_by_hydrator: fn value -> {:ok, value} end
+        )
 
-    receive_barrier({ref, result})
-    {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
-    assert next.dispatch_declines[issue.id] == :missing_after_revalidation
-    assert next.observed_error_alerts == MapSet.new()
+      receive_barrier({ref, result})
+      {:handled, next} = Aiur.Orchestrator.TrackerTasks.result(pending, ref, result)
+      assert next.dispatch_declines[issue.id] == reason
+      assert next.observed_error_alerts == MapSet.new()
+    end
   end
 
   defmodule CandidateFetchFailureLinearClient do

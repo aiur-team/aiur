@@ -135,8 +135,6 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
 
                  receive do
                    :release -> :ok
-                 after
-                   1_000 -> {:error, :blocked}
                  end
                end,
                notify_dashboard_fun: fn _ -> :ok end

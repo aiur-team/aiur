@@ -845,8 +845,6 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
 
               receive do
                 :release -> :ok
-              after
-                1_000 -> {:error, :blocked}
               end
             else
               :ok

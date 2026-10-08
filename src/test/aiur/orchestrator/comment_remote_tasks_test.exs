@@ -21,8 +21,6 @@ defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
 
         receive do
           :release -> {:ok, [%Issue{id: "42", identifier: "42", state: "parked", parked: true}]}
-        after
-          1_000 -> {:error, :read_blocked}
         end
       end
     }
@@ -55,8 +53,6 @@ defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
 
           receive do
             :release -> :ok
-          after
-            1_000 -> {:error, :write_blocked}
           end
         end,
         merger_allowed_fun: fn _ -> true end,
@@ -89,8 +85,6 @@ defmodule Aiur.Orchestrator.CommentRemoteTasksTest do
 
         receive do
           :release -> :ok
-        after
-          1_000 -> {:error, :blocked}
         end
       end
     }

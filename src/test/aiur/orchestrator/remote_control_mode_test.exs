@@ -124,8 +124,6 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
 
                  receive do
                    :release -> :ok
-                 after
-                   1_000 -> {:error, :blocked}
                  end
                end,
                teardown_fun: fn _, _ -> flunk("replacement runner was torn down") end

@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   use ExUnit.Case, async: false
+  import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.{AgentPubSub, AlertFeed, Config, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.Orchestrator.Dispatcher
