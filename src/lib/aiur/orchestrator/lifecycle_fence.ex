@@ -13,7 +13,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   alias Aiur.AgentQueueItem
   alias Aiur.Config
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{DispatchPolicy, ReviewFreshness, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, Reconciler, ReviewFreshness, State, TrackerTasks}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
   alias Aiur.Tracker
 
@@ -353,8 +353,26 @@ defmodule Aiur.Orchestrator.LifecycleFence do
          authoritative_state
        ) do
     issue_key = to_string(issue.id || issue.identifier)
+    input = Reconciler.issue_input(state, issue.id)
 
-    case Tracker.update_issue_state(issue_key, authoritative_state, expected_state: actual_state) do
+    TrackerTasks.run(
+      state,
+      {:lifecycle_restore, issue.id},
+      fn ->
+        Tracker.update_issue_state(issue_key, authoritative_state, expected_state: actual_state)
+      end,
+      fn current, result ->
+        if Reconciler.issue_input(current, issue.id) == input do
+          apply_authoritative_restore(current, issue, actual_state, authoritative_state, result)
+        else
+          current
+        end
+      end
+    )
+  end
+
+  defp apply_authoritative_restore(state, issue, actual_state, authoritative_state, result) do
+    case result do
       :ok ->
         Logger.info(
           "Stale lifecycle handoff restored while authoritative input is undelivered: " <>
