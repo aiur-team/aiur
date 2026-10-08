@@ -26,6 +26,11 @@ defmodule Aiur.TestSupportIsolationTest do
 
   @dispatch_cache_key {Aiur.GitHub.DispatchAuthorization, :timeline_cache}
 
+  test "workflow fixtures belong to the suite run directory" do
+    workflow_root = Aiur.Workflow.workflow_file_path() |> Path.dirname() |> Path.dirname()
+    assert Path.dirname(workflow_root) == Application.fetch_env!(:aiur, :test_run_root)
+  end
+
   test "log_root_dir is isolated to the per-test workflow root, not <cwd>/log" do
     log_root = Paths.log_root_dir()
 
