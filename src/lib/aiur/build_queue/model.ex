@@ -11,6 +11,8 @@ defmodule Aiur.BuildQueue.Model do
   atoms not already loaded in the VM. Load producer modules before store recovery.
   """
 
+  alias Aiur.BuildQueue.Codec
+
   defmodule Queue do
     @moduledoc "A named list or imported build order."
     @enforce_keys [:id, :name, :kind, :root, :held, :generation, :created_at]
@@ -90,8 +92,8 @@ defmodule Aiur.BuildQueue.Model do
   @type t :: %{queues: [Queue.t()], items: [Item.t()], edges: [Edge.t()], intents: [Intent.t()], latches: [Latch.t()]}
 
   @spec encode(t()) :: map()
-  def encode(document), do: Aiur.BuildQueue.Codec.encode(document)
+  def encode(document), do: Codec.encode(document)
 
   @spec decode(term()) :: {:ok, t()} | {:error, {:unsupported_version, term()} | {:invalid, list()}}
-  def decode(document), do: Aiur.BuildQueue.Codec.decode(document)
+  def decode(document), do: Codec.decode(document)
 end
