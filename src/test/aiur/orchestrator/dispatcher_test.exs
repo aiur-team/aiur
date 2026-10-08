@@ -9,8 +9,169 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
   alias Aiur.ModelAvailability
-  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth}
+  alias Aiur.Orchestrator.{CapacityBinding, Dispatcher, DispatchPolicy, IssueSync, Slots, State, StatusReport, TrackerHealth, TrackerTasks}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
+
+  test "successful validation clears a previous decline in both execution modes" do
+    parent = self()
+    candidate = %{issue("decline-cleared") | selected_backend: "codex"}
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+    resolution = "ticket.#{candidate.id}.agent.attention.dispatch-declined.resolved"
+
+    for owner <- [nil, self()] do
+      state = %State{snapshot_key: owner, max_concurrent_agents: 4, effective_concurrent_agents: 4}
+
+      declined =
+        Dispatcher.dispatch_issue(state, candidate, nil, nil,
+          issue_fetcher: fn _ -> {:error, :controlled_failure} end,
+          blocked_by_hydrator: fn value -> {:ok, value} end
+        )
+
+      declined = apply_test_dispatch_result(declined, owner)
+      assert declined.dispatch_declines[candidate.id] == :tracker_revalidation_failed
+      attention = String.replace_suffix(resolution, ".resolved", "")
+      receive_barrier({:alert, %{name: ^attention, needs_attention: true}})
+
+      pending =
+        Dispatcher.dispatch_issue(declined, candidate, nil, nil,
+          issue_fetcher: fn _ -> {:ok, [candidate]} end,
+          blocked_by_hydrator: fn value -> {:ok, value} end,
+          runner: fn dispatched, _, _ ->
+            send(parent, {:started, dispatched.id})
+            :ok
+          end
+        )
+
+      applied = apply_test_dispatch_result(pending, owner)
+
+      receive_barrier({:started, id})
+      assert id == candidate.id
+      assert Map.has_key?(applied.running, candidate.id)
+      refute Map.has_key?(applied.dispatch_declines, candidate.id)
+      receive_barrier({:alert, %{name: ^resolution, needs_attention: false}})
+    end
+  end
+
+  defp apply_test_dispatch_result(pending, nil), do: pending
+
+  defp apply_test_dispatch_result(pending, _owner) do
+    receive_barrier({ref, result})
+    {:handled, applied} = TrackerTasks.result(pending, ref, result)
+    applied
+  end
+
+  test "a held candidate validation chain prevents another poll cycle" do
+    parent = self()
+    candidate = issue("held-chain")
+
+    pending =
+      Dispatcher.choose_issues(%State{snapshot_key: self(), effective_concurrent_agents: 4}, [candidate],
+        issue_fetcher: fn _ ->
+          send(parent, {:held_dispatch, self()})
+          receive do: (:release -> {:error, :controlled_failure})
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end
+      )
+
+    receive_barrier({:held_dispatch, worker})
+    assert {:noreply, waiting} = Dispatcher.run_poll_cycle(pending)
+    assert waiting.tracker_tasks == pending.tracker_tasks
+    refute TrackerTasks.running?(waiting, :dispatch_poll)
+    assert is_reference(waiting.tick_timer_ref)
+    Process.cancel_timer(waiting.tick_timer_ref)
+    send(worker, :release)
+    receive_barrier({ref, result})
+    assert {:handled, final} = TrackerTasks.result(waiting, ref, result)
+    assert final.tracker_tasks == %{}
+  end
+
+  test "async candidate validation keeps dispatch priority order across slow reads" do
+    owner = self()
+    high = %Aiur.Issue{id: "async-high", identifier: "ASYNC-HIGH", title: "high", state: "Todo", priority: 1}
+    low = %Aiur.Issue{id: "async-low", identifier: "ASYNC-LOW", title: "low", state: "Todo", priority: 3}
+
+    pending =
+      Dispatcher.choose_issues(%State{snapshot_key: self(), effective_concurrent_agents: 4}, [low, high],
+        issue_fetcher: fn [id] ->
+          send(owner, {:validation_started, id, self()})
+          receive do: (:release -> {:error, :controlled_failure})
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end
+      )
+
+    receive_barrier({:validation_started, "async-high", high_worker})
+    assert TrackerTasks.running?(pending, {:dispatch, high.id})
+    refute TrackerTasks.running?(pending, {:dispatch, low.id})
+    send(high_worker, :release)
+    receive_barrier({ref, result})
+    {:handled, next} = TrackerTasks.result(pending, ref, result)
+    receive_barrier({:validation_started, "async-low", low_worker})
+    send(low_worker, :release)
+    receive_barrier({ref, result})
+    {:handled, next} = TrackerTasks.result(next, ref, result)
+    assert next.tracker_tasks == %{}
+  end
+
+  test "a delayed dispatch revalidation respects a newly applied global pause" do
+    owner = self()
+    issue = %Aiur.Issue{id: "async-pause", identifier: "ASYNC-PAUSE", title: "pause", state: "Todo"}
+
+    pending =
+      Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, nil, nil,
+        issue_fetcher: fn _ ->
+          send(owner, {:validation_started, self()})
+          receive do: (:release -> {:ok, [issue]})
+        end,
+        blocked_by_hydrator: fn value -> {:ok, value} end,
+        runner: fn _, _, _ -> flunk("dispatch started during global pause") end
+      )
+
+    receive_barrier({:validation_started, worker})
+    send(worker, :release)
+    receive_barrier({ref, result})
+    {:handled, next} = TrackerTasks.result(%{pending | globally_paused: true}, ref, result)
+    assert next.running == %{}
+    assert next.globally_paused
+    assert next.tracker_tasks == %{}
+  end
+
+  test "failed async dispatch invokes the retry completion after removing its job" do
+    owner = self()
+    issue = %Aiur.Issue{id: "async-failure", identifier: "ASYNC-FAILURE", title: "failure", state: "Todo"}
+
+    pending =
+      Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, 2, nil,
+        issue_fetcher: fn _ -> {:error, :controlled_failure} end,
+        blocked_by_hydrator: fn value -> {:ok, value} end,
+        dispatch_result_fun: fn current ->
+          refute TrackerTasks.issue_pending?(current, issue.id)
+          send(owner, :completion_applied)
+          %{current | globally_paused: true}
+        end
+      )
+
+    receive_barrier({ref, result})
+    {:handled, next} = TrackerTasks.result(pending, ref, result)
+    receive_barrier(:completion_applied)
+    assert next.globally_paused
+  end
+
+  test "async revalidation records ordinary skips without tracker error attention" do
+    issue = %Aiur.Issue{id: "async-missing", identifier: "ASYNC-MISSING", title: "missing", state: "Todo"}
+
+    for {response, reason} <- [{[], :missing_after_revalidation}, {[%{issue | paused: true}], {:stale_after_revalidation, :paused}}] do
+      pending =
+        Dispatcher.dispatch_issue(%State{snapshot_key: self(), effective_concurrent_agents: 4}, issue, nil, nil,
+          issue_fetcher: fn _ -> {:ok, response} end,
+          blocked_by_hydrator: fn value -> {:ok, value} end
+        )
+
+      receive_barrier({ref, result})
+      {:handled, next} = TrackerTasks.result(pending, ref, result)
+      assert next.dispatch_declines[issue.id] == reason
+      assert next.observed_error_alerts == MapSet.new()
+    end
+  end
 
   defmodule CandidateFetchFailureLinearClient do
     def fetch_candidate_issues, do: {:error, :candidate_fetch_failed}

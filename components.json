@@ -27,7 +27,7 @@
     },
     {
       "id": "identity", "name": "Identity and capabilities (MP-R1)", "layer": 1, "kind": "required",
-      "paths": ["src/lib/aiur/identity/machine.ex", "src/lib/aiur/identity/store.ex"],
+      "paths": ["src/lib/aiur/identity/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "web-kit"], "optional": [],
       "owns": {"config": [], "env": ["AIUR_INSTANCE_KEY", "USER"], "state": [], "capabilities": []},
@@ -229,7 +229,7 @@
     },
     {
       "id": "streamdeck-server", "name": "Daemon side of the Stream Deck (MP-R6)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur_web/controllers/streamdeck*.ex", "src/lib/aiur_web/stream_deck_grid.ex", "src/lib/aiur_web/streamdeck*.ex"],
+      "paths": ["src/lib/aiur_web/controllers/streamdeck*.ex", "src/lib/aiur_web/sockets/streamdeck.ex", "src/lib/aiur_web/stream_deck_grid.ex", "src/lib/aiur_web/streamdeck*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["web-kit", "conversations", "commands", "projections"], "optional": ["voice-stt"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
@@ -245,7 +245,7 @@
     },
     {
       "id": "voice-stt", "name": "Speech-to-text and TTS (MP-R5)", "layer": 3, "kind": "optional",
-      "paths": ["src/lib/aiur/eleven_labs/**", "src/lib/aiur_web/voice*.ex"],
+      "paths": ["src/lib/aiur/eleven_labs/**", "src/lib/aiur_web/sockets/voice.ex", "src/lib/aiur_web/voice*.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["config", "web-kit"], "optional": [],
       "owns": {"config": ["elevenlabs"], "env": ["ELEVENLABS_API_KEY"], "state": [], "capabilities": []},
@@ -261,7 +261,7 @@
     },
     {
       "id": "dashboard-ui", "name": "LiveView pages and Operator Control Center", "layer": 4, "kind": "optional",
-      "paths": ["src/lib/aiur/event_humanizer.ex", "src/lib/aiur/event_humanizer_helpers.ex", "src/lib/aiur_web/**"],
+      "paths": ["src/lib/aiur/event_humanizer.ex", "src/lib/aiur/event_humanizer_helpers.ex", "src/lib/aiur_web/**", "src/lib/aiur_web/sockets/live_view.ex"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["web-shell", "projections"], "optional": ["commands", "build-orders", "conversations", "voice-stt", "accounting", "streamdeck-server"],
       "owns": {"config": [], "env": [], "state": [], "capabilities": []},
