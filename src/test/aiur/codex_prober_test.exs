@@ -2,6 +2,8 @@ defmodule Aiur.CodexProberTest do
   use Aiur.TestSupport
 
   alias Aiur.Codex.AppServerPort
+  alias Aiur.Codex.Handshake
+  alias Aiur.Claude.RemoteControl
   alias Aiur.{CodexProber, Config, ModelAvailability}
 
   test "normalizes rate windows nested in the rateLimits response" do
@@ -67,6 +69,74 @@ defmodule Aiur.CodexProberTest do
                end,
                stop_port_fun: fn :fake_port -> :ok end
              )
+  end
+
+  test "probe survives a broken stdin pipe and cleans up its process tree and workspace" do
+    workspace = Aiur.TestSupport.tmp_root!("codex-broken-pipe")
+    parent = self()
+    trapping_exits? = elem(Process.info(self(), :trap_exit), 1)
+
+    assert {:error, {:port_exit, :epipe}} =
+             CodexProber.fetch_limits("codex",
+               workspace: workspace,
+               start_port_fun: fn dir, nil, nil, nil ->
+                 {:ok, port} =
+                   Aiur.AppServer.Adapter.start_port(
+                     dir,
+                     """
+                     exec python3 -u -c '
+                     import os,signal,time,subprocess
+                     signal.signal(signal.SIGCHLD,signal.SIG_IGN)
+                     child=subprocess.Popen(["sleep","600"],stdin=subprocess.DEVNULL)
+                     os.close(0)
+                     print(child.pid)
+                     time.sleep(600)'
+                     """
+                   )
+
+                 {:os_pid, pid} = Port.info(port, :os_pid)
+
+                 on_exit(fn ->
+                   RemoteControl.graceful_kill_tree(pid)
+                   File.rm_rf!(workspace)
+                 end)
+
+                 send(parent, {:probe_child, port, pid})
+                 {:ok, port}
+               end,
+               initialize_fun: fn port ->
+                 assert_receive {^port, {:data, {:eol, child_pid}}}, 5_000
+                 send(parent, {:probe_descendant, String.to_integer(child_pid)})
+                 Handshake.send_initialize(port)
+               end
+             )
+
+    assert_receive {:probe_child, port, pid}
+    assert Port.info(port) == nil
+    refute RemoteControl.process_alive?(pid)
+    assert_receive {:probe_descendant, child_pid}
+    refute RemoteControl.process_alive?(child_pid)
+    refute File.exists?(workspace)
+    assert Process.info(self(), :trap_exit) == {:trap_exit, trapping_exits?}
+    refute_receive {:EXIT, ^port, _}
+  end
+
+  test "failed child launch removes the probe workspace and restores exit handling" do
+    workspace = Aiur.TestSupport.tmp_root!("codex-launch-failure")
+    on_exit(fn -> File.rm_rf!(workspace) end)
+    trapping_exits? = elem(Process.info(self(), :trap_exit), 1)
+
+    assert {:error, :bash_not_found} =
+             CodexProber.fetch_limits("codex",
+               workspace: workspace,
+               start_port_fun: fn dir, nil, nil, nil ->
+                 assert File.dir?(dir)
+                 {:error, :bash_not_found}
+               end
+             )
+
+    refute File.exists?(workspace)
+    assert Process.info(self(), :trap_exit) == {:trap_exit, trapping_exits?}
   end
 
   test "probe_async executes the provider probe and persists its reading" do
