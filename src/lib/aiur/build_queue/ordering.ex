@@ -16,7 +16,7 @@ defmodule Aiur.BuildQueue.Ordering do
     nodes = edges |> Enum.flat_map(&[&1.prerequisite, &1.dependent]) |> Enum.concat(open) |> Enum.uniq()
 
     Map.new(nodes, fn node ->
-      reachable = walk([node], graph, MapSet.new()) |> MapSet.delete(node)
+      reachable = walk([node], graph, %{}) |> Map.keys() |> MapSet.new() |> MapSet.delete(node)
       {node, reachable |> MapSet.intersection(open) |> MapSet.size()}
     end)
   end
@@ -38,10 +38,10 @@ defmodule Aiur.BuildQueue.Ordering do
   defp walk([], _graph, seen), do: seen
 
   defp walk([node | rest], graph, seen) do
-    if MapSet.member?(seen, node) do
+    if Map.has_key?(seen, node) do
       walk(rest, graph, seen)
     else
-      walk(Map.get(graph, node, []) ++ rest, graph, MapSet.put(seen, node))
+      walk(Map.get(graph, node, []) ++ rest, graph, Map.put(seen, node, true))
     end
   end
 end
