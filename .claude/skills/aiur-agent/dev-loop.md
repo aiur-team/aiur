@@ -166,8 +166,13 @@ focused test runner, test-tree paths and CI gate at each step.
    changed to their sibling test files and prints the exact root-runnable test
    command (or advises `make ci` when the change cannot be scoped safely).
    Running only the affected tests also keeps full-suite log volume out of your
-   context. Do not run Credo locally; CI's `make ci` is the authoritative full
-   lint and full-suite gate.
+   context. Before marking the PR ready or handing off to CI/review, run both
+   required checks and fix any failures:
+
+   - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
+   - From the repository root: `python3 scripts/check-bare-assert-receive.py`.
+
+   CI's `make ci` is the authoritative full lint and full-suite gate.
 
    **Use `--trace` only with a specific `file:line`, never with a bare file or
    directory.** `--trace` silently forces `max_cases: 1` in ExUnit, overriding

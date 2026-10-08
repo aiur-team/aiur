@@ -53,6 +53,17 @@ If a turn ends in `agent:ci-wait` with completed work still a draft, mark it
 ready as the first step of the resume turn, then wait for the full required
 checks on the current head SHA.
 
+### Local pre-handoff checks
+
+For changes in the Aiur repository, before marking the PR ready or handing
+off to CI/review, run both required checks and fix any failures:
+
+- From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
+- From the repository root: `python3 scripts/check-bare-assert-receive.py`.
+
+These checks supplement the scoped compile, format, and affected-test gate;
+CI still runs the authoritative full required-check set.
+
 ### Unrelated CI flakes
 
 If the only failure is a flaky test unrelated to your change, file the
