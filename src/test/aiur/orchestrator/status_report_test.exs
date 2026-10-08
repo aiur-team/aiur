@@ -137,7 +137,7 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     [status] = StatusReport.agent_statuses(%State{running: %{issue.id => entry}})
 
     assert status.state == :paused
-    assert status.waiting_reason == :waiting_for_human
+    assert status.waiting_reason == :paused
     assert status.pause_reason == :agent_pause_request
     assert status.blocked_by == []
   end
@@ -358,7 +358,7 @@ defmodule Aiur.Orchestrator.StatusReportTest do
           identifier: issue.identifier,
           issue: issue,
           started_at: DateTime.add(now, -600, :second),
-          paused_reason: :agent_pause_request,
+          paused_reason: :input_required,
           control: %{status: :paused}
         }
       },
