@@ -34,7 +34,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     }
 
     opts = [
-      review_issue_fetcher: fn ["human-review", "merging", "rework"] ->
+      review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] ->
         {:ok, [%Issue{id: "57", identifier: "57", state: "human-review", updated_at: issue_updated_at}]}
       end,
       review_pull_request_fetcher: fn "57" -> {:ok, review_pr} end,
@@ -106,7 +106,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelectionTest do
     parent = self()
 
     opts = [
-      review_issue_fetcher: fn ["human-review", "merging", "rework"] -> {:error, :tracker_down} end,
+      review_issue_fetcher: fn ["human-review", "merging", "rework", "ci-wait"] -> {:error, :tracker_down} end,
       watch_pull_request_fetcher: fn _label ->
         send(parent, :unexpected_watch_fetch)
         {:ok, []}
