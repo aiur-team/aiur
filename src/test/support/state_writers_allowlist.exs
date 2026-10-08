@@ -1,7 +1,8 @@
 # Existing cross-owner writes only; remove rows as responsibilities move. Never add a new writer.
 [
   {Aiur.Orchestrator.Dispatcher, :auto_resume, "Dispatcher uses a temporary State copy with auto_resume cleared for admission; the live lifecycle state is unchanged."},
-  {Aiur.Orchestrator.StartupClaimReconciler, :last_polled_issues, "Startup reconciliation refreshes last_polled_issues after releasing an orphaned claim; retain until core owns that snapshot update."},
+  {Aiur.Orchestrator.StartupClaimReconciler, :last_polled_issues,
+   "Startup reconciliation refreshes last_polled_issues after releasing an orphaned claim; retain until core owns that snapshot update."},
   {Aiur.Opencode.SlotPolicy, :max_concurrent_agents, "False positive: SlotPolicy updates its own struct, whose max_concurrent_agents field shares the State name."},
   {Aiur.Orchestrator.AutoResume, :last_polled_issues, "Baseline core write in Aiur.Orchestrator.AutoResume; retain until this responsibility moves to its field owner."},
   {Aiur.Orchestrator.CiLifecycle, :running, "Baseline lifecycle write in Aiur.Orchestrator.CiLifecycle; retain until this responsibility moves to its field owner."},
