@@ -7,8 +7,18 @@ defmodule Aiur.GitHub.Tracker do
 
   alias Aiur.GitHub.Client
   alias Aiur.GitHub.Config
+  alias Aiur.GitHub.OpenIssueSnapshot
+  alias Aiur.GitHub.Transport
   alias Aiur.Issue
   alias Aiur.TestTicketScope
+
+  @spec open_issue_labels(pos_integer()) :: Aiur.Tracker.open_issue_labels_result()
+  def open_issue_labels(max_age_ms) do
+    case Transport.parse_repo() do
+      {:ok, {owner, repo}} -> OpenIssueSnapshot.fetch_labels(owner, repo, max_age_ms)
+      {:error, _reason} -> :none
+    end
+  end
 
   @spec project_identity() :: String.t() | nil
   def project_identity, do: Config.repo()

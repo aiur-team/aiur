@@ -309,6 +309,7 @@ defmodule Aiur.GitHub.ReadCache.Policy do
   @spec classify(map()) :: decision()
   def classify(request) when is_map(request) do
     cond do
+      caller(request) == "ci_required_checks" -> {:no_cache, :unsafe_kind}
       Map.get(request, :method) != :get and not graphql_read?(request) -> {:no_cache, :write}
       unsafe?(request) -> {:no_cache, :unsafe_kind}
       # `Identity.extract/1` answers `[]` exactly when the repository cannot be

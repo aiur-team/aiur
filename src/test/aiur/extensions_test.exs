@@ -1058,6 +1058,44 @@ defmodule Aiur.ExtensionsTest do
 
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
+    assert html =~ "/build-home/loader.js"
+    assert html =~ "Hooks.BuildHome = window.AiurBuildHome.createLiveViewHook()"
+    assert {dashboard_offset, _} = :binary.match(html, "/dashboard.css")
+    assert {home_offset, _} = :binary.match(html, "/build-home/home.css")
+    assert home_offset > dashboard_offset
+
+    for {asset, content_type} <- [
+          {"loader.js", "text/javascript"},
+          {"hook.js", "text/javascript"},
+          {"logos.js", "text/javascript"},
+          {"home.css", "text/css"},
+          {"logos/kimi-logo.png", "image/png"},
+          {"logos/deepseek-logo.png", "image/png"}
+        ] do
+      conn = get(build_conn(), "/build-home/#{asset}")
+      assert response(conn, 200) != ""
+      assert Plug.Conn.get_resp_header(conn, "content-type") == [content_type]
+      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    end
+
+    assert response(get(build_conn(), "/build-home/loader.js"), 200) =~ "AiurBuildHome"
+    # design-source/assets/, IMPORTED.md etag 1791431544512943.
+    for {asset, hash} <- [
+          {"/build-home/logos/kimi-logo.png", "b6ca346a6593c2e5094f806a96e3c4b09ebf0ea8f9c4adaa262701040a137fbf"},
+          {"/provider-assets/claude-symbol.svg", "be2ee702a76d5ecffa52a7a1c47224e7ad37c13f459cdb25fd9a578dd90287e9"},
+          {"/provider-assets/codex-color.svg", "bbae2b981aa4c2c79e8dcf79d56cbdb1ee58a4ebee9b19fb4def152f54da8a34"}
+        ] do
+      body = response(get(build_conn(), asset), 200)
+      body = if String.ends_with?(asset, ".svg"), do: String.trim_trailing(body), else: body
+      assert Base.encode16(:crypto.hash(:sha256, body), case: :lower) == hash
+    end
+
+    assert <<137, "PNG", 13, 10, 26, 10, 13::32, "IHDR", 240::32, 239::32, 8, 6, _::binary>> =
+             response(get(build_conn(), "/build-home/logos/deepseek-logo.png"), 200)
+
+    assert response(get(build_conn(), "/build-home/nope.js"), 404) != ""
+    assert_error_sent(400, fn -> get(build_conn(), "/build-home/..%2Fdashboard.css") end)
+
     assert html =~ "/ticket-context-dialog-hook.js"
     assert html =~ "/conversation-voice-controller.js"
     assert html =~ "/conversation-drawer-hook.js"
@@ -1488,6 +1526,20 @@ defmodule Aiur.ExtensionsTest do
     refute html =~ "No fleet snapshot published yet"
   end
 
+  test "every logo LOGOS advertises is served" do
+    start_test_endpoint(snapshot_timeout_ms: 50)
+    source = File.read!(Application.app_dir(:aiur, "priv/static/build-home/logos.js"))
+    entries = Regex.scan(~r/(\w+): Object.freeze\(\{ src: "([^"]+)"/, source)
+    assert Enum.map(entries, fn [_, key, _] -> key end) == ~w(claude codex deepseek kimi)
+
+    for [_, _, path] <- entries do
+      conn = get(build_conn(), path)
+      assert response(conn, 200) != ""
+      assert [content_type] = Plug.Conn.get_resp_header(conn, "content-type")
+      assert String.starts_with?(content_type, "image/")
+    end
+  end
+
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
@@ -1539,7 +1591,15 @@ defmodule Aiur.ExtensionsTest do
     unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
     assert unauthenticated_response.status == 401
 
-    for asset_path <- ["/conversation-drawer-hook.js", "/conversation-voice-controller.js", "/provider-assets/codex-color.svg"] do
+    # Regression guard: router auth still returns 401 if the static directory registration is removed.
+    for asset_path <- [
+          "/conversation-drawer-hook.js",
+          "/conversation-voice-controller.js",
+          "/provider-assets/codex-color.svg",
+          "/build-home/loader.js",
+          "/build-home/logos/kimi-logo.png",
+          "/build-home/nope.js"
+        ] do
       unauthenticated_asset = Req.get!("http://127.0.0.1:#{port}#{asset_path}")
       assert unauthenticated_asset.status == 401
     end

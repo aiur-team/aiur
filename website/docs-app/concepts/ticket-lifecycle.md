@@ -536,11 +536,15 @@ recorded, or one that it could have recorded itself. Otherwise it must run
 
 ## Step 5 — PR opened, agent pauses
 
-The agent opens a `Closes #<issue>` **draft** PR, then `agent:ci-wait` releases
-the turn and the dispatch slot while Aiur waits for terminal checks. The agent
-**never self-merges**; an approved, green PR that is still a draft stalls the
-merge queue, so the agent marks the PR ready before flipping to
-`agent:human-review`.
+The agent opens a `Closes #<issue>` **draft** PR. In Aiur's repository, draft
+pushes run only `changes`, `lint`, and `build`. After self-review, the agent
+marks completed work ready to trigger the full suite, then `agent:ci-wait`
+releases the turn and dispatch slot.
+
+A draft's fast gate cannot approve its
+head. Aiur waits for successful required checks from the configured integrations
+on the current head before returning the agent for `agent:human-review`.
+Missing or skipped required checks remain pending. The agent **never self-merges**.
 
 GitHub mechanics — polling, webhooks, rate budgets, and CI observation — live
 in [GitHub](/apis/github); this page does not duplicate them.
@@ -549,7 +553,7 @@ in [GitHub](/apis/github); this page does not duplicate them.
 
 If the run was started with `/aiur-run`, the Executor agent is subscribed to PR
 events and spins up a background agent for code review. `Aiur.ExecutorBindings`
-reconciles a compile-time set of exactly **24** default bindings
+reconciles a compile-time set of exactly **28** default bindings
 (`src/lib/aiur/executor_bindings.ex:7-32`), each with its delivery channel.
 Grouped by channel:
 
@@ -579,6 +583,12 @@ Grouped by channel:
 | `ticket.*.pr.merged` | `pr:auto` |
 | `ticket.*.pr.ready_for_review` | `pr:auto` |
 
+**handoff** — agent-to-Executor review transitions:
+
+| Pattern | Channel |
+| --- | --- |
+| `ticket.*.agent.handoff.human_review` | `handoff:auto` |
+
 **rework**:
 
 | Pattern | Channel |
@@ -604,6 +614,11 @@ Grouped by channel:
 
 `ExecutorBindings.allowlisted?/1` (`:41-45`) governs what an Executor may
 additionally bind beyond this fixed set.
+
+The daemon observes handoffs through its CI lifecycle poll, which includes
+`human-review` even when that state is absent from `tracker.active_states`.
+Executor-made label moves also wake when observed. A move that happens while the
+daemon is down cannot produce a transition wake.
 
 ## Step 7 — Review comments wake the agent
 

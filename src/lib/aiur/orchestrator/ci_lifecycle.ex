@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     AgentTeardown,
     DispatchPolicy,
     HumanReview,
+    IssueSync,
     LifecycleFence,
     OperatorMessages,
     PauseResume,
@@ -383,6 +384,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       {:ok, issues, state} ->
         state
         |> prune_ci_lifecycle_state(issues, opts)
+        |> IssueSync.observe_human_review_handoffs(issues)
         |> poll_github_ci_targets(issues, poller, opts)
 
       {:error, reason, state} ->
@@ -1551,7 +1553,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     message =
       "No terminal CI event arrived before the fallback timeout. " <>
-        "Check CI once; if it is still pending, return to agent:ci-wait without polling."
+        "Check CI once. Drafts never pass CI in any repository; mark completed, self-reviewed work ready before waiting. " <>
+        "Before agent:human-review, require the full required-check set to pass on the current head SHA. " <>
+        "A green or skipped gh pr checks aggregate alone is not a full pass; otherwise return to agent:ci-wait without polling."
 
     event = %{
       id: IdGenerator.next_id(),

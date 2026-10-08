@@ -26,6 +26,7 @@ defmodule Aiur.ExecutorBindings do
     {"ticket.*.agent.paused", "attention:auto"},
     {"ticket.*.agent.error.tokens_exhausted", "attention:auto"},
     {"ticket.*.agent.retry_exhausted", "attention:auto"},
+    {"ticket.*.agent.handoff.human_review", "handoff:auto"},
     {"ticket.*.pr.parked_ready", "attention:auto"},
     {"ticket.*.ci.passed", "ci:auto"},
     {"ticket.*.ci.failed", "ci:auto"},
