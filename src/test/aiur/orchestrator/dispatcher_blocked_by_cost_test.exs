@@ -18,13 +18,16 @@ defmodule Aiur.Orchestrator.DispatcherBlockedByCostTest do
   @blocker 53
   @repository_url "https://api.github.com/repos/owner/repo"
 
+  setup_all do
+    # Keep the live poller out of the process-owned double until fixture cleanup.
+    orchestrator = Process.whereis(Orchestrator)
+    :ok = :sys.suspend(orchestrator)
+    on_exit(fn -> :ok = :sys.resume(orchestrator) end)
+    :ok
+  end
+
   setup do
     {:ok, _started} = Application.ensure_all_started(:req)
-
-    # Keep the cache alive independently of the shared application's supervisor.
-    :ok = Supervisor.terminate_child(Aiur.Supervisor, ResourceStore)
-    start_supervised!({ResourceStore, path: nil})
-    on_exit(fn -> Supervisor.restart_child(Aiur.Supervisor, ResourceStore) end)
 
     previous_options = Application.get_env(:aiur, :github_transport_test_options)
     previous_quota = Application.get_env(:aiur, :github_quota_server)
