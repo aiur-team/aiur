@@ -27,7 +27,7 @@
     },
     {
       "id": "identity", "name": "Identity and capabilities (MP-R1)", "layer": 1, "kind": "required",
-      "paths": [],
+      "paths": ["src/lib/aiur/identity/**"],
       "facades": ["*"], "facade_pending": "MP-R1-C1-T02",
       "requires": ["kernel", "config", "web-kit"], "optional": [],
       "owns": {"config": [], "env": ["AIUR_INSTANCE_KEY", "USER"], "state": [], "capabilities": []},
