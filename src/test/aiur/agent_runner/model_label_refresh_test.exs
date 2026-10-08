@@ -6,6 +6,7 @@ defmodule Aiur.AgentRunner.ModelLabelRefreshTest do
   alias Aiur.AgentRunner.ModelLabelRefresh
   alias Aiur.CodingAgent
   alias Aiur.Issue
+  alias Aiur.Workspace.Materialize
 
   @claude {["opus", "sonnet", "haiku", "opus-5-5"], :discovered}
 
@@ -128,13 +129,24 @@ defmodule Aiur.AgentRunner.ModelLabelRefreshTest do
       assert log =~ "next dispatch"
     end
 
-    test "a label that resolved stays silent" do
+    test "a label that resolved stays silent alongside concurrent materialization warnings" do
+      tmp = Aiur.TestSupport.tmp_root!("model_label_concurrent_log")
+      on_exit(fn -> File.rm_rf!(tmp) end)
       {_store, reader} = catalogue(%{"claude" => @claude})
       issue = %Issue{identifier: "FINE", labels: ["model:opus"]}
 
-      assert capture_log(fn ->
-               assert :ok = ModelLabelRefresh.maybe_alert(issue, "/ws", nil, "claude", "opus", nil, catalogue: reader)
-             end) == ""
+      log =
+        capture_log(fn ->
+          producer = Task.async(fn -> Materialize.materialize_from_base(Path.join(tmp, "no_such_base"), Path.join(tmp, "workspace")) end)
+          assert :ok = ModelLabelRefresh.maybe_alert(issue, "/ws", nil, "claude", "opus", nil, catalogue: reader)
+          assert {:error, _reason} = Task.await(producer, :infinity)
+        end)
+
+      # CaptureLog includes other async tests; materialization logs synchronously before its caller returns.
+      assert log =~ "prewarm materialize failed"
+      assert log =~ Path.join(tmp, "no_such_base")
+      refute log =~ "Model label not applied for #{issue.identifier}:"
+      assert {:ok, []} = File.ls(tmp)
     end
   end
 end
