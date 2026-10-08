@@ -3,6 +3,7 @@ defmodule Aiur.RtkTest do
 
   alias Aiur.Rtk
 
+  @repo_root Path.expand("../../..", __DIR__)
   @rtk "/usr/bin/rtk"
 
   # Stands in for the rtk executable. `responses` maps an argv list to the
@@ -17,7 +18,14 @@ defmodule Aiur.RtkTest do
   # Verbatim shapes from rtk 0.47.0 on the host this was developed against.
   defp gh_rewritten, do: {"rtk gh pr view 1\n", 0}
   defp gh_excluded, do: {"No rewrite for: gh pr view 1\n", 1}
-  defp no_hook, do: {"[rtk] /!\\ No hook installed\nrtk gh pr view 1\n", 0}
+
+  defp hook_registered,
+    do: {"rtk Configuration:\n[ok] Hook: /home/user/.claude/hooks/rtk-rewrite.sh\n[ok] settings.json: RTK hook configured\n", 0}
+
+  defp no_hook_registered,
+    do:
+      {"rtk Configuration:\n[--] Hook: not found\n" <>
+         "[warn] settings.json: exists but RTK hook not configured\n", 0}
 
   defp gain(summary), do: {Jason.encode!(%{"summary" => summary}), 0}
 
@@ -60,7 +68,10 @@ defmodule Aiur.RtkTest do
 
   describe "check_host_hook/1" do
     test "detects a host hook that rewrites gh regardless of admission setting" do
-      responses = %{["hook", "check", "gh pr view 1"] => gh_rewritten()}
+      responses = %{
+        ["init", "--show"] => hook_registered(),
+        ["hook", "check", "gh pr view 1"] => gh_rewritten()
+      }
 
       assert Rtk.check_host_hook(
                rtk_path: @rtk,
@@ -70,15 +81,21 @@ defmodule Aiur.RtkTest do
     end
 
     test "accepts a host hook that excludes gh" do
-      responses = %{["hook", "check", "gh pr view 1"] => gh_excluded()}
+      responses = %{
+        ["init", "--show"] => hook_registered(),
+        ["hook", "check", "gh pr view 1"] => gh_excluded()
+      }
 
       assert Rtk.check_host_hook(rtk_path: @rtk, runner: runner(responses)) == :ok
     end
 
-    test "does not treat a rewrite preview as a registered hook" do
-      responses = %{["hook", "check", "gh pr view 1"] => no_hook()}
+    test "does not treat a rate-limited rewrite preview as a registered hook" do
+      responses = %{
+        ["init", "--show"] => no_hook_registered(),
+        ["hook", "check", "gh pr view 1"] => gh_rewritten()
+      }
 
-      assert Rtk.check_host_hook(rtk_path: @rtk, runner: runner(responses)) == :ok
+      assert Rtk.check_host_hook(rtk_path: @rtk, runner: runner(responses)) == :no_hook
     end
 
     test "does not probe when rtk is absent" do
@@ -182,5 +199,37 @@ defmodule Aiur.RtkTest do
     test "fails closed when the config cannot be read" do
       refute Rtk.enabled?({:error, :broken})
     end
+  end
+
+  test "the config flag only controls reporting and dispatch has no rtk gate" do
+    schema = File.read!(Path.join(@repo_root, "src/lib/aiur/config/schema/agent.ex"))
+    rtk_module = File.read!(Path.join(@repo_root, "src/lib/aiur/rtk.ex"))
+
+    assert schema =~ "Controls whether the analytics panel reports host-level rtk output"
+    refute schema =~ "Opt-in. rtk compresses shell output"
+
+    assert rtk_module =~ "This module reports rtk status and recorded savings"
+    assert rtk_module =~ "it does not opt dispatched agents into rtk"
+    refute rtk_module =~ "Admission gate and savings reader"
+    refute rtk_module =~ "Refusing to enable it"
+
+    call_sites =
+      @repo_root
+      |> Path.join("src/lib/**/*.ex")
+      |> Path.wildcard()
+      |> Enum.filter(fn path ->
+        path not in [
+          Path.join(@repo_root, "src/lib/aiur/rtk.ex"),
+          Path.join(@repo_root, "src/lib/aiur_web/live/analytics_live.ex")
+        ] and String.contains?(File.read!(path), "Aiur.Rtk")
+      end)
+
+    call_site_modules = Enum.map(call_sites, &Path.relative_to(&1, @repo_root))
+
+    assert Enum.sort(call_site_modules) == [
+             "src/lib/aiur.ex",
+             "src/lib/aiur/rtk_startup_check.ex"
+           ],
+           "Aiur.Rtk has unexpected call sites: #{inspect(call_site_modules)}"
   end
 end

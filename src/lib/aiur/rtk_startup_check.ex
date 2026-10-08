@@ -46,6 +46,9 @@ defmodule Aiur.RtkStartupCheck do
       {:probe_failed, reason} ->
         Logger.warning("rtk host hook probe failed: #{inspect(reason)}")
 
+      :no_hook ->
+        :ok
+
       :ok ->
         :ok
     end

@@ -1,10 +1,44 @@
 defmodule Aiur.Rtk do
   @moduledoc """
-  Reports rtk output-compression savings and probes whether an installed host
-  hook rewrites agent `gh` calls. The `agent.rtk.enabled` setting controls
-  analytics reporting; it does not install a hook or gate agent commands.
-  Startup diagnostics are independent of that setting because host hooks apply
-  to agents regardless of Aiur configuration.
+  Status probe and savings reader for `rtk`, the CLI output-compression proxy.
+
+  This module reports rtk status and recorded savings; it does not control
+  hook activation.
+
+  rtk wraps a shell command and filters its output before an agent reads it
+  (`git status` -> `rtk git status`). It is an optimization, never a
+  correctness fix. `agent.rtk.enabled` controls whether the analytics page
+  reports host-level rtk savings; it does not opt dispatched agents into rtk.
+
+  ## The host hook is operator-owned
+
+  rtk ships a Claude Code `PreToolUse` hook that rewrites *every* bash command
+  an agent runs, `gh` included. `gh` in an agent workspace is not the real
+  `gh`: it is `priv/github_quota_guard.sh`, the wrapper that meters GitHub
+  spend, stamps agent comment markers, and validates that a filed ticket
+  carries a dispatch disposition. Anything that reshapes an agent's `gh` calls
+  is therefore reshaping the governance path. The operator must configure the
+  host's rtk hook to exclude `gh` (`[hooks] exclude_commands = ["gh"]`). A
+  host-wide hook applies to every agent that loads it, regardless of
+  `agent.rtk.enabled`.
+
+  The startup diagnostic checks registration with `rtk init --show` before
+  using `rtk hook check` to inspect the rewrite behavior. It does not change
+  hook activation.
+
+  The savings panel reports host-level rtk status; it does not admit rtk to
+  dispatched agents. At startup, Aiur independently probes whether the host
+  hook rewrites `gh` and raises an informational alert recommending the `gh`
+  exclusion when the probe reports a rewrite. This reports host configuration;
+  it does not change command dispatch.
+
+  ## What this module does not do
+
+  It never puts `rtk` on an agent's `PATH` and never installs or controls the
+  hook. On a host where rtk is installed it is already reachable — the agent
+  `PATH` is the daemon's with only release ERTS entries removed — so
+  availability is not the gap. It also carries no credential: nothing here
+  reads or forwards `GITHUB_TOKEN` (#2356).
   """
 
   require Logger
@@ -15,10 +49,16 @@ defmodule Aiur.Rtk do
   @gh_probe "gh pr view 1"
 
   # rtk prints the rewritten command when it would rewrite, and a line starting
-  # with this when it would not. A no-hook warning also precedes the rewrite
-  # preview, so it must be classified first.
+  # with this when it would not.
   @no_rewrite_marker "No rewrite for:"
-  @no_hook_marker "No hook installed"
+  @hook_executable_marker "[ok] Hook:"
+  @hook_configured_marker "[ok] settings.json: RTK hook configured"
+  @no_hook_markers [
+    "Hook: not found",
+    "settings.json: not found",
+    "settings.json: empty",
+    "settings.json: exists but RTK hook not configured"
+  ]
 
   @probe_timeout_ms 5_000
 
@@ -38,9 +78,9 @@ defmodule Aiur.Rtk do
         }
 
   @doc """
-  Whether the operator asked for rtk. Fails closed: a config that cannot be
-  read leaves rtk off, because enabling a command rewriter is never the safe
-  reading of a broken config.
+  Whether the operator enabled rtk reporting in the analytics panel. A config
+  that cannot be read leaves reporting off. This setting does not control a
+  host-wide rtk hook.
   """
   @spec enabled?() :: boolean()
   @spec enabled?(term()) :: boolean()
@@ -52,11 +92,13 @@ defmodule Aiur.Rtk do
   end
 
   @doc """
-  Resolve rtk's admission state.
+  Report rtk's status for the analytics panel.
 
-  Returns `{:ok, version}` only when rtk is enabled, installed, and its hook
-  demonstrably leaves `gh` alone. Every other outcome is a distinct reason so
-  a caller can say which one happened rather than collapsing them to "off".
+  Returns `{:ok, version}` when reporting is enabled, rtk is installed, and
+  its hook demonstrably leaves `gh` alone. A `:refused` result means the panel
+  withholds savings because the probe sees a `gh` rewrite; it does not prevent
+  the host hook from running. Other outcomes remain distinct so the panel can
+  report why savings are unavailable.
   """
   @spec status(keyword()) :: status()
   def status(opts \\ []) do
@@ -74,7 +116,8 @@ defmodule Aiur.Rtk do
   registered in the host's Claude settings applies to agents regardless of
   Aiur's admission setting. It does no subprocess work when `rtk` is absent.
   """
-  @spec check_host_hook(keyword()) :: :ok | :absent | {:rewrites_gh, term()} | {:probe_failed, term()}
+  @spec check_host_hook(keyword()) ::
+          :ok | :absent | :no_hook | {:rewrites_gh, term()} | {:probe_failed, term()}
   def check_host_hook(opts \\ []) do
     rtk = Keyword.get_lazy(opts, :rtk_path, fn -> executable(opts) end)
 
@@ -83,10 +126,19 @@ defmodule Aiur.Rtk do
         :absent
 
       path ->
-        case gh_rewrite_state(path, opts) do
-          :rewritten -> {:rewrites_gh, path}
-          :excluded -> :ok
-          {:error, reason} -> {:probe_failed, reason}
+        case hook_registration(path, opts) do
+          :registered ->
+            case gh_rewrite_state(path, opts) do
+              :rewritten -> {:rewrites_gh, path}
+              :excluded -> :ok
+              {:error, reason} -> {:probe_failed, reason}
+            end
+
+          :no_hook ->
+            :no_hook
+
+          {:error, reason} ->
+            {:probe_failed, reason}
         end
     end
   end
@@ -103,9 +155,9 @@ defmodule Aiur.Rtk do
         else
           :rewritten ->
             Logger.warning(
-              "rtk is enabled but its hook would rewrite `#{@gh_probe}`. Refusing to enable it: " <>
+              "rtk's hook would rewrite `#{@gh_probe}`. The analytics panel will withhold savings: " <>
                 "rewriting `gh` reshapes the calls the GitHub quota guard governs. " <>
-                ~s(Add `exclude_commands = ["gh"]` under `[hooks]` in rtk's config, then retry.)
+                ~s(Configure the host rtk hook with exclude_commands = ["gh"] under [hooks].)
             )
 
             {:refused, :gh_rewrite_not_excluded}
@@ -126,7 +178,8 @@ defmodule Aiur.Rtk do
 
   # `rtk hook check` reports "would rewrite" as exit 0 and "no rewrite" as exit
   # 1, so a non-zero status here is a verdict rather than a failure and status
-  # 1 has to be admitted. The verdict is then read from stdout: exit 1 is also
+  # 1 is an expected probe verdict. The verdict is then read from stdout: exit
+  # 1 is also
   # what a genuinely broken invocation returns, and only the marker line
   # distinguishes "rtk considered this and declined to rewrite" from "rtk could
   # not answer". Absent the marker the state is unknown, and unknown is
@@ -135,10 +188,29 @@ defmodule Aiur.Rtk do
     case run(rtk, ["hook", "check", @gh_probe], opts, [0, 1]) do
       {:ok, output} ->
         cond do
-          String.contains?(output, @no_hook_marker) -> :excluded
           String.contains?(output, @no_rewrite_marker) -> :excluded
           String.contains?(output, "rtk #{@gh_probe}") -> :rewritten
           true -> {:error, {:unrecognized_probe_output, String.slice(output, 0, 200)}}
+        end
+
+      other ->
+        other
+    end
+  end
+
+  defp hook_registration(rtk, opts) do
+    case run(rtk, ["init", "--show"], opts) do
+      {:ok, output} ->
+        cond do
+          String.contains?(output, @hook_executable_marker) and
+              String.contains?(output, @hook_configured_marker) ->
+            :registered
+
+          Enum.any?(@no_hook_markers, &String.contains?(output, &1)) ->
+            :no_hook
+
+          true ->
+            {:error, {:unrecognized_hook_status, String.slice(output, 0, 200)}}
         end
 
       other ->

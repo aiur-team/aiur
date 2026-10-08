@@ -99,6 +99,20 @@ defmodule Aiur.ConfigurationReferenceTest do
     end
   end
 
+  test "rtk documentation assigns host hook ownership to the operator" do
+    row =
+      @configuration_reference
+      |> String.split("\n")
+      |> Enum.find(&String.starts_with?(&1, "| `agent.rtk.enabled` |"))
+
+    assert is_binary(row)
+    assert row =~ "does not install, enable, or disable rtk's hook"
+    assert row =~ "does not enforce this setting at dispatch"
+    assert row =~ "host-wide hook applies to every agent"
+    assert row =~ ~s(`exclude_commands = ["gh"]`)
+    refute row =~ "Aiur refuses to admit rtk"
+  end
+
   defp documented_row_count(key) do
     ~r/^\| `#{Regex.escape(key)}` \|/m
     |> Regex.scan(@configuration_reference)

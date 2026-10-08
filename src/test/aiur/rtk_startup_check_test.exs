@@ -10,7 +10,14 @@ defmodule Aiur.RtkStartupCheckTest do
 
     opts = [
       rtk_path: @rtk,
-      runner: fn rtk, ["hook", "check", "gh pr view 1"] when rtk == @rtk -> {"rtk gh pr view 1\n", 0} end,
+      runner: fn
+        rtk, ["init", "--show"] when rtk == @rtk ->
+          {"rtk Configuration:\n[ok] Hook: /home/user/.claude/hooks/rtk-rewrite.sh\n" <>
+             "[ok] settings.json: RTK hook configured\n", 0}
+
+        rtk, ["hook", "check", "gh pr view 1"] when rtk == @rtk ->
+          {"rtk gh pr view 1\n", 0}
+      end,
       emit: fn topic, alert_opts -> send(test_pid, {:alert, topic, alert_opts}) end
     ]
 
@@ -23,7 +30,14 @@ defmodule Aiur.RtkStartupCheckTest do
   end
 
   test "logs when the alert cannot be recorded" do
-    runner = fn _rtk, ["hook", "check", "gh pr view 1"] -> {"rtk gh pr view 1\n", 0} end
+    runner = fn
+      _rtk, ["init", "--show"] ->
+        {"rtk Configuration:\n[ok] Hook: /home/user/.claude/hooks/rtk-rewrite.sh\n" <>
+           "[ok] settings.json: RTK hook configured\n", 0}
+
+      _rtk, ["hook", "check", "gh pr view 1"] ->
+        {"rtk gh pr view 1\n", 0}
+    end
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
@@ -40,7 +54,15 @@ defmodule Aiur.RtkStartupCheckTest do
 
   test "does not alert when gh is excluded" do
     test_pid = self()
-    runner = fn rtk, ["hook", "check", "gh pr view 1"] when rtk == @rtk -> {"No rewrite for: gh pr view 1\n", 1} end
+
+    runner = fn
+      rtk, ["init", "--show"] when rtk == @rtk ->
+        {"rtk Configuration:\n[ok] Hook: /home/user/.claude/hooks/rtk-rewrite.sh\n" <>
+           "[ok] settings.json: RTK hook configured\n", 0}
+
+      rtk, ["hook", "check", "gh pr view 1"] when rtk == @rtk ->
+        {"No rewrite for: gh pr view 1\n", 1}
+    end
 
     assert :ok =
              RtkStartupCheck.run(
@@ -71,9 +93,21 @@ defmodule Aiur.RtkStartupCheckTest do
     refute_received {:alert, _, _}
   end
 
-  test "does not alert when rtk reports no hook despite printing a rewrite preview" do
+  test "does not alert when rtk reports no registered hook despite a rate-limited rewrite preview" do
     test_pid = self()
-    runner = fn _rtk, ["hook", "check", "gh pr view 1"] -> {"[rtk] /!\\ No hook installed\nrtk gh pr view 1\n", 0} end
+
+    runner = fn _rtk, args ->
+      send(test_pid, {:probe, args})
+
+      case args do
+        ["init", "--show"] ->
+          {"rtk Configuration:\n[--] Hook: not found\n" <>
+             "[warn] settings.json: exists but RTK hook not configured\n", 0}
+
+        ["hook", "check", "gh pr view 1"] ->
+          {"rtk gh pr view 1\n", 0}
+      end
+    end
 
     assert :ok =
              RtkStartupCheck.run(
@@ -83,5 +117,7 @@ defmodule Aiur.RtkStartupCheckTest do
              )
 
     refute_received {:alert, _, _}
+    assert_received {:probe, ["init", "--show"]}
+    refute_received {:probe, ["hook", "check", "gh pr view 1"]}
   end
 end
