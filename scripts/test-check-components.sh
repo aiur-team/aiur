@@ -162,6 +162,18 @@ if with_node:
             extra={'src/lib/foo.ex': '@external_resource "../../packages/a/x.json"'})
     imports('external_resource_attribute_reported', '', 1, ('R-reverse-resource',),
             extra={'src/lib/foo.ex': '@resource Path.expand("../../packages/a/x.json", __DIR__)\n@external_resource @resource'})
+    imports('multiline_external_resource_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@external_resource Path.expand(\n  "../../packages/a/x.json",\n  __DIR__\n)'})
+    imports('multiline_resource_attribute_reported', '', 1, ('R-reverse-resource',),
+            extra={'src/lib/foo.ex': '@resource Path.expand(\n  "../../packages/a/x.json",\n  __DIR__\n)\n@external_resource @resource'})
+    for protocol in ('file', 'link'):
+        imports(protocol + '_dependency_into_sibling_fails', 'import "b";', 1, ('R-client', 'packages/b'),
+                dependencies={'b': protocol + ':../b'}, extra={'packages/b/package.json': '{"name":"b"}'})
+    imports('file_dependency_into_src_fails', 'import "daemon";', 1, ('R-client', 'src/lib'),
+            dependencies={'daemon': 'file:../../src/lib'}, extra={'src/lib/foo.ex': ''})
+    imports('file_dependency_contracts_allowed', 'import "@aiur/contracts";',
+            dependencies={'@aiur/contracts': 'file:../aiur-contracts'},
+            extra={'packages/aiur-contracts/package.json': '{"name":"@aiur/contracts"}'})
     imports('external_resource_allowlisted', '', messages=('allowlisted', 'MP-R6 owns'),
             extra={'src/lib/aiur_web/streamdeck_key_face_contract.ex':
                    '@contract_path Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)\n@external_resource @contract_path',

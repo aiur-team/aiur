@@ -52,6 +52,22 @@ def client_reason(root, package, dependencies, specifier, resolved):
     return f'resolves outside own package: {target}'
 
 
+def resource_attributes(text):
+    attributes = []
+    lines = text.splitlines()
+    for index, line in enumerate(lines):
+        match = re.match(r'^\s*@(\w+)\s+(.+)$', line)
+        if not match:
+            continue
+        name, expression = match.groups()
+        # Attribute function calls may wrap their path argument onto later lines.
+        while expression.count('(') > expression.count(')') and index + 1 < len(lines):
+            index += 1
+            expression += '\n' + lines[index]
+        attributes.append((name, expression))
+    return attributes
+
+
 def reverse_resources(root, files):
     problems = []
     allowed = ('src/lib/aiur_web/streamdeck_key_face_contract.ex',
@@ -60,8 +76,11 @@ def reverse_resources(root, files):
         if not source.startswith('src/lib/') or not source.endswith('.ex'):
             continue
         text = (root / source).read_text()
-        attributes = dict(re.findall(r'^\s*@(\w+)\s+(.+)$', text, re.MULTILINE))
-        for expression in re.findall(r'^\s*@external_resource\s+(.+)$', text, re.MULTILINE):
+        declarations = resource_attributes(text)
+        attributes = dict(declarations)
+        for name, expression in declarations:
+            if name != 'external_resource':
+                continue
             if re.fullmatch(r'@\w+', expression):
                 expression = attributes.get(expression[1:], '')
             literal = re.search(r'"([^"\n]+)"', expression)

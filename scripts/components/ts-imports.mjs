@@ -28,6 +28,14 @@ function resolve(specifier, file) {
     const target = path.resolve(path.dirname(file), specifier);
     return fs.existsSync(target) ? fs.realpathSync(target) : target;
   }
+  const packageDirectory = path.join(root, ...path.relative(root, file).split(path.sep).slice(0, 2));
+  const manifest = JSON.parse(fs.readFileSync(path.join(packageDirectory, 'package.json'), 'utf8'));
+  const name = specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0];
+  const dependency = Object.assign({}, manifest.peerDependencies, manifest.devDependencies, manifest.dependencies)[name];
+  if (typeof dependency === 'string' && /^(file|link):/.test(dependency)) {
+    const target = path.resolve(packageDirectory, dependency.replace(/^(file|link):/, ''));
+    return fs.existsSync(target) ? fs.realpathSync(target) : target;
+  }
   try {
     return fs.realpathSync(createRequire(file).resolve(specifier));
   } catch (error) {
