@@ -816,13 +816,24 @@ them log anything. Work this ladder before any per-agent triage:
    restarted fleet needs ~30 minutes to reach 32, which reads as idle rather
    than ramping. Do not measure capacity within minutes of a restart.
 
-A `CHANGES_REQUESTED` (or non-blank `COMMENTED`) review on an open PR moves its
-ticket to `agent:rework` automatically — the `pull_request_review` webhook and
-the review-submission poll both publish `ticket.<id>.pr.review_comment`, which
+A `CHANGES_REQUESTED` (or explicitly blocking `COMMENTED`) review on an open PR moves its
+ticket to `agent:rework` from `agent:human-review` or `agent:ci-wait` when the
+reviewer is trusted (configured account or CODEOWNER).
+
+Body-only `COMMENTED` reviews need a line or heading starting with `Blocking:`,
+`Blockers:`, `Must fix:`, or `Changes required:`, or an update, rebase, merge, or
+fix requested “before merge”. Clean summaries such as “No blockers; waiting on
+CI” or “All blockers resolved” do not route to rework.
+
+Failed CI in `agent:human-review` routes to rework when that head already passed
+CI or the head changed. An inherited failure on a dismissed head remains held;
+the existing test-only one-poll retry still applies.
+
+The `pull_request_review` webhook and the review-submission poll both publish `ticket.<id>.pr.review_comment`, which
 routes through `CommentWake` to the rework transition. No manual relabel is
 required. After posting a review, verify the ticket actually left
-`agent:human-review` (posted is not verified); only touch the label by hand if
-the automatic transition did not fire, and then check the delivery — review
+`agent:human-review` or `agent:ci-wait` (posted is not verified); only touch the
+label by hand if the automatic transition did not fire, and then check the delivery — review
 state, trusted author, open PR — before relabelling.
 
 Alerts persist across daemon restarts and tokens (full-history scan, #1231), so

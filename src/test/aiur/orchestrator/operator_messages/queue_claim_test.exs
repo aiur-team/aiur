@@ -24,9 +24,8 @@ defmodule Aiur.Orchestrator.OperatorMessages.QueueClaimTest do
     :ok
   end
 
-  test "queue claims keep their receipts when a tracker poll outlasts the former claim deadline" do
+  test "queue claims keep their receipts while a tracker poll is held off the owner" do
     server = start_supervised!({Orchestrator, initial_poll?: false})
-    on_exit(fn -> send(server, :release_poll) end)
     test_pid = self()
 
     :sys.replace_state(server, fn state ->
@@ -38,7 +37,13 @@ defmodule Aiur.Orchestrator.OperatorMessages.QueueClaimTest do
     assert_received {:queued, item_id}
     assert {:ok, :pending} = OperatorMessages.operator_message_status(server, item_id)
     send(server, :run_poll_cycle)
-    receive_barrier({:poll_blocked, ^server})
+    receive_barrier({:poll_blocked, poller})
+    on_exit(fn -> send(poller, :release_poll) end)
+
+    # The held poll runs in a tracker task, so the owner keeps answering within the
+    # claim deadline instead of letting a late claim consume a receipt (#3203, #3213).
+    refute poller == server
+    assert is_list(GenServer.call(server, :status, 5_000))
 
     claims = [
       {:claim_next_queue_item, fn -> OperatorMessages.claim_next_queue_item(server, "MT-3203") end},
@@ -50,17 +55,7 @@ defmodule Aiur.Orchestrator.OperatorMessages.QueueClaimTest do
 
     tasks = Enum.map(claims, fn {method, claim} -> start_waiting_claim(server, method, claim) end)
 
-    # This real RPC deadline proves the poll exceeded the old claim timeout; no sleep schedules the race.
-    deadline =
-      try do
-        GenServer.call(server, :status, 5_000)
-      catch
-        :exit, {:timeout, _call} -> :deadline_expired
-      end
-
-    assert deadline == :deadline_expired
-
-    send(server, :release_poll)
+    send(poller, :release_poll)
     results = Enum.map(tasks, &Task.await(&1, :infinity))
     assert Enum.count(results, &(&1 == :empty)) == 4
     assert [{:ok, claimed}] = Enum.filter(results, &match?({:ok, _item}, &1))
