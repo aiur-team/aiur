@@ -163,8 +163,11 @@ else:
                     source='defmodule A do\n alias B.Internal, as: Hidden\n def f, do: Hidden.f()\nend\n')
     reference_check('alias_scope_does_not_leak', 'private_module_fails', messages=('R-private: 0',),
                     source='defmodule A do\n def f do\n alias B.Internal, as: Hidden\n end\n def g, do: Hidden.f()\nend\n')
-    reference_check('imports_uses_behaviours_types_count', 'private_module_fails', 1, ('R-private a -> B.Internal',),
-                    source='defmodule A do\n import B.Internal\n use B.Internal\n @behaviour B.Internal\n @spec f() :: B.Internal.t()\nend\n')
+    for name, form in [('import_reference_counts', 'import B.Internal'), ('use_reference_counts', 'use B.Internal'),
+                       ('behaviour_reference_counts', '@behaviour B.Internal'),
+                       ('type_reference_counts', '@spec f() :: B.Internal.t()')]:
+        reference_check(name, 'private_module_fails', 1, ('R-private a -> B.Internal',),
+                        source=f'defmodule A do\n {form}\nend\n')
     reference_check('parse_failure_exits_2', 'private_module_fails', 2, ('src/lib/a.ex', 'module walker failed'),
                     source='defmodule A do\n')
     reference_check('unresolved_internal_is_warning', 'private_module_fails', messages=('1 unresolved internal targets',),
@@ -207,6 +210,22 @@ else:
 
     reference_check('baseline_generation_and_recheck', 'private_module_fails', change=committed_fixture,
                     args=('--write-baseline',), verify=verify_baseline)
+
+    def untracked_syntax_error(root):
+        committed_fixture(root)
+        (root / 'src/lib/untracked.ex').write_text('defmodule Unfinished do\n')
+
+    reference_check('untracked_parse_error_ignored', 'declared_facade_passes', change=untracked_syntax_error,
+                    messages=('all 2 source files owned',))
+    reference_check('nested_namespace_resolves', 'private_module_fails', 1,
+                    ('R-private a -> Aiur.Parent.Aiur.Child',),
+                    source='defmodule A do\n Aiur.Parent.Aiur.Child.f()\nend\n',
+                    change=lambda root: (root / 'src/lib/b.ex').write_text(
+                        'defmodule Aiur.Parent do\n defmodule Aiur.Child do\n end\nend\n'))
+    reference_check('absolute_nested_module_resolves', 'private_module_fails', 1,
+                    ('R-private a -> B.Internal',),
+                    change=lambda root: (root / 'src/lib/b.ex').write_text(
+                        'defmodule Parent do\n defmodule Elixir.B.Internal do\n end\nend\n'))
 
     def verify_application_primary(root, command):
         result = subprocess.run(['elixir', str(repo / 'scripts/components/module_references.exs'), str(root)],

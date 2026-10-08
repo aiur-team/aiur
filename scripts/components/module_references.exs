@@ -4,8 +4,8 @@
 # graph, not a runtime call graph. Docs and alias declarations are excluded
 # from reference edges; imports, uses, behaviours and type references remain.
 defmodule ComponentModuleReferences do
-  def run(root) do
-    Path.wildcard(Path.join(root, "src/lib/**/*.ex"))
+  def run(root, paths \\ nil) do
+    (paths || Path.wildcard(Path.join(root, "src/lib/**/*.ex")))
     |> Enum.sort()
     |> Enum.each(fn path ->
       ast = path |> File.read!() |> Code.string_to_quoted!(columns: true, file: path)
@@ -15,15 +15,7 @@ defmodule ComponentModuleReferences do
   end
 
   defp walk({:defmodule, _, [name_ast, body]}, env) do
-    name = resolve(name_ast, env)
-
-    name =
-      if env.module && not String.starts_with?(name, ["Aiur.", "AiurWeb.", "Mix.", "Elixir."]) &&
-           name not in ["Aiur", "AiurWeb"] do
-        env.module <> "." <> name
-      else
-        name
-      end
+    name = module_name(name_ast, env)
 
     primary = env.primary || if(name == "Aiur", do: "Aiur.Application", else: name)
     env = %{env | primary: primary}
@@ -91,6 +83,21 @@ defmodule ComponentModuleReferences do
 
   defp alias_names(target, env), do: [resolve(target, env)]
 
+  defp module_name(ast, env) do
+    name = resolve(ast, env)
+
+    absolute =
+      case ast do
+        {:__aliases__, _, [first | _]} when is_atom(first) ->
+          first == :"Elixir" or Map.has_key?(env.aliases, Atom.to_string(first))
+
+        _ ->
+          true
+      end
+
+    if env.module && not absolute, do: env.module <> "." <> name, else: name
+  end
+
   defp resolve({:__MODULE__, _, _}, env), do: env.module || "__MODULE__"
 
   defp resolve({:__aliases__, _, parts}, env) do
@@ -104,8 +111,10 @@ defmodule ComponentModuleReferences do
     |> String.trim_leading("Elixir.")
   end
 
-  defp resolve(atom, _) when is_atom(atom), do: Atom.to_string(atom)
+  defp resolve(atom, _) when is_atom(atom), do: atom |> Atom.to_string() |> String.trim_leading("Elixir.")
 end
 
-[root] = System.argv()
-ComponentModuleReferences.run(root)
+case System.argv() do
+  [root] -> ComponentModuleReferences.run(root)
+  [root, "--files" | paths] -> ComponentModuleReferences.run(root, Enum.map(paths, &Path.join(root, &1)))
+end

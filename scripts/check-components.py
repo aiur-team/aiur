@@ -171,9 +171,10 @@ def ownership(manifest, files):
 
 def module_violations(root, manifest, file_owners):
     walker = Path(__file__).parent / 'components/module_references.exs'
+    files = sorted(path for path in file_owners if path.startswith('src/lib/') and path.endswith('.ex'))
     started = time.monotonic()
     try:
-        result = subprocess.run(['elixir', str(walker), str(root)], capture_output=True, text=True)
+        result = subprocess.run(['elixir', str(walker), str(root), '--files', *files], capture_output=True, text=True)
     except FileNotFoundError as error:
         raise ValueError('Elixir missing; install via mise') from error
     if result.returncode:
