@@ -751,8 +751,7 @@ The durable repository Executor state also records every daemon start and stop i
 
 ## build_queue
 
-Build queue settings for GitHub workflows. Linear is unsupported and performs no queue label writes.
-This section supplies configuration; the queue reconciler is delivered separately.
+Build queue configuration for GitHub workflows; Linear is unsupported, and the queue reconciler is delivered separately.
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
