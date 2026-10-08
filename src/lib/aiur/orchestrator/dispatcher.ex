@@ -79,8 +79,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
         {:noreply,
          TrackerTasks.start(state, :dispatch_poll, &TrackerHealth.tracker_preflight/0, fn current, result ->
            case result do
-             :ok -> current |> clear_tracker_preflight_alert() |> start_poll_reads()
-             {:error, reason} -> current |> emit_tracker_preflight_alert(reason) |> finish_poll_cycle()
+             :ok ->
+               current |> clear_tracker_preflight_alert() |> start_poll_reads()
+
+             {:error, reason} ->
+               TrackerHealth.log_tracker_preflight_error(reason)
+               current |> emit_tracker_preflight_alert(reason) |> finish_poll_cycle()
            end
          end)}
     end
