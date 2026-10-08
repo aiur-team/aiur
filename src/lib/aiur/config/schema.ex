@@ -12,6 +12,7 @@ defmodule Aiur.Config.Schema do
     Alerts,
     Attrs,
     BuildOrder,
+    BuildQueue,
     Codex,
     Decisions,
     ElevenLabs,
@@ -65,6 +66,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:alerts, Alerts, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pr_health, PrHealth, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pr_watch, PrWatch, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:build_queue, BuildQueue, on_replace: :update, defaults_to_struct: true)
     embeds_one(:build_order, BuildOrder, on_replace: :update, defaults_to_struct: true)
     embeds_one(:webhooks, Webhooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:elevenlabs, ElevenLabs, on_replace: :update, defaults_to_struct: true)
@@ -177,6 +179,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:alerts, with: &Alerts.changeset/2)
     |> cast_embed(:pr_health, with: &PrHealth.changeset/2)
     |> cast_embed(:pr_watch, with: &PrWatch.changeset/2)
+    |> cast_embed(:build_queue, with: &BuildQueue.changeset/2)
     |> cast_embed(:build_order, with: &BuildOrder.changeset/2)
     |> cast_embed(:webhooks, with: &Webhooks.changeset/2)
     |> cast_embed(:elevenlabs, with: &ElevenLabs.changeset/2)
