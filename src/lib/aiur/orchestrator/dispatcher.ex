@@ -881,15 +881,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec maybe_choose_under_load(State.t(), [Issue.t()], (State.t(), [Issue.t()] -> State.t()), keyword()) :: State.t()
   def maybe_choose_under_load(%State{} = state, issues, choose_fun, opts)
       when is_list(issues) and is_function(choose_fun, 2) and is_list(opts) do
-    now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
     admission_probes_fun = Keyword.get(opts, :admission_probes_fun, &admission_probes/0)
     probes = admission_probes_fun.() |> put_cpu_headroom(state)
+    now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
+    sampled_at_ms = Map.get(probes, :sampled_at_ms, now_ms)
+    sample_id = Map.get(probes, :sample_id, sampled_at_ms)
+    fresh? = fresh_load_sample?(state, sampled_at_ms, sample_id, now_ms)
+    consumed_sample_id = if fresh?, do: sample_id, else: Map.get(state.load_envelope_state, :sample_id)
+    consumed_at_ms = if fresh?, do: sampled_at_ms, else: Map.get(state.load_envelope_state, :sampled_at_ms)
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
 
     state =
       DispatchPolicy.update_load_envelope(
         state,
-        probes.load,
+        if(fresh?, do: probes.load, else: :unavailable),
         probes.target,
         probes.schedulers,
         now_ms,
@@ -903,6 +908,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     # IssueSync tracks each recorded gate identity across poll cycles, so the
     # constraint list is deliberately broader than the single binding signal
     # `admission_gate/1` returns below.
+    state = put_in(state.load_envelope_state[:sampled_at_ms], consumed_at_ms)
+    state = put_in(state.load_envelope_state[:sample_id], consumed_sample_id)
     state = record_capacity_constraints(state, probes)
     state = record_capacity_sample(state, probes)
 
@@ -943,8 +950,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
     run_queue_threshold = Config.run_queue_threshold()
     memory_threshold_mb = Config.min_free_memory_mb()
     schedulers = System.schedulers_online()
-    load = DispatchPolicy.read_load(hard_threshold, target)
-    cpu_snapshot = DispatchPolicy.read_cpu(target, run_queue_threshold, hard_threshold)
+
+    sample =
+      Aiur.SystemLoad.sample(fn ->
+        %{
+          load: DispatchPolicy.read_load(hard_threshold, target),
+          cpu_snapshot: DispatchPolicy.read_cpu(target, run_queue_threshold, hard_threshold)
+        }
+      end)
+
+    cpu_snapshot = sample.cpu_snapshot
 
     %{
       memory_mb: DispatchPolicy.read_memory(memory_threshold_mb),
@@ -953,7 +968,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
       runnable: runnable_from(cpu_snapshot),
       run_queue_threshold: run_queue_threshold,
       schedulers: schedulers,
-      load: load,
+      load: sample.load,
+      sampled_at_ms: sample.sampled_at_ms,
+      sample_id: sample.sample_id,
       load_threshold: hard_threshold,
       build_status: DispatchPolicy.read_build_status(),
       provider_backends: DispatchPolicy.read_provider_backends(),
@@ -1012,31 +1029,56 @@ defmodule Aiur.Orchestrator.Dispatcher do
     {state, _startup_todo_index} =
       issues
       |> DispatchPolicy.sort_issues_for_dispatch()
-      |> Enum.reduce({state, 0}, fn issue, {state_acc, startup_todo_index} ->
-        {state_acc, decision} =
-          recover_orphaned_claim(state_acc, issue, active_states, terminal_states)
-
-        case decision do
-          :dispatch ->
-            next_state = dispatch_issue(state_acc, issue, nil, nil, opts)
-
-            startup_todo_index =
-              maybe_schedule_startup_todo_alert(
-                state_acc,
-                next_state,
-                issue,
-                startup_todo_index,
-                initial_dispatch_cycle?
-              )
-
-            {next_state, startup_todo_index}
-
-          {:skip, reason} ->
-            {maybe_emit_dispatch_decline(state_acc, issue, reason), startup_todo_index}
+      |> Enum.reduce_while({state, 0}, fn issue, {state_acc, startup_todo_index} ->
+        if dispatch_batch_ready?(state_acc) do
+          {:cont, choose_candidate(state_acc, issue, startup_todo_index, active_states, terminal_states, initial_dispatch_cycle?, opts)}
+        else
+          {:halt, {state_acc, startup_todo_index}}
         end
       end)
 
     state
+  end
+
+  defp choose_candidate(state_acc, issue, startup_todo_index, active_states, terminal_states, initial_dispatch_cycle?, opts) do
+    {state_acc, decision} =
+      recover_orphaned_claim(state_acc, issue, active_states, terminal_states)
+
+    case decision do
+      :dispatch ->
+        next_state = dispatch_issue(state_acc, issue, nil, nil, opts)
+
+        startup_todo_index =
+          maybe_schedule_startup_todo_alert(
+            state_acc,
+            next_state,
+            issue,
+            startup_todo_index,
+            initial_dispatch_cycle?
+          )
+
+        {next_state, startup_todo_index}
+
+      {:skip, reason} ->
+        {maybe_emit_dispatch_decline(state_acc, issue, reason), startup_todo_index}
+    end
+  end
+
+  defp fresh_load_sample?(state, sampled_at_ms, sample_id, now_ms) do
+    is_integer(sampled_at_ms) and now_ms >= sampled_at_ms and
+      now_ms - sampled_at_ms <= (state.poll_interval_ms || Aiur.PollCadence.base_interval_ms(class: :dispatch)) and
+      sample_id != Map.get(state.load_envelope_state, :sample_id)
+  end
+
+  defp dispatch_batch_ready?(state) do
+    {:message_queue_len, depth} = Process.info(self(), :message_queue_len)
+    sampled_at_ms = Map.get(state.load_envelope_state, :sampled_at_ms)
+
+    sample_current? =
+      not Map.has_key?(state.load_envelope_state, :sampled_at_ms) or is_nil(Config.target_load_average()) or
+        (is_integer(sampled_at_ms) and System.monotonic_time(:millisecond) - sampled_at_ms <= (state.poll_interval_ms || Aiur.PollCadence.base_interval_ms(class: :dispatch)))
+
+    depth < 100 and sample_current?
   end
 
   defp recover_orphaned_claim(state, issue, active_states, terminal_states) do

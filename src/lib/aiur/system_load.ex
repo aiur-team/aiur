@@ -23,6 +23,21 @@ defmodule Aiur.SystemLoad do
     end
   end
 
+  @doc false
+  @spec sample((-> map()), non_neg_integer()) :: map()
+  def sample(read_fun, timeout_ms \\ 1_000) do
+    task =
+      Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
+        sampled_at_ms = System.monotonic_time(:millisecond)
+        Map.merge(read_fun.(), %{sampled_at_ms: sampled_at_ms, sample_id: make_ref()})
+      end)
+
+    case Task.yield(task, timeout_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, sample} -> sample
+      _unavailable -> %{load: :unavailable, cpu_snapshot: :unavailable, sampled_at_ms: nil, sample_id: nil}
+    end
+  end
+
   defp parse_avg1(contents) do
     case contents |> String.trim_leading() |> Float.parse() do
       {value, _rest} -> value

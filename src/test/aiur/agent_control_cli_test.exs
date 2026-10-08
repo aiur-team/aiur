@@ -152,6 +152,36 @@ defmodule Aiur.AgentControlCLITest do
     assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending()
   end
 
+  for prior_role <- ["owner", "observer"] do
+    test "renewer switches a displaced #{prior_role} wait to observer without acknowledging" do
+      start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
+      waiter = Task.async(fn -> capture_io(fn -> AgentControlCLI.executor_wait(timeout_ms: 5_000, json: true, as: "old-owner") end) end)
+      await_executor_wait(waiter.pid)
+      {:ok, old} = Claims.owner()
+      {:ok, _} = Claims.revoke("old-owner")
+      {:ok, successor} = Claims.claim("successor")
+      expired = old |> Map.put("lease_expires_at", "2000-01-01T00:00:00Z") |> Map.put("role", unquote(prior_role))
+      Aiur.JsonStore.write!(StatePaths.claims_path(), %{"consumers" => %{"old-owner" => expired, "successor" => successor}})
+      {:links, links} = Process.info(waiter.pid, :links)
+      renewer = Enum.find(links, &(&1 != self()))
+      :erlang.trace_pattern({AgentControlCLI, :renew_lease_forever, 3}, true, [:local])
+      :erlang.trace(renewer, true, [:send, :call])
+      on_exit(fn -> :erlang.trace_pattern({AgentControlCLI, :renew_lease_forever, 3}, false, [:local]) end)
+      send(renewer, :renew)
+      receive_barrier({:trace, ^renewer, :call, {AgentControlCLI, :renew_lease_forever, _args}})
+      assert_received {:trace, ^renewer, :send, {:executor_ownership_lost, ^renewer}, _destination}
+      :erlang.trace(renewer, false, [:send, :call])
+
+      :ok = ExecutorWakeInbox.enqueue(wake_record(1, "3412", "ticket.3412.pr.opened", "ticket.pr.opened"))
+      output = Task.await(waiter)
+      assert output =~ "not the live owner"
+      assert output =~ ~s("role":"observer")
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert ExecutorWakeInbox.cursor() == 0
+      assert [%{"wake_id" => 1}] = ExecutorWakeInbox.pending()
+    end
+  end
+
   test "executor-wait separates a store failure from contention with exit 1 (#2600)" do
     start_supervised!({ExecutorWakeInbox, debounce_ms: 0})
     # An unreadable ledger is a daemon/store failure, not something a caller can
@@ -164,6 +194,12 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ ~s("stage":"wait")
     assert output =~ "executor wake inbox unavailable"
     refute output =~ "__AIUR_CONTROL_EXIT__:69"
+  end
+
+  defp await_executor_wait(pid) do
+    if Enum.any?(:sys.get_state(ExecutorWakeInbox).waiters, fn {{waiter, _tag}, _} -> waiter == pid end),
+      do: :ok,
+      else: await_executor_wait(pid)
   end
 
   defp await_consumer(id, attempts \\ 200) do
