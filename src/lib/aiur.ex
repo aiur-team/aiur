@@ -63,6 +63,7 @@ defmodule Aiur.Application do
     _ = AgentGitHubGuard.ensure_agent_token_file()
     if Budget.enabled?(), do: AgentGitHubGuard.install_host()
     Budget.warn_metering_unavailable()
+    Aiur.RtkStartupCheck.run()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 
