@@ -39,6 +39,34 @@ defmodule Aiur.SystemLoadTest do
     end
   end
 
+  test "sample reads outside the caller and timestamps the measurement" do
+    caller = self()
+    sample = SystemLoad.sample(fn -> %{load: 0.5, cpu_snapshot: :unavailable, reader: self()} end)
+    assert sample.reader != caller
+    assert sample.load == 0.5
+    assert sample.sampled_at_ms <= System.monotonic_time(:millisecond)
+  end
+
+  test "a blocked probe times out and its worker is terminated" do
+    parent = self()
+
+    sample =
+      SystemLoad.sample(
+        fn ->
+          send(parent, {:reader, self()})
+
+          receive do
+            :never_sent -> %{load: 0.5}
+          end
+        end,
+        1_000
+      )
+
+    assert_received {:reader, reader}
+    refute Process.alive?(reader)
+    assert sample == %{load: :unavailable, cpu_snapshot: :unavailable, sampled_at_ms: nil, sample_id: nil}
+  end
+
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
 end

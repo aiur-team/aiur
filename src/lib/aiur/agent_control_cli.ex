@@ -486,7 +486,8 @@ defmodule Aiur.AgentControlCLI do
     renewer = start_lease_renewer(consumer_id)
 
     try do
-      executor_wait_result(ExecutorWakeInbox.wait(timeout_ms), consumer_id, role, json?, timeout_ms)
+      result = ExecutorWakeInbox.wait(timeout_ms)
+      executor_wait_result(result, consumer_id, renewed_wait_role(role, renewer), json?, timeout_ms)
     after
       stop_lease_renewer(renewer)
     end
@@ -512,13 +513,34 @@ defmodule Aiur.AgentControlCLI do
 
   defp start_lease_renewer(consumer_id) do
     interval = max(div(Claims.lease_ttl_ms(), 3), 1_000)
-    spawn_link(fn -> renew_lease_forever(consumer_id, interval) end)
+    waiter = self()
+    spawn_link(fn -> renew_lease_forever(consumer_id, interval, waiter) end)
   end
 
-  defp renew_lease_forever(consumer_id, interval) do
-    Process.sleep(interval)
-    _ = Claims.renew(consumer_id)
-    renew_lease_forever(consumer_id, interval)
+  defp renew_lease_forever(consumer_id, interval, waiter) do
+    receive do
+      :renew -> :ok
+    after
+      interval -> :ok
+    end
+
+    case Claims.renew(consumer_id) do
+      {:error, :not_owner} -> send(waiter, {:executor_ownership_lost, self()})
+      {:ok, %{"role" => role}} when role != "owner" -> send(waiter, {:executor_ownership_lost, self()})
+      _ -> :ok
+    end
+
+    renew_lease_forever(consumer_id, interval, waiter)
+  end
+
+  defp renewed_wait_role(role, renewer) do
+    receive do
+      {:executor_ownership_lost, ^renewer} ->
+        if role == :owner, do: control_error("aiur: this consumer is not the live owner of the wake stream; continuing as observer")
+        :observer
+    after
+      0 -> role
+    end
   end
 
   defp stop_lease_renewer(pid) do
@@ -1328,7 +1350,7 @@ defmodule Aiur.AgentControlCLI do
         |> Enum.reject(&(&1 == ""))
         |> Enum.map(&reset_budget_one/1)
 
-      exit_marker(if Enum.any?(results, &match?({:error, _}, &1)), do: 1, else: 0)
+      exit_marker(results |> Enum.map(&control_result_exit_code/1) |> Enum.max(fn -> 0 end))
     end)
   end
 
@@ -3308,6 +3330,16 @@ defmodule Aiur.AgentControlCLI do
 
   defp not_running_message do
     "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
+  end
+
+  # A GenServer.call timeout does not cancel a mutation already in the mailbox.
+  defp print_failure(action, status, :timeout) when action in [:resume, :reset_budget] do
+    operation = if action == :resume, do: "resume", else: "reset lifetime dispatch budget for"
+
+    control_error(
+      "aiur: outcome unknown for #{operation} #{display_identifier(status)}: the orchestrator did not answer in time " <>
+        "and may still apply the request. Check the ticket status and log before retrying."
+    )
   end
 
   defp print_failure(:resume, status, {:pause_override_clear_failed, reason}) do

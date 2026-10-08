@@ -5,6 +5,7 @@ defmodule Aiur.ApplicationTest do
   import Aiur.TestSupport, only: [receive_barrier: 1]
 
   alias Aiur.Application, as: AiurApp
+  alias Aiur.Identity.Machine
   alias Aiur.PubSub.Boot, as: PubSubBoot
   alias Aiur.Webhooks.{DeliveryMode, ModeTable}
 
@@ -22,6 +23,13 @@ defmodule Aiur.ApplicationTest do
     @moduledoc false
     def start!, do: {:error, :not_distributed}
     def node_name, do: nil
+  end
+
+  test "machine identity is loaded by application boot into isolated test state" do
+    dir = Application.fetch_env!(:aiur, :machine_state_dir)
+    assert String.starts_with?(dir, System.tmp_dir!())
+    assert {:ok, identity} = Machine.current()
+    assert Jason.decode!(File.read!(Path.join(dir, "identity.json")))["machine_id"] == identity.machine_id
   end
 
   test "stop/1 is a no-op returning :ok" do

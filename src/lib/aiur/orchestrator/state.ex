@@ -21,12 +21,15 @@ defmodule Aiur.Orchestrator.State do
           snapshot_ready?: boolean(),
           candidate_snapshot_fresh?: boolean(),
           poll_cycles_completed: non_neg_integer(),
+          tracker_tasks: %{reference() => map()},
           last_dispatch_poll_at_ms: integer() | nil,
           queued_demand_hints: %{String.t() => non_neg_integer()},
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
           load_envelope_state: %{
+            optional(:sample_id) => reference() | integer() | nil,
+            optional(:sampled_at_ms) => integer() | nil,
             last_decrease_ms: integer() | nil,
             cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
             bootstrap_complete?: boolean()
@@ -276,6 +279,7 @@ defmodule Aiur.Orchestrator.State do
     contradictory_state_label_alert_active: false,
     running: %{},
     running_issue_cache: %{},
+    tracker_tasks: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,
