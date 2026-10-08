@@ -695,9 +695,13 @@ every request a determined agent could make.
 Human-review state writes read the open PR and compare the configured
 `tracker.base_branch` to its exact head SHA with `GET /repos/{owner}/{repo}/compare/{base}...{head}`.
 This ancestry verdict always contacts GitHub: a branch can move without a change
-to the PR. Only `ahead` or `identical` permits the write; `behind` or `diverged`
+to the PR.
+
+Only `ahead` or `identical` permits the write; `behind` or `diverged`
 returns `stale_review_base` with instructions to update and await new-head CI.
-Missing or unreadable ancestry also blocks the write. The comparison is attributed
+Missing or unreadable ancestry also blocks the write.
+
+The comparison is attributed
 to `human_review_base_ancestry`; it adds a read and claims no quota saving.
 
 ## Changes Aiur makes itself

@@ -112,9 +112,13 @@ label, from the issue Aiur re-reads at write time
 (`GitHub.IssueState.swap_labels/4`).
 
 For `human-review`, the GitHub writer also requires the exact PR head to contain
-current `tracker.base_branch`, in addition to clearing review threads. A stale
+current `tracker.base_branch`, in addition to clearing review threads.
+
+A stale
 head leaves labels unchanged and returns an instruction to fetch and merge the
-base, validate, push, and wait in `ci-wait` for CI on the new head. Workers check
+base, validate, push, and wait in `ci-wait` for CI on the new head.
+
+Workers check
 ancestry again before marking the PR ready. An unavailable ancestry check blocks
 the write; it does not count as a fresh base.
 
