@@ -11,7 +11,7 @@ defmodule Aiur.Workspace.OwnershipProofRecoveryTest do
     root = Path.join(System.tmp_dir!(), "ownership-proof-#{System.unique_integer([:positive])}")
     sync_control = start_supervised!({Agent, fn -> :ok end})
     start_supervised!({Registry, keys: :unique, name: @registry})
-    start_supervised!({Store, name: @store, state_dir: root, sync_fun: fn -> Agent.get(sync_control, & &1) end})
+    start_supervised!({Store, name: @store, state_dir: root, sync_fun: fn -> Agent.get_and_update(sync_control, fn result -> {result, :ok} end) end})
     on_exit(fn -> File.rm_rf!(root) end)
     {:ok, sync_control: sync_control}
   end
@@ -84,7 +84,6 @@ defmodule Aiur.Workspace.OwnershipProofRecoveryTest do
     assert {:ok, %{provider_expected?: true, provider_cleanup: :unresolved}} = Store.get(ticket, @store)
     refute_receive {:workspace_ownership_available, ^ticket, ^guardian, ^generation}, 50
 
-    Agent.update(sync_control, fn _ -> :ok end)
     assert :ok = Ownership.cancel_provider_expectation(lease)
     assert_receive {:workspace_ownership_available, ^ticket, ^guardian, ^generation}, 500
     assert {:ok, nil} = Store.get(ticket, @store)
