@@ -82,7 +82,7 @@ defmodule Aiur.Tracker do
     adapter().update_issue_state(issue_id, state_name)
   end
 
-  @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  @spec update_issue_state(String.t(), String.t(), expected_state: String.t() | :none) :: :ok | {:error, term()}
   def update_issue_state(issue_id, state_name, opts)
       when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
     tracker_adapter = adapter()
