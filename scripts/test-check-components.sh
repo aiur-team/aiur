@@ -173,7 +173,8 @@ public_case('feature_duplicate_id_fails', lambda m: m['features'].append(dict(m[
             messages=('duplicate feature id',))
 public_case('feature_unknown_component_fails', lambda m: m['features'][0].update(extends=['absent']),
             messages=('MP-N2: unknown component absent',))
-public_case('feature_empty_union_fails', lambda m: m['features'][0].update(extends=[], adds=[]),
+public_case('feature_empty_union_fails', lambda m: (m['components'][1].update(added_by='MP-R1'),
+                                                m['features'][0].update(extends=[], adds=[])),
             messages=('extends/adds must name a component',))
 public_case('feature_private_copy_still_validated', lambda m: m['features'][0].update(summary='Calls Aiur.Private.'),
             messages=('MP-N2:', 'forbidden public copy'))
