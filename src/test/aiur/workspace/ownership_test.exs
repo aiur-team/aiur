@@ -590,6 +590,8 @@ defmodule Aiur.Workspace.OwnershipTest do
 
     assert {:ok, lease} = Guardian.restore(receipt, Aiur.Workspace.Ownership.Registry, [])
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+    # The registry entry is visible before the guardian persists the receipt.
+    assert_eventually(fn -> match?({:ok, %{generation: _}}, Store.get(ticket)) end)
 
     assert %{generation: generation, proof: :not_recorded} =
              HoldStatus.for_ticket(ticket, Aiur.Workspace.Ownership.Registry, Store)
@@ -1361,6 +1363,11 @@ defmodule Aiur.Workspace.OwnershipTest do
                audit_fun: audit_fun
              )
 
+    # Guardian.restore/3 replies before the guardian attempts its automatic
+    # release, so wait until that attempt has consumed the injected failure.
+    # Otherwise the attempt can run after the operator retry below re-arms
+    # :fail_once, consume it, and let the operator release succeed.
+    assert_eventually(fn -> Agent.get(audit_mode, & &1) == :write end)
     assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
 
     assert %{generation: ^generation, proof: :boot_changed_release_pending} =
