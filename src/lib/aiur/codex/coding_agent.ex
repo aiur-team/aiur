@@ -75,7 +75,8 @@ defmodule Aiur.Codex.CodingAgent do
              model,
              effort,
              on_process_group_started,
-             on_provider_started
+             on_provider_started,
+             Keyword.get(opts, :env, [])
            ) do
       metadata = AppServerPort.port_metadata(port, worker_host)
       containment = SessionLifecycle.register_pause_containment(identifier, metadata, expanded_workspace)

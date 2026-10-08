@@ -2606,6 +2606,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
       runner.(issue, recipient,
         attempt: context.attempt,
         prior_work: Keyword.get(opts, :prior_work, false),
+        account_name: Keyword.get(opts, :account_name),
+        resume_thread_id: Keyword.get(opts, :resume_thread_id),
         telemetry_attempt_id: context.lifecycle_attempt_id,
         worker_host: context.worker_host,
         orchestrator: recipient,

@@ -45,6 +45,7 @@ defmodule Aiur.CLI do
     open: :boolean,
     all: :boolean,
     dir: :string,
+    harness: :string,
     purge: :boolean
   ]
 
@@ -70,10 +71,10 @@ defmodule Aiur.CLI do
   defp dispatch({:todo, issue_ids, opts}), do: run_todo_command(issue_ids, opts)
   defp dispatch({:findings, opts}), do: run_findings_command(opts)
   defp dispatch({:asks, command}), do: run_asks_command(command)
-  defp dispatch({:accounts, json}), do: command_result(Aiur.AccountsCLI.accounts(json))
-  defp dispatch({:account_login, name, dir}), do: command_result(Aiur.AccountsCLI.login(name, dir))
-  defp dispatch({:account_login_prepare, name, dir}), do: prepare_account_login(name, dir)
-  defp dispatch({:account_logout, name, purge}), do: command_result(Aiur.AccountsCLI.logout(name, purge))
+  defp dispatch({:accounts, json, harness}), do: command_result(Aiur.AccountsCLI.accounts(json, harness))
+  defp dispatch({:account_login, harness, name, dir}), do: command_result(Aiur.AccountsCLI.login(harness, name, dir))
+  defp dispatch({:account_login_prepare, harness, name, dir}), do: prepare_account_login(harness, name, dir)
+  defp dispatch({:account_logout, harness, name, purge}), do: command_result(Aiur.AccountsCLI.logout(harness, name, purge))
 
   defp dispatch({:error, message}), do: shutdown_with_error(message)
 
@@ -81,9 +82,9 @@ defmodule Aiur.CLI do
   defp command_result(:ok), do: System.halt(0)
   defp command_result({:error, reason}), do: shutdown_with_error("aiur: " <> to_string(reason))
 
-  @spec prepare_account_login(String.t(), String.t() | nil) :: no_return()
-  defp prepare_account_login(name, dir) do
-    case Aiur.AccountsCLI.prepare_login(name, dir) do
+  @spec prepare_account_login(String.t(), String.t(), String.t() | nil) :: no_return()
+  defp prepare_account_login(harness, name, dir) do
+    case Aiur.AccountsCLI.prepare_login_result(harness, name, dir) do
       {:ok, profile_dir} ->
         IO.write(profile_dir)
         System.halt(0)
@@ -177,10 +178,10 @@ defmodule Aiur.CLI do
           | {:findings, %{record: String.t(), repo: String.t()}}
           | {:findings, %{digest: true, scope: String.t() | nil}}
           | {:asks, Aiur.AsksCLI.command()}
-          | {:accounts, boolean()}
-          | {:account_login, String.t(), String.t() | nil}
-          | {:account_login_prepare, String.t(), String.t() | nil}
-          | {:account_logout, String.t(), boolean()}
+          | {:accounts, boolean(), String.t() | nil}
+          | {:account_login, String.t(), String.t(), String.t() | nil}
+          | {:account_login_prepare, String.t(), String.t(), String.t() | nil}
+          | {:account_logout, String.t(), String.t(), boolean()}
           | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
@@ -211,21 +212,25 @@ defmodule Aiur.CLI do
   defp evaluate_standard(opts, ["asks" | rest], _deps), do: evaluate_asks(opts, rest)
 
   defp evaluate_standard(opts, ["accounts"], _deps) do
-    if Enum.all?(Keyword.keys(opts), &(&1 == :json)), do: {:accounts, opts[:json] || false}, else: {:error, usage_message()}
+    if Enum.all?(Keyword.keys(opts), &(&1 in [:json, :all])), do: {:accounts, opts[:json] || false, nil}, else: {:error, usage_message()}
   end
 
-  defp evaluate_standard(opts, ["login", "claude", name], _deps) do
-    if Enum.all?(Keyword.keys(opts), &(&1 == :dir)), do: {:account_login, name, opts[:dir]}, else: {:error, usage_message()}
+  defp evaluate_standard(opts, ["accounts", harness], _deps) do
+    if Enum.all?(Keyword.keys(opts), &(&1 in [:json, :all])), do: {:accounts, opts[:json] || false, harness}, else: {:error, usage_message()}
   end
 
-  defp evaluate_standard(opts, ["__login_prepare", "claude", name], _deps) do
+  defp evaluate_standard(opts, ["login", harness, name], _deps) do
+    if Enum.all?(Keyword.keys(opts), &(&1 == :dir)), do: {:account_login, harness, name, opts[:dir]}, else: {:error, usage_message()}
+  end
+
+  defp evaluate_standard(opts, ["__login_prepare", harness, name], _deps) do
     if Enum.all?(Keyword.keys(opts), &(&1 == :dir)),
-      do: {:account_login_prepare, name, opts[:dir]},
+      do: {:account_login_prepare, harness, name, opts[:dir]},
       else: {:error, usage_message()}
   end
 
-  defp evaluate_standard(opts, ["logout", "claude", name], _deps) do
-    if Enum.all?(Keyword.keys(opts), &(&1 == :purge)), do: {:account_logout, name, opts[:purge] || false}, else: {:error, usage_message()}
+  defp evaluate_standard(opts, ["logout", harness, name], _deps) do
+    if Enum.all?(Keyword.keys(opts), &(&1 == :purge)), do: {:account_logout, harness, name, opts[:purge] || false}, else: {:error, usage_message()}
   end
 
   defp evaluate_standard(opts, [], deps) do

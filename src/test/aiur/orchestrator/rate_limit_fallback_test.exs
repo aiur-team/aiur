@@ -8,6 +8,72 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   @marker_label "agent:rate-limit-fallback"
 
   describe "decide/3" do
+    test "selects a second Claude account after a resumable session hits its account limit" do
+      entry = %{
+        control: %{status: :paused},
+        paused_reason: :usage_limit_exhausted,
+        usage_limit_session: %{backend: "claude-repl", account_name: "default", session_id: "session-1", cwd: "/repo"}
+      }
+
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+
+      options = [
+        account_config: config,
+        account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+        account_usage_fetcher: fn "work" -> %{"seven_day" => 35, "five_hour" => 40} end
+      ]
+
+      assert RateLimitFallback.decide(entry, issue, options) == :handoff
+    end
+
+    test "future regression: headless Claude stays on the reset wait because its app-server cannot resume moved transcripts" do
+      entry = %{
+        control: %{status: :paused},
+        paused_reason: :usage_limit_exhausted,
+        # Aiur.CodingAgent.Providers.Claude.headless/0 declares resumable: false:
+        # its app-server keeps thread state in memory and thread/start cannot
+        # seed a prior session id.
+        usage_limit_session: %{backend: "claude", account_name: "default", session_id: "session-1", cwd: "/repo"}
+      }
+
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+      test_pid = self()
+
+      options = [
+        account_config: config,
+        account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+        account_usage_fetcher: fn name ->
+          send(test_pid, {:account_usage_fetched, name})
+          %{"seven_day" => 35, "five_hour" => 40}
+        end
+      ]
+
+      assert RateLimitFallback.decide(entry, issue, options) == :noop
+      refute_received {:account_usage_fetched, _name}
+    end
+
+    # This guards the existing reset-wait behavior against future handoff changes.
+    test "future regression: keeps the reset wait when every other Claude account is at its limit" do
+      entry = %{
+        control: %{status: :paused},
+        paused_reason: :usage_limit_exhausted,
+        usage_limit_session: %{backend: "claude-repl", account_name: "default", session_id: "session-1", cwd: "/repo"}
+      }
+
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+
+      options = [
+        account_config: config,
+        account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+        account_usage_fetcher: fn "work" -> %{"seven_day" => 100, "five_hour" => 100} end
+      ]
+
+      assert RateLimitFallback.decide(entry, issue, options) == :noop
+    end
+
     test "engages when a codex-backed entry pauses on usage_limit_exhausted" do
       entry = %{control: %{status: :paused}, paused_reason: :usage_limit_exhausted}
       issue = %Issue{id: "1", identifier: "repo#1", labels: []}
@@ -46,6 +112,30 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       issue = %Issue{id: "1", identifier: "repo#1", labels: []}
 
       assert RateLimitFallback.decide(entry, issue, primary_backend: "codex", fallback_backend: "claude") == :noop
+    end
+
+    test "does not fetch account usage for a session that is not paused" do
+      entry = %{
+        control: %{status: :working},
+        paused_reason: :usage_limit_exhausted,
+        usage_limit_session: %{backend: "claude-repl", account_name: "default", session_id: "session-1", cwd: "/repo"}
+      }
+
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+      test_pid = self()
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+
+      options = [
+        account_config: config,
+        account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+        account_usage_fetcher: fn name ->
+          send(test_pid, {:account_usage_fetched, name})
+          nil
+        end
+      ]
+
+      assert RateLimitFallback.decide(entry, issue, options) == :noop
+      refute_received {:account_usage_fetched, _name}
     end
 
     test "does nothing for a pause reason other than usage_limit_exhausted" do
@@ -192,6 +282,51 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
   end
 
   describe "reconcile/2" do
+    test "moves a limit-paused session and resumes it on the selected account" do
+      issue = %Issue{id: "1", identifier: "repo#1", labels: []}
+
+      entry =
+        fallback_entry(%{
+          issue: issue,
+          usage_limit_session: %{backend: "claude-repl", account_name: "default", session_id: "session-1", cwd: "/repo"}
+        })
+
+      state = %State{running: %{issue.id => entry}}
+      config = %{accounts: %{"claude" => ["default", "work"]}, account_selection: "priority"}
+      test_pid = self()
+
+      result =
+        RateLimitFallback.reconcile(
+          state,
+          reconcile_opts(
+            account_config: config,
+            account_list_fun: fn _ -> [%{name: "default"}, %{name: "work"}] end,
+            account_usage_fetcher: fn "work" -> %{"seven_day" => 35, "five_hour" => 40} end,
+            move_session_fun: fn harness, source, destination, session_id, cwd, _opts ->
+              send(test_pid, {:moved, harness, source, destination, session_id, cwd})
+              :ok
+            end,
+            teardown_fun: fn current_state, running_entry, reason ->
+              send(test_pid, {:teardown, running_entry.identifier, reason})
+              current_state
+            end,
+            handoff_event_fun: fn event_issue, source, destination, session_id ->
+              send(test_pid, {:handoff_event, event_issue.id, source, destination, session_id})
+            end,
+            dispatch_fun: fn current_state, dispatch_issue, attempt, worker_host, opts ->
+              send(test_pid, {:dispatch, dispatch_issue.id, attempt, worker_host, opts})
+              record_started_dispatch(current_state, dispatch_issue)
+            end
+          )
+        )
+
+      assert_received {:moved, "claude", "default", "work", "session-1", "/repo"}
+      assert_received {:handoff_event, "1", "default", "work", "session-1"}
+      assert_received {:teardown, "repo#1", :account_handoff}
+      assert_received {:dispatch, "1", nil, "worker-2", [account_name: "work", resume_thread_id: "session-1"]}
+      assert result.running["1"].session_execution == %{backend: "claude-repl", account: "work"}
+    end
+
     test "engages the fallback, relabels the issue, and preserves worker affinity on redispatch" do
       state = fallback_state([], "codex")
       test_pid = self()
