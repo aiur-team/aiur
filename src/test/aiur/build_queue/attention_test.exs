@@ -34,7 +34,7 @@ defmodule Aiur.BuildQueue.AttentionTest do
     :ok = Store.save(%{document | edges: [edge], latches: [other]})
     assert :ok = Attention.open(:prerequisite_failed, "12", @payload)
     assert :ok = Attention.open(:prerequisite_failed, "12", @payload)
-    assert_receive {:event, %{topic: @topic}}
+    assert_received {:event, %{topic: @topic}}
     refute_received {:event, %{topic: @topic}}
     assert {:ok, %{edges: [^edge], latches: [%Latch{key: {:prerequisite_failed, "12"}, emitted?: true}, ^other]}} = Store.load()
     assert [alert] = alerts(@topic)
@@ -44,7 +44,7 @@ defmodule Aiur.BuildQueue.AttentionTest do
 
   test "a fresh caller with the persisted latch does not re-emit" do
     assert :ok = Attention.open(:prerequisite_failed, "12", @payload)
-    assert_receive {:event, %{topic: @topic}}
+    assert_received {:event, %{topic: @topic}}
     assert :ok = Task.async(fn -> Attention.open(:prerequisite_failed, "12", @payload) end) |> Task.await()
     refute_received {:event, %{topic: @topic}}
     assert length(alerts(@topic)) == 1
@@ -55,7 +55,7 @@ defmodule Aiur.BuildQueue.AttentionTest do
     assert :ok = Attention.resolve(:prerequisite_failed, "12")
     assert :ok = Attention.resolve(:prerequisite_failed, "12")
     topic = @topic <> ".resolved"
-    assert_receive {:event, %{topic: ^topic}}
+    assert_received {:event, %{topic: ^topic}}
     refute_received {:event, %{topic: ^topic}}
     assert {:ok, %{latches: []}} = Store.load()
     assert [alert] = alerts(topic)
@@ -74,7 +74,7 @@ defmodule Aiur.BuildQueue.AttentionTest do
     refute_received {:event, %{topic: @topic}}
     File.rmdir!(path)
     assert :ok = Attention.open(:prerequisite_failed, "12", @payload)
-    assert_receive {:event, %{topic: @topic}}
+    assert_received {:event, %{topic: @topic}}
     assert {:ok, %{latches: [%Latch{emitted?: true}]}} = Store.load()
     assert length(alerts(@topic)) == 1
   end
@@ -92,7 +92,7 @@ defmodule Aiur.BuildQueue.AttentionTest do
     end
 
     assert :ok = Attention.open(:prerequisite_failed, "12", @payload)
-    assert_receive {:event, %{topic: @topic}}
+    assert_received {:event, %{topic: @topic}}
     Process.unregister(Aiur.Events.IdGenerator)
 
     try do
@@ -104,7 +104,7 @@ defmodule Aiur.BuildQueue.AttentionTest do
 
     assert :ok = Attention.resolve(:prerequisite_failed, "12")
     resolved = @topic <> ".resolved"
-    assert_receive {:event, %{topic: ^resolved}}
+    assert_received {:event, %{topic: ^resolved}}
     assert {:ok, %{latches: []}} = Store.load()
   end
 
@@ -135,7 +135,7 @@ defmodule Aiur.BuildQueue.AttentionTest do
   test "only allowlisted refs and attrs reach the bus; copy remains local" do
     payload = Map.merge(@payload, %{message: "private", body: "secret", source: :agent})
     assert :ok = Attention.open(:prerequisite_failed, "12", payload)
-    assert_receive {:event, event}
+    assert_received {:event, event}
     assert event.topic == @topic
     assert Map.take(event, Map.keys(payload)) == @payload
     refute Map.has_key?(event, "message")
@@ -153,10 +153,10 @@ defmodule Aiur.BuildQueue.AttentionTest do
 
     Aiur.Events.Publisher.set_tracked_fn(fn _ -> false end)
     assert :ok = Attention.open(:prerequisite_failed, "12", @payload)
-    assert_receive {:event, %{topic: @topic}}
+    assert_received {:event, %{topic: @topic}}
     assert :ok = Attention.resolve(:prerequisite_failed, "12")
     resolved = @topic <> ".resolved"
-    assert_receive {:event, %{topic: ^resolved}}
+    assert_received {:event, %{topic: ^resolved}}
   end
 
   test "invalid subjects, causes and payload values cannot create an attention" do
@@ -180,7 +180,7 @@ defmodule Aiur.BuildQueue.AttentionTest do
     :ok = Exchange.subscribe(topic <> ".#")
     assert :ok = Attention.open(:inputs_unavailable, nil, %{freshness: :unknown})
     assert :ok = Attention.open(:inputs_unavailable, nil, %{freshness: :unknown})
-    assert_receive {:event, %{topic: ^topic, freshness: :unknown}}
+    assert_received {:event, %{topic: ^topic, freshness: :unknown}}
     refute_received {:event, %{topic: ^topic}}
     assert :ok = Attention.resolve(:inputs_unavailable, nil)
     assert :ok = Attention.resolve(:inputs_unavailable, nil)
