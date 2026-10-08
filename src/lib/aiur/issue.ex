@@ -48,6 +48,7 @@ defmodule Aiur.Issue do
     # ticket and comment-driven rework is refused, even when an `agent:*` state
     # label is present. `false` for every tracker backend that lacks the marker.
     parked: false,
+    queued: false,
     blocked_by: [],
     labels: [],
     assigned_to_worker: true,
@@ -86,6 +87,7 @@ defmodule Aiur.Issue do
           dispatch_authorized?: boolean(),
           dispatch_authorization: :authorized | :denied | :deferred,
           parked: boolean(),
+          queued: boolean(),
           labels: [String.t()],
           assigned_to_worker: boolean(),
           created_at: DateTime.t() | nil,
@@ -105,6 +107,11 @@ defmodule Aiur.Issue do
   @spec parked?(t()) :: boolean()
   def parked?(%__MODULE__{parked: parked}), do: parked == true
   def parked?(_issue), do: false
+
+  @doc "Returns whether the issue carries the build-queue marker."
+  @spec queued?(t()) :: boolean()
+  def queued?(%__MODULE__{queued: queued}), do: queued == true
+  def queued?(_issue), do: false
 
   @doc "Returns whether a tracker target names the issue by raw id or canonical identifier."
   @spec identifier_matches?(term(), term(), term()) :: boolean()
