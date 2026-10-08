@@ -64,7 +64,8 @@ handler routes must use the asynchronous boundary.
 ## Implementation units
 
 1. **Poll read stages.** Introduce a supervised, monitored poll worker with an
-   owner/generation token and bounded lifetime. Send narrow outcomes back for
+   owner/generation token. Effect tasks have bounded lifetimes; paginated
+   candidate batches retain individual transport request deadlines. Send narrow outcomes back for
    preflight, firehose, CI and candidate reads in existing order. Only one cycle
    is in flight; repeated refreshes coalesce. Complete scheduling once, including
    failure/crash/timeout. Tasks carry inputs and outcomes, never mutable state.
@@ -128,8 +129,26 @@ present a candidate-only extraction as the structural fix.
 
 ## Completed local validation
 
-The 45 directly related test files passed: 1,174 tests, zero failures. Compile
+The initial 45-file gate passed: 1,174 tests, zero failures. After review
+repairs, 50 directly related test files passed: 1,310 tests, zero failures. Compile
 with warnings as errors, formatting and public specs passed. All 36 new tests
 are checked against deliberately reverted production behavior in isolated
 worktrees, with only the intended production file dirty. Full CI remains the
 final gate; manual CLI sandbox resets are prohibited in this agent workspace.
+
+## Review repairs
+
+Production and direct-helper tests now use the same dispatch/retry decision and
+result-application functions. Successful validation clears both a prior decline
+and its attention; a held dispatch chain defers a new poll without losing its
+next tick. Coalesced tasks retain distinct continuations, and a reply racing a
+deadline keeps its successful outcome. The public-control acceptance test traces
+all tracker callbacks, including fast reads, in the owner process.
+
+Seven existing tests retain their assertions while waiting for actual task,
+runner or poll completion. Reported lint findings were addressed by named apply
+helpers and alias corrections; strict lint remains a CI check, not a local run.
+Four new review regressions and the stronger handler guard passed five isolated
+mutation checks. An additional mutation constrains attention resolution itself.
+Final producer heads from #3190 and #3203 still require integration after their
+validated readiness; native blockers retain those integration points.
