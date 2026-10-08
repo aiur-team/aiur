@@ -44,7 +44,13 @@ for (const viewport of [PARITY_VIEWPORTS[0], PARITY_VIEWPORTS[2]]) {
           await testInfo.attach(`${side}-loading`, { body: image, contentType: 'image/png' })
           images.push(`<figure><figcaption>${side}</figcaption><img src="data:image/png;base64,${image.toString('base64')}"></figure>`)
         }
-        await writeFile(testInfo.outputPath('side-by-side.html'), `<div style="display:flex;gap:16px">${images.join('')}</div>`)
+        const html = `<div style="display:flex;gap:16px">${images.join('')}</div><style>figure{margin:0;width:50%}img{width:100%}</style>`
+        await writeFile(testInfo.outputPath('side-by-side.html'), html)
+        const report = await productContext.newPage()
+        await report.setViewportSize({ width: 1600, height: 1000 })
+        await report.setContent(html)
+        await report.screenshot({ path: testInfo.outputPath('side-by-side.png'), fullPage: true })
+        await testInfo.attach('side-by-side-image', { path: testInfo.outputPath('side-by-side.png'), contentType: 'image/png' })
         await testInfo.attach('side-by-side', { path: testInfo.outputPath('side-by-side.html'), contentType: 'text/html' })
       } finally { await designContext.close(); await productContext.close() }
     })
