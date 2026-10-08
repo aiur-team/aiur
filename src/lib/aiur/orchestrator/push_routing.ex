@@ -9,7 +9,7 @@ defmodule Aiur.Orchestrator.PushRouting do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, Issue}
+  alias Aiur.{Alerts, Config, DecisionStore, Issue}
   alias Aiur.Events.BranchRefStore
   alias Aiur.Events.GithubKeys
   alias Aiur.Events.SubscriptionStore
@@ -53,23 +53,34 @@ defmodule Aiur.Orchestrator.PushRouting do
             state
 
           true ->
-            {running_entry, pause_reason} = prepare_agent_pause(running_entry, event)
-
-            {_reply, state} =
-              PauseResume.request_pause(
-                state,
-                running_entry,
-                Map.get(running_entry, :issue),
-                pause_reason
-              )
-
-            state
+            request_agent_pause(state, running_entry, identifier, event)
         end
 
       _ ->
         state
     end
   end
+
+  defp request_agent_pause(state, running_entry, identifier, event) do
+    {running_entry, pause_reason} = prepare_agent_pause(running_entry, event)
+
+    if nonblocking_question_pause?(identifier, pause_reason, event) do
+      state
+    else
+      {_reply, state} = PauseResume.request_pause(state, running_entry, Map.get(running_entry, :issue), pause_reason)
+      state
+    end
+  end
+
+  defp nonblocking_question_pause?(identifier, :agent_pause_request, event) do
+    payload = event_payload(event)
+    reason = Map.get(payload, :reason) || Map.get(payload, "reason")
+
+    reason not in ["operator_decision", :operator_decision, "upstream_merge", :upstream_merge] and
+      DecisionStore.nonblocking_question_pause?(to_string(identifier)) == {:ok, true}
+  end
+
+  defp nonblocking_question_pause?(_identifier, _pause_reason, _event), do: false
 
   @doc false
   @spec recover_github_budget_pauses(State.t(), integer()) :: State.t()

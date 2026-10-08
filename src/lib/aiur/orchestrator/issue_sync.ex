@@ -100,11 +100,14 @@ defmodule Aiur.Orchestrator.IssueSync do
           {State.t(), list()}
   def reconcile_contradictory_state_labels(%State{} = state, issues, update_state_fun)
       when is_list(issues) and is_function(update_state_fun, 2) do
+    state = %{state | active_attention_topics: active_attention_topics()}
     previous_tickets = state.contradictory_state_label_tickets
     now_ms = System.monotonic_time(:millisecond)
 
     {healed_issues, state} =
       Enum.reduce(issues, {[], state}, fn issue, {acc, state_acc} ->
+        state_acc = resolve_missing_state_label_alert(issue, state_acc)
+
         case issue do
           %Issue{state_labels: [_, _ | _] = state_labels} = issue ->
             {healed_issue, state_acc} =
@@ -225,13 +228,14 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   # States where an open ticket is deliberately unowned need no claim: an
-  # operator park or pause marker, a dependency or capacity wait, an external
+  # operator park, pause, or queue marker, a dependency or capacity wait, an external
   # wait (CI/review/error), or a `todo` ticket waiting for a free slot. A
   # ticket carrying `needs-triage`/`human:todo`/`Epic:` is deliberate parking,
   # never a strand, so it is covered here too (#2420).
   defp legitimately_unowned?(%Issue{} = issue) do
     Issue.paused?(issue) or
       Issue.parked?(issue) or
+      Issue.queued?(issue) or
       parked_marker?(issue) or
       DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()) or
       external_wait_state?(issue.state) or
@@ -421,9 +425,10 @@ defmodule Aiur.Orchestrator.IssueSync do
   # the documented parking marker for deliberately held work, so it gates the
   # heal exactly like `agent:parked` — otherwise every poll of a paused ticket
   # raised a false `state-label-missing-no-evidence` attention (#2610).
+  # `agent:queued` likewise parks marker-only work until the queue releases it.
   defp heal_or_leave_missing_state_label(%Issue{} = issue, state, update_state_fun) do
     cond do
-      Issue.paused?(issue) or Issue.parked?(issue) or parked_marker?(issue) ->
+      Issue.paused?(issue) or Issue.parked?(issue) or Issue.queued?(issue) or parked_marker?(issue) ->
         {issue, state}
 
       restore_target_for(issue, state) == nil and not workflow_evidence?(state, issue) ->
@@ -549,6 +554,27 @@ defmodule Aiur.Orchestrator.IssueSync do
       )
     end
   end
+
+  defp resolve_missing_state_label_alert(%Issue{state_labels: [_ | _]} = issue, %State{} = state) do
+    topic = "ticket.#{issue.identifier}.agent.attention.state-label-missing-no-evidence"
+
+    if active_attention?(state, topic) do
+      case Alerts.emit_system("#{topic}.resolved",
+             issue: issue.identifier,
+             reason: "Tracker observation confirms a lifecycle label exists again.",
+             needs_attention: false,
+             severity: "info",
+             central: true
+           ) do
+        :ok -> %{state | active_attention_topics: MapSet.delete(state.active_attention_topics, topic)}
+        {:error, _reason} -> state
+      end
+    else
+      state
+    end
+  end
+
+  defp resolve_missing_state_label_alert(_issue, state), do: state
 
   defp alert_missing_state_label_repaired(%Issue{} = issue, restored) do
     Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.state-label-missing",
