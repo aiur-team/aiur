@@ -190,7 +190,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
         |> dispatch_fun.()
 
       {:error, reason, state} ->
-        TrackerHealth.log_tracker_preflight_error(reason)
         emit_tracker_preflight_alert(state, reason)
     end
   end
@@ -208,12 +207,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     # (#1837). The answer arrives as `{:github_comments_polled, ...}`.
     state = CommentPolling.start_async(state)
     state = CiLifecycle.poll_github_ci(state)
-    # One decision-store read per poll cycle, shared by the running-state
-    # reconciliation (stop agents whose ticket just opened a blocking Command)
-    # and the dispatch gate (`choose_issues`). Threading it from here — rather
-    # than a per-ticket read inside `DispatchPolicy` — keeps the pure policy
-    # function GenServer-free and the orchestrator mailbox out from behind the
-    # decision store (#1965).
+    # Reconciliation needs current holds before stopping blocked workers;
+    # admission refreshes again after tracker work because answers can arrive during the poll.
     state = refresh_blocked_ticket_ids(state)
 
     state
@@ -548,15 +543,15 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # a probe that exceeds its bound is reported while the gate is still held.
   @prewarm_blocked_alert_after_ms 15_000
 
-  # Reads the open-blocking-Command ticket set once per poll cycle into State.
+  # Refreshes the open-blocking-Command ticket set in State from the local store.
   # The dispatch gate is fail-closed: `:unavailable` (the decision store could
   # not be read) holds every new dispatch, because an open blocking Command is
   # indistinguishable from an empty store when the store cannot be read. The
   # Reconciler reads the same value but fails OPEN (it never stops healthy
   # running agents on a store outage).
-  @spec refresh_blocked_ticket_ids(State.t()) :: State.t()
-  def refresh_blocked_ticket_ids(%State{} = state) do
-    case DecisionStore.blocked_ticket_ids() do
+  @spec refresh_blocked_ticket_ids(State.t(), GenServer.server()) :: State.t()
+  def refresh_blocked_ticket_ids(%State{} = state, store \\ DecisionStore) do
+    case DecisionStore.blocked_ticket_ids(store) do
       {:ok, %MapSet{} = ids} -> %{state | blocked_ticket_ids: ids}
       {:error, :store_unavailable} -> %{state | blocked_ticket_ids: :unavailable}
     end
@@ -650,6 +645,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec dispatch_or_hold(State.t(), [Issue.t()], (-> term()), keyword()) :: State.t()
   def dispatch_or_hold(%State{} = state, issues, trigger_fun, opts)
       when is_list(issues) and is_function(trigger_fun, 0) and is_list(opts) do
+    # An answer may arrive during the tracker fetch; admission must read the current local hold.
+    state = refresh_blocked_ticket_ids(state, Keyword.get(opts, :decision_store, DecisionStore))
+
     # Constraints are re-sampled every tick, so a stale gate never lingers in
     # `status` after the condition clears.
     state = %{state | dispatch_capacity_constraints: [], dispatch_selection_hold: nil}
@@ -819,6 +817,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec emit_tracker_preflight_alert(State.t(), term()) :: State.t()
   def emit_tracker_preflight_alert(%State{} = state, reason) do
+    TrackerHealth.log_tracker_preflight_error(reason)
     state = put_tracker_preflight_hold(state, reason)
 
     case tracker_preflight_alert_context(reason) do

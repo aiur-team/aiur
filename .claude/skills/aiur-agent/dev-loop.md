@@ -166,11 +166,18 @@ focused test runner, test-tree paths and CI gate at each step.
    changed to their sibling test files and prints the exact root-runnable test
    command (or advises `make ci` when the change cannot be scoped safely).
    Running only the affected tests also keeps full-suite log volume out of your
-   context. Before marking the PR ready or handing off to CI/review, run both
+   context. Before marking the PR ready or handing off to CI/review, run all
    required checks and fix any failures:
 
    - From `src/`: `mise exec -- mix lint` (specs check and Credo strict).
    - From the repository root: `python3 scripts/check-bare-assert-receive.py`.
+   - From the repository root, after committing: resolve `base` with
+     `base="$(git -C "$workspace" rev-parse "origin/$AIUR_BASE_BRANCH")"`, then run
+     `python3 scripts/check-file-size.py --base "$base"` (the CI workflow-security command).
+
+   When a change must touch an oversized text file (over 500 lines), keep that
+   file the same length or shorter. Put new code in a new small module and new
+   tests in a new test file. Never grow the oversized file.
 
    CI's `make ci` is the authoritative full lint and full-suite gate.
 
@@ -427,7 +434,9 @@ gate above, not a replacement for it. A PR is not ready for human review until
 the target repository's required local checks pass. In Aiur's Elixir core,
 use compile, format and affected tests with the four-case cap, plus
 `mise exec -- mix lint` from `src/` and
-`python3 scripts/check-bare-assert-receive.py` from the repository root.
+`python3 scripts/check-bare-assert-receive.py` and
+`python3 scripts/check-file-size.py --base "$base"` from the repository root
+(resolve `base` as above and check the committed head).
 Use the target repository's full CI gate, which is
 `make ci` for Aiur's Elixir core; do not loop locally on unrelated suite flakes.
 
