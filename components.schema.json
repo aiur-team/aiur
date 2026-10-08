@@ -171,10 +171,15 @@
           "type": "string"
         },
         "install": {
-          "type": "string"
+          "type": "object"
         },
         "docs": {
-          "type": "string"
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
         },
         "feature_id": {
           "type": "string"

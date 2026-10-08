@@ -13,6 +13,7 @@ import tempfile
 repo = Path(sys.argv[1])
 selected = set(sys.argv[2:])
 checker = repo / 'scripts/check-components.py'
+ran = set()
 
 
 def component(cid, paths):
@@ -24,6 +25,7 @@ def component(cid, paths):
 def check(name, components, files, code=0, messages=(), change=None, git=False, format=False):
     if selected and name not in selected:
         return
+    ran.add(name)
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         shutil.copyfile(repo / 'components.schema.json', root / 'components.schema.json')
@@ -97,9 +99,15 @@ check('relative_paths_required', [component('a', ['../src/lib/a.ex'])], [], 2, (
 check('binary_kind_required', [dict(component('a', []), kind='experimental')], [], 2, ('/components/0/kind',))
 check('boolean_layer_rejected', [dict(component('a', []), layer=True)], [], 2, ('/components/0/layer',))
 check('private_namespaces_supported', [dict(component('a', ['src/lib/a.ex']), private_namespaces=['Aiur.Codex.'])], ['src/lib/a.ex'])
-check('future_public_fields_supported', [dict(component('a', ['src/lib/a.ex']), summary='A', status='core', install='', docs='', feature_id='MP-R1')],
+check('future_public_fields_supported', [dict(component('a', ['src/lib/a.ex']), summary='A', status='core', install={'type': 'included'}, docs=['concepts/build-orders.md'], feature_id='MP-R1')],
       ['src/lib/a.ex'], change=lambda m: m.update(features=[], directory_published=False))
-if not selected:
+check('required_property_fails', [component('a', [])], [], 2, ('/components/0/name: required property',),
+      change=lambda m: m['components'][0].pop('name'))
+check('empty_name_fails', [dict(component('a', []), name='')], [], 2, ('/components/0/name: empty string',))
+check('duplicate_paths_fail', [component('a', ['src/lib/a.ex', 'src/lib/a.ex'])], ['src/lib/a.ex'], 2,
+      ('/components/0/paths: duplicate items',))
+if not selected or 'malformed_json_exits_2' in selected:
+    ran.add('malformed_json_exits_2')
     with tempfile.TemporaryDirectory() as directory:
         import os
         root = Path(directory)
@@ -109,5 +117,6 @@ if not selected:
                                 capture_output=True, text=True)
         assert result.returncode == 2 and 'components: components.json:' in result.stderr
         print('PASS: malformed_json_exits_2')
+assert not selected - ran, f'unknown/unexecuted cases: {selected - ran}'
 print('check-components guard: all selected cases passed')
 PY
