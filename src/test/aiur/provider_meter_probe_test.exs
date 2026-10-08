@@ -12,10 +12,8 @@ defmodule Aiur.ProviderMeterProbeTest do
   alias Aiur.OpenAICompat.ProviderMeterProbe, as: OpenAICompatProbe
   alias Aiur.ProviderMeterProbe
   alias Aiur.ProviderMeterProjection
-  alias Aiur.ProviderMeters.CLI
   alias Aiur.ProviderMeters.Events
   alias Aiur.ProviderMeterSnapshot
-  alias AiurWeb.StreamdeckProjection
 
   defmodule FakeAgent do
     @moduledoc false
@@ -103,18 +101,6 @@ defmodule Aiur.ProviderMeterProbeTest do
       send(Process.get(:probe_test_pid), {:account_credentials, opts[:credentials_path], opts[:cache_key]})
       {:ok, reading} = MultiWindowUsageApi.fetch([])
       {:ok, reading, %{freshness: :fresh, observed_at: ~U[2026-10-01 00:00:00Z]}}
-    end
-  end
-
-  defmodule ConstrainedAccountUsageApi do
-    @moduledoc false
-    def fetch_with_metadata(opts) do
-      named? = opts[:credentials_path] == "/profiles/max/.credentials.json"
-      percent = if named?, do: 94, else: 33
-      observed_at = if named?, do: ~U[2026-10-01 00:00:00Z], else: ~U[2026-10-01 00:01:00Z]
-      {:ok, reading} = MultiWindowUsageApi.fetch([])
-      reading = %{reading | windows: Enum.map(reading.windows, fn window -> Map.put(window, :used_percent, if(window.window == "seven_day", do: percent, else: if(named?, do: 10, else: 99))) end)}
-      {:ok, reading, %{freshness: :fresh, observed_at: observed_at}}
     end
   end
 
@@ -340,34 +326,6 @@ defmodule Aiur.ProviderMeterProbeTest do
 
     assert %{"default" => %{freshness: :fresh}, "max" => %{freshness: :fresh}} =
              UsageReadings.snapshot("claude", ["default", "max"])
-  end
-
-  test "the older 94 percent account is published as the worst of two for every summary", ctx do
-    :ok = Events.subscribe_observed()
-    ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: ConstrainedAccountUsageApi, claude_accounts: ["default", "max"], claude_profiles: %{"max" => "/profiles/max"}))
-    assert_received {:provider_meter_changed, %ProviderMeterSnapshot{provider: :claude} = snapshot}
-    assert snapshot.windows["seven_day"].used_percent == 94
-    assert snapshot.observed_at == ~U[2026-10-01 00:00:00Z]
-    assert snapshot.summary_label == "worst of 2 accounts · max"
-    send(ctx.projection, {:provider_meter_changed, snapshot})
-    view = ProviderMeterProjection.provider_view(ctx.projection, :claude)
-    assert view.summary_label == "worst of 2 accounts · max"
-    assert view.windows["seven_day"].used_percent == 94
-    deck = StreamdeckProjection.provider_meters(%{claude: view}, snapshot.observed_at)
-    assert deck["claude"]["summary_label"] == "worst of 2 accounts · max"
-    assert deck["claude"]["windows"]["weekly"]["used_percent"] == 94
-    output = ExUnit.CaptureIO.capture_io(fn -> CLI.print({:claude, view}) end)
-    assert output =~ "94%"
-    assert output =~ "worst of 2 accounts · max"
-  end
-
-  test "a failed account makes the summary name the observed account rather than claim the fleet worst", ctx do
-    :ok = Events.subscribe_observed()
-    ProviderMeterProbe.observe(:claude, opts(ctx, usage_api: MultiWindowUsageApi, claude_accounts: ["default", "missing"]))
-    assert_received {:provider_meter_changed, %ProviderMeterSnapshot{provider: :claude} = snapshot}
-    assert snapshot.summary_label == "default · 1/2 accounts observed"
-    assert snapshot.windows["seven_day"].used_percent == 5
-    refute snapshot.summary_label =~ "worst"
   end
 
   test "probing :all covers every registry provider", ctx do

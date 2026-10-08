@@ -3,6 +3,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   use Phoenix.Component
 
+  import AiurWeb.OperatorControlCenter.MeterStyles, only: [meter_class: 1, meter_class: 3]
+
   alias Aiur.CodingAgent
   alias Aiur.ModelAvailability
   alias AiurWeb.OperatorControlCenter.Money
@@ -254,13 +256,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <div class="rs-meter" aria-label="Usage not observed"></div>
             <span :if={@card.provider == :muse} class="rs-limit-meta">Not observed</span>
           </div>
-          <div :for={account <- (get_in(@card, [:account_usage, :accounts]) || [])} class="rs-limit" data-account={account.name}>
-            <span class="rs-limit-label">{account.name}</span>
-            <div class="rs-meter" role="progressbar" aria-label={"#{account.name} weekly usage"} aria-valuenow={account.percent} aria-valuemin="0" aria-valuemax="100">
-              <i :if={is_number(account.percent)} class={meter_class(account.percent, 80, 90)} style={"width:#{min(max(account.percent, 0), 100)}%"}></i>
-            </div>
-            <span class="rs-limit-meta">{if is_number(account.percent), do: "#{account.percent}%", else: "unknown"} · {account.freshness}<span :if={is_integer(account.age_seconds)}> · {account.age_seconds}s old</span></span>
-          </div>
+          <AiurWeb.OperatorControlCenter.AccountMeters.rows accounts={get_in(@card, [:account_usage, :accounts]) || []} />
           <div :for={window <- @windows} class="rs-limit">
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
             <div class="rs-meter"><i class={meter_class(meter_percent(window), 80, 90)} style={"width:#{min(max(meter_percent(window), 0), 100)}%"}></i></div>
@@ -711,19 +707,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # caution (yellow) from 80% used, warning (orange) from 90%, critical (red)
   # at 100% (operator directive). Credit percentages arrive as floats (e.g.
   # 100.0), so the guards accept any number at/above 100.
-  defp meter_class(percent, caution_threshold \\ nil, warning_threshold \\ nil)
-  defp meter_class(percent, _caution, _warning) when is_number(percent) and percent >= 100, do: "is-critical"
-
-  defp meter_class(percent, _caution, warning)
-       when is_number(percent) and is_number(warning) and percent >= warning,
-       do: "is-warning"
-
-  defp meter_class(percent, caution, _warning)
-       when is_number(percent) and is_number(caution) and percent >= caution,
-       do: "is-caution"
-
-  defp meter_class(_percent, _caution, _warning), do: ""
-
   # A credit window is a dollar balance. When a durable baseline exists the
   # window carries a measured `used_percent` and renders a real spend bar
   # alongside the dollar amount; without a baseline the bar stays empty and the

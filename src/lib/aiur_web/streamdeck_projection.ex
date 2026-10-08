@@ -137,7 +137,7 @@ defmodule AiurWeb.StreamdeckProjection do
   @doc false
   @spec merge_provider_meter(map(), ProviderMeterSnapshot.t()) :: map()
   def merge_provider_meter(meters, %ProviderMeterSnapshot{provider: provider} = snapshot) do
-    if provider in CodingAgent.provider_families() and newer_provider_observation?(snapshot, Map.get(meters, Atom.to_string(provider))) do
+    if provider in CodingAgent.provider_families() and AiurWeb.StreamdeckMeterRetention.newer?(snapshot, Map.get(meters, Atom.to_string(provider))) do
       meter = normalize_provider_meter(provider, provider_meter(snapshot), DateTime.utc_now()) |> external_value()
       Map.put(meters, Atom.to_string(provider), meter)
     else
@@ -472,27 +472,6 @@ defmodule AiurWeb.StreamdeckProjection do
       _ -> @default_usage_interval_seconds
     end
   end
-
-  defp newer_provider_observation?(%ProviderMeterSnapshot{provider: :claude, source: :usage_api, summary_label: label} = snapshot, current) when is_binary(label) do
-    case {snapshot.ingested_at, current && field(current, :summary_label), current && datetime(field(current, :ingested_at))} do
-      {%DateTime{} = incoming, label, %DateTime{} = prior} when is_binary(label) -> DateTime.compare(incoming, prior) != :lt
-      _ -> true
-    end
-  end
-
-  defp newer_provider_observation?(%ProviderMeterSnapshot{provider: :claude}, %{"summary_label" => label}) when is_binary(label), do: false
-  defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: nil}, _current), do: false
-  defp newer_provider_observation?(%ProviderMeterSnapshot{}, nil), do: true
-  defp newer_provider_observation?(%ProviderMeterSnapshot{}, %{"observed_at" => nil}), do: true
-
-  defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: observed_at}, %{"observed_at" => current_observed_at}) do
-    case DateTime.from_iso8601(current_observed_at) do
-      {:ok, current_observed_at, _offset} -> DateTime.compare(observed_at, current_observed_at) != :lt
-      _ -> true
-    end
-  end
-
-  defp newer_provider_observation?(%ProviderMeterSnapshot{}, _current), do: true
 
   defp age_seconds(nil), do: nil
   defp age_seconds(observed_at), do: age_seconds(observed_at, DateTime.utc_now())
