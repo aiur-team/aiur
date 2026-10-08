@@ -260,6 +260,42 @@ defmodule Aiur.Orchestrator.ReworkGate do
 
   def head_sha(_pr), do: nil
 
+  @doc "Returns the safest handoff state when a stopped agent has an open PR."
+  @spec stopped_agent_handoff(String.t(), String.t() | atom() | nil, keyword()) ::
+          :none | {:handoff, String.t()}
+  def stopped_agent_handoff(issue_key, original_head, opts \\ []) do
+    case open_pr(issue_key, opts) do
+      {:ok, pr} ->
+        current_head = head_sha(pr)
+
+        if is_binary(current_head) and current_head != "" and
+             (not is_binary(original_head) or original_head == "" or current_head != original_head) do
+          {:handoff, ci_handoff_state(current_head, opts)}
+        else
+          :none
+        end
+
+      {:error, _reason} ->
+        {:handoff, "human-review"}
+
+      {:skip, :no_open_pr} ->
+        :none
+    end
+  end
+
+  defp ci_handoff_state(head_sha, opts) do
+    fetcher = Keyword.get(opts, :commit_ci_status_fetcher, &GitHubClient.fetch_commit_ci_status/1)
+
+    case fetcher.(head_sha) do
+      {:ok, %{check_runs: runs, commit_status: status}} ->
+        pending_runs? = Enum.any?(runs, &(Map.get(&1, "status") in ["waiting", "requested", "pending", "in_progress", "queued"]))
+        if pending_runs? or get_in(status, ["state"]) == "pending", do: "ci-wait", else: "human-review"
+
+      _ ->
+        "ci-wait"
+    end
+  end
+
   @doc false
   # The thread gate only applies where a live review-thread read is meaningful:
   # the GitHub tracker behind a client that can answer

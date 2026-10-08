@@ -225,13 +225,14 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   # States where an open ticket is deliberately unowned need no claim: an
-  # operator park or pause marker, a dependency or capacity wait, an external
+  # operator park, pause, or queue marker, a dependency or capacity wait, an external
   # wait (CI/review/error), or a `todo` ticket waiting for a free slot. A
   # ticket carrying `needs-triage`/`human:todo`/`Epic:` is deliberate parking,
   # never a strand, so it is covered here too (#2420).
   defp legitimately_unowned?(%Issue{} = issue) do
     Issue.paused?(issue) or
       Issue.parked?(issue) or
+      Issue.queued?(issue) or
       parked_marker?(issue) or
       DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()) or
       external_wait_state?(issue.state) or
@@ -421,9 +422,10 @@ defmodule Aiur.Orchestrator.IssueSync do
   # the documented parking marker for deliberately held work, so it gates the
   # heal exactly like `agent:parked` — otherwise every poll of a paused ticket
   # raised a false `state-label-missing-no-evidence` attention (#2610).
+  # `agent:queued` likewise parks marker-only work until the queue releases it.
   defp heal_or_leave_missing_state_label(%Issue{} = issue, state, update_state_fun) do
     cond do
-      Issue.paused?(issue) or Issue.parked?(issue) or parked_marker?(issue) ->
+      Issue.paused?(issue) or Issue.parked?(issue) or Issue.queued?(issue) or parked_marker?(issue) ->
         {issue, state}
 
       restore_target_for(issue, state) == nil and not workflow_evidence?(state, issue) ->

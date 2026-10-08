@@ -112,6 +112,11 @@ Do **not** merge the base and push to prove liveness: a push with no substantive
 change is not progress, and under a branch ruleset that dismisses stale
 approvals it destroys the approval that would have released the ticket.
 
+After pushing rework commits, the agent hands off by label: use
+`agent:ci-wait` while checks are pending, otherwise `agent:human-review`.
+Do not end in `agent:rework` after the push or rely on an Executor to infer
+that the PR is ready.
+
 When a `pr.review_comment` event or unresolved review thread asks for a real code
 change, treat it as active feedback even if GitHub marks the thread outdated.
 Either make and push the requested change, or verify the current branch already

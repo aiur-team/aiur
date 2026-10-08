@@ -199,6 +199,12 @@ alerts:
 #   ticket_history_limit: 50                  # 1..100; retained allowlisted recent-history entries per ticket
 #   ticket_history_max_identities: 100        # 1..100; retained configured-repository ticket histories
 #   ticket_history_stale_after_ms: 60000      # 1..300000; floor for the typed-activity freshness window (the effective window is at least two poll intervals)
+#   # General epic columns; order matters; omit for these defaults, [] for none.
+#   general_epics:
+#     - { key: bugs, label: Bugs, labels: [bug], hue: 38, icon: bug }
+#     - { key: design, label: Design, labels: [design], hue: 312, icon: pen }
+#     - { key: infra, label: Infra, labels: [refactor, chore], hue: 200, icon: server }
+#     - { key: docs, label: Docs, labels: [documentation], hue: 100, icon: docs }
 
 # --- advanced (top-level; defaults shown, uncomment to override) ---
 # debug: false                           # true = always run in debug mode (verbose logs + debug UI), no --debug flag needed; --debug still wins
