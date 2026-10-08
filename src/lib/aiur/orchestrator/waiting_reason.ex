@@ -79,14 +79,22 @@ defmodule Aiur.Orchestrator.WaitingReason do
     do: {%{open_decision_count: count}, facts[:human_wait_since]}
 
   defp evidence(:waiting_for_human, facts), do: {facts[:pause_reason], facts[:human_wait_since] || facts[:paused_at]}
+
+  # No recorded start exists for these two waits: a normalized blocker edge
+  # carries no creation time, and the lifetime latch persists only a dispatch
+  # count. They report `since: nil` ("since unknown"), never another clock.
   defp evidence(:waiting_for_dependency, facts), do: {facts[:blocked_by], nil}
+  defp evidence(:latched_lifetime, facts), do: {facts[:dispatch_latch], nil}
+
   defp evidence(:claim_released, facts), do: {facts[:claim_release_cause], facts[:released_at]}
   defp evidence(:workspace_ownership_waiting, facts), do: {facts[:workspace_wait][:cause] || facts[:workspace_wait][:owner], facts[:workspace_wait][:since]}
   defp evidence(:unresponsive, facts), do: {:activity_timeout, facts[:last_codex_timestamp] || facts[:started_at]}
-  defp evidence(:latched_lifetime, facts), do: {facts[:dispatch_latch], nil}
   defp evidence(:tracker_unavailable, facts), do: {facts[:dispatch_hold_reason], facts[:hold_since]}
   defp evidence(:awaiting_dispatch, facts), do: {facts[:work_state], facts[:started_at]}
   defp evidence(:active, facts), do: {:active, facts[:started_at]}
+
+  # Collapsed cause: these waits have no cause evidence on the row, so they
+  # name the collapse instead of guessing a specific cause.
   defp evidence(_reason, _facts), do: {:unknown, nil}
 
   @doc false
@@ -96,7 +104,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
     facts = Map.merge(entry, row) |> Map.merge(wait_facts(row, state, now))
     waiting = row.waiting_reason |> describe(facts) |> fence_wait(entry)
     waiting = Map.put(waiting, :age_ms, age_ms(waiting.since, now))
-    Map.merge(row, %{waiting_reason: waiting.reason, waiting: waiting})
+    Map.put(row, :waiting, waiting)
   end
 
   defp wait_facts(row, state, now) do
@@ -116,9 +124,11 @@ defmodule Aiur.Orchestrator.WaitingReason do
     }
   end
 
+  # A pending fence names who holds the row and since when; the reason atom
+  # stays the row's own classification.
   defp fence_wait(waiting, %{lifecycle_fence: %{pending_item_ids: ids, opened_at: since}} = entry) do
     if Map.get(entry[:control] || %{}, :status) != :deactivated and MapSet.size(ids) > 0 and waiting.reason in [:active, :awaiting_dispatch] do
-      %{reason: :awaiting_dispatch, owner: "LifecycleFence", cause: :provider_delivery_pending, since: since}
+      %{waiting | owner: "LifecycleFence", cause: :provider_delivery_pending, since: since}
     else
       waiting
     end
@@ -148,14 +158,14 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp elapsed(ms), do: ms
 
   @spec render_wait(map()) :: String.t()
-  def render_wait(%{waiting_reason: :active}), do: ""
+  def render_wait(%{waiting: %{reason: :active, owner: "AgentRunner"}}), do: ""
 
   def render_wait(%{waiting: %{reason: reason, owner: owner, age_ms: age}}),
     do: " · #{render(reason)} · #{owner} · #{render_age(age)}"
 
   def render_wait(_row), do: ""
 
-  defp render_age(nil), do: "age unknown"
+  defp render_age(nil), do: "since unknown"
   defp render_age(ms), do: "#{div(ms, 1_000)}s"
 
   @spec public_wait(map()) :: map() | nil

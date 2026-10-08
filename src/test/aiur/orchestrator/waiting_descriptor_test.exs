@@ -64,7 +64,7 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
     assert Jason.decode!(Jason.encode!(snapshot_row.waiting))["since"] == DateTime.to_iso8601(since)
   end
 
-  test "missing timestamp renders age unknown and encodes JSON null through the status API" do
+  test "missing timestamp renders since unknown and encodes JSON null through the status API" do
     retry = %{identifier: "wait-unknown", attempt: 1, due_at_ms: System.monotonic_time(:millisecond), error: nil}
     snapshot = StatusReport.snapshot_payload(%State{retry_attempts: %{"wait-unknown" => retry}})
     [row] = snapshot.retrying
@@ -72,7 +72,7 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
     assert row.waiting.since == nil
     assert row.waiting.age_ms == nil
     output = capture_io(fn -> AgentControlCLI.agents(fleet_view: fleet(snapshot)) end)
-    assert output =~ "· RetryEngine · age unknown"
+    assert output =~ "· RetryEngine · since unknown"
 
     server = start_supervised!({Agent, fn -> snapshot end})
     :ok = SnapshotStore.publish(server, snapshot)
@@ -84,9 +84,9 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
     assert json_row["waiting"]["owner"] == "RetryEngine"
     snapshot = Map.put(snapshot, :statuses, StatusReport.agent_statuses(%State{retry_attempts: %{"wait-unknown" => retry}}))
     status = capture_io(fn -> AgentControlCLI.status(fleet_view: fleet(snapshot)) end)
-    assert status =~ "· backing_off · RetryEngine · age unknown"
+    assert status =~ "· backing_off · RetryEngine · since unknown"
     watch = capture_io(fn -> AgentControlCLI.watch(fleet_view: fleet(snapshot), mode: :full) end)
-    assert watch =~ "· backing_off · RetryEngine · age unknown"
+    assert watch =~ "· backing_off · RetryEngine · since unknown"
   end
 
   test "rework waits name the lifecycle fence until provider delivery closes it" do
@@ -96,13 +96,16 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
     state = LifecycleFence.protect_queued_item(%State{running: %{issue.id => entry}}, issue.identifier, item)
     assert Map.has_key?(state.running[issue.id], :lifecycle_fence)
     [row] = StatusReport.agent_statuses(state)
-    assert row.waiting_reason == :awaiting_dispatch
+    assert row.waiting_reason == :active
+    assert row.waiting.reason == :active
     assert row.waiting.owner == "LifecycleFence"
     assert row.waiting.cause == :provider_delivery_pending
     assert row.waiting.since == state.running[issue.id].lifecycle_fence.opened_at
     assert is_integer(row.waiting.age_ms)
     [snapshot_row] = StatusReport.snapshot_payload(state).running
     assert snapshot_row.waiting.owner == "LifecycleFence"
+    output = capture_io(fn -> AgentControlCLI.agents(fleet_view: fleet(StatusReport.snapshot_payload(state))) end)
+    assert output =~ ~r/· active · LifecycleFence · \d+s/
     closed = LifecycleFence.acknowledge_provider_delivery(state, item)
     [resumed] = StatusReport.agent_statuses(closed)
     assert resumed.waiting_reason == :active
@@ -217,6 +220,46 @@ defmodule Aiur.Orchestrator.WaitingDescriptorTest do
     assert WaitingReason.attach(Map.put(row, :last_failure_at, "invalid"), %State{}).waiting.age_ms == nil
     iso = DateTime.add(DateTime.utc_now(), -10, :second) |> DateTime.to_iso8601()
     assert WaitingReason.attach(Map.put(row, :last_failure_at, iso), %State{}).waiting.age_ms >= 10_000
+  end
+
+  test "collapsed waits name the collapse instead of borrowing a specific cause" do
+    facts = %{
+      error: "provider unavailable",
+      pause_reason: :operator_pause,
+      work_state: :working,
+      blocked_by: [%{identifier: "1"}],
+      dispatch_latch: {:lifetime, 3, 3},
+      dispatch_hold_reason: :tracker_preflight,
+      claim_release_cause: :worker_exit,
+      auto_resume_cause: :github_budget_hold,
+      hold_cause: "host load",
+      ci_result: %{status: :failed}
+    }
+
+    for reason <- [:waiting_for_supervisor, :waiting_for_ci, :waiting_for_review, :orphaned_claim, :stale_claim] do
+      assert WaitingReason.describe(reason, facts).cause == :unknown
+      assert WaitingReason.describe(reason, %{}).cause == :unknown
+    end
+  end
+
+  test "dependency and lifetime-latch waits render since unknown instead of another clock" do
+    started = DateTime.add(DateTime.utc_now(), -300, :second)
+    clocks = %{started_at: started, created_at: started, updated_at: started, paused_at: started, last_failure_at: started, last_codex_timestamp: started, released_at: started}
+    issue = %Issue{id: "wait-dep", identifier: "wait-dep", state: "todo", blocked_by: [%{id: "b", identifier: "9", state: "todo", url: nil}], created_at: started, updated_at: started}
+    state = %State{last_polled_issues: %{issue.id => issue}}
+    [row] = StatusReport.agent_statuses(state)
+    assert row.waiting_reason == :waiting_for_dependency
+
+    hold = %{held_since_ms: System.monotonic_time(:millisecond) - 300_000, detail: "host load"}
+    state = %{state | capacity_hold: hold, dispatch_hold: hold}
+
+    for reason <- [:waiting_for_dependency, :latched_lifetime] do
+      row = %{issue_id: issue.id, identifier: issue.identifier, waiting_reason: reason} |> Map.merge(clocks)
+      attached = WaitingReason.attach(row, state, clocks)
+      assert attached.waiting.since == nil
+      assert attached.waiting.age_ms == nil
+      assert WaitingReason.render_wait(attached) == " · #{reason} · #{attached.waiting.owner} · since unknown"
+    end
   end
 
   defp fleet(snapshot), do: {:ok, snapshot, %{status: :current, age_seconds: 0}}
