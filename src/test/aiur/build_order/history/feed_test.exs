@@ -83,15 +83,14 @@ defmodule Aiur.BuildOrder.History.FeedTest do
   end
 
   test "in-flight catch-up cannot replace a newer edge observation" do
-    row = %Row{number: 7, parent: :none, parent_version: DateTime.to_iso8601(@later), blocked_by: [], blocked_by_version: DateTime.to_iso8601(@later)}
+    row = %Row{number: 7, observed_at: @t, updated_at: @t, parent: :none, parent_version: DateTime.to_iso8601(@later), blocked_by: [], blocked_by_version: DateTime.to_iso8601(@t)}
+    [delta] = Feed.dependency(row, %{"blocked_issue_number" => 7, "blocking_issue_number" => 2, "present" => true, "edge_version" => DateTime.to_iso8601(@later)}, "acme/widgets", @later, :webhook)
+    row = apply_event(row, delta)
+    assert row.blocked_by == [Feed.ref("acme/widgets", 2)]
+    assert row.blocked_by_version == DateTime.to_iso8601(@t)
 
     event =
-      Feed.event(
-        7,
-        %{parent: Feed.ref("acme/widgets", 1), parent_version: DateTime.to_iso8601(@t), blocked_by: [Feed.ref("acme/widgets", 2)], blocked_by_version: DateTime.to_iso8601(@t)},
-        @t,
-        :catch_up
-      )
+      Feed.event(7, %{updated_at: @later, parent: Feed.ref("acme/widgets", 1), parent_version: DateTime.to_iso8601(@t), blocked_by: [], blocked_by_version: DateTime.to_iso8601(@t)}, @t, :catch_up)
 
     protected = Feed.protect_edges(row, event)
     refute Map.has_key?(protected.fields, :parent)

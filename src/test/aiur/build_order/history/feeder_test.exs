@@ -52,7 +52,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
       token_fun: fn -> {:ok, "fake"} end,
       graphql_fun: fn _, _, query, vars, options ->
         send(owner, {:graphql, query, vars, options})
-        page([])
+        page(Keyword.get(extra, :catch_up_nodes, []))
       end
     ]
 
@@ -60,6 +60,22 @@ defmodule Aiur.BuildOrder.History.FeederTest do
   end
 
   defp page(nodes), do: {:ok, %{"data" => %{"repository" => %{"issues" => %{"nodes" => nodes, "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}}}}}}
+
+  defp closed_node do
+    %{
+      "id" => "I_7",
+      "number" => 7,
+      "title" => "Recovered close",
+      "state" => "CLOSED",
+      "stateReason" => "COMPLETED",
+      "createdAt" => DateTime.to_iso8601(@t),
+      "closedAt" => DateTime.to_iso8601(@t),
+      "updatedAt" => DateTime.to_iso8601(@t),
+      "parent" => nil,
+      "labels" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []},
+      "blockedBy" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+    }
+  end
 
   defp body(n \\ 7, extra \\ %{}),
     do:
@@ -95,6 +111,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     end
 
     :sys.get_state(pid)
+
     for task <- Task.Supervisor.children(@tasks) do
       ref = Process.monitor(task)
       Aiur.TestSupport.receive_barrier({:DOWN, ^ref, :process, ^task, _reason})
@@ -174,7 +191,7 @@ defmodule Aiur.BuildOrder.History.FeederTest do
 
   test "boot catch-up advances checkpoint atomically and failures preserve it", ctx do
     store(ctx, true)
-    feeder(ctx)
+    feeder(ctx, catch_up_nodes: [closed_node()])
     assert_receive {:graphql, query, vars, options}
     assert query =~ "states:[CLOSED]"
     assert vars["since"] == DateTime.to_iso8601(@t)
@@ -182,6 +199,9 @@ defmodule Aiur.BuildOrder.History.FeederTest do
     after_feed(fn -> Feeder.catch_up_status().status == :ok end)
     assert {:ok, checkpoint} = History.checkpoint(:closed_since, ctx.opts)
     assert checkpoint["watermark"] == DateTime.to_iso8601(@later)
+    assert row(ctx).title == "Recovered close"
+    assert row(ctx).closed_at == @t
+    assert row(ctx).lifecycle.state == :closed
     stop_supervised!(Feeder)
 
     feeder(ctx,

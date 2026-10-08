@@ -165,11 +165,13 @@ defmodule Aiur.BuildOrder.History.Feed do
   def protect_edges(held, event) do
     fields =
       Enum.reduce([parent: :parent_version, blocked_by: :blocked_by_version], event.fields, fn {key, version_key}, fields ->
-        if older_edge?(full_version(held, version_key), date(Map.get(fields, version_key))), do: Map.drop(fields, [key, version_key]), else: fields
+        if newer_observation?(held, event, key) or older_edge?(full_version(held, version_key), date(Map.get(fields, version_key))), do: Map.drop(fields, [key, version_key]), else: fields
       end)
 
     %{event | fields: fields}
   end
+
+  defp newer_observation?(held, event, key), do: Map.get(held, key) != :unknown and DateTime.compare(held.observed_at, event.observed_at) == :gt
 
   @spec listing(map(), list(), DateTime.t()) :: [Row.event()]
   def listing(rows, issues, listed_from) do
