@@ -22,15 +22,22 @@ defmodule Aiur.Rtk do
   host-wide hook applies to every agent that loads it, regardless of
   `agent.rtk.enabled`.
 
-  The startup diagnostic checks registration with `rtk init --show` before
-  using `rtk hook check` to inspect the rewrite behavior. It does not change
-  hook activation.
+  The check is a behavioural probe, not a config-file parse: `rtk hook check`
+  is rtk's own dry-run of its rewriter, so it answers the question actually at
+  stake ("would this invocation be rewritten?") rather than a proxy for it. A
+  future rtk that changes where or how exclusions are spelled still gets
+  classified correctly.
 
-  The savings panel reports host-level rtk status; it does not admit rtk to
-  dispatched agents. At startup, Aiur independently probes whether the host
-  hook rewrites `gh` and raises an informational alert recommending the `gh`
-  exclusion when the probe reports a rewrite. This reports host configuration;
-  it does not change command dispatch.
+  This module probes whether the hook would rewrite `gh` and reports that
+  result with the savings panel. It does not install, enable, disable, or
+  neutralize the hook, and does not enforce `agent.rtk.enabled` at dispatch.
+  If the probe detects a rewrite, the report is withheld; the operator must
+  correct the host rtk configuration to keep the GitHub quota guard intact.
+
+  Independently of `agent.rtk.enabled`, `check_host_hook/1` runs once at
+  daemon startup: it asks `rtk init --show` whether a hook is registered, runs
+  `rtk hook check` only when one is, and raises an informational alert when
+  the registered hook would rewrite `gh`.
 
   ## What this module does not do
 
