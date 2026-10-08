@@ -47,6 +47,7 @@ defmodule Aiur.BuildOrder.HistoryTest do
     assert after_restart.rows == before.rows
     assert after_restart.health.generation == before.health.generation
     assert before.health.last_success_at != nil
+    assert after_restart.health.last_success_at != nil
     assert after_restart.health.observed_at == @t
   end
 

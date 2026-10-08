@@ -84,13 +84,21 @@ defmodule Aiur.BuildOrder.History do
   defp loaded(base, path, {:ok, data}) do
     state = Map.merge(base, Map.drop(data, [:generation, :complete])) |> Map.put(:path, path)
     observed = newest(Map.values(data.rows), nil)
-    health = ProviderHealth.new(data.generation, :healthy, data.complete, observed_at: observed, failure: if(data.complete, do: nil, else: :backfill_pending))
+    health = ProviderHealth.new(data.generation, :healthy, data.complete, observed_at: observed, last_success_at: persisted_at(path), failure: if(data.complete, do: nil, else: :backfill_pending))
     state = %{state | health: health}
     if data.status == "rebuilding", do: unavailable(state, :history_rebuilding), else: state
   end
 
   defp loaded(base, path, {:error, :history_corrupt}), do: %{unavailable(base, :history_corrupt) | path: path, status: "rebuilding", dirty?: true}
   defp loaded(base, path, {:error, failure}), do: %{unavailable(base, failure) | path: path}
+
+  defp persisted_at(path) do
+    case File.stat(path, time: :posix) do
+      {:ok, stat} -> DateTime.from_unix!(stat.mtime)
+      {:error, _reason} -> nil
+    end
+  end
+
   defp unavailable(state, failure), do: %{state | health: %{state.health | state: :unavailable, complete?: false, failure: failure}}
 
   @impl true
