@@ -119,6 +119,7 @@ defmodule Aiur.Alerts do
   def emit_custom(_name, _message, _opts), do: {:error, :invalid_alert}
 
   defp do_emit(topic, override_message, opts) do
+    # Durable callers retain their latch until publication succeeds, even if the ledger already records a resolution.
     if not Keyword.get(opts, :durable, false) and repeat_resolution?(topic) do
       :ok
     else
@@ -326,13 +327,10 @@ defmodule Aiur.Alerts do
     )
     |> publication_result(opts)
   rescue
-    # Publisher GenServer may not be running during early-boot or test
-    # configurations — never block the alert pipeline on its absence.
+    # Ordinary alerts stay best-effort during early boot; durable callers need the failure to retry.
     error -> publication_result({:error, {:publish_failed, error}}, opts)
   catch
-    # A missing IdGenerator makes Publisher.publish/3 exit through its
-    # GenServer call. Alerts must still reach the local feed in that failure
-    # mode; otherwise the liveness signal itself disappears with the worker.
+    # A missing IdGenerator exits through GenServer.call; durable callers must keep their pending latch.
     :exit, reason -> publication_result({:error, {:publish_failed, reason}}, opts)
   end
 

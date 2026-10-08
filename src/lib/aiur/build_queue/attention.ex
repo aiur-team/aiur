@@ -7,8 +7,8 @@ defmodule Aiur.BuildQueue.Attention do
   need the caller's in-memory latch because this API cannot write a broken store.
   """
   alias Aiur.Alerts
-  alias Aiur.BuildQueue.Store
   alias Aiur.BuildQueue.Model.Latch
+  alias Aiur.BuildQueue.Store
 
   @ticket_causes [:prerequisite_failed, :dependency_changed_after_start, :promoted_unauthorized, :write_failed, :merged_issue_open]
   @system_causes [:inputs_unavailable, :store_unavailable]
