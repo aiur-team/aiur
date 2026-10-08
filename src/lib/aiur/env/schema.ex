@@ -215,6 +215,7 @@ defmodule Aiur.Env.Schema do
     {"AIUR_REGISTRY_URL", type: :string, validate: false, example: false, group: :dev, purpose: "Upgrade registry endpoint override (tests and mirrors)."},
 
     # --- Ambient (read, not operator-configured) ---
+    {"USER", type: :string, validate: false, example: false, group: :ambient, purpose: "OS user identity recorded as the actor for operator workspace recovery audits."},
     {"PATH", type: :path, validate: false, example: false, group: :ambient, purpose: "Executable search path inherited by child processes."},
     {"HOME", type: :path, validate: false, example: false, group: :ambient, purpose: "Home directory for user-scoped state."},
     {"COLUMNS", type: :integer, validate: false, example: false, group: :ambient, default: 80, purpose: "Terminal width for the agent list renderer."},

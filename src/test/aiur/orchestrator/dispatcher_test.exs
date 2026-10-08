@@ -2822,7 +2822,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     output =
       ExUnit.CaptureIO.capture_io(fn ->
-        Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: []}, %{status: :fresh}})
+        Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: [], global_pause: %{globally_paused: false}}, %{status: :fresh}})
       end)
 
     assert output =~ ~r/binding: tracker preflight, reason=shared_budget \(core\) held=\d+s/
@@ -2854,7 +2854,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     output =
       ExUnit.CaptureIO.capture_io(fn ->
-        Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: []}, %{status: :fresh}})
+        Aiur.AgentControlCLI.status(fleet_view: {:ok, %{capacity: capacity, statuses: [], global_pause: %{globally_paused: false}}, %{status: :fresh}})
       end)
 
     assert output =~ "binding: dispatch selection, reasons=[:tracker_revalidation_failed] candidates=1"
