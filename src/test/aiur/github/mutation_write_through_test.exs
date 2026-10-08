@@ -195,7 +195,7 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
     end
 
     # Both label deposits must leave a marker behind.
-    # `GithubWebhook.Deposit.regression?/2` decides staleness by comparing an
+    # `ResourceStore.regression?/2` decides staleness by comparing an
     # incoming version against the held `data_version`, and its guard clause
     # needs *both* sides to be binaries — so a deposit that writes `nil` there
     # does not merely omit a marker, it makes every later stale delivery for
@@ -338,7 +338,7 @@ defmodule Aiur.GitHub.MutationWriteThroughTest do
       assert Enum.map(held["labels"], & &1["name"]) == ["agent:todo", "merge:#{generations}"]
 
       # The marker moved with the body. A version-less merge would leave this
-      # `nil`, which is precisely the field `GithubWebhook.Deposit.regression?/2`
+      # `nil`, which is precisely the field `ResourceStore.regression?/2`
       # consults — so losing it switches off the stale-delivery guard.
       assert {:ok, %{version: version}} = ResourceStore.fetch(key)
       assert version == version_at(generations)

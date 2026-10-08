@@ -67,7 +67,7 @@ defmodule Aiur.GitHub.ResourceFetch do
 
   @type freshness :: :strict | :any | {:max_age_ms, pos_integer()}
 
-  # `:superseded` is a revalidation that lost a race with a concurrent writer:
+  # `:superseded` is a fetch or revalidation overtaken by a concurrent writer:
   # the request was spent, nothing was written, and the caller received the newer
   # body. It is reported rather than folded into `:revalidated` so a consumer can
   # tell "GitHub confirmed what I held" from "somebody else already had better".
@@ -209,22 +209,21 @@ defmodule Aiur.GitHub.ResourceFetch do
     # entry's rather than a few microseconds after it.
     now = System.system_time(:millisecond)
 
-    ResourceStore.put_resource(key, data,
-      source: Keyword.get(opts, :source, :fetch),
-      version: version,
-      etag: etag
-    )
+    result =
+      ResourceStore.deposit_unless_older(key, data,
+        source: Keyword.get(opts, :source, :fetch),
+        version: version,
+        etag: etag
+      )
 
     log_spend(key, opts)
+    entry = %{data: data, version: version, fetched_at_ms: now}
 
-    {:ok, data,
-     %{
-       outcome: :fetched,
-       version: version,
-       fetched_at_ms: now,
-       etag: etag,
-       spent?: true
-     }}
+    case result do
+      :ok -> {:ok, data, %{outcome: :fetched, version: version, fetched_at_ms: now, etag: etag, spent?: true}}
+      {:ok, :superseded} -> superseded(key, entry, etag, true)
+      {:error, _reason} = error -> error
+    end
   end
 
   # GitHub said the held body is current. Re-depositing it is what makes the
@@ -273,11 +272,11 @@ defmodule Aiur.GitHub.ResourceFetch do
   end
 
   # A concurrent writer — since #2106, most often the webhook pipe — deposited a
-  # newer body while this conditional read was in flight. Nothing was written.
+  # newer body while this read was in flight. Nothing was written.
   # The newer body is handed back rather than this caller's: it is at least as
   # current as the one a `304` just confirmed, and returning the older one would
   # make the answer worse than doing nothing.
-  defp superseded(key, entry, validator) do
+  defp superseded(key, entry, validator, spent? \\ false) do
     case ResourceStore.fetch(key) do
       {:ok, newer} ->
         {:ok, newer.data,
@@ -286,20 +285,20 @@ defmodule Aiur.GitHub.ResourceFetch do
            version: newer.version,
            fetched_at_ms: newer.fetched_at_ms,
            etag: newer.etag,
-           spent?: false
+           spent?: spent?
          }}
 
       # Vanished between the swap and this read — a drop or an eviction. The
-      # caller still holds the body a `304` just confirmed, so answer with it
+      # caller still holds the upstream answer, so return that body
       # rather than spend another request.
       :miss ->
         {:ok, entry.data,
          %{
-           outcome: :revalidated,
+           outcome: if(spent?, do: :superseded, else: :revalidated),
            version: entry.version,
            fetched_at_ms: entry.fetched_at_ms,
            etag: validator,
-           spent?: false
+           spent?: spent?
          }}
     end
   end

@@ -128,7 +128,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
       full_name = repo_string(repository)
       body = issue_body(node, full_name)
 
-      ResourceStore.put_resource(
+      ResourceStore.deposit_unless_older(
         ResourceStore.key_for_repo(:issue, full_name, number),
         body,
         source: :reconciliation,
@@ -153,7 +153,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Reconciliation do
       end
 
     if labels != [] do
-      ResourceStore.put_resource(
+      ResourceStore.deposit_unless_older(
         ResourceStore.key_for_repo(:issue_labels, full_name, number),
         labels,
         source: :reconciliation,

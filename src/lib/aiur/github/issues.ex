@@ -295,32 +295,7 @@ defmodule Aiur.GitHub.Issues do
   # as having acted on it, and marking it handled here would suppress the wake
   # that the resource's genuine change is supposed to cause.
   defp put_issue_resource(key, body, etag, source) do
-    version = issue_version(body)
-
-    if regression?(key, version) do
-      # A webhook delivery carrying a newer object beat this read. Writing anyway
-      # would not merely hold an older body: `put_resource/3` stamps
-      # `fetched_at_ms` with now, so the older body would be described as freshly
-      # fetched and a reader asking for something no older than a window would be
-      # handed state from before the change.
-      :ok
-    else
-      ResourceStore.put_resource(key, body, source: source, version: version, etag: etag)
-    end
-  end
-
-  # Refuses a strictly older version, and writes on equal or missing ones.
-  #
-  # Both markers are GitHub's own ISO-8601 timestamps, which sort lexically.
-  # Equal versions still write because a body can legitimately differ under an
-  # unchanged marker, and a missing marker on either side is not evidence that
-  # anything went backwards. Same rule and same reasoning as
-  # `Aiur.Events.GithubWebhook.Deposit.regression?/2` — the two must not drift.
-  defp regression?(key, version) do
-    case ResourceStore.fetch(key) do
-      {:ok, %{version: held}} when is_binary(held) and is_binary(version) -> version < held
-      _other -> false
-    end
+    ResourceStore.deposit_unless_older(key, body, source: source, version: issue_version(body), etag: etag)
   end
 
   # What a `304` is allowed to write back, and — more importantly — what it is not.
