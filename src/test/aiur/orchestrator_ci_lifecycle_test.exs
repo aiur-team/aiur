@@ -4,9 +4,12 @@ defmodule Aiur.OrchestratorCILifecycleTest do
   alias Aiur.{AgentQueueStore, CIApprovalStore, Orchestrator, PollCadence, TrackerIdentity}
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.GitHub.ResourceStore
   alias Aiur.Orchestrator.{CiLifecycle, State}
 
   defmodule RecordingGitHubClient do
+    alias Aiur.GitHub.IssueState
+
     @recipient_key {__MODULE__, :recipient}
     @update_result_key {__MODULE__, :update_result}
     @issues_key {__MODULE__, :issues}
@@ -40,7 +43,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
           case Process.get(@request_key) do
             nil -> Process.get(@update_result_key, :ok)
-            request_fun -> Aiur.GitHub.IssueState.remove_label(issue_id, label, request_fun: request_fun)
+            request_fun -> IssueState.remove_label(issue_id, label, request_fun: request_fun)
           end
 
         _other ->
@@ -55,7 +58,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
           case Process.get(@request_key) do
             nil -> Process.get(@update_result_key, :ok)
-            request_fun -> Aiur.GitHub.IssueState.update_issue_state(issue_id, state_name, Keyword.put(opts, :request_fun, request_fun))
+            request_fun -> IssueState.update_issue_state(issue_id, state_name, Keyword.put(opts, :request_fun, request_fun))
           end
 
         _other ->
@@ -721,8 +724,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       identifier = to_string(System.unique_integer([:positive]))
       issue = %{issue(identifier, "ci-wait") | state_labels: ["ci-wait"]}
       start_recorder()
-      Aiur.GitHub.ResourceStore.reset()
-      on_exit(&Aiur.GitHub.ResourceStore.reset/0)
+      ResourceStore.reset()
+      on_exit(&ResourceStore.reset/0)
       previous_token = :persistent_term.get({Aiur.GitHub.Config, :resolved_token}, :unset)
       :persistent_term.put({Aiur.GitHub.Config, :resolved_token}, "test-token")
 

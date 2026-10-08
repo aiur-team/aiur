@@ -28,6 +28,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
 
   alias Aiur.{AgentQueueStore, Issue}
   alias Aiur.Orchestrator.{CommentWake, State}
+  alias Aiur.Orchestrator.CommentPolling.TargetSelection
 
   @issue_number "2814"
 
@@ -134,7 +135,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
     state = base_state(%{})
 
     {:ok, targets, _review_targets, _watch_targets} =
-      Aiur.Orchestrator.CommentPolling.TargetSelection.github_comment_poll_targets(state,
+      TargetSelection.github_comment_poll_targets(state,
         review_issue_fetcher: fn states -> {:ok, Enum.filter([issue], &(&1.state in states))} end,
         review_pull_request_fetcher: fn _identifier -> {:ok, %{"number" => 337}} end
       )
