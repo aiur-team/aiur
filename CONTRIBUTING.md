@@ -120,6 +120,16 @@ not fail a build on line count alone.
   tests; the `quarantined tests (non-blocking)` CI job runs them separately so
   they remain visible. Remove the tag as part of the root-cause fix — it is not
   a permanent exemption.
+- **Coverage rerun evidence.** Each shard uploads an attempt-qualified
+  `shard-flake-evidence-<shard>-<attempt>` artifact, including `attempt.json`
+  and `flakes.ndjson`. On a successful rerun of the same workflow run and SHA,
+  the ledger records each previously failing ExUnit test with its shard, run
+  ID, failed/passed attempts, and seeds (null when the log has no seed).
+  The job summary shows the count and test names. Download these artifacts to
+  count recurrence; they use GitHub's repository artifact retention policy.
+  This records observations without relaxing the coverage gate or automatically
+  quarantining tests. Runner loss before upload and failures without a parseable
+  ExUnit test name cannot be recorded.
 - **Extracted modules are not coverage-exempt.** The coverage
   `ignore_modules` list in `src/mix.exs` only shrinks: every module split out
   of a giant ships tests for what it extracts, or CI fails the coverage gate
