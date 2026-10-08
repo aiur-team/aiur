@@ -46,6 +46,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
           pressure: map(),
           tickets: [map()],
           complexity_breakdown: [map()],
+          complexity_count_ticks: [non_neg_integer()],
           kpis: map()
         }
 
@@ -254,6 +255,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       )
 
     complexity_breakdown = complexity_breakdown(tickets)
+    complexity_count_ticks = complexity_count_ticks(complexity_breakdown)
 
     rows =
       tickets
@@ -280,6 +282,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
       pressure: pressure_summary(series),
       tickets: rows,
       complexity_breakdown: complexity_breakdown,
+      complexity_count_ticks: complexity_count_ticks,
       kpis: kpis
     }
   end
@@ -795,6 +798,27 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
         count: length(tier_samples),
         average_wall_clock_ms: average_integer(durations)
       }
+    end
+  end
+
+  @doc "Integer ticket-count ticks for the complexity breakdown axis."
+  @spec complexity_count_ticks([map()]) :: [non_neg_integer()]
+  def complexity_count_ticks(tiers) do
+    maximum = tiers |> Enum.map(& &1.count) |> Enum.max(fn -> 0 end) |> max(1)
+    step = nice_tick_step(div(maximum + 4, 5))
+    axis_max = div(maximum + step - 1, step) * step
+
+    Enum.to_list(0..axis_max//step)
+  end
+
+  defp nice_tick_step(target) do
+    magnitude = Integer.pow(10, length(Integer.digits(target)) - 1)
+
+    cond do
+      target <= magnitude -> magnitude
+      target <= magnitude * 2 -> magnitude * 2
+      target <= magnitude * 5 -> magnitude * 5
+      true -> magnitude * 10
     end
   end
 
