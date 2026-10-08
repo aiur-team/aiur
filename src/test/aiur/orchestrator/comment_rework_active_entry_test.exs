@@ -145,7 +145,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
       CommentWake.maybe_reactivate_on_comment(state, target, :pr_review, event)
     end
 
-    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}
+    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
   end
 
   test "a trusted non-blank COMMENTED review in human-review routes to rework without inline threads" do
@@ -160,7 +160,7 @@ defmodule Aiur.Orchestrator.CommentReworkActiveEntryTest do
 
     CommentWake.maybe_reactivate_on_comment(base_state(completed_running_entry()), @issue_number, :pr_review, event)
 
-    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}
+    assert_receive {:memory_tracker_state_update, @issue_number, "rework"}, 2_000
   end
 
   test "a transient gate failure on a completed running entry is retried, not dropped" do
