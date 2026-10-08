@@ -11,9 +11,12 @@ defmodule Aiur.ExecutorEventsTest do
     previous = Application.get_env(:aiur, :log_file)
     root = Aiur.TestSupport.tmp_root!("aiur-executor-events")
     Application.put_env(:aiur, :log_file, Path.join(root, "aiur.log"))
+    previous_state_dir = Application.get_env(:aiur, :executor_state_dir)
+    Application.put_env(:aiur, :executor_state_dir, Path.join(root, "executor"))
 
     on_exit(fn ->
       if previous, do: Application.put_env(:aiur, :log_file, previous), else: Application.delete_env(:aiur, :log_file)
+      if previous_state_dir, do: Application.put_env(:aiur, :executor_state_dir, previous_state_dir), else: Application.delete_env(:aiur, :executor_state_dir)
       File.rm_rf!(root)
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
@@ -56,6 +59,49 @@ defmodule Aiur.ExecutorEventsTest do
 
     assert {:ok, [%{"id" => ^second_id, "topic" => "executor.notify.second"}]} =
              ExecutorEvents.replay(ExecutorEvents.subscriptions(), ExecutorEvents.last_seen_event_id())
+  end
+
+  test "listener persists its pattern cursor and does not redeliver after reconnect" do
+    path = StatePaths.journal_path()
+    File.mkdir_p!(Path.dirname(path))
+    state_path = StatePaths.subscriptions_path()
+    first_id = 701
+    second_id = 702
+    third_id = 703
+    File.write!(path, Jason.encode!(%{"id" => first_id, "topic" => "ticket.3028.agent.paused"}) <> "\n")
+    File.write!(path, Jason.encode!(%{"id" => second_id, "topic" => "ticket.3029.agent.paused"}) <> "\n", [:append])
+
+    JsonStore.write!(state_path, %{
+      "subscribed_to" => [%{"topic" => "ticket.3028.#", "reason" => "manual:executor", "subscription_created_at_event_id" => 0, "last_seen_event_id" => 0}],
+      "last_seen_event_id" => nil
+    })
+
+    {:ok, output} = StringIO.open("")
+    listener = spawn_listener(output)
+    on_exit(fn -> if Process.alive?(listener), do: Process.exit(listener, :kill) end)
+
+    assert eventually(fn -> "ticket.3028.#" in Exchange.bindings_for(listener) end)
+    # The line is printed before the cursor is saved, so wait on the saved cursor itself.
+    assert eventually(fn -> Enum.any?(ExecutorEvents.subscription_entries(), &(&1["topic"] == "ticket.3028.#" and &1["last_seen_event_id"] == first_id)) end)
+    assert String.contains?(elem(StringIO.contents(output), 1), ~s("wake_id":#{first_id}))
+    ref = Process.monitor(listener)
+    Process.exit(listener, :kill)
+    assert_receive {:DOWN, ^ref, :process, _, :killed}, 1_000
+
+    # A later matching event marks the end of the reconnected replay: replay is
+    # ordered by id, so once 703 is printed, 701 would already have been.
+    File.write!(path, Jason.encode!(%{"id" => third_id, "topic" => "ticket.3028.agent.resumed"}) <> "\n", [:append])
+    {:ok, reconnected_output} = StringIO.open("")
+    reconnected = spawn_listener(reconnected_output)
+    on_exit(fn -> if Process.alive?(reconnected), do: Process.exit(reconnected, :kill) end)
+    assert eventually(fn -> String.contains?(elem(StringIO.contents(reconnected_output), 1), ~s("wake_id":#{third_id})) end)
+    refute String.contains?(elem(StringIO.contents(reconnected_output), 1), ~s("wake_id":#{first_id}))
+  end
+
+  defp spawn_listener(output) do
+    listener = spawn(fn -> ExecutorEvents.listen(topic: "ticket.3028.#") end)
+    Process.group_leader(listener, output)
+    listener
   end
 
   test "rejects GitHub-sourced executor events" do
@@ -262,7 +308,12 @@ defmodule Aiur.ExecutorEventsTest do
     assert {:error, :invalid_topic} = ExecutorEvents.publish("ticket.42.agent.decision.requested", %{message: "nope"})
     assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("#")
     assert :ok = ExecutorEvents.subscribe("ticket.*.pr.opened")
+    assert :ok = ExecutorEvents.subscribe("ticket.3028.#")
+    assert :ok = ExecutorEvents.subscribe("ticket.3028.ci.failed")
+    assert :ok = ExecutorEvents.subscribe("ticket.*.pr.opened")
     assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("ticket.*.#")
+    assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("ticket.3028.#.extra")
+    assert {:error, :binding_not_allowlisted} = ExecutorEvents.subscribe("system.*.capacity_starved")
   end
 
   test "listener delivers live events and advances the persisted cursor" do
