@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { mkdtemp, cp, appendFile, writeFile, rm } from 'node:fs/promises'
+import { mkdtemp, cp, appendFile, writeFile, rm, symlink, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -102,12 +102,42 @@ test('ready guard', async ({ browser }) => {
   await openDesign(page, cell, { phase: 'loading' })
   await expect(waitParityReady(page, 'board', 'product')).rejects.toThrow(/product not ready: .bd-loading still present/)
 })
+for (const marker of ['mounted', 'paging']) {
+  test(`product ready guard: ${marker}`, async ({ browser }) => {
+    const page = await pageFor(browser)
+    await openDesign(page, cell)
+    await page.locator('#build-root').evaluate((e, marker) => {
+      if (marker === 'mounted') e.dataset.bdPaging = 'idle'
+      else { e.dataset.bdMounted = ''; e.dataset.bdPaging = 'busy' }
+    }, marker)
+    await expect(waitParityReady(page, 'board', 'product')).rejects.toThrow(/product not ready:/)
+  })
+}
+test('design WebSocket guard', async ({ browser }) => {
+  const page = await pageFor(browser)
+  await routeDesign(page)
+  await page.goto('http://design.parity.invalid/blank')
+  await page.evaluate(() => { window.paritySocket = new WebSocket('wss://fonts.googleapis.com/parity') })
+  await expect.poll(() => {
+    try { checkPage(page); return '' } catch (error) { return error.message }
+  }).toContain('network request refused: wss://fonts.googleapis.com/parity')
+})
 test('live-stream ticket refused', async ({ browser }) => {
   const { readFile } = await import('node:fs/promises')
   const fixture = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/live.json', import.meta.url), 'utf8'))
   const ticket = fixture.data.now.find(t => t.agent.state === 'active').id
   await expect(openDesign(await pageFor(browser), cell, { ticket })).rejects.toThrow(`ticket ${ticket} runs the design's mock live stream`)
 })
+for (const variant of ['duplicate query', 'empty override']) {
+  test(`live-stream query refused: ${variant}`, async ({ browser }) => {
+    const { readFile } = await import('node:fs/promises')
+    const fixture = JSON.parse(await readFile(new URL('../../test/fixtures/build_home/live.json', import.meta.url), 'utf8'))
+    const active = fixture.data.now.find(t => t.agent.state === 'active').id
+    const inactive = fixture.data.hist[0].id
+    const opts = variant === 'duplicate query' ? { query: `?ticket=${inactive}&ticket=${active}` } : { ticket: '', query: `?ticket=${active}` }
+    await expect(openDesign(await pageFor(browser), cell, opts)).rejects.toThrow(`ticket ${active} runs the design's mock live stream`)
+  })
+}
 test('loading phase holds the skeleton', async ({ browser }) => {
   const page = await pageFor(browser)
   await openDesign(page, cell, { phase: 'loading' })
@@ -171,9 +201,27 @@ test('design-style entry applies', async ({ browser }) => {
   const pair = await designPair(browser)
   const entries = await loadAllowlist(await allowlistFile([{ ...entry, kind: 'design-style', selector: 'html', css: ':root { --accent: #ff0000 !important; }' }]))
   await applyAllowlist(pair, cell, entries)
-  await pixelFailure(pair, { name: 'style' })
+  await pixelFailure(pair, { name: 'style', region: '.bd-now' })
   await applyAllowlist({ ...pair, design: pair.product }, cell, entries)
-  await expectDesignParity(pair, { name: 'both-styled' })
+  await expectDesignParity(pair, { name: 'both-styled', region: '.bd-now' })
+})
+test('pixel-mask applies on both pages', async ({ browser }) => {
+  const pair = await designPair(browser)
+  await pair.product.locator('#bd-status').evaluate(e => { e.style.background = 'red' })
+  await pixelFailure(pair, { name: 'unmasked', region: '#bd-status' })
+  pair.allowlist = await loadAllowlist(await allowlistFile([{ ...entry, kind: 'pixel-mask', selector: '#bd-status' }]))
+  await expectDesignParity(pair, { name: 'masked', region: '#bd-status' })
+  await pair.product.locator('#bd-status').evaluate(e => e.remove())
+  await expect(applyAllowlist(pair, cell)).rejects.toThrow('stale allowlist entry demo')
+})
+test('design symlinks refused', async () => {
+  const root = path.join(scratch, 'design')
+  await mkdir(root)
+  const outside = path.join(scratch, 'outside.txt')
+  await writeFile(outside, 'outside reference bytes')
+  await symlink(outside, path.join(root, 'logo.svg'))
+  expect(resolveDesignPath('logo.svg', root)).toBeNull()
+  await expect(verifyDesignSource(root, { design_sha256: {} })).rejects.toThrow('design source contains a symlink')
 })
 test('design source hash', async () => {
   const root = path.join(scratch, 'design')

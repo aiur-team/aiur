@@ -11,7 +11,11 @@ const ETAG = '1791431544512943';
 const ANCHOR = '  window.AiurBuild = {';
 const DEFAULT_OUT = fileURLToPath(new URL('../../test/fixtures/build_home/', import.meta.url));
 const DATASETS = ['live', 'dense', 'newrepo', 'noqueue', 'offline'];
-const designFiles = dir => readdirSync(dir, { recursive: true, withFileTypes: true }).filter(e => e.isFile()).map(e => join(e.parentPath, e.name).slice(dir.length + 1)).sort();
+const designFiles = dir => {
+  const entries = readdirSync(dir, { recursive: true, withFileTypes: true });
+  assert.ok(!entries.some(e => e.isSymbolicLink()), 'design source contains a symlink');
+  return entries.filter(e => e.isFile()).map(e => join(e.parentPath, e.name).slice(dir.length + 1)).sort();
+};
 // build.js:1031–1036: API usage is literal render data, unlike PSETS.
 export const API_ROWS = [
   { tag: 'core', pct: 5, reset: '37m', win: '1h', head: 'GitHub core · resets in 37m', rows: [['Requests left', '4,736 of 5,000']] },

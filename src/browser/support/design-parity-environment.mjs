@@ -1,5 +1,6 @@
 import { expect } from '@playwright/test'
 import { readFile, readdir } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -37,7 +38,7 @@ export async function guardNetwork(page, allowedOrigins, serve) {
   await page.context().routeWebSocket(/.*/, socket => {
     const url = new URL(socket.url())
     const origin = url.origin.replace(/^ws/, 'http')
-    if (allowedOrigins.includes(origin)) return socket.connectToServer()
+    if (!serve && allowedOrigins.includes(origin)) return socket.connectToServer()
     errors.push(`network request refused: ${url.href}`)
     socket.close()
   })
@@ -47,11 +48,16 @@ export function resolveDesignPath(input, root = DESIGN_ROOT) {
   let decoded
   try { decoded = decodeURIComponent(input) } catch { return null }
   const file = path.resolve(root, decoded.replace(/^\//, ''))
-  return file.startsWith(`${root}${path.sep}`) ? file : null
+  if (!file.startsWith(`${root}${path.sep}`)) return null
+  try {
+    const target = realpathSync(file)
+    return target.startsWith(`${realpathSync(root)}${path.sep}`) ? target : null
+  } catch { return null }
 }
 
 export async function verifyDesignSource(root = DESIGN_ROOT, meta = FIXTURE_META) {
   const entries = await readdir(root, { recursive: true, withFileTypes: true })
+  if (entries.some(e => e.isSymbolicLink())) throw new Error('design source contains a symlink')
   const actual = {}
   for (const entry of entries.filter(e => e.isFile())) {
     const file = path.join(entry.parentPath, entry.name)

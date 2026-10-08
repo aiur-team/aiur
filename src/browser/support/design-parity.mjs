@@ -60,7 +60,8 @@ export async function openDesign(page, cell, opts = {}) {
   if (!FIXTURE_META.datasets.includes(dataset)) throw new Error(`unknown design dataset ${dataset}`)
   if (!['board', 'loading', 'shell'].includes(phase)) throw new Error(`unknown parity phase ${phase}`)
   await verifyDesignSource()
-  await refuseLiveTicket(dataset, opts.ticket ?? new URLSearchParams(opts.query?.replace(/^\?/, '')).get('ticket'))
+  const route = routeQuery('/Aiur%20Dashboard.html', opts, dataset)
+  await refuseLiveTicket(dataset, new URL(route, DESIGN_ORIGIN).searchParams.get('ticket'))
   await prepare(page, phase, 'design')
   await routeDesign(page)
   await page.goto(`${DESIGN_ORIGIN}/blank`)
@@ -69,7 +70,7 @@ export async function openDesign(page, cell, opts = {}) {
     localStorage.setItem('aiur-palette', palette)
     localStorage.setItem('aiur-nav-collapsed', '0')
   }, cell)
-  await page.goto(`${DESIGN_ORIGIN}${routeQuery('/Aiur%20Dashboard.html', opts, dataset)}`)
+  await page.goto(`${DESIGN_ORIGIN}${route}`)
   if (!await page.locator('.panel[data-panel="build"].is-active').count()) await page.evaluate(() => window.AiurHost.switchTab('build'))
   await waitParityReady(page, phase)
   await assertCellState(page, cell)
@@ -91,9 +92,10 @@ export async function openProduct(page, cell, opts = {}) {
   const origin = new URL(test.info().project.use.baseURL).origin
   await guardNetwork(page, [origin])
   await selectProductDataset(page, phase === 'loading' ? 'hold' : dataset)
-  const designTicket = opts.ticket ?? new URLSearchParams(opts.query?.replace(/^\?/, '')).get('ticket')
-  const ticket = FIXTURE_META.ids?.[designTicket] ?? designTicket
-  try { await openVisualRoute(page, { theme: cell.theme, palette: cell.palette, route: routeQuery(productRoute, { ...opts, ticket }), mode: 'writable' }) }
+  const route = new URL(routeQuery(productRoute, opts), DESIGN_ORIGIN)
+  const designTicket = route.searchParams.get('ticket')
+  if (designTicket) route.searchParams.set('ticket', FIXTURE_META.ids?.[designTicket] ?? designTicket)
+  try { await openVisualRoute(page, { theme: cell.theme, palette: cell.palette, route: `${route.pathname}${route.search}`, mode: 'writable' }) }
   catch (error) { checkPage(page); throw new Error(`product target unavailable: socket not connected or route unavailable: ${error.message}`) }
   await waitParityReady(page, phase, 'product')
   await assertCellState(page, cell)
