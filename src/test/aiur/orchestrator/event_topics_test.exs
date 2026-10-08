@@ -1,10 +1,36 @@
 defmodule Aiur.Orchestrator.EventTopicsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
+  alias Aiur.DecisionStore
   alias Aiur.Orchestrator.{EventTopics, Lifecycle, State}
 
   test "an answered Command wakes the idle dispatch poll for a stopped in-progress claim" do
-    topic = "ticket.2898.agent.decision.answered"
+    identifier = "answered-hold-#{System.unique_integer([:positive])}"
+    topic = "ticket.#{identifier}.agent.decision.answered"
+
+    decisions =
+      for question <- ["Choose the implementation", "Confirm the acceptance"] do
+        assert {:ok, %{decision: decision}} =
+                 DecisionStore.request(%{"question" => question, "blocking" => true}, ticket: %{identifier: identifier}, source: %{agent_id: "event-test", session_id: "s", event_id: nil})
+
+        decision
+      end
+
+    [first, second] = decisions
+
+    answer = fn decision ->
+      assert {:ok, %{status: status}} =
+               DecisionStore.answer(
+                 decision.decision_id,
+                 %{"expected_version" => decision.version, "custom_response" => "Proceed", "idempotency_key" => decision.decision_id},
+                 actor: %{kind: :operator, id: "event-test"}
+               )
+
+      assert status in [:accepted, :duplicate]
+    end
+
+    on_exit(fn -> Enum.each(decisions, answer) end)
+    answer.(first)
     assert "ticket.*.agent.decision.answered" in Lifecycle.orchestrator_topics()
 
     now_ms = System.monotonic_time(:millisecond)
@@ -14,7 +40,7 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       tick_timer_ref: timer_ref,
       tick_token: make_ref(),
       next_poll_due_at_ms: now_ms + 60_000,
-      blocked_ticket_ids: MapSet.new(["2898"]),
+      blocked_ticket_ids: MapSet.new([identifier]),
       claimed: MapSet.new(),
       running: %{},
       last_dispatch_poll_at_ms: now_ms - 30_000
@@ -26,9 +52,12 @@ defmodule Aiur.Orchestrator.EventTopicsTest do
       assert woken.next_poll_due_at_ms <= System.monotonic_time(:millisecond) + 1_000
       assert woken.tick_token != state.tick_token
       assert_receive {:tick, token} when token == woken.tick_token, 1_000
-      # The answer event wakes a fresh store/tracker read; it cannot bypass the
-      # stale block on its own or mistake a different open Command for release.
-      assert woken.blocked_ticket_ids == state.blocked_ticket_ids
+      # Another open Command still holds the ticket.
+      assert MapSet.member?(woken.blocked_ticket_ids, identifier)
+      answer.(second)
+      released = EventTopics.route(woken, %{topic: topic})
+      # Control calls must see the fresh local gate before the tracker poll runs.
+      refute MapSet.member?(released.blocked_ticket_ids, identifier)
     after
       Process.cancel_timer(timer_ref)
     end
