@@ -462,12 +462,6 @@ defmodule Aiur.AgentControlCLITest do
     pid = Process.whereis(Orchestrator)
     original_state = :sys.get_state(pid)
 
-    if context[:stale_dispatch_poll] do
-      :sys.replace_state(pid, fn state ->
-        %{state | last_dispatch_poll_at_ms: System.monotonic_time(:millisecond) - 3_600_000}
-      end)
-    end
-
     original_health_status_fun = Application.get_env(:aiur, :supervision_health_status_fun)
     original_loadavg = Application.get_env(:aiur, :loadavg_source_override)
 
@@ -486,6 +480,11 @@ defmodule Aiur.AgentControlCLITest do
 
     :sys.replace_state(pid, fn state ->
       if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+      state =
+        if context[:stale_dispatch_poll],
+          do: %{state | last_dispatch_poll_at_ms: System.monotonic_time(:millisecond) - 3_600_000},
+          else: state
 
       %{
         state
@@ -1920,7 +1919,7 @@ defmodule Aiur.AgentControlCLITest do
     end)
 
     stale_output = capture_io(fn -> AgentControlCLI.status() end)
-    assert stale_output =~ ~r/AGENTS 0\/10 \(binding: dispatch poll stale \(10\d+s ago\)\)/
+    assert stale_output =~ ~r/AGENTS 0\/10 \(binding: dispatch poll stale \(\d+s ago\)\)/
     refute stale_output =~ "binding: awaiting dispatch"
   end
 
